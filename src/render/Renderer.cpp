@@ -7,9 +7,11 @@
 void Renderer::initialize()
 {
     DrawPointsProgram::getInstance()->initialize();
+    DrawLinesProgram::getInstance()->initialize();
 }
 
 void Renderer::finalize()
 {
     DrawPointsProgram::getInstance()->release();
+    DrawLinesProgram::getInstance()->release();
 }

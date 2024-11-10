@@ -37,7 +37,8 @@ add_executable(CppDemo
    "${SRC_DIR}/canvas/Paint.cpp"
    "${SRC_DIR}/opengl/GLProgram.cpp"
    "${SRC_DIR}/opengl/GLVertexArray.cpp"
-    "${SRC_DIR}/command/DrawProgram.cpp"
+    "${SRC_DIR}/command/DrawPoints.cpp"
+    "${SRC_DIR}/command/DrawLines.cpp"
    "${SRC_DIR}/render/Renderer.cpp"
 )
 

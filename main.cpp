@@ -8,6 +8,8 @@
 #include <glm.hpp>
 #include <gtc/matrix_transform.hpp>
 
+const float PI = 3.14159265359f;
+
 // 回调函数：当窗口大小变化时调整视口
 void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
     glViewport(0, 0, width, height);
@@ -66,75 +68,64 @@ int main() {
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 
 
-    Canvas::initialize(); // 初始化 Canvas
-
+        Canvas::initialize();
+    
     Canvas canvas;
-    canvas.setSize(800, 600); // 设置窗口尺寸
-
-    Image image;
-    bool load_success = image.load("C:\\Users\\bassy\\Desktop\\CppDemo\\images\\hello.png");
-    std::cout << "Image loaded successfully: " << load_success << std::endl;
-
-        // 创建 Paint 对象
+    canvas.setSize(800, 600);
+    
     Paint paint1;
-    paint1.setColor(Color::RED); 
-    paint1.setStrokeWidth(3.0f);  // 调整点的大小
-    paint1.setStyle(Paint::Style::FILL);
-
-    // 时间相关变量
-    double lastTime = glfwGetTime();
-    const double period = 3.0;  // 3秒周期
-    const double amplitude = 100.0;  // sin曲线振幅
-    const double yOffset = 300.0;   // y轴偏移量
-    const double PI = 3.1415926f;
+    paint1.setStrokeWidth(20.0f);
+    paint1.setStyle(Paint::Style::STROKE);
+    
+    // 动画参数
+    const float centerX = 400.0f;
+    const float centerY = 300.0f;
+    const float radius = 100.0f;
+    const int numPoints = 5;
+    const float rotationSpeed = 1.0f;
+    const float colorSpeed = 0.5f;  // 颜色变化速度
     
     // 主循环
     while (!glfwWindowShouldClose(window)) {
         glClear(GL_COLOR_BUFFER_BIT);
         
-        double currentTime = glfwGetTime();
-        double phase = (currentTime / period) * 2.0 * PI;
+        float currentTime = (float)glfwGetTime();
+        float rotation = currentTime * rotationSpeed;
+        
+        // 计算颜色
+        float r = (sin(currentTime * colorSpeed) + 1.0f) * 0.5f;
+        float g = (sin(currentTime * colorSpeed + 2.0f * PI / 3.0f) + 1.0f) * 0.5f;
+        float b = (sin(currentTime * colorSpeed + 4.0f * PI / 3.0f) + 1.0f) * 0.5f;
+        paint1.setColor(Color(r * 255, g * 255, b * 255));
         
         canvas.beginFrame();
         
-        // 绘制sin曲线
-        std::vector<Point> points;
-        std::vector<Point> points2;
-        std::vector<Point> points3;
-        std::vector<Point> points4;
-        std::vector<Point> points5;
-        for(int x = 0; x < 800; x += 1) {  // x步进5个像素
-            float normalizedX = (x / 800.0) * 4 * PI;  // 在窗口宽度内显示两个完整周期
-            float y = amplitude * sin(normalizedX + phase) + yOffset;
-            points.push_back(Point(x, y));
-            points2.push_back(Point(x, y + 50));
-            points3.push_back(Point(x, y - 50));
-            points4.push_back(Point(x, y + 100));
-            points5.push_back(Point(x, y - 100));
+        // 计算并存储顶点
+        std::vector<std::pair<float, float>> points;
+        for (int i = 0; i < numPoints; i++) {
+            float angle = rotation + i * (2 * PI / numPoints);
+            float x = centerX + radius * cos(angle);
+            float y = centerY + radius * sin(angle);
+            points.push_back({x, y});
         }
-        paint1.setColor(Color::RED);
-        canvas.drawPoints(points, paint1);
-
-        paint1.setColor(Color::GREEN);
-        canvas.drawPoints(points2, paint1);
-
-        paint1.setColor(Color::BLUE);
-        canvas.drawPoints(points3, paint1);
-
-        paint1.setColor(Color::YELLOW);
-        canvas.drawPoints(points4, paint1);
-
-        paint1.setColor(Color::CYAN);
-        canvas.drawPoints(points5, paint1);
+        
+        // 绘制线条
+        for (int i = 0; i < numPoints; i++) {
+            int next = (i + 2) % numPoints;
+            canvas.drawLine(
+                points[i].first, points[i].second,
+                points[next].first, points[next].second,
+                paint1
+            );
+        }
         
         canvas.endFrame();
         
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
-
-    // 释放资源
-    canvas.finalize(); // 释放 Canvas 资源
+    
+    canvas.finalize();
 
     // 终止 GLFW
     glfwTerminate();

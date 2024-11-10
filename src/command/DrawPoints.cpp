@@ -1,4 +1,4 @@
-#include "DrawProgram.h"
+#include "DrawPoints.h"
 #include <glm.hpp>
 #include <gtc/type_ptr.hpp>
 #include <iostream>
@@ -127,6 +127,7 @@ void DrawPointsProgram::draw(const RenderContext &context, const DrawPointsData 
     vertexData.reserve(data.getPointCount() * 6); // 每个点6个float（2个位置 + 4个颜色）
 
     for (size_t i = 0; i < data.points.size(); i += 2) {
+        // 将点的坐标转换为OpenGL坐标系
         float x = (data.points[i] / context.getWidth()) * 2 - 1;
         float y = 1 - (data.points[i + 1] / context.getHeight()) * 2;
         

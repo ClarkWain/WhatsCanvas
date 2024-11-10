@@ -23,6 +23,10 @@ public:
     void drawPoint(const Point &point, const Paint &paint);
     void drawPoints(const std::vector<Point> &points, const Paint &paint);
 
+    void drawLine(int x1, int y1, int x2, int y2, const Paint &paint);
+    void drawLine(const Point &start, const Point &end, const Paint &paint);
+    void drawLines(const std::vector<Point> &points, const Paint &paint);
+
     void beginFrame();
     void endFrame();
 
