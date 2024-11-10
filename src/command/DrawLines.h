@@ -33,5 +33,9 @@ private:
     unsigned int VBO_ = -1;
 
     bool initialized_ = false;
-    int maxLines_ = 1000;
+    int maxLines_ = 200;
+
+    std::vector<float> vertexCache_;  // 缓存顶点数据
+    size_t lastBufferSize_ = 0;       // 上次缓冲区大小
+    static constexpr size_t BUFFER_GROW_FACTOR = 2;  // 缓冲区增长因子
 };

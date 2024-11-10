@@ -67,6 +67,9 @@ void DrawLinesProgram::initialize()
 
     glBindVertexArray(0);
 
+    // 预分配vertexCache
+    vertexCache_.reserve(maxLines_ * 12);
+
     initialized_ = true;
 }
 
@@ -101,47 +104,56 @@ void DrawLinesProgram::draw(const RenderContext &context, const DrawLinesData &d
         return;
     }
 
+    const size_t requiredSize = data.getLineCount() * 12;
+    
+    // 只在必要时重新分配缓冲区
+    if (requiredSize > maxLines_ * 12) {
+        maxLines_ = requiredSize * BUFFER_GROW_FACTOR;  // 成倍增长策略
+        glBindBuffer(GL_ARRAY_BUFFER, VBO_);
+        glBufferData(GL_ARRAY_BUFFER, maxLines_ * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
+        vertexCache_.reserve(maxLines_);
+    }
+
+    // 重用vertexCache
+    vertexCache_.clear();
+    vertexCache_.reserve(requiredSize);
+
+    // 预计算屏幕转换因子
+    const float xFactor = 2.0f / context.getWidth();
+    const float yFactor = 2.0f / context.getHeight();
+
+    // 批量处理顶点数据
+    for (size_t i = 0; i < data.points.size(); i += 4) {
+        float x1 = data.points[i] * xFactor - 1.0f;
+        float y1 = 1.0f - data.points[i + 1] * yFactor;
+        float x2 = data.points[i + 2] * xFactor - 1.0f;
+        float y2 = 1.0f - data.points[i + 3] * yFactor;
+        
+        // 第一个点
+        vertexCache_.push_back(x1);
+        vertexCache_.push_back(y1);
+        // 颜色
+        vertexCache_.push_back(data.color[0]);
+        vertexCache_.push_back(data.color[1]);
+        vertexCache_.push_back(data.color[2]);
+        vertexCache_.push_back(data.color[3]);
+
+        // 第二个点
+        vertexCache_.push_back(x2);
+        vertexCache_.push_back(y2);
+        // 颜色
+        vertexCache_.push_back(data.color[0]);
+        vertexCache_.push_back(data.color[1]);
+        vertexCache_.push_back(data.color[2]);
+        vertexCache_.push_back(data.color[3]);
+    }
+
     program_->use();
     glLineWidth(data.width);
 
     glBindVertexArray(VAO_);
     glBindBuffer(GL_ARRAY_BUFFER, VBO_);
-
-    if (data.getLineCount() > maxLines_) {
-        maxLines_ = data.getLineCount();
-        glBufferData(GL_ARRAY_BUFFER, maxLines_ * 12 * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
-    }
-
-    std::vector<float> vertexData;
-    vertexData.reserve(data.getLineCount() * 12); // 每条线12个float（4个位置 + 8个颜色）
-
-    for (size_t i = 0; i < data.points.size(); i += 4) {
-        float x1 = (data.points[i] / context.getWidth()) * 2 - 1;
-        float y1 = 1 - (data.points[i + 1] / context.getHeight()) * 2;
-        float x2 = (data.points[i + 2] / context.getWidth()) * 2 - 1;
-        float y2 = 1 - (data.points[i + 3] / context.getHeight()) * 2;
-        
-        // 第一个点
-        vertexData.push_back(x1);
-        vertexData.push_back(y1);
-        // 颜色
-        vertexData.push_back(data.color[0]);
-        vertexData.push_back(data.color[1]);
-        vertexData.push_back(data.color[2]);
-        vertexData.push_back(data.color[3]);
-
-        // 第二个点
-        vertexData.push_back(x2);
-        vertexData.push_back(y2);
-        // 颜色
-        vertexData.push_back(data.color[0]);
-        vertexData.push_back(data.color[1]);
-        vertexData.push_back(data.color[2]);
-        vertexData.push_back(data.color[3]);
-    }
-
-    glBufferSubData(GL_ARRAY_BUFFER, 0, vertexData.size() * sizeof(float), vertexData.data());
+    glBufferSubData(GL_ARRAY_BUFFER, 0, vertexCache_.size() * sizeof(float), vertexCache_.data());
     glDrawArrays(GL_LINES, 0, data.getLineCount() * 2);
-
     glBindVertexArray(0);
 }
