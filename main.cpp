@@ -117,6 +117,7 @@ int main() {
                 points[next].first, points[next].second,
                 paint1
             );
+            canvas.drawPoint(points[i].first, points[i].second, paint1);
         }
         
         canvas.endFrame();

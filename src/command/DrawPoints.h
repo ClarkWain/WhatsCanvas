@@ -40,5 +40,9 @@ private:
 
     bool initialized_ = false;
 
-    int maxPoints_ = 1000;
+    int maxPoints_ = 200;
+
+    std::vector<float> vertexCache_;  // 缓存顶点数据
+    size_t lastBufferSize_ = 0;       // 上次缓冲区大小
+    static constexpr size_t BUFFER_GROW_FACTOR = 2;  // 缓冲区增长因子
 };

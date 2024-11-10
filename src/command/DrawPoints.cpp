@@ -75,6 +75,9 @@ void DrawPointsProgram::initialize()
     // 解绑
     glBindVertexArray(0);
 
+    // 预分配vertexCache
+    vertexCache_.reserve(maxPoints_ * 6);
+
     initialized_ = true;
 }
 
@@ -109,43 +112,44 @@ void DrawPointsProgram::draw(const RenderContext &context, const DrawPointsData 
         return;
     }
 
+    const size_t requiredSize = data.getPointCount() * 6;
+    
+    // 只在必要时重新分配缓冲区
+    if (requiredSize > maxPoints_ * 6) {
+        maxPoints_ = requiredSize * BUFFER_GROW_FACTOR;  // 成倍增长策略
+        glBindBuffer(GL_ARRAY_BUFFER, VBO_);
+        glBufferData(GL_ARRAY_BUFFER, maxPoints_ * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
+        vertexCache_.reserve(maxPoints_);
+    }
+
+    // 重用vertexCache
+    vertexCache_.clear();
+    vertexCache_.reserve(requiredSize);
+
+    // 预计算屏幕转换因子
+    const float xFactor = 2.0f / context.getWidth();
+    const float yFactor = 2.0f / context.getHeight();
+
+    // 批量处理顶点数据
+    for (size_t i = 0; i < data.points.size(); i += 2) {
+        float x = data.points[i] * xFactor - 1.0f;
+        float y = 1.0f - data.points[i + 1] * yFactor;
+        
+        vertexCache_.push_back(x);
+        vertexCache_.push_back(y);
+        vertexCache_.push_back(data.color[0]);
+        vertexCache_.push_back(data.color[1]);
+        vertexCache_.push_back(data.color[2]);
+        vertexCache_.push_back(data.color[3]);
+    }
+
     glEnable(GL_PROGRAM_POINT_SIZE);
     program_->use();
     program_->setFloat("uPointSize", data.size);
 
     glBindVertexArray(VAO_);
     glBindBuffer(GL_ARRAY_BUFFER, VBO_);
-
-    // 如果点的数量超过了预分配的缓冲区大小，重新分配缓冲区
-    if (data.getPointCount() > maxPoints_) {
-        maxPoints_ = data.getPointCount();
-        glBufferData(GL_ARRAY_BUFFER, maxPoints_ * 6 * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
-    }
-
-    // 计算所有点的顶点数据
-    std::vector<float> vertexData;
-    vertexData.reserve(data.getPointCount() * 6); // 每个点6个float（2个位置 + 4个颜色）
-
-    for (size_t i = 0; i < data.points.size(); i += 2) {
-        // 将点的坐标转换为OpenGL坐标系
-        float x = (data.points[i] / context.getWidth()) * 2 - 1;
-        float y = 1 - (data.points[i + 1] / context.getHeight()) * 2;
-        
-        // 位置
-        vertexData.push_back(x);
-        vertexData.push_back(y);
-        // 颜色
-        vertexData.push_back(data.color[0]);
-        vertexData.push_back(data.color[1]);
-        vertexData.push_back(data.color[2]);
-        vertexData.push_back(data.color[3]);
-    }
-
-    // 更新顶点数据
-    glBufferSubData(GL_ARRAY_BUFFER, 0, vertexData.size() * sizeof(float), vertexData.data());
-
-    // 批量绘制所有点
+    glBufferSubData(GL_ARRAY_BUFFER, 0, vertexCache_.size() * sizeof(float), vertexCache_.data());
     glDrawArrays(GL_POINTS, 0, data.getPointCount());
-
     glBindVertexArray(0);
 }
