@@ -10,9 +10,6 @@ PrismCanvas is a small C++17 canvas playground that builds a Skia-like 2D drawin
 - OpenGL 3.3 backend with GLFW windowing, GLAD loading, GLM math, STB image/text helpers, and Polyline2D stroke meshes.
 - Third-party source projects are pulled with Git submodules.
 
-## Repository Name
-
-Recommended GitHub repository name: `PrismCanvas`.
 
 ## Requirements
 
@@ -24,7 +21,7 @@ Recommended GitHub repository name: `PrismCanvas`.
 ## Clone
 
 ```bash
-git clone --recurse-submodules <repo-url>
+git clone --recurse-submodules https://github.com/ClarkWain/PrismCanvas
 cd PrismCanvas
 ```
 
