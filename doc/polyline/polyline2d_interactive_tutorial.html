@@ -356,6 +356,25 @@
       white-space: pre-wrap;
     }
 
+    .formula .explain {
+      margin: 10px 0 0;
+      color: #465158;
+      font-size: 0.95rem;
+    }
+
+    .formula .steps {
+      display: grid;
+      gap: 6px;
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 0.92rem;
+      line-height: 1.65;
+    }
+
+    .formula .steps span {
+      display: block;
+    }
+
     .tip,
     .status-card,
     .info-card,
@@ -846,20 +865,45 @@
             </div>
             <div class="info-stack">
               <div class="formula">
-                <span class="label">长度与归一化</span>
-                <span class="math">v = B - A
-|v| = sqrt(vx^2 + vy^2)
+                <span class="label">先约定符号</span>
+                <span class="math">A, B: 两个点
+v: 从 A 指向 B 的向量
+|v|: 向量长度
+u: 单位方向
+n: 法线方向</span>
+                <p class="explain">新手最容易卡住的不是公式本身，而是不知道字母在扮演什么角色。先认清这些符号，后面的每一步都会清楚很多。</p>
+              </div>
+              <div class="formula">
+                <span class="label">先把点变成向量</span>
+                <span class="math">v = B - A = (Bx - Ax, By - Ay)</span>
+                <p class="explain">这一步不是普通的坐标减法，而是在问：如果从点 A 出发走到点 B，水平方向要走多少，竖直方向又要走多少。</p>
+                <div class="steps">
+                  <span>Bx - Ax 表示 x 方向位移。</span>
+                  <span>By - Ay 表示 y 方向位移。</span>
+                  <span>所以一个点对，立刻就能变成一根“有方向的箭头”。</span>
+                </div>
+              </div>
+              <div class="formula">
+                <span class="label">长度与单位向量</span>
+                <span class="math">|v| = sqrt((Bx - Ax)^2 + (By - Ay)^2)
 u = v / |v|</span>
+                <p class="explain">长度回答“这段线有多长”，单位向量回答“这段线朝哪边”。polyline2d 后面在算偏移时，最关心的是方向，所以必须先把长度的影响拿掉。</p>
+                <div class="steps">
+                  <span>如果不先归一化，长线段和短线段会得到不同尺度的法线。</span>
+                  <span>一旦除以 |v|，u 的长度恒为 1，只保留方向信息。</span>
+                </div>
               </div>
               <div class="formula">
-                <span class="label">左法线</span>
-                <span class="math">如果 u = (ux, uy)
-那么 n = (-uy, ux)</span>
-              </div>
-              <div class="formula">
-                <span class="label">点积与叉积</span>
-                <span class="math">dot(a, b) = ax * bx + ay * by
+                <span class="label">左右法线与转向判定</span>
+                <span class="math">n_left = (-uy, ux)
+n_right = (uy, -ux)
+dot(a, b) = |a||b| cos(theta)
 cross(a, b) = ax * by - ay * bx</span>
+                <p class="explain">把单位向量旋转 90 度，就得到和它垂直的方向，这就是法线。后面左右扩边，本质上就是沿着法线正负方向各走一次。点积主要拿来求夹角，叉积主要拿来判断是左转还是右转。</p>
+                <div class="steps">
+                  <span>dot 越大，两个方向越接近；dot 越小，夹角越大。</span>
+                  <span>在 2D 里，cross &gt; 0 往往表示逆时针转，cross &lt; 0 往往表示顺时针转。</span>
+                </div>
               </div>
               <div class="metrics-grid" id="vectorMetrics"></div>
               <div class="tip success">
@@ -916,18 +960,32 @@ cross(a, b) = ax * by - ay * bx</span>
             </div>
             <div class="info-stack">
               <div class="formula">
-                <span class="label">半厚度</span>
+                <span class="label">为什么先把总厚度除以 2</span>
                 <span class="math">h = w / 2</span>
+                <p class="explain">传进来的 w 是整条粗线的总宽度，但几何上我们总是从“中心线”出发分别向左右扩出去，所以真正参与偏移计算的是半厚度 h。</p>
               </div>
               <div class="formula">
-                <span class="label">左右偏移</span>
-                <span class="math">P+ = P + n * h
-P- = P - n * h</span>
+                <span class="label">每个端点怎样得到左右边界</span>
+                <span class="math">start1 = start + n * h
+start2 = start - n * h
+end1   = end   + n * h
+end2   = end   - n * h</span>
+                <p class="explain">同一个端点会被复制成两个版本：一个往法线正方向偏移，一个往法线负方向偏移。这样就把原来只有一根骨架的线，扩成了有宽度的带状边界。</p>
               </div>
               <div class="formula">
-                <span class="label">单段矩形的两个三角形</span>
+                <span class="label">为什么偏移后会得到一条带</span>
+                <span class="math">u · n = 0</span>
+                <p class="explain">因为法线和原方向垂直，所以偏移出去的两条边会和中心线保持平行。你可以把它想成“沿着垂线整体平移了一份”。这就是粗线外轮廓的最基本来源。</p>
+              </div>
+              <div class="formula">
+                <span class="label">单段带状面如何拆成三角形</span>
                 <span class="math">T1 = (start1, start2, end1)
 T2 = (end1, start2, end2)</span>
+                <p class="explain">四个角点已经足够围出一个四边形，但 GPU 最擅长处理的是三角形，所以实现里会直接拆成两个三角形输出。</p>
+                <div class="steps">
+                  <span>第一片先覆盖左半边。</span>
+                  <span>第二片补上右半边，两片刚好拼成完整带状面。</span>
+                </div>
               </div>
               <div class="tip">
                 <strong>为什么一定是三角形</strong>
@@ -970,19 +1028,33 @@ T2 = (end1, start2, end2)</span>
             </div>
             <div class="info-stack">
               <div class="formula">
-                <span class="label">参数方程</span>
+                <span class="label">先把直线写成“沿方向移动”</span>
                 <span class="math">A(t) = P + t * r
 B(u) = Q + u * s</span>
+                <p class="explain">P 和 Q 是两条线各自的起点，r 和 s 是它们的方向向量。参数 t、u 的含义是：沿着各自方向走了多少倍。</p>
+                <div class="steps">
+                  <span>t = 0 时，位置就在 P。</span>
+                  <span>t = 1 时，位置走到 P + r，也就是这段线的另一端。</span>
+                </div>
               </div>
               <div class="formula">
-                <span class="label">交点参数</span>
-                <span class="math">t = cross(Q - P, s) / cross(r, s)
+                <span class="label">联立方程后，真正要解的是 t 和 u</span>
+                <span class="math">P + t * r = Q + u * s
+t = cross(Q - P, s) / cross(r, s)
 u = cross(Q - P, r) / cross(r, s)</span>
+                <p class="explain">这一步的核心不是死记分式，而是知道分子分母各在比较什么。分母 cross(r, s) 衡量的是两条方向向量到底有多“不平行”；分子则是在问起点偏移量在另一个方向上的相对位置。</p>
               </div>
               <div class="formula">
-                <span class="label">平行判断</span>
-                <span class="math">如果 cross(r, s) 接近 0
+                <span class="label">交点在线段内部，还是只在线的延长线上</span>
+                <span class="math">0 ≤ t ≤ 1 且 0 ≤ u ≤ 1  -> 交点在线段内部
+否则 -> 只在无限延长线相交</span>
+                <p class="explain">这一步非常关键。polyline2d 有些场景故意求的是“无限延长线的交点”，因为它需要把外边界延长后再拼尖角；但在普通几何判定时，你往往只想知道线段本身有没有相交。</p>
+              </div>
+              <div class="formula">
+                <span class="label">什么时候不能继续硬算</span>
+                <span class="math">如果 |cross(r, s)| 接近 0
 说明两条线平行或几乎平行</span>
+                <p class="explain">当分母很小时，解出来的 t 和 u 会非常不稳定。也就是说，理论交点会跑到非常远的位置，数值误差还会被放大。这正是很多“尖刺”问题的源头。</p>
               </div>
               <div class="status-card" id="intersectionStatus"></div>
               <div class="tip warning">
@@ -1031,17 +1103,34 @@ u = cross(Q - P, r) / cross(r, s)</span>
             </div>
             <div class="info-stack">
               <div class="formula">
-                <span class="label">角度</span>
+                <span class="label">先求相邻线段的夹角</span>
                 <span class="math">theta = arccos( dot(d1, d2) / (|d1| * |d2|) )</span>
+                <p class="explain">d1 和 d2 是两段中心线的方向向量。点积公式把“方向有多接近”转换成了夹角 theta，这是后面判断关节样式的第一步。</p>
               </div>
               <div class="formula">
-                <span class="label">外侧判断</span>
-                <span class="math">cross(d1, d2) &lt; 0 说明顺时针转
-cross(d1, d2) &gt; 0 说明逆时针转</span>
+                <span class="label">再用叉积判断哪边是外侧</span>
+                <span class="math">turn = cross(d1, d2)
+turn &lt; 0 说明顺时针转
+turn &gt; 0 说明逆时针转</span>
+                <p class="explain">一旦知道转弯方向，就能区分“哪两条偏移边是外边界，哪两条偏移边是内边界”。miter、bevel、round 的差别，本质上都发生在外边界这一侧。</p>
               </div>
               <div class="formula">
-                <span class="label">miter 尖角长度</span>
+                <span class="label">为什么 miter 会突然变得很长</span>
                 <span class="math">miterLength = (w / 2) / sin(theta / 2)</span>
+                <p class="explain">这里最该注意的是分母。当 theta 很小时，sin(theta / 2) 会非常接近 0，于是整个 miterLength 会迅速变大。也就是说，角越尖，延长出来的尖角越夸张。</p>
+                <div class="steps">
+                  <span>theta = 90° 时，尖角还比较克制。</span>
+                  <span>theta = 20° 或更小的时候，尖角长度会明显失控。</span>
+                </div>
+              </div>
+              <div class="formula">
+                <span class="label">为什么代码里还要算 wrappedAngle</span>
+                <span class="math">wrappedTheta = min(theta, π - theta)</span>
+                <p class="explain">库内部不是直接拿 theta 做阈值判断，而是拿“更危险的那一边的小角度”去判断。例如看起来像 160° 的转折，真正危险的是补出来的 20° 尖角，所以要把它折回来看。</p>
+                <div class="steps">
+                  <span>如果 wrappedTheta 太小，miter 会退化成 bevel。</span>
+                  <span>这样做是为了避免产生非常远的交点和难看的长刺。</span>
+                </div>
               </div>
               <div class="comparison-grid">
                 <div class="info-card">
@@ -1115,13 +1204,26 @@ cross(d1, d2) &gt; 0 说明逆时针转</span>
           <div class="section-grid section-grid-spaced">
             <div class="info-stack">
               <div class="formula">
-                <span class="label">SQUARE 端帽</span>
-                <span class="math">start' = start - dir * (w / 2)
-end'   = end   + dir * (w / 2)</span>
+                <span class="label">BUTT 和 SQUARE 的本质区别</span>
+                <span class="math">BUTT:   起点终点保持不变
+SQUARE: start' = start - dir * (w / 2)
+        end'   = end   + dir * (w / 2)</span>
+                <p class="explain">BUTT 只是平平地切掉端头，不多也不少。SQUARE 则会沿着线段方向，再往外多送半个厚度，所以看起来像在原线段两端各补了一个小矩形。</p>
               </div>
               <div class="formula">
-                <span class="label">圆弧扇形三角数</span>
+                <span class="label">ROUND 端帽为什么是半圆</span>
+                <span class="math">radius = w / 2
+sweepAngle = π</span>
+                <p class="explain">端帽只需要把线段的开头或结尾封起来，所以只需要补半圈，而不是整圈。半圆的半径，正好就是半厚度。</p>
+              </div>
+              <div class="formula">
+                <span class="label">圆弧为什么要离散成很多小三角形</span>
                 <span class="math">N = max(1, floor(|deltaAngle| / minAngle))</span>
+                <p class="explain">GPU 不直接理解“圆弧”这种连续曲线，它只理解顶点和三角形。所以要先把圆弧切成很多小角度片段，再让每一片对应一个三角形。</p>
+                <div class="steps">
+                  <span>deltaAngle 越大，扫过的弧越长，需要的三角片越多。</span>
+                  <span>minAngle 越小，圆弧看起来越圆，但顶点数也会上升。</span>
+                </div>
               </div>
               <div class="tip success">
                 <strong>JOINT 端帽的直觉</strong>
