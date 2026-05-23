@@ -1782,6 +1782,68 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
     }
 }
 
+RectF Canvas::measureStrokeBounds(const Path &path, const Paint &paint) const
+{
+    if (path.isEmpty() || !std::isfinite(paint.getStrokeWidth()) || paint.getStrokeWidth() <= 0.0f) {
+        return RectF();
+    }
+
+    Path effectedPath;
+    const Path *sourcePath = &path;
+    if (paint.hasCornerPathEffect()) {
+        effectedPath = path.roundedCorners(paint.getCornerPathEffectRadius());
+        sourcePath = &effectedPath;
+    }
+
+    const auto contours = extractContours(*sourcePath);
+    bool hasPoint = false;
+    float minX = 0.0f;
+    float minY = 0.0f;
+    float maxX = 0.0f;
+    float maxY = 0.0f;
+
+    auto addPoint = [&](const crushedpixel::Vec2 &point) {
+        if (!hasPoint) {
+            minX = maxX = point.x;
+            minY = maxY = point.y;
+            hasPoint = true;
+            return;
+        }
+        minX = std::min(minX, point.x);
+        minY = std::min(minY, point.y);
+        maxX = std::max(maxX, point.x);
+        maxY = std::max(maxY, point.y);
+    };
+
+    auto addMesh = [&](const std::vector<crushedpixel::Vec2> &mesh) {
+        for (const auto &point : mesh) {
+            addPoint(point);
+        }
+    };
+
+    if (paint.hasDashPathEffect()) {
+        Paint dashPaint = paint;
+        dashPaint.clearDashPathEffect();
+        for (const auto &contour : contours) {
+            const auto dashes = buildDashedPolylines(contour.points, contour.closed,
+                                                     paint.getDashIntervals(), paint.getDashPhase());
+            for (const auto &dash : dashes) {
+                addMesh(buildStrokeMesh(dash, false, dashPaint));
+            }
+        }
+    } else {
+        for (const auto &contour : contours) {
+            addMesh(buildStrokeMesh(contour.points, contour.closed, paint));
+        }
+    }
+
+    if (!hasPoint) {
+        return RectF();
+    }
+
+    return RectF(minX, minY, maxX - minX, maxY - minY);
+}
+
 void Canvas::drawImage(const Image &image, float x, float y, const Paint &paint)
 {
     const RectF dst(x, y, static_cast<float>(image.getWidth()), static_cast<float>(image.getHeight()));
@@ -2059,6 +2121,11 @@ void Canvas::drawTextBox(const std::string &text, const RectF &bounds, const Pai
 
 void Canvas::drawTextBox(const std::string &text, const RectF &bounds, float lineHeight, const Paint &paint)
 {
+    drawTextBox(text, bounds, lineHeight, 0, false, paint);
+}
+
+void Canvas::drawTextBox(const std::string &text, const RectF &bounds, float lineHeight, int maxLines, bool ellipsize, const Paint &paint)
+{
     RectF normalizedBounds = normalizeRect(bounds);
     if (text.empty() || normalizedBounds.getWidth() <= 0.0f || normalizedBounds.getHeight() <= 0.0f
         || paint.getTextSize() <= 0.0f) {
@@ -2121,6 +2188,45 @@ void Canvas::drawTextBox(const std::string &text, const RectF &bounds, float lin
         return;
     }
 
+    auto ellipsizeLine = [&](std::string line) {
+        const std::string marker = "...";
+        const float maxWidth = normalizedBounds.getWidth();
+        if (measureText(line, paint) <= maxWidth) {
+            std::string candidate = line;
+            while (!candidate.empty() && candidate.back() == ' ') {
+                candidate.pop_back();
+            }
+            if (measureText(candidate + marker, paint) <= maxWidth) {
+                return candidate + marker;
+            }
+        }
+
+        while (!line.empty() && line.back() == ' ') {
+            line.pop_back();
+        }
+
+        if (measureText(marker, paint) > maxWidth) {
+            std::string dots;
+            for (char character : marker) {
+                const std::string candidate = dots + character;
+                if (measureText(candidate, paint) > maxWidth) {
+                    break;
+                }
+                dots = candidate;
+            }
+            return dots;
+        }
+
+        while (!line.empty() && measureText(line + marker, paint) > maxWidth) {
+            line.pop_back();
+            while (!line.empty() && line.back() == ' ') {
+                line.pop_back();
+            }
+        }
+
+        return line.empty() ? marker : line + marker;
+    };
+
     float x = normalizedBounds.getX();
     if (paint.getTextAlign() == Paint::TextAlign::CENTER) {
         x += normalizedBounds.getWidth() * 0.5f;
@@ -2132,14 +2238,29 @@ void Canvas::drawTextBox(const std::string &text, const RectF &bounds, float lin
     clipRect(normalizedBounds);
     float y = normalizedBounds.getY();
     const float bottom = normalizedBounds.getY() + normalizedBounds.getHeight();
-    for (const std::string &line : lines) {
+    int drawnLines = 0;
+    for (size_t lineIndex = 0; lineIndex < lines.size(); ++lineIndex) {
         if (y >= bottom) {
             break;
         }
+        if (maxLines > 0 && drawnLines >= maxLines) {
+            break;
+        }
+
+        std::string line = lines[lineIndex];
+        const bool hasMoreLines = lineIndex + 1 < lines.size();
+        const bool lastByMaxLines = maxLines > 0 && drawnLines + 1 >= maxLines;
+        const bool lastByBounds = y + effectiveLineHeight >= bottom;
+        if (ellipsize && (hasMoreLines || measureText(line, paint) > normalizedBounds.getWidth())
+            && (lastByMaxLines || lastByBounds)) {
+            line = ellipsizeLine(line);
+        }
+
         if (!line.empty()) {
             drawText(line, x, y, paint);
         }
         y += effectiveLineHeight;
+        ++drawnLines;
     }
     restoreToCount(saveCount);
 }
@@ -2226,6 +2347,19 @@ RectF Canvas::measureTextBounds(const std::string &text, const Paint &paint) con
     return RectF(left, textBaselineOffset(paint.getTextBaseline(), height), width, height);
 }
 
+Canvas::TextMetrics Canvas::measureTextMetrics(const std::string &text, const Paint &paint) const
+{
+    TextMetrics metrics;
+    metrics.bounds = measureTextBounds(text, paint);
+    metrics.width = metrics.bounds.getWidth();
+    metrics.height = metrics.bounds.getHeight();
+    metrics.top = metrics.bounds.getY();
+    metrics.bottom = metrics.bounds.getY() + metrics.bounds.getHeight();
+    metrics.ascent = std::min(0.0f, metrics.top);
+    metrics.descent = std::max(0.0f, metrics.bottom);
+    return metrics;
+}
+
 int Canvas::save()
 {
     const int savedCount = getSaveCount();
@@ -2288,6 +2422,21 @@ PointF Canvas::mapPoint(const PointF &point) const
     return mapped;
 }
 
+RectF Canvas::mapRect(const RectF &rect) const
+{
+    RectF mapped;
+    if (!transformRectBounds(rect, currentState_.matrix, mapped)) {
+        return RectF();
+    }
+    return mapped;
+}
+
+RectF Canvas::mapRect(const Rect &rect) const
+{
+    return mapRect(RectF(static_cast<float>(rect.getX()), static_cast<float>(rect.getY()),
+                         static_cast<float>(rect.getWidth()), static_cast<float>(rect.getHeight())));
+}
+
 bool Canvas::inverseMapPoint(const PointF &devicePoint, PointF &localPoint) const
 {
     const float determinant = glm::determinant(currentState_.matrix);
@@ -2296,6 +2445,16 @@ bool Canvas::inverseMapPoint(const PointF &devicePoint, PointF &localPoint) cons
     }
 
     return transformPoint(glm::inverse(currentState_.matrix), devicePoint, localPoint);
+}
+
+bool Canvas::inverseMapRect(const RectF &deviceRect, RectF &localRect) const
+{
+    const float determinant = glm::determinant(currentState_.matrix);
+    if (!std::isfinite(determinant) || std::abs(determinant) <= kPointEpsilon) {
+        return false;
+    }
+
+    return transformRectBounds(deviceRect, glm::inverse(currentState_.matrix), localRect);
 }
 
 bool Canvas::isPointInClip(const PointF &devicePoint) const
@@ -2373,6 +2532,59 @@ bool Canvas::quickReject(const Rect &rect) const
 {
     return quickReject(RectF(static_cast<float>(rect.getX()), static_cast<float>(rect.getY()),
                              static_cast<float>(rect.getWidth()), static_cast<float>(rect.getHeight())));
+}
+
+bool Canvas::quickReject(const Path &path, const Paint &paint) const
+{
+    if (path.isEmpty()) {
+        return true;
+    }
+
+    Path effectedPath;
+    const Path *sourcePath = &path;
+    if (paint.hasCornerPathEffect()) {
+        effectedPath = path.roundedCorners(paint.getCornerPathEffectRadius());
+        sourcePath = &effectedPath;
+    }
+
+    bool hasBounds = false;
+    RectF bounds;
+    auto addBounds = [&](const RectF &candidate) {
+        if (!hasBounds) {
+            bounds = candidate;
+            hasBounds = true;
+            return;
+        }
+
+        const float left = std::min(bounds.getX(), candidate.getX());
+        const float top = std::min(bounds.getY(), candidate.getY());
+        const float right = std::max(bounds.getX() + bounds.getWidth(), candidate.getX() + candidate.getWidth());
+        const float bottom = std::max(bounds.getY() + bounds.getHeight(), candidate.getY() + candidate.getHeight());
+        bounds = RectF(left, top, right - left, bottom - top);
+    };
+
+    const bool drawFill = paint.getStyle() == Paint::Style::FILL || paint.getStyle() == Paint::Style::FILL_AND_STROKE;
+    const bool drawStroke = paint.getStyle() == Paint::Style::STROKE || paint.getStyle() == Paint::Style::FILL_AND_STROKE;
+    if (drawFill) {
+        addBounds(sourcePath->getBounds());
+    }
+    if (drawStroke) {
+        addBounds(measureStrokeBounds(path, paint));
+    }
+
+    if (!hasBounds) {
+        return true;
+    }
+
+    if (paint.hasShadowLayer()) {
+        const float radius = std::max(0.0f, paint.getShadowRadius());
+        addBounds(RectF(bounds.getX() + paint.getShadowDx() - radius,
+                        bounds.getY() + paint.getShadowDy() - radius,
+                        bounds.getWidth() + radius * 2.0f,
+                        bounds.getHeight() + radius * 2.0f));
+    }
+
+    return quickReject(bounds);
 }
 
 void Canvas::restoreToCount(int saveCount)

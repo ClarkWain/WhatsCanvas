@@ -1,0 +1,1607 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Polyline2D 交互式教学</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;background:#0f0f13;color:#e0e0e0;line-height:1.8}
+.wrap{max-width:1200px;margin:0 auto;padding:20px}
+h1{font-size:2.6em;text-align:center;margin:40px 0 10px;background:linear-gradient(135deg,#64b5f6,#ce93d8);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+h1 small{display:block;font-size:.35em;-webkit-text-fill-color:#888;margin-top:8px;font-weight:400}
+h2{font-size:1.6em;margin:50px 0 20px;padding-bottom:8px;border-bottom:2px solid #333;color:#bbdefb}
+h3{font-size:1.2em;margin:30px 0 15px;color:#90caf9}
+p{max-width:800px;margin:12px 0}
+p.desc{font-size:.95em;color:#aaa;margin:4px 0 12px}
+.section{background:#1a1a24;border-radius:12px;padding:30px;margin:30px 0;border:1px solid #2a2a38}
+.section.highlight{border-color:#5c6bc0;background:#1a1a2e}
+canvas{display:block;margin:12px 0;border-radius:8px;background:#0a0a10;width:100%;max-width:800px;cursor:grab}
+canvas:active{cursor:grabbing}
+.ctrl{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0;align-items:center}
+.ctrl label{font-size:.85em;color:#aaa}
+.ctrl input[type=range]{width:140px;vertical-align:middle}
+.ctrl select{padding:4px 10px;border-radius:6px;border:1px solid #444;background:#222;color:#e0e0e0;font-size:.9em}
+.ctrl input[type=color]{width:36px;height:30px;border:none;border-radius:4px;background:0;cursor:pointer}
+.ctrl button{padding:6px 18px;border:none;border-radius:6px;background:#5c6bc0;color:#fff;cursor:pointer;font-size:.9em}
+.ctrl button:hover{background:#6f7bd6}
+code{font-family:'JetBrains Mono','Fira Code','Cascadia Code',monospace;font-size:.88em;background:#2a2a38;padding:2px 8px;border-radius:4px;color:#f0e68c}
+pre{background:#12121c;padding:18px;border-radius:8px;overflow-x:auto;margin:15px 0;border:1px solid #2a2a38;font-size:.85em;line-height:1.5}
+pre code{background:0;padding:0;color:#e0e0e0}
+.kw{color:#c678dd}
+.ty{color:#61afef}
+.fn{color:#98c379}
+.str{color:#98c379}
+.cm{color:#5c6370;font-style:italic}
+.num{color:#d19a66}
+.op{color:#abb2bf}
+.formula{background:#12121c;padding:12px 18px;border-radius:8px;margin:12px 0;border-left:4px solid #5c6bc0;font-family:'Times New Roman',serif;font-size:1.1em;color:#e0e0e0;overflow-x:auto}
+.formula var{color:#f0e68c;font-style:italic}
+.formula .sym{color:#61afef}
+.col-demo{display:flex;gap:12px;flex-wrap:wrap;margin:15px 0}
+.col-demo>div{flex:1;min-width:240px;background:#12121c;padding:15px;border-radius:8px;border:1px solid #2a2a38}
+.col-demo h4{color:#90caf9;margin-bottom:8px}
+.note{padding:12px 18px;background:#1a2a1a;border-radius:8px;border-left:4px solid #4caf50;margin:15px 0;font-size:.93em}
+.warn{padding:12px 18px;background:#2a1a1a;border-radius:8px;border-left:4px solid #f44336;margin:15px 0;font-size:.93em}
+.tip{padding:12px 18px;background:#1a1a2e;border-radius:8px;border-left:4px solid #64b5f6;margin:15px 0;font-size:.93em}
+.toc{background:#12121c;padding:20px 25px;border-radius:8px;margin:30px 0;border:1px solid #2a2a38}
+.toc ol{columns:2;column-gap:40px}
+.toc li{margin:6px 0;color:#90caf9;cursor:pointer;break-inside:avoid}
+.toc li:hover{color:#bbdefb}
+.toc li span{color:#888;font-size:.85em}
+.col-card{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin:15px 0}
+.col-card>div{background:#12121c;padding:15px;border-radius:8px;border:1px solid #2a2a38;text-align:center}
+.col-card .num{font-size:1.8em;font-weight:700;color:#64b5f6}
+.col-card .lbl{font-size:.85em;color:#888}
+svg{display:block;margin:12px auto;max-width:100%}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Polyline2D 完全理解指南<small>从零开始，用交互式示例理解 2D 折线渲染的数学原理</small></h1>
+
+<div class="toc">
+<h3>📖 目录</h3>
+<ol>
+<li><span>什么是 Polyline2D？</span></li>
+<li><span>预备知识：2D 向量</span></li>
+<li><span>点、线段、方向向量</span></li>
+<li><span>法向量：给线条"厚度"的关键</span></li>
+<li><span>偏移：从细线到粗线</span></li>
+<li><span>线-线求交：尖角的秘密</span></li>
+<li><span>连接点样式：Miter / Bevel / Round</span></li>
+<li><span>端点样式：Butt / Square / Round / Joint</span></li>
+<li><span>三角形扇：绘制圆角</span></li>
+<li><span>三角形网格：Polyline2D 的输出</span></li>
+<li><span>完整交互演示</span></li>
+</ol>
+</div>
+
+<!-- ==================== 1 ==================== -->
+<div class="section highlight" id="sec1">
+<h2>1. 什么是 Polyline2D？</h2>
+<p>Polyline2D 是一个 <strong>轻量级 C++ 库</strong>，它的核心作用只有一句话：</p>
+
+<div class="formula">
+<strong style="color:#f0e68c">给定一组 2D 点和一个线宽，生成一个三角形网格，渲染出一条有厚度的折线。</strong>
+</div>
+
+<p>为什么需要它？因为 OpenGL 等图形 API <strong>原生只支持 1 像素宽的线</strong>。要画出粗细可控、边缘圆滑的线条，必须自己把线条"展开"成三角形。</p>
+
+<div class="col-card">
+<div><div class="num">📌</div><div class="lbl">输入：点序列</div></div>
+<div><div class="num">📐</div><div class="lbl">输出：三角形网格</div></div>
+<div><div class="num">🎨</div><div class="lbl">支持：3种连接样式 + 4种端点样式</div></div>
+</div>
+
+<div class="note">
+<strong>听起来很复杂？</strong>别担心——我们会从最基础的 2D 向量开始，一步一步走到完整的 Polyline2D 实现。每个概念都有交互式示例。
+</div>
+</div>
+
+<!-- ==================== 2 ==================== -->
+<div class="section" id="sec2">
+<h2>2. 预备知识：2D 向量</h2>
+<p>在理解 Polyline2D 之前，我们必须先熟悉 <strong>2D 向量</strong>。一个向量 <strong>v</strong> 由两个分量 (x, y) 组成：</p>
+
+<div class="formula">
+<strong>v</strong> = (x, y)&nbsp;&nbsp;,&nbsp;&nbsp;|v| = √(x² + y²)
+</div>
+
+<div class="col-demo">
+<div>
+<h4>向量加法</h4>
+<strong>a</strong> + <strong>b</strong> = (a<sub>x</sub>+b<sub>x</sub>, a<sub>y</sub>+b<sub>y</sub>)
+</div>
+<div>
+<h4>向量减法</h4>
+<strong>a</strong> − <strong>b</strong> = (a<sub>x</sub>−b<sub>x</sub>, a<sub>y</sub>−b<sub>y</sub>)
+</div>
+<div>
+<h4>标量乘法</h4>
+<strong>a</strong> × t = (a<sub>x</sub>·t, a<sub>y</sub>·t)
+</div>
+<div>
+<h4>点积 (Dot Product)</h4>
+<strong>a</strong> · <strong>b</strong> = a<sub>x</sub>b<sub>x</sub> + a<sub>y</sub>b<sub>y</sub>
+</div>
+<div>
+<h4>叉积 (Cross Product, 2D)</h4>
+<strong>a</strong> × <strong>b</strong> = a<sub>x</sub>b<sub>y</sub> − a<sub>y</sub>b<sub>x</sub>
+</div>
+</div>
+
+<p>二维叉积的结果是一个 <strong>标量</strong>（在 2D 中，它代表两个向量围成的平行四边形的"有向面积"），它的符号告诉我们转向方向：</p>
+<div class="formula">
+a × b &gt; 0 &nbsp;⟹&nbsp; <strong>b</strong> 在 <strong>a</strong> 的<strong>逆时针</strong>方向<br>
+a × b &lt; 0 &nbsp;⟹&nbsp; <strong>b</strong> 在 <strong>a</strong> 的<strong>顺时针</strong>方向
+</div>
+
+<div id="canvas-vec"></div>
+<p class="desc">拖拽箭头末端调整向量。观察它们的和、差、点积和叉积如何变化。</p>
+</div>
+
+<!-- ==================== 3 ==================== -->
+<div class="section" id="sec3">
+<h2>3. 点、线段与方向向量</h2>
+<p>一条线段有两个端点 <strong>P<sub>0</sub></strong> 和 <strong>P<sub>1</sub></strong>。它的<strong>方向向量</strong>是：</p>
+<div class="formula">
+<strong>d</strong> = P<sub>1</sub> − P<sub>0</sub> = (x<sub>1</sub>−x<sub>0</sub>, y<sub>1</sub>−y<sub>0</sub>)
+</div>
+<p>我们通常把方向向量<strong>归一化</strong>（长度变为 1），方便后续计算：</p>
+<div class="formula">
+<strong>d̂</strong> = <strong>d</strong> / |<strong>d</strong>| = (d<sub>x</sub>, d<sub>y</sub>) / √(d<sub>x</sub>² + d<sub>y</sub>²)
+</div>
+
+<p>线段的<strong>参数方程</strong>可以描述线段上的任意点：</p>
+<div class="formula">
+<strong>P</strong>(t) = <strong>P</strong><sub>0</sub> + <strong>d̂</strong> · t&nbsp;&nbsp;，其中 &nbsp;t ∈ [0, L]&nbsp;，L = |d|
+</div>
+
+<div id="canvas-line"></div>
+<p class="desc">线段上的点随 t 在 0 ~ L 之间变化。观察方向向量和归一化方向向量。</p>
+</div>
+
+<!-- ==================== 4 ==================== -->
+<div class="section" id="sec4">
+<h2>4. 法向量：给线条"厚度"的关键</h2>
+<p>法向量（Normal）是与线段<strong>垂直</strong>的向量。对于一个方向向量 <strong>d</strong> = (dx, dy)，它的法向量是：</p>
+
+<div class="formula">
+<strong>n</strong> = (−d<sub>y</sub>, d<sub>x</sub>) &nbsp;&nbsp;(逆时针旋转 90°)
+</div>
+
+<div class="col-card">
+<div><div class="num">⟂</div><div class="lbl">法向量与方向向量垂直</div></div>
+<div><div class="num">1</div><div class="lbl">归一化后的法向量长度为 1</div></div>
+<div><div class="num">2</div><div class="lbl">一个线段有两个法向量（±n）</div></div>
+</div>
+
+<p>代码实现非常简单（来自 LineSegment.h）：</p>
+<pre><code><span class="kw">struct</span> <span class="ty">LineSegment</span> {
+    <span class="ty">Vec2</span> a, b;
+
+    <span class="cm">// 返回线段的法向量（逆时针旋转 90°）</span>
+    <span class="ty">Vec2</span> <span class="fn">normal</span>() <span class="kw">const</span> {
+        <span class="kw">auto</span> dir = <span class="fn">direction</span>();     <span class="cm">// 归一化方向向量</span>
+        <span class="kw">return</span> {-dir.y, dir.x};    <span class="cm">// (−dy, dx)</span>
+    }
+};</code></pre>
+
+<div id="canvas-normal"></div>
+<p class="desc">绿色箭头 = 方向向量，蓝色箭头 = 法向量（两个方向都显示）。确认法向量与方向向量垂直。</p>
+
+<div class="tip">
+<strong>为什么法向量重要？</strong>给一条细线加"厚度"，本质上是把线段沿法向量方向"推开"：两个边 = 中心线 ± 法向量 × 半厚度。这是整个 Polyline2D 的几何基础！
+</div>
+</div>
+
+<!-- ==================== 5 ==================== -->
+<div class="section" id="sec5">
+<h2>5. 偏移：从细线到粗线</h2>
+<p>现在，让我们把一条细线变成一条粗线。给定中心线段 <strong>C</strong> 和厚度 <strong>w</strong>：</p>
+
+<div class="formula">
+半厚度 = w / 2<br>
+边1 = <strong>C</strong> + <strong>n̂</strong> × (w/2) &nbsp;&nbsp;（沿法向量偏移）<br>
+边2 = <strong>C</strong> − <strong>n̂</strong> × (w/2) &nbsp;&nbsp;（沿负法向量偏移）
+</div>
+
+<p>这正是 PolySegment 的构造逻辑（来自 Polyline2D.h）：</p>
+<pre><code><span class="kw">template</span>&lt;<span class="kw">typename</span> <span class="ty">Vec2</span>&gt;
+<span class="kw">struct</span> <span class="ty">PolySegment</span> {
+    <span class="ty">LineSegment</span>&lt;<span class="ty">Vec2</span>&gt; center, edge1, edge2;
+
+    <span class="ty">PolySegment</span>(<span class="kw">const</span> <span class="ty">LineSegment</span>&lt;<span class="ty">Vec2</span>&gt; &amp;center, <span class="kw">float</span> thickness)
+        : center(center)
+        <span class="cm">// center.normal() × thickness  → 沿法向量偏移半厚度</span>
+        , edge1(center + <span class="fn">multiply</span>(center.<span class="fn">normal</span>(), thickness))
+        , edge2(center - <span class="fn">multiply</span>(center.<span class="fn">normal</span>(), thickness)) {}
+};</code></pre>
+
+<p>有了 edge1 和 edge2，我们可以用<strong>两个三角形（形成一个四边形）</strong>来渲染这一个线段：</p>
+
+<div class="formula">
+<strong>三角形 1</strong>：(edge1.a, edge2.a, edge1.b)<br>
+<strong>三角形 2</strong>：(edge1.b, edge2.a, edge2.b)
+</div>
+
+<p>Polyline2D 的 create() 方法中正是这样输出的：</p>
+<pre><code><span class="cm">// 为每个线段输出 6 个顶点（两个三角形）</span>
+*vertices++ = start1;    <span class="cm">// edge1.a</span>
+*vertices++ = start2;    <span class="cm">// edge2.a</span>
+*vertices++ = end1;      <span class="cm">// edge1.b</span>
+*vertices++ = end1;      <span class="cm">// edge1.b</span>
+*vertices++ = start2;    <span class="cm">// edge2.a</span>
+*vertices++ = end2;      <span class="cm">// edge2.b</span></code></pre>
+
+<div id="canvas-thick"></div>
+<p class="desc">调整厚度滑块，观察中心线如何被"展开"成两个边，再被两个三角形覆盖。</p>
+</div>
+
+<!-- ==================== 6 ==================== -->
+<div class="section" id="sec6">
+<h2>6. 线-线求交：尖角的秘密</h2>
+<p>当两段粗线段在拐角处相遇时，如果不做任何处理，会出现一个<strong>缺口</strong>。要填平这个缺口，我们需要计算两条边线的<strong>交点</strong>。</p>
+
+<p>两条无限直线的交点公式：给定线段 <strong>A</strong> (A<sub>0</sub>→A<sub>1</sub>) 和 <strong>B</strong> (B<sub>0</sub>→B<sub>1</sub>)，参数化表示为：</p>
+
+<div class="formula">
+<strong>A</strong>(t) = <strong>A</strong><sub>0</sub> + <strong>r</strong>·t&nbsp;，&nbsp;<strong>B</strong>(u) = <strong>B</strong><sub>0</sub> + <strong>s</strong>·u<br>
+其中 <strong>r</strong> = A<sub>1</sub>−A<sub>0</sub>，<strong>s</strong> = B<sub>1</sub>−B<sub>0</sub>
+</div>
+
+<p>求解 t 和 u：</p>
+<div class="formula">
+t = (<strong>q</strong> × <strong>s</strong>) / (<strong>r</strong> × <strong>s</strong>)&nbsp;&nbsp;，u = (<strong>q</strong> × <strong>r</strong>) / (<strong>r</strong> × <strong>s</strong>)<br>
+其中 <strong>q</strong> = B<sub>0</sub> − A<sub>0</sub>
+</div>
+
+<p>如果分母 <strong>r</strong> × <strong>s</strong> = 0，则两条线平行（无交点）。如果 t ∈ [0,1] 且 u ∈ [0,1]，交点在<strong>线段范围</strong>内。</p>
+
+<pre><code><span class="cm">// 来自 LineSegment.h</span>
+<span class="kw">static</span> <span class="kw">auto</span> <span class="fn">intersection</span>(<span class="kw">const</span> <span class="ty">LineSegment</span> &amp;a, <span class="kw">const</span> <span class="ty">LineSegment</span> &amp;b,
+                         <span class="kw">bool</span> infiniteLines) {
+    <span class="kw">auto</span> r = a.<span class="fn">direction</span>(<span class="num">false</span>);   <span class="cm">// A1 - A0</span>
+    <span class="kw">auto</span> s = b.<span class="fn">direction</span>(<span class="num">false</span>);   <span class="cm">// B1 - B0</span>
+    <span class="kw">auto</span> q = <span class="fn">subtract</span>(b.a, a.a);   <span class="cm">// B0 - A0</span>
+
+    <span class="kw">auto</span> denom = <span class="fn">cross</span>(r, s);
+    <span class="kw">if</span> (<span class="fn">abs</span>(denom) &lt; <span class="num">0.0001f</span>) <span class="kw">return</span> <span class="kw">nullopt</span>; <span class="cm">// 平行</span>
+
+    <span class="kw">auto</span> t = <span class="fn">cross</span>(q, s) / denom;
+    <span class="kw">auto</span> u = <span class="fn">cross</span>(q, r) / denom;
+
+    <span class="kw">if</span> (!infiniteLines &amp;&amp; (t &lt; <span class="num">0</span> || t &gt; <span class="num">1</span> || u &lt; <span class="num">0</span> || u &gt; <span class="num">1</span>))
+        <span class="kw">return</span> <span class="kw">nullopt</span>;
+
+    <span class="kw">return</span> <span class="fn">add</span>(a.a, <span class="fn">multiply</span>(r, t));
+}</code></pre>
+
+<div id="canvas-intersect"></div>
+<p class="desc">两条线段的交点计算。拖拽端点改变线段，观察交点变化。如果交点在线段外，显示为灰色。</p>
+</div>
+
+<!-- ==================== 7 ==================== -->
+<div class="section" id="sec7">
+<h2>7. 连接点样式：Miter / Bevel / Round</h2>
+<p>这是 Polyline2D 的核心功能之一。当折线拐弯时，需要决定如何填充拐角处的"缺口"。有三种选择：</p>
+
+<div class="col-card">
+<div><div class="num">MITER</div><div class="lbl">尖角连接：两边外边缘延伸相交</div></div>
+<div><div class="num">BEVEL</div><div class="lbl">平角连接：用三角形切掉尖角</div></div>
+<div><div class="num">ROUND</div><div class="lbl">圆角连接：用多个三角形模拟圆弧</div></div>
+</div>
+
+<h3>Miter（斜接）</h3>
+<p>Miter 连接通过计算<strong>两条边线的交点</strong>来延伸拐角。但有一个<strong>Miter 限制</strong>：如果夹角太小（< 20°），斜接会伸得太远，此时自动降级为 Bevel。</p>
+<div class="formula">
+innerAngle &lt; 20° &nbsp;⟹&nbsp; 自动切换为 BEVEL
+</div>
+<pre><code><span class="cm">// 来自 Polyline2D.h</span>
+<span class="kw">if</span> (jointStyle == <span class="ty">JointStyle</span>::<span class="ty">MITER</span>
+    &amp;&amp; wrappedAngle &lt; miterMinAngle) {
+    jointStyle = <span class="ty">JointStyle</span>::<span class="ty">BEVEL</span>;  <span class="cm">// 降级！</span>
+}</code></pre>
+
+<h3>Bevel（斜切）</h3>
+<p>Bevel 连接识别出<strong>内边和外边</strong>，计算内边交点，然后用一个三角形填充外边与内边之间的区域。</p>
+<div class="formula">
+顺时针判断：<strong>dir</strong><sub>1</sub> × <strong>dir</strong><sub>2</sub> &lt; 0 → 顺时针<br>
+顺时针时：外边 = edge1, 内边 = edge2<br>
+逆时针时：外边 = edge2, 内边 = edge1
+</div>
+
+<h3>Round（圆角）</h3>
+<p>与 Bevel 类似，但用<strong>三角形扇</strong>（多个三角形）代替单个三角形来模拟圆弧。每个三角形覆盖约 10° 的弧。</p>
+
+<div class="formula">
+三角形数量 = ⌊关节角度 / 10°⌋
+</div>
+
+<div id="canvas-joint"></div>
+<p class="desc">三种连接样式对比。拖拽中间的点改变拐角角度，观察不同样式的表现。</p>
+
+<div class="note">
+<strong>Polyline2D 的 JointStyle 枚举：</strong><br>
+<code>MITER</code> — 尖角（夹角太小自动降级为 BEVEL）<br>
+<code>BEVEL</code> — 平角<br>
+<code>ROUND</code> — 圆角
+</div>
+</div>
+
+<!-- ==================== 8 ==================== -->
+<div class="section" id="sec8">
+<h2>8. 端点样式：Butt / Square / Round / Joint</h2>
+<p>折线的起点和终点也需要特殊处理。Polyline2D 支持四种端点样式：</p>
+
+<div class="col-card">
+<div><div class="num">BUTT</div><div class="lbl">平头：在端点处截断</div></div>
+<div><div class="num">SQUARE</div><div class="lbl">方头：向外延伸半厚度</div></div>
+<div><div class="num">ROUND</div><div class="lbl">圆头：用三角形扇画半圆</div></div>
+<div><div class="num">JOINT</div><div class="lbl">闭合：首尾相连（用于多边形）</div></div>
+</div>
+
+<h3>BUTT（平头）</h3>
+<p>最简单，直接使用边线的端点作为网格的端点，不加任何额外几何体。</p>
+
+<h3>SQUARE（方头）</h3>
+<p>将端点<strong>沿方向向量</strong>再延伸半厚度：</p>
+<div class="formula">
+pathEnd = pathEnd + <strong>d̂</strong> × (thickness / 2)
+</div>
+
+<pre><code><span class="kw">if</span> (endCapStyle == <span class="ty">EndCapStyle</span>::<span class="ty">SQUARE</span>) {
+    pathEnd1 = <span class="fn">add</span>(pathEnd1, <span class="fn">multiply</span>(
+        firstSegment.edge1.<span class="fn">direction</span>(), thickness));
+}</code></pre>
+
+<h3>ROUND（圆头）</h3>
+<p>在起点和终点各画一个<strong>半圆</strong>（三角形扇），半径 = 厚度 / 2。</p>
+
+<h3>JOINT（闭合）</h3>
+<p>在首尾之间创建一个额外的连接段，然后按 JointStyle 处理这个连接点。</p>
+
+<div id="canvas-endcap"></div>
+<p class="desc">四种端点样式对比。<code>JOINT</code> 模式会闭合路径。</p>
+</div>
+
+<!-- ==================== 9 ==================== -->
+<div class="section" id="sec9">
+<h2>9. 三角形扇：绘制圆角</h2>
+<p>三角形扇（Triangle Fan）是一种用一组三角形"铺满"一个扇形区域的技术。Polyline2D 用它在 <strong>Round 关节</strong>和 <strong>Round 端点</strong>中画圆弧。</p>
+
+<p>核心思路：</p>
+<div class="formula">
+1. 计算起始点角度：θ<sub>1</sub> = atan2(y<sub>1</sub>, x<sub>1</sub>)<br>
+2. 计算结束点角度：θ<sub>2</sub> = atan2(y<sub>2</sub>, x<sub>2</sub>)<br>
+3. 计算跨过的角度差：Δθ = θ<sub>2</sub> − θ<sub>1</sub><br>
+4. 用 N 个三角形均匀覆盖 Δθ，每个约 10°
+</div>
+
+<p>2D 旋转公式（将点围绕原点旋转 rot 弧度）：</p>
+<div class="formula">
+x' = cos(rot) · x − sin(rot) · y<br>
+y' = sin(rot) · x + cos(rot) · y
+</div>
+
+<pre><code><span class="cm">// 来自 Polyline2D.h 的 createTriangleFan()</span>
+<span class="kw">for</span> (<span class="kw">int</span> t = <span class="num">0</span>; t &lt; numTriangles; t++) {
+    <span class="kw">float</span> rot = (t + <span class="num">1</span>) * triAngle;
+    endPoint.x = <span class="fn">cos</span>(rot) * point1.x - <span class="fn">sin</span>(rot) * point1.y;
+    endPoint.y = <span class="fn">sin</span>(rot) * point1.x + <span class="fn">cos</span>(rot) * point1.y;
+
+    <span class="cm">// 输出三角形 (startPoint, endPoint, connectTo)</span>
+    *vertices++ = startPoint;
+    *vertices++ = endPoint;
+    *vertices++ = connectTo;
+
+    startPoint = endPoint;
+}</code></pre>
+
+<div id="canvas-fan"></div>
+<p class="desc">三角形扇的原理。滑块控制扇形角度和三角形数量，观察如何用三角形逼近圆弧。</p>
+</div>
+
+<!-- ==================== 10 ==================== -->
+<div class="section" id="sec10">
+<h2>10. 三角形网格：Polyline2D 的输出</h2>
+<p>现在让我们把所有的拼图合在一起，看看 Polyline2D 的完整算法流程：</p>
+
+<div class="col-demo">
+<div>
+<h4>Step 1</h4>
+输入点 [P<sub>0</sub>, P<sub>1</sub>, ..., P<sub>n-1</sub>]，过滤重复点
+</div>
+<div>
+<h4>Step 2</h4>
+对每对相邻点创建 PolySegment（中心线、边1、边2）
+</div>
+<div>
+<h4>Step 3</h4>
+处理端点样式（BUTT/SQUARE/ROUND/JOINT）
+</div>
+<div>
+<h4>Step 4</h4>
+遍历所有段，每段调用 createJoint() 处理连接处
+</div>
+<div>
+<h4>Step 5</h4>
+每段输出 6 个顶点（2 个三角形）
+</div>
+<div>
+<h4>Step 6</h4>
+返回完整的三角形顶点数组
+</div>
+</div>
+
+<div class="formula">
+<strong>create() 的完整流程（伪代码）：</strong><br><br>
+1. thickness /= 2<br>
+2. 对每对点 (i, i+1)：<br>
+&nbsp;&nbsp;&nbsp;如果点不同：segments += PolySegment(Line(p<sub>i</sub>, p<sub>i+1</sub>), thickness)<br>
+3. 如果是 JOINT 模式：添加首尾连接段<br>
+4. 根据 EndCapStyle 处理端点<br>
+5. 对每个 segment[i]：<br>
+&nbsp;&nbsp;&nbsp;调用 createJoint(segment[i], segment[i+1], jointStyle)<br>
+&nbsp;&nbsp;&nbsp;输出 6 个顶点<br>
+6. 返回顶点迭代器
+</div>
+
+<div class="tip">
+<strong>完整代码阅读路径</strong>（当前项目）：<br>
+<code>third_party/polyline2d/include/Polyline2D.h</code> — 主算法<br>
+<code>third_party/polyline2d/include/LineSegment.h</code> — 线段与求交<br>
+<code>third_party/polyline2d/include/Vec2.h</code> — 2D 向量与数学运算
+</div>
+</div>
+
+<!-- ==================== 11 ==================== -->
+<div class="section" id="sec11">
+<h2>11. 完整交互演示</h2>
+<p>这是 Polyline2D 的完整交互模拟。拖拽点来改变折线形状，调整参数观察不同样式的效果：</p>
+
+<div id="canvas-full"></div>
+<div class="ctrl">
+<label>线宽：</label><input type="range" id="thick" min="2" max="60" value="24">
+<label>连接样式：</label><select id="jointStyle"><option>MITER</option><option>BEVEL</option><option selected>ROUND</option></select>
+<label>端点样式：</label><select id="endCapStyle"><option>BUTT</option><option>SQUARE</option><option selected>ROUND</option><option>JOINT</option></select>
+<label>显示：</label>
+<label><input type="checkbox" id="showWire" checked> 网格线</label>
+<label><input type="checkbox" id="showFill" checked> 填充</label>
+<label><input type="checkbox" id="showPoints" checked> 输入点</label>
+<label><input type="checkbox" id="showCenters"> 中心线</label>
+<button id="resetBtn">重置形状</button>
+</div>
+<p class="desc">这是 Polyline2D 核心算法的完整模拟。拖拽红色圆点改变折线路径。</p>
+</div>
+
+<!-- ==================== FOOTER ==================== -->
+<div style="text-align:center;padding:50px 0 30px;color:#555;font-size:.85em">
+Polyline2D 交互式教学指南 | 基于 <a href="https://github.com/crushedpixel/Polyline2D" style="color:#64b5f6">CrushedPixel/Polyline2D</a> 库<br>
+所有交互示例使用 HTML5 Canvas 实现
+</div>
+
+</div>
+
+<script>
+// ============================================================
+// Common helpers
+// ============================================================
+function getCtx(id,w=800,h=500){
+    const c=document.getElementById(id);
+    if(!c){console.warn('no canvas',id);return null}
+    c.width=w;c.height=h;
+    const ctx=c.getContext('2d');
+    ctx.clear=()=>{ctx.clearRect(0,0,w,h)};
+    ctx.px=(x,y)=>({x,y});
+    return ctx;
+}
+function drawArrow(ctx,from,to,color='#fff',headSize=8){
+    const a=to.x-from.x,b=to.y-from.y,len=Math.hypot(a,b);
+    if(len<1)return;
+    const nx=a/len,ny=b/len;
+    ctx.strokeStyle=color;ctx.lineWidth=2;
+    ctx.beginPath();ctx.moveTo(from.x,from.y);ctx.lineTo(to.x,to.y);ctx.stroke();
+    // head
+    ctx.beginPath();
+    ctx.moveTo(to.x,to.y);
+    ctx.lineTo(to.x-nx*headSize+ny*headSize*0.5,to.y-ny*headSize-nx*headSize*0.5);
+    ctx.lineTo(to.x-nx*headSize-ny*headSize*0.5,to.y-ny*headSize+nx*headSize*0.5);
+    ctx.closePath();ctx.fillStyle=color;ctx.fill();
+}
+function drawDot(ctx,pt,color='#ff6b6b',r=5){
+    ctx.beginPath();ctx.arc(pt.x,pt.y,r,0,Math.PI*2);ctx.fillStyle=color;ctx.fill();
+}
+function drawTriangle(ctx,a,b,c,color,alpha=.5){
+    ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.lineTo(c.x,c.y);ctx.closePath();
+    ctx.fillStyle=color;ctx.globalAlpha=alpha;ctx.fill();ctx.globalAlpha=1;
+    ctx.strokeStyle='rgba(255,255,255,.15)';ctx.lineWidth=1;ctx.stroke();
+}
+function drawLabel(ctx,x,y,text,color='#aaa',size=13){
+    ctx.fillStyle=color;ctx.font=size+'px monospace';
+    ctx.fillText(text,x+6,y-6);
+}
+function lerp(a,b,t){return a+(b-a)*t}
+function clamp(v,mn,mx){return Math.max(mn,Math.min(mx,v))}
+
+function isDragging(d){return d && d.dragging}
+function getMousePos(canvas,e){
+    const r=canvas.getBoundingClientRect();
+    return {x:e.clientX-r.x,y:e.clientY-r.y};
+}
+function setupDrag(canvas,points,onChange,hitR=10){
+    let dragging=null,offset={x:0,y:0};
+    canvas.addEventListener('mousedown',e=>{
+        const p=getMousePos(canvas,e);
+        for(let i=0;i<points.length;i++){
+            if(Math.hypot(p.x-points[i].x,p.y-points[i].y)<hitR){
+                dragging=i;
+                offset.x=p.x-points[i].x;
+                offset.y=p.y-points[i].y;
+                canvas.style.cursor='grabbing';
+                return;
+            }
+        }
+    });
+    canvas.addEventListener('mousemove',e=>{
+        if(dragging===null)return;
+        const p=getMousePos(canvas,e);
+        points[dragging].x=clamp(p.x-offset.x,0,canvas.width);
+        points[dragging].y=clamp(p.y-offset.y,0,canvas.height);
+        if(onChange)onChange();
+    });
+    canvas.addEventListener('mouseup',()=>{
+        if(dragging!==null){
+            dragging=null;
+            canvas.style.cursor='grab';
+        }
+    });
+    canvas.addEventListener('mouseleave',()=>{
+        if(dragging!==null){
+            dragging=null;
+            canvas.style.cursor='grab';
+        }
+    });
+    return ()=>dragging;
+}
+
+// ============================================================
+// 2 VECTORS
+// ============================================================
+(function(){
+    const ctx=getCtx('canvas-vec',800,500);
+    if(!ctx)return;
+    const w=800,h=500,cx=300,cy=250;
+    const a={x:120,y:-60},b={x:80,y:100};
+    const pts=[
+        {x:cx+a.x,y:cy+a.y},
+        {x:cx+b.x,y:cy+b.y}
+    ];
+    function draw(){
+        ctx.clear();
+        // grid
+        ctx.strokeStyle='rgba(255,255,255,.05)';
+        for(let x=0;x<w;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke()}
+        for(let y=0;y<h;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke()}
+        // origin cross
+        ctx.strokeStyle='rgba(255,255,255,.2)';ctx.lineWidth=1;
+        ctx.beginPath();ctx.moveTo(cx-10,cy);ctx.lineTo(cx+10,cy);ctx.moveTo(cx,cy-10);ctx.lineTo(cx,cy+10);ctx.stroke();
+        drawDot(ctx,{x:cx,y:cy},'rgba(255,255,255,.3)',3);
+
+        const va={x:pts[0].x-cx,y:pts[0].y-cy};
+        const vb={x:pts[1].x-cx,y:pts[1].y-cy};
+        const sum={x:va.x+vb.x,y:va.y+vb.y};
+        const dot=va.x*vb.x+va.y*vb.y;
+        const cross=va.x*vb.y-va.y*vb.x;
+        const magA=Math.hypot(va.x,va.y);
+        const magB=Math.hypot(vb.x,vb.y);
+
+        // vector a
+        drawArrow(ctx,{x:cx,y:cy},pts[0],'#ef5350');
+        drawLabel(ctx,pts[0].x,pts[0].y,'a','#ef5350');
+        // vector b
+        drawArrow(ctx,{x:cx,y:cy},pts[1],'#42a5f5');
+        drawLabel(ctx,pts[1].x,pts[1].y,'b','#42a5f5');
+        // sum
+        const sumP={x:cx+sum.x,y:cy+sum.y};
+        drawArrow(ctx,{x:cx,y:cy},sumP,'#ab47bc');
+        drawLabel(ctx,sumP.x,sumP.y,'a+b','#ab47bc');
+        // parallelogram
+        ctx.strokeStyle='rgba(171,71,188,.2)';ctx.lineWidth=1;ctx.setLineDash([4,4]);
+        ctx.beginPath();ctx.moveTo(pts[0].x,pts[0].y);ctx.lineTo(sumP.x,sumP.y);ctx.lineTo(pts[1].x,pts[1].y);ctx.stroke();
+        ctx.setLineDash([]);
+
+        // info
+        ctx.fillStyle='#888';ctx.font='14px monospace';
+        ctx.textAlign='left';
+        const ly=20;
+        ctx.fillText('a = ('+va.x.toFixed(1)+', '+va.y.toFixed(1)+')  |a| = '+magA.toFixed(2),30,ly);
+        ctx.fillText('b = ('+vb.x.toFixed(1)+', '+vb.y.toFixed(1)+')  |b| = '+magB.toFixed(2),30,ly+22);
+        ctx.fillText('a·b = '+dot.toFixed(1)+'    a×b = '+cross.toFixed(1),30,ly+44);
+        ctx.fillText('a+b = ('+sum.x.toFixed(1)+', '+sum.y.toFixed(1)+')',30,ly+66);
+        ctx.fillStyle=cross>0?'#66bb6a':'#ef5350';
+        ctx.fillText('转向：'+(cross>0?'逆时针 (ccw)':'顺时针 (cw)'),30,ly+88);
+        ctx.fillStyle='#888';
+        ctx.fillText('提示：拖拽箭头顶端调整向量',30,ly+116);
+    }
+    setupDrag(document.getElementById('canvas-vec'),pts,draw);
+    draw();
+})();
+
+// ============================================================
+// 3 LINE SEGMENT
+// ============================================================
+(function(){
+    const ctx=getCtx('canvas-line',800,400);
+    if(!ctx)return;
+    const w=800,h=400;
+    const p0={x:120,y:300},p1={x:680,y:100};
+    const pts=[p0,p1];
+    let t=0.5;
+    function draw(){
+        ctx.clear();
+        // grid
+        ctx.strokeStyle='rgba(255,255,255,.04)';
+        for(let x=0;x<w;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke()}
+        for(let y=0;y<h;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke()}
+
+        const dx=p1.x-p0.x,dy=p1.y-p0.y;
+        const len=Math.hypot(dx,dy);
+        const nx=dx/len,ny=dy/len;
+        const tpt={x:p0.x+nx*t*len,y:p0.y+ny*t*len};
+
+        // main line
+        ctx.strokeStyle='#64b5f6';ctx.lineWidth=3;
+        ctx.beginPath();ctx.moveTo(p0.x,p0.y);ctx.lineTo(p1.x,p1.y);ctx.stroke();
+
+        // direction arrow at midpoint
+        const mx=(p0.x+p1.x)/2,my=(p0.y+p1.y)/2;
+        const arrLen=60;
+        drawArrow(ctx,{x:mx-arrLen*0.4*nx,y:my-arrLen*0.4*ny},
+                  {x:mx+arrLen*0.6*nx,y:my+arrLen*0.6*ny},'#ef5350');
+        drawLabel(ctx,mx+arrLen*0.6*nx,my+arrLen*0.6*ny,'方向 d','#ef5350');
+
+        // normalized direction at bottom
+        drawArrow(ctx,{x:50,y:40},{x:50+nx*80,y:40+ny*80},'#66bb6a');
+        drawLabel(ctx,50+nx*80,40+ny*80,'归一化 d̂','#66bb6a');
+
+        // t point
+        drawDot(ctx,tpt,'#ffd54f',6);
+        drawLabel(ctx,tpt.x,tpt.y,'P(t)','#ffd54f');
+
+        // endpoints
+        drawDot(ctx,p0,'#ef5350',5);
+        drawLabel(ctx,p0.x,p0.y,'P₀','#ef5350');
+        drawDot(ctx,p1,'#ef5350',5);
+        drawLabel(ctx,p1.x,p1.y,'P₁','#ef5350');
+
+        // info
+        ctx.fillStyle='#888';ctx.font='14px monospace';
+        ctx.fillText('d = ('+dx.toFixed(1)+', '+dy.toFixed(1)+')  |d| = '+len.toFixed(1),30,355);
+        ctx.fillText('d̂ = ('+nx.toFixed(3)+', '+ny.toFixed(3)+')',30,375);
+    }
+    setupDrag(document.getElementById('canvas-line'),pts,draw);
+    // slider
+    const sl=document.createElement('input');
+    sl.type='range';sl.min=0;sl.max=1;sl.step=.01;sl.value=.5;
+    sl.style.width='200px';
+    const parent=document.getElementById('canvas-line').parentNode;
+    const div=document.createElement('div');div.className='ctrl';
+    div.appendChild(document.createTextNode('t = '));
+    div.appendChild(sl);
+    const lspan=document.createElement('span');lspan.style.color='#ffd54f';lspan.textContent='0.50';
+    div.appendChild(lspan);
+    div.appendChild(document.createTextNode('  (线段参数位置)'));
+    parent.insertBefore(div,document.getElementById('canvas-line').nextSibling);
+    sl.addEventListener('input',()=>{t=parseFloat(sl.value);lspan.textContent=t.toFixed(2);draw()});
+    draw();
+})();
+
+// ============================================================
+// 4 NORMAL
+// ============================================================
+(function(){
+    const ctx=getCtx('canvas-normal',800,400);
+    if(!ctx)return;
+    const w=800,h=400;
+    const p0={x:200,y:300},p1={x:600,y:120};
+    const pts=[p0,p1];
+    function draw(){
+        ctx.clear();
+        ctx.strokeStyle='rgba(255,255,255,.04)';
+        for(let x=0;x<w;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke()}
+        for(let y=0;y<h;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke()}
+
+        const dx=p1.x-p0.x,dy=p1.y-p0.y;
+        const len=Math.hypot(dx,dy);
+        const nx=dx/len,ny=dy/len;
+
+        // main line
+        ctx.strokeStyle='#64b5f6';ctx.lineWidth=2;
+        ctx.beginPath();ctx.moveTo(p0.x,p0.y);ctx.lineTo(p1.x,p1.y);ctx.stroke();
+
+        // direction at center
+        const cx=(p0.x+p1.x)/2,cy=(p0.y+p1.y)/2;
+        const dLen=70;
+        drawArrow(ctx,{x:cx-dLen*0.3*nx,y:cy-dLen*0.3*ny},
+                  {x:cx+dLen*0.7*nx,y:cy+dLen*0.7*ny},'#66bb6a');
+        drawLabel(ctx,cx+dLen*0.7*nx,cy+dLen*0.7*ny,'方向','#66bb6a');
+
+        // normal (perp)
+        const px=-ny,py=nx; // normal: (-dy, dx)
+        const nLen=70;
+        drawArrow(ctx,{x:cx,y:cy},{x:cx+px*nLen,y:cy+py*nLen},'#42a5f5');
+        drawArrow(ctx,{x:cx,y:cy},{x:cx-px*nLen,y:cy-py*nLen},'#42a5f5');
+        drawLabel(ctx,cx+px*nLen,cy+py*nLen,'法向量 n','#42a5f5');
+        drawLabel(ctx,cx-px*nLen,cy-py*nLen,'法向量 -n','#42a5f5');
+
+        // right angle indicator
+        const r=16;
+        const endN={x:cx+px*r,y:cy+py*r};
+        const endD={x:cx+nx*r,y:cy+ny*r};
+        // arc
+        ctx.strokeStyle='rgba(255,255,255,.2)';
+        ctx.beginPath();
+        ctx.arc(cx,cy,r,Math.atan2(ny,nx),Math.atan2(py,px),false);
+        ctx.stroke();
+
+        // endpoints
+        drawDot(ctx,p0,'#ef5350',4);
+        drawDot(ctx,p1,'#ef5350',4);
+
+        ctx.fillStyle='#888';ctx.font='14px monospace';
+        ctx.fillText('n = (-d.y, d.x) = ('+(-ny).toFixed(3)+', '+(nx).toFixed(3)+')',30,375);
+        ctx.fillText('d·n = '+(nx*px+ny*py).toFixed(2)+' (应为 0)',30,355);
+    }
+    setupDrag(document.getElementById('canvas-normal'),pts,draw);
+    draw();
+})();
+
+// ============================================================
+// 5 THICK LINE
+// ============================================================
+(function(){
+    const ctx=getCtx('canvas-thick',800,420);
+    if(!ctx)return;
+    const w=800,h=420;
+    let thick=80;
+    const p0={x:100,y:350},p1={x:700,y:100};
+    const pts=[p0,p1];
+    function draw(){
+        ctx.clear();
+        ctx.strokeStyle='rgba(255,255,255,.04)';
+        for(let x=0;x<w;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke()}
+        for(let y=0;y<h;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke()}
+
+        const dx=p1.x-p0.x,dy=p1.y-p0.y;
+        const len=Math.hypot(dx,dy);
+        if(len<1)return;
+        const nx=dx/len,ny=dy/len;
+        const ht=thick/2;
+        // normals
+        const px=-ny,py=nx;
+
+        // edge1 = center + normal * ht
+        const e1a={x:p0.x+px*ht,y:p0.y+py*ht};
+        const e1b={x:p1.x+px*ht,y:p1.y+py*ht};
+        // edge2 = center - normal * ht
+        const e2a={x:p0.x-px*ht,y:p0.y-py*ht};
+        const e2b={x:p1.x-px*ht,y:p1.y-py*ht};
+
+        // fill triangles
+        drawTriangle(ctx,e1a,e2a,e1b,'rgba(92,107,192,.5)');
+        drawTriangle(ctx,e1b,e2a,e2b,'rgba(92,107,192,.5)');
+
+        // center line
+        ctx.strokeStyle='#ffd54f';ctx.lineWidth=2;ctx.setLineDash([6,4]);
+        ctx.beginPath();ctx.moveTo(p0.x,p0.y);ctx.lineTo(p1.x,p1.y);ctx.stroke();
+        ctx.setLineDash([]);
+        drawLabel(ctx,(p0.x+p1.x)/2,(p0.y+p1.y)/2-15,'中心线 (虚线)','#ffd54f');
+
+        // edge lines
+        ctx.strokeStyle='#81c784';ctx.lineWidth=1.5;
+        ctx.beginPath();ctx.moveTo(e1a.x,e1a.y);ctx.lineTo(e1b.x,e1b.y);ctx.stroke();
+        ctx.beginPath();ctx.moveTo(e2a.x,e2a.y);ctx.lineTo(e2b.x,e2b.y);ctx.stroke();
+        drawLabel(ctx,e1b.x-20,e1b.y-10,'edge1','#81c784');
+        drawLabel(ctx,e2b.x-20,e2b.y+15,'edge2','#81c784');
+
+        // normal indicator
+        const mc={x:(p0.x+p1.x)/2,y:(p0.y+p1.y)/2};
+        const nLen=Math.min(ht,60);
+        drawArrow(ctx,mc,{x:mc.x+px*nLen,y:mc.y+py*nLen},'#42a5f5');
+        drawArrow(ctx,mc,{x:mc.x-px*nLen,y:mc.y-py*nLen},'#42a5f5');
+        drawLabel(ctx,mc.x+px*nLen,mc.y+py*nLen,'+n×半厚','#42a5f5');
+        drawLabel(ctx,mc.x-px*nLen-10,mc.y-py*nLen,'-n×半厚','#42a5f5');
+
+        // endpoints
+        drawDot(ctx,p0,'#ef5350',4);
+        drawDot(ctx,p1,'#ef5350',4);
+
+        // vertices labels
+        ctx.fillStyle='rgba(255,255,255,.5)';ctx.font='12px monospace';
+        ctx.fillText('▴',e1a.x-4,e1a.y-8);ctx.fillText('▾',e2a.x-4,e2a.y+14);
+        ctx.fillText('▴',e1b.x-4,e1b.y-8);ctx.fillText('▾',e2b.x-4,e2b.y+14);
+
+        ctx.fillStyle='#888';ctx.font='14px monospace';
+        ctx.fillText('半厚度 = '+ht.toFixed(0),30,380);
+        ctx.fillText('法向量 n = ('+px.toFixed(2)+', '+py.toFixed(2)+')',30,360);
+    }
+    setupDrag(document.getElementById('canvas-thick'),pts,draw);
+    // slider
+    const sl=document.createElement('input');
+    sl.type='range';sl.min=4;sl.max=140;sl.value=80;
+    const parent=document.getElementById('canvas-thick').parentNode;
+    const div=document.createElement('div');div.className='ctrl';
+    div.appendChild(document.createTextNode('厚度: '));
+    div.appendChild(sl);
+    const lspan=document.createElement('span');lspan.style.color='#ffd54f';lspan.textContent='40';
+    div.appendChild(lspan);
+    parent.insertBefore(div,document.getElementById('canvas-thick').nextSibling);
+    sl.addEventListener('input',()=>{thick=parseFloat(sl.value);lspan.textContent=(thick/2).toFixed(0);draw()});
+    draw();
+})();
+
+// ============================================================
+// 6 LINE INTERSECTION
+// ============================================================
+(function(){
+    const ctx=getCtx('canvas-intersect',800,450);
+    if(!ctx)return;
+    const w=800,h=450;
+    const pts=[
+        {x:120,y:360},{x:450,y:80},  // line A: a0, a1
+        {x:300,y:380},{x:650,y:120}  // line B: b0, b1
+    ];
+    function lineIntersect(a0,a1,b0,b1){
+        const rx=a1.x-a0.x,ry=a1.y-a0.y;
+        const sx=b1.x-b0.x,sy=b1.y-b0.y;
+        const qx=b0.x-a0.x,qy=b0.y-a0.y;
+        const denom=rx*sy-ry*sx;
+        if(Math.abs(denom)<1e-8)return null;
+        const t=(qx*sy-qy*sx)/denom;
+        const u=(qx*ry-qy*rx)/denom;
+        return {t,u,pt:{x:a0.x+rx*t,y:a0.y+ry*t},inSeg:t>=0&&t<=1&&u>=0&&u<=1};
+    }
+    function draw(){
+        ctx.clear();
+        ctx.strokeStyle='rgba(255,255,255,.04)';
+        for(let x=0;x<w;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke()}
+        for(let y=0;y<h;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke()}
+
+        // draw lines A
+        ctx.strokeStyle='#ef5350';ctx.lineWidth=3;
+        ctx.beginPath();ctx.moveTo(pts[0].x,pts[0].y);ctx.lineTo(pts[1].x,pts[1].y);ctx.stroke();
+        drawDot(ctx,pts[0],'#ef5350',6);
+        drawDot(ctx,pts[1],'#ef5350',6);
+        drawLabel(ctx,pts[0].x,pts[0].y,'A₀','#ef5350');
+        drawLabel(ctx,pts[1].x,pts[1].y,'A₁','#ef5350');
+
+        // draw lines B
+        ctx.strokeStyle='#42a5f5';ctx.lineWidth=3;
+        ctx.beginPath();ctx.moveTo(pts[2].x,pts[2].y);ctx.lineTo(pts[3].x,pts[3].y);ctx.stroke();
+        drawDot(ctx,pts[2],'#42a5f5',6);
+        drawDot(ctx,pts[3],'#42a5f5',6);
+        drawLabel(ctx,pts[2].x,pts[2].y,'B₀','#42a5f5');
+        drawLabel(ctx,pts[3].x,pts[3].y,'B₁','#42a5f5');
+
+        const res=lineIntersect(pts[0],pts[1],pts[2],pts[3]);
+        if(res){
+            drawDot(ctx,res.pt,res.inSeg?'#ffd54f':'#666',res.inSeg?8:5);
+            drawLabel(ctx,res.pt.x,res.pt.y,
+                (res.inSeg?'交点 (在线段内)':'交点 (在线段外)'),
+                res.inSeg?'#ffd54f':'#666');
+        }else{
+            ctx.fillStyle='#888';ctx.font='14px monospace';
+            ctx.fillText('两线平行，无交点',30,400);
+        }
+
+        ctx.fillStyle='#888';ctx.font='14px monospace';
+        ctx.fillText('叉积 r×s 决定是否平行',30,390);
+        if(res)ctx.fillText('t='+res.t.toFixed(3)+' u='+res.u.toFixed(3),30,410);
+        ctx.fillText('拖拽端点调整线段',30,430);
+    }
+    setupDrag(document.getElementById('canvas-intersect'),pts,draw);
+    draw();
+})();
+
+// ============================================================
+// 7 JOINT STYLES
+// ============================================================
+(function(){
+    const ctx=getCtx('canvas-joint',900,420);
+    if(!ctx)return;
+    const w=900,h=420;
+    let jointType=0; // 0=miter,1=bevel,2=round
+    const fixed={x:150,y:360};
+    const mid={x:450,y:200};
+    const end={x:750,y:350};
+    const pts=[fixed,mid,end];
+    function draw(){
+        ctx.clear();
+        ctx.strokeStyle='rgba(255,255,255,.04)';
+        for(let x=0;x<w;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke()}
+        for(let y=0;y<h;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke()}
+
+        const p0=fixed,p1=mid,p2=end;
+        // compute direction & normals
+        const dx1=p1.x-p0.x,dy1=p1.y-p0.y;
+        const dx2=p2.x-p1.x,dy2=p2.y-p1.y;
+        const l1=Math.hypot(dx1,dy1),l2=Math.hypot(dx2,dy2);
+        if(l1<1||l2<1)return;
+        const nx1=dx1/l1,ny1=dy1/l1;
+        const nx2=dx2/l2,ny2=dy2/l2;
+        const px1=-ny1,py1=nx1;
+        const px2=-ny2,py2=nx2;
+        const ht=30;
+
+        // edges
+        const e1a={x:p0.x+px1*ht,y:p0.y+py1*ht};
+        const e1b={x:p1.x+px1*ht,y:p1.y+py1*ht};
+        const e2a={x:p0.x-px1*ht,y:p0.y-py1*ht};
+        const e2b={x:p1.x-px1*ht,y:p1.y-py1*ht};
+        const e3a={x:p1.x+px2*ht,y:p1.y+py2*ht};
+        const e3b={x:p2.x+px2*ht,y:p2.y+py2*ht};
+        const e4a={x:p1.x-px2*ht,y:p1.y-py2*ht};
+        const e4b={x:p2.x-px2*ht,y:p2.y-py2*ht};
+
+        // center lines
+        ctx.strokeStyle='rgba(255,255,255,.15)';ctx.lineWidth=1;ctx.setLineDash([4,4]);
+        ctx.beginPath();ctx.moveTo(p0.x,p0.y);ctx.lineTo(p1.x,p1.y);ctx.stroke();
+        ctx.beginPath();ctx.moveTo(p1.x,p1.y);ctx.lineTo(p2.x,p2.y);ctx.stroke();
+        ctx.setLineDash([]);
+
+        const names=['MITER','BEVEL','ROUND'];
+        const colors=['#ef5350','#66bb6a','#ffd54f'];
+
+        // determine inner/outer
+        const crossVal=nx1*ny2-ny1*nx2;
+        const clockwise=crossVal<0;
+        const outerA=clockwise?e1a:e2a, outerB=clockwise?e1b:e2b;
+        const outerNextA=clockwise?e3a:e4a, outerNextB=clockwise?e3b:e4b;
+        const innerA=clockwise?e2a:e1a, innerB=clockwise?e2b:e1b;
+        const innerNextA=clockwise?e4a:e3a, innerNextB=clockwise?e4b:e3b;
+
+        // fill according to joint type
+        const color=colors[jointType];
+        const label=names[jointType];
+        ctx.fillStyle=color;ctx.globalAlpha=.2;
+        ctx.strokeStyle=color;ctx.lineWidth=2;
+
+        if(jointType===0){ // MITER
+            // find intersection of outer edges
+            function inter(a0,a1,b0,b1){
+                const rx=a1.x-a0.x,ry=a1.y-a0.y;
+                const sx=b1.x-b0.x,sy=b1.y-b0.y;
+                const qx=b0.x-a0.x,qy=b0.y-a0.y;
+                const denom=rx*sy-ry*sx;
+                if(Math.abs(denom)<1e-8)return null;
+                const t=(qx*sy-qy*sx)/denom;
+                return {x:a0.x+rx*t,y:a0.y+ry*t};
+            }
+            const int1=inter(e1a,e1b,e3a,e3b);
+            const int2=inter(e2a,e2b,e4a,e4b);
+            if(int1 && int2){
+                ctx.beginPath();ctx.moveTo(outerB.x,outerB.y);ctx.lineTo(int1.x,int1.y);
+                ctx.lineTo(int2.x,int2.y);ctx.lineTo(innerB.x,innerB.y);
+                ctx.closePath();ctx.fill();ctx.stroke();
+                drawDot(ctx,int1,color,5);drawDot(ctx,int2,color,5);
+            }
+        }else if(jointType===1||jointType===2){ // BEVEL or ROUND
+            // inner intersection
+            function interSeg(a0,a1,b0,b1){
+                const rx=a1.x-a0.x,ry=a1.y-a0.y;
+                const sx=b1.x-b0.x,sy=b1.y-b0.y;
+                const qx=b0.x-a0.x,qy=b0.y-a0.y;
+                const denom=rx*sy-ry*sx;
+                if(Math.abs(denom)<1e-8)return null;
+                const t=(qx*sy-qy*sx)/denom;
+                return {x:a0.x+rx*t,y:a0.y+ry*t};
+            }
+            const inner=interSeg(innerA,innerB,innerNextA,innerNextB);
+            const ip=inner||innerB;
+            // bevel triangle
+            ctx.beginPath();ctx.moveTo(outerB.x,outerB.y);
+            ctx.lineTo(outerNextA.x,outerNextA.y);
+            ctx.lineTo(ip.x,ip.y);
+            ctx.closePath();ctx.fill();ctx.stroke();
+
+            if(jointType===2){ // ROUND: draw arc
+                const nSteps=16;
+                const arcStart=outerB,arcEnd=outerNextA;
+                const ox=p1.x,oy=p1.y;
+                const a1=Math.atan2(arcStart.y-oy,arcStart.x-ox);
+                const a2=Math.atan2(arcEnd.y-oy,arcEnd.x-ox);
+                let fromA=a1,toA=a2;
+                if(clockwise){if(toA>fromA)toA-=2*Math.PI}
+                else{if(fromA>toA)fromA-=2*Math.PI}
+                const da=(toA-fromA)/nSteps;
+                ctx.strokeStyle='rgba(255,255,200,.4)';ctx.lineWidth=1;
+                for(let i=0;i<nSteps;i++){
+                    const ang=fromA+da*i;
+                    const ang2=fromA+da*(i+1);
+                    const x1=ox+Math.cos(ang)*ht,y1=oy+Math.sin(ang)*ht;
+                    const x2=ox+Math.cos(ang2)*ht,y2=oy+Math.sin(ang2)*ht;
+                    ctx.beginPath();ctx.moveTo(ox,oy);ctx.lineTo(x1,y1);ctx.lineTo(x2,y2);ctx.closePath();
+                    ctx.fillStyle='rgba(255,215,0,.15)';ctx.fill();
+                    ctx.strokeStyle='rgba(255,215,0,.3)';ctx.stroke();
+                }
+            }
+        }
+
+        ctx.globalAlpha=1;
+        // all edges
+        ctx.strokeStyle='rgba(255,255,255,.2)';ctx.lineWidth=1;
+        [e1a,e1b,e2a,e2b,e3a,e3b,e4a,e4b].forEach((p,i)=>{
+            drawDot(ctx,p,'rgba(255,255,255,.2)',2);
+        });
+        ctx.beginPath();ctx.moveTo(e1a.x,e1a.y);ctx.lineTo(e1b.x,e1b.y);ctx.stroke();
+        ctx.beginPath();ctx.moveTo(e2a.x,e2a.y);ctx.lineTo(e2b.x,e2b.y);ctx.stroke();
+        ctx.beginPath();ctx.moveTo(e3a.x,e3a.y);ctx.lineTo(e3b.x,e3b.y);ctx.stroke();
+        ctx.beginPath();ctx.moveTo(e4a.x,e4a.y);ctx.lineTo(e4b.x,e4b.y);ctx.stroke();
+
+        // points
+        drawDot(ctx,p0,'#ef5350',5);drawDot(ctx,p1,'#ffd54f',7);drawDot(ctx,p2,'#ef5350',5);
+        drawLabel(ctx,p1.x,p1.y,'← 拖拽我','#ffd54f');
+
+        ctx.fillStyle='#888';ctx.font='14px monospace';
+        ctx.fillText('当前样式: '+label+'   叉积='+crossVal.toFixed(2)+'   '+(clockwise?'顺时针':'逆时针'),30,390);
+        ctx.fillText('拖拽中间点改变拐角',30,410);
+    }
+    setupDrag(document.getElementById('canvas-joint'),pts,draw);
+
+    // buttons
+    const parent=document.getElementById('canvas-joint').parentNode;
+    const div=document.createElement('div');div.className='ctrl';
+    ['MITER','BEVEL','ROUND'].forEach((name,i)=>{
+        const btn=document.createElement('button');
+        btn.textContent=name;
+        btn.style.background=jointType===i?'#5c6bc0':'#333';
+        btn.onclick=()=>{jointType=i;div.querySelectorAll('button').forEach((b,j)=>b.style.background=j===jointType?'#5c6bc0':'#333');draw()};
+        div.appendChild(btn);
+    });
+    parent.insertBefore(div,document.getElementById('canvas-joint').nextSibling);
+    draw();
+})();
+
+// ============================================================
+// 8 END CAP STYLES
+// ============================================================
+(function(){
+    const ctx=getCtx('canvas-endcap',900,350);
+    if(!ctx)return;
+    const w=900,h=350;
+    const styles=['BUTT','SQUARE','ROUND','JOINT'];
+    let sel=0;
+    const pts=[{x:180,y:280},{x:500,y:80},{x:780,y:250}];
+    function draw(){
+        ctx.clear();
+        ctx.strokeStyle='rgba(255,255,255,.04)';
+        for(let x=0;x<w;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke()}
+        for(let y=0;y<h;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke()}
+
+        const ht=30;
+        // draw joint (always miter for simplicity)
+        function drawPolyline(points,capIdx,cap){
+            if(points.length<2)return;
+            // build segments with normals
+            const segs=[];
+            for(let i=0;i<points.length-1;i++){
+                const a=points[i],b=points[i+1];
+                const dx=b.x-a.x,dy=b.y-a.y;
+                const len=Math.hypot(dx,dy);
+                if(len<1)continue;
+                const nx=dx/len,ny=dy/len;
+                const px=-ny,py=nx;
+                segs.push({
+                    a,b,nx,ny,px,py,
+                    e1a:{x:a.x+px*ht,y:a.y+py*ht},
+                    e1b:{x:b.x+px*ht,y:b.y+py*ht},
+                    e2a:{x:a.x-px*ht,y:a.y-py*ht},
+                    e2b:{x:b.x-px*ht,y:b.y-py*ht}
+                });
+            }
+            if(!segs.length)return;
+
+            // extend endpoints for SQUARE
+            const first=segs[0],last=segs[segs.length-1];
+            let pathStart1=first.e1a,pathStart2=first.e2a;
+            let pathEnd1=last.e1b,pathEnd2=last.e2b;
+
+            if(cap==='SQUARE'){
+                pathStart1={x:first.e1a.x-first.nx*ht,y:first.e1a.y-first.ny*ht};
+                pathStart2={x:first.e2a.x-first.nx*ht,y:first.e2a.y-first.ny*ht};
+                pathEnd1={x:last.e1b.x+last.nx*ht,y:last.e1b.y+last.ny*ht};
+                pathEnd2={x:last.e2b.x+last.nx*ht,y:last.e2b.y+last.ny*ht};
+            }else if(cap==='ROUND'){
+                drawHalfCircle(first.e1a,first.a,first.e2a,false);
+                drawHalfCircle(last.e1b,last.b,last.e2b,true);
+            }
+
+            // for JOINT, connect last -> first
+            if(cap==='JOINT' && segs.length>1){
+                const segN={a:last.b,b:first.a};
+                const dx=segN.b.x-segN.a.x,dy=segN.b.y-segN.a.y;
+                const len=Math.hypot(dx,dy);
+                if(len>1){
+                    const nx=dx/len,ny=dy/len;
+                    const px=-ny,py=nx;
+                    const j1a={x:segN.a.x+px*ht,y:segN.a.y+py*ht};
+                    const j1b={x:segN.b.x+px*ht,y:segN.b.y+py*ht};
+                    const j2a={x:segN.a.x-px*ht,y:segN.a.y-py*ht};
+                    const j2b={x:segN.b.x-px*ht,y:segN.b.y-py*ht};
+                    // simple bevel joint
+                    ctx.fillStyle='rgba(171,71,188,.2)';
+                    ctx.beginPath();ctx.moveTo(pathEnd1.x,pathEnd1.y);
+                    ctx.lineTo(j1b.x,j1b.y);ctx.lineTo(j2b.x,j2b.y);
+                    ctx.lineTo(pathEnd2.x,pathEnd2.y);ctx.closePath();ctx.fill();
+                    ctx.strokeStyle='rgba(171,71,188,.4)';ctx.lineWidth=1;ctx.stroke();
+                }
+            }
+
+            // fill segments
+            for(let i=0;i<segs.length;i++){
+                const s=segs[i];
+                const s1=i===0?pathStart1:s.e1a;
+                const s2=i===0?pathStart2:s.e2a;
+                const e1=i===segs.length-1?pathEnd1:s.e1b;
+                const e2=i===segs.length-1?pathEnd2:s.e2b;
+                // joint between segments
+                if(i>0){
+                    const prev=segs[i-1];
+                    ctx.fillStyle='rgba(92,107,192,.15)';
+                    ctx.beginPath();ctx.moveTo(prev.e1b.x,prev.e1b.y);
+                    ctx.lineTo(s.e1a.x,s.e1a.y);ctx.lineTo(s.e2a.x,s.e2a.y);
+                    ctx.lineTo(prev.e2b.x,prev.e2b.y);ctx.closePath();ctx.fill();
+                    ctx.strokeStyle='rgba(92,107,192,.2)';ctx.lineWidth=1;ctx.stroke();
+                }
+                drawTriangle(ctx,s1,s2,e1,'rgba(92,107,192,.35)');
+                drawTriangle(ctx,e1,s2,e2,'rgba(92,107,192,.35)');
+            }
+
+            // center line
+            ctx.strokeStyle='rgba(255,255,255,.12)';ctx.lineWidth=1;ctx.setLineDash([4,4]);
+            ctx.beginPath();
+            for(let i=0;i<points.length;i++){
+                ctx[i===0?'moveTo':'lineTo'](points[i].x,points[i].y);
+            }
+            if(cap==='JOINT')ctx.closePath();
+            ctx.stroke();ctx.setLineDash([]);
+
+            // points
+            points.forEach((p,i)=>{
+                drawDot(ctx,p,i===capIdx?'#ffd54f':'#ef5350',i===capIdx?7:5);
+            });
+        }
+
+        // half circle helper
+        function drawHalfCircle(p1,center,p2,cw){
+            const nSteps=12;
+            const r=ht;
+            const ox=center.x,oy=center.y;
+            const a1=Math.atan2(p1.y-oy,p1.x-ox);
+            const a2=Math.atan2(p2.y-oy,p2.x-ox);
+            let fa=a1,ta=a2;
+            if(cw){if(ta>fa)ta-=2*Math.PI}
+            else{if(fa>ta)fa-=2*Math.PI}
+            const da=(ta-fa)/nSteps;
+            for(let i=0;i<nSteps;i++){
+                const ang=fa+da*i,ang2=fa+da*(i+1);
+                const x1=ox+Math.cos(ang)*r,y1=oy+Math.sin(ang)*r;
+                const x2=ox+Math.cos(ang2)*r,y2=oy+Math.sin(ang2)*r;
+                ctx.beginPath();ctx.moveTo(ox,oy);ctx.lineTo(x1,y1);ctx.lineTo(x2,y2);ctx.closePath();
+                ctx.fillStyle='rgba(100,181,246,.15)';ctx.fill();
+                ctx.strokeStyle='rgba(100,181,246,.25)';ctx.lineWidth=1;ctx.stroke();
+            }
+        }
+
+        drawPolyline(pts,-1,styles[sel]);
+
+        ctx.fillStyle='#888';ctx.font='14px monospace';
+        ctx.fillText('当前: '+styles[sel],30,320);
+        ctx.fillText('拖拽红色点调整形状',30,340);
+    }
+    setupDrag(document.getElementById('canvas-endcap'),pts,draw);
+    const parent=document.getElementById('canvas-endcap').parentNode;
+    const div=document.createElement('div');div.className='ctrl';
+    styles.forEach((name,i)=>{
+        const btn=document.createElement('button');
+        btn.textContent=name;
+        btn.style.background=sel===i?'#5c6bc0':'#333';
+        btn.onclick=()=>{sel=i;div.querySelectorAll('button').forEach((b,j)=>b.style.background=j===sel?'#5c6bc0':'#333');draw()};
+        div.appendChild(btn);
+    });
+    parent.insertBefore(div,document.getElementById('canvas-endcap').nextSibling);
+    draw();
+})();
+
+// ============================================================
+// 9 TRIANGLE FAN
+// ============================================================
+(function(){
+    const ctx=getCtx('canvas-fan',800,450);
+    if(!ctx)return;
+    const w=800,h=450,cx=300,cy=280;
+    let angle=240;
+    let nTris=8;
+    function draw(){
+        ctx.clear();
+        ctx.strokeStyle='rgba(255,255,255,.04)';
+        for(let x=0;x<w;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke()}
+        for(let y=0;y<h;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke()}
+
+        const r=120;
+        const rad=angle*Math.PI/180;
+        const startAngle=-rad/2;
+        const da=rad/nTris;
+
+        // draw fan
+        for(let i=0;i<nTris;i++){
+            const a1=startAngle+da*i;
+            const a2=startAngle+da*(i+1);
+            const x1=cx+Math.cos(a1)*r,y1=cy+Math.sin(a1)*r;
+            const x2=cx+Math.cos(a2)*r,y2=cy+Math.sin(a2)*r;
+            ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(x1,y1);ctx.lineTo(x2,y2);ctx.closePath();
+            const hue=200+i*15;
+            ctx.fillStyle=`hsla(${hue},70%,60%,.25)`;ctx.fill();
+            ctx.strokeStyle='rgba(255,255,255,.2)';ctx.lineWidth=1;ctx.stroke();
+
+            // vertex labels
+            if(i===0){
+                drawDot(ctx,{x:x1,y:y1},'#ffd54f',4);
+                ctx.fillStyle='#ffd54f';ctx.font='11px monospace';
+                ctx.fillText('起点',x1-20,y1-10);
+            }
+            if(i===nTris-1){
+                drawDot(ctx,{x:x2,y:y2},'#ffd54f',4);
+                ctx.fillStyle='#ffd54f';ctx.font='11px monospace';
+                ctx.fillText('终点',x2+6,y2-10);
+            }
+        }
+
+        // origin point
+        drawDot(ctx,{x:cx,y:cy},'#ef5350',6);
+        drawLabel(ctx,cx,cy,'原点 (joint 点)','#ef5350');
+
+        // arc outline
+        ctx.strokeStyle='rgba(255,255,255,.3)';ctx.lineWidth=2;
+        ctx.beginPath();
+        for(let i=0;i<=nTris;i++){
+            const a=startAngle+da*i;
+            const px=cx+Math.cos(a)*r,py=cy+Math.sin(a)*r;
+            i===0?ctx.moveTo(px,py):ctx.lineTo(px,py);
+        }
+        ctx.stroke();
+
+        // angle label
+        ctx.fillStyle='#888';ctx.font='14px monospace';
+        ctx.fillText('总角度: '+angle.toFixed(0)+'°   三角形数: '+nTris+'   每三角形: '+(angle/nTris).toFixed(1)+'°',30,400);
+        ctx.fillText('三角形扇用 N 个三角形逼近圆弧',30,420);
+    }
+    draw();
+
+    const parent=document.getElementById('canvas-fan').parentNode;
+    const div=document.createElement('div');div.className='ctrl';
+    div.innerHTML=`
+        <label>扇形角度:</label><input type="range" id="fanAngle" min="30" max="350" value="240">
+        <span id="fanAngleVal" style="color:#ffd54f">240°</span>
+        <label>三角形数量:</label><input type="range" id="fanTris" min="3" max="24" value="8">
+        <span id="fanTrisVal" style="color:#ffd54f">8</span>
+    `;
+    parent.insertBefore(div,document.getElementById('canvas-fan').nextSibling);
+
+    document.getElementById('fanAngle').addEventListener('input',function(){
+        angle=parseFloat(this.value);
+        document.getElementById('fanAngleVal').textContent=angle+'°';
+        draw();
+    });
+    document.getElementById('fanTris').addEventListener('input',function(){
+        nTris=parseInt(this.value);
+        document.getElementById('fanTrisVal').textContent=nTris;
+        draw();
+    });
+})();
+
+// ============================================================
+// 11 FULL DEMO (polyline2d sim)
+// ============================================================
+(function(){
+    const canvas=document.getElementById('canvas-full');
+    const ctx=canvas.getContext('2d');
+    const w=900,h=520;
+    canvas.width=w;canvas.height=h;
+
+    // default points
+    const pts=[
+        {x:150,y:400},{x:100,y:200},{x:280,y:80},
+        {x:450,y:180},{x:620,y:70},{x:750,y:220},{x:700,y:400}
+    ];
+
+    function draw(){
+        ctx.clearRect(0,0,w,h);
+        ctx.strokeStyle='rgba(255,255,255,.04)';
+        for(let x=0;x<w;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke()}
+        for(let y=0;y<h;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke()}
+
+        const thick=parseFloat(document.getElementById('thick').value);
+        const jointS=document.getElementById('jointStyle').value;
+        const capS=document.getElementById('endCapStyle').value;
+        const showWire=document.getElementById('showWire').checked;
+        const showFill=document.getElementById('showFill').checked;
+        const showPts=document.getElementById('showPoints').checked;
+        const showCenters=document.getElementById('showCenters').checked;
+
+        if(pts.length<2)return;
+
+        const ht=thick/2;
+        const segs=[];
+
+        // build segments
+        for(let i=0;i<pts.length-1;i++){
+            const a=pts[i],b=pts[i+1];
+            const dx=b.x-a.x,dy=b.y-a.y;
+            const len=Math.hypot(dx,dy);
+            if(len<1)continue;
+            const nx=dx/len,ny=dy/len;
+            const px=-ny,py=nx;
+            segs.push({
+                a,b,nx,ny,px,py,
+                e1a:{x:a.x+px*ht,y:a.y+py*ht},
+                e1b:{x:b.x+px*ht,y:b.y+py*ht},
+                e2a:{x:a.x-px*ht,y:a.y-py*ht},
+                e2b:{x:b.x-px*ht,y:b.y-py*ht},
+                ca:a,cb:b
+            });
+        }
+
+        if(segs.length===0)return;
+
+        // handle JOINT cap (add closing segment)
+        if(capS==='JOINT' && pts.length>2){
+            const a=pts[pts.length-1],b=pts[0];
+            const dx=b.x-a.x,dy=b.y-a.y;
+            const len=Math.hypot(dx,dy);
+            if(len>1){
+                const nx=dx/len,ny=dy/len;
+                const px=-ny,py=nx;
+                segs.push({
+                    a,b,nx,ny,px,py,
+                    e1a:{x:a.x+px*ht,y:a.y+py*ht},
+                    e1b:{x:b.x+px*ht,y:b.y+py*ht},
+                    e2a:{x:a.x-px*ht,y:a.y-py*ht},
+                    e2b:{x:b.x-px*ht,y:b.y-py*ht},
+                    ca:a,cb:b
+                });
+            }
+        }
+
+        // compute path start/end
+        let pathStart1=segs[0].e1a,pathStart2=segs[0].e2a;
+        let pathEnd1=segs[segs.length-1].e1b,pathEnd2=segs[segs.length-1].e2b;
+
+        // end caps
+        if(capS==='SQUARE'){
+            const f=segs[0],l=segs[segs.length-1];
+            pathStart1={x:f.e1a.x-f.nx*ht,y:f.e1a.y-f.ny*ht};
+            pathStart2={x:f.e2a.x-f.nx*ht,y:f.e2a.y-f.ny*ht};
+            pathEnd1={x:l.e1b.x+l.nx*ht,y:l.e1b.y+l.ny*ht};
+            pathEnd2={x:l.e2b.x+l.nx*ht,y:l.e2b.y+l.ny*ht};
+        }else if(capS==='ROUND'){
+            drawHalfCircle(segs[0].e1a,segs[0].a,segs[0].e2a,false);
+            const l=segs[segs.length-1];
+            drawHalfCircle(l.e1b,l.b,l.e2b,true);
+        }
+
+        // process joints
+        let start1=pathStart1,start2=pathStart2;
+
+        for(let i=0;i<segs.length;i++){
+            const seg=segs[i];
+            let end1,end2,nextStart1,nextStart2;
+
+            if(i===segs.length-1){
+                end1=pathEnd1;end2=pathEnd2;
+                nextStart1=pathEnd1;nextStart2=pathEnd2;
+            }else{
+                const next=segs[i+1];
+                const result=computeJoint(seg,next,jointS,ht);
+                end1=result.end1;end2=result.end2;
+                nextStart1=result.nextStart1;nextStart2=result.nextStart2;
+            }
+
+            // draw fill
+            if(showFill){
+                const tris=[
+                    [start1,start2,end1],
+                    [end1,start2,end2]
+                ];
+                tris.forEach(t=>{
+                    ctx.beginPath();
+                    ctx.moveTo(t[0].x,t[0].y);
+                    ctx.lineTo(t[1].x,t[1].y);
+                    ctx.lineTo(t[2].x,t[2].y);
+                    ctx.closePath();
+                    ctx.fillStyle='rgba(92,107,192,.35)';
+                    ctx.fill();
+                });
+            }
+
+            // draw wireframe
+            if(showWire){
+                ctx.strokeStyle='rgba(255,255,200,.15)';ctx.lineWidth=.8;
+                ctx.beginPath();ctx.moveTo(start1.x,start1.y);ctx.lineTo(start2.x,start2.y);
+                ctx.lineTo(end2.x,end2.y);ctx.lineTo(end1.x,end1.y);ctx.closePath();ctx.stroke();
+                // diagonals
+                ctx.strokeStyle='rgba(255,255,200,.08)';
+                ctx.beginPath();ctx.moveTo(start1.x,start1.y);ctx.lineTo(end2.x,end2.y);ctx.stroke();
+                ctx.beginPath();ctx.moveTo(start2.x,start2.y);ctx.lineTo(end1.x,end1.y);ctx.stroke();
+            }
+
+            // draw joint
+            if(i<segs.length-1 && showWire){
+                const next=segs[i+1];
+                const res=computeJoint(seg,next,jointS,ht);
+                ctx.strokeStyle='rgba(255,200,100,.25)';ctx.lineWidth=1.5;
+                ctx.beginPath();
+                // draw joint outline
+                if(!res.bevelMode){
+                    // miter: show outer edge intersection
+                    if(res.sec1Pt && res.sec2Pt){
+                        ctx.strokeStyle='rgba(255,200,100,.3)';
+                        ctx.beginPath();ctx.moveTo(seg.e1b.x,seg.e1b.y);
+                        ctx.lineTo(res.sec1Pt.x,res.sec1Pt.y);
+                        ctx.lineTo(next.e1a.x,next.e1a.y);
+                        ctx.stroke();
+                        ctx.beginPath();ctx.moveTo(seg.e2b.x,seg.e2b.y);
+                        ctx.lineTo(res.sec2Pt.x,res.sec2Pt.y);
+                        ctx.lineTo(next.e2a.x,next.e2a.y);
+                        ctx.stroke();
+                    }
+                }else{
+                    // bevel/round: show inner intersection
+                    if(res.innerPt){
+                        drawDot(ctx,res.innerPt,'#ffd54f',4);
+                    }
+                }
+            }
+
+            start1=nextStart1;
+            start2=nextStart2;
+        }
+
+        // center lines
+        if(showCenters){
+            ctx.strokeStyle='rgba(255,215,0,.2)';ctx.lineWidth=1.5;ctx.setLineDash([5,5]);
+            ctx.beginPath();
+            for(let i=0;i<segs.length;i++){
+                const p=i===0?segs[i].a:segs[i].a;
+                i===0?ctx.moveTo(segs[i].a.x,segs[i].a.y):ctx.lineTo(segs[i].a.x,segs[i].a.y);
+            }
+            const last=segs[segs.length-1];
+            ctx.lineTo(last.b.x,last.b.y);
+            if(capS==='JOINT')ctx.closePath();
+            ctx.stroke();ctx.setLineDash([]);
+        }
+
+        // input points
+        if(showPts){
+            pts.forEach((p,i)=>{
+                drawDot(ctx,p,'#ef5350',7);
+                ctx.fillStyle='#ef5350';ctx.font='11px monospace';
+                ctx.fillText('P'+i,p.x+10,p.y-8);
+            });
+        }
+
+        // info
+        ctx.fillStyle='#666';ctx.font='13px monospace';
+        ctx.fillText('拖拽红色圆点 | 共 '+segs.length+' 段',30,510);
+    }
+
+    function drawHalfCircle(p1,center,p2,cw){
+        const nSteps=12;
+        const ox=center.x,oy=center.y;
+        const r=Math.hypot(p1.x-ox,p1.y-oy);
+        if(r<1)return;
+        const a1=Math.atan2(p1.y-oy,p1.x-ox);
+        const a2=Math.atan2(p2.y-oy,p2.x-ox);
+        let fa=a1,ta=a2;
+        if(cw){if(ta>fa)ta-=2*Math.PI}
+        else{if(fa>ta)fa-=2*Math.PI}
+        const da=(ta-fa)/nSteps;
+        for(let i=0;i<nSteps;i++){
+            const ang=fa+da*i,ang2=fa+da*(i+1);
+            const x1=ox+Math.cos(ang)*r,y1=oy+Math.sin(ang)*r;
+            const x2=ox+Math.cos(ang2)*r,y2=oy+Math.sin(ang2)*r;
+            ctx.beginPath();ctx.moveTo(ox,oy);ctx.lineTo(x1,y1);ctx.lineTo(x2,y2);ctx.closePath();
+            ctx.fillStyle='rgba(100,181,246,.12)';ctx.fill();
+            ctx.strokeStyle='rgba(100,181,246,.2)';ctx.lineWidth=.8;ctx.stroke();
+        }
+    }
+
+    function computeJoint(s1,s2,style,ht){
+        const dir1x=s1.nx,dir1y=s1.ny;
+        const dir2x=s2.nx,dir2y=s2.ny;
+        const crossVal=dir1x*dir2y-dir1y*dir2x;
+        const cw=crossVal<0;
+
+        // inner/outer points at the joint
+        const outerEnd=cw?s1.e1b:s1.e2b;
+        const outerStart=cw?s2.e1a:s2.e2a;
+        // inner edge line segments: (innerA→innerB) for seg1, (innerNextA→innerNextB) for seg2
+        const i1a=cw?s1.e2a:s1.e1a;
+        const i1b=cw?s1.e2b:s1.e1b;
+        const i2a=cw?s2.e2a:s2.e1a;
+        const i2b=cw?s2.e2b:s2.e1b;
+
+        function lineIntersect(a0,a1,b0,b1){
+            const rx=a1.x-a0.x,ry=a1.y-a0.y;
+            const sx=b1.x-b0.x,sy=b1.y-b0.y;
+            const qx=b0.x-a0.x,qy=b0.y-a0.y;
+            const denom=rx*sy-ry*sx;
+            if(Math.abs(denom)<1e-8)return null;
+            const t=(qx*sy-qy*sx)/denom;
+            return {x:a0.x+rx*t,y:a0.y+ry*t};
+        }
+
+        if(style==='MITER'){
+            const sec1=lineIntersect(s1.e1a,s1.e1b,s2.e1a,s2.e1b);
+            const sec2=lineIntersect(s1.e2a,s1.e2b,s2.e2a,s2.e2b);
+            const end1=sec1||s1.e1b;
+            const end2=sec2||s1.e2b;
+            return {end1,end2,nextStart1:end1,nextStart2:end2,bevelMode:false,sec1Pt:sec1,sec2Pt:sec2,innerPt:null};
+        }else{
+            const inner=lineIntersect(i1a,i1b,i2a,i2b);
+            const ip=inner||i1b;
+            if(cw){
+                return {end1:outerEnd,end2:ip,nextStart1:outerStart,nextStart2:ip,bevelMode:true,innerPt:ip,sec1Pt:null,sec2Pt:null};
+            }else{
+                return {end1:ip,end2:outerEnd,nextStart1:ip,nextStart2:outerStart,bevelMode:true,innerPt:ip,sec1Pt:null,sec2Pt:null};
+            }
+        }
+    }
+
+    // setup drag
+    let dragging=null;
+    canvas.addEventListener('mousedown',e=>{
+        const r=canvas.getBoundingClientRect();
+        const p={x:e.clientX-r.x,y:e.clientY-r.y};
+        for(let i=0;i<pts.length;i++){
+            if(Math.hypot(p.x-pts[i].x,p.y-pts[i].y)<12){
+                dragging=i;
+                canvas.style.cursor='grabbing';
+                return;
+            }
+        }
+    });
+    canvas.addEventListener('mousemove',e=>{
+        if(dragging===null)return;
+        const r=canvas.getBoundingClientRect();
+        pts[dragging].x=clamp(e.clientX-r.x,0,w);
+        pts[dragging].y=clamp(e.clientY-r.y,0,h);
+        draw();
+    });
+    canvas.addEventListener('mouseup',()=>{dragging=null;canvas.style.cursor='grab'});
+    canvas.addEventListener('mouseleave',()=>{dragging=null;canvas.style.cursor='grab'});
+    canvas.style.cursor='grab';
+
+    // controls
+    ['thick','jointStyle','endCapStyle','showWire','showFill','showPoints','showCenters'].forEach(id=>{
+        const el=document.getElementById(id);
+        if(el)el.addEventListener('input',draw);
+    });
+
+    document.getElementById('resetBtn').addEventListener('click',()=>{
+        const def=[{x:150,y:400},{x:100,y:200},{x:280,y:80},{x:450,y:180},{x:620,y:70},{x:750,y:220},{x:700,y:400}];
+        pts.length=0;def.forEach(p=>pts.push(p));
+        draw();
+    });
+
+    draw();
+})();
+
+// helper to reset style for full demo controls
+</script>
+
+</body>
+</html>

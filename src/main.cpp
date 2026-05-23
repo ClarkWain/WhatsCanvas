@@ -56,6 +56,22 @@ bool parseUint64(const std::string& text, std::uint64_t& value)
     return true;
 }
 
+bool parseFloat(const std::string& text, float& value)
+{
+    if (text.empty()) {
+        return false;
+    }
+
+    char* end = nullptr;
+    const float parsed = std::strtof(text.c_str(), &end);
+    if (end == text.c_str() || *end != '\0' || !std::isfinite(parsed)) {
+        return false;
+    }
+
+    value = parsed;
+    return true;
+}
+
 // 回调函数：当窗口大小变化时调整视口
 void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
     glViewport(0, 0, width, height);
@@ -407,7 +423,7 @@ int main() {
     roundStrokePath.lineTo(350.0f, 290.0f);
     roundStrokePath.lineTo(430.0f, 410.0f);
     const float roundStrokeLength = roundStrokePath.length();
-    const RectF roundStrokeBounds = roundStrokePath.getStrokeBounds(roundStrokePaint.getStrokeWidth());
+    const RectF roundStrokeBounds = canvas.measureStrokeBounds(roundStrokePath, roundStrokePaint);
     const bool roundStrokeHit = roundStrokePath.strokeContains(180.0f, 270.0f, roundStrokePaint.getStrokeWidth());
     const bool roundStrokeMiss = roundStrokePath.strokeContains(180.0f, 235.0f, roundStrokePaint.getStrokeWidth());
 
@@ -460,9 +476,9 @@ int main() {
     Path transformRectPath;
     transformRectPath.addRect(RectF(-60.0f, -40.0f, 120.0f, 80.0f));
 
-    const RectF rotatingTextBounds = canvas.measureTextBounds("Rotating Text", rotatingTextPaint);
-    const float rotatingTextClipHalfWidth = rotatingTextBounds.getWidth() * 0.5f + 14.0f;
-    const float rotatingTextClipHeight = rotatingTextBounds.getHeight() + 24.0f;
+    const Canvas::TextMetrics rotatingTextMetrics = canvas.measureTextMetrics("Rotating Text", rotatingTextPaint);
+    const float rotatingTextClipHalfWidth = rotatingTextMetrics.width * 0.5f + 14.0f;
+    const float rotatingTextClipHeight = rotatingTextMetrics.height + 24.0f;
     
     // 动画参数
     const float centerX = 400.0f;
@@ -475,13 +491,20 @@ int main() {
     bool captureChecked = false;
     const std::string capturePath = getEnvironmentValue("CPPDEMO_CAPTURE_PPM");
     const bool printPixelHash = !getEnvironmentValue("CPPDEMO_PRINT_PIXEL_HASH").empty();
+    const bool exitAfterFirstFrame = !getEnvironmentValue("CPPDEMO_EXIT_AFTER_FIRST_FRAME").empty();
     const std::string expectedPixelHashText = getEnvironmentValue("CPPDEMO_EXPECT_PIXEL_HASH");
+        const std::string fixedTimeText = getEnvironmentValue("CPPDEMO_FIXED_TIME_SECONDS");
+        float fixedTimeSeconds = 0.0f;
+        const bool hasFixedTime = parseFloat(fixedTimeText, fixedTimeSeconds);
+        if (!fixedTimeText.empty() && !hasFixedTime) {
+            std::cerr << "Fixed time invalid" << std::endl;
+        }
     
     // 主循环
     while (!glfwWindowShouldClose(window)) {
         glClear(GL_COLOR_BUFFER_BIT);
         
-        float currentTime = (float)glfwGetTime();
+            float currentTime = hasFixedTime ? fixedTimeSeconds : static_cast<float>(glfwGetTime());
         float rotation = currentTime * rotationSpeed;
         
         // 计算颜色
@@ -507,7 +530,9 @@ int main() {
         if (canvas.getClipBounds(liveClipBounds)) {
             canvas.drawRect(liveClipBounds, clipBoundsPaint);
         }
-        if (canvas.isPointInClip(PointF(532.0f, 432.0f)) && canvas.quickReject(RectF(760.0f, 450.0f, 40.0f, 40.0f))) {
+        if (canvas.isPointInClip(PointF(532.0f, 432.0f))
+            && canvas.quickReject(RectF(760.0f, 450.0f, 40.0f, 40.0f))
+            && canvas.quickReject(roundStrokePath, roundStrokePaint)) {
             canvas.drawPoint(532.0f, 432.0f, clipQueryPaint);
         }
         canvas.restore();
@@ -598,16 +623,19 @@ int main() {
             canvas.drawImageTiled(demoImage, RectF(310.0f, 20.0f, 44.0f, 80.0f), 16.0f, 16.0f, decalImagePaint);
         }
 
-            canvas.drawTextBox("Batch55: drawTextBox wraps ASCII text into clipped multi-line bounds.",
-                               RectF(24.0f, 562.0f, 330.0f, 34.0f), 14.0f, textPaint);
+            canvas.drawTextBox("Batch74: drawTextBox wraps ASCII text, caps visible rows, and ellipsizes overflow for compact panels.",
+                               RectF(24.0f, 562.0f, 330.0f, 34.0f), 14.0f, 2, true, textPaint);
 
             canvas.save();
             canvas.translate(560.0f, 260.0f);
             canvas.rotate(-rotation * 0.35f);
-            canvas.clipRect(RectF(-rotatingTextClipHalfWidth, -rotatingTextClipHeight * 0.5f,
-                                  rotatingTextClipHalfWidth * 2.0f, rotatingTextClipHeight));
+            const RectF rotatingTextClipRect(-rotatingTextClipHalfWidth, -rotatingTextClipHeight * 0.5f,
+                                             rotatingTextClipHalfWidth * 2.0f, rotatingTextClipHeight);
+            const RectF rotatingTextDeviceBounds = canvas.mapRect(rotatingTextClipRect);
+            canvas.clipRect(rotatingTextClipRect);
             canvas.drawText("Rotating Text", 0.0f, 10.0f, rotatingTextPaint);
             canvas.restore();
+            canvas.drawRect(rotatingTextDeviceBounds, clipBoundsPaint);
         
         // 计算并存储顶点
         std::vector<std::pair<float, float>> points;
@@ -662,6 +690,9 @@ int main() {
                 std::cerr << "PPM capture failed" << std::endl;
             }
             captureChecked = true;
+        }
+        if (exitAfterFirstFrame && pixelReadbackChecked && (captureChecked || capturePath.empty())) {
+            glfwSetWindowShouldClose(window, GLFW_TRUE);
         }
         
         glfwSwapBuffers(window);

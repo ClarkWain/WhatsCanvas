@@ -1,0 +1,2164 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Polyline2D 交互教学 - 描边网格生成器完全指南</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: #0f1117; color: #e1e4e8; line-height: 1.7; }
+.container { max-width: 1000px; margin: 0 auto; padding: 20px; }
+h1 { font-size: 2.4em; background: linear-gradient(135deg, #58a6ff, #bc8cff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin: 40px 0 10px; text-align: center; }
+h1 small { display: block; font-size: 0.4em; -webkit-text-fill-color: #8b949e; margin-top: 8px; }
+h2 { font-size: 1.5em; color: #58a6ff; margin: 48px 0 16px; padding-bottom: 8px; border-bottom: 1px solid #21262d; }
+h3 { font-size: 1.2em; color: #d2a8ff; margin: 32px 0 12px; }
+h4 { color: #7ee787; margin: 20px 0 8px; }
+p { margin: 12px 0; color: #c9d1d9; }
+.subtitle { text-align: center; color: #8b949e; font-size: 1.05em; margin-bottom: 40px; }
+
+.canvas-box { background: #161b22; border-radius: 12px; padding: 16px; margin: 20px 0; border: 1px solid #30363d; }
+.canvas-box canvas { display: block; width: 100%; height: auto; background: #0d1117; border-radius: 8px; cursor: crosshair; }
+.canvas-controls { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; align-items: center; }
+.canvas-controls label { color: #8b949e; font-size: 0.9em; }
+.canvas-controls input[type="range"] { accent-color: #58a6ff; }
+.canvas-controls select { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; border-radius: 6px; padding: 4px 8px; }
+.btn { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; border-radius: 6px; padding: 6px 14px; cursor: pointer; font-size: 0.9em; transition: all .15s; }
+.btn:hover { background: #30363d; border-color: #58a6ff; color: #fff; }
+.btn.active { background: #1f6feb; border-color: #58a6ff; color: #fff; }
+.btn-row { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
+
+.code-block { background: #161b22; border: 1px solid #30363d; border-radius: 10px; margin: 16px 0; overflow: hidden; }
+.code-header { display: flex; justify-content: space-between; align-items: center; padding: 8px 16px; background: #1c2128; border-bottom: 1px solid #30363d; font-size: 0.85em; color: #8b949e; }
+.code-body { padding: 16px; overflow-x: auto; }
+.code-body pre { font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.85em; line-height: 1.6; color: #c9d1d9; }
+.code-body code { font-family: inherit; }
+.comment { color: #8b949e; }
+.keyword { color: #ff7b72; }
+.string { color: #a5d6ff; }
+.type { color: #ffa657; }
+.func { color: #d2a8ff; }
+.number { color: #79c0ff; }
+.var { color: #ffa657; }
+
+.callout { background: #1c2128; border-left: 4px solid #58a6ff; border-radius: 8px; padding: 16px 20px; margin: 20px 0; }
+.callout.warning { border-left-color: #d29922; }
+.callout.tip { border-left-color: #3fb950; }
+.callout h4 { margin: 0 0 8px; }
+
+.formula { background: #0d1117; border: 1px solid #30363d; border-radius: 8px; padding: 12px 16px; margin: 12px 0; text-align: center; font-size: 1.1em; font-family: 'Times New Roman', serif; color: #f0f6fc; }
+
+.steps { display: flex; flex-direction: column; gap: 12px; margin: 16px 0; }
+.step { display: flex; gap: 12px; align-items: flex-start; }
+.step-num { width: 28px; height: 28px; border-radius: 50%; background: #1f6feb; color: #fff; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-weight: bold; font-size: 0.85em; }
+.step-content { flex: 1; }
+
+.split { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
+@media (max-width: 700px) { .split { grid-template-columns: 1fr; } }
+
+.info-table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+.info-table th, .info-table td { border: 1px solid #30363d; padding: 8px 12px; text-align: left; }
+.info-table th { background: #1c2128; color: #58a6ff; font-weight: 600; }
+.info-table td { background: #0d1117; }
+.info-table .mono { font-family: 'JetBrains Mono', monospace; font-size: 0.85em; color: #ffa657; }
+
+.legend { display: flex; flex-wrap: wrap; gap: 16px; margin: 8px 0; }
+.legend-item { display: flex; align-items: center; gap: 6px; font-size: 0.85em; color: #8b949e; }
+.legend-dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid; }
+.legend-line { width: 24px; height: 3px; border-radius: 2px; }
+
+.toc { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 20px 24px; margin: 32px 0; }
+.toc h3 { margin: 0 0 12px; color: #58a6ff; }
+.toc ol { padding-left: 20px; }
+.toc ol li { margin: 6px 0; }
+.toc ol li a { color: #c9d1d9; text-decoration: none; transition: color .15s; }
+.toc ol li a:hover { color: #58a6ff; }
+
+.grid-demo { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin: 16px 0; }
+.grid-demo .canvas-box { margin: 0; }
+
+.toc-indent { padding-left: 20px; list-style-type: circle; }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+<h1>Polyline2D 完全指南<small>描边网格生成 · 从向量到三角形 · 交互式教学</small></h1>
+<p class="subtitle">一个仅有 ~440 行的轻量级 C++ 库，把"折线"变成"可渲染的三角形网格"。</p>
+
+<!-- ========== Table of Contents ========== -->
+<div class="toc">
+<h3>📖 目录</h3>
+<ol>
+  <li><a href="#sec1">从"画一条线"说起 — 问题定义</a></li>
+  <li><a href="#sec2">预备知识：向量、法线、叉积</a></li>
+  <li><a href="#sec3">核心操作：把线段"撑"成矩形</a></li>
+  <li><a href="#sec4">拐角处理：三种连接方式</a>
+    <ul class="toc-indent">
+      <li><a href="#sec4a">MITER — 斜接</a></li>
+      <li><a href="#sec4b">BEVEL — 斜角</a></li>
+      <li><a href="#sec4c">ROUND — 圆角</a></li>
+    </ul>
+  </li>
+  <li><a href="#sec5">内侧 vs 外侧的判定</a></li>
+  <li><a href="#sec6">端头处理：四种风格</a></li>
+  <li><a href="#sec7">Miter Limit：防止尖刺</a></li>
+  <li><a href="#sec8">三角形输出：送给 GPU</a></li>
+  <li><a href="#sec9">虚线：动态切分路径</a></li>
+  <li><a href="#sec10">交互式沙盒</a></li>
+  <li><a href="#sec11">完整管线回顾</a></li>
+</ol>
+</div>
+
+<!-- ========== Section 1 ========== -->
+<h2 id="sec1">1. 从"画一条线"说起</h2>
+
+<p>在屏幕上画一条 <strong>有宽度</strong> 的线，本质上是在画一个 <strong>多边形</strong>：</p>
+
+<div class="callout">
+  <h4>🎯 问题</h4>
+  <p>给定一系列控制点 P₀, P₁, P₂, ... 和厚度 t，生成一组三角形顶点，让 GPU 能直接渲染出一条有粗有细、有拐角有端头的"描边"。</p>
+</div>
+
+<div class="canvas-box">
+  <canvas id="demo-problem" width="800" height="300"></canvas>
+  <div class="legend">
+    <span class="legend-item"><span class="legend-dot" style="border-color:#58a6ff;background:#58a6ff"></span> 控制点</span>
+    <span class="legend-item"><span class="legend-dot" style="border-color:#ff7b72;background:transparent"></span> 期望的描边轮廓</span>
+  </div>
+</div>
+
+<div class="split">
+  <div class="code-block">
+    <div class="code-header">🧠 你的直觉</div>
+    <div class="code-body"><pre><span class="comment">// "把铅笔描粗"</span>
+对于相邻的每两个点：
+  计算法线方向
+  往两边各推半个线宽
+  连成一个四边形</pre></div>
+  </div>
+  <div class="code-block">
+    <div class="code-header">⚙️ Polyline2D 接口</div>
+    <div class="code-body"><pre><span class="keyword">auto</span> vertices = crushedpixel::Polyline2D::create(
+  points,        <span class="comment">// 控制点</span>
+  thickness,     <span class="comment">// 线宽</span>
+  jointStyle,    <span class="comment">// 拐角样式</span>
+  endCapStyle    <span class="comment">// 端头样式</span>
+);</pre></div>
+  </div>
+</div>
+
+<p>就这么简单？不——拐角处怎么接？端头怎么封？内圈外圈怎么区分？下面展开。</p>
+
+<!-- ========== Section 2 ========== -->
+<h2 id="sec2">2. 预备知识：几行高中数学</h2>
+
+<p>整个 Polyline2D 只需要 <strong>三个向量运算</strong>，Vec2.h 全实现了：</p>
+
+<div class="split">
+<div class="code-block">
+<div class="code-header">Vec2.h — 向量基础</div>
+<div class="code-body"><pre><span class="keyword">struct</span> Vec2 {
+  <span class="type">float</span> x, y;
+  Vec2(<span class="type">float</span> x, <span class="type">float</span> y) : x(x), y(y) {}
+};
+
+<span class="comment">// 加减乘除</span>
+Vec2 add(Vec2 a, Vec2 b)     { <span class="keyword">return</span> {a.x+b.x, a.y+b.y}; }
+Vec2 sub(Vec2 a, Vec2 b)     { <span class="keyword">return</span> {a.x-b.x, a.y-b.y}; }
+Vec2 mul(Vec2 v, <span class="type">float</span> s)  { <span class="keyword">return</span> {v.x*s, v.y*s}; }
+
+<span class="comment">// 长度 & 单位向量</span>
+<span class="type">float</span> mag(Vec2 v)            { <span class="keyword">return</span> sqrt(v.x*v.x + v.y*v.y); }
+Vec2 norm(Vec2 v)            { <span class="keyword">return</span> mul(v, 1/mag(v)); }
+
+<span class="comment">// 点积 & 叉积</span>
+<span class="type">float</span> dot(Vec2 a, Vec2 b)   { <span class="keyword">return</span> a.x*b.x + a.y*b.y; }
+<span class="type">float</span> cross(Vec2 a, Vec2 b) { <span class="keyword">return</span> a.x*b.y - a.y*b.x; }</pre></div>
+</div>
+<div class="canvas-box" style="margin:0">
+  <canvas id="demo-vec2" width="440" height="340"></canvas>
+  <div style="margin-top:8px;text-align:center;color:#8b949e;font-size:0.85em">🖱 拖拽 a 点或 b 点</div>
+</div>
+</div>
+
+<h3>2.1 法向量 — 整个库的支点</h3>
+
+<div class="formula">
+  dir = (dx, dy) &nbsp;→&nbsp; normal = <strong>(-dy, dx)</strong>
+</div>
+
+<div class="code-block">
+<div class="code-header">LineSegment.h — 法向量计算</div>
+<div class="code-body"><pre><span class="type">Vec2</span> normal() <span class="keyword">const</span> {
+  <span class="keyword">auto</span> dir = direction();    <span class="comment">// 单位方向向量</span>
+  <span class="keyword">return</span> {-dir.y, dir.x};    <span class="comment">// 逆时针旋转 90°</span>
+}</pre></div>
+</div>
+
+<div class="callout">
+  <h4>💡 为什么法向量这么重要？</h4>
+  <p><strong>"给线段加粗" = 把端点沿法向量方向各推开半个线宽。</strong></p>
+  <p>线段有一个方向（dir），垂直于方向的就是法向量（normal）。把 P₀ 沿 normal 方向移出 t/2，沿反方向移出 t/2，就得到了加粗矩形的两个角点。</p>
+</div>
+
+<div class="canvas-box">
+  <canvas id="demo-normal" width="800" height="300"></canvas>
+  <div class="legend">
+    <span class="legend-item"><span class="legend-line" style="background:#58a6ff"></span> 原始线段</span>
+    <span class="legend-item"><span class="legend-line" style="background:#ff7b72"></span> 法向量方向 (normal)</span>
+    <span class="legend-item"><span class="legend-line" style="background:#3fb950"></span> 偏移后的轮廓</span>
+  </div>
+</div>
+
+<!-- ========== Section 3 ========== -->
+<h2 id="sec3">3. 核心操作：把线段"撑"成矩形</h2>
+
+<p>这是 Polyline2D 里 <strong>PolySegment</strong> 做的事情：</p>
+
+<div class="code-block">
+<div class="code-header">Polyline2D.h — PolySegment 结构体（核心）</div>
+<div class="code-body"><pre><span class="keyword">template</span>&lt;<span class="keyword">typename</span> Vec2&gt;
+<span class="keyword">struct</span> PolySegment {
+  PolySegment(<span class="keyword">const</span> LineSegment&lt;Vec2&gt; &center, <span class="type">float</span> thickness) :
+    center(center),
+    <span class="comment">// 把中心线沿法向量方向平移 thickness</span>
+    edge1(center + center.normal() * thickness),  <span class="comment">// ← 左轮廓</span>
+    edge2(center - center.normal() * thickness)   <span class="comment">// ← 右轮廓</span>
+  {}
+
+  LineSegment&lt;Vec2&gt; center;  <span class="comment">// 原始线段</span>
+  LineSegment&lt;Vec2&gt; edge1;   <span class="comment">// 左边缘</span>
+  LineSegment&lt;Vec2&gt; edge2;   <span class="comment">// 右边缘</span>
+};</pre></div>
+</div>
+
+<p><strong>等等，为什么是 + 和 -，而不是 + 和 +？</strong> 因为 `normal()` 返回的是单位法向量，加一次得到一侧，减一次得到另一侧：</p>
+
+<div class="formula">
+  edge1 = center + normal × thickness &nbsp;&nbsp;&nbsp; edge2 = center − normal × thickness
+</div>
+
+<div class="canvas-box">
+  <canvas id="demo-polysegment" width="800" height="320"></canvas>
+</div>
+
+<h3>3.1 从四条边到两个三角形</h3>
+
+<p>有了 edge1 (a→b) 和 edge2 (a→b)，我们有了矩形的四个顶点。只需要两个三角形就能覆盖它：</p>
+
+<div class="code-block">
+<div class="code-header">create() 中的三角形生成（核心生成逻辑）</div>
+<div class="code-body"><pre><span class="comment">// 对每一段（segment），生成两个三角形 = 6个顶点</span>
+*vertices++ = edge1.a;     <span class="comment">// 左上</span>
+*vertices++ = edge2.a;     <span class="comment">// 左下</span>
+*vertices++ = edge1.b;     <span class="comment">// 右上</span>
+
+*vertices++ = edge1.b;     <span class="comment">// 右上</span>
+*vertices++ = edge2.a;     <span class="comment">// 左下</span>
+*vertices++ = edge2.b;     <span class="comment">// 右下</span></pre></div>
+</div>
+
+<div class="canvas-box">
+  <canvas id="demo-triangles" width="800" height="360"></canvas>
+</div>
+
+<div class="callout tip">
+  <h4>🔑 关键</h4>
+  <p>每段生成 6 个顶点（2 个三角形），使用 <code>GL_TRIANGLES</code> 模式渲染。每段的三角形是独立的，不支持三角形带复用。</p>
+</div>
+
+<!-- ========== Section 4 ========== -->
+<h2 id="sec4">4. 拐角处理</h2>
+
+<p>两条线段衔接处，如果各画各的矩形，会出现一个 <strong>缺口</strong>：</p>
+
+<div class="canvas-box">
+  <canvas id="demo-join-gap" width="800" height="300"></canvas>
+</div>
+
+<p>Polyline2D 用 <code>createJoint()</code> 处理这个问题。它有 <strong>三种拐角样式</strong>：</p>
+
+<div class="canvas-controls" style="justify-content:center">
+  <button class="btn active" data-join="miter" onclick="setJoinStyle('miter')">MITER 斜接</button>
+  <button class="btn" data-join="bevel" onclick="setJoinStyle('bevel')">BEVEL 斜角</button>
+  <button class="btn" data-join="round" onclick="setJoinStyle('round')">ROUND 圆角</button>
+</div>
+<div class="canvas-box">
+  <canvas id="demo-join" width="800" height="400"></canvas>
+</div>
+
+<h3 id="sec4a">4.1 MITER — 斜接</h3>
+
+<div class="code-block">
+<div class="code-header">createJoint() — MITER 实现</div>
+<div class="code-body"><pre><span class="keyword">if</span> (jointStyle == JointStyle::MITER) {
+  <span class="comment">// 计算相邻两条外侧边界的交点 (作为无限直线求交)</span>
+  <span class="keyword">auto</span> sec1 = LineSegment::intersection(
+    segment1.edge1, segment2.edge1, <span class="literal">true</span>);
+  <span class="keyword">auto</span> sec2 = LineSegment::intersection(
+    segment1.edge2, segment2.edge2, <span class="literal">true</span>);
+
+  <span class="comment">// 用交点替换原来的端点</span>
+  end1 = sec1 ? *sec1 : segment1.edge1.b;
+  end2 = sec2 ? *sec2 : segment1.edge2.b;
+
+  <span class="comment">// 下一段的起点延续同样的交点</span>
+  nextStart1 = end1;
+  nextStart2 = end2;
+}</pre></div>
+</div>
+
+<p><strong>思路</strong>：把两条外侧边延长，让它们相交于一点。用这个交点代替原来的断点，缺口就消失了。</p>
+
+<div class="formula">
+  两条直线 A + r·t 和 B + s·u 相交 ↦ 解 t 和 u
+</div>
+
+<div class="callout warning">
+  <h4>⚠️ 夹角太小会出问题</h4>
+  <p>当两条线段夹角很小时，交点会飞到极远处，产生长长的"尖刺"。这需要 <strong>Miter Limit</strong> 来处理（详见第 7 节）。</p>
+</div>
+
+<h3 id="sec4b">4.2 BEVEL — 斜角</h3>
+
+<div class="code-block">
+<div class="code-header">createJoint() — BEVEL 实现</div>
+<div class="code-body"><pre><span class="keyword">if</span> (jointStyle == JointStyle::BEVEL) {
+  <span class="comment">// 三个顶点形成一个填充三角形：
+  // 外侧边缘1终点 + 外侧边缘2起点 + 内侧交点</span>
+  *vertices++ = outer1->b;
+  *vertices++ = outer2->a;
+  *vertices++ = innerSec;
+}</pre></div>
+</div>
+
+<p><strong>思路</strong>：不追求无缝斜接，而是在缺口处直接画一个三角形填上。Bevel = 斜削掉尖角。</p>
+
+<h3 id="sec4c">4.3 ROUND — 圆角</h3>
+
+<div class="code-block">
+<div class="code-header">createJoint() — ROUND 实现（核心：三角扇）</div>
+<div class="code-body"><pre><span class="keyword">if</span> (jointStyle == JointStyle::ROUND) {
+  <span class="comment">// 在拐角处画一圈小三角形模拟圆弧</span>
+  createTriangleFan(vertices, innerSec, segment1.center.b,
+                    outer1->b, outer2->a, clockwise);
+}
+
+<span class="comment">// --- createTriangleFan 的原理 ---</span>
+<span class="comment">// 计算 start→origin 和 end→origin 之间的角度差</span>
+<span class="type">float</span> angle1 = atan2(point1.y, point1.x);
+<span class="type">float</span> angle2 = atan2(point2.y, point2.x);
+
+<span class="comment">// 分成 N 个小三角形，每个约 10°</span>
+<span class="type">int</span> numTriangles = floor(abs(jointAngle) / roundMinAngle);
+<span class="type">float</span> triAngle = jointAngle / numTriangles;
+
+<span class="comment">// 逐三角发射</span>
+<span class="keyword">for</span> (<span class="type">int</span> t = 0; t &lt; numTriangles; t++) {
+  <span class="comment">// 旋转 point1 得到当前顶点</span>
+  endPoint.x = cos(rot) * point1.x - sin(rot) * point1.y;
+  endPoint.y = sin(rot) * point1.x + cos(rot) * point1.y;
+  endPoint += origin;  <span class="comment">// 平移回原本位置</span>
+
+  *vertices++ = startPoint;
+  *vertices++ = endPoint;
+  *vertices++ = connectTo;  <span class="comment">// 内侧交点（三角形扇的公共顶点）</span>
+  startPoint = endPoint;
+}</pre></div>
+</div>
+
+<p><strong>createTriangleFan</strong> 是整个库最巧妙的函数。只需指定中心点、起点和终点，它自动把圆弧切成小三角形。分段密度由 <code>roundMinAngle ≈ 10°</code> 控制：</p>
+
+<div class="formula">
+  分段数 = ⌊|夹角| / 10°⌋ &nbsp;→&nbsp; 每个三角形 ≈ 10°
+</div>
+
+<div class="canvas-box">
+  <canvas id="demo-triangle-fan" width="800" height="380"></canvas>
+  <div class="canvas-controls">
+    <label>分段角度: <span id="fan-angle-label">10°</span></label>
+    <input type="range" id="fan-angle" min="5" max="45" value="10" style="width:200px">
+    <label>跨度: <span id="fan-sweep-label">180°</span></label>
+    <input type="range" id="fan-sweep" min="45" max="360" value="180" style="width:200px">
+  </div>
+</div>
+
+<!-- ========== Section 5 ========== -->
+<h2 id="sec5">5. 内侧 vs 外侧的判定</h2>
+
+<p>拐角处，哪边是"内"、哪边是"外"？这决定了哪些边需要求交、哪些边可以直接连。</p>
+
+<p>Polyline2D 用 <strong>叉积</strong> 判断转向：</p>
+
+<div class="code-block">
+<div class="code-header">判定顺时针/逆时针</div>
+<div class="code-body"><pre><span class="keyword">auto</span> dir1 = segment1.center.direction();
+<span class="keyword">auto</span> dir2 = segment2.center.direction();
+
+<span class="comment">// 叉积的 z 分量决定转向</span>
+<span class="keyword">auto</span> clockwise = dir1.x * dir2.y - dir1.y * dir2.x &lt; 0;
+<span class="comment">// 用 cross = a.x*b.y - a.y*b.x</span></pre></div>
+</div>
+
+<div class="canvas-box">
+  <canvas id="demo-inner-outer" width="800" height="350"></canvas>
+</div>
+
+<p><strong>法向量的约定</strong>：Polyline2D 定义法向量 = (-dir.y, dir.x)，即逆时针旋转 90°。所以：</p>
+
+<table class="info-table">
+  <tr><th>转向</th><th>左侧 (edge1)</th><th>右侧 (edge2)</th></tr>
+  <tr><td>顺时针 (clockwise)</td><td class="mono">OUTER（外）</td><td class="mono">INNER（内）</td></tr>
+  <tr><td>逆时针 (ccw)</td><td class="mono">INNER（内）</td><td class="mono">OUTER（外）</td></tr>
+</table>
+
+<div class="code-block">
+<div class="code-header">createJoint() 内外判定</div>
+<div class="code-body"><pre><span class="keyword">if</span> (clockwise) {
+  outer1 = &segment1.edge1;  <span class="comment">// 左 = 外</span>
+  outer2 = &segment2.edge1;
+  inner1 = &segment1.edge2;  <span class="comment">// 右 = 内</span>
+  inner2 = &segment2.edge2;
+} <span class="keyword">else</span> {
+  outer1 = &segment1.edge2;  <span class="comment">// 右 = 外</span>
+  outer2 = &segment2.edge2;
+  inner1 = &segment1.edge1;  <span class="comment">// 左 = 内</span>
+  inner2 = &segment2.edge1;
+}</pre></div>
+</div>
+
+<div class="callout">
+  <h4>🎯 为什么区分内外很重要？</h4>
+  <p><strong>外侧</strong>：MITER 时外侧边延长求交。BEVEL/ROUND 时外侧边端点之间需要填充三角形。</p>
+  <p><strong>内侧</strong>：内侧边求交作为"内侧顶点"，所有拐角的填充三角形都以此为公共顶点。</p>
+</div>
+
+<!-- ========== Section 6 ========== -->
+<h2 id="sec6">6. 端头处理（End Cap）</h2>
+
+<p>路径的起点和终点也需要处理，否则是垂直的切面。</p>
+
+<div class="grid-demo">
+<div class="canvas-box"><canvas id="demo-cap-butt" width="280" height="160"></canvas><p style="text-align:center;color:#8b949e;font-size:0.85em;margin:4px">BUTT</p></div>
+<div class="canvas-box"><canvas id="demo-cap-square" width="280" height="160"></canvas><p style="text-align:center;color:#8b949e;font-size:0.85em;margin:4px">SQUARE</p></div>
+<div class="canvas-box"><canvas id="demo-cap-round" width="280" height="160"></canvas><p style="text-align:center;color:#8b949e;font-size:0.85em;margin:4px">ROUND</p></div>
+</div>
+
+<div class="code-block">
+<div class="code-header">端头处理的四种方式</div>
+<div class="code-body"><pre><span class="keyword">if</span> (endCapStyle == EndCapStyle::SQUARE) {
+  <span class="comment">// 往外推半个线宽</span>
+  pathStart1 -= edge1.direction() * thickness;
+  pathStart2 -= edge2.direction() * thickness;
+  pathEnd1   += edge1.direction() * thickness;
+  pathEnd2   += edge2.direction() * thickness;
+
+} <span class="keyword">else</span> <span class="keyword">if</span> (endCapStyle == EndCapStyle::ROUND) {
+  <span class="comment">// 画半圆三角扇</span>
+  createTriangleFan(vertices, firstSegment.center.a,
+    firstSegment.center.a,
+    firstSegment.edge1.a, firstSegment.edge2.a, <span class="literal">false</span>);
+  createTriangleFan(vertices, lastSegment.center.b,
+    lastSegment.center.b,
+    lastSegment.edge1.b, lastSegment.edge2.b, <span class="literal">true</span>);
+
+} <span class="keyword">else</span> <span class="keyword">if</span> (endCapStyle == EndCapStyle::JOINT) {
+  <span class="comment">// 闭合路径：用拐角处理连接首尾</span>
+  createJoint(vertices, lastSegment, firstSegment, ...);
+}
+<span class="comment">// BUTT：什么都不做，直接是垂直切面</span></pre></div>
+</div>
+
+<p><strong>BUTT</strong>：什么都不做，端面垂直于路径方向。</p>
+<p><strong>SQUARE</strong>：把端头外推半个线宽，产生"方头"效果。</p>
+<p><strong>ROUND</strong>：在端头画半圆（用 createTriangleFan）。</p>
+<p><strong>JOINT</strong>：用于闭合路径时，把尾和首用拐角逻辑连接。</p>
+
+<!-- ========== Section 7 ========== -->
+<h2 id="sec7">7. Miter Limit：防止尖刺</h2>
+
+<p>当两条线夹角很小时，外侧边的交点会飞出去极远，产生难看的尖刺：</p>
+
+<div class="canvas-box">
+  <canvas id="demo-miter-limit" width="800" height="320"></canvas>
+  <div class="canvas-controls">
+    <label>夹角: <span id="miter-angle-label">30°</span></label>
+    <input type="range" id="miter-angle" min="5" max="175" value="30" style="width:250px">
+    <label style="margin-left:16px">Miter Limit: <span id="miter-limit-label">20°</span></label>
+    <input type="range" id="miter-limit" min="5" max="60" value="20" style="width:200px">
+  </div>
+</div>
+
+<div class="code-block">
+<div class="code-header">Miter Limit 实现</div>
+<div class="code-body"><pre><span class="keyword">constexpr</span> <span class="type">float</span> miterMinAngle = 0.349066f;  <span class="comment">// ≈ 20°</span>
+
+<span class="comment">// 计算两个方向向量的夹角</span>
+<span class="type">float</span> angle = Vec2Maths::angle(dir1, dir2);
+<span class="type">float</span> wrappedAngle = angle;
+<span class="keyword">if</span> (wrappedAngle &gt; pi / 2) {
+  wrappedAngle = pi - wrappedAngle;  <span class="comment">// 取锐角</span>
+}
+
+<span class="keyword">if</span> (wrappedAngle &lt; miterMinAngle) {
+  <span class="comment">// 夹角太小 → 自动降级为 BEVEL</span>
+  jointStyle = JointStyle::BEVEL;
+}</pre></div>
+</div>
+
+<p><strong>为什么是 20°？</strong> 这是经验值。过小会产生长尖刺，过大则太多 miter 被降级。Skia 和 SVG 默认使用约 4.0 的 miter limit（对应 ~28.96°）。</p>
+
+<!-- ========== Section 8 ========== -->
+<h2 id="sec8">8. 三角形输出：送给 GPU</h2>
+
+<p>Polyline2D 输出的是 <strong>连续的三角形顶点流</strong>，每个三角形 3 个顶点，每段 2 个三角形，拐角和端头额外增加。</p>
+
+<p>在 PrismCanvas 中的使用流程：</p>
+
+<div class="code-block">
+<div class="code-header">Canvas.cpp — 从路径到 GPU 渲染</div>
+<div class="code-body"><pre><span class="comment">// Step 1: 调用 Polyline2D 生成网格</span>
+std::vector&lt;Vec2&gt; buildStrokeMesh(
+    <span class="keyword">const</span> std::vector&lt;Vec2&gt; &points,
+    <span class="type">bool</span> closed,
+    <span class="keyword">const</span> Paint &paint)
+{
+  <span class="keyword">auto</span> capStyle = closed
+    ? EndCapStyle::JOINT
+    : toPolylineEndCapStyle(paint.getStrokeCap());
+
+  <span class="keyword">return</span> Polyline2D::create(
+    safePoints,
+    paint.getStrokeWidth(),
+    toPolylineJointStyle(paint.getStrokeJoin()),
+    capStyle,
+    <span class="literal">false</span>);
+}
+
+<span class="comment">// Step 2: 打包顶点数据</span>
+DrawPathData strokeData = makeDrawPathData(
+  flattenPoints(strokeMesh),  <span class="comment">// Vec2[] → float[]</span>
+  paint.getStrokeWidth(),
+  paint.getStrokeColor(),
+  PathDrawMode::Stroke,
+  transform, scissor, blendMode);
+
+<span class="comment">// Step 3: 提交到渲染器</span>
+renderer.submit(
+  std::make_unique&lt;DrawPathCommand&gt;(strokeData));
+
+<span class="comment">// --- 打开 GL，DrawPathProgram 执行 ---</span>
+<span class="comment">// glDrawArrays(GL_TRIANGLES, 0, vertexCount);</span></pre></div>
+</div>
+
+<div class="canvas-box">
+  <canvas id="demo-final-render" width="800" height="350"></canvas>
+  <div class="canvas-controls">
+    <label>线宽: <span id="render-thickness-label">18</span></label>
+    <input type="range" id="render-thickness" min="4" max="60" value="18" style="width:200px">
+    <select id="render-join">
+      <option value="miter">MITER</option>
+      <option value="bevel">BEVEL</option>
+      <option value="round" selected>ROUND</option>
+    </select>
+    <select id="render-cap">
+      <option value="butt">BUTT</option>
+      <option value="square">SQUARE</option>
+      <option value="round">ROUND</option>
+    </select>
+  </div>
+</div>
+
+<!-- ========== Section 9 ========== -->
+<h2 id="sec9">9. 虚线：动态切分路径</h2>
+
+<p>PrismCanvas 在调用 Polyline2D 之前做了虚线拆分。这不是 Polyline2D 的一部分，但了解它对理解完整管线有帮助：</p>
+
+<div class="code-block">
+<div class="code-header">Canvas.cpp — 虚线拆分逻辑</div>
+<div class="code-body"><pre><span class="comment">// 沿路径前进，按 dash pattern 切分</span>
+<span class="type">float</span> remaining = intervals[intervalIndex] - phase;
+<span class="type">bool</span> drawing = (intervalIndex % 2) == 0;  <span class="comment">// 偶数为画，奇数为空</span>
+std::vector&lt;Vec2&gt; currentDash;
+
+<span class="keyword">for</span> (<span class="keyword">auto</span> segment : segments) {
+  <span class="keyword">while</span> (consumed &lt; length) {
+    <span class="type">float</span> step = min(remaining, length - consumed);
+    <span class="keyword">auto</span> next = pointOnSegment(start, end, t);
+
+    <span class="keyword">if</span> (drawing) currentDash.push_back(next);
+
+    remaining -= step;
+    <span class="keyword">if</span> (remaining &lt;= epsilon) {
+      <span class="keyword">if</span> (drawing) finishDash();  <span class="comment">// 一段虚线完成</span>
+      drawing = !drawing;             <span class="comment">// 切换画/空</span>
+      remaining = nextInterval;
+    }
+  }
+}
+
+<span class="comment">// 每段虚线再调用 buildStrokeMesh → Polyline2D::create</span>
+<span class="keyword">for</span> (<span class="keyword">auto</span> &dash : dashes) {
+  submitStrokeMesh(renderer, dash, <span class="literal">false</span>, dashPaint, ...);
+}</pre></div>
+</div>
+
+<!-- ========== Section 10 ========== -->
+<h2 id="sec10">10. 交互式沙盒</h2>
+
+<p>在下面自由拖拽控制点，实时观察描边变化：</p>
+
+<div class="canvas-box">
+  <canvas id="demo-sandbox" width="800" height="480"></canvas>
+  <div class="canvas-controls">
+    <label>厚度: <span id="sandbox-thickness-label">24</span></label>
+    <input type="range" id="sandbox-thickness" min="4" max="80" value="24" style="width:200px">
+    <select id="sandbox-join">
+      <option value="miter">MITER</option>
+      <option value="bevel" selected>BEVEL</option>
+      <option value="round">ROUND</option>
+    </select>
+    <select id="sandbox-cap">
+      <option value="butt" selected>BUTT</option>
+      <option value="square">SQUARE</option>
+      <option value="round">ROUND</option>
+    </select>
+    <button class="btn" id="sandbox-closed">闭合</button>
+    <button class="btn" id="sandbox-reset">重置</button>
+  </div>
+</div>
+
+<!-- ========== Section 11 ========== -->
+<h2 id="sec11">11. 完整管线回顾</h2>
+
+<div class="steps">
+  <div class="step">
+    <div class="step-num">1</div>
+    <div class="step-content"><strong>输入</strong> — 控制点列表 + 线宽 + 拐角样式 + 端头样式</div>
+  </div>
+  <div class="step">
+    <div class="step-num">2</div>
+    <div class="step-content"><strong>预处理</strong> — 去重（跳过相同点），闭合路径自动设置 JOINT cap</div>
+  </div>
+  <div class="step">
+    <div class="step-num">3</div>
+    <div class="step-content"><strong>构建 PolySegment 列表</strong> — 每对相邻点生成一个 PolySegment（计算 edge1/edge2）</div>
+  </div>
+  <div class="step">
+    <div class="step-num">4</div>
+    <div class="step-content"><strong>处理端头</strong> — BUTT/SQUARE/ROUND/JOINT</div>
+  </div>
+  <div class="step">
+    <div class="step-num">5</div>
+    <div class="step-content"><strong>遍历所有段</strong> — 对每对相邻段调用 createJoint()：MITER / BEVEL / ROUND</div>
+  </div>
+  <div class="step">
+    <div class="step-num">6</div>
+    <div class="step-content"><strong>输出三角形</strong> — 每段 6 个顶点 + 拐角/端头的补充三角形 → std::vector&lt;Vec2&gt;</div>
+  </div>
+  <div class="step">
+    <div class="step-num">7</div>
+    <div class="step-content"><strong>GPU 渲染</strong> — 上传 VBO → glDrawArrays(GL_TRIANGLES)</div>
+  </div>
+</div>
+
+<table class="info-table">
+  <tr><th>函数</th><th>职责</th><th>行数</th></tr>
+  <tr><td class="mono">Vec2Maths</td><td>向量运算（加、减、乘、点积、叉积、角度）</td><td>~70</td></tr>
+  <tr><td class="mono">LineSegment</td><td>线段表示、法向量、方向、求交</td><td>~80</td></tr>
+  <tr><td class="mono">PolySegment</td><td>由中心线段生成左右两侧偏移边</td><td>~15</td></tr>
+  <tr><td class="mono">createJoint</td><td>MITER/BEVEL/ROUND 拐角填充</td><td>~120</td></tr>
+  <tr><td class="mono">createTriangleFan</td><td>圆弧分段三角扇生成</td><td>~60</td></tr>
+  <tr><td class="mono">create</td><td>主入口：编排端头、遍历段、输出三角形</td><td>~90</td></tr>
+</table>
+
+<div class="callout tip">
+  <h4>📐 为什么叫 Polyline2D？</h4>
+  <p>它处理的不是"曲线"而是"折线"（polyline = 多段线）。如果需要圆滑曲线（如贝塞尔曲线），调用方需要事先把曲线展平（flatten）成一系列短直线段。</p>
+  <p>PrismCanvas 的 Path 类中 <code>quadTo</code> 和 <code>cubicTo</code> 做的就是这件事：把曲线切成 8~96 段小直线，然后再送入 Polyline2D。</p>
+</div>
+
+<hr style="border-color:#30363d;margin:40px 0">
+
+<p style="text-align:center;color:#8b949e">
+  Polyline2D by crushedpixel · 本教学使用 Canvas 2D 模拟了描边网格生成过程 · 源码在 <code>third_party/polyline2d/include/</code>
+</p>
+
+</div>
+
+<script>
+// ============================================================
+//  Helper utilities
+// ============================================================
+function getCtx(id, w, h) {
+  const c = document.getElementById(id);
+  c.width = w || c.width;
+  c.height = h || c.height;
+  return {el: c, ctx: c.getContext('2d'), w: c.width, h: c.height};
+}
+
+function roundedRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x+r, y);
+  ctx.lineTo(x+w-r, y);
+  ctx.quadraticCurveTo(x+w, y, x+w, y+r);
+  ctx.lineTo(x+w, y+h-r);
+  ctx.quadraticCurveTo(x+w, y+h, x+w-r, y+h);
+  ctx.lineTo(x+r, y+h);
+  ctx.quadraticCurveTo(x, y+h, x, y+h-r);
+  ctx.lineTo(x, y+r);
+  ctx.quadraticCurveTo(x, y, x+r, y);
+  ctx.closePath();
+}
+
+function drawGrid(ctx, w, h, step) {
+  ctx.strokeStyle = '#1c2128';
+  ctx.lineWidth = 1;
+  for (let x = 0; x <= w; x += step) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
+  }
+  for (let y = 0; y <= h; y += step) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+  }
+}
+
+function drawPoint(ctx, x, y, color, r) {
+  ctx.beginPath(); ctx.arc(x, y, r||5, 0, Math.PI*2);
+  ctx.fillStyle = color; ctx.fill();
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
+}
+
+function drawArrow(ctx, x1, y1, x2, y2, color, lineWidth) {
+  const angle = Math.atan2(y2-y1, x2-x1);
+  ctx.strokeStyle = color; ctx.lineWidth = lineWidth||2;
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  const headLen = 10;
+  ctx.beginPath();
+  ctx.moveTo(x2, y2);
+  ctx.lineTo(x2 - headLen*Math.cos(angle-0.4), y2 - headLen*Math.sin(angle-0.4));
+  ctx.lineTo(x2 - headLen*Math.cos(angle+0.4), y2 - headLen*Math.sin(angle+0.4));
+  ctx.closePath();
+  ctx.fillStyle = color; ctx.fill();
+}
+
+// ============================================================
+//  Section 1 demo — problem definition
+// ============================================================
+(function() {
+  const {ctx, w, h} = getCtx('demo-problem');
+  drawGrid(ctx, w, h, 40);
+
+  const pts = [
+    {x: 80, y: 220}, {x: 220, y: 80}, {x: 400, y: 180},
+    {x: 580, y: 90}, {x: 720, y: 200}
+  ];
+
+  // Thin center line
+  ctx.strokeStyle = '#58a6ff66'; ctx.lineWidth = 2; ctx.setLineDash([4,4]);
+  ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i=1; i<pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.stroke(); ctx.setLineDash([]);
+
+  // Thick stroke outline
+  const t = 30;
+  function drawThickStroke(points, color) {
+    const segs = [];
+    for (let i = 0; i < points.length-1; i++) {
+      const dx = points[i+1].x - points[i].x;
+      const dy = points[i+1].y - points[i].y;
+      const len = Math.hypot(dx, dy);
+      if (len < 0.001) continue;
+      const nx = -dy/len * t/2, ny = dx/len * t/2;
+      segs.push({
+        e1a: {x: points[i].x+nx, y: points[i].y+ny},
+        e1b: {x: points[i+1].x+nx, y: points[i+1].y+ny},
+        e2a: {x: points[i].x-nx, y: points[i].y-ny},
+        e2b: {x: points[i+1].x-nx, y: points[i+1].y-ny}
+      });
+    }
+    ctx.strokeStyle = color; ctx.lineWidth = 2;
+    for (const s of segs) {
+      ctx.beginPath();
+      ctx.moveTo(s.e1a.x, s.e1a.y); ctx.lineTo(s.e1b.x, s.e1b.y);
+      ctx.lineTo(s.e2b.x, s.e2b.y); ctx.lineTo(s.e2a.x, s.e2a.y);
+      ctx.closePath(); ctx.stroke();
+    }
+  }
+
+  drawThickStroke(pts, '#ff7b72');
+
+  // Control points
+  for (const p of pts) drawPoint(ctx, p.x, p.y, '#58a6ff', 6);
+
+  // Labels
+  ctx.fillStyle = '#8b949e'; ctx.font = '14px sans-serif';
+  ctx.fillText('P₀', pts[0].x-20, pts[0].y+20);
+  ctx.fillText('P₁', pts[1].x-20, pts[1].y-15);
+  ctx.fillText('P₂', pts[2].x+8, pts[2].y-10);
+  ctx.fillText('P₃', pts[3].x-20, pts[3].y-15);
+  ctx.fillText('P₄', pts[4].x+8, pts[4].y-10);
+
+  ctx.fillStyle = '#ff7b7288'; ctx.font = '13px sans-serif';
+  ctx.fillText('拐角有缺口 →', 360, 130);
+})();
+
+// ============================================================
+//  Section 2 — Vec2 interactive demo
+// ============================================================
+(function() {
+  const {el, ctx, w, h} = getCtx('demo-vec2');
+  const origin = {x: 120, y: 200};
+  let a = {x: 200, y: 80};
+  let b = {x: 340, y: 140};
+  let drag = null;
+
+  function draw() {
+    ctx.clearRect(0, 0, w, h);
+
+    // Arrow from origin to a
+    drawArrow(ctx, origin.x, origin.y, a.x, a.y, '#58a6ff', 2.5);
+    ctx.fillStyle = '#58a6ff'; ctx.font = '14px sans-serif';
+    ctx.fillText('a', a.x + 8, a.y - 6);
+
+    // Arrow from origin to b
+    drawArrow(ctx, origin.x, origin.y, b.x, b.y, '#d2a8ff', 2.5);
+    ctx.fillStyle = '#d2a8ff';
+    ctx.fillText('b', b.x + 8, b.y - 6);
+
+    // Cross product text
+    const cross = a.x*b.y - a.y*b.x;
+    const dot = a.x*b.x + a.y*b.y;
+    const magA = Math.hypot(a.x, a.y);
+    const magB = Math.hypot(b.x, b.y);
+    const angle = Math.acos(Math.max(-1, Math.min(1, dot/(magA*magB||1))));
+
+    ctx.fillStyle = '#c9d1d9'; ctx.font = '14px sans-serif';
+    ctx.fillText(`a × b = ${cross.toFixed(1)}`, 480, 60);
+    ctx.fillStyle = cross < 0 ? '#ff7b72' : '#3fb950';
+    ctx.fillText(cross < 0 ? '  顺时针转向' : '  逆时针转向', 480, 84);
+
+    ctx.fillStyle = '#c9d1d9';
+    ctx.fillText(`a · b = ${dot.toFixed(1)}`, 480, 120);
+    ctx.fillText(`|a| = ${magA.toFixed(1)}`, 480, 148);
+    ctx.fillText(`|b| = ${magB.toFixed(1)}`, 480, 172);
+    ctx.fillText(`夹角 = ${(angle*180/Math.PI).toFixed(1)}°`, 480, 196);
+
+    // a - b vector
+    ctx.strokeStyle = '#ffa65788'; ctx.lineWidth = 1.5; ctx.setLineDash([4,4]);
+    ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(a.x, a.y); ctx.stroke();
+    ctx.fillStyle = '#ffa657';
+    ctx.fillText('a − b', (b.x+a.x)/2+8, (b.y+a.y)/2-6);
+    ctx.setLineDash([]);
+
+    // Origin label
+    ctx.fillStyle = '#8b949e'; ctx.font = '13px sans-serif';
+    ctx.fillText('O', origin.x-18, origin.y+8);
+
+    // Info
+    ctx.fillStyle = '#8b949e'; ctx.font = '12px sans-serif';
+    ctx.fillText('a = ('+a.x.toFixed(0)+', '+a.y.toFixed(0)+')', a.x-20, a.y+24);
+    ctx.fillText('b = ('+b.x.toFixed(0)+', '+b.y.toFixed(0)+')', b.x-20, b.y+24);
+  }
+
+  el.onmousedown = function(e) {
+    const rect = el.getBoundingClientRect();
+    const scaleX = el.width / rect.width, scaleY = el.height / rect.height;
+    const mx = (e.clientX - rect.left) * scaleX;
+    const my = (e.clientY - rect.top) * scaleY;
+    const distA = Math.hypot(mx-a.x, my-a.y);
+    const distB = Math.hypot(mx-b.x, my-b.y);
+    if (distA < 20) drag = 'a';
+    else if (distB < 20) drag = 'b';
+  };
+  el.onmousemove = function(e) {
+    if (!drag) return;
+    const rect = el.getBoundingClientRect();
+    const scaleX = el.width / rect.width, scaleY = el.height / rect.height;
+    const mx = Math.max(0, Math.min(w, (e.clientX - rect.left) * scaleX));
+    const my = Math.max(0, Math.min(h, (e.clientY - rect.top) * scaleY));
+    if (drag === 'a') { a.x = mx; a.y = my; }
+    else { b.x = mx; b.y = my; }
+    draw();
+  };
+  el.onmouseup = el.onmouseleave = function() { drag = null; };
+  draw();
+})();
+
+// ============================================================
+//  Section 2 — Normal demo
+// ============================================================
+(function() {
+  const {ctx, w, h} = getCtx('demo-normal');
+  drawGrid(ctx, w, h, 40);
+
+  // Draw a line segment with normal
+  const p1 = {x: 120, y: 200}, p2 = {x: 500, y: 120};
+  const dx = p2.x-p1.x, dy = p2.y-p1.y;
+  const len = Math.hypot(dx, dy);
+  const nx = -dy/len, ny = dx/len;
+  const t = 60;
+
+  // Center line
+  ctx.strokeStyle = '#58a6ff'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
+
+  // Normal arrows at midpoint
+  const mx = (p1.x+p2.x)/2, my = (p1.y+p2.y)/2;
+  drawArrow(ctx, mx, my, mx+nx*80, my+ny*80, '#ff7b72', 2.5);
+  drawArrow(ctx, mx, my, mx-nx*80, my-ny*80, '#ff7b72', 2.5);
+
+  ctx.fillStyle = '#ff7b72'; ctx.font = '14px sans-serif';
+  ctx.fillText('normal', mx+nx*80+8, my+ny*80);
+  ctx.fillText('-normal', mx-nx*80-70, my-ny*80-6);
+
+  // Offset edges
+  const e1a = {x: p1.x+nx*t, y: p1.y+ny*t};
+  const e1b = {x: p2.x+nx*t, y: p2.y+ny*t};
+  const e2a = {x: p1.x-nx*t, y: p1.y-ny*t};
+  const e2b = {x: p2.x-nx*t, y: p2.y-ny*t};
+
+  ctx.strokeStyle = '#3fb950'; ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.moveTo(e1a.x, e1a.y); ctx.lineTo(e1b.x, e1b.y); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(e2a.x, e2a.y); ctx.lineTo(e2b.x, e2b.y); ctx.stroke();
+  // Connect the ends
+  ctx.strokeStyle = '#3fb95044';
+  ctx.beginPath(); ctx.moveTo(e1a.x, e1a.y); ctx.lineTo(e2a.x, e2a.y); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(e1b.x, e1b.y); ctx.lineTo(e2b.x, e2b.y); ctx.stroke();
+
+  // Labels
+  ctx.fillStyle = '#58a6ff'; ctx.font = '14px sans-serif';
+  ctx.fillText('P₀', p1.x-20, p1.y+20);
+  ctx.fillText('P₁', p2.x+8, p2.y-10);
+
+  ctx.fillStyle = '#3fb950'; ctx.font = '13px sans-serif';
+  ctx.fillText('edge1 (左)', e1a.x-70, e1a.y-8);
+  ctx.fillText('edge2 (右)', e2a.x-70, e2a.y+18);
+
+  ctx.fillStyle = '#8b949e'; ctx.font = '14px sans-serif';
+  ctx.fillText('thickness', mx-60, my+70);
+  // bracket
+  ctx.strokeStyle = '#8b949e44'; ctx.setLineDash([3,3]);
+  ctx.beginPath();
+  ctx.moveTo(e1b.x-20, e1b.y-10); ctx.lineTo(e1b.x-20, e2b.y+10);
+  ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle = '#8b949e'; ctx.font = '13px sans-serif';
+  const by = (e1b.y+e2b.y)/2;
+  ctx.fillText('← ' + (t*2) + 'px →', e1b.x-95, by-6);
+
+  drawPoint(ctx, p1.x, p1.y, '#58a6ff', 5);
+  drawPoint(ctx, p2.x, p2.y, '#58a6ff', 5);
+})();
+
+// ============================================================
+//  Section 3 — PolySegment demo
+// ============================================================
+(function() {
+  const {ctx, w, h} = getCtx('demo-polysegment');
+  drawGrid(ctx, w, h, 40);
+
+  const p1 = {x: 100, y: 240}, p2 = {x: 500, y: 100};
+  const dx = p2.x-p1.x, dy = p2.y-p1.y;
+  const len = Math.hypot(dx, dy);
+  const nx = -dy/len, ny = dx/len;
+  const t = 50;
+  const half = t/2;
+
+  const e1a = {x: p1.x+nx*half, y: p1.y+ny*half};
+  const e1b = {x: p2.x+nx*half, y: p2.y+ny*half};
+  const e2a = {x: p1.x-nx*half, y: p1.y-ny*half};
+  const e2b = {x: p2.x-nx*half, y: p2.y-ny*half};
+
+  // Fill the quad
+  ctx.fillStyle = '#58a6ff22';
+  ctx.beginPath();
+  ctx.moveTo(e1a.x, e1a.y); ctx.lineTo(e1b.x, e1b.y);
+  ctx.lineTo(e2b.x, e2b.y); ctx.lineTo(e2a.x, e2a.y);
+  ctx.closePath(); ctx.fill();
+
+  // Edge lines
+  ctx.strokeStyle = '#58a6ff'; ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
+
+  ctx.strokeStyle = '#ff7b72'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(e1a.x, e1a.y); ctx.lineTo(e1b.x, e1b.y); ctx.stroke();
+  ctx.strokeStyle = '#d2a8ff'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(e2a.x, e2a.y); ctx.lineTo(e2b.x, e2b.y); ctx.stroke();
+
+  // End connectors
+  ctx.strokeStyle = '#8b949e44'; ctx.setLineDash([4,4]);
+  ctx.beginPath(); ctx.moveTo(e1a.x, e1a.y); ctx.lineTo(e2a.x, e2a.y); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(e1b.x, e1b.y); ctx.lineTo(e2b.x, e2b.y); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Labels
+  ctx.fillStyle = '#ff7b72'; ctx.font = '14px sans-serif';
+  ctx.fillText('edge1', e1a.x-60, e1a.y-8);
+  ctx.fillStyle = '#d2a8ff';
+  ctx.fillText('edge2', e2a.x-60, e2a.y+20);
+
+  ctx.fillStyle = '#58a6ff';
+  ctx.fillText('center', (p1.x+p2.x)/2-50, (p1.y+p2.y)/2-12);
+
+  ctx.fillStyle = '#c9d1d9'; ctx.font = '14px sans-serif';
+  ctx.fillText('PolySegment {', 580, 60);
+  ctx.fillStyle = '#58a6ff';
+  ctx.fillText('  center: P₀→P₁', 580, 84);
+  ctx.fillStyle = '#ff7b72';
+  ctx.fillText('  edge1: 左偏移', 580, 108);
+  ctx.fillStyle = '#d2a8ff';
+  ctx.fillText('  edge2: 右偏移', 580, 132);
+  ctx.fillStyle = '#c9d1d9';
+  ctx.fillText('}', 580, 156);
+  ctx.fillStyle = '#8b949e'; ctx.font = '13px sans-serif';
+  ctx.fillText('公式: edge = center ± normal × thickness', 580, 190);
+
+  drawPoint(ctx, p1.x, p1.y, '#58a6ff', 5);
+  drawPoint(ctx, p2.x, p2.y, '#58a6ff', 5);
+  ctx.fillStyle = '#58a6ff'; ctx.font = '14px sans-serif';
+  ctx.fillText('P₀', p1.x-20, p1.y+20);
+  ctx.fillText('P₁', p2.x+8, p2.y-12);
+})();
+
+// ============================================================
+//  Section 3 — Triangles demo
+// ============================================================
+(function() {
+  const {ctx, w, h} = getCtx('demo-triangles');
+  drawGrid(ctx, w, h, 40);
+
+  const p1 = {x: 100, y: 260}, p2 = {x: 500, y: 120};
+  const dx = p2.x-p1.x, dy = p2.y-p1.y;
+  const len = Math.hypot(dx, dy);
+  const nx = -dy/len, ny = dx/len;
+  const t = 50, half = t/2;
+
+  const e1a = {x: p1.x+nx*half, y: p1.y+ny*half};
+  const e1b = {x: p2.x+nx*half, y: p2.y+ny*half};
+  const e2a = {x: p1.x-nx*half, y: p1.y-ny*half};
+  const e2b = {x: p2.x-nx*half, y: p2.y-ny*half};
+
+  // Fill first triangle (orange)
+  ctx.fillStyle = '#ff7b7244';
+  ctx.beginPath();
+  ctx.moveTo(e1a.x, e1a.y); ctx.lineTo(e2a.x, e2a.y); ctx.lineTo(e1b.x, e1b.y);
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = '#ff7b72'; ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Fill second triangle (purple)
+  ctx.fillStyle = '#d2a8ff44';
+  ctx.beginPath();
+  ctx.moveTo(e1b.x, e1b.y); ctx.lineTo(e2a.x, e2a.y); ctx.lineTo(e2b.x, e2b.y);
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = '#d2a8ff'; ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Center line
+  ctx.strokeStyle = '#58a6ff'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
+
+  // Vertex labels
+  ctx.fillStyle = '#ff7b72'; ctx.font = '13px sans-serif';
+  ctx.fillText('edge1.a', e1a.x-55, e1a.y-8);
+  ctx.fillText('edge1.b', e1b.x-8, e1b.y+6);
+  ctx.fillStyle = '#d2a8ff';
+  ctx.fillText('edge2.a', e2a.x-55, e2a.y+20);
+  ctx.fillText('edge2.b', e2b.x-8, e2b.y+24);
+
+  // Triangle labels
+  ctx.fillStyle = '#ff7b72'; ctx.font = '14px sans-serif';
+  ctx.fillText('△ 1', (e1a.x+e2a.x+e1b.x)/3, (e1a.y+e2a.y+e1b.y)/3);
+  ctx.fillStyle = '#d2a8ff';
+  ctx.fillText('△ 2', (e1b.x+e2a.x+e2b.x)/3, (e1b.y+e2a.y+e2b.y)/3-10);
+
+  // Code snippet
+  ctx.fillStyle = '#c9d1d9'; ctx.font = '13px sans-serif';
+  const codeX = 580;
+  ctx.fillStyle = '#8b949e'; ctx.fillText('// 每段 → 2 个三角形', codeX, 50);
+  ctx.fillStyle = '#ff7b72'; ctx.fillText('△1: edge1.a → edge2.a → edge1.b', codeX, 74);
+  ctx.fillStyle = '#d2a8ff'; ctx.fillText('△2: edge1.b → edge2.a → edge2.b', codeX, 98);
+  ctx.fillStyle = '#8b949e'; ctx.fillText('6 个顶点 / 段', codeX, 126);
+
+  drawPoint(ctx, e1a.x, e1a.y, '#ff7b72', 4);
+  drawPoint(ctx, e1b.x, e1b.y, '#ff7b72', 4);
+  drawPoint(ctx, e2a.x, e2a.y, '#d2a8ff', 4);
+  drawPoint(ctx, e2b.x, e2b.y, '#d2a8ff', 4);
+})();
+
+// ============================================================
+//  Section 4 — Join gap demo
+// ============================================================
+(function() {
+  const {ctx, w, h} = getCtx('demo-join-gap');
+  drawGrid(ctx, w, h, 40);
+
+  const pts = [{x:80,y:220}, {x:300,y:90}, {x:540,y:200}];
+  const t = 40;
+
+  for (let i = 0; i < pts.length-1; i++) {
+    const p1 = pts[i], p2 = pts[i+1];
+    const dx = p2.x-p1.x, dy = p2.y-p1.y;
+    const len = Math.hypot(dx, dy);
+    const nx = -dy/len, ny = dx/len;
+    const half = t/2;
+
+    const e1a = {x: p1.x+nx*half, y: p1.y+ny*half};
+    const e1b = {x: p2.x+nx*half, y: p2.y+ny*half};
+    const e2a = {x: p1.x-nx*half, y: p1.y-ny*half};
+    const e2b = {x: p2.x-nx*half, y: p2.y-ny*half};
+
+    ctx.fillStyle = '#58a6ff22';
+    ctx.beginPath();
+    ctx.moveTo(e1a.x, e1a.y); ctx.lineTo(e1b.x, e1b.y);
+    ctx.lineTo(e2b.x, e2b.y); ctx.lineTo(e2a.x, e2a.y);
+    ctx.closePath(); ctx.fill();
+
+    ctx.strokeStyle = '#58a6ff'; ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
+  // Highlight the gap
+  const gapX = pts[1].x, gapY = pts[1].y;
+  ctx.fillStyle = '#ff7b7244';
+  ctx.beginPath(); ctx.arc(gapX, gapY, 22, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = '#ff7b72'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(gapX, gapY, 22, 0, Math.PI*2); ctx.stroke();
+
+  ctx.fillStyle = '#ff7b72'; ctx.font = '16px sans-serif';
+  ctx.fillText('⚠️ 缺口！', gapX+30, gapY-10);
+
+  // Center lines
+  ctx.strokeStyle = '#8b949e44'; ctx.lineWidth = 1; ctx.setLineDash([4,4]);
+  ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i=1; i<pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.stroke(); ctx.setLineDash([]);
+
+  for (let p of pts) drawPoint(ctx, p.x, p.y, '#58a6ff', 4);
+})();
+
+// ============================================================
+//  Section 4 — Interactive join demo
+// ============================================================
+let currentJoinStyle = 'miter';
+function setJoinStyle(style) {
+  currentJoinStyle = style;
+  document.querySelectorAll('[data-join]').forEach(b => b.classList.remove('active'));
+  document.querySelector(`[data-join="${style}"]`).classList.add('active');
+  drawJoinDemo();
+}
+
+function drawJoinDemo() {
+  const {ctx, w, h} = getCtx('demo-join');
+  ctx.clearRect(0, 0, w, h);
+  drawGrid(ctx, w, h, 40);
+
+  // Three segments making two joints
+  const pts = [
+    {x: 60, y: 320}, {x: 240, y: 80},
+    {x: 480, y: 280}, {x: 700, y: 100}
+  ];
+  const t = 50;
+  const style = currentJoinStyle;
+
+  function computeSegment(p1, p2) {
+    const dx = p2.x-p1.x, dy = p2.y-p1.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 0.001) return null;
+    const nx = -dy/len, ny = dx/len;
+    return {
+      center: {a: p1, b: p2},
+      e1a: {x: p1.x+nx*t/2, y: p1.y+ny*t/2},
+      e1b: {x: p2.x+nx*t/2, y: p2.y+ny*t/2},
+      e2a: {x: p1.x-nx*t/2, y: p1.y-ny*t/2},
+      e2b: {x: p2.x-nx*t/2, y: p2.y-ny*t/2},
+      dir: {x: dx/len, y: dy/len},
+      normal: {x: nx, y: ny}
+    };
+  }
+
+  const segs = [];
+  for (let i = 0; i < pts.length-1; i++) {
+    const s = computeSegment(pts[i], pts[i+1]);
+    if (s) segs.push(s);
+  }
+
+  if (segs.length < 2) return;
+
+  // Draw each segment fill
+  for (const s of segs) {
+    ctx.fillStyle = '#58a6ff22';
+    ctx.beginPath();
+    ctx.moveTo(s.e1a.x, s.e1a.y); ctx.lineTo(s.e1b.x, s.e1b.y);
+    ctx.lineTo(s.e2b.x, s.e2b.y); ctx.lineTo(s.e2a.x, s.e2a.y);
+    ctx.closePath(); ctx.fill();
+  }
+
+  // Draw joints
+  for (let i = 0; i < segs.length-1; i++) {
+    const s1 = segs[i], s2 = segs[i+1];
+    const clockwise = s1.dir.x * s2.dir.y - s1.dir.y * s2.dir.x < 0;
+
+    let outer1, outer2, inner1, inner2;
+    if (clockwise) {
+      outer1 = {a: s1.e1a, b: s1.e1b};
+      outer2 = {a: s2.e1a, b: s2.e1b};
+      inner1 = {a: s1.e2a, b: s1.e2b};
+      inner2 = {a: s2.e2a, b: s2.e2b};
+    } else {
+      outer1 = {a: s1.e2a, b: s1.e2b};
+      outer2 = {a: s2.e2a, b: s2.e2b};
+      inner1 = {a: s1.e1a, b: s1.e1b};
+      inner2 = {a: s2.e1a, b: s2.e1b};
+    }
+
+    // inner intersection
+    const r1x = inner1.b.x - inner1.a.x, r1y = inner1.b.y - inner1.a.y;
+    const s1x = inner2.b.x - inner2.a.x, s1y = inner2.b.y - inner2.a.y;
+    const ox = inner2.a.x - inner1.a.x, oy = inner2.a.y - inner1.a.y;
+    const denom = r1x*s1y - r1y*s1x;
+    let innerSec = inner1.b;
+    if (Math.abs(denom) > 0.0001) {
+      const u = (ox*r1y - oy*r1x) / denom;
+      innerSec = {x: inner2.a.x + s1x*u, y: inner2.a.y + s1y*u};
+    } else {
+      innerSec = inner1.b;
+    }
+
+    if (style === 'miter') {
+      // Compute outer intersections
+      function lineIntersection(p1, p2, p3, p4) {
+        const rx = p2.x-p1.x, ry = p2.y-p1.y;
+        const sx = p4.x-p3.x, sy = p4.y-p3.y;
+        const ox = p3.x-p1.x, oy = p3.y-p1.y;
+        const d = rx*sy - ry*sx;
+        if (Math.abs(d) < 0.0001) return null;
+        const tVal = (ox*sy - oy*sx) / d;
+        return {x: p1.x + rx*tVal, y: p1.y + ry*tVal};
+      }
+      const sec1 = lineIntersection(outer1.a, outer1.b, outer2.a, outer2.b);
+      const sec2 = lineIntersection(inner1.a, inner1.b, inner2.a, inner2.b);
+      const e1 = sec1 || outer1.b;
+      const e2 = sec2 || inner2.a;
+
+      ctx.fillStyle = '#ffa65744';
+      ctx.beginPath();
+      ctx.moveTo(outer1.b.x, outer1.b.y);
+      ctx.lineTo(outer2.a.x, outer2.a.y);
+      ctx.lineTo(e2.x, e2.y);
+      ctx.closePath(); ctx.fill();
+
+      ctx.strokeStyle = '#ffa657'; ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(e1.x, e1.y);
+      ctx.lineTo(outer1.b.x, outer1.b.y);
+      ctx.stroke();
+
+      ctx.fillStyle = '#ffa657'; ctx.font = '12px sans-serif';
+      ctx.fillText('MITER', e1.x-25, e1.y-12);
+
+    } else if (style === 'bevel') {
+      // BEVEL: fill triangle between outer ends and inner intersection
+      ctx.fillStyle = '#ffa65744';
+      ctx.beginPath();
+      ctx.moveTo(outer1.b.x, outer1.b.y);
+      ctx.lineTo(outer2.a.x, outer2.a.y);
+      ctx.lineTo(innerSec.x, innerSec.y);
+      ctx.closePath(); ctx.fill();
+
+      ctx.fillStyle = '#ffa657'; ctx.font = '12px sans-serif';
+      ctx.fillText('BEVEL', (outer1.b.x+outer2.a.x+innerSec.x)/3-25, (outer1.b.y+outer2.a.y+innerSec.y)/3-6);
+
+    } else if (style === 'round') {
+      // ROUND: triangle fan
+      const cx = s1.center.b.x, cy = s1.center.b.y;
+      const sx1 = outer1.b.x - cx, sy1 = outer1.b.y - cy;
+      const ex1 = outer2.a.x - cx, ey1 = outer2.a.y - cy;
+      const a1 = Math.atan2(sy1, sx1);
+      let a2 = Math.atan2(ey1, ex1);
+      if (clockwise) { while (a2 > a1) a2 -= Math.PI*2; }
+      else { while (a1 > a2) a1 -= Math.PI*2; }
+      const sweep = a2 - a1;
+      const numTri = Math.max(1, Math.floor(Math.abs(sweep) / 0.174533));
+      const triAngle = sweep / numTri;
+
+      for (let t = 0; t < numTri; t++) {
+        const rot1 = t * triAngle;
+        const rot2 = (t+1) * triAngle;
+        const p1x = cx + Math.cos(rot1)*Math.hypot(sx1,sy1) - Math.sin(rot1)*0;
+        const p1y = cy + Math.sin(rot1)*Math.hypot(sx1,sy1) + Math.cos(rot1)*0;
+        // Actually use proper rotation
+        const p1 = {x: cx + Math.cos(rot1)*sx1 - Math.sin(rot1)*sy1,
+                    y: cy + Math.sin(rot1)*sx1 + Math.cos(rot1)*sy1};
+        const p2 = {x: cx + Math.cos(rot2)*sx1 - Math.sin(rot2)*sy1,
+                    y: cy + Math.sin(rot2)*sx1 + Math.cos(rot2)*sy1};
+
+        ctx.fillStyle = 'hsla('+(t*30+30)+', 80%, 65%, 0.35)';
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.lineTo(innerSec.x, innerSec.y);
+        ctx.closePath(); ctx.fill();
+      }
+
+      ctx.fillStyle = '#ffa657'; ctx.font = '12px sans-serif';
+      ctx.fillText('ROUND', s1.center.b.x+20, s1.center.b.y-15);
+    }
+  }
+
+  // Draw segment outlines
+  ctx.strokeStyle = '#58a6ff'; ctx.lineWidth = 2;
+  for (const s of segs) {
+    ctx.beginPath();
+    ctx.moveTo(s.e1a.x, s.e1a.y); ctx.lineTo(s.e1b.x, s.e1b.y);
+    ctx.lineTo(s.e2b.x, s.e2b.y); ctx.lineTo(s.e2a.x, s.e2a.y);
+    ctx.closePath(); ctx.stroke();
+  }
+
+  // Center lines
+  ctx.strokeStyle = '#8b949e44'; ctx.lineWidth = 1; ctx.setLineDash([4,4]);
+  ctx.beginPath(); ctx.moveTo(segs[0].center.a.x, segs[0].center.a.y);
+  for (const s of segs) ctx.lineTo(s.center.b.x, s.center.b.y);
+  ctx.stroke(); ctx.setLineDash([]);
+
+  // Points
+  for (const p of pts) drawPoint(ctx, p.x, p.y, '#58a6ff', 4);
+}
+drawJoinDemo();
+
+// ============================================================
+//  Section 4 — Triangle fan interactive demo
+// ============================================================
+(function() {
+  const {el, ctx, w, h} = getCtx('demo-triangle-fan');
+  const angleSlider = document.getElementById('fan-angle');
+  const sweepSlider = document.getElementById('fan-sweep');
+
+  function drawFan() {
+    ctx.clearRect(0, 0, w, h);
+    drawGrid(ctx, w, h, 40);
+
+    const roundMinAngle = parseFloat(angleSlider.value) * Math.PI / 180;
+    const sweepDeg = parseFloat(sweepSlider.value);
+    const sweep = sweepDeg * Math.PI / 180;
+
+    const cx = 220, cy = 200, R = 80;
+    const startAngle = -Math.PI/2;
+    const endAngle = startAngle + sweep;
+
+    const numTri = Math.max(1, Math.floor(sweep / roundMinAngle));
+
+    // Draw circles arc
+    ctx.strokeStyle = '#8b949e44'; ctx.lineWidth = 1; ctx.setLineDash([4,4]);
+    ctx.beginPath(); ctx.arc(cx, cy, R, startAngle, endAngle); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Origin point
+    const connectTo = {x: cx+200, y: cy};
+    drawPoint(ctx, connectTo.x, connectTo.y, '#ff7b72', 4);
+
+    // Draw triangles
+    for (let i = 0; i < numTri; i++) {
+      const a1 = startAngle + (sweep/numTri) * i;
+      const a2 = startAngle + (sweep/numTri) * (i+1);
+      const p1 = {x: cx + R*Math.cos(a1), y: cy + R*Math.sin(a1)};
+      const p2 = {x: cx + R*Math.cos(a2), y: cy + R*Math.sin(a2)};
+
+      ctx.fillStyle = 'hsla('+(i*30+30)+', 80%, 65%, 0.3)';
+      ctx.beginPath();
+      ctx.moveTo(connectTo.x, connectTo.y);
+      ctx.lineTo(p1.x, p1.y);
+      ctx.lineTo(p2.x, p2.y);
+      ctx.closePath(); ctx.fill();
+
+      ctx.strokeStyle = 'hsla('+(i*30+30)+', 80%, 65%, 0.6)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+
+    // Labels
+    ctx.fillStyle = '#c9d1d9'; ctx.font = '14px sans-serif';
+    ctx.fillText('三角扇', 180, 40);
+    ctx.fillText('公共顶点 (connectTo)', connectTo.x+15, connectTo.y+6);
+    ctx.fillStyle = '#8b949e'; ctx.font = '13px sans-serif';
+    ctx.fillText('origin center', cx-40, cy+130);
+    ctx.fillText('圆弧', cx+R+8, cy-8);
+
+    // Info
+    ctx.fillStyle = '#c9d1d9'; ctx.font = '14px sans-serif';
+    ctx.fillText(`分段数: ${numTri}`, 480, 80);
+    ctx.fillText(`每段角度: ${(sweep/numTri*180/Math.PI).toFixed(1)}°`, 480, 106);
+    ctx.fillText(`总跨度: ${sweepDeg}°`, 480, 132);
+
+    document.getElementById('fan-angle-label').textContent = angleSlider.value + '°';
+    document.getElementById('fan-sweep-label').textContent = sweepDeg + '°';
+  }
+
+  angleSlider.oninput = drawFan;
+  sweepSlider.oninput = drawFan;
+  drawFan();
+})();
+
+// ============================================================
+//  Section 5 — Inner vs Outer demo
+// ============================================================
+(function() {
+  const {ctx, w, h} = getCtx('demo-inner-outer');
+  drawGrid(ctx, w, h, 40);
+
+  // Draw a turn: clockwise and counter-clockwise side by side
+  // Left: clockwise turn
+  const pts1 = [{x:60,y:280}, {x:200,y:80}, {x:370,y:250}];
+  // Right: counter-clockwise
+  const pts2 = [{x:430,y:80}, {x:590,y:280}, {x:760,y:100}];
+
+  function drawTurn(pts, offsetX, label) {
+    const t = 40;
+
+    function comp(p1, p2) {
+      const dx = p2.x-p1.x, dy = p2.y-p1.y;
+      const len = Math.hypot(dx, dy);
+      const nx = -dy/len, ny = dx/len;
+      return {nx, ny, dir: {x:dx/len, y:dy/len}};
+    }
+
+    const s1 = comp(pts[0], pts[1]);
+    const s2 = comp(pts[1], pts[2]);
+    const clockwise = s1.dir.x * s2.dir.y - s1.dir.y * s2.dir.x < 0;
+
+    // Draw segments
+    for (let i = 0; i < pts.length-1; i++) {
+      const p1 = pts[i], p2 = pts[i+1];
+      const {nx, ny} = comp(p1, p2);
+      const e1a = {x: p1.x+nx*t/2, y: p1.y+ny*t/2};
+      const e1b = {x: p2.x+nx*t/2, y: p2.y+ny*t/2};
+      const e2a = {x: p1.x-nx*t/2, y: p1.y-ny*t/2};
+      const e2b = {x: p2.x-nx*t/2, y: p2.y-ny*t/2};
+
+      ctx.fillStyle = '#58a6ff22';
+      ctx.beginPath();
+      ctx.moveTo(e1a.x, e1a.y); ctx.lineTo(e1b.x, e1b.y);
+      ctx.lineTo(e2b.x, e2b.y); ctx.lineTo(e2a.x, e2a.y);
+      ctx.closePath(); ctx.fill();
+    }
+
+    // Annotations
+    const midX = (pts[0].x + pts[1].x + pts[2].x) / 3;
+    const midY = (pts[0].y + pts[1].y + pts[2].y) / 3;
+    ctx.fillStyle = clockwise ? '#ff7b72' : '#3fb950';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.fillText(clockwise ? '↻ 顺时针' : '↺ 逆时针', midX-40, midY+60);
+
+    // Inner/outer labels on the middle segment
+    const midP1 = pts[1], midP2 = pts[2];
+    const {nx, ny} = comp(midP1, midP2);
+    const outerP = {x: midP1.x + nx*t/2 + 10, y: midP1.y + ny*t/2 - 15};
+    const innerP = {x: midP1.x - nx*t/2 + 10, y: midP1.y - ny*t/2 + 20};
+
+    // Determine which side is outer
+    ctx.fillStyle = '#ffa657'; ctx.font = '13px sans-serif';
+    if (clockwise) {
+      // edge1 = outer, edge2 = inner
+      ctx.fillText('← edge1 (OUTER)', outerP.x, outerP.y);
+      ctx.fillText('← edge2 (INNER)', innerP.x, innerP.y);
+      // Draw dashed arrow pointing to outer
+      ctx.strokeStyle = '#ffa65788'; ctx.setLineDash([3,3]);
+      // No need
+    } else {
+      ctx.fillText('← edge1 (INNER)', outerP.x, outerP.y);
+      ctx.fillText('← edge2 (OUTER)', innerP.x, innerP.y);
+    }
+    ctx.setLineDash([]);
+
+    // Center lines
+    ctx.strokeStyle = '#8b949e44'; ctx.lineWidth = 1; ctx.setLineDash([4,4]);
+    ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i=1; i<pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.stroke(); ctx.setLineDash([]);
+
+    for (const p of pts) drawPoint(ctx, p.x, p.y, '#58a6ff', 4);
+  }
+
+  drawTurn(pts1, 0, '');
+  drawTurn(pts2, 0, '');
+})();
+
+// ============================================================
+//  Section 6 — End cap demos
+// ============================================================
+function drawCap(pts, style, t, ctx, w, h) {
+  ctx.clearRect(0, 0, w, h);
+  drawGrid(ctx, w, h, 30);
+
+  const p1 = {x: 50, y: h/2}, p2 = {x: w-50, y: h/2-10};
+  const dx = p2.x-p1.x, dy = p2.y-p1.y;
+  const len = Math.hypot(dx, dy);
+  const nx = -dy/len, ny = dx/len;
+  const half = t/2;
+
+  let s1a = {x: p1.x+nx*half, y: p1.y+ny*half};
+  let s1b = {x: p2.x+nx*half, y: p2.y+ny*half};
+  let s2a = {x: p1.x-nx*half, y: p1.y-ny*half};
+  let s2b = {x: p2.x-nx*half, y: p2.y-ny*half};
+
+  if (style === 'square') {
+    s1a = {x: s1a.x - dx/len*half, y: s1a.y - dy/len*half};
+    s2a = {x: s2a.x - dx/len*half, y: s2a.y - dy/len*half};
+    s1b = {x: s1b.x + dx/len*half, y: s1b.y + dy/len*half};
+    s2b = {x: s2b.x + dx/len*half, y: s2b.y + dy/len*half};
+  }
+
+  // Fill
+  ctx.fillStyle = '#58a6ff22';
+  ctx.beginPath();
+  ctx.moveTo(s1a.x, s1a.y); ctx.lineTo(s1b.x, s1b.y);
+  ctx.lineTo(s2b.x, s2b.y); ctx.lineTo(s2a.x, s2a.y);
+  ctx.closePath(); ctx.fill();
+
+  // Stroke
+  ctx.strokeStyle = '#58a6ff'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(s1a.x, s1a.y); ctx.lineTo(s1b.x, s1b.y);
+  ctx.lineTo(s2b.x, s2b.y); ctx.lineTo(s2a.x, s2a.y);
+  ctx.closePath(); ctx.stroke();
+
+  if (style === 'round') {
+    const cx1 = p1.x, cy1 = p1.y;
+    const cx2 = p2.x, cy2 = p2.y;
+    const a1 = Math.atan2(s1a.y-cy1, s1a.x-cx1);
+    const a2 = Math.atan2(s2a.y-cy1, s2a.x-cx1);
+    const numTri = Math.max(1, Math.floor(Math.PI / 0.174533));
+    for (let i = 0; i < numTri; i++) {
+      const aa = a1 + (a2-a1)*i/numTri;
+      const ab = a1 + (a2-a1)*(i+1)/numTri;
+      const pa = {x: cx1 + half*Math.cos(aa), y: cy1 + half*Math.sin(aa)};
+      const pb = {x: cx1 + half*Math.cos(ab), y: cy1 + half*Math.sin(ab)};
+      ctx.fillStyle = 'hsla('+(i*30+30)+',80%,65%,0.3)';
+      ctx.beginPath();
+      ctx.moveTo(cx1, cy1); ctx.lineTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y);
+      ctx.closePath(); ctx.fill();
+    }
+    // Right end
+    const a3 = Math.atan2(s1b.y-cy2, s1b.x-cx2);
+    const a4 = Math.atan2(s2b.y-cy2, s2b.x-cx2);
+    for (let i = 0; i < numTri; i++) {
+      const aa = a3 + (a4-a3)*i/numTri;
+      const ab = a3 + (a4-a3)*(i+1)/numTri;
+      const pa = {x: cx2 + half*Math.cos(aa), y: cy2 + half*Math.sin(aa)};
+      const pb = {x: cx2 + half*Math.cos(ab), y: cy2 + half*Math.sin(ab)};
+      ctx.fillStyle = 'hsla('+(80+i*30)+',80%,65%,0.3)';
+      ctx.beginPath();
+      ctx.moveTo(cx2, cy2); ctx.lineTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y);
+      ctx.closePath(); ctx.fill();
+    }
+  }
+
+  // Center line
+  ctx.strokeStyle = '#8b949e44'; ctx.lineWidth = 1; ctx.setLineDash([3,3]);
+  ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+(function() {
+  const t = 30;
+  ['butt','square','round'].forEach((style, i) => {
+    const id = 'demo-cap-' + style;
+    const {ctx, w, h} = getCtx(id);
+    drawCap([], style, t, ctx, w, h);
+  });
+})();
+
+// ============================================================
+//  Section 7 — Miter limit demo
+// ============================================================
+(function() {
+  const {el, ctx, w, h} = getCtx('demo-miter-limit');
+  const angleSlider = document.getElementById('miter-angle');
+  const limitSlider = document.getElementById('miter-limit');
+
+  function drawMiter() {
+    ctx.clearRect(0, 0, w, h);
+    drawGrid(ctx, w, h, 40);
+
+    const angleDeg = parseFloat(angleSlider.value);
+    const limitDeg = parseFloat(limitSlider.value);
+    const angle = angleDeg * Math.PI / 180;
+    const limit = limitDeg * Math.PI / 180;
+
+    // Build a V shape with given angle
+    const cx = 200, cy = 300;
+    const len = 160;
+    const halfAngle = angle / 2;
+    const p1 = {x: cx - len*Math.cos(halfAngle), y: cy - len*Math.sin(halfAngle)};
+    const p2 = {x: cx, y: cy};
+    const p3 = {x: cx + len*Math.cos(halfAngle), y: cy - len*Math.sin(halfAngle)};
+
+    const t = 50;
+    function comp(p1, p2) {
+      const dx = p2.x-p1.x, dy = p2.y-p1.y;
+      const l = Math.hypot(dx, dy);
+      return {nx: -dy/l, ny: dx/l, dir: {x:dx/l, y:dy/l}};
+    }
+
+    const s1 = comp(p1, p2);
+    const s2 = comp(p2, p3);
+
+    const e1a = {x: p1.x+s1.nx*t/2, y: p1.y+s1.ny*t/2};
+    const e1b = {x: p2.x+s1.nx*t/2, y: p2.y+s1.ny*t/2};
+    const e2a = {x: p1.x-s1.nx*t/2, y: p1.y-s1.ny*t/2};
+    const e2b = {x: p2.x-s1.nx*t/2, y: p2.y-s1.ny*t/2};
+    const e3a = {x: p2.x+s2.nx*t/2, y: p2.y+s2.ny*t/2};
+    const e3b = {x: p3.x+s2.nx*t/2, y: p3.y+s2.ny*t/2};
+    const e4a = {x: p2.x-s2.nx*t/2, y: p2.y-s2.ny*t/2};
+    const e4b = {x: p3.x-s2.nx*t/2, y: p3.y-s2.ny*t/2};
+
+    // Draw regular segments
+    function drawSeg(p1, p2, color) {
+      ctx.fillStyle = color + '22';
+      ctx.beginPath();
+      ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y);
+      ctx.lineTo(p2.x, p2.y); ctx.lineTo(p1.x, p1.y);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.fillStyle = '#58a6ff22';
+    ctx.beginPath();
+    ctx.moveTo(e1a.x, e1a.y); ctx.lineTo(e1b.x, e1b.y);
+    ctx.lineTo(e2b.x, e2b.y); ctx.lineTo(e2a.x, e2a.y);
+    ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(e3a.x, e3a.y); ctx.lineTo(e3b.x, e3b.y);
+    ctx.lineTo(e4b.x, e4b.y); ctx.lineTo(e4a.x, e4a.y);
+    ctx.closePath(); ctx.fill();
+
+    // Determine if miter exceeds limit
+    const clockwise = s1.dir.x * s2.dir.y - s1.dir.y * s2.dir.x < 0;
+    const wrappedAngle = angle > Math.PI/2 ? Math.PI - angle : angle;
+    const useBevel = wrappedAngle < limit;
+    const actualStyle = useBevel ? 'BEVEL' : 'MITER';
+
+    let outer1, outer2;
+    if (clockwise) {
+      outer1 = {a: e1a, b: e1b}; outer2 = {a: e3a, b: e3b};
+    } else {
+      outer1 = {a: e2a, b: e2b}; outer2 = {a: e4a, b: e4b};
+    }
+
+    // Draw miter intersection if applicable
+    if (!useBevel) {
+      function lineInt(pa1, pa2, pb1, pb2) {
+        const rx = pa2.x-pa1.x, ry = pa2.y-pa1.y;
+        const sx = pb2.x-pb1.x, sy = pb2.y-pb1.y;
+        const ox = pb1.x-pa1.x, oy = pb1.y-pa1.y;
+        const d = rx*sy - ry*sx;
+        if (Math.abs(d) < 0.0001) return null;
+        const t = (ox*sy - oy*sx) / d;
+        return {x: pa1.x + rx*t, y: pa1.y + ry*t};
+      }
+      const sec = lineInt(outer1.a, outer1.b, outer2.a, outer2.b);
+      if (sec) {
+        ctx.strokeStyle = '#ffa657'; ctx.lineWidth = 2; ctx.setLineDash([4,4]);
+        ctx.beginPath(); ctx.moveTo(outer1.b.x, outer1.b.y); ctx.lineTo(sec.x, sec.y); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(outer2.a.x, outer2.a.y); ctx.lineTo(sec.x, sec.y); ctx.stroke();
+        ctx.setLineDash([]);
+        drawPoint(ctx, sec.x, sec.y, '#ffa657', 5);
+        ctx.fillStyle = '#ffa657'; ctx.font = '13px sans-serif';
+        ctx.fillText('交点（可能很远）', sec.x+15, sec.y-6);
+      }
+    } else {
+      // Draw bevel fill
+      ctx.fillStyle = '#ffa65744';
+      ctx.beginPath();
+      ctx.moveTo(outer1.b.x, outer1.b.y);
+      ctx.lineTo(outer2.a.x, outer2.a.y);
+      // find inner intersection for proper bevel
+      ctx.closePath(); ctx.fill();
+    }
+
+    // Segment outlines
+    ctx.strokeStyle = '#58a6ff'; ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(e1a.x, e1a.y); ctx.lineTo(e1b.x, e1b.y);
+    ctx.lineTo(e2b.x, e2b.y); ctx.lineTo(e2a.x, e2a.y);
+    ctx.closePath(); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(e3a.x, e3a.y); ctx.lineTo(e3b.x, e3b.y);
+    ctx.lineTo(e4b.x, e4b.y); ctx.lineTo(e4a.x, e4a.y);
+    ctx.closePath(); ctx.stroke();
+
+    // Center lines
+    ctx.strokeStyle = '#8b949e44'; ctx.lineWidth = 1; ctx.setLineDash([4,4]);
+    ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.lineTo(p3.x, p3.y);
+    ctx.stroke(); ctx.setLineDash([]);
+
+    for (const p of [p1,p2,p3]) drawPoint(ctx, p.x, p.y, '#58a6ff', 4);
+
+    // Status
+    ctx.fillStyle = useBevel ? '#d29922' : '#3fb950';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.fillText(`实际使用: ${useBevel ? 'BEVEL ⚠️' : 'MITER ✓'}`, 460, 80);
+    ctx.fillStyle = '#c9d1d9'; ctx.font = '14px sans-serif';
+    ctx.fillText(`夹角: ${angleDeg}°  |  Miter Limit: ${limitDeg}° → ${wrappedAngle*180/Math.PI < limitDeg ? '超过限制' : '未超限制'}`, 460, 112);
+
+    document.getElementById('miter-angle-label').textContent = angleDeg + '°';
+    document.getElementById('miter-limit-label').textContent = limitDeg + '°';
+  }
+
+  angleSlider.oninput = drawMiter;
+  limitSlider.oninput = drawMiter;
+  drawMiter();
+})();
+
+// ============================================================
+//  Section 8 — Final render demo
+// ============================================================
+(function() {
+  const {el, ctx, w, h} = getCtx('demo-final-render');
+  const thickSlider = document.getElementById('render-thickness');
+  const joinSelect = document.getElementById('render-join');
+  const capSelect = document.getElementById('render-cap');
+
+  function drawRender() {
+    ctx.clearRect(0, 0, w, h);
+    drawGrid(ctx, w, h, 40);
+
+    const t = parseFloat(thickSlider.value);
+    const joinStyle = joinSelect.value;
+    const capStyle = capSelect.value;
+
+    // A nice winding path
+    const pts = [
+      {x: 60, y: 290}, {x: 180, y: 80}, {x: 340, y: 250},
+      {x: 500, y: 70}, {x: 650, y: 260}, {x: 740, y: 120}
+    ];
+
+    function computeSeg(p1, p2) {
+      const dx = p2.x-p1.x, dy = p2.y-p1.y;
+      const len = Math.hypot(dx, dy);
+      if (len < 0.001) return null;
+      const nx = -dy/len, ny = dx/len;
+      return {
+        e1a: {x: p1.x+nx*t/2, y: p1.y+ny*t/2},
+        e1b: {x: p2.x+nx*t/2, y: p2.y+ny*t/2},
+        e2a: {x: p1.x-nx*t/2, y: p1.y-ny*t/2},
+        e2b: {x: p2.x-nx*t/2, y: p2.y-ny*t/2},
+        dir: {x: dx/len, y: dy/len}
+      };
+    }
+
+    const segs = [];
+    for (let i = 0; i < pts.length-1; i++) {
+      const s = computeSeg(pts[i], pts[i+1]);
+      if (s) segs.push(s);
+    }
+
+    if (segs.length < 2) return;
+
+    // Draw end caps
+    if (capStyle === 'square') {
+      const first = segs[0];
+      const d = first.dir;
+      first.e1a = {x: first.e1a.x - d.x*t/2, y: first.e1a.y - d.y*t/2};
+      first.e2a = {x: first.e2a.x - d.x*t/2, y: first.e2a.y - d.y*t/2};
+      const last = segs[segs.length-1];
+      last.e1b = {x: last.e1b.x + d.x*t/2, y: last.e1b.y + d.y*t/2};
+      last.e2b = {x: last.e2b.x + d.x*t/2, y: last.e2b.y + d.y*t/2};
+    } else if (capStyle === 'round') {
+      // Simplified cap drawing
+      const first = segs[0];
+      const cx = pts[0].x, cy = pts[0].y;
+      const a1 = Math.atan2(first.e1a.y-cy, first.e1a.x-cx);
+      const a2 = Math.atan2(first.e2a.y-cy, first.e2a.x-cx);
+      const numTri = Math.max(1, Math.floor(Math.PI / 0.174533));
+      for (let i = 0; i < numTri; i++) {
+        const aa = a1 + (a2-a1)*i/numTri;
+        const ab = a1 + (a2-a1)*(i+1)/numTri;
+        const pa = {x: cx + t/2*Math.cos(aa), y: cy + t/2*Math.sin(aa)};
+        const pb = {x: cx + t/2*Math.cos(ab), y: cy + t/2*Math.sin(ab)};
+        ctx.fillStyle = 'hsla('+(i*30+30)+',80%,65%,0.25)';
+        ctx.beginPath();
+        ctx.moveTo(cx, cy); ctx.lineTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y);
+        ctx.closePath(); ctx.fill();
+      }
+      const last = segs[segs.length-1];
+      const cx2 = pts[pts.length-1].x, cy2 = pts[pts.length-1].y;
+      const a3 = Math.atan2(last.e1b.y-cy2, last.e1b.x-cx2);
+      const a4 = Math.atan2(last.e2b.y-cy2, last.e2b.x-cx2);
+      for (let i = 0; i < numTri; i++) {
+        const aa = a3 + (a4-a3)*i/numTri;
+        const ab = a3 + (a4-a3)*(i+1)/numTri;
+        const pa = {x: cx2 + t/2*Math.cos(aa), y: cy2 + t/2*Math.sin(aa)};
+        const pb = {x: cx2 + t/2*Math.cos(ab), y: cy2 + t/2*Math.sin(ab)};
+        ctx.fillStyle = 'hsla('+(80+i*30)+',80%,65%,0.25)';
+        ctx.beginPath();
+        ctx.moveTo(cx2, cy2); ctx.lineTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y);
+        ctx.closePath(); ctx.fill();
+      }
+    }
+
+    // Draw segment fills
+    for (const s of segs) {
+      ctx.fillStyle = '#58a6ff22';
+      ctx.beginPath();
+      ctx.moveTo(s.e1a.x, s.e1a.y); ctx.lineTo(s.e1b.x, s.e1b.y);
+      ctx.lineTo(s.e2b.x, s.e2b.y); ctx.lineTo(s.e2a.x, s.e2a.y);
+      ctx.closePath(); ctx.fill();
+    }
+
+    // Draw joints
+    for (let i = 0; i < segs.length-1; i++) {
+      const s1 = segs[i], s2 = segs[i+1];
+      const clockwise = s1.dir.x * s2.dir.y - s1.dir.y * s2.dir.x < 0;
+      let outer1, outer2, inner1, inner2;
+      if (clockwise) {
+        outer1 = {a: s1.e1a, b: s1.e1b}; outer2 = {a: s2.e1a, b: s2.e1b};
+        inner1 = {a: s1.e2a, b: s1.e2b}; inner2 = {a: s2.e2a, b: s2.e2b};
+      } else {
+        outer1 = {a: s1.e2a, b: s1.e2b}; outer2 = {a: s2.e2a, b: s2.e2b};
+        inner1 = {a: s1.e1a, b: s1.e1b}; inner2 = {a: s2.e1a, b: s2.e1b};
+      }
+
+      // inner intersection
+      const r1x = inner1.b.x-inner1.a.x, r1y = inner1.b.y-inner1.a.y;
+      const s1x = inner2.b.x-inner2.a.x, s1y = inner2.b.y-inner2.a.y;
+      const ox = inner2.a.x-inner1.a.x, oy = inner2.a.y-inner1.a.y;
+      const denom = r1x*s1y - r1y*s1x;
+      let innerSec = inner1.b;
+      if (Math.abs(denom) > 0.0001) {
+        const u = (ox*r1y - oy*r1x) / denom;
+        innerSec = {x: inner2.a.x + s1x*u, y: inner2.a.y + s1y*u};
+      }
+
+      if (joinStyle === 'miter') {
+        function li(pa1, pa2, pb1, pb2) {
+          const rx = pa2.x-pa1.x, ry = pa2.y-pa1.y;
+          const sx = pb2.x-pb1.x, sy = pb2.y-pb1.y;
+          const ox = pb1.x-pa1.x, oy = pb1.y-pa1.y;
+          const d = rx*sy - ry*sx;
+          if (Math.abs(d) < 0.0001) return null;
+          const t = (ox*sy - oy*sx) / d;
+          return {x: pa1.x + rx*t, y: pa1.y + ry*t};
+        }
+        const sec1 = li(outer1.a, outer1.b, outer2.a, outer2.b);
+        const e1 = sec1 || outer1.b;
+        ctx.fillStyle = '#ffa65744';
+        ctx.beginPath();
+        ctx.moveTo(outer1.b.x, outer1.b.y);
+        ctx.lineTo(outer2.a.x, outer2.a.y);
+        ctx.lineTo(innerSec.x, innerSec.y);
+        ctx.closePath(); ctx.fill();
+      } else if (joinStyle === 'bevel') {
+        ctx.fillStyle = '#ffa65744';
+        ctx.beginPath();
+        ctx.moveTo(outer1.b.x, outer1.b.y);
+        ctx.lineTo(outer2.a.x, outer2.a.y);
+        ctx.lineTo(innerSec.x, innerSec.y);
+        ctx.closePath(); ctx.fill();
+      } else if (joinStyle === 'round') {
+        const cx = s1.center?.b?.x || pts[i+1].x, cy = s1.center?.b?.y || pts[i+1].y;
+        const sx1 = outer1.b.x-cx, sy1 = outer1.b.y-cy;
+        const ex1 = outer2.a.x-cx, ey1 = outer2.a.y-cy;
+        const a1 = Math.atan2(sy1, sx1);
+        let a2 = Math.atan2(ey1, ex1);
+        if (clockwise) { while (a2 > a1) a2 -= Math.PI*2; }
+        else { while (a1 > a2) a1 -= Math.PI*2; }
+        const sweep = a2 - a1;
+        const numTri = Math.max(1, Math.floor(Math.abs(sweep) / 0.174533));
+        const triAngle = sweep / numTri;
+        for (let j = 0; j < numTri; j++) {
+          const rot1 = j * triAngle;
+          const rot2 = (j+1) * triAngle;
+          const p1 = {x: cx + Math.cos(rot1)*sx1 - Math.sin(rot1)*sy1,
+                      y: cy + Math.sin(rot1)*sx1 + Math.cos(rot1)*sy1};
+          const p2 = {x: cx + Math.cos(rot2)*sx1 - Math.sin(rot2)*sy1,
+                      y: cy + Math.sin(rot2)*sx1 + Math.cos(rot2)*sy1};
+          ctx.fillStyle = 'hsla('+(j*30+30)+',80%,65%,0.3)';
+          ctx.beginPath();
+          ctx.moveTo(p1.x, p1.y);
+          ctx.lineTo(p2.x, p2.y);
+          ctx.lineTo(innerSec.x, innerSec.y);
+          ctx.closePath(); ctx.fill();
+        }
+      }
+    }
+
+    // Outlines
+    ctx.strokeStyle = '#58a6ff'; ctx.lineWidth = 1.5;
+    for (const s of segs) {
+      ctx.beginPath();
+      ctx.moveTo(s.e1a.x, s.e1a.y); ctx.lineTo(s.e1b.x, s.e1b.y);
+      ctx.lineTo(s.e2b.x, s.e2b.y); ctx.lineTo(s.e2a.x, s.e2a.y);
+      ctx.closePath(); ctx.stroke();
+    }
+
+    // Center line
+    ctx.strokeStyle = '#8b949e44'; ctx.lineWidth = 1; ctx.setLineDash([4,4]);
+    ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i=1; i<pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.stroke(); ctx.setLineDash([]);
+
+    for (const p of pts) drawPoint(ctx, p.x, p.y, '#58a6ff', 4);
+
+    document.getElementById('render-thickness-label').textContent = t;
+  }
+
+  thickSlider.oninput = drawRender;
+  joinSelect.onchange = drawRender;
+  capSelect.onchange = drawRender;
+  drawRender();
+})();
+
+// ============================================================
+//  Section 10 — Interactive sandbox
+// ============================================================
+(function() {
+  const {el, ctx, w, h} = getCtx('demo-sandbox');
+  const thickSlider = document.getElementById('sandbox-thickness');
+  const joinSelect = document.getElementById('sandbox-join');
+  const capSelect = document.getElementById('sandbox-cap');
+  const closedBtn = document.getElementById('sandbox-closed');
+  const resetBtn = document.getElementById('sandbox-reset');
+
+  // Default points
+  let pts = [
+    {x: 100, y: 380}, {x: 220, y: 120}, {x: 400, y: 340},
+    {x: 580, y: 100}, {x: 700, y: 360}
+  ];
+  let isClosed = false;
+  let dragIdx = -1;
+
+  function drawSandbox() {
+    ctx.clearRect(0, 0, w, h);
+    drawGrid(ctx, w, h, 40);
+
+    const t = parseFloat(thickSlider.value);
+    const joinStyle = joinSelect.value;
+    const capStyle = isClosed ? 'joint' : capSelect.value;
+
+    const allPts = isClosed ? [...pts, pts[0]] : pts;
+
+    function computeSeg(p1, p2) {
+      const dx = p2.x-p1.x, dy = p2.y-p1.y;
+      const len = Math.hypot(dx, dy);
+      if (len < 0.001) return null;
+      const nx = -dy/len, ny = dx/len;
+      return {
+        e1a: {x: p1.x+nx*t/2, y: p1.y+ny*t/2},
+        e1b: {x: p2.x+nx*t/2, y: p2.y+ny*t/2},
+        e2a: {x: p1.x-nx*t/2, y: p1.y-ny*t/2},
+        e2b: {x: p2.x-nx*t/2, y: p2.y-ny*t/2},
+        dir: {x: dx/len, y: dy/len},
+        center: {a: p1, b: p2}
+      };
+    }
+
+    const segs = [];
+    for (let i = 0; i < allPts.length-1; i++) {
+      const s = computeSeg(allPts[i], allPts[i+1]);
+      if (s) segs.push(s);
+    }
+
+    if (segs.length < 1) return;
+
+    // Draw end caps
+    if (!isClosed) {
+      if (capStyle === 'square') {
+        const first = segs[0];
+        first.e1a = {x: first.e1a.x - first.dir.x*t/2, y: first.e1a.y - first.dir.y*t/2};
+        first.e2a = {x: first.e2a.x - first.dir.x*t/2, y: first.e2a.y - first.dir.y*t/2};
+        const last = segs[segs.length-1];
+        last.e1b = {x: last.e1b.x + last.dir.x*t/2, y: last.e1b.y + last.dir.y*t/2};
+        last.e2b = {x: last.e2b.x + last.dir.x*t/2, y: last.e2b.y + last.dir.y*t/2};
+      } else if (capStyle === 'round') {
+        const first = segs[0];
+        const cx = allPts[0].x, cy = allPts[0].y;
+        const a1 = Math.atan2(first.e1a.y-cy, first.e1a.x-cx);
+        const a2 = Math.atan2(first.e2a.y-cy, first.e2a.x-cx);
+        const numTri = Math.max(1, Math.floor(Math.PI / 0.174533));
+        for (let i = 0; i < numTri; i++) {
+          const aa = a1 + (a2-a1)*i/numTri;
+          const ab = a1 + (a2-a1)*(i+1)/numTri;
+          const pa = {x: cx + t/2*Math.cos(aa), y: cy + t/2*Math.sin(aa)};
+          const pb = {x: cx + t/2*Math.cos(ab), y: cy + t/2*Math.sin(ab)};
+          ctx.fillStyle = 'hsla('+(i*30+30)+',80%,65%,0.2)';
+          ctx.beginPath();
+          ctx.moveTo(cx, cy); ctx.lineTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y);
+          ctx.closePath(); ctx.fill();
+        }
+        const last = segs[segs.length-1];
+        const cx2 = allPts[allPts.length-1].x, cy2 = allPts[allPts.length-1].y;
+        const a3 = Math.atan2(last.e1b.y-cy2, last.e1b.x-cx2);
+        const a4 = Math.atan2(last.e2b.y-cy2, last.e2b.x-cx2);
+        for (let i = 0; i < numTri; i++) {
+          const aa = a3 + (a4-a3)*i/numTri;
+          const ab = a3 + (a4-a3)*(i+1)/numTri;
+          const pa = {x: cx2 + t/2*Math.cos(aa), y: cy2 + t/2*Math.sin(aa)};
+          const pb = {x: cx2 + t/2*Math.cos(ab), y: cy2 + t/2*Math.sin(ab)};
+          ctx.fillStyle = 'hsla('+(80+i*30)+',80%,65%,0.2)';
+          ctx.beginPath();
+          ctx.moveTo(cx2, cy2); ctx.lineTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y);
+          ctx.closePath(); ctx.fill();
+        }
+      }
+    }
+
+    // Draw segment fills
+    for (const s of segs) {
+      ctx.fillStyle = '#58a6ff22';
+      ctx.beginPath();
+      ctx.moveTo(s.e1a.x, s.e1a.y); ctx.lineTo(s.e1b.x, s.e1b.y);
+      ctx.lineTo(s.e2b.x, s.e2b.y); ctx.lineTo(s.e2a.x, s.e2a.y);
+      ctx.closePath(); ctx.fill();
+    }
+
+    // Draw joints
+    for (let i = 0; i < segs.length-1; i++) {
+      const s1 = segs[i], s2 = segs[i+1];
+      const clockwise = s1.dir.x * s2.dir.y - s1.dir.y * s2.dir.x < 0;
+      let outer1, outer2, inner1, inner2;
+      if (clockwise) {
+        outer1 = {a: s1.e1a, b: s1.e1b}; outer2 = {a: s2.e1a, b: s2.e1b};
+        inner1 = {a: s1.e2a, b: s1.e2b}; inner2 = {a: s2.e2a, b: s2.e2b};
+      } else {
+        outer1 = {a: s1.e2a, b: s1.e2b}; outer2 = {a: s2.e2a, b: s2.e2b};
+        inner1 = {a: s1.e1a, b: s1.e1b}; inner2 = {a: s2.e1a, b: s2.e1b};
+      }
+
+      const r1x = inner1.b.x-inner1.a.x, r1y = inner1.b.y-inner1.a.y;
+      const s1x = inner2.b.x-inner2.a.x, s1y = inner2.b.y-inner2.a.y;
+      const ox = inner2.a.x-inner1.a.x, oy = inner2.a.y-inner1.a.y;
+      const denom = r1x*s1y - r1y*s1x;
+      let innerSec = inner1.b;
+      if (Math.abs(denom) > 0.0001) {
+        const u = (ox*r1y - oy*r1x) / denom;
+        innerSec = {x: inner2.a.x + s1x*u, y: inner2.a.y + s1y*u};
+      }
+
+      if (joinStyle === 'miter') {
+        function li(pa1, pa2, pb1, pb2) {
+          const rx = pa2.x-pa1.x, ry = pa2.y-pa1.y;
+          const sx = pb2.x-pb1.x, sy = pb2.y-pb1.y;
+          const ox = pb1.x-pa1.x, oy = pb1.y-pa1.y;
+          const d = rx*sy - ry*sx;
+          if (Math.abs(d) < 0.0001) return null;
+          const t = (ox*sy - oy*sx) / d;
+          return {x: pa1.x + rx*t, y: pa1.y + ry*t};
+        }
+        ctx.fillStyle = '#ffa65744';
+        ctx.beginPath();
+        ctx.moveTo(outer1.b.x, outer1.b.y);
+        ctx.lineTo(outer2.a.x, outer2.a.y);
+        ctx.lineTo(innerSec.x, innerSec.y);
+        ctx.closePath(); ctx.fill();
+      } else if (joinStyle === 'bevel') {
+        ctx.fillStyle = '#ffa65744';
+        ctx.beginPath();
+        ctx.moveTo(outer1.b.x, outer1.b.y);
+        ctx.lineTo(outer2.a.x, outer2.a.y);
+        ctx.lineTo(innerSec.x, innerSec.y);
+        ctx.closePath(); ctx.fill();
+      } else if (joinStyle === 'round') {
+        const cx = s1.center.b.x, cy = s1.center.b.y;
+        const sx1 = outer1.b.x-cx, sy1 = outer1.b.y-cy;
+        const ex1 = outer2.a.x-cx, ey1 = outer2.a.y-cy;
+        const a1 = Math.atan2(sy1, sx1);
+        let a2 = Math.atan2(ey1, ex1);
+        if (clockwise) { while (a2 > a1) a2 -= Math.PI*2; }
+        else { while (a1 > a2) a1 -= Math.PI*2; }
+        const sweep = a2 - a1;
+        const numTri = Math.max(1, Math.floor(Math.abs(sweep) / 0.174533));
+        const triAngle = sweep / numTri;
+        for (let j = 0; j < numTri; j++) {
+          const rot1 = j * triAngle;
+          const rot2 = (j+1) * triAngle;
+          const p1 = {x: cx + Math.cos(rot1)*sx1 - Math.sin(rot1)*sy1,
+                      y: cy + Math.sin(rot1)*sx1 + Math.cos(rot1)*sy1};
+          const p2 = {x: cx + Math.cos(rot2)*sx1 - Math.sin(rot2)*sy1,
+                      y: cy + Math.sin(rot2)*sx1 + Math.cos(rot2)*sy1};
+          ctx.fillStyle = 'hsla('+(j*30+30)+',80%,65%,0.3)';
+          ctx.beginPath();
+          ctx.moveTo(p1.x, p1.y);
+          ctx.lineTo(p2.x, p2.y);
+          ctx.lineTo(innerSec.x, innerSec.y);
+          ctx.closePath(); ctx.fill();
+        }
+      }
+    }
+
+    // Outlines
+    ctx.strokeStyle = '#58a6ff'; ctx.lineWidth = 1.5;
+    for (const s of segs) {
+      ctx.beginPath();
+      ctx.moveTo(s.e1a.x, s.e1a.y); ctx.lineTo(s.e1b.x, s.e1b.y);
+      ctx.lineTo(s.e2b.x, s.e2b.y); ctx.lineTo(s.e2a.x, s.e2a.y);
+      ctx.closePath(); ctx.stroke();
+    }
+
+    // Center line
+    ctx.strokeStyle = '#8b949e44'; ctx.lineWidth = 1; ctx.setLineDash([4,4]);
+    ctx.beginPath(); ctx.moveTo(allPts[0].x, allPts[0].y);
+    for (let i=1; i<allPts.length; i++) ctx.lineTo(allPts[i].x, allPts[i].y);
+    ctx.stroke(); ctx.setLineDash([]);
+
+    // Control points
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i];
+      drawPoint(ctx, p.x, p.y, i === dragIdx ? '#ff7b72' : '#58a6ff', i === dragIdx ? 7 : 5);
+      ctx.fillStyle = '#8b949e'; ctx.font = '12px sans-serif';
+      ctx.fillText('P' + i, p.x - 12, p.y + 18);
+    }
+
+    document.getElementById('sandbox-thickness-label').textContent = t;
+  }
+
+  // Mouse interaction
+  el.onmousedown = function(e) {
+    const rect = el.getBoundingClientRect();
+    const scaleX = el.width / rect.width, scaleY = el.height / rect.height;
+    const mx = (e.clientX - rect.left) * scaleX;
+    const my = (e.clientY - rect.top) * scaleY;
+    for (let i = 0; i < pts.length; i++) {
+      if (Math.hypot(mx-pts[i].x, my-pts[i].y) < 16) {
+        dragIdx = i; break;
+      }
+    }
+  };
+
+  el.onmousemove = function(e) {
+    if (dragIdx < 0) return;
+    const rect = el.getBoundingClientRect();
+    const scaleX = el.width / rect.width, scaleY = el.height / rect.height;
+    pts[dragIdx].x = Math.max(10, Math.min(w-10, (e.clientX - rect.left) * scaleX));
+    pts[dragIdx].y = Math.max(10, Math.min(h-10, (e.clientY - rect.top) * scaleY));
+    drawSandbox();
+  };
+
+  el.onmouseup = el.onmouseleave = function() { dragIdx = -1; drawSandbox(); };
+
+  // Buttons
+  let closedState = false;
+  closedBtn.onclick = function() {
+    closedState = !closedState;
+    isClosed = closedState;
+    closedBtn.textContent = closedState ? '开环' : '闭合';
+    closedBtn.classList.toggle('active');
+    drawSandbox();
+  };
+
+  resetBtn.onclick = function() {
+    pts = [
+      {x: 100, y: 380}, {x: 220, y: 120}, {x: 400, y: 340},
+      {x: 580, y: 100}, {x: 700, y: 360}
+    ];
+    isClosed = closedState;
+    drawSandbox();
+  };
+
+  thickSlider.oninput = drawSandbox;
+  joinSelect.onchange = drawSandbox;
+  capSelect.onchange = drawSandbox;
+  drawSandbox();
+})();
+
+</script>
+</body>
+</html>

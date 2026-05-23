@@ -1,0 +1,2368 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Polyline2D 交互教学</title>
+  <style>
+    :root {
+      --bg: #f5efe2;
+      --bg-accent: #efe4d0;
+      --panel: rgba(255, 251, 245, 0.86);
+      --panel-strong: #fffdf8;
+      --ink: #172126;
+      --muted: #5f6a6e;
+      --line: rgba(23, 33, 38, 0.12);
+      --accent: #0e7c86;
+      --accent-soft: rgba(14, 124, 134, 0.12);
+      --accent-strong: #c25a1b;
+      --accent-warm: rgba(194, 90, 27, 0.14);
+      --success: #2f7d32;
+      --warning: #9a5c00;
+      --shadow: 0 24px 80px rgba(58, 42, 25, 0.12);
+      --radius: 24px;
+      --radius-sm: 16px;
+      --mono: "Cascadia Code", "Consolas", monospace;
+      --sans: "Aptos", "Segoe UI Variable", "Segoe UI", sans-serif;
+      --display: "Bahnschrift", "Trebuchet MS", sans-serif;
+      --math: "Cambria Math", "Cambria", serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: var(--sans);
+      line-height: 1.75;
+      background:
+        radial-gradient(circle at top left, rgba(14, 124, 134, 0.12), transparent 34%),
+        radial-gradient(circle at top right, rgba(194, 90, 27, 0.14), transparent 28%),
+        linear-gradient(180deg, #faf4e8 0%, #f4ede0 54%, #efe7d9 100%);
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(rgba(23, 33, 38, 0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(23, 33, 38, 0.04) 1px, transparent 1px);
+      background-size: 28px 28px;
+      -webkit-mask-image: radial-gradient(circle at center, rgba(0, 0, 0, 0.42), transparent 88%);
+      mask-image: radial-gradient(circle at center, rgba(0, 0, 0, 0.42), transparent 88%);
+    }
+
+    a {
+      color: var(--accent);
+    }
+
+    .page {
+      width: min(1380px, calc(100% - 28px));
+      margin: 20px auto 84px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .hero {
+      padding: 28px;
+      background: linear-gradient(160deg, rgba(255, 253, 248, 0.94), rgba(249, 244, 236, 0.92));
+      border: 1px solid rgba(23, 33, 38, 0.1);
+      border-radius: calc(var(--radius) + 8px);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      position: relative;
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      width: 360px;
+      height: 360px;
+      right: -120px;
+      top: -140px;
+      background: radial-gradient(circle, rgba(14, 124, 134, 0.14), transparent 68%);
+      pointer-events: none;
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.25fr) minmax(300px, 0.75fr);
+      gap: 24px;
+      align-items: start;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 14px;
+      padding: 8px 14px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    h1,
+    h2,
+    h3 {
+      margin: 0;
+      font-family: var(--display);
+      letter-spacing: 0.01em;
+    }
+
+    h1 {
+      font-size: clamp(2.3rem, 5vw, 4.3rem);
+      line-height: 1.05;
+      max-width: 10ch;
+    }
+
+    h2 {
+      font-size: clamp(1.45rem, 2.3vw, 2.25rem);
+      margin-bottom: 10px;
+    }
+
+    h3 {
+      font-size: clamp(1.05rem, 1.45vw, 1.28rem);
+      margin-bottom: 8px;
+    }
+
+    p {
+      margin: 0 0 14px;
+      color: var(--muted);
+      font-size: 1rem;
+    }
+
+    .lead {
+      margin-top: 16px;
+      font-size: 1.12rem;
+      max-width: 58ch;
+      color: #28333a;
+    }
+
+    .hero-points {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 22px;
+    }
+
+    .hero-point {
+      padding: 16px;
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.76);
+      border: 1px solid rgba(23, 33, 38, 0.08);
+    }
+
+    .hero-point strong {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--ink);
+      font-size: 1rem;
+    }
+
+    .summary-card,
+    .section,
+    .code-card,
+    .tip,
+    .status-card,
+    .formula,
+    .info-card,
+    .mini-card,
+    .feature-card,
+    .timeline-step,
+    .metric-card {
+      border: 1px solid rgba(23, 33, 38, 0.08);
+      border-radius: var(--radius-sm);
+      background: var(--panel);
+      box-shadow: 0 16px 40px rgba(43, 31, 18, 0.06);
+      -webkit-backdrop-filter: blur(14px);
+      backdrop-filter: blur(14px);
+    }
+
+    .hero-side {
+      display: grid;
+      gap: 16px;
+    }
+
+    .summary-card {
+      padding: 18px;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 14px;
+    }
+
+    .mini-card {
+      padding: 14px;
+      background: rgba(255, 255, 255, 0.72);
+    }
+
+    .mini-card strong {
+      display: block;
+      font-size: 0.95rem;
+      margin-bottom: 6px;
+    }
+
+    .mini-card svg {
+      width: 100%;
+      height: 88px;
+      margin-top: 8px;
+      border-radius: 12px;
+      background: linear-gradient(180deg, rgba(14, 124, 134, 0.05), rgba(255, 255, 255, 0.5));
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 300px;
+      gap: 24px;
+      margin-top: 22px;
+    }
+
+    .content {
+      display: grid;
+      gap: 22px;
+    }
+
+    .toc {
+      position: sticky;
+      top: 14px;
+      align-self: start;
+      padding: 18px;
+      background: rgba(255, 252, 246, 0.92);
+      border: 1px solid rgba(23, 33, 38, 0.08);
+      border-radius: 22px;
+      box-shadow: 0 18px 48px rgba(43, 31, 18, 0.08);
+    }
+
+    .toc h3 {
+      margin-bottom: 12px;
+    }
+
+    .toc a {
+      display: block;
+      padding: 8px 10px;
+      margin: 4px 0;
+      text-decoration: none;
+      border-radius: 12px;
+      color: var(--muted);
+      transition: 140ms ease;
+    }
+
+    .toc a:hover,
+    .toc a:focus-visible {
+      background: var(--accent-soft);
+      color: var(--accent);
+      outline: none;
+    }
+
+    .toc .small {
+      margin-top: 12px;
+      font-size: 0.92rem;
+    }
+
+    .section {
+      padding: 24px;
+      overflow: hidden;
+    }
+
+    .section-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    .section-tag {
+      flex: none;
+      padding: 7px 12px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 0.9rem;
+      font-weight: 700;
+    }
+
+    .section-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+      gap: 18px;
+      align-items: start;
+    }
+
+    .canvas-card {
+      padding: 16px;
+      border-radius: 18px;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.74), rgba(249, 246, 240, 0.84));
+      border: 1px solid rgba(23, 33, 38, 0.08);
+    }
+
+    .canvas-card canvas {
+      width: 100%;
+      height: auto;
+      display: block;
+      border-radius: 16px;
+      background: linear-gradient(180deg, #fffdf8, #f6efe0);
+      border: 1px solid rgba(23, 33, 38, 0.08);
+    }
+
+    .canvas-caption {
+      margin-top: 10px;
+      font-size: 0.92rem;
+      color: var(--muted);
+    }
+
+    .info-stack {
+      display: grid;
+      gap: 14px;
+    }
+
+    .formula {
+      padding: 16px 18px;
+      background: rgba(255, 252, 246, 0.92);
+    }
+
+    .formula .label {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--accent);
+      font-weight: 700;
+      font-size: 0.92rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .formula .math {
+      display: block;
+      font-family: var(--math);
+      color: var(--ink);
+      font-size: 1.06rem;
+      white-space: pre-wrap;
+    }
+
+    .tip,
+    .status-card,
+    .info-card,
+    .metric-card,
+    .feature-card,
+    .timeline-step,
+    .code-card {
+      padding: 16px 18px;
+    }
+
+    .tip strong,
+    .status-card strong,
+    .info-card strong,
+    .metric-card strong,
+    .feature-card strong,
+    .timeline-step strong,
+    .code-card strong {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--ink);
+    }
+
+    .tip.warning {
+      background: rgba(255, 244, 226, 0.92);
+      border-color: rgba(154, 92, 0, 0.16);
+    }
+
+    .tip.success {
+      background: rgba(241, 250, 241, 0.92);
+      border-color: rgba(47, 125, 50, 0.16);
+    }
+
+    .metrics-grid,
+    .feature-grid,
+    .timeline,
+    .code-grid,
+    .comparison-grid,
+    .cards-grid,
+    .glossary-grid {
+      display: grid;
+      gap: 14px;
+      margin-top: 16px;
+    }
+
+    .metrics-grid {
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    }
+
+    .feature-grid,
+    .cards-grid,
+    .glossary-grid {
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    }
+
+    .timeline {
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    }
+
+    .code-grid {
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    }
+
+    .comparison-grid {
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    }
+
+    .metric-value {
+      font-size: 1.5rem;
+      font-family: var(--display);
+      color: var(--accent);
+      line-height: 1.1;
+    }
+
+    .metric-label {
+      margin-top: 6px;
+      font-size: 0.92rem;
+      color: var(--muted);
+    }
+
+    .controls {
+      display: grid;
+      gap: 12px;
+      margin-top: 14px;
+      padding: 14px;
+      border-radius: 18px;
+      border: 1px solid rgba(23, 33, 38, 0.08);
+      background: rgba(255, 255, 255, 0.62);
+    }
+
+    .control-row {
+      display: grid;
+      grid-template-columns: 112px minmax(0, 1fr) 62px;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .control-row label,
+    .control-inline label {
+      font-size: 0.92rem;
+      color: var(--ink);
+      font-weight: 600;
+    }
+
+    .control-row input[type="range"] {
+      width: 100%;
+      accent-color: var(--accent);
+    }
+
+    .control-value {
+      font-family: var(--mono);
+      font-size: 0.88rem;
+      color: var(--accent-strong);
+      text-align: right;
+    }
+
+    .control-inline {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    select,
+    button,
+    input[type="checkbox"] {
+      font: inherit;
+    }
+
+    select,
+    .ghost {
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(23, 33, 38, 0.12);
+      background: #fffdf9;
+      color: var(--ink);
+    }
+
+    .button-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .button-row button {
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(23, 33, 38, 0.1);
+      background: #fffefb;
+      color: var(--muted);
+      cursor: pointer;
+      transition: 140ms ease;
+    }
+
+    .button-row button.active,
+    .button-row button:hover,
+    .button-row button:focus-visible {
+      color: var(--accent);
+      background: var(--accent-soft);
+      border-color: rgba(14, 124, 134, 0.2);
+      outline: none;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 12px;
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.68);
+      border: 1px solid rgba(23, 33, 38, 0.08);
+    }
+
+    .swatch {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      flex: none;
+    }
+
+    .swatch-rust {
+      background: #c25a1b;
+    }
+
+    .swatch-orange {
+      background: #f28c38;
+    }
+
+    .swatch-teal {
+      background: #0e7c86;
+    }
+
+    .swatch-green {
+      background: #3d7a30;
+    }
+
+    .swatch-teal-fill {
+      background: rgba(14, 124, 134, 0.32);
+    }
+
+    .swatch-teal-fill-strong {
+      background: rgba(14, 124, 134, 0.4);
+    }
+
+    .swatch-teal-fill-soft {
+      background: rgba(14, 124, 134, 0.34);
+    }
+
+    .swatch-rust-fill {
+      background: rgba(194, 90, 27, 0.38);
+    }
+
+    .section-grid-spaced {
+      margin-top: 18px;
+    }
+
+    .code-card-spaced {
+      margin-top: 18px;
+    }
+
+    .code {
+      margin: 0;
+      padding: 16px;
+      border-radius: 18px;
+      background: #102126;
+      color: #e6f0ef;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      font-family: var(--mono);
+      font-size: 0.92rem;
+      line-height: 1.65;
+      overflow-x: auto;
+      white-space: pre;
+    }
+
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .pill {
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.68);
+      border: 1px solid rgba(23, 33, 38, 0.08);
+      color: var(--muted);
+      font-size: 0.88rem;
+    }
+
+    .table-wrap {
+      margin-top: 16px;
+      overflow-x: auto;
+      border-radius: 18px;
+      border: 1px solid rgba(23, 33, 38, 0.08);
+      background: rgba(255, 255, 255, 0.65);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 720px;
+    }
+
+    th,
+    td {
+      padding: 14px 16px;
+      border-bottom: 1px solid rgba(23, 33, 38, 0.08);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: rgba(14, 124, 134, 0.08);
+      color: var(--ink);
+      font-size: 0.95rem;
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    details {
+      margin-top: 12px;
+      border-radius: 16px;
+      border: 1px solid rgba(23, 33, 38, 0.08);
+      background: rgba(255, 255, 255, 0.62);
+      overflow: hidden;
+    }
+
+    summary {
+      cursor: pointer;
+      list-style: none;
+      padding: 14px 16px;
+      font-weight: 700;
+      color: var(--ink);
+    }
+
+    details > div {
+      padding: 0 16px 16px;
+    }
+
+    .footer-note {
+      margin-top: 18px;
+      padding: 14px 16px;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.62);
+      border: 1px dashed rgba(23, 33, 38, 0.15);
+      color: var(--muted);
+    }
+
+    @media (max-width: 1080px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      .toc {
+        position: static;
+      }
+
+      .hero-grid,
+      .section-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .page {
+        width: min(100%, calc(100% - 16px));
+        margin-top: 10px;
+      }
+
+      .hero,
+      .section {
+        padding: 18px;
+      }
+
+      .control-row {
+        grid-template-columns: 1fr;
+      }
+
+      .control-value {
+        text-align: left;
+      }
+
+      .hero-points,
+      .summary-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="hero" id="top">
+      <div class="hero-grid">
+        <div>
+          <div class="eyebrow">Interactive Geometry Primer</div>
+          <h1>Polyline2D 交互教学</h1>
+          <p class="lead">
+            这不是从库名开始的说明书，而是一条更适合新手的路线：先搞懂点、向量、长度、法线、交点、夹角，
+            再一步一步推到“为什么一条粗折线最后会变成一组三角形”。等这些几何关系都顺了，Polyline2D 的 API 反而会变得很自然。
+          </p>
+          <div class="hero-points">
+            <div class="hero-point">
+              <strong>你会先学到什么</strong>
+              <p>长度、单位向量、法线、点积、叉积、线线相交，这些才是 polyline2d 的地基。</p>
+            </div>
+            <div class="hero-point">
+              <strong>你会后学到什么</strong>
+              <p>斜接、斜切、圆角、端帽、闭合路径、圆弧扇形细分，以及为什么最终输出是三角网格。</p>
+            </div>
+            <div class="hero-point">
+              <strong>这一页怎么读</strong>
+              <p>每节都先讲图和公式，再给少量代码。可以直接拖动滑块，看几何量如何联动。</p>
+            </div>
+            <div class="hero-point">
+              <strong>最终你会得到什么</strong>
+              <p>你会知道 polyline2d 在做什么、为什么这样做、什么时候会退化、什么时候要小心重叠。</p>
+            </div>
+          </div>
+        </div>
+        <aside class="hero-side">
+          <div class="summary-card">
+            <h3>一句话先说透</h3>
+            <p>Polyline2D 的核心任务不是“画线”，而是把一串折线点列转成可以交给渲染器的三角形顶点。</p>
+            <div class="summary-grid">
+              <div class="mini-card">
+                <strong>输入</strong>
+                <p>按顺序排列的 2D 点。</p>
+                <svg viewBox="0 0 180 88" aria-hidden="true">
+                  <polyline fill="none" stroke="#f28c38" stroke-width="4" points="18,66 56,18 92,52 132,22 162,64"></polyline>
+                  <circle cx="18" cy="66" r="5" fill="#c25a1b"></circle>
+                  <circle cx="56" cy="18" r="5" fill="#c25a1b"></circle>
+                  <circle cx="92" cy="52" r="5" fill="#c25a1b"></circle>
+                  <circle cx="132" cy="22" r="5" fill="#c25a1b"></circle>
+                  <circle cx="162" cy="64" r="5" fill="#c25a1b"></circle>
+                </svg>
+              </div>
+              <div class="mini-card">
+                <strong>关键中间量</strong>
+                <p>单位方向、法线、交点、夹角。</p>
+                <svg viewBox="0 0 180 88" aria-hidden="true">
+                  <line x1="20" y1="60" x2="138" y2="28" stroke="#0e7c86" stroke-width="4"></line>
+                  <line x1="82" y1="44" x2="72" y2="14" stroke="#c25a1b" stroke-width="4"></line>
+                  <circle cx="82" cy="44" r="5" fill="#172126"></circle>
+                </svg>
+              </div>
+              <div class="mini-card">
+                <strong>输出</strong>
+                <p>一组三角形顶点。</p>
+                <svg viewBox="0 0 180 88" aria-hidden="true">
+                  <polygon points="18,64 54,18 70,30" fill="rgba(14,124,134,0.28)" stroke="#0e7c86" stroke-width="2"></polygon>
+                  <polygon points="18,64 70,30 46,70" fill="rgba(14,124,134,0.18)" stroke="#0e7c86" stroke-width="2"></polygon>
+                  <polygon points="70,30 118,18 100,62" fill="rgba(14,124,134,0.26)" stroke="#0e7c86" stroke-width="2"></polygon>
+                  <polygon points="70,30 100,62 54,54" fill="rgba(14,124,134,0.16)" stroke="#0e7c86" stroke-width="2"></polygon>
+                </svg>
+              </div>
+              <div class="mini-card">
+                <strong>风格控制</strong>
+                <p>MITER、BEVEL、ROUND 与 BUTT、SQUARE、ROUND、JOINT。</p>
+                <svg viewBox="0 0 180 88" aria-hidden="true">
+                  <path d="M28 68 L74 20 L112 42" fill="none" stroke="#172126" stroke-width="10" stroke-linejoin="miter"></path>
+                  <path d="M98 62 L132 28" fill="none" stroke="#f28c38" stroke-width="10" stroke-linecap="round"></path>
+                </svg>
+              </div>
+            </div>
+          </div>
+          <div class="status-card">
+            <strong>先记住这 3 件事</strong>
+            <p>1. 粗线 = 中心线左右各偏移半个宽度。</p>
+            <p>2. 拐角 = 解决“前一段边界”和“后一段边界”怎么拼。</p>
+            <p>3. 渲染 = 把结果拆成三角形，因为 GPU 最擅长吃三角形。</p>
+          </div>
+        </aside>
+      </div>
+    </header>
+
+    <div class="layout">
+      <main class="content">
+        <section class="section" id="foundation">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">01 · 数学铺垫</div>
+              <h2>先从点和向量开始</h2>
+              <p>如果你把 polyline2d 当成“黑盒库”，看到的只是一串点进来、一堆顶点出来；但如果你把它拆开，第一层其实只是高中到大学低年级的二维向量。</p>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="canvas-card">
+              <canvas id="vectorCanvas" width="780" height="420"></canvas>
+              <div class="controls">
+                <div class="control-row">
+                  <label for="vecAx">A.x</label>
+                  <input id="vecAx" type="range" min="-4" max="4" step="0.1" value="-1.5">
+                  <div class="control-value" data-for="vecAx"></div>
+                </div>
+                <div class="control-row">
+                  <label for="vecAy">A.y</label>
+                  <input id="vecAy" type="range" min="-3" max="3" step="0.1" value="-1.0">
+                  <div class="control-value" data-for="vecAy"></div>
+                </div>
+                <div class="control-row">
+                  <label for="vecBx">B.x</label>
+                  <input id="vecBx" type="range" min="-4" max="4" step="0.1" value="2.1">
+                  <div class="control-value" data-for="vecBx"></div>
+                </div>
+                <div class="control-row">
+                  <label for="vecBy">B.y</label>
+                  <input id="vecBy" type="range" min="-3" max="3" step="0.1" value="1.8">
+                  <div class="control-value" data-for="vecBy"></div>
+                </div>
+              </div>
+              <div class="legend">
+                <div class="legend-item"><span class="swatch swatch-rust"></span>向量 AB</div>
+                <div class="legend-item"><span class="swatch swatch-teal"></span>单位向量</div>
+                <div class="legend-item"><span class="swatch swatch-green"></span>法线</div>
+              </div>
+              <p class="canvas-caption">拖动 A、B 两点的位置，观察原始向量、单位向量和法线如何一起变化。法线就是后面左右偏移的钥匙。</p>
+            </div>
+            <div class="info-stack">
+              <div class="formula">
+                <span class="label">长度与归一化</span>
+                <span class="math">v = B - A
+|v| = sqrt(vx^2 + vy^2)
+u = v / |v|</span>
+              </div>
+              <div class="formula">
+                <span class="label">左法线</span>
+                <span class="math">如果 u = (ux, uy)
+那么 n = (-uy, ux)</span>
+              </div>
+              <div class="formula">
+                <span class="label">点积与叉积</span>
+                <span class="math">dot(a, b) = ax * bx + ay * by
+cross(a, b) = ax * by - ay * bx</span>
+              </div>
+              <div class="metrics-grid" id="vectorMetrics"></div>
+              <div class="tip success">
+                <strong>新手提示</strong>
+                <p>这里最重要的不是记公式，而是记住角色分工：方向决定“往哪走”，法线决定“往哪边扩”。</p>
+              </div>
+            </div>
+          </div>
+          <div class="glossary-grid">
+            <div class="feature-card">
+              <strong>点列不是面积</strong>
+              <p>输入点列只有一根“骨架线”，本身没有厚度。要画粗线，必须先把骨架扩成带状区域。</p>
+            </div>
+            <div class="feature-card">
+              <strong>单位向量的意义</strong>
+              <p>先把方向长度归一化，才能让“厚度”与线段原始长度无关，不然短线段和长线段的偏移会乱掉。</p>
+            </div>
+            <div class="feature-card">
+              <strong>叉积的意义</strong>
+              <p>在 2D 里，叉积的正负号非常好用。它告诉你第二段是向左转还是向右转，也就是哪一侧是外侧。</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="strip">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">02 · 粗线的第一步</div>
+              <h2>把一条中心线扩成一条带</h2>
+              <p>polyline2d 在实现里会先把 thickness 除以 2。原因很直接：我们真正需要的是“半厚度”，这样才能向左偏移一份、向右偏移一份。</p>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="canvas-card">
+              <canvas id="stripCanvas" width="780" height="420"></canvas>
+              <div class="controls">
+                <div class="control-row">
+                  <label for="stripThickness">厚度 w</label>
+                  <input id="stripThickness" type="range" min="0.6" max="4.2" step="0.1" value="2.0">
+                  <div class="control-value" data-for="stripThickness"></div>
+                </div>
+                <div class="control-row">
+                  <label for="stripTilt">倾角</label>
+                  <input id="stripTilt" type="range" min="-2.4" max="2.4" step="0.1" value="0.9">
+                  <div class="control-value" data-for="stripTilt"></div>
+                </div>
+              </div>
+              <div class="legend">
+                <div class="legend-item"><span class="swatch swatch-orange"></span>中心线</div>
+                <div class="legend-item"><span class="swatch swatch-teal"></span>偏移边界</div>
+                <div class="legend-item"><span class="swatch swatch-teal-fill-strong"></span>生成的带状面</div>
+              </div>
+              <p class="canvas-caption">这是 polyline2d 的最基础模型。单段线没有拐角问题，只需算出左右两条平行边界，再拆成两个三角形。</p>
+            </div>
+            <div class="info-stack">
+              <div class="formula">
+                <span class="label">半厚度</span>
+                <span class="math">h = w / 2</span>
+              </div>
+              <div class="formula">
+                <span class="label">左右偏移</span>
+                <span class="math">P+ = P + n * h
+P- = P - n * h</span>
+              </div>
+              <div class="formula">
+                <span class="label">单段矩形的两个三角形</span>
+                <span class="math">T1 = (start1, start2, end1)
+T2 = (end1, start2, end2)</span>
+              </div>
+              <div class="tip">
+                <strong>为什么一定是三角形</strong>
+                <p>因为三角形天然共面、稳定、易于光栅化。你可以把任何凸多边形拆成三角形交给 GPU，这是现代图形管线最基本的粒度。</p>
+              </div>
+              <div class="status-card" id="stripStatus"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="intersection">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">03 · 交点是关键</div>
+              <h2>为什么拐角问题本质上是求交点</h2>
+              <p>当两段中心线拼起来，真正难的不是线本身，而是两段“偏移边界”怎么接。miter 和 bevel 的差别，本质上就是交点怎么取、交点远不远、要不要退化。</p>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="canvas-card">
+              <canvas id="intersectionCanvas" width="780" height="420"></canvas>
+              <div class="controls">
+                <div class="control-row">
+                  <label for="interAngle">线 B 角度</label>
+                  <input id="interAngle" type="range" min="12" max="168" step="1" value="122">
+                  <div class="control-value" data-for="interAngle"></div>
+                </div>
+                <div class="control-row">
+                  <label for="interShift">线 B 平移</label>
+                  <input id="interShift" type="range" min="-1.8" max="1.8" step="0.1" value="0.4">
+                  <div class="control-value" data-for="interShift"></div>
+                </div>
+              </div>
+              <div class="legend">
+                <div class="legend-item"><span class="swatch swatch-teal"></span>线段 A</div>
+                <div class="legend-item"><span class="swatch swatch-rust"></span>线段 B</div>
+                <div class="legend-item"><span class="swatch swatch-green"></span>交点</div>
+              </div>
+              <p class="canvas-caption">把线段写成参数方程后，交点计算就会非常规整。polyline2d 里就是基于叉积去解 t 和 u。</p>
+            </div>
+            <div class="info-stack">
+              <div class="formula">
+                <span class="label">参数方程</span>
+                <span class="math">A(t) = P + t * r
+B(u) = Q + u * s</span>
+              </div>
+              <div class="formula">
+                <span class="label">交点参数</span>
+                <span class="math">t = cross(Q - P, s) / cross(r, s)
+u = cross(Q - P, r) / cross(r, s)</span>
+              </div>
+              <div class="formula">
+                <span class="label">平行判断</span>
+                <span class="math">如果 cross(r, s) 接近 0
+说明两条线平行或几乎平行</span>
+              </div>
+              <div class="status-card" id="intersectionStatus"></div>
+              <div class="tip warning">
+                <strong>为什么平行要单独处理</strong>
+                <p>因为分母接近 0 时，交点会非常不稳定。polyline2d 遇到这种情况时会走保守路径，而不是盲目延长出一个很远的尖角。</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="joints">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">04 · 真正进入 polyline2d</div>
+              <h2>拐角样式：MITER、BEVEL、ROUND</h2>
+              <p>现在才轮到 polyline2d 的核心观念。相邻线段之间，必须先判断哪边是外侧、哪边是内侧，然后根据样式决定用交点、切角还是圆弧来补那块区域。</p>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="canvas-card">
+              <canvas id="jointCanvas" width="780" height="430"></canvas>
+              <div class="controls">
+                <div class="control-row">
+                  <label for="jointAngle">转角</label>
+                  <input id="jointAngle" type="range" min="8" max="172" step="1" value="46">
+                  <div class="control-value" data-for="jointAngle"></div>
+                </div>
+                <div class="control-row">
+                  <label for="jointThickness">厚度</label>
+                  <input id="jointThickness" type="range" min="0.8" max="3.2" step="0.1" value="1.8">
+                  <div class="control-value" data-for="jointThickness"></div>
+                </div>
+                <div class="button-row" id="jointStyleButtons">
+                  <button type="button" data-style="MITER" class="active">MITER</button>
+                  <button type="button" data-style="BEVEL">BEVEL</button>
+                  <button type="button" data-style="ROUND">ROUND</button>
+                </div>
+              </div>
+              <div class="legend">
+                <div class="legend-item"><span class="swatch swatch-orange"></span>中心线</div>
+                <div class="legend-item"><span class="swatch swatch-teal-fill"></span>网格填充</div>
+                <div class="legend-item"><span class="swatch swatch-teal"></span>三角边</div>
+                <div class="legend-item"><span class="swatch swatch-green"></span>拐角点</div>
+              </div>
+              <p class="canvas-caption">把转角拉得很尖时，miter 会变长。polyline2d 内部有一个约 20 度的阈值，太尖就自动退化成 bevel，避免出现夸张的长刺。</p>
+            </div>
+            <div class="info-stack">
+              <div class="formula">
+                <span class="label">角度</span>
+                <span class="math">theta = arccos( dot(d1, d2) / (|d1| * |d2|) )</span>
+              </div>
+              <div class="formula">
+                <span class="label">外侧判断</span>
+                <span class="math">cross(d1, d2) &lt; 0 说明顺时针转
+cross(d1, d2) &gt; 0 说明逆时针转</span>
+              </div>
+              <div class="formula">
+                <span class="label">miter 尖角长度</span>
+                <span class="math">miterLength = (w / 2) / sin(theta / 2)</span>
+              </div>
+              <div class="comparison-grid">
+                <div class="info-card">
+                  <strong>MITER</strong>
+                  <p>把两条外边界延长，取交点。最锐利，也最容易在小角度时长得过分。</p>
+                </div>
+                <div class="info-card">
+                  <strong>BEVEL</strong>
+                  <p>直接切掉尖角，用一个三角形封口。稳定、便宜，但视觉最硬。</p>
+                </div>
+                <div class="info-card">
+                  <strong>ROUND</strong>
+                  <p>用多个小三角形拼一个圆弧。外观柔和，但顶点数量会上去。</p>
+                </div>
+              </div>
+              <div class="status-card" id="jointStatus"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="caps">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">05 · 端帽与圆弧</div>
+              <h2>线段两头怎么收尾，圆角又怎么离散成三角形</h2>
+              <p>端帽是粗线的“开头和结尾”。如果路径是开放的，你必须决定端点怎么封。若路径闭合，polyline2d 还支持 JOINT，把尾巴和头再按 joint style 接起来。</p>
+            </div>
+          </div>
+          <div class="cards-grid">
+            <div class="canvas-card">
+              <canvas id="capCanvas" width="640" height="320"></canvas>
+              <div class="controls">
+                <div class="control-row">
+                  <label for="capThickness">厚度</label>
+                  <input id="capThickness" type="range" min="0.8" max="3.6" step="0.1" value="1.9">
+                  <div class="control-value" data-for="capThickness"></div>
+                </div>
+                <div class="button-row" id="capStyleButtons">
+                  <button type="button" data-style="BUTT" class="active">BUTT</button>
+                  <button type="button" data-style="SQUARE">SQUARE</button>
+                  <button type="button" data-style="ROUND">ROUND</button>
+                </div>
+              </div>
+              <div class="legend">
+                <div class="legend-item"><span class="swatch swatch-orange"></span>中心线</div>
+                <div class="legend-item"><span class="swatch swatch-teal-fill"></span>端帽网格</div>
+              </div>
+              <p class="canvas-caption">BUTT 不超出端点，SQUARE 会各自向外多延半个厚度，ROUND 会补半圆。</p>
+            </div>
+            <div class="canvas-card">
+              <canvas id="fanCanvas" width="640" height="320"></canvas>
+              <div class="controls">
+                <div class="control-row">
+                  <label for="fanSweep">扇形角度</label>
+                  <input id="fanSweep" type="range" min="20" max="320" step="1" value="132">
+                  <div class="control-value" data-for="fanSweep"></div>
+                </div>
+                <div class="control-row">
+                  <label for="fanStep">每片最大角度</label>
+                  <input id="fanStep" type="range" min="5" max="30" step="1" value="10">
+                  <div class="control-value" data-for="fanStep"></div>
+                </div>
+              </div>
+              <div class="legend">
+                <div class="legend-item"><span class="swatch swatch-rust-fill"></span>扇形三角片</div>
+                <div class="legend-item"><span class="swatch swatch-rust"></span>边界圆弧</div>
+              </div>
+              <p class="canvas-caption">polyline2d 内部使用固定最小角度步长来切圆弧。默认常量约等于 10 度，所以圆越大、扫过角越大，需要的三角片就越多。</p>
+            </div>
+          </div>
+          <div class="section-grid section-grid-spaced">
+            <div class="info-stack">
+              <div class="formula">
+                <span class="label">SQUARE 端帽</span>
+                <span class="math">start' = start - dir * (w / 2)
+end'   = end   + dir * (w / 2)</span>
+              </div>
+              <div class="formula">
+                <span class="label">圆弧扇形三角数</span>
+                <span class="math">N = max(1, floor(|deltaAngle| / minAngle))</span>
+              </div>
+              <div class="tip success">
+                <strong>JOINT 端帽的直觉</strong>
+                <p>如果路径闭合，就不再“封口”，而是把最后一段和第一段当成普通拐角来连接。这也是闭环轮廓通常更自然的做法。</p>
+              </div>
+            </div>
+            <div class="info-stack">
+              <div class="status-card" id="capStatus"></div>
+              <div class="status-card" id="fanStatus"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="polyline2d">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">06 · 回到库本身</div>
+              <h2>Polyline2D 到底提供了什么功能</h2>
+              <p>有了前面的数学和几何铺垫，再看库就很直白了。它不是场景系统，不是路径编辑器，不是渲染器。它只做一件事：把点列变成粗线网格。</p>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>能力</th>
+                  <th>说明</th>
+                  <th>背后的几何动作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>输入点列</td>
+                  <td>按顺序传入 2D 点，库会自动跳过完全重合的相邻点，避免零长度线段。</td>
+                  <td>构造中心线段，计算方向和法线。</td>
+                </tr>
+                <tr>
+                  <td>厚度控制</td>
+                  <td>传入 thickness，内部先除以 2，当作左右偏移量。</td>
+                  <td>用法线把中心线扩成左右两条边界。</td>
+                </tr>
+                <tr>
+                  <td>关节样式</td>
+                  <td>支持 MITER、BEVEL、ROUND。</td>
+                  <td>延长求交、切角封口、扇形补圆弧。</td>
+                </tr>
+                <tr>
+                  <td>端帽样式</td>
+                  <td>支持 BUTT、SQUARE、ROUND、JOINT。</td>
+                  <td>平切、外延半厚度、半圆补片、尾首闭合接缝。</td>
+                </tr>
+                <tr>
+                  <td>闭合路径</td>
+                  <td>选择 JOINT 端帽时，库会自动把最后一点和第一点连接起来，不需要重复传首点。</td>
+                  <td>新增一条连接段，再按普通拐角处理首尾接缝。</td>
+                </tr>
+                <tr>
+                  <td>allowOverlap</td>
+                  <td>当点距很短而线很粗时，允许一些重叠可获得更完整的覆盖；但透明渲染时可能不理想。</td>
+                  <td>对内侧边界交点的求法更宽松，减少缝隙，但可能引入重叠区域。</td>
+                </tr>
+                <tr>
+                  <td>输出形式</td>
+                  <td>输出的是顶点序列，本质上按三角形组织，可直接送给图形 API。</td>
+                  <td>每段矩形拆 2 个三角形，圆角和圆帽拆成扇形三角片。</td>
+                </tr>
+                <tr>
+                  <td>自定义向量类型</td>
+                  <td>只要求点类型有公开的 x、y 浮点成员以及 x、y 构造函数。</td>
+                  <td>模板算法只依赖最基础的坐标读写。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="timeline">
+            <div class="timeline-step">
+              <strong>步骤 1</strong>
+              <p>把输入点列切成一个个中心线段，并过滤掉长度为 0 的段。</p>
+            </div>
+            <div class="timeline-step">
+              <strong>步骤 2</strong>
+              <p>对每段求单位方向和法线，然后偏移出左右边界。</p>
+            </div>
+            <div class="timeline-step">
+              <strong>步骤 3</strong>
+              <p>相邻两段交给 joint 逻辑，根据角度和样式决定怎么拼。</p>
+            </div>
+            <div class="timeline-step">
+              <strong>步骤 4</strong>
+              <p>给首尾加端帽，最后把所有带状区域和补片拆成三角形顶点。</p>
+            </div>
+          </div>
+          <div class="cards-grid">
+            <div class="code-card">
+              <strong>实现层面的关键常量</strong>
+              <p>库内部用大约 20 度作为 miter 的最小安全角，用大约 10 度作为圆角三角片的最小步长。这两个常量直接影响尖角退化和圆弧平滑度。</p>
+            </div>
+            <div class="code-card">
+              <strong>很实用的一点</strong>
+              <p>README 特别强调：普通相邻线段之间不会无意义重绘，只有几何上真的发生重叠时才会出现重复覆盖。这对透明线条很重要。</p>
+            </div>
+            <div class="code-card">
+              <strong>定位很克制</strong>
+              <p>这是一个 header-only C++17 几何网格生成库，不绑定某个特定渲染后端。你只需要把生成顶点拿去画即可。</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="lab">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">07 · 全流程实验室</div>
+              <h2>把整条 polyline 交给算法，看看网格到底长什么样</h2>
+              <p>下面这个实验室直接用 JavaScript 按 polyline2d 的思路做了一版教学模拟。你可以切换点列、厚度、拐角样式和端帽样式，观察输出三角网格如何变化。</p>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="canvas-card">
+              <canvas id="meshCanvas" width="780" height="460"></canvas>
+              <div class="controls">
+                <div class="control-inline">
+                  <label for="meshPreset">点列预设</label>
+                  <select id="meshPreset">
+                    <option value="zigzag">Zigzag 折线</option>
+                    <option value="acute">Acute 尖角</option>
+                    <option value="short">Short Segments 短段</option>
+                    <option value="loop">Loop 闭合轮廓</option>
+                  </select>
+                </div>
+                <div class="control-row">
+                  <label for="meshThickness">厚度</label>
+                  <input id="meshThickness" type="range" min="0.6" max="3.4" step="0.1" value="1.6">
+                  <div class="control-value" data-for="meshThickness"></div>
+                </div>
+                <div class="control-inline">
+                  <label for="meshJoint">Joint</label>
+                  <select id="meshJoint">
+                    <option value="MITER">MITER</option>
+                    <option value="BEVEL">BEVEL</option>
+                    <option value="ROUND">ROUND</option>
+                  </select>
+                  <label for="meshCap">End Cap</label>
+                  <select id="meshCap">
+                    <option value="BUTT">BUTT</option>
+                    <option value="SQUARE">SQUARE</option>
+                    <option value="ROUND">ROUND</option>
+                    <option value="JOINT">JOINT</option>
+                  </select>
+                </div>
+                <div class="control-inline">
+                  <label for="meshOverlap">allowOverlap</label>
+                  <input id="meshOverlap" type="checkbox">
+                  <span class="pill">适合点距很小的粗线，但透明渲染要谨慎。</span>
+                </div>
+              </div>
+              <div class="legend">
+                <div class="legend-item"><span class="swatch swatch-teal-fill-soft"></span>填充三角形</div>
+                <div class="legend-item"><span class="swatch swatch-teal"></span>三角边线</div>
+                <div class="legend-item"><span class="swatch swatch-orange"></span>输入骨架</div>
+                <div class="legend-item"><span class="swatch swatch-rust"></span>输入点</div>
+              </div>
+            </div>
+            <div class="info-stack">
+              <div class="metrics-grid" id="meshMetrics"></div>
+              <div class="status-card" id="meshStatus"></div>
+              <div class="formula">
+                <span class="label">核心直觉</span>
+                <span class="math">输入点列 --按段偏移--> 左右边界
+左右边界 --按 joint/cap 拼接--> 封闭带状面
+封闭带状面 --拆分--> 三角形顶点流</span>
+              </div>
+            </div>
+          </div>
+          <div class="code-card code-card-spaced">
+            <strong>当前控制对应的 C++ 调用</strong>
+            <pre class="code" id="meshCode"></pre>
+          </div>
+        </section>
+
+        <section class="section" id="code-examples">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">08 · 代码示例</div>
+              <h2>当你已经理解原理后，再看代码会轻很多</h2>
+              <p>下面这些例子都是“短代码 + 清楚意图”。此时你应该能把每行代码背后的几何意义脑补出来，而不是把它们当成不可解释的参数组合。</p>
+            </div>
+          </div>
+          <div class="code-grid">
+            <div class="code-card">
+              <strong>示例 1：最小可用版本</strong>
+              <pre class="code">#include &lt;Polyline2D/Polyline2D.h&gt;
+using namespace crushedpixel;
+
+std::vector&lt;Vec2&gt; points {
+    {-2.0f, -1.0f},
+    {-0.5f,  1.2f},
+    { 1.4f,  0.2f},
+    { 3.0f,  1.8f}
+};
+
+auto vertices = Polyline2D::create(
+    points,
+    0.35f,
+    Polyline2D::JointStyle::ROUND,
+    Polyline2D::EndCapStyle::ROUND
+);
+
+// 把 vertices 当三角形顶点渲染</pre>
+              <p>这就是最典型的用法：输入点列、厚度、拐角样式、端帽样式，得到的就是可渲染顶点。</p>
+            </div>
+            <div class="code-card">
+              <strong>示例 2：闭合轮廓</strong>
+              <pre class="code">std::vector&lt;Vec2&gt; polygon {
+    {-1.5f, -1.2f},
+    { 0.0f,  1.8f},
+    { 2.0f,  0.6f},
+    { 1.1f, -1.6f}
+};
+
+auto vertices = Polyline2D::create(
+    polygon,
+    0.25f,
+    Polyline2D::JointStyle::MITER,
+    Polyline2D::EndCapStyle::JOINT
+);
+
+// 注意：不要再手动把首点重复追加到末尾</pre>
+              <p>JOINT 端帽表示“尾巴和头接起来”。库会自动生成最后一段到第一点的连接段。</p>
+            </div>
+            <div class="code-card">
+              <strong>示例 3：透明线条时的取舍</strong>
+              <pre class="code">std::vector&lt;Vec2&gt; veryDense {
+    {-2.0f, 0.0f},
+    {-1.5f, 0.1f},
+    {-1.0f, 0.0f},
+    {-0.6f, 0.2f},
+    {-0.2f, 0.0f}
+};
+
+auto vertices = Polyline2D::create(
+    veryDense,
+    0.8f,
+    Polyline2D::JointStyle::BEVEL,
+    Polyline2D::EndCapStyle::BUTT,
+    false
+);
+
+// allowOverlap=false 更适合透明渲染</pre>
+              <p>点间距比厚度还小时，allowOverlap=true 可能让外形更饱满；但如果要做透明混合，最好先保守一些。</p>
+            </div>
+            <div class="code-card">
+              <strong>示例 4：自定义点类型</strong>
+              <pre class="code">struct MyPoint {
+    float x;
+    float y;
+
+    MyPoint(float xValue, float yValue)
+        : x(xValue), y(yValue) {}
+};
+
+std::vector&lt;MyPoint&gt; points {
+    {-1.0f, -1.0f},
+    { 0.0f,  1.0f},
+    { 2.0f,  0.2f}
+};
+
+auto vertices = Polyline2D::create(
+    points,
+    0.4f,
+    Polyline2D::JointStyle::MITER,
+    Polyline2D::EndCapStyle::SQUARE
+);</pre>
+              <p>库不强行绑定自己的 Vec2，只要求你的点类型暴露 x、y 并且能用两个浮点数构造。</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="pitfalls">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">09 · 常见误区</div>
+              <h2>哪些地方最容易把新手绕进去</h2>
+              <p>如果你已经看到这里，最后值得做的是把几个常见误区捋清，不然实际使用时会觉得“结果不对”，但其实只是几何直觉还没对上。</p>
+            </div>
+          </div>
+          <div class="cards-grid">
+            <div class="feature-card">
+              <strong>误区 1：thickness 是向一边偏移的距离</strong>
+              <p>不是。thickness 是总宽度，库内部会改成一半，左右各扩一份。</p>
+            </div>
+            <div class="feature-card">
+              <strong>误区 2：miter 一定比 bevel 更好看</strong>
+              <p>不一定。角度太尖时，miter 会长得非常夸张，所以库内部会自动退回 bevel。</p>
+            </div>
+            <div class="feature-card">
+              <strong>误区 3：ROUND 只是换个开关</strong>
+              <p>不是。ROUND 背后意味着额外三角片，顶点数和性能开销都会增加。</p>
+            </div>
+            <div class="feature-card">
+              <strong>误区 4：闭合路径要重复首点</strong>
+              <p>如果你用的是 JOINT 端帽，不需要重复首点。重复了反而可能多出一段零长度或重复接缝。</p>
+            </div>
+            <div class="feature-card">
+              <strong>误区 5：透明线条与不透明线条处理完全一样</strong>
+              <p>allowOverlap 的策略就提醒你：透明混合时，重叠区域会被画多次，视觉上可能发黑或发亮。</p>
+            </div>
+            <div class="feature-card">
+              <strong>误区 6：输出顶点还是“线”</strong>
+              <p>不是。输出已经是填充三角形顶点，你要用三角形方式提交，而不是再把它当线段去画。</p>
+            </div>
+          </div>
+          <details>
+            <summary>如果只想快速背下整个算法，应该记什么？</summary>
+            <div>
+              <p>记这条链就够了：点列 -> 线段方向 -> 单位法线 -> 左右偏移边界 -> 相邻段交点/切角/圆弧 -> 首尾端帽 -> 三角形顶点流。</p>
+            </div>
+          </details>
+          <details>
+            <summary>为什么 polyline2d 不直接输出“矩形列表 + 圆弧参数”？</summary>
+            <div>
+              <p>因为最终接到图形 API 时，最通用、最稳定的数据就是顶点。越早把几何离散掉，后续渲染环节越简单。</p>
+            </div>
+          </details>
+          <div class="footer-note">
+            读到这里，建议你再回头看一遍“拐角样式”和“全流程实验室”。如果你能仅凭图示解释出为什么某个尖角会退成 bevel，为什么圆角需要若干个扇形三角片，那就说明你已经真的理解 polyline2d 了。
+          </div>
+        </section>
+      </main>
+
+      <aside class="toc">
+        <h3>目录</h3>
+        <a href="#top">总览</a>
+        <a href="#foundation">1. 向量基础</a>
+        <a href="#strip">2. 偏移成粗线</a>
+        <a href="#intersection">3. 交点公式</a>
+        <a href="#joints">4. 拐角样式</a>
+        <a href="#caps">5. 端帽与圆弧</a>
+        <a href="#polyline2d">6. 库功能分析</a>
+        <a href="#lab">7. 全流程实验室</a>
+        <a href="#code-examples">8. 代码示例</a>
+        <a href="#pitfalls">9. 常见误区</a>
+        <div class="small">
+          <p>阅读建议：先滑动前 5 节的控件，再看第 6 节和第 7 节。这样 API 和网格结果会一下子变得非常直观。</p>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    const EPS = 1e-6;
+    const METER_MIN_ANGLE = degToRad(20);
+    const DEFAULT_ROUND_MIN_ANGLE = degToRad(10);
+
+    const meshPresets = {
+      zigzag: [
+        vec(-4.2, -1.5),
+        vec(-2.0, 2.0),
+        vec(-0.2, -0.3),
+        vec(2.0, 2.2),
+        vec(4.0, -1.2)
+      ],
+      acute: [
+        vec(-4.4, -0.5),
+        vec(-1.2, -0.4),
+        vec(-0.2, 2.3),
+        vec(0.9, -0.2),
+        vec(4.2, -0.1)
+      ],
+      short: [
+        vec(-4.0, -0.4),
+        vec(-3.2, 0.0),
+        vec(-2.5, -0.3),
+        vec(-1.9, 0.1),
+        vec(-1.1, -0.2),
+        vec(-0.5, 0.4),
+        vec(0.0, -0.1),
+        vec(0.6, 0.2),
+        vec(1.2, -0.15),
+        vec(2.0, 0.35),
+        vec(3.3, -0.3)
+      ],
+      loop: [
+        vec(-3.4, -1.2),
+        vec(-1.4, 2.3),
+        vec(1.5, 2.0),
+        vec(3.7, -0.3),
+        vec(1.5, -2.2),
+        vec(-1.5, -2.0)
+      ]
+    };
+
+    function vec(x, y) {
+      return { x, y };
+    }
+
+    function clone(point) {
+      return { x: point.x, y: point.y };
+    }
+
+    function add(a, b) {
+      return vec(a.x + b.x, a.y + b.y);
+    }
+
+    function sub(a, b) {
+      return vec(a.x - b.x, a.y - b.y);
+    }
+
+    function mul(a, scalar) {
+      return vec(a.x * scalar, a.y * scalar);
+    }
+
+    function magnitude(v) {
+      return Math.hypot(v.x, v.y);
+    }
+
+    function normalized(v) {
+      const mag = magnitude(v);
+      if (mag < EPS) {
+        return vec(0, 0);
+      }
+      return vec(v.x / mag, v.y / mag);
+    }
+
+    function normal(v) {
+      const unit = normalized(v);
+      return vec(-unit.y, unit.x);
+    }
+
+    function dot(a, b) {
+      return a.x * b.x + a.y * b.y;
+    }
+
+    function cross(a, b) {
+      return a.x * b.y - a.y * b.x;
+    }
+
+    function equal(a, b) {
+      return Math.abs(a.x - b.x) < EPS && Math.abs(a.y - b.y) < EPS;
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function degToRad(deg) {
+      return deg * Math.PI / 180;
+    }
+
+    function radToDeg(rad) {
+      return rad * 180 / Math.PI;
+    }
+
+    function angleBetween(a, b) {
+      const denom = magnitude(a) * magnitude(b);
+      if (denom < EPS) {
+        return 0;
+      }
+      return Math.acos(clamp(dot(a, b) / denom, -1, 1));
+    }
+
+    function lineIntersection(segA, segB, infiniteLines) {
+      const r = sub(segA.b, segA.a);
+      const s = sub(segB.b, segB.a);
+      const originDist = sub(segB.a, segA.a);
+      const denominator = cross(r, s);
+
+      if (Math.abs(denominator) < 0.0001) {
+        return null;
+      }
+
+      const u = cross(originDist, r) / denominator;
+      const t = cross(originDist, s) / denominator;
+
+      if (!infiniteLines && (t < 0 || t > 1 || u < 0 || u > 1)) {
+        return null;
+      }
+
+      return add(segA.a, mul(r, t));
+    }
+
+    function segmentDirection(seg) {
+      return normalized(sub(seg.b, seg.a));
+    }
+
+    function polySegment(pointA, pointB, halfThickness) {
+      const center = { a: clone(pointA), b: clone(pointB) };
+      const n = normal(sub(pointB, pointA));
+      return {
+        center,
+        edge1: { a: add(center.a, mul(n, halfThickness)), b: add(center.b, mul(n, halfThickness)) },
+        edge2: { a: sub(center.a, mul(n, halfThickness)), b: sub(center.b, mul(n, halfThickness)) }
+      };
+    }
+
+    function pushTriangle(vertices, a, b, c) {
+      vertices.push(clone(a), clone(b), clone(c));
+    }
+
+    function createTriangleFan(vertices, connectTo, origin, start, end, clockwise, minAngle = DEFAULT_ROUND_MIN_ANGLE) {
+      const point1 = sub(start, origin);
+      const point2 = sub(end, origin);
+      let angle1 = Math.atan2(point1.y, point1.x);
+      let angle2 = Math.atan2(point2.y, point2.x);
+
+      if (clockwise) {
+        if (angle2 > angle1) {
+          angle2 -= Math.PI * 2;
+        }
+      } else if (angle1 > angle2) {
+        angle1 -= Math.PI * 2;
+      }
+
+      const jointAngle = angle2 - angle1;
+      const numTriangles = Math.max(1, Math.floor(Math.abs(jointAngle) / minAngle));
+      const triAngle = jointAngle / numTriangles;
+
+      let startPoint = clone(start);
+      for (let i = 0; i < numTriangles; i += 1) {
+        let endPoint;
+        if (i + 1 === numTriangles) {
+          endPoint = clone(end);
+        } else {
+          const rot = (i + 1) * triAngle;
+          endPoint = vec(
+            Math.cos(rot) * point1.x - Math.sin(rot) * point1.y,
+            Math.sin(rot) * point1.x + Math.cos(rot) * point1.y
+          );
+          endPoint = add(endPoint, origin);
+        }
+        pushTriangle(vertices, startPoint, endPoint, connectTo);
+        startPoint = endPoint;
+      }
+
+      return numTriangles;
+    }
+
+    function createJoint(vertices, segment1, segment2, jointStyle, allowOverlap, roundMinAngle = DEFAULT_ROUND_MIN_ANGLE) {
+      const dir1 = segmentDirection(segment1.center);
+      const dir2 = segmentDirection(segment2.center);
+      const angle = angleBetween(dir1, dir2);
+      let wrappedAngle = angle;
+
+      if (wrappedAngle > Math.PI / 2) {
+        wrappedAngle = Math.PI - wrappedAngle;
+      }
+
+      let effectiveStyle = jointStyle;
+      if (effectiveStyle === "MITER" && wrappedAngle < METER_MIN_ANGLE) {
+        effectiveStyle = "BEVEL";
+      }
+
+      if (effectiveStyle === "MITER") {
+        const sec1 = lineIntersection(segment1.edge1, segment2.edge1, true);
+        const sec2 = lineIntersection(segment1.edge2, segment2.edge2, true);
+        const end1 = sec1 || clone(segment1.edge1.b);
+        const end2 = sec2 || clone(segment1.edge2.b);
+        return {
+          angle,
+          wrappedAngle,
+          clockwise: cross(dir1, dir2) < 0,
+          effectiveStyle,
+          end1,
+          end2,
+          nextStart1: clone(end1),
+          nextStart2: clone(end2),
+          innerIntersection: null,
+          fanTriangles: 0
+        };
+      }
+
+      const clockwise = cross(dir1, dir2) < 0;
+      let outer1;
+      let outer2;
+      let inner1;
+      let inner2;
+
+      if (clockwise) {
+        outer1 = segment1.edge1;
+        outer2 = segment2.edge1;
+        inner1 = segment1.edge2;
+        inner2 = segment2.edge2;
+      } else {
+        outer1 = segment1.edge2;
+        outer2 = segment2.edge2;
+        inner1 = segment1.edge1;
+        inner2 = segment2.edge1;
+      }
+
+      const innerIntersectionOpt = lineIntersection(inner1, inner2, allowOverlap);
+      const innerIntersection = innerIntersectionOpt || clone(inner1.b);
+
+      let innerStart;
+      if (innerIntersectionOpt) {
+        innerStart = clone(innerIntersectionOpt);
+      } else if (angle > Math.PI / 2) {
+        innerStart = clone(outer1.b);
+      } else {
+        innerStart = clone(inner1.b);
+      }
+
+      let end1;
+      let end2;
+      let nextStart1;
+      let nextStart2;
+
+      if (clockwise) {
+        end1 = clone(outer1.b);
+        end2 = clone(innerIntersection);
+        nextStart1 = clone(outer2.a);
+        nextStart2 = clone(innerStart);
+      } else {
+        end1 = clone(innerIntersection);
+        end2 = clone(outer1.b);
+        nextStart1 = clone(innerStart);
+        nextStart2 = clone(outer2.a);
+      }
+
+      let fanTriangles = 0;
+      if (effectiveStyle === "BEVEL") {
+        pushTriangle(vertices, outer1.b, outer2.a, innerIntersection);
+      } else if (effectiveStyle === "ROUND") {
+        fanTriangles = createTriangleFan(vertices, innerIntersection, segment1.center.b, outer1.b, outer2.a, clockwise, roundMinAngle);
+      }
+
+      return {
+        angle,
+        wrappedAngle,
+        clockwise,
+        effectiveStyle,
+        end1,
+        end2,
+        nextStart1,
+        nextStart2,
+        innerIntersection,
+        fanTriangles
+      };
+    }
+
+    function createPolylineMesh(points, thickness, jointStyle, endCapStyle, allowOverlap, roundMinAngle = DEFAULT_ROUND_MIN_ANGLE) {
+      const half = thickness / 2;
+      const vertices = [];
+      const segments = [];
+      const diagnostics = {
+        joints: [],
+        endCapTriangles: 0,
+        segmentTriangles: 0,
+        filteredPoints: 0
+      };
+
+      for (let i = 0; i + 1 < points.length; i += 1) {
+        if (!equal(points[i], points[i + 1])) {
+          segments.push(polySegment(points[i], points[i + 1], half));
+        } else {
+          diagnostics.filteredPoints += 1;
+        }
+      }
+
+      if (endCapStyle === "JOINT" && points.length > 1) {
+        const lastPoint = points[points.length - 1];
+        const firstPoint = points[0];
+        if (!equal(lastPoint, firstPoint)) {
+          segments.push(polySegment(lastPoint, firstPoint, half));
+        }
+      }
+
+      if (!segments.length) {
+        return { vertices, segments, diagnostics };
+      }
+
+      const firstSegment = segments[0];
+      const lastSegment = segments[segments.length - 1];
+
+      let pathStart1 = clone(firstSegment.edge1.a);
+      let pathStart2 = clone(firstSegment.edge2.a);
+      let pathEnd1 = clone(lastSegment.edge1.b);
+      let pathEnd2 = clone(lastSegment.edge2.b);
+
+      if (endCapStyle === "SQUARE") {
+        const startDir1 = segmentDirection(firstSegment.edge1);
+        const startDir2 = segmentDirection(firstSegment.edge2);
+        const endDir1 = segmentDirection(lastSegment.edge1);
+        const endDir2 = segmentDirection(lastSegment.edge2);
+        pathStart1 = sub(pathStart1, mul(startDir1, half));
+        pathStart2 = sub(pathStart2, mul(startDir2, half));
+        pathEnd1 = add(pathEnd1, mul(endDir1, half));
+        pathEnd2 = add(pathEnd2, mul(endDir2, half));
+      } else if (endCapStyle === "ROUND") {
+        diagnostics.endCapTriangles += createTriangleFan(vertices, firstSegment.center.a, firstSegment.center.a, firstSegment.edge1.a, firstSegment.edge2.a, false, roundMinAngle);
+        diagnostics.endCapTriangles += createTriangleFan(vertices, lastSegment.center.b, lastSegment.center.b, lastSegment.edge1.b, lastSegment.edge2.b, true, roundMinAngle);
+      } else if (endCapStyle === "JOINT") {
+        const closingJoint = createJoint(vertices, lastSegment, firstSegment, jointStyle, allowOverlap, roundMinAngle);
+        diagnostics.joints.push(closingJoint);
+        pathEnd1 = closingJoint.end1;
+        pathEnd2 = closingJoint.end2;
+        pathStart1 = closingJoint.nextStart1;
+        pathStart2 = closingJoint.nextStart2;
+      }
+
+      let start1 = vec(0, 0);
+      let start2 = vec(0, 0);
+      let nextStart1 = vec(0, 0);
+      let nextStart2 = vec(0, 0);
+      let end1 = vec(0, 0);
+      let end2 = vec(0, 0);
+
+      for (let i = 0; i < segments.length; i += 1) {
+        const segment = segments[i];
+        if (i === 0) {
+          start1 = clone(pathStart1);
+          start2 = clone(pathStart2);
+        }
+
+        if (i + 1 === segments.length) {
+          end1 = clone(pathEnd1);
+          end2 = clone(pathEnd2);
+        } else {
+          const joint = createJoint(vertices, segment, segments[i + 1], jointStyle, allowOverlap, roundMinAngle);
+          diagnostics.joints.push(joint);
+          end1 = clone(joint.end1);
+          end2 = clone(joint.end2);
+          nextStart1 = clone(joint.nextStart1);
+          nextStart2 = clone(joint.nextStart2);
+        }
+
+        pushTriangle(vertices, start1, start2, end1);
+        pushTriangle(vertices, end1, start2, end2);
+        diagnostics.segmentTriangles += 2;
+
+        start1 = clone(nextStart1);
+        start2 = clone(nextStart2);
+      }
+
+      return { vertices, segments, diagnostics };
+    }
+
+    function number(value, digits = 2) {
+      return Number(value).toFixed(digits);
+    }
+
+    function setValueLabels() {
+      document.querySelectorAll("[data-for]").forEach((target) => {
+        const source = document.getElementById(target.dataset.for);
+        target.textContent = source.value;
+      });
+    }
+
+    function getCanvasContext(id) {
+      const canvas = document.getElementById(id);
+      return { canvas, ctx: canvas.getContext("2d") };
+    }
+
+    function makeViewport(canvas, bounds, padding = 28) {
+      const width = bounds.maxX - bounds.minX || 1;
+      const height = bounds.maxY - bounds.minY || 1;
+      const scaleX = (canvas.width - padding * 2) / width;
+      const scaleY = (canvas.height - padding * 2) / height;
+      const scale = Math.min(scaleX, scaleY);
+      return {
+        toCanvas(point) {
+          return {
+            x: padding + (point.x - bounds.minX) * scale,
+            y: canvas.height - padding - (point.y - bounds.minY) * scale
+          };
+        },
+        scale,
+        bounds,
+        padding
+      };
+    }
+
+    function boundsFromPoints(points, paddingUnits = 0.8) {
+      if (!points.length) {
+        return { minX: -1, maxX: 1, minY: -1, maxY: 1 };
+      }
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+
+      points.forEach((point) => {
+        minX = Math.min(minX, point.x);
+        minY = Math.min(minY, point.y);
+        maxX = Math.max(maxX, point.x);
+        maxY = Math.max(maxY, point.y);
+      });
+
+      return {
+        minX: minX - paddingUnits,
+        maxX: maxX + paddingUnits,
+        minY: minY - paddingUnits,
+        maxY: maxY + paddingUnits
+      };
+    }
+
+    function clearCanvas(ctx, canvas) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#fffdf8";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    function drawGrid(ctx, canvas, viewport, step = 1) {
+      const { minX, maxX, minY, maxY } = viewport.bounds;
+      ctx.save();
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = "rgba(23, 33, 38, 0.08)";
+      for (let x = Math.ceil(minX); x <= Math.floor(maxX); x += step) {
+        const start = viewport.toCanvas(vec(x, minY));
+        const end = viewport.toCanvas(vec(x, maxY));
+        ctx.beginPath();
+        ctx.moveTo(start.x, start.y);
+        ctx.lineTo(end.x, end.y);
+        ctx.stroke();
+      }
+      for (let y = Math.ceil(minY); y <= Math.floor(maxY); y += step) {
+        const start = viewport.toCanvas(vec(minX, y));
+        const end = viewport.toCanvas(vec(maxX, y));
+        ctx.beginPath();
+        ctx.moveTo(start.x, start.y);
+        ctx.lineTo(end.x, end.y);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function drawAxes(ctx, viewport) {
+      const xAxisStart = viewport.toCanvas(vec(viewport.bounds.minX, 0));
+      const xAxisEnd = viewport.toCanvas(vec(viewport.bounds.maxX, 0));
+      const yAxisStart = viewport.toCanvas(vec(0, viewport.bounds.minY));
+      const yAxisEnd = viewport.toCanvas(vec(0, viewport.bounds.maxY));
+      ctx.save();
+      ctx.strokeStyle = "rgba(23, 33, 38, 0.24)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(xAxisStart.x, xAxisStart.y);
+      ctx.lineTo(xAxisEnd.x, xAxisEnd.y);
+      ctx.moveTo(yAxisStart.x, yAxisStart.y);
+      ctx.lineTo(yAxisEnd.x, yAxisEnd.y);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawArrow(ctx, viewport, start, end, color, lineWidth = 3) {
+      const a = viewport.toCanvas(start);
+      const b = viewport.toCanvas(end);
+      const angle = Math.atan2(b.y - a.y, b.x - a.x);
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.lineWidth = lineWidth;
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(b.x, b.y);
+      ctx.lineTo(b.x - Math.cos(angle - Math.PI / 6) * 12, b.y - Math.sin(angle - Math.PI / 6) * 12);
+      ctx.lineTo(b.x - Math.cos(angle + Math.PI / 6) * 12, b.y - Math.sin(angle + Math.PI / 6) * 12);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function drawPoint(ctx, viewport, point, color, radius = 5, label = "") {
+      const p = viewport.toCanvas(point);
+      ctx.save();
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+      ctx.fill();
+      if (label) {
+        ctx.fillStyle = "#172126";
+        ctx.font = '600 13px "Aptos", sans-serif';
+        ctx.fillText(label, p.x + 8, p.y - 8);
+      }
+      ctx.restore();
+    }
+
+    function drawPolyline(ctx, viewport, points, color, width = 3, dashed = false) {
+      if (points.length < 2) {
+        return;
+      }
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      if (dashed) {
+        ctx.setLineDash([8, 8]);
+      }
+      ctx.beginPath();
+      points.forEach((point, index) => {
+        const p = viewport.toCanvas(point);
+        if (index === 0) {
+          ctx.moveTo(p.x, p.y);
+        } else {
+          ctx.lineTo(p.x, p.y);
+        }
+      });
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawTriangles(ctx, viewport, vertices, fill, stroke) {
+      ctx.save();
+      ctx.lineWidth = 1.25;
+      for (let i = 0; i + 2 < vertices.length; i += 3) {
+        const a = viewport.toCanvas(vertices[i]);
+        const b = viewport.toCanvas(vertices[i + 1]);
+        const c = viewport.toCanvas(vertices[i + 2]);
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.lineTo(c.x, c.y);
+        ctx.closePath();
+        ctx.fillStyle = fill;
+        ctx.strokeStyle = stroke;
+        ctx.fill();
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function updateVectorSection() {
+      const { canvas, ctx } = getCanvasContext("vectorCanvas");
+      clearCanvas(ctx, canvas);
+      const viewport = makeViewport(canvas, { minX: -5, maxX: 5, minY: -4, maxY: 4 }, 34);
+      drawGrid(ctx, canvas, viewport, 1);
+      drawAxes(ctx, viewport);
+
+      const a = vec(parseFloat(document.getElementById("vecAx").value), parseFloat(document.getElementById("vecAy").value));
+      const b = vec(parseFloat(document.getElementById("vecBx").value), parseFloat(document.getElementById("vecBy").value));
+      const v = sub(b, a);
+      const len = magnitude(v);
+      const unit = normalized(v);
+      const n = normal(v);
+      const unitEnd = add(a, mul(unit, Math.min(1.8, len)));
+      const normalStart = add(a, mul(v, 0.5));
+      const normalEnd = add(normalStart, mul(n, 1.4));
+
+      drawArrow(ctx, viewport, a, b, "#c25a1b", 4);
+      drawArrow(ctx, viewport, a, unitEnd, "#0e7c86", 3);
+      drawArrow(ctx, viewport, normalStart, normalEnd, "#3d7a30", 3);
+      drawPoint(ctx, viewport, a, "#172126", 5, "A");
+      drawPoint(ctx, viewport, b, "#172126", 5, "B");
+
+      const metrics = [
+        { label: "|AB|", value: number(len) },
+        { label: "u.x", value: number(unit.x) },
+        { label: "u.y", value: number(unit.y) },
+        { label: "n.x", value: number(n.x) },
+        { label: "n.y", value: number(n.y) },
+        { label: "A·B", value: number(dot(a, b)) },
+        { label: "A×B", value: number(cross(a, b)) },
+        { label: "AB 方向角", value: `${number(radToDeg(Math.atan2(v.y, v.x)), 1)} deg` }
+      ];
+
+      document.getElementById("vectorMetrics").innerHTML = metrics.map((item) => `
+        <div class="metric-card">
+          <div class="metric-value">${item.value}</div>
+          <div class="metric-label">${item.label}</div>
+        </div>
+      `).join("");
+    }
+
+    function updateStripSection() {
+      const { canvas, ctx } = getCanvasContext("stripCanvas");
+      clearCanvas(ctx, canvas);
+      const viewport = makeViewport(canvas, { minX: -5, maxX: 5, minY: -4, maxY: 4 }, 30);
+      drawGrid(ctx, canvas, viewport, 1);
+      drawAxes(ctx, viewport);
+
+      const thickness = parseFloat(document.getElementById("stripThickness").value);
+      const tilt = parseFloat(document.getElementById("stripTilt").value);
+      const p0 = vec(-3.6, -1.4);
+      const p1 = vec(3.4, tilt);
+      const half = thickness / 2;
+      const n = normal(sub(p1, p0));
+      const a1 = add(p0, mul(n, half));
+      const a2 = sub(p0, mul(n, half));
+      const b1 = add(p1, mul(n, half));
+      const b2 = sub(p1, mul(n, half));
+
+      drawTriangles(ctx, viewport, [a1, a2, b1, b1, a2, b2], "rgba(14, 124, 134, 0.26)", "#0e7c86");
+      drawPolyline(ctx, viewport, [a1, b1], "#0e7c86", 2);
+      drawPolyline(ctx, viewport, [a2, b2], "#0e7c86", 2);
+      drawPolyline(ctx, viewport, [p0, p1], "#f28c38", 4, true);
+
+      const mid = add(p0, mul(sub(p1, p0), 0.5));
+      drawArrow(ctx, viewport, mid, add(mid, mul(n, half)), "#3d7a30", 3);
+      drawPoint(ctx, viewport, p0, "#172126", 5, "start");
+      drawPoint(ctx, viewport, p1, "#172126", 5, "end");
+
+      document.getElementById("stripStatus").innerHTML = `
+        <strong>当前结果</strong>
+        <p>总厚度 w = ${number(thickness)}，半厚度 h = ${number(half)}。单段线被扩成一个四边形，再拆成 2 个三角形。</p>
+        <div class="pill-row">
+          <span class="pill">normal = (${number(n.x)}, ${number(n.y)})</span>
+          <span class="pill">triangle count = 2</span>
+        </div>
+      `;
+    }
+
+    function updateIntersectionSection() {
+      const { canvas, ctx } = getCanvasContext("intersectionCanvas");
+      clearCanvas(ctx, canvas);
+      const viewport = makeViewport(canvas, { minX: -5, maxX: 5, minY: -4, maxY: 4 }, 30);
+      drawGrid(ctx, canvas, viewport, 1);
+      drawAxes(ctx, viewport);
+
+      const angleDeg = parseFloat(document.getElementById("interAngle").value);
+      const shift = parseFloat(document.getElementById("interShift").value);
+
+      const segA = { a: vec(-4.2, -1.4), b: vec(4.1, 1.2) };
+      const center = vec(0.4, shift);
+      const halfLength = 3.6;
+      const dir = vec(Math.cos(degToRad(angleDeg)), Math.sin(degToRad(angleDeg)));
+      const segB = { a: sub(center, mul(dir, halfLength)), b: add(center, mul(dir, halfLength)) };
+      const hit = lineIntersection(segA, segB, false);
+      const hitInfinite = lineIntersection(segA, segB, true);
+
+      drawPolyline(ctx, viewport, [segA.a, segA.b], "#0e7c86", 4);
+      drawPolyline(ctx, viewport, [segB.a, segB.b], "#c25a1b", 4);
+      if (hitInfinite) {
+        drawPoint(ctx, viewport, hitInfinite, hit ? "#3d7a30" : "#9a5c00", 6, hit ? "交点" : "无限延长线交点");
+      }
+
+      const r = sub(segA.b, segA.a);
+      const s = sub(segB.b, segB.a);
+      const denominator = cross(r, s);
+      const t = Math.abs(denominator) < 0.0001 ? null : cross(sub(segB.a, segA.a), s) / denominator;
+      const u = Math.abs(denominator) < 0.0001 ? null : cross(sub(segB.a, segA.a), r) / denominator;
+
+      document.getElementById("intersectionStatus").innerHTML = hit
+        ? `
+          <strong>当前状态：线段内部相交</strong>
+          <p>交点坐标约为 (${number(hit.x)}, ${number(hit.y)})。因为 t、u 都落在 [0, 1] 内，所以交点在线段内部。</p>
+          <div class="pill-row">
+            <span class="pill">cross(r, s) = ${number(denominator)}</span>
+            <span class="pill">t = ${number(t)}</span>
+            <span class="pill">u = ${number(u)}</span>
+          </div>
+        `
+        : `
+          <strong>当前状态：线段本身不相交</strong>
+          <p>${hitInfinite ? `无限延长后会在 (${number(hitInfinite.x)}, ${number(hitInfinite.y)}) 处相交，但 t 或 u 超出了 [0, 1]。` : "两条线几乎平行，分母接近 0。"}</p>
+          <div class="pill-row">
+            <span class="pill">cross(r, s) = ${number(denominator)}</span>
+            <span class="pill">t = ${t === null ? "--" : number(t)}</span>
+            <span class="pill">u = ${u === null ? "--" : number(u)}</span>
+          </div>
+        `;
+    }
+
+    function activeButtonValue(containerId) {
+      const active = document.querySelector(`#${containerId} button.active`);
+      return active ? active.dataset.style : "";
+    }
+
+    function updateJointSection() {
+      const { canvas, ctx } = getCanvasContext("jointCanvas");
+      clearCanvas(ctx, canvas);
+
+      const angleDeg = parseFloat(document.getElementById("jointAngle").value);
+      const thickness = parseFloat(document.getElementById("jointThickness").value);
+      const jointStyle = activeButtonValue("jointStyleButtons");
+      const p0 = vec(-4.0, 0.0);
+      const p1 = vec(0.0, 0.0);
+      const p2 = vec(4.0 * Math.cos(degToRad(angleDeg)), 4.0 * Math.sin(degToRad(angleDeg)));
+      const mesh = createPolylineMesh([p0, p1, p2], thickness, jointStyle, "BUTT", false);
+      const viewport = makeViewport(canvas, boundsFromPoints([...mesh.vertices, p0, p1, p2], thickness + 1.2), 30);
+      drawGrid(ctx, canvas, viewport, 1);
+      drawAxes(ctx, viewport);
+      drawTriangles(ctx, viewport, mesh.vertices, "rgba(14, 124, 134, 0.26)", "#0e7c86");
+      drawPolyline(ctx, viewport, [p0, p1, p2], "#f28c38", 4, true);
+      drawPoint(ctx, viewport, p0, "#172126", 5, "P0");
+      drawPoint(ctx, viewport, p1, "#172126", 5, "P1");
+      drawPoint(ctx, viewport, p2, "#172126", 5, "P2");
+
+      const joint = mesh.diagnostics.joints[0];
+      if (joint && joint.innerIntersection) {
+        drawPoint(ctx, viewport, joint.innerIntersection, "#3d7a30", 5, "inner");
+      }
+
+      const miterLength = (thickness / 2) / Math.max(Math.sin(degToRad(angleDeg) / 2), EPS);
+      const fallback = joint && jointStyle === "MITER" && joint.effectiveStyle !== "MITER";
+
+      document.getElementById("jointStatus").innerHTML = `
+        <strong>${fallback ? "当前 miter 已自动退化为 bevel" : `当前样式：${joint ? joint.effectiveStyle : jointStyle}`}</strong>
+        <p>输入转角约 ${number(angleDeg, 0)} 度，计算夹角约 ${joint ? number(radToDeg(joint.angle), 1) : number(angleDeg, 1)} 度。miter 的理论尖角长度约为 ${number(miterLength)}。</p>
+        <div class="pill-row">
+          <span class="pill">wrappedAngle = ${joint ? number(radToDeg(joint.wrappedAngle), 1) : "--"} deg</span>
+          <span class="pill">clockwise = ${joint ? (joint.clockwise ? "true" : "false") : "--"}</span>
+          <span class="pill">triangle count = ${mesh.vertices.length / 3}</span>
+        </div>
+      `;
+    }
+
+    function updateCapSection() {
+      const { canvas, ctx } = getCanvasContext("capCanvas");
+      clearCanvas(ctx, canvas);
+
+      const capStyle = activeButtonValue("capStyleButtons");
+      const thickness = parseFloat(document.getElementById("capThickness").value);
+      const points = [vec(-3.6, 0.0), vec(3.2, 0.0)];
+      const mesh = createPolylineMesh(points, thickness, "MITER", capStyle, false);
+      const viewport = makeViewport(canvas, boundsFromPoints([...mesh.vertices, ...points], thickness + 0.8), 28);
+      drawGrid(ctx, canvas, viewport, 1);
+      drawAxes(ctx, viewport);
+      drawTriangles(ctx, viewport, mesh.vertices, "rgba(14, 124, 134, 0.26)", "#0e7c86");
+      drawPolyline(ctx, viewport, points, "#f28c38", 4, true);
+      drawPoint(ctx, viewport, points[0], "#172126", 5, "start");
+      drawPoint(ctx, viewport, points[1], "#172126", 5, "end");
+
+      document.getElementById("capStatus").innerHTML = `
+        <strong>当前端帽：${capStyle}</strong>
+        <p>${capStyle === "BUTT" ? "端点与原始起止点对齐，不额外外延。" : capStyle === "SQUARE" ? "端点会沿着方向向前后各外延半个厚度。" : "两端各补半圆，所以会产生额外扇形三角片。"}</p>
+        <div class="pill-row">
+          <span class="pill">triangle count = ${mesh.vertices.length / 3}</span>
+          <span class="pill">end cap triangles = ${mesh.diagnostics.endCapTriangles}</span>
+        </div>
+      `;
+    }
+
+    function updateFanSection() {
+      const { canvas, ctx } = getCanvasContext("fanCanvas");
+      clearCanvas(ctx, canvas);
+      const viewport = makeViewport(canvas, { minX: -4, maxX: 4, minY: -4, maxY: 4 }, 24);
+      drawGrid(ctx, canvas, viewport, 1);
+      drawAxes(ctx, viewport);
+
+      const sweepDeg = parseFloat(document.getElementById("fanSweep").value);
+      const stepDeg = parseFloat(document.getElementById("fanStep").value);
+      const radius = 2.6;
+      const origin = vec(0, 0);
+      const start = vec(radius, 0);
+      const end = vec(radius * Math.cos(degToRad(sweepDeg)), radius * Math.sin(degToRad(sweepDeg)));
+      const vertices = [];
+      const count = createTriangleFan(vertices, origin, origin, start, end, false, degToRad(stepDeg));
+
+      drawTriangles(ctx, viewport, vertices, "rgba(194, 90, 27, 0.28)", "#c25a1b");
+      drawArrow(ctx, viewport, origin, start, "#f28c38", 3);
+      drawArrow(ctx, viewport, origin, end, "#f28c38", 3);
+      drawPoint(ctx, viewport, origin, "#172126", 5, "origin");
+
+      document.getElementById("fanStatus").innerHTML = `
+        <strong>圆弧离散结果</strong>
+        <p>扫过角度 ${number(sweepDeg, 0)} 度，单片最大角度 ${number(stepDeg, 0)} 度，所以当前会使用 ${count} 个三角形。</p>
+        <div class="pill-row">
+          <span class="pill">deltaAngle = ${number(sweepDeg, 0)} deg</span>
+          <span class="pill">triangle count = ${count}</span>
+        </div>
+      `;
+    }
+
+    function currentMeshPoints() {
+      const preset = document.getElementById("meshPreset").value;
+      return meshPresets[preset].map(clone);
+    }
+
+    function updateMeshSection() {
+      const { canvas, ctx } = getCanvasContext("meshCanvas");
+      clearCanvas(ctx, canvas);
+
+      const points = currentMeshPoints();
+      const thickness = parseFloat(document.getElementById("meshThickness").value);
+      const jointStyle = document.getElementById("meshJoint").value;
+      const endCapStyle = document.getElementById("meshCap").value;
+      const allowOverlap = document.getElementById("meshOverlap").checked;
+      const mesh = createPolylineMesh(points, thickness, jointStyle, endCapStyle, allowOverlap);
+      const viewport = makeViewport(canvas, boundsFromPoints([...mesh.vertices, ...points], thickness + 1.2), 30);
+
+      drawGrid(ctx, canvas, viewport, 1);
+      drawAxes(ctx, viewport);
+      drawTriangles(ctx, viewport, mesh.vertices, "rgba(14, 124, 134, 0.26)", "#0e7c86");
+      drawPolyline(ctx, viewport, points, "#f28c38", 3.5, true);
+      points.forEach((point, index) => {
+        drawPoint(ctx, viewport, point, "#c25a1b", 4.5, `P${index}`);
+      });
+
+      const metrics = [
+        { label: "输入点数", value: points.length },
+        { label: "线段数", value: mesh.segments.length },
+        { label: "三角形数", value: mesh.vertices.length / 3 },
+        { label: "顶点数", value: mesh.vertices.length },
+        { label: "关节补片", value: mesh.diagnostics.joints.length },
+        { label: "端帽补片", value: mesh.diagnostics.endCapTriangles }
+      ];
+
+      document.getElementById("meshMetrics").innerHTML = metrics.map((item) => `
+        <div class="metric-card">
+          <div class="metric-value">${item.value}</div>
+          <div class="metric-label">${item.label}</div>
+        </div>
+      `).join("");
+
+      const effectiveStyles = mesh.diagnostics.joints
+        .map((joint) => joint.effectiveStyle)
+        .filter(Boolean);
+      const degradedCount = mesh.diagnostics.joints.filter((joint) => joint.effectiveStyle !== jointStyle).length;
+
+      document.getElementById("meshStatus").innerHTML = `
+        <strong>当前实验结论</strong>
+        <p>预设 <em>${document.getElementById("meshPreset").selectedOptions[0].textContent}</em> 在厚度 ${number(thickness)} 下，共生成 ${mesh.vertices.length / 3} 个三角形。</p>
+        <div class="pill-row">
+          <span class="pill">joint styles seen = ${effectiveStyles.length ? effectiveStyles.join(", ") : "none"}</span>
+          <span class="pill">degraded joints = ${degradedCount}</span>
+          <span class="pill">allowOverlap = ${allowOverlap}</span>
+        </div>
+      `;
+
+      const pointLines = points.map((point) => `    { ${number(point.x)}f, ${number(point.y)}f }`).join(",\n");
+      document.getElementById("meshCode").textContent = `std::vector<Vec2> points {\n${pointLines}\n};\n\nauto vertices = Polyline2D::create(\n    points,\n    ${number(thickness)}f,\n    Polyline2D::JointStyle::${jointStyle},\n    Polyline2D::EndCapStyle::${endCapStyle},\n    ${allowOverlap ? "true" : "false"}\n);`;
+    }
+
+    function bindStyleButtons(containerId, onChange) {
+      document.querySelectorAll(`#${containerId} button`).forEach((button) => {
+        button.addEventListener("click", () => {
+          document.querySelectorAll(`#${containerId} button`).forEach((peer) => peer.classList.remove("active"));
+          button.classList.add("active");
+          onChange();
+        });
+      });
+    }
+
+    function refreshAll() {
+      setValueLabels();
+      updateVectorSection();
+      updateStripSection();
+      updateIntersectionSection();
+      updateJointSection();
+      updateCapSection();
+      updateFanSection();
+      updateMeshSection();
+    }
+
+    document.querySelectorAll('input[type="range"], select, input[type="checkbox"]').forEach((control) => {
+      control.addEventListener("input", refreshAll);
+      control.addEventListener("change", refreshAll);
+    });
+
+    bindStyleButtons("jointStyleButtons", refreshAll);
+    bindStyleButtons("capStyleButtons", refreshAll);
+    refreshAll();
+  </script>
+</body>
+</html>

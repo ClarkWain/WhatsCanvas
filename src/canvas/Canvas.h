@@ -16,6 +16,17 @@
 class Canvas
 {
 public:
+    struct TextMetrics
+    {
+        float width = 0.0f;
+        float height = 0.0f;
+        float top = 0.0f;
+        float bottom = 0.0f;
+        float ascent = 0.0f;
+        float descent = 0.0f;
+        RectF bounds;
+    };
+
     enum class ImageFit
     {
         FILL,
@@ -80,6 +91,7 @@ public:
     void drawArc(const RectF &bounds, float startRadians, float sweepRadians, bool useCenter, const Paint &paint);
     void drawArc(const Rect &bounds, float startRadians, float sweepRadians, bool useCenter, const Paint &paint);
     void drawPath(const Path &path, const Paint &paint);
+    RectF measureStrokeBounds(const Path &path, const Paint &paint) const;
     void drawImage(const Image &image, float x, float y, const Paint &paint);
     void drawImage(const Image &image, const RectF &dst, const Paint &paint);
     void drawImage(const Image &image, const RectF &src, const RectF &dst, const Paint &paint);
@@ -92,10 +104,12 @@ public:
     void drawText(const std::string &text, float x, float y, const Paint &paint);
     void drawTextBox(const std::string &text, const RectF &bounds, const Paint &paint);
     void drawTextBox(const std::string &text, const RectF &bounds, float lineHeight, const Paint &paint);
+    void drawTextBox(const std::string &text, const RectF &bounds, float lineHeight, int maxLines, bool ellipsize, const Paint &paint);
     void drawTextOnPath(const std::string &text, const Path &path, const Paint &paint);
     void drawTextOnPath(const std::string &text, const Path &path, float hOffset, float vOffset, const Paint &paint);
     float measureText(const std::string &text, const Paint &paint) const;
     RectF measureTextBounds(const std::string &text, const Paint &paint) const;
+    TextMetrics measureTextMetrics(const std::string &text, const Paint &paint) const;
 
     int save();
     int saveLayer(const RectF &bounds, const Paint &paint);
@@ -105,7 +119,10 @@ public:
     void restoreToCount(int saveCount);
     const glm::mat4& getMatrix() const;
     PointF mapPoint(const PointF &point) const;
+    RectF mapRect(const RectF &rect) const;
+    RectF mapRect(const Rect &rect) const;
     bool inverseMapPoint(const PointF &devicePoint, PointF &localPoint) const;
+    bool inverseMapRect(const RectF &deviceRect, RectF &localRect) const;
     bool isPointInClip(const PointF &devicePoint) const;
     bool hitTestPathFill(const Path &path, const PointF &devicePoint) const;
     bool hitTestPathStroke(const Path &path, const PointF &devicePoint, float strokeWidth) const;
@@ -113,6 +130,7 @@ public:
     bool getClipBounds(RectF &bounds) const;
     bool quickReject(const RectF &rect) const;
     bool quickReject(const Rect &rect) const;
+    bool quickReject(const Path &path, const Paint &paint) const;
     void clipRect(const RectF &rect);
     void clipRect(const Rect &rect);
     void setMatrix(const glm::mat4 &matrix);

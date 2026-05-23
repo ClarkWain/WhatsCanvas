@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Polyline2D 深入浅出：交互式原理与实践教程</title>
+<style>
+    :root {
+        --primary: #2563eb;
+        --secondary: #475569;
+        --bg: #f8fafc;
+        --panel: #ffffff;
+        --border: #e2e8f0;
+    }
+    body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        line-height: 1.7;
+        color: #334155;
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 30px 20px;
+        background-color: var(--bg);
+    }
+    h1, h2, h3, h4 {
+        color: #0f172a;
+        margin-top: 1.5em;
+    }
+    h1 {
+        text-align: center;
+        font-size: 2.2em;
+        border-bottom: 2px solid var(--primary);
+        padding-bottom: 10px;
+        margin-bottom: 30px;
+    }
+    p {
+        margin-bottom: 1.2em;
+    }
+    .demo-container {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 20px;
+        margin: 30px 0;
+        box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+    }
+    canvas {
+        display: block;
+        margin: 0 auto;
+        background: #f1f5f9;
+        border: 1px dotted #cbd5e1;
+        border-radius: 8px;
+        cursor: crosshair;
+        touch-action: none;
+    }
+    .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 15px;
+        margin-top: 20px;
+        padding: 15px;
+        background: #f8fafc;
+        border-radius: 8px;
+        justify-content: center;
+    }
+    .control-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.9em;
+    }
+    select, input[type="range"] {
+        padding: 6px;
+        border-radius: 4px;
+        border: 1px solid #cbd5e1;
+    }
+    .callout {
+        background: #eff6ff;
+        border-left: 4px solid var(--primary);
+        padding: 15px 20px;
+        margin: 20px 0;
+        border-radius: 0 8px 8px 0;
+    }
+    .warning {
+        background: #fffbeb;
+        border-left-color: #f59e0b;
+    }
+    pre {
+        background: #1e293b;
+        color: #f8fafc;
+        padding: 15px 20px;
+        border-radius: 8px;
+        overflow-x: auto;
+        font-family: 'Consolas', 'Monaco', monospace;
+        font-size: 0.9em;
+        line-height: 1.5;
+    }
+    code {
+        font-family: inherit;
+    }
+    p > code, li > code {
+        background: #e2e8f0;
+        color: #b91c1c;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 0.9em;
+    }
+    .grid-2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+    }
+    @media(max-width: 768px) {
+        .grid-2 { grid-template-columns: 1fr; }
+    }
+</style>
+</head>
+<body>
+
+<h1>从零到一：Polyline2D 算法分析与交互教程</h1>
+
+<div class="callout">
+    <strong>导读：</strong> 
+    在现代图形学（如 OpenGL/DirectX/Vulkan）中，原生直接画“带有厚度和样式的线”是一件非常困难的事。通常 <code>GL_LINES</code> 不支持指定的像素厚度，也无法设置拐角样式。因此，我们需要将一条“线”通过数学计算，展开变成<strong>多边形（三角形网格）</strong>再进行渲染。本项目中引用的 <code>crushedpixel/Polyline2D</code> 便是为了解决这一痛点。
+</div>
+
+<h2>一、为什么我们需要 Polyline2D？</h2>
+<p>
+    如果你使用过 Photoshop 或 HTML Canvas，你一定觉得画一条粗线很容易，甚至还能设置各种端点（Cap）和连接点（Join）样式。但是在现代 GPU 管线中，硬件只能高效地绘制<strong>点（Points）</strong>、<strong>线段（单像素宽）</strong>和<strong>三角形（Triangles）</strong>。
+</p>
+<p>
+    当我们想用 OpenGL 画一条 10 像素宽的粗线时，唯一正确且兼容性最好的做法是：<strong>利用数学算法，以折线骨架的点为基础，生成覆盖这根线的包围多边形，最后将其切割为 GPU 可以识别的三角形网格。</strong> Polyline2D 库的功能正是输入一组 2D 坐标、线宽、连接样式，然后输出排列好的三角形顶点（Vertices）。
+</p>
+
+<h2>二、核心原理：法线向量与顶点展开 (Expansion)</h2>
+
+<p>铺垫一下数学基础：我们要怎么把一根没有宽度的线，变成有宽度的长方形？答案是<strong>法线向量（Normal Vector）</strong>。</p>
+<ol>
+    <li>假设有一条线段 $AB$，从 $A(x_1, y_1)$ 画到 $B(x_2, y_2)$。</li>
+    <li>算出其方向向量 $\vec{D} = B - A$，并将其标准化为单位向量 $\vec{u}$。</li>
+    <li>求出它的垂直向量（法线）：$\vec{n} = (-u_y, u_x)$。</li>
+    <li>向两侧沿着法线平移，距离为线宽的一半（$half\_thickness = \frac{W}{2}$）。</li>
+    <li>我们就可以得到长方形的四个顶点：$A+\vec{n} \cdot \frac{W}{2}$, $A-\vec{n} \cdot \frac{W}{2}$, $B+\vec{n} \cdot \frac{W}{2}$, $B-\vec{n} \cdot \frac{W}{2}$。</li>
+</ol>
+<p>长方形即可拆分为 2 个三角形交由 OpenGL 渲染。</p>
+
+<!-- Interactive Demo 1 -->
+<div class="demo-container">
+    <h3>交互图解 1：线段展开原理</h3>
+    <p>拖动下方的 A 或 B 点，观察法线（红色）如何帮助我们将一条线扩展为多边形（蓝色包围盒）。</p>
+    <canvas id="demo1" width="600" height="300"></canvas>
+    <div class="controls">
+        <div class="control-item">
+            <label>线宽 (Thickness): </label>
+            <input type="range" id="demo1-thickness" min="10" max="100" value="40">
+        </div>
+        <div class="control-item">
+            <input type="checkbox" id="demo1-show-triangles" checked>
+            <label>显示拆分三角形</label>
+        </div>
+    </div>
+</div>
+
+<h2>三、拐角的战争：连接样式 (Joint Style)</h2>
+<p>单条线段很好画，但当多条线段连成折线时，<strong>在拐角处，外侧会产生缺口，内侧会产生重叠</strong>。在这个时候，如何“补洞”就成了一个非常复杂的问题。Polyline2D 定义了三种不同的 Joint 样式：</p>
+<ul>
+    <li><code>MITER (斜接)</code>：一直延伸两条相邻侧边，直到它们相交（形成一个尖角）。如果角度太尖导致延伸过长，往往需要退化为 Bevel 以防尖刺。</li>
+    <li><code>BEVEL (斜面)</code>：直接将两个端点相连，形成一个被削平的直角。这种方式最简单，性能最高。</li>
+    <li><code>ROUND (圆角)</code>：将断开处画一个圆弧将其顺滑连接。原理是以连接点为圆心，线宽一半为半径构建扇形（Triangle Fan）。</li>
+</ul>
+
+<!-- Interactive Demo 2 -->
+<div class="demo-container">
+    <h3>交互图解 2：Polyline2D 网格生成演练场</h3>
+    <p>尝试在画布上<strong>点击</strong>来添加新的折线节点（节点可拖拽），并在下方切换 Polyline2D 支持的不同 Joint 和 End Cap 模式。网格线展示了近似 OpenGL 收到的三角形结构。</p>
+    <canvas id="demo2" width="800" height="400"></canvas>
+    <div class="controls">
+        <div class="control-item">
+            <label>线宽 Thickness: </label>
+            <input type="range" id="demo2-thickness" min="10" max="80" value="40">
+        </div>
+        <div class="control-item">
+            <label>连接样式 Joint: </label>
+            <select id="demo2-joint">
+                <option value="miter">MITER (尖角)</option>
+                <option value="bevel">BEVEL (平角)</option>
+                <option value="round" selected>ROUND (圆角)</option>
+            </select>
+        </div>
+        <div class="control-item">
+            <label>端点样式 End Cap: </label>
+            <select id="demo2-cap">
+                <option value="butt">BUTT (平齐)</option>
+                <option value="square">SQUARE (方帽)</option>
+                <option value="round" selected>ROUND (圆帽)</option>
+            </select>
+        </div>
+        <div class="control-item">
+            <button id="demo2-clear">清空画布</button>
+        </div>
+    </div>
+</div>
+
+<h2>四、代码级映射：Polyline2D 源码剖析</h2>
+<p>现在回到你的 C++ 项目中，我们来看看 <code>Polyline2D.h</code> 是如何实现上述原理的。这个库被设计为一个典型的泛型（Template）实现。</p>
+
+<h3>1. 使用规范</h3>
+<pre><code>// 从业务逻辑中提供点列
+std::vector<crushedpixel::Vec2> points = { {10,10}, {50,80}, {100,20} };
+
+// 库负责将其计算为可以交由 OpenGL glDrawArrays 的顶点集合
+std::vector<crushedpixel::Vec2> vertices = crushedpixel::Polyline2D::create(
+    points, 
+    20.0f, // 粗细
+    crushedpixel::Polyline2D::JointStyle::ROUND,
+    crushedpixel::Polyline2D::EndCapStyle::ROUND
+);</code></pre>
+
+<h3>2. 线段的构建：<code>LineSegment</code></h3>
+<p>在库的底层，首先遍历所有输入的 <code>points</code>，相邻两点之间创建一个 <code>LineSegment</code>。</p>
+<pre><code>for (size_t i = 0; i + 1 < points.size(); i++) {
+    auto &point1 = points[i];
+    auto &point2 = points[i + 1];
+    
+    // 如果两个点不重合，生成片段。这对应于上文原理的第一阶段。
+    if (!Vec2Maths::equal(point1, point2)) {
+        segments.emplace_back(LineSegment<Vec2>(point1, point2), thickness);
+    }
+}</code></pre>
+
+<h3>3. 圆角的生成：<code>Triangle Fan</code> (顶点扇)</h3>
+<p>当选中 ROUND 端帽或圆角时，Polyline2D 利用三角函数生成扇形，其主要算法被封装在 <code>createTriangleFan</code> 方法中：</p>
+<pre><code>// 截取自 Polyline2D::createTriangleFan
+// 根据圆弧角度细分出多小段（segments），形成三角扇
+for (int i = 0; i < segments; i++) {
+    crushedpixel::Vec2 endPoint = point1;
+    // 使用旋转矩阵算出新的点的位置
+    endPoint.x = std::cos(rot) * point1.x - std::sin(rot) * point1.y;
+    endPoint.y = std::sin(rot) * point1.x + std::cos(rot) * point1.y;
+    endPoint = Vec2Maths::add(endPoint, origin);
+
+    // 每次输出一个三角形：中心点 -> startPoint -> endPoint
+    *vertices++ = startPoint;
+    *vertices++ = endPoint;
+    *vertices++ = connectTo; // 也就是圆心
+
+    startPoint = endPoint;
+}</code></pre>
+<div class="callout warning">
+    <strong>注意性能陷阱：</strong><br>
+    使用 <code>ROUND</code> 虽然视觉极佳，但由于加入了大量的三角函数和切片（Triangles），生成的顶点数远超 <code>MITER</code> 或 <code>BEVEL</code>。针对画笔涂鸦这种可能有成百上千折线的场景，建议谨慎控制扇形的分割粒度（Segments），或者依靠 shader 通过 SDF（Signed Distance Field）做逐像素的圆角抗锯齿，以减轻 CPU 构建批次的压力。
+</div>
+
+<h2>五、如何应用于项目里的渲染器</h2>
+<p>你的工程采用 OpenGL（<code>opengl/GLProgram.h</code>, <code>opengl/GLVertexArray.h</code>）。一旦通过 Polyline2D 得出 <code>vertices</code> 集合，它本质上就是一长串平面座标：</p>
+<pre><code>[ x1, y1,  x2, y2,  x3, y3, ... ] // 三角形 1 的 3 个点
+[ x4, y4,  x5, y5,  x6, y6, ... ] // 三角形 2 的 3 个点</code></pre>
+<p>此时可以在 <code>RenderContext</code> / <code>DrawLines</code> 中，把这些值直接通过 <code>glBufferData</code> 喂给 OpenGL：</p>
+<ul>
+    <li>绑定你的 Vertex Array Object (VAO) 和 VBO。</li>
+    <li>装载这些打平的点数组。</li>
+    <li>执行 <code>glDrawArrays(GL_TRIANGLES, 0, vertices.size());</code></li>
+</ul>
+<p>这便是现代图形界面框架（如 Dear ImGui, Qt, 或浏览器内核）实现高质量 2D 线条渲染的万恶之源和万用金钥匙！</p>
+
+
+<script>
+    // ========== 交互 Demo 1 逻辑 ========== 
+    (function(){
+        const canvas = document.getElementById('demo1');
+        const ctx = canvas.getContext('2d');
+        let thickness = 40;
+        let showTriangles = true;
+        
+        let pA = {x: 100, y: 150};
+        let pB = {x: 500, y: 150};
+        let draggedPoint = null;
+
+        function drawDemo1() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // 计算法线
+            let dx = pB.x - pA.x;
+            let dy = pB.y - pA.y;
+            let len = Math.sqrt(dx*dx + dy*dy);
+            if(len === 0) return;
+            let nx = -dy / len;
+            let ny = dx / len;
+            
+            let halfT = thickness / 2;
+            let A1 = {x: pA.x + nx*halfT, y: pA.y + ny*halfT};
+            let A2 = {x: pA.x - nx*halfT, y: pA.y - ny*halfT};
+            let B1 = {x: pB.x + nx*halfT, y: pB.y + ny*halfT};
+            let B2 = {x: pB.x - nx*halfT, y: pB.y - ny*halfT};
+            
+            // 绘制底线 (中心骨架)
+            ctx.beginPath();
+            ctx.moveTo(pA.x, pA.y);
+            ctx.lineTo(pB.x, pB.y);
+            ctx.strokeStyle = '#94a3b8';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            
+            // 绘制展开面
+            ctx.fillStyle = 'rgba(56, 189, 248, 0.2)';
+            ctx.beginPath();
+            ctx.moveTo(A1.x, A1.y);
+            ctx.lineTo(B1.x, B1.y);
+            ctx.lineTo(B2.x, B2.y);
+            ctx.lineTo(A2.x, A2.y);
+            ctx.closePath();
+            ctx.fill();
+            
+            // 绘制三角形切分
+            if(showTriangles) {
+                ctx.strokeStyle = '#0284c7';
+                ctx.lineWidth = 1;
+                // Tri 1
+                ctx.beginPath();
+                ctx.moveTo(A1.x, A1.y); ctx.lineTo(B1.x, B1.y); ctx.lineTo(B2.x, B2.y); ctx.closePath();
+                ctx.stroke();
+                // Tri 2
+                ctx.beginPath();
+                ctx.moveTo(B2.x, B2.y); ctx.lineTo(A2.x, A2.y); ctx.lineTo(A1.x, A1.y); ctx.closePath();
+                ctx.stroke();
+            }
+            
+            // 绘制法线提示
+            ctx.beginPath();
+            ctx.moveTo(pA.x, pA.y); ctx.lineTo(A1.x, A1.y);
+            ctx.moveTo(pA.x, pA.y); ctx.lineTo(A2.x, A2.y);
+            ctx.strokeStyle = '#ef4444';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            // 绘制两个操纵点
+            drawControlPoint(pA.x, pA.y, 'A');
+            drawControlPoint(pB.x, pB.y, 'B');
+        }
+
+        function drawControlPoint(x, y, label) {
+            ctx.beginPath();
+            ctx.arc(x, y, 8, 0, Math.PI*2);
+            ctx.fillStyle = '#f59e0b';
+            ctx.fill();
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.fillStyle = '#333';
+            ctx.font = '14px Arial';
+            ctx.fillText(label, x - 5, y - 12);
+        }
+
+        canvas.addEventListener('mousedown', e => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            if (Math.hypot(pA.x - x, pA.y - y) < 15) draggedPoint = pA;
+            else if (Math.hypot(pB.x - x, pB.y - y) < 15) draggedPoint = pB;
+        });
+        window.addEventListener('mouseup', () => draggedPoint = null);
+        canvas.addEventListener('mousemove', e => {
+            if(!draggedPoint) return;
+            const rect = canvas.getBoundingClientRect();
+            draggedPoint.x = e.clientX - rect.left;
+            draggedPoint.y = e.clientY - rect.top;
+            drawDemo1();
+        });
+
+        document.getElementById('demo1-thickness').oninput = e => { thickness = parseInt(e.target.value); drawDemo1(); };
+        document.getElementById('demo1-show-triangles').onchange = e => { showTriangles = e.target.checked; drawDemo1(); };
+        drawDemo1();
+    })();
+
+    // ========== 交互 Demo 2 逻辑 ==========
+    (function(){
+        const canvas = document.getElementById('demo2');
+        const ctx = canvas.getContext('2d');
+        
+        let nodes = [{x: 150, y: 200}, {x: 400, y: 100}, {x: 650, y: 250}];
+        let draggedNode = null;
+        
+        // Settings
+        let pConfig = { thickness: 40, joint: 'round', cap: 'round' };
+
+        function drawDemo2() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            if (nodes.length < 2) {
+                nodes.forEach(n => drawNode(n));
+                return;
+            }
+
+            // 【核心！】在 Canvas 中，我们利用原生 API 完美模拟 Polyline2D C++ 呈现的视觉效果，
+            // 并绘制一层假的网格示意图辅助理解。
+            
+            // 1. 底层模拟渲染主线 (Fill)
+            ctx.beginPath();
+            ctx.moveTo(nodes[0].x, nodes[0].y);
+            for(let i=1; i<nodes.length; i++) {
+                ctx.lineTo(nodes[i].x, nodes[i].y);
+            }
+            ctx.lineWidth = pConfig.thickness;
+            ctx.lineJoin = pConfig.joint;
+            ctx.lineCap = pConfig.cap;
+            ctx.strokeStyle = 'rgba(148, 163, 184, 0.3)'; // 浅灰色底
+            ctx.stroke();
+
+            // 2. 绘制骨架折线网格线 (Wireframe Approximation)
+            ctx.beginPath();
+            ctx.moveTo(nodes[0].x, nodes[0].y);
+            for(let i=1; i<nodes.length; i++) ctx.lineTo(nodes[i].x, nodes[i].y);
+            ctx.lineWidth = 1;
+            ctx.strokeStyle = '#ef4444'; // 红色中心线
+            ctx.setLineDash([5,5]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // 在 JS 这里做完美的厚度三角形分解非常长，因此用 Canvas 原生的边框重叠手法给用户制造网格剥离感，
+            // 原理同等：让大家清晰看到每个拐角是如何进行连接的。
+            ctx.beginPath();
+            ctx.moveTo(nodes[0].x, nodes[0].y);
+            for(let i=1; i<nodes.length; i++) ctx.lineTo(nodes[i].x, nodes[i].y);
+            ctx.lineWidth = pConfig.thickness;
+            ctx.lineJoin = pConfig.joint;
+            ctx.lineCap = pConfig.cap;
+            ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
+            ctx.stroke();
+
+            // 画一点法线扩展线用来模拟 Triangles 表面，我们只在首尾点和拐角上画
+            const hT = pConfig.thickness / 2;
+            ctx.strokeStyle = 'rgba(15, 23, 42, 0.4)'; // 深色的黑框
+            ctx.lineWidth = 1;
+            
+            for(let i=0; i<nodes.length - 1; i++) {
+                let dx = nodes[i+1].x - nodes[i].x;
+                let dy = nodes[i+1].y - nodes[i].y;
+                let L = Math.hypot(dx, dy);
+                let nx = (-dy / L) * hT; let ny = (dx / L) * hT;
+                let px = (dy / L) * hT; let py = (-dx / L) * hT;
+                
+                // 线段盒子
+                ctx.beginPath();
+                ctx.moveTo(nodes[i].x+nx, nodes[i].y+ny); 
+                ctx.lineTo(nodes[i+1].x+nx, nodes[i+1].y+ny);
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.moveTo(nodes[i].x+px, nodes[i].y+py); 
+                ctx.lineTo(nodes[i+1].x+px, nodes[i+1].y+py);
+                ctx.stroke();
+            }
+
+            nodes.forEach((n, idx) => drawNode(n, idx));
+        }
+
+        function drawNode(n, idx) {
+            ctx.beginPath();
+            ctx.arc(n.x, n.y, 6, 0, Math.PI*2);
+            ctx.fillStyle = '#fff';
+            ctx.fill();
+            ctx.strokeStyle = '#2563eb';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+
+        // 交互逻辑
+        canvas.addEventListener('mousedown', e => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            // 抓取逻辑
+            let grabbed = false;
+            for(let i=0; i<nodes.length; i++) {
+                if (Math.hypot(nodes[i].x - x, nodes[i].y - y) < 15) {
+                    draggedNode = nodes[i];
+                    grabbed = true;
+                    break;
+                }
+            }
+            // 新增逻辑
+            if(!grabbed) {
+                nodes.push({x: x, y: y});
+                drawDemo2();
+            }
+        });
+        
+        window.addEventListener('mouseup', () => draggedNode = null);
+        canvas.addEventListener('mousemove', e => {
+            if(!draggedNode) return;
+            const rect = canvas.getBoundingClientRect();
+            draggedNode.x = e.clientX - rect.left;
+            draggedNode.y = e.clientY - rect.top;
+            drawDemo2();
+        });
+
+        // 绑定事件
+        document.getElementById('demo2-thickness').oninput = e => { pConfig.thickness = parseInt(e.target.value); drawDemo2(); };
+        document.getElementById('demo2-joint').onchange = e => { pConfig.joint = e.target.value; drawDemo2(); };
+        document.getElementById('demo2-cap').onchange = e => { pConfig.cap = e.target.value; drawDemo2(); };
+        document.getElementById('demo2-clear').onclick = () => { nodes = []; drawDemo2(); };
+
+        drawDemo2();
+    })();
+</script>
+</body>
+</html>
