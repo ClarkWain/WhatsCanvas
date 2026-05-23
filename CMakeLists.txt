@@ -83,3 +83,7 @@ target_link_libraries(PrismCanvasDemo
         PrismCanvasPolyline2D
 )
 
+if (WIN32)
+    target_link_libraries(PrismCanvasDemo PRIVATE gdi32)
+endif()
+

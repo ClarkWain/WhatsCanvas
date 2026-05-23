@@ -364,11 +364,13 @@ int main() {
     textPaint.setStyle(Paint::Style::FILL);
     textPaint.setColor(Color(255, 245, 180, 220));
     textPaint.setTextSize(12.0f);
+    textPaint.setFontFamily("Consolas");
 
     Paint rotatingTextPaint;
     rotatingTextPaint.setStyle(Paint::Style::FILL);
     rotatingTextPaint.setColor(Color(120, 230, 255, 200));
     rotatingTextPaint.setTextSize(14.4f);
+    rotatingTextPaint.setFontFamily("Segoe UI");
     rotatingTextPaint.setLetterSpacing(1.2f);
     rotatingTextPaint.setTextAlign(Paint::TextAlign::CENTER);
     rotatingTextPaint.setTextBaseline(Paint::TextBaseline::MIDDLE);
@@ -377,6 +379,7 @@ int main() {
     pathTextPaint.setStyle(Paint::Style::FILL);
     pathTextPaint.setColor(Color(255, 255, 255, 210));
     pathTextPaint.setTextSize(10.0f);
+    pathTextPaint.setFontFamily("Georgia");
     pathTextPaint.setLetterSpacing(1.0f);
 
     Image demoImage;

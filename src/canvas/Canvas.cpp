@@ -10,6 +10,19 @@
 #include <memory>
 #include <vector>
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#ifdef WINDING
+#undef WINDING
+#endif
+#endif
+
 #include "Canvas.h"
 #include "Paint.h"
 #include "Path.h"
@@ -451,7 +464,31 @@ bool createLayerTarget(int width, int height, unsigned int &framebuffer, unsigne
 
     return true;
 }
+unsigned int createRgbaTexture(int width, int height, const std::vector<unsigned char> &pixels)
+{
+    if (width <= 0 || height <= 0 || pixels.size() < static_cast<size_t>(width) * static_cast<size_t>(height) * 4) {
+        return 0;
+    }
 
+    GLint previousTexture = 0;
+    GLint previousUnpackAlignment = 4;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &previousTexture);
+    glGetIntegerv(GL_UNPACK_ALIGNMENT, &previousUnpackAlignment);
+
+    unsigned int texture = 0;
+    glGenTextures(1, &texture);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+
+    glPixelStorei(GL_UNPACK_ALIGNMENT, previousUnpackAlignment);
+    glBindTexture(GL_TEXTURE_2D, static_cast<unsigned int>(previousTexture));
+    return texture;
+}
 ScissorState makeScissorForRect(const RectF &rect, int canvasWidth, int canvasHeight)
 {
     ScissorState scissor;
@@ -1279,6 +1316,32 @@ std::string sanitizeTextToAscii(const std::string &text)
     return sanitized;
 }
 
+size_t estimateAsciiTextVertexBufferBytes(const std::string &asciiText)
+{
+    constexpr size_t kBytesPerQuad = 64;
+    size_t quadCount = 0;
+
+    for (char character : asciiText) {
+        if (character == '\n') {
+            continue;
+        }
+
+        const unsigned char glyph = static_cast<unsigned char>(character);
+        if (glyph < 32 || glyph > 126) {
+            continue;
+        }
+
+        const size_t glyphIndex = static_cast<size_t>(glyph - 32);
+        const int horizontalSegments = stb_easy_font_charinfo[glyphIndex + 1].h_seg
+            - stb_easy_font_charinfo[glyphIndex].h_seg;
+        const int verticalSegments = stb_easy_font_charinfo[glyphIndex + 1].v_seg
+            - stb_easy_font_charinfo[glyphIndex].v_seg;
+        quadCount += static_cast<size_t>(std::max(0, horizontalSegments) + std::max(0, verticalSegments));
+    }
+
+    return std::max(kBytesPerQuad, quadCount * kBytesPerQuad);
+}
+
 float measureAsciiTextWidth(const std::string &asciiText, float scale, float letterSpacing)
 {
     if (asciiText.empty()) {
@@ -1331,8 +1394,7 @@ std::vector<float> buildTextVertices(const std::string &asciiText, float x, floa
         return vertices;
     }
 
-    constexpr size_t kApproxBytesPerChar = 300;
-    std::vector<char> buffer(std::max<size_t>(64, asciiText.size() * kApproxBytesPerChar));
+    std::vector<char> buffer(estimateAsciiTextVertexBufferBytes(asciiText));
     const int quadCount = stb_easy_font_print(0.0f, 0.0f, const_cast<char *>(asciiText.c_str()), nullptr,
                                               buffer.data(), static_cast<int>(buffer.size()));
     if (quadCount <= 0) {
@@ -1368,6 +1430,198 @@ std::vector<float> buildTextVertices(const std::string &asciiText, float x, floa
 
     return vertices;
 }
+#ifdef _WIN32
+struct NativeTextMeasure
+{
+    bool valid = false;
+    float width = 0.0f;
+    float height = 0.0f;
+    int pixelWidth = 0;
+    int pixelHeight = 0;
+};
+
+struct NativeTextBitmap
+{
+    int width = 0;
+    int height = 0;
+    std::vector<unsigned char> pixels;
+};
+
+std::wstring toWideString(const std::string &value)
+{
+    if (value.empty()) {
+        return {};
+    }
+
+    int codePage = CP_UTF8;
+    int flags = MB_ERR_INVALID_CHARS;
+    int count = MultiByteToWideChar(codePage, flags, value.c_str(), -1, nullptr, 0);
+    if (count <= 0) {
+        codePage = CP_ACP;
+        flags = 0;
+        count = MultiByteToWideChar(codePage, flags, value.c_str(), -1, nullptr, 0);
+    }
+    if (count <= 0) {
+        return {};
+    }
+
+    std::wstring wide(static_cast<size_t>(count), L'\0');
+    if (MultiByteToWideChar(codePage, flags, value.c_str(), -1, wide.data(), count) <= 0) {
+        return {};
+    }
+    if (!wide.empty() && wide.back() == L'\0') {
+        wide.pop_back();
+    }
+    return wide;
+}
+
+HFONT createNativeFont(const Paint &paint)
+{
+    const std::wstring family = toWideString(paint.getFontFamily());
+    if (family.empty() || paint.getTextSize() <= 0.0f) {
+        return nullptr;
+    }
+
+    const int pixelHeight = -std::max(1, static_cast<int>(std::round(paint.getTextSize())));
+    return CreateFontW(pixelHeight, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                       DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                       ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE, family.c_str());
+}
+
+NativeTextMeasure measureNativeText(const std::string &text, const Paint &paint)
+{
+    NativeTextMeasure result;
+    if (!paint.hasFontFamily() || text.empty() || paint.getTextSize() <= 0.0f) {
+        return result;
+    }
+
+    const std::wstring wideText = toWideString(text);
+    if (wideText.empty()) {
+        return result;
+    }
+
+    HDC dc = CreateCompatibleDC(nullptr);
+    HFONT font = createNativeFont(paint);
+    if (dc == nullptr || font == nullptr) {
+        if (font != nullptr) {
+            DeleteObject(font);
+        }
+        if (dc != nullptr) {
+            DeleteDC(dc);
+        }
+        return result;
+    }
+
+    HGDIOBJ previousFont = SelectObject(dc, font);
+    TEXTMETRICW textMetric = {};
+    SIZE size = {0, 0};
+    const bool hasMetrics = GetTextMetricsW(dc, &textMetric) != FALSE;
+    const bool hasExtent = GetTextExtentPoint32W(dc, wideText.c_str(), static_cast<int>(wideText.size()), &size) != FALSE;
+    SelectObject(dc, previousFont);
+    DeleteObject(font);
+    DeleteDC(dc);
+    if (!hasMetrics || !hasExtent) {
+        return result;
+    }
+
+    const float letterSpacing = std::isfinite(paint.getLetterSpacing()) ? paint.getLetterSpacing() : 0.0f;
+    const float spacingWidth = wideText.size() > 1 ? letterSpacing * static_cast<float>(wideText.size() - 1) : 0.0f;
+    const float width = std::max(1.0f, static_cast<float>(size.cx) + spacingWidth);
+    const float height = std::max(1.0f, static_cast<float>(textMetric.tmHeight));
+    result.valid = true;
+    result.pixelWidth = std::max(1, static_cast<int>(std::ceil(width)));
+    result.pixelHeight = std::max(1, static_cast<int>(std::ceil(height)));
+    result.width = static_cast<float>(result.pixelWidth);
+    result.height = static_cast<float>(result.pixelHeight);
+    return result;
+}
+
+NativeTextBitmap renderNativeTextBitmap(const std::string &text, const Paint &paint, const NativeTextMeasure &measure)
+{
+    NativeTextBitmap bitmap;
+    if (!measure.valid || measure.pixelWidth <= 0 || measure.pixelHeight <= 0) {
+        return bitmap;
+    }
+
+    const std::wstring wideText = toWideString(text);
+    if (wideText.empty()) {
+        return bitmap;
+    }
+
+    HDC dc = CreateCompatibleDC(nullptr);
+    HFONT font = createNativeFont(paint);
+    if (dc == nullptr || font == nullptr) {
+        if (font != nullptr) {
+            DeleteObject(font);
+        }
+        if (dc != nullptr) {
+            DeleteDC(dc);
+        }
+        return bitmap;
+    }
+
+    BITMAPINFO bitmapInfo = {};
+    bitmapInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bitmapInfo.bmiHeader.biWidth = measure.pixelWidth;
+    bitmapInfo.bmiHeader.biHeight = -measure.pixelHeight;
+    bitmapInfo.bmiHeader.biPlanes = 1;
+    bitmapInfo.bmiHeader.biBitCount = 32;
+    bitmapInfo.bmiHeader.biCompression = BI_RGB;
+
+    void *bits = nullptr;
+    HBITMAP dib = CreateDIBSection(dc, &bitmapInfo, DIB_RGB_COLORS, &bits, nullptr, 0);
+    if (dib == nullptr || bits == nullptr) {
+        if (dib != nullptr) {
+            DeleteObject(dib);
+        }
+        DeleteObject(font);
+        DeleteDC(dc);
+        return bitmap;
+    }
+
+    std::memset(bits, 0, static_cast<size_t>(measure.pixelWidth) * static_cast<size_t>(measure.pixelHeight) * 4);
+    HGDIOBJ previousBitmap = SelectObject(dc, dib);
+    HGDIOBJ previousFont = SelectObject(dc, font);
+    SetBkMode(dc, TRANSPARENT);
+    SetTextColor(dc, RGB(255, 255, 255));
+    SetTextAlign(dc, TA_LEFT | TA_TOP | TA_NOUPDATECP);
+
+    const float letterSpacing = std::isfinite(paint.getLetterSpacing()) ? paint.getLetterSpacing() : 0.0f;
+    if (std::abs(letterSpacing) <= kPointEpsilon) {
+        TextOutW(dc, 0, 0, wideText.c_str(), static_cast<int>(wideText.size()));
+    } else {
+        float cursorX = 0.0f;
+        for (wchar_t character : wideText) {
+            TextOutW(dc, static_cast<int>(std::round(cursorX)), 0, &character, 1);
+            SIZE glyphSize = {0, 0};
+            GetTextExtentPoint32W(dc, &character, 1, &glyphSize);
+            cursorX += static_cast<float>(glyphSize.cx) + letterSpacing;
+        }
+    }
+
+    bitmap.width = measure.pixelWidth;
+    bitmap.height = measure.pixelHeight;
+    bitmap.pixels.resize(static_cast<size_t>(bitmap.width) * static_cast<size_t>(bitmap.height) * 4);
+    const unsigned char *src = static_cast<const unsigned char *>(bits);
+    for (size_t i = 0; i < static_cast<size_t>(bitmap.width) * static_cast<size_t>(bitmap.height); ++i) {
+        const unsigned char blue = src[i * 4 + 0];
+        const unsigned char green = src[i * 4 + 1];
+        const unsigned char red = src[i * 4 + 2];
+        const unsigned char alpha = std::max(red, std::max(green, blue));
+        bitmap.pixels[i * 4 + 0] = 255;
+        bitmap.pixels[i * 4 + 1] = 255;
+        bitmap.pixels[i * 4 + 2] = 255;
+        bitmap.pixels[i * 4 + 3] = alpha;
+    }
+
+    SelectObject(dc, previousFont);
+    SelectObject(dc, previousBitmap);
+    DeleteObject(dib);
+    DeleteObject(font);
+    DeleteDC(dc);
+    return bitmap;
+}
+#endif
 }
 
 void Canvas::initialize()
@@ -2162,6 +2416,49 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
         return;
     }
 
+#ifdef _WIN32
+    if (paint.hasFontFamily()) {
+        const NativeTextMeasure nativeMeasure = measureNativeText(asciiText, paint);
+        if (nativeMeasure.valid) {
+            const NativeTextBitmap bitmap = renderNativeTextBitmap(asciiText, paint, nativeMeasure);
+            const unsigned int texture = createRgbaTexture(bitmap.width, bitmap.height, bitmap.pixels);
+            if (texture != 0) {
+                float alignedX = x;
+                if (paint.getTextAlign() == Paint::TextAlign::CENTER) {
+                    alignedX -= nativeMeasure.width * 0.5f;
+                } else if (paint.getTextAlign() == Paint::TextAlign::RIGHT) {
+                    alignedX -= nativeMeasure.width;
+                }
+
+                const Color color = resolveTextColor(paint);
+                DrawImageData data;
+                data.textureID = texture;
+                data.ownsTexture = true;
+                data.x = alignedX;
+                data.y = y + textBaselineOffset(paint.getTextBaseline(), nativeMeasure.height);
+                data.width = nativeMeasure.width;
+                data.height = nativeMeasure.height;
+                data.u0 = 0.0f;
+                data.u1 = 1.0f;
+                data.v0 = 0.0f;
+                data.v1 = 1.0f;
+                data.tintColor[0] = color.r();
+                data.tintColor[1] = color.g();
+                data.tintColor[2] = color.b();
+                data.tintColor[3] = 1.0f;
+                data.alpha = color.a();
+                data.sampling = DrawImageSampling::Linear;
+                data.tileMode = DrawImageTileMode::Clamp;
+                data.transform = currentState_.matrix;
+                data.scissor = makeCurrentScissorState();
+                data.blendMode = toDrawBlendMode(paint.getBlendMode());
+                renderer_.submit(std::make_unique<DrawImageCommand>(data));
+                return;
+            }
+        }
+    }
+#endif
+
     constexpr float kTextBaseSize = 8.0f;
     const float textScale = std::max(0.01f, paint.getTextSize() / kTextBaseSize);
     const float textHeight = measureAsciiTextHeight(asciiText, textScale);
@@ -2399,6 +2696,15 @@ float Canvas::measureText(const std::string &text, const Paint &paint) const
         return 0.0f;
     }
 
+#ifdef _WIN32
+    if (paint.hasFontFamily()) {
+        const NativeTextMeasure nativeMeasure = measureNativeText(asciiText, paint);
+        if (nativeMeasure.valid) {
+            return nativeMeasure.width;
+        }
+    }
+#endif
+
     constexpr float kTextBaseSize = 8.0f;
     const float textScale = std::max(0.01f, paint.getTextSize() / kTextBaseSize);
     return measureAsciiTextWidth(asciiText, textScale, paint.getLetterSpacing());
@@ -2410,6 +2716,22 @@ RectF Canvas::measureTextBounds(const std::string &text, const Paint &paint) con
     if (asciiText.empty() || paint.getTextSize() <= 0.0f) {
         return RectF();
     }
+
+#ifdef _WIN32
+    if (paint.hasFontFamily()) {
+        const NativeTextMeasure nativeMeasure = measureNativeText(asciiText, paint);
+        if (nativeMeasure.valid) {
+            float left = 0.0f;
+            if (paint.getTextAlign() == Paint::TextAlign::CENTER) {
+                left = -nativeMeasure.width * 0.5f;
+            } else if (paint.getTextAlign() == Paint::TextAlign::RIGHT) {
+                left = -nativeMeasure.width;
+            }
+            return RectF(left, textBaselineOffset(paint.getTextBaseline(), nativeMeasure.height),
+                         nativeMeasure.width, nativeMeasure.height);
+        }
+    }
+#endif
 
     constexpr float kTextBaseSize = 8.0f;
     const float textScale = std::max(0.01f, paint.getTextSize() / kTextBaseSize);

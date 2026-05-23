@@ -172,6 +172,7 @@ public:
         alpha_ = other.alpha_;
         strokeWidth_ = other.strokeWidth_;
         textSize_ = other.textSize_;
+        fontFamily_ = other.fontFamily_;
         letterSpacing_ = other.letterSpacing_;
         textAlign_ = other.textAlign_;
         textBaseline_ = other.textBaseline_;
@@ -218,6 +219,7 @@ public:
             alpha_ = other.alpha_;
             strokeWidth_ = other.strokeWidth_;
             textSize_ = other.textSize_;
+            fontFamily_ = other.fontFamily_;
             letterSpacing_ = other.letterSpacing_;
             textAlign_ = other.textAlign_;
             textBaseline_ = other.textBaseline_;
@@ -259,7 +261,7 @@ public:
     // Move constructor
     Paint(Paint &&other) noexcept : color_(std::move(other.color_)), strokeColor_(std::move(other.strokeColor_)),
                                     alpha_(other.alpha_), strokeWidth_(other.strokeWidth_), textSize_(other.textSize_),
-                                    letterSpacing_(other.letterSpacing_),
+                                    fontFamily_(std::move(other.fontFamily_)), letterSpacing_(other.letterSpacing_),
                                     textAlign_(other.textAlign_), textBaseline_(other.textBaseline_),
                                     blendMode_(other.blendMode_),
                                     imageSampling_(other.imageSampling_),
@@ -285,6 +287,7 @@ public:
         other.strokeWidth_ = 0.0f;
         other.alpha_ = 255;
         other.textSize_ = 16.0f;
+        other.fontFamily_.clear();
         other.letterSpacing_ = 0.0f;
         other.textAlign_ = TextAlign::LEFT;
         other.textBaseline_ = TextBaseline::TOP;
@@ -516,6 +519,41 @@ public:
     float getTextSize() const
     {
         return textSize_;
+    }
+
+    void setFontFamily(const std::string &family)
+    {
+        fontFamily_ = family;
+    }
+
+    void setFont(const std::string &family)
+    {
+        setFontFamily(family);
+    }
+
+    const std::string& getFontFamily() const
+    {
+        return fontFamily_;
+    }
+
+    const std::string& getFont() const
+    {
+        return fontFamily_;
+    }
+
+    bool hasFontFamily() const
+    {
+        return !fontFamily_.empty();
+    }
+
+    void clearFontFamily()
+    {
+        fontFamily_.clear();
+    }
+
+    void clearFont()
+    {
+        clearFontFamily();
     }
 
     void setLetterSpacing(float spacing)
@@ -751,6 +789,7 @@ private:
     int alpha_ = 255;
     float strokeWidth_ = 1.0f;
     float textSize_ = 16.0f;
+    std::string fontFamily_;
     float letterSpacing_ = 0.0f;
     TextAlign textAlign_ = TextAlign::LEFT;
     TextBaseline textBaseline_ = TextBaseline::TOP;
