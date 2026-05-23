@@ -30,16 +30,47 @@ inline void applyBlendMode(DrawBlendMode mode)
 
     switch (mode) {
     case DrawBlendMode::SrcOver:
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+        break;
+    case DrawBlendMode::Src:
+        glBlendFuncSeparate(GL_ONE, GL_ZERO, GL_ONE, GL_ZERO);
+        break;
+    case DrawBlendMode::Dst:
+        glBlendFuncSeparate(GL_ZERO, GL_ONE, GL_ZERO, GL_ONE);
+        break;
+    case DrawBlendMode::Clear:
+        glBlendFuncSeparate(GL_ZERO, GL_ZERO, GL_ZERO, GL_ZERO);
+        break;
+    case DrawBlendMode::SrcIn:
+        glBlendFuncSeparate(GL_DST_ALPHA, GL_ZERO, GL_DST_ALPHA, GL_ZERO);
+        break;
+    case DrawBlendMode::DstIn:
+        glBlendFuncSeparate(GL_ZERO, GL_SRC_ALPHA, GL_ZERO, GL_SRC_ALPHA);
+        break;
+    case DrawBlendMode::SrcOut:
+        glBlendFuncSeparate(GL_ONE_MINUS_DST_ALPHA, GL_ZERO, GL_ONE_MINUS_DST_ALPHA, GL_ZERO);
+        break;
+    case DrawBlendMode::DstOut:
+        glBlendFuncSeparate(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE_MINUS_SRC_ALPHA);
+        break;
+    case DrawBlendMode::SrcAtop:
+        glBlendFuncSeparate(GL_DST_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_DST_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        break;
+    case DrawBlendMode::DstAtop:
+        glBlendFuncSeparate(GL_ONE_MINUS_DST_ALPHA, GL_SRC_ALPHA, GL_ONE_MINUS_DST_ALPHA, GL_SRC_ALPHA);
+        break;
+    case DrawBlendMode::Xor:
+        glBlendFuncSeparate(GL_ONE_MINUS_DST_ALPHA, GL_ONE_MINUS_SRC_ALPHA,
+                            GL_ONE_MINUS_DST_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         break;
     case DrawBlendMode::Add:
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+        glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE, GL_ONE, GL_ONE);
         break;
     case DrawBlendMode::Multiply:
-        glBlendFunc(GL_DST_COLOR, GL_ZERO);
+        glBlendFuncSeparate(GL_DST_COLOR, GL_ZERO, GL_DST_ALPHA, GL_ZERO);
         break;
     case DrawBlendMode::Screen:
-        glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_COLOR);
+        glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_COLOR, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
         break;
     }
 }

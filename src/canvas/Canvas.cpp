@@ -79,6 +79,26 @@ DrawBlendMode toDrawBlendMode(Paint::BlendMode blendMode)
     switch (blendMode) {
     case Paint::BlendMode::SRC_OVER:
         return DrawBlendMode::SrcOver;
+    case Paint::BlendMode::SRC:
+        return DrawBlendMode::Src;
+    case Paint::BlendMode::DST:
+        return DrawBlendMode::Dst;
+    case Paint::BlendMode::CLEAR:
+        return DrawBlendMode::Clear;
+    case Paint::BlendMode::SRC_IN:
+        return DrawBlendMode::SrcIn;
+    case Paint::BlendMode::DST_IN:
+        return DrawBlendMode::DstIn;
+    case Paint::BlendMode::SRC_OUT:
+        return DrawBlendMode::SrcOut;
+    case Paint::BlendMode::DST_OUT:
+        return DrawBlendMode::DstOut;
+    case Paint::BlendMode::SRC_ATOP:
+        return DrawBlendMode::SrcAtop;
+    case Paint::BlendMode::DST_ATOP:
+        return DrawBlendMode::DstAtop;
+    case Paint::BlendMode::XOR:
+        return DrawBlendMode::Xor;
     case Paint::BlendMode::ADD:
         return DrawBlendMode::Add;
     case Paint::BlendMode::MULTIPLY:
@@ -495,6 +515,65 @@ Color applyPaintAlpha(const Paint &paint, const Color &color)
     return scaleAlpha(color, paint.getAlphaF());
 }
 
+Color sampleGradientStopColor(const Paint &paint, float progress, Color fallbackStart, Color fallbackEnd)
+{
+    const auto &stops = paint.getGradientStops();
+    bool visible = true;
+    switch (paint.getShaderTileMode()) {
+    case Paint::ShaderTileMode::CLAMP:
+        progress = std::clamp(progress, 0.0f, 1.0f);
+        break;
+    case Paint::ShaderTileMode::REPEAT:
+        progress = progress - std::floor(progress);
+        break;
+    case Paint::ShaderTileMode::MIRROR: {
+        const float period = std::floor(progress);
+        progress = progress - period;
+        if (static_cast<int>(std::abs(period)) % 2 != 0) {
+            progress = 1.0f - progress;
+        }
+        break;
+    }
+    case Paint::ShaderTileMode::DECAL:
+        visible = progress >= 0.0f && progress <= 1.0f;
+        progress = std::clamp(progress, 0.0f, 1.0f);
+        break;
+    }
+
+    if (!visible) {
+        return Color(0, 0, 0, 0);
+    }
+
+    if (stops.empty()) {
+        return Color(static_cast<int>(std::round(lerp(fallbackStart.r(), fallbackEnd.r(), progress) * 255.0f)),
+                     static_cast<int>(std::round(lerp(fallbackStart.g(), fallbackEnd.g(), progress) * 255.0f)),
+                     static_cast<int>(std::round(lerp(fallbackStart.b(), fallbackEnd.b(), progress) * 255.0f)),
+                     static_cast<int>(std::round(lerp(fallbackStart.a(), fallbackEnd.a(), progress) * 255.0f)));
+    }
+
+    if (progress <= stops.front().position || stops.size() == 1) {
+        return stops.front().color;
+    }
+    if (progress >= stops.back().position) {
+        return stops.back().color;
+    }
+
+    for (size_t i = 1; i < stops.size(); ++i) {
+        if (progress <= stops[i].position) {
+            const auto &start = stops[i - 1];
+            const auto &end = stops[i];
+            const float span = std::max(kPointEpsilon, end.position - start.position);
+            const float localProgress = std::clamp((progress - start.position) / span, 0.0f, 1.0f);
+            return Color(static_cast<int>(std::round(lerp(start.color.r(), end.color.r(), localProgress) * 255.0f)),
+                         static_cast<int>(std::round(lerp(start.color.g(), end.color.g(), localProgress) * 255.0f)),
+                         static_cast<int>(std::round(lerp(start.color.b(), end.color.b(), localProgress) * 255.0f)),
+                         static_cast<int>(std::round(lerp(start.color.a(), end.color.a(), localProgress) * 255.0f)));
+        }
+    }
+
+    return stops.back().color;
+}
+
 std::vector<float> buildLinearGradientColors(const std::vector<crushedpixel::Vec2> &vertices, const Paint &paint)
 {
     std::vector<float> colors;
@@ -517,13 +596,13 @@ std::vector<float> buildLinearGradientColors(const std::vector<crushedpixel::Vec
         float progress = 0.0f;
         if (lengthSq > kPointEpsilon) {
             progress = ((vertex.x - startX) * dx + (vertex.y - startY) * dy) / lengthSq;
-            progress = std::clamp(progress, 0.0f, 1.0f);
         }
 
-        colors.push_back(lerp(startColor.r(), endColor.r(), progress));
-        colors.push_back(lerp(startColor.g(), endColor.g(), progress));
-        colors.push_back(lerp(startColor.b(), endColor.b(), progress));
-        colors.push_back(lerp(startColor.a(), endColor.a(), progress) * alphaScale);
+        const Color color = sampleGradientStopColor(paint, progress, startColor, endColor);
+        colors.push_back(color.r());
+        colors.push_back(color.g());
+        colors.push_back(color.b());
+        colors.push_back(color.a() * alphaScale);
     }
 
     return colors;
@@ -550,13 +629,13 @@ std::vector<float> buildRadialGradientColors(const std::vector<crushedpixel::Vec
             const float dx = vertex.x - centerX;
             const float dy = vertex.y - centerY;
             progress = std::sqrt(dx * dx + dy * dy) / radius;
-            progress = std::clamp(progress, 0.0f, 1.0f);
         }
 
-        colors.push_back(lerp(startColor.r(), endColor.r(), progress));
-        colors.push_back(lerp(startColor.g(), endColor.g(), progress));
-        colors.push_back(lerp(startColor.b(), endColor.b(), progress));
-        colors.push_back(lerp(startColor.a(), endColor.a(), progress) * alphaScale);
+        const Color color = sampleGradientStopColor(paint, progress, startColor, endColor);
+        colors.push_back(color.r());
+        colors.push_back(color.g());
+        colors.push_back(color.b());
+        colors.push_back(color.a() * alphaScale);
     }
 
     return colors;
@@ -2676,9 +2755,12 @@ void Canvas::restoreLayer(const LayerState &layer)
 
 void Canvas::clipRect(const RectF &rect)
 {
-    RectF normalized = normalizeRect(rect);
+    RectF deviceBounds;
+    if (!transformRectBounds(rect, currentState_.matrix, deviceBounds)) {
+        deviceBounds = RectF();
+    }
     RectF canvasBounds(0.0f, 0.0f, static_cast<float>(width_), static_cast<float>(height_));
-    RectF clipped = intersectRects(normalized, canvasBounds);
+    RectF clipped = intersectRects(deviceBounds, canvasBounds);
 
     if (!currentState_.clip.enabled) {
         currentState_.clip.enabled = true;

@@ -73,11 +73,12 @@ CPPDEMO_PRINT_PIXEL_HASH=1 ./build/PrismCanvasDemo
 CPPDEMO_EXPECT_PIXEL_HASH=<uint64> ./build/PrismCanvasDemo
 CPPDEMO_EXIT_AFTER_FIRST_FRAME=1 ./build/PrismCanvasDemo
 CPPDEMO_FIXED_TIME_SECONDS=1.25 ./build/PrismCanvasDemo
+CPPDEMO_DISABLE_MSAA=1 ./build/PrismCanvasDemo
 ```
 
 Pixel hashes are exact and can vary by GPU, driver, MSAA behavior, and platform. Treat them as a fast local regression aid rather than a portable golden image format.
 
-On Windows, `smoke_test.bat` builds the Debug target, runs one fixed-time frame with pixel readback/hash enabled, and checks the log for rendering failure markers.
+Use `smoke_test.bat` on Windows or `sh smoke_test.sh` on macOS/Linux to build the Debug target, run one fixed-time non-MSAA frame with pixel readback/hash enabled, and check the log for rendering failure markers. Pass a local expected hash as the first argument to make it strict.
 
 ## Roadmap
 

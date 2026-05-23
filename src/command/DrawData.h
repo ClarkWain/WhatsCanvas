@@ -12,6 +12,16 @@ struct ScissorState {
 
 enum class DrawBlendMode {
     SrcOver,
+    Src,
+    Dst,
+    Clear,
+    SrcIn,
+    DstIn,
+    SrcOut,
+    DstOut,
+    SrcAtop,
+    DstAtop,
+    Xor,
     Add,
     Multiply,
     Screen

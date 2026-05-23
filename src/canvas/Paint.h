@@ -70,6 +70,15 @@ private:
 class Paint
 {
 public:
+    struct ColorStop
+    {
+        float position = 0.0f;
+        Color color;
+
+        ColorStop() = default;
+        ColorStop(float position, const Color &color) : position(position), color(color) {}
+    };
+
     enum class Style
     {
         FILL,
@@ -98,6 +107,14 @@ public:
         RADIAL_GRADIENT
     };
 
+    enum class ShaderTileMode
+    {
+        CLAMP,
+        REPEAT,
+        MIRROR,
+        DECAL
+    };
+
     enum class TextAlign
     {
         LEFT,
@@ -115,6 +132,16 @@ public:
     enum class BlendMode
     {
         SRC_OVER,
+        SRC,
+        DST,
+        CLEAR,
+        SRC_IN,
+        DST_IN,
+        SRC_OUT,
+        DST_OUT,
+        SRC_ATOP,
+        DST_ATOP,
+        XOR,
         ADD,
         MULTIPLY,
         SCREEN
@@ -161,12 +188,14 @@ public:
         strokeCap_ = other.strokeCap_;
         strokeJoin_ = other.strokeJoin_;
         shaderType_ = other.shaderType_;
+        shaderTileMode_ = other.shaderTileMode_;
         gradientStartX_ = other.gradientStartX_;
         gradientStartY_ = other.gradientStartY_;
         gradientEndX_ = other.gradientEndX_;
         gradientEndY_ = other.gradientEndY_;
         gradientStartColor_ = other.gradientStartColor_;
         gradientEndColor_ = other.gradientEndColor_;
+        gradientStops_ = other.gradientStops_;
         radialCenterX_ = other.radialCenterX_;
         radialCenterY_ = other.radialCenterY_;
         radialRadius_ = other.radialRadius_;
@@ -205,12 +234,14 @@ public:
             strokeCap_ = other.strokeCap_;
             strokeJoin_ = other.strokeJoin_;
             shaderType_ = other.shaderType_;
+            shaderTileMode_ = other.shaderTileMode_;
             gradientStartX_ = other.gradientStartX_;
             gradientStartY_ = other.gradientStartY_;
             gradientEndX_ = other.gradientEndX_;
             gradientEndY_ = other.gradientEndY_;
             gradientStartColor_ = other.gradientStartColor_;
             gradientEndColor_ = other.gradientEndColor_;
+            gradientStops_ = other.gradientStops_;
             radialCenterX_ = other.radialCenterX_;
             radialCenterY_ = other.radialCenterY_;
             radialRadius_ = other.radialRadius_;
@@ -238,10 +269,12 @@ public:
                                     colorMatrixEnabled_(other.colorMatrixEnabled_), colorMatrix_(other.colorMatrix_),
                                     antiAlias_(other.antiAlias_),
                                     style_(other.style_), strokeCap_(other.strokeCap_), strokeJoin_(other.strokeJoin_),
-                                    shaderType_(other.shaderType_), gradientStartX_(other.gradientStartX_),
+                                    shaderType_(other.shaderType_), shaderTileMode_(other.shaderTileMode_),
+                                    gradientStartX_(other.gradientStartX_),
                                     gradientStartY_(other.gradientStartY_), gradientEndX_(other.gradientEndX_),
                                     gradientEndY_(other.gradientEndY_), gradientStartColor_(std::move(other.gradientStartColor_)),
                                     gradientEndColor_(std::move(other.gradientEndColor_)),
+                                    gradientStops_(std::move(other.gradientStops_)),
                                     radialCenterX_(other.radialCenterX_), radialCenterY_(other.radialCenterY_),
                                     radialRadius_(other.radialRadius_), radialStartColor_(std::move(other.radialStartColor_)),
                                     radialEndColor_(std::move(other.radialEndColor_)),
@@ -267,6 +300,8 @@ public:
         other.strokeCap_ = StrokeCap::BUTT;
         other.strokeJoin_ = StrokeJoin::MITER;
         other.shaderType_ = ShaderType::SOLID;
+        other.shaderTileMode_ = ShaderTileMode::CLAMP;
+        other.gradientStops_.clear();
         other.shadowLayerEnabled_ = false;
     }
 
@@ -344,6 +379,22 @@ public:
         gradientEndY_ = endY;
         gradientStartColor_ = startColor;
         gradientEndColor_ = endColor;
+        setGradientStops({ColorStop(0.0f, startColor), ColorStop(1.0f, endColor)});
+    }
+
+    void setLinearGradient(float startX, float startY, float endX, float endY,
+                           const std::vector<ColorStop> &stops)
+    {
+        shaderType_ = ShaderType::LINEAR_GRADIENT;
+        gradientStartX_ = startX;
+        gradientStartY_ = startY;
+        gradientEndX_ = endX;
+        gradientEndY_ = endY;
+        setGradientStops(stops);
+        if (!gradientStops_.empty()) {
+            gradientStartColor_ = gradientStops_.front().color;
+            gradientEndColor_ = gradientStops_.back().color;
+        }
     }
 
     void setRadialGradient(float centerX, float centerY, float radius,
@@ -355,6 +406,21 @@ public:
         radialRadius_ = radius;
         radialStartColor_ = startColor;
         radialEndColor_ = endColor;
+        setGradientStops({ColorStop(0.0f, startColor), ColorStop(1.0f, endColor)});
+    }
+
+    void setRadialGradient(float centerX, float centerY, float radius,
+                           const std::vector<ColorStop> &stops)
+    {
+        shaderType_ = ShaderType::RADIAL_GRADIENT;
+        radialCenterX_ = centerX;
+        radialCenterY_ = centerY;
+        radialRadius_ = radius;
+        setGradientStops(stops);
+        if (!gradientStops_.empty()) {
+            radialStartColor_ = gradientStops_.front().color;
+            radialEndColor_ = gradientStops_.back().color;
+        }
     }
 
     void clearShader()
@@ -365,6 +431,16 @@ public:
     ShaderType getShaderType() const
     {
         return shaderType_;
+    }
+
+    void setShaderTileMode(ShaderTileMode tileMode)
+    {
+        shaderTileMode_ = tileMode;
+    }
+
+    ShaderTileMode getShaderTileMode() const
+    {
+        return shaderTileMode_;
     }
 
     bool hasLinearGradient() const
@@ -383,6 +459,7 @@ public:
     float getGradientEndY() const { return gradientEndY_; }
     Color getGradientStartColor() const { return gradientStartColor_; }
     Color getGradientEndColor() const { return gradientEndColor_; }
+    const std::vector<ColorStop>& getGradientStops() const { return gradientStops_; }
     float getRadialCenterX() const { return radialCenterX_; }
     float getRadialCenterY() const { return radialCenterY_; }
     float getRadialRadius() const { return radialRadius_; }
@@ -653,6 +730,22 @@ public:
     }
 
 private:
+    void setGradientStops(const std::vector<ColorStop> &stops)
+    {
+        gradientStops_.clear();
+        gradientStops_.reserve(stops.size());
+        for (const auto &stop : stops) {
+            if (!std::isfinite(stop.position)) {
+                continue;
+            }
+            gradientStops_.emplace_back(std::clamp(stop.position, 0.0f, 1.0f), stop.color);
+        }
+
+        std::sort(gradientStops_.begin(), gradientStops_.end(), [](const ColorStop &a, const ColorStop &b) {
+            return a.position < b.position;
+        });
+    }
+
     Color color_ = Color::BLACK;
     Color strokeColor_ = Color::BLACK;
     int alpha_ = 255;
@@ -680,12 +773,14 @@ private:
     StrokeCap strokeCap_ = StrokeCap::BUTT;
     StrokeJoin strokeJoin_ = StrokeJoin::MITER;
     ShaderType shaderType_ = ShaderType::SOLID;
+    ShaderTileMode shaderTileMode_ = ShaderTileMode::CLAMP;
     float gradientStartX_ = 0.0f;
     float gradientStartY_ = 0.0f;
     float gradientEndX_ = 1.0f;
     float gradientEndY_ = 0.0f;
     Color gradientStartColor_ = Color::BLACK;
     Color gradientEndColor_ = Color::WHITE;
+    std::vector<ColorStop> gradientStops_;
     float radialCenterX_ = 0.0f;
     float radialCenterY_ = 0.0f;
     float radialRadius_ = 1.0f;

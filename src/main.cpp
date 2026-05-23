@@ -83,6 +83,7 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
 
 int main() {
     std::cout << "Starting application..." << std::endl;
+    const bool disableMsaa = !getEnvironmentValue("CPPDEMO_DISABLE_MSAA").empty();
 
     // 初始化 GLFW
     if (!glfwInit()) {
@@ -95,7 +96,7 @@ int main() {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3); // 主版本号
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3); // 次版本号
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE); // 使用核心模式
-    glfwWindowHint(GLFW_SAMPLES, 4); // 请求 MSAA，若不支持 GLFW 会回退。
+    glfwWindowHint(GLFW_SAMPLES, disableMsaa ? 0 : 4); // 请求 MSAA，若不支持 GLFW 会回退。
 
     // 在 macOS 上需要启用兼容性视图
     #ifdef __APPLE__
@@ -137,7 +138,9 @@ int main() {
 
     // 设置视口
     glViewport(0, 0, framebufferWidth, framebufferHeight);
-    glEnable(GL_MULTISAMPLE);
+    if (!disableMsaa) {
+        glEnable(GL_MULTISAMPLE);
+    }
 
     // 设置清除颜色
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
@@ -189,6 +192,20 @@ int main() {
     layerRectPaint.setFillColor(Color(80, 220, 255, 190));
     layerRectPaint.setBlendMode(Paint::BlendMode::ADD);
 
+    Paint porterDuffBasePaint;
+    porterDuffBasePaint.setStyle(Paint::Style::FILL);
+    porterDuffBasePaint.setFillColor(Color(140, 105, 255, 210));
+
+    Paint porterDuffSrcInPaint;
+    porterDuffSrcInPaint.setStyle(Paint::Style::FILL);
+    porterDuffSrcInPaint.setFillColor(Color(255, 230, 80, 235));
+    porterDuffSrcInPaint.setBlendMode(Paint::BlendMode::SRC_IN);
+
+    Paint porterDuffDstOutPaint;
+    porterDuffDstOutPaint.setStyle(Paint::Style::FILL);
+    porterDuffDstOutPaint.setFillColor(Color(255, 255, 255, 230));
+    porterDuffDstOutPaint.setBlendMode(Paint::BlendMode::DST_OUT);
+
     Paint roundStrokePaint;
     roundStrokePaint.setStrokeColor(Color(255, 190, 70));
     roundStrokePaint.setStrokeWidth(34.0f);
@@ -225,8 +242,13 @@ int main() {
     gradientRectPaint.setStyle(Paint::Style::FILL_AND_STROKE);
     gradientRectPaint.setStrokeColor(Color::WHITE);
     gradientRectPaint.setStrokeWidth(8.0f);
-    gradientRectPaint.setLinearGradient(500.0f, 300.0f, 690.0f, 430.0f,
-                                        Color(255, 210, 60, 230), Color(55, 185, 255, 230));
+    gradientRectPaint.setLinearGradient(500.0f, 300.0f, 610.0f, 370.0f,
+                                        {
+                                            Paint::ColorStop(0.0f, Color(255, 210, 60, 230)),
+                                            Paint::ColorStop(0.48f, Color(80, 235, 165, 235)),
+                                            Paint::ColorStop(1.0f, Color(55, 185, 255, 230))
+                                        });
+    gradientRectPaint.setShaderTileMode(Paint::ShaderTileMode::MIRROR);
     gradientRectPaint.setShadowLayer(18.0f, 12.0f, 12.0f, Color(0, 0, 0, 115));
 
     Paint roundRectPaint;
@@ -249,7 +271,12 @@ int main() {
     circlePaint.setStrokeWidth(10.0f);
     circlePaint.setStyle(Paint::Style::FILL_AND_STROKE);
     circlePaint.setRadialGradient(610.0f, 505.0f, 62.0f,
-                                  Color(255, 245, 170, 245), Color(255, 95, 70, 230));
+                                  {
+                                      Paint::ColorStop(0.0f, Color(255, 245, 170, 245)),
+                                      Paint::ColorStop(0.45f, Color(255, 135, 90, 238)),
+                                      Paint::ColorStop(1.0f, Color(150, 55, 210, 225))
+                                  });
+    circlePaint.setShaderTileMode(Paint::ShaderTileMode::CLAMP);
 
     Paint ovalPaint;
     ovalPaint.setStyle(Paint::Style::STROKE);
@@ -493,18 +520,18 @@ int main() {
     const bool printPixelHash = !getEnvironmentValue("CPPDEMO_PRINT_PIXEL_HASH").empty();
     const bool exitAfterFirstFrame = !getEnvironmentValue("CPPDEMO_EXIT_AFTER_FIRST_FRAME").empty();
     const std::string expectedPixelHashText = getEnvironmentValue("CPPDEMO_EXPECT_PIXEL_HASH");
-        const std::string fixedTimeText = getEnvironmentValue("CPPDEMO_FIXED_TIME_SECONDS");
-        float fixedTimeSeconds = 0.0f;
-        const bool hasFixedTime = parseFloat(fixedTimeText, fixedTimeSeconds);
-        if (!fixedTimeText.empty() && !hasFixedTime) {
-            std::cerr << "Fixed time invalid" << std::endl;
-        }
+    const std::string fixedTimeText = getEnvironmentValue("CPPDEMO_FIXED_TIME_SECONDS");
+    float fixedTimeSeconds = 0.0f;
+    const bool hasFixedTime = parseFloat(fixedTimeText, fixedTimeSeconds);
+    if (!fixedTimeText.empty() && !hasFixedTime) {
+        std::cerr << "Fixed time invalid" << std::endl;
+    }
     
     // 主循环
     while (!glfwWindowShouldClose(window)) {
         glClear(GL_COLOR_BUFFER_BIT);
         
-            float currentTime = hasFixedTime ? fixedTimeSeconds : static_cast<float>(glfwGetTime());
+        float currentTime = hasFixedTime ? fixedTimeSeconds : static_cast<float>(glfwGetTime());
         float rotation = currentTime * rotationSpeed;
         
         // 计算颜色
@@ -520,6 +547,13 @@ int main() {
         canvas.drawCircle(PointF(88.0f, 360.0f), 44.0f, layerCirclePaint);
         canvas.drawRoundRect(RectF(86.0f, 326.0f, 106.0f, 68.0f), 18.0f, 36.0f, 14.0f, 28.0f, layerRectPaint);
         canvas.restore();
+
+        canvas.saveLayer(RectF(222.0f, 308.0f, 134.0f, 102.0f), saveLayerPaint);
+        canvas.drawRoundRect(RectF(238.0f, 326.0f, 92.0f, 58.0f), 16.0f, porterDuffBasePaint);
+        canvas.drawCircle(PointF(292.0f, 354.0f), 43.0f, porterDuffSrcInPaint);
+        canvas.drawCircle(PointF(322.0f, 354.0f), 22.0f, porterDuffDstOutPaint);
+        canvas.restore();
+        canvas.drawRect(RectF(222.0f, 308.0f, 134.0f, 102.0f), clipBoundsPaint);
 
         canvas.save();
         canvas.clipRect(RectF(520.0f, 420.0f, 220.0f, 150.0f));
