@@ -7,7 +7,7 @@ if "%ROOT_DIR:~-1%"=="\" set "ROOT_DIR=%ROOT_DIR:~0,-1%"
 set "BUILD_DIR=%ROOT_DIR%\build"
 set "GENERATOR=Visual Studio 17 2022"
 set "CONFIG=Release"
-set "TARGET=Tetris"
+set "TARGET=BubbleShooter"
 set "EXE_PATH=%BUILD_DIR%\%CONFIG%\%TARGET%.exe"
 set "NO_RUN=0"
 
@@ -18,15 +18,6 @@ where cmake >nul 2>&1
 if errorlevel 1 (
     echo CMake was not found in PATH.
     exit /b 1
-)
-
-if exist "%ROOT_DIR%\.git" (
-    echo [0/3] Updating submodules...
-    git -C "%ROOT_DIR%" submodule update --init --recursive
-    if errorlevel 1 (
-        echo Submodule update failed.
-        exit /b 1
-    )
 )
 
 echo [1/3] Configuring...

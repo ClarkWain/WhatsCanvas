@@ -69,10 +69,6 @@ target_include_directories(PrismCanvasDemo PRIVATE "${SRC_DIR}")
 
 target_compile_definitions(PrismCanvasDemo PRIVATE GLEW_STATIC)
 
-if (MSVC)
-    target_link_options(PrismCanvasDemo PRIVATE /NODEFAULTLIB:MSVCRT /NODEFAULTLIB:LIBCMT)
-endif()
-
 target_link_libraries(PrismCanvasDemo
     PRIVATE
         glfw

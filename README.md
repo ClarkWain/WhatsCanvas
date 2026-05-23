@@ -95,7 +95,7 @@ class Canvas {
 
 ## Example
 
-Examples live under `example/` and are meant to show how the Canvas API can be used beyond isolated drawing primitives. Game and UI examples will continue to be added here as the project grows.
+Examples live under `example/` and are meant to show how the Canvas API can be used beyond isolated drawing primitives. The current repository includes gameplay-focused demos such as Tetris and Bubble Shooter, and more game/UI samples will continue to be added here as the project grows.
 
 ### Tetris
 
@@ -112,6 +112,24 @@ build.bat
 
 ```bash
 cd example/game/tetris
+./build.sh
+```
+
+### Bubble Shooter
+
+The Bubble Shooter example is under [example/game/bubble_shooter](example/game/bubble_shooter). It uses PrismCanvas to render a hex-grid bubble field, the aiming guide, the launcher, and a compact HUD panel for score, level, next bubble, controls, and performance stats.
+
+![Bubble Shooter example built with PrismCanvas](images/bubble_shooter.jpg)
+
+Run it from the example directory:
+
+```bat
+cd example\game\bubble_shooter
+build.bat
+```
+
+```bash
+cd example/game/bubble_shooter
 ./build.sh
 ```
 

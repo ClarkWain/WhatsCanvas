@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(Tetris LANGUAGES C CXX)
+project(BubbleShooter LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -34,8 +34,8 @@ target_include_directories(PrismCanvasSTB INTERFACE "${STB_PATH}")
 add_library(PrismCanvasPolyline2D INTERFACE)
 target_include_directories(PrismCanvasPolyline2D SYSTEM INTERFACE "${POLYLINE2D_PATH}/include")
 
-add_executable(Tetris
-    "Tetris.cpp"
+add_executable(BubbleShooter
+    "BubbleShooter.cpp"
     "${SRC_DIR}/canvas/Canvas.cpp"
     "${SRC_DIR}/canvas/Image.cpp"
     "${SRC_DIR}/canvas/Paint.cpp"
@@ -49,10 +49,10 @@ add_executable(Tetris
     "${SRC_DIR}/render/Renderer.cpp"
 )
 
-target_include_directories(Tetris PRIVATE "${SRC_DIR}")
-target_compile_definitions(Tetris PRIVATE GLEW_STATIC)
+target_include_directories(BubbleShooter PRIVATE "${SRC_DIR}")
+target_compile_definitions(BubbleShooter PRIVATE GLEW_STATIC)
 
-target_link_libraries(Tetris
+target_link_libraries(BubbleShooter
     PRIVATE
         glfw
         GLAD
@@ -61,3 +61,7 @@ target_link_libraries(Tetris
         PrismCanvasSTB
         PrismCanvasPolyline2D
 )
+
+if (WIN32)
+    target_link_libraries(BubbleShooter PRIVATE gdi32)
+endif()

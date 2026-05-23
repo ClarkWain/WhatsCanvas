@@ -20,8 +20,8 @@ constexpr int ROWS = 20;
 constexpr int CELL = 30;
 constexpr int GRID_X = 30;
 constexpr int GRID_Y = 40;
-constexpr int SIDE_X = GRID_X + COLS * CELL + 30;
-constexpr int DESIGN_W = SIDE_X + 180;
+constexpr int SIDE_X = GRID_X + COLS * CELL + 42;
+constexpr int DESIGN_W = SIDE_X + 220;
 constexpr int DESIGN_H = GRID_Y + ROWS * CELL + 30;
 constexpr int DROP_INTERVAL_MS = 800;
 
@@ -92,6 +92,7 @@ public:
     }
 
     void update(float dt) {
+        updatePerformanceStats(dt);
         if (state_ != PLAYING) return;
         dropTimer_ += dt;
         float targetSec = getDropInterval() / 1000.0f;
@@ -174,10 +175,10 @@ public:
         drawCurrentPiece(canvas);
         drawSidebar(canvas);
 
-        canvas.restore();
+        if (state_ == GAME_OVER) drawOverlay(canvas, "GAME OVER", "Press R to restart");
+        else if (state_ == PAUSED) drawOverlay(canvas, "PAUSED", "Press P to resume");
 
-        if (state_ == GAME_OVER) drawOverlay(canvas, "GAME OVER", "Press R to restart", windowW, windowH);
-        else if (state_ == PAUSED) drawOverlay(canvas, "PAUSED", "Press P to resume", windowW, windowH);
+        canvas.restore();
     }
 
     bool isGameOver() const { return state_ == GAME_OVER; }
@@ -193,10 +194,41 @@ private:
     int lines_ = 0;
     int level_ = 1;
     float dropTimer_ = 0;
+    float displayedFps_ = 0.0f;
+    float latestFrameMs_ = 0.0f;
+    float fpsAccumulatedTime_ = 0.0f;
+    int fpsAccumulatedFrames_ = 0;
     std::vector<PieceType> bag_;
+
+    void updatePerformanceStats(float dt) {
+        if (!std::isfinite(dt) || dt <= 0.0f) return;
+
+        const float clampedDt = std::min(dt, 0.25f);
+        latestFrameMs_ = clampedDt * 1000.0f;
+        fpsAccumulatedTime_ += clampedDt;
+        ++fpsAccumulatedFrames_;
+
+        if (fpsAccumulatedTime_ >= 0.25f) {
+            displayedFps_ = static_cast<float>(fpsAccumulatedFrames_) / fpsAccumulatedTime_;
+            fpsAccumulatedTime_ = 0.0f;
+            fpsAccumulatedFrames_ = 0;
+        }
+    }
 
     int getDropInterval() const {
         return std::max(50, DROP_INTERVAL_MS - (level_ - 1) * 75);
+    }
+
+    RectF boardPanelRect() const {
+        return RectF(GRID_X - 18.0f, GRID_Y - 18.0f, COLS * CELL + 36.0f, ROWS * CELL + 36.0f);
+    }
+
+    RectF playRect() const {
+        return RectF(GRID_X - 6.0f, GRID_Y - 6.0f, COLS * CELL + 12.0f, ROWS * CELL + 12.0f);
+    }
+
+    RectF sidebarPanelRect() const {
+        return RectF(SIDE_X - 18.0f, GRID_Y - 18.0f, DESIGN_W - SIDE_X - 24.0f, ROWS * CELL + 36.0f);
     }
 
     void shuffleBag() {
@@ -304,7 +336,23 @@ private:
     }
 
     void drawBackground(Canvas& canvas) {
-        canvas.drawColor(Color(18, 22, 30));
+        Paint backdrop;
+        backdrop.setStyle(Paint::Style::FILL);
+        backdrop.setLinearGradient(0.0f, 0.0f, 0.0f, static_cast<float>(DESIGN_H), {
+            Paint::ColorStop(0.0f, Color(18, 28, 55)),
+            Paint::ColorStop(0.55f, Color(12, 19, 38)),
+            Paint::ColorStop(1.0f, Color(8, 11, 24))
+        });
+        canvas.drawRect(RectF(0.0f, 0.0f, static_cast<float>(DESIGN_W), static_cast<float>(DESIGN_H)), backdrop);
+
+        Paint glow;
+        glow.setStyle(Paint::Style::FILL);
+        glow.setFillColor(Color(72, 112, 224, 24));
+        canvas.drawCircle(PointF(116.0f, 104.0f), 92.0f, glow);
+        glow.setFillColor(Color(117, 74, 214, 22));
+        canvas.drawCircle(PointF(static_cast<float>(DESIGN_W) - 92.0f, 146.0f), 108.0f, glow);
+        glow.setFillColor(Color(49, 177, 182, 18));
+        canvas.drawCircle(PointF(static_cast<float>(DESIGN_W) - 78.0f, static_cast<float>(DESIGN_H) - 86.0f), 136.0f, glow);
     }
 
     void drawBlock(Canvas& canvas, float px, float py, float sz, const Color& c, float alpha) {
@@ -328,25 +376,47 @@ private:
     }
 
     void drawBoard(Canvas& canvas) {
-        Paint bg;
-        bg.setStyle(Paint::Style::FILL);
-        bg.setFillColor(Color(10, 12, 18));
-        canvas.drawRect(RectF(GRID_X - 4, GRID_Y - 4, COLS * CELL + 8, ROWS * CELL + 8), bg);
-        Paint border;
-        border.setStyle(Paint::Style::STROKE);
-        border.setStrokeColor(Color(40, 50, 70));
-        border.setStrokeWidth(2.0f);
-        canvas.drawRect(RectF(GRID_X - 4, GRID_Y - 4, COLS * CELL + 8, ROWS * CELL + 8), border);
+        const RectF outerRect = boardPanelRect();
+        Paint outerFill;
+        outerFill.setStyle(Paint::Style::FILL);
+        outerFill.setLinearGradient(outerRect.getX(), outerRect.getY(), outerRect.getX(), outerRect.getY() + outerRect.getHeight(), {
+            Paint::ColorStop(0.0f, Color(24, 34, 60, 235)),
+            Paint::ColorStop(1.0f, Color(13, 18, 33, 235))
+        });
+        canvas.drawRoundRect(outerRect, 24.0f, outerFill);
+
+        Paint outerStroke;
+        outerStroke.setStyle(Paint::Style::STROKE);
+        outerStroke.setStrokeColor(Color(88, 116, 176, 180));
+        outerStroke.setStrokeWidth(3.0f);
+        canvas.drawRoundRect(outerRect, 24.0f, outerStroke);
+
+        const RectF innerRect = playRect();
+        Paint innerFill;
+        innerFill.setStyle(Paint::Style::FILL);
+        innerFill.setLinearGradient(innerRect.getX(), innerRect.getY(), innerRect.getX(), innerRect.getY() + innerRect.getHeight(), {
+            Paint::ColorStop(0.0f, Color(10, 15, 29)),
+            Paint::ColorStop(1.0f, Color(15, 18, 29))
+        });
+        canvas.drawRoundRect(innerRect, 20.0f, innerFill);
+
+        Paint innerStroke;
+        innerStroke.setStyle(Paint::Style::STROKE);
+        innerStroke.setStrokeColor(Color(54, 76, 120));
+        innerStroke.setStrokeWidth(2.0f);
+        canvas.drawRoundRect(innerRect, 20.0f, innerStroke);
+
+        Paint emptyCell;
+        emptyCell.setStyle(Paint::Style::FILL);
+        emptyCell.setFillColor(Color(26, 33, 49));
+
         for (int row = 0; row < ROWS; ++row) {
             for (int col = 0; col < COLS; ++col) {
                 int v = board_[row][col];
                 if (v != 0) {
                     drawBlock(canvas, GRID_X + col * CELL, GRID_Y + row * CELL, CELL, kColors[v - 1], 1.0f);
                 } else {
-                    Paint gp;
-                    gp.setStyle(Paint::Style::FILL);
-                    gp.setFillColor(Color(25, 30, 40));
-                    canvas.drawRect(RectF(GRID_X + col * CELL + 1, GRID_Y + row * CELL + 1, CELL - 2, CELL - 2), gp);
+                    canvas.drawRect(RectF(GRID_X + col * CELL + 1, GRID_Y + row * CELL + 1, CELL - 2, CELL - 2), emptyCell);
                 }
             }
         }
@@ -389,8 +459,27 @@ private:
     }
 
     void drawSidebar(Canvas& canvas) {
-        float sx = SIDE_X + 10;
-        float y = GRID_Y;
+        const RectF rect = sidebarPanelRect();
+
+        Paint panelFill;
+        panelFill.setStyle(Paint::Style::FILL);
+        panelFill.setLinearGradient(rect.getX(), rect.getY(), rect.getX(), rect.getY() + rect.getHeight(), {
+            Paint::ColorStop(0.0f, Color(22, 31, 56, 230)),
+            Paint::ColorStop(1.0f, Color(13, 18, 33, 230))
+        });
+        canvas.drawRoundRect(rect, 24.0f, panelFill);
+
+        Paint panelStroke;
+        panelStroke.setStyle(Paint::Style::STROKE);
+        panelStroke.setStrokeWidth(3.0f);
+        panelStroke.setStrokeColor(Color(72, 99, 152, 170));
+        canvas.drawRoundRect(rect, 24.0f, panelStroke);
+
+        float sx = rect.getX() + 22.0f;
+        float y = rect.getY() + 22.0f;
+        const RectF contentRect(sx - 4.0f, rect.getY() + 10.0f, rect.getWidth() - 36.0f, rect.getHeight() - 20.0f);
+        const int saveCount = canvas.save();
+        canvas.clipRect(contentRect);
 
         Paint text;
         text.setStyle(Paint::Style::FILL);
@@ -400,46 +489,93 @@ private:
             y += canvas.measureTextMetrics(content, text).height + gap;
         };
 
-        text.setTextSize(16.0f);
+        Paint title = text;
+        title.setColor(Color(238, 244, 255));
+        title.setTextSize(28.0f);
+        title.setLetterSpacing(1.0f);
+        canvas.drawText("TETRIS", sx, y, title);
+        y += canvas.measureTextMetrics("TETRIS", title).height + 8.0f;
+
+        Paint subtitle = text;
+        subtitle.setColor(Color(152, 173, 214));
+        subtitle.setTextSize(12.0f);
+        canvas.drawText("Stack rows. Clear lines.", sx, y, subtitle);
+        y += canvas.measureTextMetrics("Stack rows. Clear lines.", subtitle).height + 18.0f;
+
+        text.setTextSize(14.0f);
+        text.setColor(Color(200, 210, 240));
+        Paint value = text;
+        value.setColor(Color(255, 255, 255));
+        value.setTextSize(24.0f);
+
+        auto drawMetric = [&](const std::string& heading, const std::string& content, float gap) {
+            canvas.drawText(heading, sx, y, text);
+            y += canvas.measureTextMetrics(heading, text).height + 6.0f;
+            canvas.drawText(content, sx, y, value);
+            y += canvas.measureTextMetrics(content, value).height + gap;
+        };
+
+        drawMetric("SCORE", std::to_string(score_), 10.0f);
+        drawMetric("LEVEL", std::to_string(level_), 10.0f);
+        drawMetric("LINES", std::to_string(lines_), 14.0f);
+
+        Paint perfValue = text;
+        perfValue.setColor(Color(244, 248, 255));
+        perfValue.setTextSize(16.0f);
+        const int fps = std::max(0, static_cast<int>(std::lround(displayedFps_)));
+        const int frameMs = std::max(0, static_cast<int>(std::lround(latestFrameMs_)));
+        canvas.drawText("PERF", sx, y, text);
+        y += canvas.measureTextMetrics("PERF", text).height + 6.0f;
+        const std::string perfText = std::to_string(fps) + " FPS / " + std::to_string(frameMs) + " ms";
+        canvas.drawText(perfText, sx, y, perfValue);
+        y += canvas.measureTextMetrics(perfText, perfValue).height + 16.0f;
+
         canvas.drawText("NEXT", sx, y, text);
-        advanceY("NEXT", 2.0f);
+        advanceY("NEXT", 4.0f);
 
-        for (const auto& b : kPieceData[nextType_][0]) {
-            drawBlock(canvas, sx + b.getX() * 22, y + b.getY() * 22, 22, kColors[nextType_], 1.0f);
+        RectF previewBox(sx, y, rect.getWidth() - 44.0f, 78.0f);
+        Paint previewFill;
+        previewFill.setStyle(Paint::Style::FILL);
+        previewFill.setFillColor(Color(14, 20, 35, 210));
+        canvas.drawRoundRect(previewBox, 18.0f, previewFill);
+
+        Paint previewStroke;
+        previewStroke.setStyle(Paint::Style::STROKE);
+        previewStroke.setStrokeWidth(2.0f);
+        previewStroke.setStrokeColor(Color(94, 115, 160));
+        canvas.drawRoundRect(previewBox, 18.0f, previewStroke);
+
+        const auto& previewData = kPieceData[nextType_][0];
+        int minX = previewData[0].getX();
+        int maxX = previewData[0].getX();
+        int minY = previewData[0].getY();
+        int maxY = previewData[0].getY();
+        for (const auto& block : previewData) {
+            minX = std::min(minX, block.getX());
+            maxX = std::max(maxX, block.getX());
+            minY = std::min(minY, block.getY());
+            maxY = std::max(maxY, block.getY());
         }
-        y += 110;
 
-        text.setTextSize(14.0f);
-        text.setColor(Color(200, 210, 240));
-        canvas.drawText("SCORE", sx, y, text);
-        advanceY("SCORE", 4.0f);
-        text.setColor(Color(255, 255, 255));
-        text.setTextSize(20.0f);
-        canvas.drawText(std::to_string(score_), sx, y, text);
-        advanceY(std::to_string(score_), 8.0f);
-
-        text.setColor(Color(200, 210, 240));
-        text.setTextSize(14.0f);
-        canvas.drawText("LEVEL", sx, y, text);
-        advanceY("LEVEL", 4.0f);
-        text.setColor(Color(255, 255, 255));
-        text.setTextSize(20.0f);
-        canvas.drawText(std::to_string(level_), sx, y, text);
-        advanceY(std::to_string(level_), 8.0f);
-
-        text.setColor(Color(200, 210, 240));
-        text.setTextSize(14.0f);
-        canvas.drawText("LINES", sx, y, text);
-        advanceY("LINES", 4.0f);
-        text.setColor(Color(255, 255, 255));
-        text.setTextSize(20.0f);
-        canvas.drawText(std::to_string(lines_), sx, y, text);
-        advanceY(std::to_string(lines_), 20.0f);
+        const float previewCell = 20.0f;
+        const float previewWidth = (maxX - minX + 1) * previewCell;
+        const float previewHeight = (maxY - minY + 1) * previewCell;
+        const float previewOriginX = previewBox.getX() + (previewBox.getWidth() - previewWidth) * 0.5f;
+        const float previewOriginY = previewBox.getY() + (previewBox.getHeight() - previewHeight) * 0.5f;
+        for (const auto& block : previewData) {
+            drawBlock(canvas,
+                previewOriginX + (block.getX() - minX) * previewCell,
+                previewOriginY + (block.getY() - minY) * previewCell,
+                previewCell,
+                kColors[nextType_],
+                1.0f);
+        }
+            y += previewBox.getHeight() + 16.0f;
 
         text.setColor(Color(120, 130, 160));
-        text.setTextSize(11.0f);
-        canvas.drawText("Controls:", sx, y, text);
-        advanceY("Controls:", 4.0f);
+            text.setTextSize(10.0f);
+        canvas.drawText("Controls", sx, y, text);
+        advanceY("Controls", 6.0f);
         canvas.drawText("Left/Right Move", sx, y, text);
         advanceY("Left/Right Move", 2.0f);
         canvas.drawText("Down Hard Drop", sx, y, text);
@@ -447,47 +583,40 @@ private:
         canvas.drawText("Up RotCW  Z RotCCW", sx, y, text);
         advanceY("Up RotCW  Z RotCCW", 2.0f);
         canvas.drawText("P Pause  R Restart", sx, y, text);
+
+            canvas.restoreToCount(saveCount);
     }
 
-    void drawOverlay(Canvas& canvas, const std::string& title, const std::string& sub, int windowW, int windowH) {
-        float scale = std::min(
-            static_cast<float>(windowW) / DESIGN_W,
-            static_cast<float>(windowH) / DESIGN_H
-        );
-        float offsetX = (windowW - DESIGN_W * scale) * 0.5f;
-        float offsetY = (windowH - DESIGN_H * scale) * 0.5f;
-
-        float gridPx = offsetX + (GRID_X - 4) * scale;
-        float gridPy = offsetY + (GRID_Y - 4) * scale;
-        float gridW = (COLS * CELL + 8) * scale;
-        float gridH = (ROWS * CELL + 8) * scale;
-
+    void drawOverlay(Canvas& canvas, const std::string& title, const std::string& sub) {
+        const RectF rect = playRect();
         Paint ov;
         ov.setStyle(Paint::Style::FILL);
         ov.setFillColor(Color(0, 0, 0, 180));
-        canvas.drawRect(RectF(gridPx, gridPy, gridW, gridH), ov);
+        canvas.drawRoundRect(rect, 20.0f, ov);
 
         Paint border;
         border.setStyle(Paint::Style::STROKE);
         border.setStrokeColor(Color(100, 120, 180));
         border.setStrokeWidth(2.0f);
-        canvas.drawRect(RectF(gridPx, gridPy, gridW, gridH), border);
+        canvas.drawRoundRect(rect, 20.0f, border);
 
         Paint t;
         t.setStyle(Paint::Style::FILL);
         t.setColor(Color(255, 255, 255));
-        t.setTextSize(28.0f * scale);
+        t.setTextSize(28.0f);
         t.setTextAlign(Paint::TextAlign::CENTER);
-        float cx = gridPx + gridW * 0.5f;
-        float cy = gridPy + gridH * 0.5f - 20.0f * scale;
+        t.setTextBaseline(Paint::TextBaseline::MIDDLE);
+        float cx = rect.getX() + rect.getWidth() * 0.5f;
+        float cy = rect.getY() + rect.getHeight() * 0.5f;
 
-        canvas.drawText(title, cx, cy - 10.0f * scale, t);
+        canvas.drawText(title, cx, cy - 20.0f, t);
 
-        t.setTextSize(16.0f * scale);
+        t.setTextSize(16.0f);
         t.setColor(Color(180, 190, 220));
-        canvas.drawText(sub, cx, cy + 30.0f * scale, t);
+        canvas.drawText(sub, cx, cy + 24.0f, t);
 
         t.setTextAlign(Paint::TextAlign::LEFT);
+        t.setTextBaseline(Paint::TextBaseline::TOP);
     }
 };
 
