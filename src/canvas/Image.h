@@ -17,7 +17,10 @@ public:
 
     int getHeight() const { return height_; }
 
+    bool hasMipmaps() const { return mipmapsGenerated_; }
+
 private:
     GLuint textureID_;
     int width_, height_;
+    bool mipmapsGenerated_ = false;
 };

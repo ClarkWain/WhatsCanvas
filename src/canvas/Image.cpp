@@ -6,7 +6,7 @@
 #include <iostream>
 
 Image::Image()
-    : textureID_(0), width_(0), height_(0)
+    : textureID_(0), width_(0), height_(0), mipmapsGenerated_(false)
 {
 }
 
@@ -24,6 +24,12 @@ bool Image::load(const char *imagePath)
     unsigned char *data = stbi_load(imagePath, &width, &height, &channels, 0);
     if (data)
     {
+        if (textureID_ != 0) {
+            glDeleteTextures(1, &textureID_);
+            textureID_ = 0;
+            mipmapsGenerated_ = false;
+        }
+
         glGenTextures(1, &textureID_);
         glBindTexture(GL_TEXTURE_2D, textureID_);
 
@@ -36,11 +42,13 @@ bool Image::load(const char *imagePath)
         // 上传纹理数据
         GLenum format = channels == 4 ? GL_RGBA : GL_RGB;
         glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
+        glGenerateMipmap(GL_TEXTURE_2D);
         glBindTexture(GL_TEXTURE_2D, 0);
         stbi_image_free(data);
 
         width_ = width;
         height_ = height;
+        mipmapsGenerated_ = true;
         return true;
     }
     else
@@ -48,6 +56,7 @@ bool Image::load(const char *imagePath)
         textureID_ = 0;
         width_ = 0;
         height_ = 0;
+        mipmapsGenerated_ = false;
 
         // 处理加载失败的情况
         std::cerr << "Failed to load image: " << imagePath << std::endl;

@@ -1,2 +1,9 @@
-.vscode
-build
+.vscode/
+.vs/
+build/
+out/
+*.suo
+*.user
+*.ppm
+draw_path.png
+images/draw_path.png

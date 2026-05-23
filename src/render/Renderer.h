@@ -26,6 +26,33 @@ public:
         commands_.push_back(std::move(command));
     }
 
+    size_t commandCount() const
+    {
+        return commands_.size();
+    }
+
+    std::vector<std::unique_ptr<Command>> takeCommandsFrom(size_t index)
+    {
+        std::vector<std::unique_ptr<Command>> taken;
+        if (index >= commands_.size()) {
+            return taken;
+        }
+
+        taken.reserve(commands_.size() - index);
+        for (size_t i = index; i < commands_.size(); ++i) {
+            taken.push_back(std::move(commands_[i]));
+        }
+        commands_.erase(commands_.begin() + static_cast<std::ptrdiff_t>(index), commands_.end());
+        return taken;
+    }
+
+    void appendCommands(std::vector<std::unique_ptr<Command>> &&commands)
+    {
+        for (auto &command : commands) {
+            commands_.push_back(std::move(command));
+        }
+    }
+
     void clear()
     {
         commands_.clear();

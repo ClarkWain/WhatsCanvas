@@ -1,5 +1,6 @@
 #include "DrawLines.h"
 #include <glm.hpp>
+#include <gtc/matrix_transform.hpp>
 #include <gtc/type_ptr.hpp>
 #include <iostream>
 #include <glad/glad.h>
@@ -27,12 +28,14 @@ void DrawLinesProgram::initialize()
         #version 330 core
         layout (location = 0) in vec2 aPos;
         layout (location = 1) in vec4 aColor;
+        uniform mat4 uProjection;
+        uniform mat4 uTransform;
 
         out vec4 color;
 
         void main()
         {
-            gl_Position = vec4(aPos, 0.0, 1.0);
+            gl_Position = uProjection * uTransform * vec4(aPos, 0.0, 1.0);
             color = aColor;
         }
     )";
@@ -108,7 +111,7 @@ void DrawLinesProgram::draw(const RenderContext &context, const DrawLinesData &d
     
     // 只在必要时重新分配缓冲区
     if (requiredSize > maxLines_ * 6 * 6) {
-        maxLines_ = requiredSize * BUFFER_GROW_FACTOR;  // 成倍增长策略
+        maxLines_ = static_cast<int>(requiredSize * BUFFER_GROW_FACTOR);  // 成倍增长策略
         glBindBuffer(GL_ARRAY_BUFFER, VBO_);
         glBufferData(GL_ARRAY_BUFFER, maxLines_ * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
         vertexCache_.reserve(maxLines_);
@@ -117,10 +120,6 @@ void DrawLinesProgram::draw(const RenderContext &context, const DrawLinesData &d
     // 重用vertexCache
     vertexCache_.clear();
     vertexCache_.reserve(requiredSize);
-
-    // 预计算屏幕转换因子
-    const float xFactor = 2.0f / context.getWidth();
-    const float yFactor = 2.0f / context.getHeight();
 
     // 批量处理顶点数据
     for (size_t i = 0; i < data.points.size(); i += 4) {
@@ -148,12 +147,10 @@ void DrawLinesProgram::draw(const RenderContext &context, const DrawLinesData &d
             x2 - nx, y2 - ny
         };
 
-        // 转换到 NDC 并添加到 vertexCache_
+        // 保持像素空间坐标，交给shader统一做投影和模型变换
         for (int j = 0; j < 12; j += 2) {
-            float x = vertices[j] * xFactor - 1.0f;
-            float y = 1.0f - vertices[j + 1] * yFactor;
-            vertexCache_.push_back(x);
-            vertexCache_.push_back(y);
+            vertexCache_.push_back(vertices[j]);
+            vertexCache_.push_back(vertices[j + 1]);
             // 添加颜色
             vertexCache_.push_back(data.color[0]);
             vertexCache_.push_back(data.color[1]);
@@ -163,10 +160,13 @@ void DrawLinesProgram::draw(const RenderContext &context, const DrawLinesData &d
     }
 
     program_->use();
+    glm::mat4 projection = glm::ortho(0.0f, static_cast<float>(context.getWidth()), static_cast<float>(context.getHeight()), 0.0f);
+    program_->setMat4("uProjection", projection);
+    program_->setMat4("uTransform", data.transform);
 
     glBindVertexArray(VAO_);
     glBindBuffer(GL_ARRAY_BUFFER, VBO_);
     glBufferSubData(GL_ARRAY_BUFFER, 0, vertexCache_.size() * sizeof(float), vertexCache_.data());
-    glDrawArrays(GL_TRIANGLES, 0, vertexCache_.size() / 6);
+    glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(vertexCache_.size() / 6));
     glBindVertexArray(0);
 }

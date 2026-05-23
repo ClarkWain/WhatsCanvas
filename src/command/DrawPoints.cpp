@@ -1,5 +1,6 @@
 #include "DrawPoints.h"
 #include <glm.hpp>
+#include <gtc/matrix_transform.hpp>
 #include <gtc/type_ptr.hpp>
 #include <iostream>
 #include <glad/glad.h>
@@ -29,12 +30,14 @@ void DrawPointsProgram::initialize()
         layout (location = 0) in vec2 aPos;
         layout (location = 1) in vec4 aColor;
         uniform float uPointSize;
+        uniform mat4 uProjection;
+        uniform mat4 uTransform;
 
         out vec4 color;
 
         void main()
         {
-            gl_Position = vec4(aPos, 0.0, 1.0);
+            gl_Position = uProjection * uTransform * vec4(aPos, 0.0, 1.0);
             gl_PointSize = uPointSize;
             color = aColor;
         }
@@ -116,7 +119,7 @@ void DrawPointsProgram::draw(const RenderContext &context, const DrawPointsData 
     
     // 只在必要时重新分配缓冲区
     if (requiredSize > maxPoints_ * 6) {
-        maxPoints_ = requiredSize * BUFFER_GROW_FACTOR;  // 成倍增长策略
+        maxPoints_ = static_cast<int>(requiredSize * BUFFER_GROW_FACTOR);  // 成倍增长策略
         glBindBuffer(GL_ARRAY_BUFFER, VBO_);
         glBufferData(GL_ARRAY_BUFFER, maxPoints_ * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
         vertexCache_.reserve(maxPoints_);
@@ -126,17 +129,10 @@ void DrawPointsProgram::draw(const RenderContext &context, const DrawPointsData 
     vertexCache_.clear();
     vertexCache_.reserve(requiredSize);
 
-    // 预计算屏幕转换因子
-    const float xFactor = 2.0f / context.getWidth();
-    const float yFactor = 2.0f / context.getHeight();
-
     // 批量处理顶点数据
     for (size_t i = 0; i < data.points.size(); i += 2) {
-        float x = data.points[i] * xFactor - 1.0f;
-        float y = 1.0f - data.points[i + 1] * yFactor;
-        
-        vertexCache_.push_back(x);
-        vertexCache_.push_back(y);
+        vertexCache_.push_back(data.points[i]);
+        vertexCache_.push_back(data.points[i + 1]);
         vertexCache_.push_back(data.color[0]);
         vertexCache_.push_back(data.color[1]);
         vertexCache_.push_back(data.color[2]);
@@ -146,10 +142,13 @@ void DrawPointsProgram::draw(const RenderContext &context, const DrawPointsData 
     glEnable(GL_PROGRAM_POINT_SIZE);
     program_->use();
     program_->setFloat("uPointSize", data.size);
+    glm::mat4 projection = glm::ortho(0.0f, static_cast<float>(context.getWidth()), static_cast<float>(context.getHeight()), 0.0f);
+    program_->setMat4("uProjection", projection);
+    program_->setMat4("uTransform", data.transform);
 
     glBindVertexArray(VAO_);
     glBindBuffer(GL_ARRAY_BUFFER, VBO_);
     glBufferSubData(GL_ARRAY_BUFFER, 0, vertexCache_.size() * sizeof(float), vertexCache_.data());
-    glDrawArrays(GL_POINTS, 0, data.getPointCount());
+    glDrawArrays(GL_POINTS, 0, static_cast<GLsizei>(data.getPointCount()));
     glBindVertexArray(0);
 }
