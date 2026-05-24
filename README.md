@@ -95,7 +95,7 @@ class Canvas {
 
 ## Example
 
-Examples live under `example/` and are meant to show how the Canvas API can be used beyond isolated drawing primitives. The current repository includes gameplay-focused demos such as Tetris and Bubble Shooter, and more game/UI samples will continue to be added here as the project grows.
+Examples live under `example/` and are meant to show how the Canvas API can be used beyond isolated drawing primitives. The current repository includes gameplay-focused demos such as Tetris, Racer, and Bubble Shooter, and more game/UI samples will continue to be added here as the project grows.
 
 ### Tetris
 
@@ -103,17 +103,13 @@ The Tetris example is under [example/game/tetris](example/game/tetris). It uses 
 
 ![Tetris example built with PrismCanvas](images/tetris.jpg)
 
-Run it from the example directory:
 
-```bat
-cd example\game\tetris
-build.bat
-```
+### Racer
 
-```bash
-cd example/game/tetris
-./build.sh
-```
+The Racer example is under [example/game/racer](example/game/racer). It uses PrismCanvas to render a vertically scrolling road, clipped traffic/fuel pickups, a side speed meter, and an arcade HUD. Traffic spawning now enforces larger vertical spacing between lanes and keeps a final escape lane around the player to avoid unavoidable collisions.
+
+![Racer example built with PrismCanvas](images/racer.png)
+
 
 ### Bubble Shooter
 
@@ -123,15 +119,6 @@ The Bubble Shooter example is under [example/game/bubble_shooter](example/game/b
 
 Run it from the example directory:
 
-```bat
-cd example\game\bubble_shooter
-build.bat
-```
-
-```bash
-cd example/game/bubble_shooter
-./build.sh
-```
 
 ## Requirements
 
@@ -197,6 +184,8 @@ CPPDEMO_EXIT_AFTER_FIRST_FRAME=1 ./build/PrismCanvasDemo
 CPPDEMO_FIXED_TIME_SECONDS=1.25 ./build/PrismCanvasDemo
 CPPDEMO_DISABLE_MSAA=1 ./build/PrismCanvasDemo
 ```
+
+The Racer example also recognizes `CPPDEMO_CAPTURE_PPM`, `CPPDEMO_EXIT_AFTER_FIRST_FRAME`, `CPPDEMO_FIXED_TIME_SECONDS`, and `CPPDEMO_DISABLE_MSAA`, so one-frame captures can be scripted into `images/` when updating docs.
 
 Pixel hashes are exact and can vary by GPU, driver, MSAA behavior, and platform. Treat them as a fast local regression aid rather than a portable golden image format.
 

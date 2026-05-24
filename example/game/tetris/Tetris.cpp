@@ -18,9 +18,9 @@
 constexpr int COLS = 10;
 constexpr int ROWS = 20;
 constexpr int CELL = 30;
-constexpr int GRID_X = 30;
+constexpr int GRID_X = 42;
 constexpr int GRID_Y = 40;
-constexpr int SIDE_X = GRID_X + COLS * CELL + 42;
+constexpr int SIDE_X = GRID_X + COLS * CELL + 70;
 constexpr int DESIGN_W = SIDE_X + 220;
 constexpr int DESIGN_H = GRID_Y + ROWS * CELL + 30;
 constexpr int DROP_INTERVAL_MS = 800;

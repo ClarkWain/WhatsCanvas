@@ -1483,9 +1483,13 @@ HFONT createNativeFont(const Paint &paint)
     }
 
     const int pixelHeight = -std::max(1, static_cast<int>(std::round(paint.getTextSize())));
+    DWORD renderQuality = CLEARTYPE_QUALITY;
+#ifdef CLEARTYPE_NATURAL_QUALITY
+    renderQuality = CLEARTYPE_NATURAL_QUALITY;
+#endif
     return CreateFontW(pixelHeight, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                       ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE, family.c_str());
+                       renderQuality, DEFAULT_PITCH | FF_DONTCARE, family.c_str());
 }
 
 NativeTextMeasure measureNativeText(const std::string &text, const Paint &paint)
