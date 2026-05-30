@@ -1261,6 +1261,7 @@ int main() {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_SAMPLES, disableMsaa ? 0 : 4);
+    glfwWindowHint(GLFW_STENCIL_BITS, 8);
 
     GLFWwindow* window = glfwCreateWindow(DESIGN_W, DESIGN_H, "Racer", nullptr, nullptr);
     if (!window) {
@@ -1293,7 +1294,6 @@ int main() {
         glEnable(GL_MULTISAMPLE);
     }
 
-    Canvas::initialize();
     Canvas canvas;
     canvas.setSize(fbw, fbh);
 
@@ -1350,7 +1350,7 @@ int main() {
         glfwPollEvents();
     }
 
-    Canvas::finalize();
+    canvas.shutdown();
     glfwDestroyWindow(window);
     glfwTerminate();
 

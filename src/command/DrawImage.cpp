@@ -121,7 +121,7 @@ void DrawImageProgram::draw(const RenderContext &context, const DrawImageData &d
         return;
     }
 
-    if (data.textureID == 0 || data.width <= 0.0f || data.height <= 0.0f) {
+    if (!data.imageResource || !data.imageResource->isValid() || data.width <= 0.0f || data.height <= 0.0f) {
         return;
     }
 
@@ -166,26 +166,7 @@ void DrawImageProgram::draw(const RenderContext &context, const DrawImageData &d
     program_->setInt("uTileMode", tileMode);
     program_->setInt("uTexture", 0);
 
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, data.textureID);
-    const GLint textureWrap = data.tileMode == DrawImageTileMode::Repeat
-        ? GL_REPEAT
-        : (data.tileMode == DrawImageTileMode::Mirror ? GL_MIRRORED_REPEAT : GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, textureWrap);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, textureWrap);
-    if (data.sampling == DrawImageSampling::Nearest) {
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    } else if (data.sampling == DrawImageSampling::MipmapLinear) {
-        if (!data.mipmapsReady) {
-            glGenerateMipmap(GL_TEXTURE_2D);
-        }
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    } else {
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    }
+    context.bindImageResource(data.imageResource, data.sampling, data.tileMode, data.mipmapsReady);
 
     glBindVertexArray(VAO_);
     glBindBuffer(GL_ARRAY_BUFFER, VBO_);

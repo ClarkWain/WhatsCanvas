@@ -1141,6 +1141,7 @@ int main()
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_SAMPLES, 4);
+    glfwWindowHint(GLFW_STENCIL_BITS, 8);
 
     GLFWwindow *window = glfwCreateWindow(DESIGN_W, DESIGN_H, "Bubble Shooter", nullptr, nullptr);
     if (window == nullptr) {
@@ -1172,7 +1173,6 @@ int main()
     glViewport(0, 0, framebufferWidth, framebufferHeight);
     glEnable(GL_MULTISAMPLE);
 
-    Canvas::initialize();
     Canvas canvas;
     canvas.setSize(framebufferWidth, framebufferHeight);
 
@@ -1204,7 +1204,7 @@ int main()
         glfwPollEvents();
     }
 
-    Canvas::finalize();
+    canvas.shutdown();
     glfwDestroyWindow(window);
     glfwTerminate();
 

@@ -1,44 +1,7 @@
 #pragma once
 #include <vector>
 #include <glm.hpp>
-
-struct ScissorState {
-    bool enabled = false;
-    int x = 0;
-    int y = 0;
-    int width = 0;
-    int height = 0;
-};
-
-enum class DrawBlendMode {
-    SrcOver,
-    Src,
-    Dst,
-    Clear,
-    SrcIn,
-    DstIn,
-    SrcOut,
-    DstOut,
-    SrcAtop,
-    DstAtop,
-    Xor,
-    Add,
-    Multiply,
-    Screen
-};
-
-enum class DrawImageSampling {
-    Linear,
-    Nearest,
-    MipmapLinear
-};
-
-enum class DrawImageTileMode {
-    Clamp,
-    Repeat,
-    Mirror,
-    Decal
-};
+#include "render/RenderTypes.h"
 
 struct DrawPointsData {
     std::vector<float> points;  // 每个点包含x,y坐标
@@ -47,6 +10,7 @@ struct DrawPointsData {
     glm::mat4 transform = glm::mat4(1.0f);
     ScissorState scissor;
     DrawBlendMode blendMode = DrawBlendMode::SrcOver;
+    ClipMaskState clipMask;
     size_t getPointCount() const { return points.size() / 2; }
 };
 
@@ -58,6 +22,7 @@ struct DrawLinesData {
     glm::mat4 transform = glm::mat4(1.0f);
     ScissorState scissor;
     DrawBlendMode blendMode = DrawBlendMode::SrcOver;
+    ClipMaskState clipMask;
     size_t getLineCount() const { return points.size() / 4; }
 };
 
@@ -83,13 +48,13 @@ struct DrawPathData {
     glm::mat4 transform = glm::mat4(1.0f);
     ScissorState scissor;
     DrawBlendMode blendMode = DrawBlendMode::SrcOver;
+    ClipMaskState clipMask;
     size_t getPointCount() const { return points.size() / 2; }
     bool hasVertexColors() const { return colors.size() == getPointCount() * 4; }
 };
 
 struct DrawImageData {
-    unsigned int textureID = 0;
-    bool ownsTexture = false;
+    SharedImageResource imageResource;
     float x = 0.0f;
     float y = 0.0f;
     float width = 0.0f;
@@ -114,6 +79,7 @@ struct DrawImageData {
     glm::mat4 transform = glm::mat4(1.0f);
     ScissorState scissor;
     DrawBlendMode blendMode = DrawBlendMode::SrcOver;
+    ClipMaskState clipMask;
 };
 
 struct DrawTextData {
@@ -122,5 +88,6 @@ struct DrawTextData {
     glm::mat4 transform = glm::mat4(1.0f);
     ScissorState scissor;
     DrawBlendMode blendMode = DrawBlendMode::SrcOver;
+    ClipMaskState clipMask;
     size_t getVertexCount() const { return vertices.size() / 2; }
 };

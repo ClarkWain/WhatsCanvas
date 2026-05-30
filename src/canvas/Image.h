@@ -1,7 +1,9 @@
 #pragma once
 
-#include <glad/glad.h>
-#include <GLFW/glfw3.h>
+#include <memory>
+
+class IRenderer;
+class ImageResource;
 
 class Image
 {
@@ -9,9 +11,12 @@ public:
     Image();
     ~Image();
 
-    bool load(const char *imagePath);
+    Image(const Image &) = delete;
+    Image &operator=(const Image &) = delete;
+    Image(Image &&other) noexcept;
+    Image &operator=(Image &&other) noexcept;
 
-    GLuint getTextureID() const { return textureID_; }
+    bool load(IRenderer &renderer, const char *imagePath);
 
     int getWidth() const { return width_; }
 
@@ -20,7 +25,15 @@ public:
     bool hasMipmaps() const { return mipmapsGenerated_; }
 
 private:
-    GLuint textureID_;
-    int width_, height_;
+    struct Storage;
+
+    friend class Canvas;
+
+    std::shared_ptr<ImageResource> getImageResource() const;
+    void reset();
+
+    std::unique_ptr<Storage> storage_;
+    int width_ = 0;
+    int height_ = 0;
     bool mipmapsGenerated_ = false;
 };

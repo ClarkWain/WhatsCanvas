@@ -3,35 +3,40 @@
 #include <vector>
 #include <memory>
 
+#include "IRenderDevice.h"
+#include "IRenderer.h"
 #include "RenderContext.h"
-#include "command/DrawCommand.h"
 
-class Renderer
+class Renderer : public IRenderer
 {
 public:
     static void initialize();
     static void finalize();
 
 public:
-    Renderer() = default;
-    ~Renderer() = default;
+    Renderer();
+    explicit Renderer(std::unique_ptr<IRenderDevice> device);
+    ~Renderer() override;
 
-    void setViewport(int width, int height)
+    void initializeBackend() override;
+    void finalizeBackend() override;
+
+    void setViewport(int width, int height) override
     {
         context_.setSize(width, height);
     }
 
-    void submit(std::unique_ptr<Command> &&command)
+    void submit(std::unique_ptr<Command> &&command) override
     {
         commands_.push_back(std::move(command));
     }
 
-    size_t commandCount() const
+    size_t commandCount() const override
     {
         return commands_.size();
     }
 
-    std::vector<std::unique_ptr<Command>> takeCommandsFrom(size_t index)
+    std::vector<std::unique_ptr<Command>> takeCommandsFrom(size_t index) override
     {
         std::vector<std::unique_ptr<Command>> taken;
         if (index >= commands_.size()) {
@@ -46,19 +51,28 @@ public:
         return taken;
     }
 
-    void appendCommands(std::vector<std::unique_ptr<Command>> &&commands)
+    void appendCommands(std::vector<std::unique_ptr<Command>> &&commands) override
     {
         for (auto &command : commands) {
             commands_.push_back(std::move(command));
         }
     }
 
-    void clear()
+    bool readPixelsRGBA(std::vector<unsigned char> &pixels) const override;
+    SharedClipMaskResource createClipMaskResource(const ClipMaskPath &maskPath) const override;
+    SharedImageResource createImageResourceRGBA(int width, int height, const std::vector<unsigned char> &pixels) const override;
+    SharedImageResource createImageResourceFromImageData(int width, int height, int channels,
+                                                         const unsigned char *pixels, bool generateMipmaps) const override;
+    SharedImageResource renderCommandsToImageResource(const std::vector<std::unique_ptr<Command>> &commands,
+                                                      const OffscreenRenderRequest &request) const override;
+    void resetRenderState() override;
+
+    void clear() override
     {
         commands_.clear();
     }
     
-    void flush()
+    void flush() override
     {
         for (const auto &command : commands_)
             command->execute(context_);
@@ -66,5 +80,7 @@ public:
 
 private:
     std::vector<std::unique_ptr<Command>> commands_;
+    std::unique_ptr<IRenderDevice> device_;
     RenderContext context_;
+    bool backendInitialized_ = false;
 };

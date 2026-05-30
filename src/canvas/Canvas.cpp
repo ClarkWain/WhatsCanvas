@@ -10,22 +10,14 @@
 #include <memory>
 #include <vector>
 
-#ifdef _WIN32
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#include <windows.h>
-#ifdef WINDING
-#undef WINDING
-#endif
-#endif
-
 #include "Canvas.h"
 #include "Paint.h"
 #include "Path.h"
+#include "render/Renderer.h"
+#include "text/BasicTextBackend.h"
+#include "text/ITextBackend.h"
+#include "text/NativeText.h"
+#include "text/TextUtils.h"
 #include "command/DrawData.h"
 #include "command/DrawCommand.h"
 #include "Polyline2D.h"
@@ -33,7 +25,30 @@
 #include "stb_easy_font.h"
 
 namespace {
+std::vector<Canvas *> &registeredCanvases()
+{
+    static std::vector<Canvas *> canvases;
+    return canvases;
+}
+
+void registerCanvasInstance(Canvas *canvas)
+{
+    auto &canvases = registeredCanvases();
+    if (std::find(canvases.begin(), canvases.end(), canvas) == canvases.end()) {
+        canvases.push_back(canvas);
+    }
+}
+
+void unregisterCanvasInstance(Canvas *canvas)
+{
+    auto &canvases = registeredCanvases();
+    canvases.erase(std::remove(canvases.begin(), canvases.end(), canvas), canvases.end());
+}
+
 constexpr float kPointEpsilon = 0.0001f;
+constexpr std::uint64_t kFnvOffsetBasis = 1469598103934665603ull;
+constexpr std::uint64_t kFnvPrime = 1099511628211ull;
+constexpr std::size_t kMaxClipMaskPathCount = 255u;
 
 struct ShadowPass {
     glm::mat4 transform = glm::mat4(1.0f);
@@ -44,6 +59,11 @@ struct PathContour {
     std::vector<crushedpixel::Vec2> points;
     bool closed = false;
 };
+
+std::vector<float> flattenPoints(const std::vector<crushedpixel::Vec2> &points);
+std::vector<PathContour> extractContours(const Path &path);
+std::vector<crushedpixel::Vec2> triangulateContours(const std::vector<PathContour> &contours,
+                                                    Path::FillType fillType);
 
 PathDrawMode toPathDrawMode(Paint::Style style)
 {
@@ -211,9 +231,9 @@ void applyImageColorMatrix(const Paint &paint, DrawImageData &data)
 
 DrawPathData makeDrawPathData(const std::vector<float> &points, float width, const Color &color,
                               PathDrawMode mode, const glm::mat4 &transform, const ScissorState &scissor,
-                              DrawBlendMode blendMode)
+                              DrawBlendMode blendMode, const ClipMaskState &clipMask = {})
 {
-    return DrawPathData{
+    DrawPathData data{
         points,
         {},
         width,
@@ -224,6 +244,8 @@ DrawPathData makeDrawPathData(const std::vector<float> &points, float width, con
         scissor,
         blendMode
     };
+    data.clipMask = clipMask;
+    return data;
 }
 
 bool isFinitePoint(float x, float y)
@@ -325,6 +347,114 @@ bool transformPoint(const glm::mat4 &matrix, const PointF &point, PointF &mapped
     return true;
 }
 
+bool pointInClipPath(const ClipPathState &clipPath, const PointF &devicePoint)
+{
+    const float determinant = glm::determinant(clipPath.transform);
+    if (!std::isfinite(determinant) || std::abs(determinant) <= kPointEpsilon) {
+        return false;
+    }
+
+    PointF localPoint;
+    return transformPoint(glm::inverse(clipPath.transform), devicePoint, localPoint)
+        && clipPath.path.contains(localPoint);
+}
+
+bool tryResolveAxisAlignedRectClip(const Path &path, const glm::mat4 &transform, RectF &deviceRect)
+{
+    const auto &points = path.getPoints();
+    if (points.size() != 5
+        || points[0].op != Path::Op::MOVE_TO
+        || points[1].op != Path::Op::LINE_TO
+        || points[2].op != Path::Op::LINE_TO
+        || points[3].op != Path::Op::LINE_TO
+        || points[4].op != Path::Op::CLOSE) {
+        return false;
+    }
+
+    const PointF corners[4] = {
+        points[0].point,
+        points[1].point,
+        points[2].point,
+        points[3].point
+    };
+
+    const auto nearlyEqual = [](float a, float b) {
+        return std::abs(a - b) <= kPointEpsilon;
+    };
+
+    if (!nearlyEqual(corners[0].getY(), corners[1].getY())
+        || !nearlyEqual(corners[1].getX(), corners[2].getX())
+        || !nearlyEqual(corners[2].getY(), corners[3].getY())
+        || !nearlyEqual(corners[3].getX(), corners[0].getX())
+        || nearlyEqual(corners[0].getX(), corners[1].getX())
+        || nearlyEqual(corners[1].getY(), corners[2].getY())) {
+        return false;
+    }
+
+    PointF transformed[4];
+    for (size_t index = 0; index < 4; ++index) {
+        if (!transformPoint(transform, corners[index], transformed[index])) {
+            return false;
+        }
+    }
+
+    float minX = transformed[0].getX();
+    float maxX = transformed[0].getX();
+    float minY = transformed[0].getY();
+    float maxY = transformed[0].getY();
+    for (size_t index = 1; index < 4; ++index) {
+        minX = std::min(minX, transformed[index].getX());
+        maxX = std::max(maxX, transformed[index].getX());
+        minY = std::min(minY, transformed[index].getY());
+        maxY = std::max(maxY, transformed[index].getY());
+    }
+
+    if (nearlyEqual(minX, maxX) || nearlyEqual(minY, maxY)) {
+        return false;
+    }
+
+    for (const auto &point : transformed) {
+        const bool xOnEdge = nearlyEqual(point.getX(), minX) || nearlyEqual(point.getX(), maxX);
+        const bool yOnEdge = nearlyEqual(point.getY(), minY) || nearlyEqual(point.getY(), maxY);
+        if (!xOnEdge || !yOnEdge) {
+            return false;
+        }
+    }
+
+    deviceRect = RectF(minX, minY, maxX - minX, maxY - minY);
+    return true;
+}
+
+bool buildClipMaskPath(const Path &path, const glm::mat4 &transform, ClipMaskPath &maskPath)
+{
+    const auto contours = extractContours(path);
+    if (contours.empty()) {
+        return false;
+    }
+
+    const auto fillTriangles = triangulateContours(contours, path.getFillType());
+    if (fillTriangles.empty()) {
+        return false;
+    }
+
+    maskPath.points = flattenPoints(fillTriangles);
+    maskPath.transform = transform;
+    return true;
+}
+
+void hashUint64(std::uint64_t &hash, std::uint64_t value)
+{
+    hash ^= value;
+    hash *= kFnvPrime;
+}
+
+void hashFloat(std::uint64_t &hash, float value)
+{
+    std::uint32_t bits = 0;
+    std::memcpy(&bits, &value, sizeof(bits));
+    hashUint64(hash, bits);
+}
+
 RectF clampSourceRect(const RectF &src, int imageWidth, int imageHeight)
 {
     RectF normalized = normalizeRect(src);
@@ -421,74 +551,6 @@ void addArc(Path &path, const RectF &bounds, float startRadians, float sweepRadi
     }
 }
 
-void executeCommandList(const std::vector<std::unique_ptr<Command>> &commands, int width, int height,
-                        int scissorOffsetX = 0, int scissorOffsetY = 0)
-{
-    RenderContext context;
-    context.setSize(width, height);
-    context.setScissorOffset(scissorOffsetX, scissorOffsetY);
-    for (const auto &command : commands) {
-        command->execute(context);
-    }
-}
-
-bool createLayerTarget(int width, int height, unsigned int &framebuffer, unsigned int &texture)
-{
-    framebuffer = 0;
-    texture = 0;
-    if (width <= 0 || height <= 0) {
-        return false;
-    }
-
-    glGenTextures(1, &texture);
-    glBindTexture(GL_TEXTURE_2D, texture);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-
-    glGenFramebuffers(1, &framebuffer);
-    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
-
-    const bool complete = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
-    if (!complete) {
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        glDeleteFramebuffers(1, &framebuffer);
-        glDeleteTextures(1, &texture);
-        framebuffer = 0;
-        texture = 0;
-        return false;
-    }
-
-    return true;
-}
-unsigned int createRgbaTexture(int width, int height, const std::vector<unsigned char> &pixels)
-{
-    if (width <= 0 || height <= 0 || pixels.size() < static_cast<size_t>(width) * static_cast<size_t>(height) * 4) {
-        return 0;
-    }
-
-    GLint previousTexture = 0;
-    GLint previousUnpackAlignment = 4;
-    glGetIntegerv(GL_TEXTURE_BINDING_2D, &previousTexture);
-    glGetIntegerv(GL_UNPACK_ALIGNMENT, &previousUnpackAlignment);
-
-    unsigned int texture = 0;
-    glGenTextures(1, &texture);
-    glBindTexture(GL_TEXTURE_2D, texture);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
-
-    glPixelStorei(GL_UNPACK_ALIGNMENT, previousUnpackAlignment);
-    glBindTexture(GL_TEXTURE_2D, static_cast<unsigned int>(previousTexture));
-    return texture;
-}
 ScissorState makeScissorForRect(const RectF &rect, int canvasWidth, int canvasHeight)
 {
     ScissorState scissor;
@@ -1241,16 +1303,16 @@ std::vector<std::vector<crushedpixel::Vec2>> buildDashedPolylines(const std::vec
     return dashes;
 }
 
-void submitStrokeMesh(Renderer &renderer, const std::vector<crushedpixel::Vec2> &points,
+void submitStrokeMesh(IRenderer &renderer, const std::vector<crushedpixel::Vec2> &points,
                       bool closed, const Paint &paint, const glm::mat4 &transform,
-                      const ScissorState &scissor)
+                      const ScissorState &scissor, const ClipMaskState &clipMask = {})
 {
     if (paint.hasDashPathEffect()) {
         Paint dashPaint = paint;
         dashPaint.clearDashPathEffect();
         const auto dashes = buildDashedPolylines(points, closed, paint.getDashIntervals(), paint.getDashPhase());
         for (const auto &dash : dashes) {
-            submitStrokeMesh(renderer, dash, false, dashPaint, transform, scissor);
+            submitStrokeMesh(renderer, dash, false, dashPaint, transform, scissor, clipMask);
         }
         return;
     }
@@ -1262,7 +1324,7 @@ void submitStrokeMesh(Renderer &renderer, const std::vector<crushedpixel::Vec2> 
 
     DrawPathData strokeData = makeDrawPathData(flattenPoints(strokeMesh), paint.getStrokeWidth(),
                                                applyPaintAlpha(paint, paint.getStrokeColor()), PathDrawMode::Stroke,
-                                               transform, scissor, toDrawBlendMode(paint.getBlendMode()));
+                                               transform, scissor, toDrawBlendMode(paint.getBlendMode()), clipMask);
     renderer.submit(std::make_unique<DrawPathCommand>(strokeData));
 }
 
@@ -1430,219 +1492,83 @@ std::vector<float> buildTextVertices(const std::string &asciiText, float x, floa
 
     return vertices;
 }
-#ifdef _WIN32
-struct NativeTextMeasure
-{
-    bool valid = false;
-    float width = 0.0f;
-    float height = 0.0f;
-    int pixelWidth = 0;
-    int pixelHeight = 0;
-};
-
-struct NativeTextBitmap
-{
-    int width = 0;
-    int height = 0;
-    std::vector<unsigned char> pixels;
-};
-
-std::wstring toWideString(const std::string &value)
-{
-    if (value.empty()) {
-        return {};
-    }
-
-    int codePage = CP_UTF8;
-    int flags = MB_ERR_INVALID_CHARS;
-    int count = MultiByteToWideChar(codePage, flags, value.c_str(), -1, nullptr, 0);
-    if (count <= 0) {
-        codePage = CP_ACP;
-        flags = 0;
-        count = MultiByteToWideChar(codePage, flags, value.c_str(), -1, nullptr, 0);
-    }
-    if (count <= 0) {
-        return {};
-    }
-
-    std::wstring wide(static_cast<size_t>(count), L'\0');
-    if (MultiByteToWideChar(codePage, flags, value.c_str(), -1, wide.data(), count) <= 0) {
-        return {};
-    }
-    if (!wide.empty() && wide.back() == L'\0') {
-        wide.pop_back();
-    }
-    return wide;
 }
 
-HFONT createNativeFont(const Paint &paint)
+Canvas::Canvas()
+    : Canvas(std::make_unique<Renderer>(), prismcanvas::text::createBasicTextBackend())
 {
-    const std::wstring family = toWideString(paint.getFontFamily());
-    if (family.empty() || paint.getTextSize() <= 0.0f) {
-        return nullptr;
-    }
-
-    const int pixelHeight = -std::max(1, static_cast<int>(std::round(paint.getTextSize())));
-    DWORD renderQuality = CLEARTYPE_QUALITY;
-#ifdef CLEARTYPE_NATURAL_QUALITY
-    renderQuality = CLEARTYPE_NATURAL_QUALITY;
-#endif
-    return CreateFontW(pixelHeight, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-                       DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                       renderQuality, DEFAULT_PITCH | FF_DONTCARE, family.c_str());
 }
 
-NativeTextMeasure measureNativeText(const std::string &text, const Paint &paint)
+Canvas::Canvas(std::unique_ptr<IRenderer> renderer)
+    : Canvas(std::move(renderer), prismcanvas::text::createBasicTextBackend())
 {
-    NativeTextMeasure result;
-    if (!paint.hasFontFamily() || text.empty() || paint.getTextSize() <= 0.0f) {
-        return result;
-    }
-
-    const std::wstring wideText = toWideString(text);
-    if (wideText.empty()) {
-        return result;
-    }
-
-    HDC dc = CreateCompatibleDC(nullptr);
-    HFONT font = createNativeFont(paint);
-    if (dc == nullptr || font == nullptr) {
-        if (font != nullptr) {
-            DeleteObject(font);
-        }
-        if (dc != nullptr) {
-            DeleteDC(dc);
-        }
-        return result;
-    }
-
-    HGDIOBJ previousFont = SelectObject(dc, font);
-    TEXTMETRICW textMetric = {};
-    SIZE size = {0, 0};
-    const bool hasMetrics = GetTextMetricsW(dc, &textMetric) != FALSE;
-    const bool hasExtent = GetTextExtentPoint32W(dc, wideText.c_str(), static_cast<int>(wideText.size()), &size) != FALSE;
-    SelectObject(dc, previousFont);
-    DeleteObject(font);
-    DeleteDC(dc);
-    if (!hasMetrics || !hasExtent) {
-        return result;
-    }
-
-    const float letterSpacing = std::isfinite(paint.getLetterSpacing()) ? paint.getLetterSpacing() : 0.0f;
-    const float spacingWidth = wideText.size() > 1 ? letterSpacing * static_cast<float>(wideText.size() - 1) : 0.0f;
-    const float width = std::max(1.0f, static_cast<float>(size.cx) + spacingWidth);
-    const float height = std::max(1.0f, static_cast<float>(textMetric.tmHeight));
-    result.valid = true;
-    result.pixelWidth = std::max(1, static_cast<int>(std::ceil(width)));
-    result.pixelHeight = std::max(1, static_cast<int>(std::ceil(height)));
-    result.width = static_cast<float>(result.pixelWidth);
-    result.height = static_cast<float>(result.pixelHeight);
-    return result;
 }
 
-NativeTextBitmap renderNativeTextBitmap(const std::string &text, const Paint &paint, const NativeTextMeasure &measure)
+Canvas::Canvas(std::unique_ptr<IRenderer> renderer, std::unique_ptr<prismcanvas::text::ITextBackend> textBackend)
+    : renderer_(std::move(renderer)),
+      textBackend_(std::move(textBackend))
 {
-    NativeTextBitmap bitmap;
-    if (!measure.valid || measure.pixelWidth <= 0 || measure.pixelHeight <= 0) {
-        return bitmap;
-    }
-
-    const std::wstring wideText = toWideString(text);
-    if (wideText.empty()) {
-        return bitmap;
-    }
-
-    HDC dc = CreateCompatibleDC(nullptr);
-    HFONT font = createNativeFont(paint);
-    if (dc == nullptr || font == nullptr) {
-        if (font != nullptr) {
-            DeleteObject(font);
-        }
-        if (dc != nullptr) {
-            DeleteDC(dc);
-        }
-        return bitmap;
-    }
-
-    BITMAPINFO bitmapInfo = {};
-    bitmapInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    bitmapInfo.bmiHeader.biWidth = measure.pixelWidth;
-    bitmapInfo.bmiHeader.biHeight = -measure.pixelHeight;
-    bitmapInfo.bmiHeader.biPlanes = 1;
-    bitmapInfo.bmiHeader.biBitCount = 32;
-    bitmapInfo.bmiHeader.biCompression = BI_RGB;
-
-    void *bits = nullptr;
-    HBITMAP dib = CreateDIBSection(dc, &bitmapInfo, DIB_RGB_COLORS, &bits, nullptr, 0);
-    if (dib == nullptr || bits == nullptr) {
-        if (dib != nullptr) {
-            DeleteObject(dib);
-        }
-        DeleteObject(font);
-        DeleteDC(dc);
-        return bitmap;
-    }
-
-    std::memset(bits, 0, static_cast<size_t>(measure.pixelWidth) * static_cast<size_t>(measure.pixelHeight) * 4);
-    HGDIOBJ previousBitmap = SelectObject(dc, dib);
-    HGDIOBJ previousFont = SelectObject(dc, font);
-    SetBkMode(dc, TRANSPARENT);
-    SetTextColor(dc, RGB(255, 255, 255));
-    SetTextAlign(dc, TA_LEFT | TA_TOP | TA_NOUPDATECP);
-
-    const float letterSpacing = std::isfinite(paint.getLetterSpacing()) ? paint.getLetterSpacing() : 0.0f;
-    if (std::abs(letterSpacing) <= kPointEpsilon) {
-        TextOutW(dc, 0, 0, wideText.c_str(), static_cast<int>(wideText.size()));
-    } else {
-        float cursorX = 0.0f;
-        for (wchar_t character : wideText) {
-            TextOutW(dc, static_cast<int>(std::round(cursorX)), 0, &character, 1);
-            SIZE glyphSize = {0, 0};
-            GetTextExtentPoint32W(dc, &character, 1, &glyphSize);
-            cursorX += static_cast<float>(glyphSize.cx) + letterSpacing;
-        }
-    }
-
-    bitmap.width = measure.pixelWidth;
-    bitmap.height = measure.pixelHeight;
-    bitmap.pixels.resize(static_cast<size_t>(bitmap.width) * static_cast<size_t>(bitmap.height) * 4);
-    const unsigned char *src = static_cast<const unsigned char *>(bits);
-    for (size_t i = 0; i < static_cast<size_t>(bitmap.width) * static_cast<size_t>(bitmap.height); ++i) {
-        const unsigned char blue = src[i * 4 + 0];
-        const unsigned char green = src[i * 4 + 1];
-        const unsigned char red = src[i * 4 + 2];
-        const unsigned char alpha = std::max(red, std::max(green, blue));
-        bitmap.pixels[i * 4 + 0] = 255;
-        bitmap.pixels[i * 4 + 1] = 255;
-        bitmap.pixels[i * 4 + 2] = 255;
-        bitmap.pixels[i * 4 + 3] = alpha;
-    }
-
-    SelectObject(dc, previousFont);
-    SelectObject(dc, previousBitmap);
-    DeleteObject(dib);
-    DeleteObject(font);
-    DeleteDC(dc);
-    return bitmap;
+    registerCanvasInstance(this);
 }
-#endif
+
+Canvas::~Canvas()
+{
+    finalizeRenderer();
+    unregisterCanvasInstance(this);
 }
 
 void Canvas::initialize()
 {
-    Renderer::initialize();
+    for (Canvas *canvas : registeredCanvases()) {
+        if (canvas != nullptr) {
+            canvas->ensureRendererInitialized();
+        }
+    }
 }
 
 void Canvas::finalize()
 {
-    Renderer::finalize();
+    for (Canvas *canvas : registeredCanvases()) {
+        if (canvas != nullptr) {
+            canvas->finalizeRenderer();
+        }
+    }
+}
+
+bool Canvas::ensureRendererInitialized()
+{
+    if (renderer_ == nullptr) {
+        return false;
+    }
+
+    if (!rendererInitialized_) {
+        renderer_->initializeBackend();
+        rendererInitialized_ = true;
+        if (width_ > 0 && height_ > 0) {
+            renderer_->setViewport(width_, height_);
+        }
+    }
+
+    return true;
+}
+
+void Canvas::finalizeRenderer()
+{
+    if (renderer_ == nullptr || !rendererInitialized_) {
+        return;
+    }
+
+    renderer_->finalizeBackend();
+    rendererInitialized_ = false;
 }
 
 void Canvas::setSize(int width, int height)
 {
     width_ = width;
     height_ = height;
-    renderer_.setViewport(width, height);
+    if (ensureRendererInitialized()) {
+        renderer_->setViewport(width, height);
+    }
 }
 
 void Canvas::drawColor(const Color &color)
@@ -1662,10 +1588,10 @@ void Canvas::drawPaint(const Paint &paint)
     Paint fillPaint = paint;
     fillPaint.setStyle(Paint::Style::FILL);
 
-    CanvasState savedState = currentState_;
-    currentState_.matrix = glm::mat4(1.0f);
+    GraphicsState savedState = currentState();
+    currentState().matrix = glm::mat4(1.0f);
     drawRect(RectF(0.0f, 0.0f, static_cast<float>(width_), static_cast<float>(height_)), fillPaint);
-    currentState_ = savedState;
+    currentState() = savedState;
 }
 
 void Canvas::drawPoint(int x, int y, const Paint &paint)
@@ -1685,11 +1611,12 @@ void Canvas::drawPoint(float x, float y, const Paint &paint)
         pts,
         paint.getStrokeWidth(),
         {color.r(), color.g(), color.b(), color.a()},
-        currentState_.matrix,
+        currentState().matrix,
         makeCurrentScissorState()
     };
     data.blendMode = toDrawBlendMode(paint.getBlendMode());
-    renderer_.submit(std::make_unique<DrawPointsCommand>(data));
+    data.clipMask = makeCurrentClipMaskState();
+    renderer_->submit(std::make_unique<DrawPointsCommand>(data));
 }
 
 void Canvas::drawPoint(const Point &point, const Paint &paint)
@@ -1714,11 +1641,12 @@ void Canvas::drawPoints(const std::vector<Point> &points, const Paint &paint) {
         pts,
         paint.getStrokeWidth(),
         {color.r(), color.g(), color.b(), color.a()},
-        currentState_.matrix,
+        currentState().matrix,
         makeCurrentScissorState()
     };
     data.blendMode = toDrawBlendMode(paint.getBlendMode());
-    renderer_.submit(std::make_unique<DrawPointsCommand>(data));
+    data.clipMask = makeCurrentClipMaskState();
+    renderer_->submit(std::make_unique<DrawPointsCommand>(data));
 }
 
 void Canvas::drawPoints(const std::vector<PointF> &points, const Paint &paint) {
@@ -1741,11 +1669,12 @@ void Canvas::drawPoints(const std::vector<PointF> &points, const Paint &paint) {
         pts,
         paint.getStrokeWidth(),
         {color.r(), color.g(), color.b(), color.a()},
-        currentState_.matrix,
+        currentState().matrix,
         makeCurrentScissorState()
     };
     data.blendMode = toDrawBlendMode(paint.getBlendMode());
-    renderer_.submit(std::make_unique<DrawPointsCommand>(data));
+    data.clipMask = makeCurrentClipMaskState();
+    renderer_->submit(std::make_unique<DrawPointsCommand>(data));
 }
 
 void Canvas::drawLine(int x1, int y1, int x2, int y2, const Paint &paint)
@@ -1759,7 +1688,8 @@ void Canvas::drawLine(float x1, float y1, float x2, float y2, const Paint &paint
     points.reserve(2);
     appendSafePoint(points, x1, y1);
     appendSafePoint(points, x2, y2);
-    submitStrokeMesh(renderer_, points, false, paint, currentState_.matrix, makeCurrentScissorState());
+    submitStrokeMesh(*renderer_, points, false, paint, currentState().matrix,
+                     makeCurrentScissorState(), makeCurrentClipMaskState());
 }
 
 void Canvas::drawLine(const Point &start, const Point &end, const Paint &paint)
@@ -1774,23 +1704,27 @@ void Canvas::drawLine(const PointF &start, const PointF &end, const Paint &paint
 
 void Canvas::drawLines(const std::vector<Point> &points, const Paint &paint)
 {
+    const ScissorState scissor = makeCurrentScissorState();
+    const ClipMaskState clipMask = makeCurrentClipMaskState();
     for (size_t i = 0; i + 1 < points.size(); i += 2) {
         std::vector<crushedpixel::Vec2> linePoints;
         linePoints.reserve(2);
         appendSafePoint(linePoints, static_cast<float>(points[i].getX()), static_cast<float>(points[i].getY()));
         appendSafePoint(linePoints, static_cast<float>(points[i + 1].getX()), static_cast<float>(points[i + 1].getY()));
-        submitStrokeMesh(renderer_, linePoints, false, paint, currentState_.matrix, makeCurrentScissorState());
+        submitStrokeMesh(*renderer_, linePoints, false, paint, currentState().matrix, scissor, clipMask);
     }
 }
 
 void Canvas::drawLines(const std::vector<PointF> &points, const Paint &paint)
 {
+    const ScissorState scissor = makeCurrentScissorState();
+    const ClipMaskState clipMask = makeCurrentClipMaskState();
     for (size_t i = 0; i + 1 < points.size(); i += 2) {
         std::vector<crushedpixel::Vec2> linePoints;
         linePoints.reserve(2);
         appendSafePoint(linePoints, points[i].getX(), points[i].getY());
         appendSafePoint(linePoints, points[i + 1].getX(), points[i + 1].getY());
-        submitStrokeMesh(renderer_, linePoints, false, paint, currentState_.matrix, makeCurrentScissorState());
+        submitStrokeMesh(*renderer_, linePoints, false, paint, currentState().matrix, scissor, clipMask);
     }
 }
 
@@ -2069,6 +2003,8 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
 
     const bool drawFill = paint.getStyle() == Paint::Style::FILL || paint.getStyle() == Paint::Style::FILL_AND_STROKE;
     const bool drawStroke = paint.getStyle() == Paint::Style::STROKE || paint.getStyle() == Paint::Style::FILL_AND_STROKE;
+    const ScissorState scissor = makeCurrentScissorState();
+    const ClipMaskState clipMask = makeCurrentClipMaskState();
 
     std::vector<crushedpixel::Vec2> fillTriangles;
     if (drawFill) {
@@ -2076,15 +2012,14 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
     }
 
     if (paint.hasShadowLayer()) {
-        const auto shadowPasses = buildShadowPasses(paint, currentState_.matrix);
-        const ScissorState scissor = makeCurrentScissorState();
+        const auto shadowPasses = buildShadowPasses(paint, currentState().matrix);
         for (const auto &shadowPass : shadowPasses) {
             if (drawFill && !fillTriangles.empty()) {
                 DrawPathData shadowFillData = makeDrawPathData(flattenPoints(fillTriangles), paint.getStrokeWidth(),
                                                                shadowPass.color, PathDrawMode::Fill,
                                                                shadowPass.transform, scissor,
-                                                               toDrawBlendMode(paint.getBlendMode()));
-                renderer_.submit(std::make_unique<DrawPathCommand>(shadowFillData));
+                                                               toDrawBlendMode(paint.getBlendMode()), clipMask);
+                renderer_->submit(std::make_unique<DrawPathCommand>(shadowFillData));
             }
 
             if (drawStroke) {
@@ -2094,8 +2029,8 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
                 shadowPaint.setColor(shadowPass.color);
                 shadowPaint.setAlpha(255);
                 for (const auto &contour : contours) {
-                    submitStrokeMesh(renderer_, contour.points, contour.closed, shadowPaint,
-                                     shadowPass.transform, scissor);
+                    submitStrokeMesh(*renderer_, contour.points, contour.closed, shadowPaint,
+                                     shadowPass.transform, scissor, clipMask);
                 }
             }
         }
@@ -2104,17 +2039,16 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
     if (drawFill && !fillTriangles.empty()) {
         DrawPathData fillData = makeDrawPathData(flattenPoints(fillTriangles), paint.getStrokeWidth(),
                                                  applyPaintAlpha(paint, paint.getFillColor()), PathDrawMode::Fill,
-                                                 currentState_.matrix, makeCurrentScissorState(),
-                                                 toDrawBlendMode(paint.getBlendMode()));
+                                                 currentState().matrix, scissor,
+                                                 toDrawBlendMode(paint.getBlendMode()), clipMask);
         fillData.colors = buildFillVertexColors(fillTriangles, paint);
-        renderer_.submit(std::make_unique<DrawPathCommand>(fillData));
+        renderer_->submit(std::make_unique<DrawPathCommand>(fillData));
     }
 
     if (drawStroke) {
-        const ScissorState scissor = makeCurrentScissorState();
         for (const auto &contour : contours) {
-            submitStrokeMesh(renderer_, contour.points, contour.closed, paint,
-                             currentState_.matrix, scissor);
+            submitStrokeMesh(*renderer_, contour.points, contour.closed, paint,
+                             currentState().matrix, scissor, clipMask);
         }
     }
 }
@@ -2196,7 +2130,8 @@ void Canvas::drawImage(const Image &image, const RectF &dst, const Paint &paint)
 
 void Canvas::drawImage(const Image &image, const RectF &src, const RectF &dst, const Paint &paint)
 {
-    if (image.getTextureID() == 0 || image.getWidth() <= 0 || image.getHeight() <= 0) {
+    const SharedImageResource imageResource = image.getImageResource();
+    if (!imageResource || !imageResource->isValid() || image.getWidth() <= 0 || image.getHeight() <= 0) {
         return;
     }
 
@@ -2214,7 +2149,7 @@ void Canvas::drawImage(const Image &image, const RectF &src, const RectF &dst, c
     const float invHeight = 1.0f / static_cast<float>(image.getHeight());
 
     DrawImageData data;
-    data.textureID = image.getTextureID();
+    data.imageResource = imageResource;
     data.x = normalizedDst.getX();
     data.y = normalizedDst.getY();
     data.width = normalizedDst.getWidth();
@@ -2232,12 +2167,13 @@ void Canvas::drawImage(const Image &image, const RectF &src, const RectF &dst, c
     data.sampling = toDrawImageSampling(paint.getImageSampling());
     data.tileMode = toDrawImageTileMode(paint.getImageTileMode());
     data.mipmapsReady = image.hasMipmaps();
-    data.transform = currentState_.matrix;
+    data.transform = currentState().matrix;
     data.scissor = makeCurrentScissorState();
     data.blendMode = toDrawBlendMode(paint.getBlendMode());
+    data.clipMask = makeCurrentClipMaskState();
     applyImageColorMatrix(paint, data);
 
-    renderer_.submit(std::make_unique<DrawImageCommand>(data));
+    renderer_->submit(std::make_unique<DrawImageCommand>(data));
 }
 
 void Canvas::drawImageFit(const Image &image, const RectF &dst, ImageFit fit, const Paint &paint)
@@ -2252,7 +2188,8 @@ void Canvas::drawImageFit(const Image &image, const RectF &dst, ImageFit fit, Im
 
 void Canvas::drawImageFit(const Image &image, const RectF &dst, ImageFit fit, float alignX, float alignY, const Paint &paint)
 {
-    if (image.getTextureID() == 0 || image.getWidth() <= 0 || image.getHeight() <= 0) {
+    if (const SharedImageResource imageResource = image.getImageResource();
+        !imageResource || !imageResource->isValid() || image.getWidth() <= 0 || image.getHeight() <= 0) {
         return;
     }
 
@@ -2304,7 +2241,8 @@ void Canvas::drawImageFit(const Image &image, const RectF &dst, ImageFit fit, fl
 
 void Canvas::drawImageNinePatch(const Image &image, const RectF &centerSrc, const RectF &dst, const Paint &paint)
 {
-    if (image.getTextureID() == 0 || image.getWidth() <= 0 || image.getHeight() <= 0) {
+    if (const SharedImageResource imageResource = image.getImageResource();
+        !imageResource || !imageResource->isValid() || image.getWidth() <= 0 || image.getHeight() <= 0) {
         return;
     }
 
@@ -2372,7 +2310,8 @@ void Canvas::drawImageTiled(const Image &image, const RectF &dst, const Paint &p
 
 void Canvas::drawImageTiled(const Image &image, const RectF &dst, float tileWidth, float tileHeight, const Paint &paint)
 {
-    if (image.getTextureID() == 0 || image.getWidth() <= 0 || image.getHeight() <= 0) {
+    const SharedImageResource imageResource = image.getImageResource();
+    if (!imageResource || !imageResource->isValid() || image.getWidth() <= 0 || image.getHeight() <= 0) {
         return;
     }
 
@@ -2383,7 +2322,7 @@ void Canvas::drawImageTiled(const Image &image, const RectF &dst, float tileWidt
     }
 
     DrawImageData data;
-    data.textureID = image.getTextureID();
+    data.imageResource = imageResource;
     data.x = normalizedDst.getX();
     data.y = normalizedDst.getY();
     data.width = normalizedDst.getWidth();
@@ -2401,97 +2340,80 @@ void Canvas::drawImageTiled(const Image &image, const RectF &dst, float tileWidt
     data.sampling = toDrawImageSampling(paint.getImageSampling());
     data.tileMode = toDrawImageTileMode(paint.getImageTileMode());
     data.mipmapsReady = image.hasMipmaps();
-    data.transform = currentState_.matrix;
+    data.transform = currentState().matrix;
     data.scissor = makeCurrentScissorState();
     data.blendMode = toDrawBlendMode(paint.getBlendMode());
+    data.clipMask = makeCurrentClipMaskState();
     applyImageColorMatrix(paint, data);
 
-    renderer_.submit(std::make_unique<DrawImageCommand>(data));
+    renderer_->submit(std::make_unique<DrawImageCommand>(data));
+}
+
+bool Canvas::loadImage(Image &image, const char *imagePath)
+{
+    if (imagePath == nullptr || !ensureRendererInitialized()) {
+        return false;
+    }
+
+    return image.load(*renderer_, imagePath);
 }
 
 void Canvas::drawText(const std::string &text, float x, float y, const Paint &paint)
 {
-    const std::string asciiText = sanitizeTextToAscii(text);
-    if (asciiText.empty()) {
+    if (!textBackend_) {
         return;
     }
 
-    if (paint.getTextSize() <= 0.0f) {
-        return;
-    }
-
-#ifdef _WIN32
-    if (paint.hasFontFamily()) {
-        const NativeTextMeasure nativeMeasure = measureNativeText(asciiText, paint);
-        if (nativeMeasure.valid) {
-            const NativeTextBitmap bitmap = renderNativeTextBitmap(asciiText, paint, nativeMeasure);
-            const unsigned int texture = createRgbaTexture(bitmap.width, bitmap.height, bitmap.pixels);
-            if (texture != 0) {
-                float alignedX = x;
-                if (paint.getTextAlign() == Paint::TextAlign::CENTER) {
-                    alignedX -= nativeMeasure.width * 0.5f;
-                } else if (paint.getTextAlign() == Paint::TextAlign::RIGHT) {
-                    alignedX -= nativeMeasure.width;
-                }
-
-                const Color color = resolveTextColor(paint);
-                DrawImageData data;
-                data.textureID = texture;
-                data.ownsTexture = true;
-                data.x = alignedX;
-                data.y = y + textBaselineOffset(paint.getTextBaseline(), nativeMeasure.height);
-                data.width = nativeMeasure.width;
-                data.height = nativeMeasure.height;
-                data.u0 = 0.0f;
-                data.u1 = 1.0f;
-                data.v0 = 0.0f;
-                data.v1 = 1.0f;
-                data.tintColor[0] = color.r();
-                data.tintColor[1] = color.g();
-                data.tintColor[2] = color.b();
-                data.tintColor[3] = 1.0f;
-                data.alpha = color.a();
-                data.sampling = DrawImageSampling::Linear;
-                data.tileMode = DrawImageTileMode::Clamp;
-                data.transform = currentState_.matrix;
-                data.scissor = makeCurrentScissorState();
-                data.blendMode = toDrawBlendMode(paint.getBlendMode());
-                renderer_.submit(std::make_unique<DrawImageCommand>(data));
-                return;
-            }
-        }
-    }
-#endif
-
-    constexpr float kTextBaseSize = 8.0f;
-    const float textScale = std::max(0.01f, paint.getTextSize() / kTextBaseSize);
-    const float textHeight = measureAsciiTextHeight(asciiText, textScale);
-    float alignedX = x;
-    const float textWidth = measureText(asciiText, paint);
-    if (paint.getTextAlign() == Paint::TextAlign::CENTER) {
-        alignedX -= textWidth * 0.5f;
-    } else if (paint.getTextAlign() == Paint::TextAlign::RIGHT) {
-        alignedX -= textWidth;
-    }
-
-    const float alignedY = y + textBaselineOffset(paint.getTextBaseline(), textHeight);
-    std::vector<float> vertices = buildTextVertices(asciiText, alignedX, alignedY, textScale, paint.getLetterSpacing());
-    if (vertices.empty()) {
+    const auto renderedText = textBackend_->renderText(text, x, y, paint);
+    if (renderedText.kind == prismcanvas::text::TextRenderKind::None) {
         return;
     }
 
     const Color color = resolveTextColor(paint);
+    if (renderedText.kind == prismcanvas::text::TextRenderKind::Bitmap) {
+        const SharedImageResource imageResource = renderer_->createImageResourceRGBA(renderedText.bitmapWidth,
+                                                 renderedText.bitmapHeight,
+                                                 renderedText.bitmapPixels);
+        if (!imageResource || !imageResource->isValid()) {
+            return;
+        }
+
+        DrawImageData data;
+        data.imageResource = imageResource;
+        data.x = renderedText.drawX;
+        data.y = renderedText.drawY;
+        data.width = renderedText.width;
+        data.height = renderedText.height;
+        data.u0 = 0.0f;
+        data.u1 = 1.0f;
+        data.v0 = 0.0f;
+        data.v1 = 1.0f;
+        data.tintColor[0] = color.r();
+        data.tintColor[1] = color.g();
+        data.tintColor[2] = color.b();
+        data.tintColor[3] = 1.0f;
+        data.alpha = color.a();
+        data.sampling = DrawImageSampling::Linear;
+        data.tileMode = DrawImageTileMode::Clamp;
+        data.transform = currentState().matrix;
+        data.scissor = makeCurrentScissorState();
+        data.blendMode = toDrawBlendMode(paint.getBlendMode());
+        data.clipMask = makeCurrentClipMaskState();
+        renderer_->submit(std::make_unique<DrawImageCommand>(data));
+        return;
+    }
+
     DrawTextData data;
-    data.vertices = std::move(vertices);
+    data.vertices = renderedText.vertices;
     data.color[0] = color.r();
     data.color[1] = color.g();
     data.color[2] = color.b();
     data.color[3] = color.a();
-    data.transform = currentState_.matrix;
+    data.transform = currentState().matrix;
     data.scissor = makeCurrentScissorState();
     data.blendMode = toDrawBlendMode(paint.getBlendMode());
-
-    renderer_.submit(std::make_unique<DrawTextCommand>(data));
+    data.clipMask = makeCurrentClipMaskState();
+    renderer_->submit(std::make_unique<DrawTextCommand>(data));
 }
 
 void Canvas::drawTextBox(const std::string &text, const RectF &bounds, const Paint &paint)
@@ -2652,7 +2574,7 @@ void Canvas::drawTextOnPath(const std::string &text, const Path &path, const Pai
 
 void Canvas::drawTextOnPath(const std::string &text, const Path &path, float hOffset, float vOffset, const Paint &paint)
 {
-    const std::string asciiText = sanitizeTextToAscii(text);
+    const std::string asciiText = prismcanvas::text::sanitizeTextToAscii(text);
     const float pathLength = path.length();
     if (asciiText.empty() || pathLength <= 0.0f || paint.getTextSize() <= 0.0f || !std::isfinite(hOffset) || !std::isfinite(vOffset)) {
         return;
@@ -2695,61 +2617,20 @@ void Canvas::drawTextOnPath(const std::string &text, const Path &path, float hOf
 
 float Canvas::measureText(const std::string &text, const Paint &paint) const
 {
-    const std::string asciiText = sanitizeTextToAscii(text);
-    if (asciiText.empty() || paint.getTextSize() <= 0.0f) {
+    if (!textBackend_) {
         return 0.0f;
     }
 
-#ifdef _WIN32
-    if (paint.hasFontFamily()) {
-        const NativeTextMeasure nativeMeasure = measureNativeText(asciiText, paint);
-        if (nativeMeasure.valid) {
-            return nativeMeasure.width;
-        }
-    }
-#endif
-
-    constexpr float kTextBaseSize = 8.0f;
-    const float textScale = std::max(0.01f, paint.getTextSize() / kTextBaseSize);
-    return measureAsciiTextWidth(asciiText, textScale, paint.getLetterSpacing());
+    return textBackend_->measureTextWidth(text, paint);
 }
 
 RectF Canvas::measureTextBounds(const std::string &text, const Paint &paint) const
 {
-    const std::string asciiText = sanitizeTextToAscii(text);
-    if (asciiText.empty() || paint.getTextSize() <= 0.0f) {
+    if (!textBackend_) {
         return RectF();
     }
 
-#ifdef _WIN32
-    if (paint.hasFontFamily()) {
-        const NativeTextMeasure nativeMeasure = measureNativeText(asciiText, paint);
-        if (nativeMeasure.valid) {
-            float left = 0.0f;
-            if (paint.getTextAlign() == Paint::TextAlign::CENTER) {
-                left = -nativeMeasure.width * 0.5f;
-            } else if (paint.getTextAlign() == Paint::TextAlign::RIGHT) {
-                left = -nativeMeasure.width;
-            }
-            return RectF(left, textBaselineOffset(paint.getTextBaseline(), nativeMeasure.height),
-                         nativeMeasure.width, nativeMeasure.height);
-        }
-    }
-#endif
-
-    constexpr float kTextBaseSize = 8.0f;
-    const float textScale = std::max(0.01f, paint.getTextSize() / kTextBaseSize);
-    const float width = measureText(asciiText, paint);
-    const float height = measureAsciiTextHeight(asciiText, textScale);
-
-    float left = 0.0f;
-    if (paint.getTextAlign() == Paint::TextAlign::CENTER) {
-        left = -width * 0.5f;
-    } else if (paint.getTextAlign() == Paint::TextAlign::RIGHT) {
-        left = -width;
-    }
-
-    return RectF(left, textBaselineOffset(paint.getTextBaseline(), height), width, height);
+    return textBackend_->measureTextBounds(text, paint);
 }
 
 Canvas::TextMetrics Canvas::measureTextMetrics(const std::string &text, const Paint &paint) const
@@ -2768,7 +2649,7 @@ Canvas::TextMetrics Canvas::measureTextMetrics(const std::string &text, const Pa
 int Canvas::save()
 {
     const int savedCount = getSaveCount();
-    stateStack_.push_back(currentState_);
+    graphicsStates_.save();
     return savedCount;
 }
 
@@ -2778,7 +2659,7 @@ int Canvas::saveLayer(const RectF &bounds, const Paint &paint)
     const int savedCount = save();
     LayerState layer;
     layer.saveCount = getSaveCount();
-    layer.commandStart = renderer_.commandCount();
+    layer.commandStart = renderer_->commandCount();
     layer.bounds = normalized;
     layer.paint = paint;
     layerStack_.push_back(layer);
@@ -2795,7 +2676,7 @@ int Canvas::saveLayer(const Rect &bounds, const Paint &paint)
 
 void Canvas::restore()
 {
-    if (stateStack_.empty()) {
+    if (!graphicsStates_.canRestore()) {
         return;
     }
 
@@ -2804,24 +2685,23 @@ void Canvas::restore()
         layerStack_.pop_back();
     }
 
-    currentState_ = stateStack_.back();
-    stateStack_.pop_back();
+    graphicsStates_.restore();
 }
 
 int Canvas::getSaveCount() const
 {
-    return static_cast<int>(stateStack_.size()) + 1;
+    return graphicsStates_.getSaveCount();
 }
 
 const glm::mat4& Canvas::getMatrix() const
 {
-    return currentState_.matrix;
+    return currentState().matrix;
 }
 
 PointF Canvas::mapPoint(const PointF &point) const
 {
     PointF mapped;
-    if (!transformPoint(currentState_.matrix, point, mapped)) {
+    if (!transformPoint(currentState().matrix, point, mapped)) {
         return PointF();
     }
     return mapped;
@@ -2830,7 +2710,7 @@ PointF Canvas::mapPoint(const PointF &point) const
 RectF Canvas::mapRect(const RectF &rect) const
 {
     RectF mapped;
-    if (!transformRectBounds(rect, currentState_.matrix, mapped)) {
+    if (!transformRectBounds(rect, currentState().matrix, mapped)) {
         return RectF();
     }
     return mapped;
@@ -2844,22 +2724,22 @@ RectF Canvas::mapRect(const Rect &rect) const
 
 bool Canvas::inverseMapPoint(const PointF &devicePoint, PointF &localPoint) const
 {
-    const float determinant = glm::determinant(currentState_.matrix);
+    const float determinant = glm::determinant(currentState().matrix);
     if (!std::isfinite(determinant) || std::abs(determinant) <= kPointEpsilon) {
         return false;
     }
 
-    return transformPoint(glm::inverse(currentState_.matrix), devicePoint, localPoint);
+    return transformPoint(glm::inverse(currentState().matrix), devicePoint, localPoint);
 }
 
 bool Canvas::inverseMapRect(const RectF &deviceRect, RectF &localRect) const
 {
-    const float determinant = glm::determinant(currentState_.matrix);
+    const float determinant = glm::determinant(currentState().matrix);
     if (!std::isfinite(determinant) || std::abs(determinant) <= kPointEpsilon) {
         return false;
     }
 
-    return transformRectBounds(deviceRect, glm::inverse(currentState_.matrix), localRect);
+    return transformRectBounds(deviceRect, glm::inverse(currentState().matrix), localRect);
 }
 
 bool Canvas::isPointInClip(const PointF &devicePoint) const
@@ -2871,10 +2751,22 @@ bool Canvas::isPointInClip(const PointF &devicePoint) const
 
     const float x = devicePoint.getX();
     const float y = devicePoint.getY();
-    return x >= clipBounds.getX()
+    const bool insideBounds = x >= clipBounds.getX()
         && y >= clipBounds.getY()
         && x <= clipBounds.getX() + clipBounds.getWidth()
         && y <= clipBounds.getY() + clipBounds.getHeight();
+
+    if (!insideBounds) {
+        return false;
+    }
+
+    for (const auto &clipPath : currentState().clip.paths) {
+        if (!pointInClipPath(clipPath, devicePoint)) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 bool Canvas::hitTestPathFill(const Path &path, const PointF &devicePoint) const
@@ -2899,7 +2791,7 @@ bool Canvas::hitTestPathStroke(const Path &path, const PointF &devicePoint, floa
 
 bool Canvas::hasClip() const
 {
-    return currentState_.clip.enabled;
+    return currentState().clip.enabled;
 }
 
 bool Canvas::getClipBounds(RectF &bounds) const
@@ -2910,8 +2802,8 @@ bool Canvas::getClipBounds(RectF &bounds) const
     }
 
     const RectF canvasBounds(0.0f, 0.0f, static_cast<float>(width_), static_cast<float>(height_));
-    bounds = currentState_.clip.enabled
-        ? intersectRects(normalizeRect(currentState_.clip.rect), canvasBounds)
+    bounds = currentState().clip.enabled
+        ? intersectRects(normalizeRect(currentState().clip.rect), canvasBounds)
         : canvasBounds;
 
     return bounds.getWidth() > 0.0f && bounds.getHeight() > 0.0f;
@@ -2925,7 +2817,7 @@ bool Canvas::quickReject(const RectF &rect) const
     }
 
     RectF transformedBounds;
-    if (!transformRectBounds(rect, currentState_.matrix, transformedBounds)) {
+    if (!transformRectBounds(rect, currentState().matrix, transformedBounds)) {
         return false;
     }
 
@@ -2995,14 +2887,12 @@ bool Canvas::quickReject(const Path &path, const Paint &paint) const
 void Canvas::restoreToCount(int saveCount)
 {
     const int targetCount = std::max(1, saveCount);
-    while (getSaveCount() > targetCount && !stateStack_.empty()) {
-        restore();
-    }
+    graphicsStates_.restoreToCount(targetCount);
 }
 
 void Canvas::restoreLayer(const LayerState &layer)
 {
-    auto commands = renderer_.takeCommandsFrom(layer.commandStart);
+    auto commands = renderer_->takeCommandsFrom(layer.commandStart);
     if (commands.empty() || width_ <= 0 || height_ <= 0) {
         return;
     }
@@ -3026,41 +2916,24 @@ void Canvas::restoreLayer(const LayerState &layer)
     const RectF layerRect(static_cast<float>(layerLeft), static_cast<float>(layerTop),
                           static_cast<float>(layerWidth), static_cast<float>(layerHeight));
 
-    GLint previousFramebuffer = 0;
-    GLint previousTexture = 0;
-    GLint previousViewport[4] = {0, 0, 0, 0};
-    GLfloat previousClearColor[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &previousFramebuffer);
-    glGetIntegerv(GL_TEXTURE_BINDING_2D, &previousTexture);
-    glGetIntegerv(GL_VIEWPORT, previousViewport);
-    glGetFloatv(GL_COLOR_CLEAR_VALUE, previousClearColor);
+    OffscreenRenderRequest request;
+    request.canvasWidth = width_;
+    request.canvasHeight = height_;
+    request.targetWidth = layerWidth;
+    request.targetHeight = layerHeight;
+    request.viewportX = -layerLeft;
+    request.viewportY = -(height_ - layerBottom);
+    request.scissorOffsetX = -layerLeft;
+    request.scissorOffsetY = -(height_ - layerBottom);
 
-    unsigned int framebuffer = 0;
-    unsigned int texture = 0;
-    if (!createLayerTarget(layerWidth, layerHeight, framebuffer, texture)) {
-        glBindFramebuffer(GL_FRAMEBUFFER, static_cast<unsigned int>(previousFramebuffer));
-        glBindTexture(GL_TEXTURE_2D, static_cast<unsigned int>(previousTexture));
-        renderer_.appendCommands(std::move(commands));
+    const SharedImageResource imageResource = renderer_->renderCommandsToImageResource(commands, request);
+    if (!imageResource || !imageResource->isValid()) {
+        renderer_->appendCommands(std::move(commands));
         return;
     }
 
-    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
-    glViewport(-layerLeft, -(height_ - layerBottom), width_, height_);
-    glDisable(GL_SCISSOR_TEST);
-    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
-    executeCommandList(commands, width_, height_, -layerLeft, -(height_ - layerBottom));
-
-    glBindFramebuffer(GL_FRAMEBUFFER, static_cast<unsigned int>(previousFramebuffer));
-    glViewport(previousViewport[0], previousViewport[1], previousViewport[2], previousViewport[3]);
-    glClearColor(previousClearColor[0], previousClearColor[1], previousClearColor[2], previousClearColor[3]);
-    glBindTexture(GL_TEXTURE_2D, static_cast<unsigned int>(previousTexture));
-    glDeleteFramebuffers(1, &framebuffer);
-    glDisable(GL_SCISSOR_TEST);
-
     DrawImageData data;
-    data.textureID = texture;
-    data.ownsTexture = true;
+    data.imageResource = imageResource;
     data.x = layerRect.getX();
     data.y = layerRect.getY();
     data.width = layerRect.getWidth();
@@ -3069,32 +2942,94 @@ void Canvas::restoreLayer(const LayerState &layer)
     data.u1 = 1.0f;
     data.v0 = 1.0f;
     data.v1 = 0.0f;
+    const Color tintColor = layer.paint.getColor();
+    data.tintColor[0] = tintColor.r();
+    data.tintColor[1] = tintColor.g();
+    data.tintColor[2] = tintColor.b();
+    data.tintColor[3] = 1.0f;
     data.alpha = std::clamp(layer.paint.getColor().a() * layer.paint.getAlphaF(), 0.0f, 1.0f);
     data.sampling = toDrawImageSampling(layer.paint.getImageSampling());
     data.tileMode = DrawImageTileMode::Clamp;
     data.transform = glm::mat4(1.0f);
-    data.scissor = makeScissorForRect(layerRect, width_, height_);
+    data.scissor = makeCurrentScissorState();
     data.blendMode = toDrawBlendMode(layer.paint.getBlendMode());
+    data.clipMask = makeCurrentClipMaskState();
     applyImageColorMatrix(layer.paint, data);
-    renderer_.submit(std::make_unique<DrawImageCommand>(data));
+    renderer_->submit(std::make_unique<DrawImageCommand>(data));
+}
+
+void Canvas::clipPath(const Path &path)
+{
+    currentState().clip.enabled = true;
+
+    if (width_ <= 0 || height_ <= 0 || path.isEmpty()) {
+        currentState().clip.rect = RectF();
+        currentState().clip.paths.clear();
+        return;
+    }
+
+    RectF deviceBounds;
+    if (!tryResolveAxisAlignedRectClip(path, currentState().matrix, deviceBounds)) {
+        if (!transformRectBounds(path.getBounds(), currentState().matrix, deviceBounds)) {
+            deviceBounds = RectF();
+        }
+    }
+
+    const RectF canvasBounds(0.0f, 0.0f, static_cast<float>(width_), static_cast<float>(height_));
+    const RectF clipped = intersectRects(deviceBounds, canvasBounds);
+
+    if (tryResolveAxisAlignedRectClip(path, currentState().matrix, deviceBounds)) {
+        if (currentState().clip.paths.empty()) {
+            currentState().clip.rect = clipped;
+        } else {
+            currentState().clip.rect = intersectRects(currentState().clip.rect, clipped);
+        }
+        return;
+    }
+
+    ClipMaskPath maskPath;
+    if (!buildClipMaskPath(path, currentState().matrix, maskPath)) {
+        currentState().clip.rect = RectF();
+        return;
+    }
+
+    if (currentState().clip.paths.empty()) {
+        currentState().clip.rect = clipped;
+    } else {
+        currentState().clip.rect = intersectRects(currentState().clip.rect, clipped);
+    }
+
+    ClipPathState clipPathState;
+    clipPathState.path = path;
+    clipPathState.transform = currentState().matrix;
+    clipPathState.deviceBounds = clipped;
+    clipPathState.mask = std::move(maskPath);
+
+    if (currentState().clip.paths.size() >= kMaxClipMaskPathCount) {
+        currentState().clip.rect = RectF();
+        currentState().clip.paths.clear();
+        return;
+    }
+
+    currentState().clip.paths.push_back(std::move(clipPathState));
 }
 
 void Canvas::clipRect(const RectF &rect)
 {
     RectF deviceBounds;
-    if (!transformRectBounds(rect, currentState_.matrix, deviceBounds)) {
+    if (!transformRectBounds(rect, currentState().matrix, deviceBounds)) {
         deviceBounds = RectF();
     }
     RectF canvasBounds(0.0f, 0.0f, static_cast<float>(width_), static_cast<float>(height_));
     RectF clipped = intersectRects(deviceBounds, canvasBounds);
 
-    if (!currentState_.clip.enabled) {
-        currentState_.clip.enabled = true;
-        currentState_.clip.rect = clipped;
+    if (!currentState().clip.enabled) {
+        currentState().clip.enabled = true;
+        currentState().clip.rect = clipped;
         return;
     }
 
-    currentState_.clip.rect = intersectRects(currentState_.clip.rect, clipped);
+    currentState().clip.rect = intersectRects(currentState().clip.rect, clipped);
 }
 
 void Canvas::clipRect(const Rect &rect)
@@ -3105,42 +3040,42 @@ void Canvas::clipRect(const Rect &rect)
 
 void Canvas::setMatrix(const glm::mat4 &matrix)
 {
-    currentState_.matrix = matrix;
+    currentState().matrix = matrix;
 }
 
 void Canvas::resetMatrix()
 {
-    currentState_.matrix = glm::mat4(1.0f);
+    currentState().matrix = glm::mat4(1.0f);
 }
 
 void Canvas::concat(const glm::mat4 &matrix)
 {
-    currentState_.matrix *= matrix;
+    currentState().matrix *= matrix;
 }
 
 void Canvas::translate(float dx, float dy)
 {
-    currentState_.matrix = glm::translate(currentState_.matrix, glm::vec3(dx, dy, 0.0f));
+    currentState().matrix = glm::translate(currentState().matrix, glm::vec3(dx, dy, 0.0f));
 }
 
 void Canvas::scale(float sx, float sy)
 {
-    currentState_.matrix = glm::scale(currentState_.matrix, glm::vec3(sx, sy, 1.0f));
+    currentState().matrix = glm::scale(currentState().matrix, glm::vec3(sx, sy, 1.0f));
 }
 
 void Canvas::rotate(float radians)
 {
-    currentState_.matrix = glm::rotate(currentState_.matrix, radians, glm::vec3(0.0f, 0.0f, 1.0f));
+    currentState().matrix = glm::rotate(currentState().matrix, radians, glm::vec3(0.0f, 0.0f, 1.0f));
 }
 
 ScissorState Canvas::makeCurrentScissorState() const
 {
     ScissorState scissor;
-    if (!currentState_.clip.enabled) {
+    if (!currentState().clip.enabled) {
         return scissor;
     }
 
-    const RectF normalized = normalizeRect(currentState_.clip.rect);
+    const RectF normalized = normalizeRect(currentState().clip.rect);
     const int left = static_cast<int>(std::floor(normalized.getX()));
     const int top = static_cast<int>(std::floor(normalized.getY()));
     const int right = static_cast<int>(std::ceil(normalized.getX() + normalized.getWidth()));
@@ -3159,22 +3094,76 @@ ScissorState Canvas::makeCurrentScissorState() const
     return scissor;
 }
 
+ClipMaskState Canvas::makeCurrentClipMaskState() const
+{
+    ClipMaskState clipMask;
+    if (!currentState().clip.enabled || currentState().clip.paths.empty()) {
+        return clipMask;
+    }
+
+    RectF clipBounds;
+    if (!getClipBounds(clipBounds)) {
+        return clipMask;
+    }
+
+    clipMask.fingerprint = kFnvOffsetBasis;
+    clipMask.resources.reserve(currentState().clip.paths.size());
+    for (auto &clipPath : currentState().clip.paths) {
+        if (clipPath.deviceBounds.getWidth() <= 0.0f || clipPath.deviceBounds.getHeight() <= 0.0f
+            || clipPath.mask.points.empty()) {
+            continue;
+        }
+
+        if (!clipPath.resource || !clipPath.resource->isValid()) {
+            if (renderer_ == nullptr) {
+                return {};
+            }
+
+            clipPath.resource = renderer_->createClipMaskResource(clipPath.mask);
+            if (!clipPath.resource || !clipPath.resource->isValid()) {
+                return {};
+            }
+        }
+
+        hashUint64(clipMask.fingerprint, static_cast<std::uint64_t>(clipPath.mask.points.size()));
+        for (float point : clipPath.mask.points) {
+            hashFloat(clipMask.fingerprint, point);
+        }
+        for (int column = 0; column < 4; ++column) {
+            for (int row = 0; row < 4; ++row) {
+                hashFloat(clipMask.fingerprint, clipPath.mask.transform[column][row]);
+            }
+        }
+        clipMask.resources.push_back(clipPath.resource);
+    }
+
+    return clipMask;
+}
+
 
 void Canvas::beginFrame()
 {
-    glDisable(GL_SCISSOR_TEST);
+    if (!ensureRendererInitialized()) {
+        return;
+    }
+
+    renderer_->resetRenderState();
     layerStack_.clear();
-    renderer_.clear();
+    renderer_->clear();
 }
 
 void Canvas::flush()
 {
-    while (!layerStack_.empty() && !stateStack_.empty()) {
+    if (renderer_ == nullptr || !rendererInitialized_) {
+        return;
+    }
+
+    while (!layerStack_.empty() && graphicsStates_.canRestore()) {
         restore();
     }
-    renderer_.flush();
-    renderer_.clear();
-    glDisable(GL_SCISSOR_TEST);
+    renderer_->flush();
+    renderer_->clear();
+    renderer_->resetRenderState();
 }
 
 void Canvas::endFrame()
@@ -3182,32 +3171,23 @@ void Canvas::endFrame()
     flush();
 }
 
+void Canvas::shutdown()
+{
+    layerStack_.clear();
+    if (renderer_ != nullptr) {
+        renderer_->clear();
+    }
+    finalizeRenderer();
+}
+
 bool Canvas::readPixelsRGBA(std::vector<unsigned char> &pixels) const
 {
-    if (width_ <= 0 || height_ <= 0) {
+    if (!renderer_) {
         pixels.clear();
         return false;
     }
 
-    const size_t rowSize = static_cast<size_t>(width_) * 4;
-    const size_t bufferSize = rowSize * static_cast<size_t>(height_);
-    std::vector<unsigned char> bottomUp(bufferSize);
-    pixels.resize(bufferSize);
-
-    GLint previousPackAlignment = 4;
-    glGetIntegerv(GL_PACK_ALIGNMENT, &previousPackAlignment);
-    glPixelStorei(GL_PACK_ALIGNMENT, 1);
-    glReadPixels(0, 0, width_, height_, GL_RGBA, GL_UNSIGNED_BYTE, bottomUp.data());
-    glPixelStorei(GL_PACK_ALIGNMENT, previousPackAlignment);
-
-    for (int y = 0; y < height_; ++y) {
-        const size_t srcOffset = static_cast<size_t>(height_ - 1 - y) * rowSize;
-        const size_t dstOffset = static_cast<size_t>(y) * rowSize;
-        std::copy(bottomUp.begin() + srcOffset, bottomUp.begin() + srcOffset + rowSize,
-                  pixels.begin() + dstOffset);
-    }
-
-    return true;
+    return renderer_->readPixelsRGBA(pixels);
 }
 
 std::vector<unsigned char> Canvas::readPixelsRGBA() const

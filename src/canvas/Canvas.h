@@ -1,7 +1,5 @@
 #pragma once
 
-#include <glad/glad.h>
-#include <GLFW/glfw3.h>
 #include <vector>
 #include <memory>
 #include <string>
@@ -10,8 +8,15 @@
 #include "Image.h"
 #include "Paint.h"
 #include "Path.h"
-#include "render/Renderer.h"
+#include "render/GraphicsState.h"
+#include "render/GraphicsStateStack.h"
+#include "render/IRenderer.h"
+#include "render/RenderTypes.h"
 #include "base.h"
+
+namespace prismcanvas::text {
+class ITextBackend;
+}
 
 class Canvas
 {
@@ -51,6 +56,14 @@ public:
     static void finalize();
 
 public:
+    Canvas();
+    explicit Canvas(std::unique_ptr<IRenderer> renderer);
+    Canvas(std::unique_ptr<IRenderer> renderer, std::unique_ptr<prismcanvas::text::ITextBackend> textBackend);
+    ~Canvas();
+
+    Canvas(const Canvas &) = delete;
+    Canvas &operator=(const Canvas &) = delete;
+
     void setSize(int width, int height);
     int getWidth() const { return width_; }
     int getHeight() const { return height_; }
@@ -101,6 +114,7 @@ public:
     void drawImageNinePatch(const Image &image, const RectF &centerSrc, const RectF &dst, const Paint &paint);
     void drawImageTiled(const Image &image, const RectF &dst, const Paint &paint);
     void drawImageTiled(const Image &image, const RectF &dst, float tileWidth, float tileHeight, const Paint &paint);
+    bool loadImage(Image &image, const char *imagePath);
     void drawText(const std::string &text, float x, float y, const Paint &paint);
     void drawTextBox(const std::string &text, const RectF &bounds, const Paint &paint);
     void drawTextBox(const std::string &text, const RectF &bounds, float lineHeight, const Paint &paint);
@@ -131,6 +145,7 @@ public:
     bool quickReject(const RectF &rect) const;
     bool quickReject(const Rect &rect) const;
     bool quickReject(const Path &path, const Paint &paint) const;
+    void clipPath(const Path &path);
     void clipRect(const RectF &rect);
     void clipRect(const Rect &rect);
     void setMatrix(const glm::mat4 &matrix);
@@ -143,6 +158,7 @@ public:
     void beginFrame();
     void flush();
     void endFrame();
+    void shutdown();
     bool readPixelsRGBA(std::vector<unsigned char> &pixels) const;
     std::vector<unsigned char> readPixelsRGBA() const;
     bool savePixelsPPM(const std::string &path) const;
@@ -150,16 +166,8 @@ public:
     std::uint64_t computePixelsHashRGBA() const;
 
 private:
-    struct ClipState {
-        bool enabled = false;
-        RectF rect;
-    };
-
-    struct CanvasState {
-        glm::mat4 matrix = glm::mat4(1.0f);
-        ClipState clip;
-    };
-
+    bool ensureRendererInitialized();
+    void finalizeRenderer();
     struct LayerState {
         int saveCount = 1;
         std::size_t commandStart = 0;
@@ -168,13 +176,17 @@ private:
     };
 
     ScissorState makeCurrentScissorState() const;
+    ClipMaskState makeCurrentClipMaskState() const;
     void restoreLayer(const LayerState &layer);
+    GraphicsState &currentState() { return graphicsStates_.current(); }
+    const GraphicsState &currentState() const { return graphicsStates_.current(); }
 
     int width_ = 0;
     int height_ = 0;
     Color color_;
-    Renderer renderer_;
-    CanvasState currentState_;
-    std::vector<CanvasState> stateStack_;
+    std::unique_ptr<IRenderer> renderer_;
+    std::unique_ptr<prismcanvas::text::ITextBackend> textBackend_;
+    GraphicsStateStack graphicsStates_;
     std::vector<LayerState> layerStack_;
+    bool rendererInitialized_ = false;
 };

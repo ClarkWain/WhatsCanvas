@@ -84,6 +84,7 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
 int main() {
     std::cout << "Starting application..." << std::endl;
     const bool disableMsaa = !getEnvironmentValue("CPPDEMO_DISABLE_MSAA").empty();
+    const bool exerciseClipPath = !getEnvironmentValue("CPPDEMO_EXERCISE_CLIP_PATH").empty();
 
     // 初始化 GLFW
     if (!glfwInit()) {
@@ -97,6 +98,7 @@ int main() {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3); // 次版本号
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE); // 使用核心模式
     glfwWindowHint(GLFW_SAMPLES, disableMsaa ? 0 : 4); // 请求 MSAA，若不支持 GLFW 会回退。
+    glfwWindowHint(GLFW_STENCIL_BITS, 8);
 
     // 在 macOS 上需要启用兼容性视图
     #ifdef __APPLE__
@@ -144,10 +146,6 @@ int main() {
 
     // 设置清除颜色
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-
-
-        Canvas::initialize();
-    
     Canvas canvas;
         canvas.setSize(framebufferWidth, framebufferHeight);
         glfwSetWindowUserPointer(window, &canvas);
@@ -383,9 +381,9 @@ int main() {
     pathTextPaint.setLetterSpacing(1.0f);
 
     Image demoImage;
-    bool imageLoaded = demoImage.load("images/hello.png");
+    bool imageLoaded = canvas.loadImage(demoImage, "images/hello.png");
     if (!imageLoaded) {
-        imageLoaded = demoImage.load("images/draw_path.png");
+        imageLoaded = canvas.loadImage(demoImage, "images/draw_path.png");
     }
 
     std::vector<PointF> demoPolylinePoints = {
@@ -559,7 +557,18 @@ int main() {
         canvas.drawRect(RectF(222.0f, 308.0f, 134.0f, 102.0f), clipBoundsPaint);
 
         canvas.save();
-        canvas.clipRect(RectF(520.0f, 420.0f, 220.0f, 150.0f));
+        Path clipPath;
+        if (exerciseClipPath) {
+            clipPath.addOval(RectF(520.0f, 420.0f, 220.0f, 150.0f));
+            canvas.clipPath(clipPath);
+
+            Path nestedClipPath;
+            nestedClipPath.addOval(RectF(560.0f, 405.0f, 140.0f, 180.0f));
+            canvas.clipPath(nestedClipPath);
+        } else {
+            clipPath.addRect(RectF(520.0f, 420.0f, 220.0f, 150.0f));
+            canvas.clipPath(clipPath);
+        }
         canvas.drawRect(RectF(500.0f, 400.0f, 260.0f, 180.0f), clipBgPaint);
         canvas.drawRect(RectF(540.0f, 440.0f, 120.0f, 120.0f), clipRedPaint);
         canvas.drawRect(RectF(600.0f, 450.0f, 120.0f, 120.0f), clipGreenPaint);
@@ -736,7 +745,7 @@ int main() {
         glfwPollEvents();
     }
     
-    canvas.finalize();
+    canvas.shutdown();
 
     // 终止 GLFW
     glfwTerminate();
