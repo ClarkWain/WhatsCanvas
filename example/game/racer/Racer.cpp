@@ -141,6 +141,10 @@ bool parseFloat(const std::string& text, float& value) {
     return true;
 }
 
+void applyGameFont(Paint& paint) {
+    paint.setFont("Consolas");
+}
+
 class RacerGame {
 public:
     RacerGame() {
@@ -660,6 +664,7 @@ private:
         label.setColor(Color(226, 234, 252));
         label.setTextSize(11.0f);
         label.setLetterSpacing(1.0f);
+        applyGameFont(label);
         canvas.drawText("SPD", panel.getX() + 8.0f, panel.getY() + 16.0f, label);
 
         const RectF track(panel.getX() + 16.0f, panel.getY() + 48.0f, panel.getWidth() - 32.0f, panel.getHeight() - 96.0f);
@@ -757,6 +762,7 @@ private:
         speedReadout.setColor(Color(244, 248, 255));
         speedReadout.setTextSize(15.0f);
         speedReadout.setTextAlign(Paint::TextAlign::CENTER);
+        applyGameFont(speedReadout);
         canvas.drawText(std::to_string(std::max(0, static_cast<int>(std::lround(currentSpeedKmh_)))), panel.getCenter().getX(), panel.getY() + panel.getHeight() - 34.0f, speedReadout);
 
         Paint speedUnit = speedReadout;
@@ -994,6 +1000,7 @@ private:
         Paint text;
         text.setStyle(Paint::Style::FILL);
         text.setColor(Color(198, 210, 240));
+        applyGameFont(text);
 
         auto advanceY = [&](const std::string& content, const Paint& paint, float gap) {
             y += canvas.measureTextMetrics(content, paint).height + gap;
@@ -1135,6 +1142,7 @@ private:
         text.setTextSize(18.0f);
         text.setTextAlign(Paint::TextAlign::CENTER);
         text.setTextBaseline(Paint::TextBaseline::MIDDLE);
+        applyGameFont(text);
         canvas.drawText("LOW FUEL", alert.getCenter().getX(), alert.getCenter().getY(), text);
     }
 
@@ -1158,6 +1166,7 @@ private:
         titlePaint.setTextSize(32.0f);
         titlePaint.setTextAlign(Paint::TextAlign::CENTER);
         titlePaint.setTextBaseline(Paint::TextBaseline::MIDDLE);
+        applyGameFont(titlePaint);
         canvas.drawText(title, overlay.getCenter().getX(), overlay.getCenter().getY() - 26.0f, titlePaint);
 
         Paint subtitlePaint = titlePaint;

@@ -217,6 +217,11 @@ private:
     int level_ = 1;
     int currentBubble_ = 0;
     int nextBubble_ = 0;
+
+    static void applyGameFont(Paint &paint)
+    {
+        paint.setFont("Consolas");
+    }
     int turnsUntilDrop_ = TURNS_PER_DROP;
     float displayedFps_ = 0.0f;
     float latestFrameMs_ = 0.0f;
@@ -939,6 +944,7 @@ private:
         title.setColor(Color(238, 244, 255));
         title.setTextSize(28.0f);
         title.setLetterSpacing(1.0f);
+        applyGameFont(title);
         canvas.drawText("BUBBLE SHOT", x, y, title);
         y += canvas.measureTextMetrics("BUBBLE SHOT", title).height + 18.0f;
 
@@ -946,6 +952,7 @@ private:
         subtitle.setStyle(Paint::Style::FILL);
         subtitle.setColor(Color(152, 173, 214));
         subtitle.setTextSize(12.0f);
+        applyGameFont(subtitle);
         canvas.drawText("Match 3 to pop clusters", x, y, subtitle);
         y += canvas.measureTextMetrics("Match 3 to pop clusters", subtitle).height + 28.0f;
 
@@ -953,6 +960,7 @@ private:
         label.setStyle(Paint::Style::FILL);
         label.setColor(Color(180, 198, 234));
         label.setTextSize(14.0f);
+        applyGameFont(label);
 
         Paint value = label;
         value.setColor(Color(255, 255, 255));
@@ -996,6 +1004,7 @@ private:
         body.setStyle(Paint::Style::FILL);
         body.setColor(Color(154, 171, 205));
         body.setTextSize(12.0f);
+        applyGameFont(body);
         canvas.drawText("Controls", x, y, label);
         y += canvas.measureTextMetrics("Controls", label).height + 10.0f;
         canvas.drawText("Left/Right  Aim", x, y, body);
@@ -1009,6 +1018,7 @@ private:
         note.setStyle(Paint::Style::FILL);
         note.setColor(Color(129, 144, 177));
         note.setTextSize(11.0f);
+        applyGameFont(note);
         canvas.drawTextBox(
             "Every few missed turns, a fresh ceiling row drops in. Clear the board to advance the level.",
             RectF(x, y, rect.getWidth() - 48.0f, 120.0f),
@@ -1031,6 +1041,7 @@ private:
         title.setTextSize(34.0f);
         title.setTextAlign(Paint::TextAlign::CENTER);
         title.setTextBaseline(Paint::TextBaseline::MIDDLE);
+        applyGameFont(title);
 
         Paint subtitle;
         subtitle.setStyle(Paint::Style::FILL);
@@ -1038,6 +1049,7 @@ private:
         subtitle.setTextSize(16.0f);
         subtitle.setTextAlign(Paint::TextAlign::CENTER);
         subtitle.setTextBaseline(Paint::TextBaseline::MIDDLE);
+        applyGameFont(subtitle);
 
         const float centerX = rect.getX() + rect.getWidth() * 0.5f;
         const float centerY = rect.getY() + rect.getHeight() * 0.5f;

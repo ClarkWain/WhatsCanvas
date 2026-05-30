@@ -200,6 +200,10 @@ private:
     int fpsAccumulatedFrames_ = 0;
     std::vector<PieceType> bag_;
 
+    static void applyGameFont(Paint& paint) {
+        paint.setFont("Consolas");
+    }
+
     void updatePerformanceStats(float dt) {
         if (!std::isfinite(dt) || dt <= 0.0f) return;
 
@@ -484,6 +488,7 @@ private:
         Paint text;
         text.setStyle(Paint::Style::FILL);
         text.setColor(Color(200, 210, 240));
+        applyGameFont(text);
 
         auto advanceY = [&](const std::string& content, float gap) {
             y += canvas.measureTextMetrics(content, text).height + gap;
@@ -606,6 +611,7 @@ private:
         t.setTextSize(28.0f);
         t.setTextAlign(Paint::TextAlign::CENTER);
         t.setTextBaseline(Paint::TextBaseline::MIDDLE);
+        applyGameFont(t);
         float cx = rect.getX() + rect.getWidth() * 0.5f;
         float cy = rect.getY() + rect.getHeight() * 0.5f;
 
