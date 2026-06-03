@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第 10 章 · 三大库代码示例：stb / FreeType / HarfBuzz · 字体渲染原理</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+<style>
+.lib-tabs{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px; }
+.lib-tab{ font-family:var(--mono); font-size:13.5px; padding:8px 16px; border-radius:9px;
+  border:1px solid var(--border); background:var(--bg-card); color:var(--text-dim);
+  cursor:pointer; transition:all .15s; }
+.lib-tab:hover{ color:var(--text); }
+.lib-tab.active{ color:#fff; border-color:var(--accent); background:var(--accent-soft); }
+.lib-panel{ display:none; }
+.lib-panel.active{ display:block; }
+.lib-badge{ display:inline-block; font-family:var(--mono); font-size:12px; padding:2px 9px;
+  border-radius:6px; margin-left:8px; }
+.role-shape{ background:rgba(188,140,255,.15); color:var(--purple); }
+.role-raster{ background:rgba(255,166,87,.15); color:var(--orange); }
+.role-simple{ background:rgba(63,185,80,.15); color:var(--green); }
+.codenote{ font-size:13.5px; color:var(--text-dim); margin:10px 0 0; }
+.codenote b{ color:var(--text); }
+</style>
+</head>
+<body data-page="ch10" data-base="../">
+
+<nav class="site-nav">
+  <a href="../index.html" class="brand"><span class="logo">字</span><span>字体渲染原理</span></a>
+  <span class="spacer"></span>
+  <div class="nav-links"></div>
+</nav>
+
+<div class="wrap wide">
+
+  <div class="chapter-kicker">CHAPTER 10 · CODE BY EXAMPLE</div>
+  <h1 class="title">三大库代码示例：stb_truetype / FreeType / HarfBuzz</h1>
+  <p class="lede">前面第 7 章讲了这三个库「各自负责哪一段」，这一章直接上代码，看每个库到底怎么调用。例子都精简到「最少能跑通」的程度，重点是<strong>看清每一步在做什么</strong>，而不是写一个完整项目。</p>
+
+  <div class="callout">
+    <div class="callout-title">先回顾分工</div>
+    <strong style="color:var(--green);">stb_truetype</strong>：单头文件，最简单，自己读 TTF + 栅格化，适合小项目 / 游戏。
+    <strong style="color:var(--orange);">FreeType</strong>：工业级栅格化引擎，质量高、hinting 全，几乎所有系统都在用。
+    <strong style="color:var(--purple);">HarfBuzz</strong>：只管<strong>塑形</strong>（字符序列 → 字形序列 + 位置），不画像素，常和 FreeType 搭配。
+  </div>
+
+  <div class="demo">
+    <div class="demo-head"><span class="dot"></span> code.examples</div>
+    <div class="demo-body">
+      <div class="lib-tabs">
+        <button class="lib-tab active" data-tab="stb">stb_truetype</button>
+        <button class="lib-tab" data-tab="ft">FreeType</button>
+        <button class="lib-tab" data-tab="hb">HarfBuzz</button>
+      </div>
+
+      <!-- ===== stb_truetype ===== -->
+      <div class="lib-panel active" data-panel="stb">
+        <p style="margin-top:0;"><strong>目标</strong><span class="lib-badge role-simple">栅格化 · 极简</span>：把字符 <code>'A'</code> 渲染成一张灰度位图，直接能当纹理用。整个库就一个头文件。</p>
+        <pre><code>#define STB_TRUETYPE_IMPLEMENTATION
+#include "stb_truetype.h"
+
+// 1. 把字体文件整体读进内存
+unsigned char *ttf = read_file("Roboto.ttf");
+stbtt_fontinfo font;
+stbtt_InitFont(&amp;font, ttf, stbtt_GetFontOffsetForIndex(ttf, 0));
+
+// 2. 计算缩放：让字高 = 48 像素
+float scale = stbtt_ScaleForPixelHeight(&amp;font, 48.0f);
+
+// 3. 直接把 'A' 栅格化成 8-bit 灰度位图
+int w, h, xoff, yoff;
+unsigned char *bitmap =
+    stbtt_GetCodepointBitmap(&amp;font, 0, scale, 'A',
+                             &amp;w, &amp;h, &amp;xoff, &amp;yoff);
+
+// 4. bitmap 是 w*h 的「覆盖率」(0-255)，上传当纹理即可
+upload_texture(bitmap, w, h);
+
+stbtt_FreeBitmap(bitmap, NULL);</code></pre>
+        <p class="codenote"><b>关键点：</b><code>stbtt_GetCodepointBitmap</code> 一步到位——它内部完成了「查 cmap → 取轮廓 → 栅格化」。返回的就是每个像素的灰度覆盖率，可直接作为 alpha 上传到 GPU。胜在<b>零依赖、一个文件</b>，缺点是 hinting / 复杂排版能力弱。</p>
+      </div>
+
+      <!-- ===== FreeType ===== -->
+      <div class="lib-panel" data-panel="ft">
+        <p style="margin-top:0;"><strong>目标</strong><span class="lib-badge role-raster">栅格化 · 工业级</span>：用 FreeType 把 <code>'A'</code> 渲染成高质量灰度位图，并拿到度量信息（偏移、advance）。</p>
+        <pre><code>#include &lt;ft2build.h&gt;
+#include FT_FREETYPE_H
+
+FT_Library lib;
+FT_Init_FreeType(&amp;lib);
+
+FT_Face face;
+FT_New_Face(lib, "Roboto.ttf", 0, &amp;face);   // 加载字体
+FT_Set_Pixel_Sizes(face, 0, 48);            // 字高 48px
+
+// 加载字符 'A'，FT_LOAD_RENDER 顺带栅格化
+FT_Load_Char(face, 'A', FT_LOAD_RENDER);
+
+FT_GlyphSlot g = face-&gt;glyph;
+// g-&gt;bitmap.buffer / width / rows  →  位图数据
+// g-&gt;bitmap_left, g-&gt;bitmap_top    →  相对笔位的摆放偏移
+// g-&gt;advance.x &gt;&gt; 6                →  前进宽度(1/64 像素 → 像素)
+upload_texture(g-&gt;bitmap.buffer,
+               g-&gt;bitmap.width, g-&gt;bitmap.rows);
+
+FT_Done_Face(face);
+FT_Done_FreeType(lib);</code></pre>
+        <p class="codenote"><b>关键点：</b>FreeType 把「加载」和「渲染」拆开，给你完整的<b>度量数据</b>（advance、bearing），这正是第 5 章排版需要的。位图质量、hinting、抗锯齿都比 stb 强，是浏览器和大多数 Linux 桌面的底层引擎。注意它<b>不做塑形</b>——连字、字偶距要交给 HarfBuzz。</p>
+      </div>
+
+      <!-- ===== HarfBuzz ===== -->
+      <div class="lib-panel" data-panel="hb">
+        <p style="margin-top:0;"><strong>目标</strong><span class="lib-badge role-shape">塑形 · 不画像素</span>：把字符串 <code>"Office"</code> 塑形成「字形索引 + 位置」序列（自动处理 ffi 连字等），再交给 FreeType 渲染。</p>
+        <pre><code>#include &lt;hb.h&gt;
+#include &lt;hb-ft.h&gt;   // 与 FreeType 桥接
+
+// 复用前面 FreeType 的 face，创建 HarfBuzz font
+hb_font_t *hb_font = hb_ft_font_create(face, NULL);
+
+// 1. 准备 buffer，放入要塑形的文字
+hb_buffer_t *buf = hb_buffer_create();
+hb_buffer_add_utf8(buf, "Office", -1, 0, -1);
+hb_buffer_set_direction(buf, HB_DIRECTION_LTR);
+hb_buffer_set_script(buf, HB_SCRIPT_LATIN);
+hb_buffer_set_language(buf, hb_language_from_string("en", -1));
+
+// 2. 塑形！处理连字(ffi)、字偶距、复杂文字
+hb_shape(hb_font, buf, NULL, 0);
+
+// 3. 取出每个字形的「索引」和「位置」
+unsigned int n;
+hb_glyph_info_t     *info = hb_buffer_get_glyph_infos(buf, &amp;n);
+hb_glyph_position_t *pos  = hb_buffer_get_glyph_positions(buf, &amp;n);
+
+float cursor_x = 0;
+for (unsigned int i = 0; i &lt; n; i++) {
+    unsigned int gid = info[i].codepoint; // 是字形索引，不是码点！
+    float xoff = pos[i].x_offset  / 64.0f;
+    float adv  = pos[i].x_advance / 64.0f;
+
+    // 用 gid 让 FreeType 渲染这个字形（注意是 Load_Glyph）
+    FT_Load_Glyph(face, gid, FT_LOAD_RENDER);
+    draw_glyph(face-&gt;glyph, cursor_x + xoff);
+    cursor_x += adv;
+}
+
+hb_buffer_destroy(buf);</code></pre>
+        <p class="codenote"><b>关键点：</b>HarfBuzz 的输出里 <code>info[i].codepoint</code> 其实是<b>字形索引（GID）</b>，所以渲染时要用 <code>FT_Load_Glyph</code>（按索引）而不是 <code>FT_Load_Char</code>（按字符）。<code>"Office"</code> 里的 <code>ffi</code> 会被合成<b>一个连字字形</b>，n 因此小于 6——这就是塑形的价值。</p>
+      </div>
+    </div>
+  </div>
+
+  <h2>把三者串起来：一句话的完整流程</h2>
+  <p>真实渲染一段文字时，三个库（外加 GPU）是这样接力的：</p>
+
+  <div class="pipeline" id="chain">
+    <div class="pipe-step"><div class="num">1</div><div class="body"><h4>HarfBuzz 塑形 <span class="lib-badge role-shape">shape</span></h4><div class="d">"Office" → 字形索引序列 [O,f,fi,c,e] + 每个的 x_advance / offset</div></div></div>
+    <div class="pipe-step"><div class="num">2</div><div class="body"><h4>FreeType 栅格化 <span class="lib-badge role-raster">raster</span></h4><div class="d">对每个 GID 调 FT_Load_Glyph，得到灰度位图 + bearing</div></div></div>
+    <div class="pipe-step"><div class="num">3</div><div class="body"><h4>打包进图集 <span class="lib-badge role-simple">atlas</span></h4><div class="d">把位图缓存到一张大纹理，记录每个字形的 UV 区域</div></div></div>
+    <div class="pipe-step"><div class="num">4</div><div class="body"><h4>OpenGL 绘制 <span class="lib-badge" style="background:rgba(121,192,255,.15); color:var(--accent-2);">draw</span></h4><div class="d">按 HarfBuzz 给的位置，为每个字形画一个带 UV 的四边形</div></div></div>
+  </div>
+
+  <div class="callout warn">
+    <div class="callout-title">为什么不全用 stb 就好？</div>
+    stb_truetype 也能查 cmap、栅格化，但它<strong>几乎不做塑形</strong>：连字、阿拉伯语连写、复杂的 OpenType 特性都处理不了。只渲染拉丁字母、对排版要求不高时，stb 一个文件就够；要做严肃的多语言排版，<strong>HarfBuzz + FreeType</strong> 才是标准组合（也是浏览器的选择）。
+  </div>
+
+  <div class="callout good">
+    <div class="callout-title">编译提示</div>
+    <strong>stb_truetype</strong>：直接 <code>#include</code>，无需链接库。
+    <strong>FreeType</strong>：<code>pkg-config --cflags --libs freetype2</code>，或链接 <code>-lfreetype</code>。
+    <strong>HarfBuzz</strong>：链接 <code>-lharfbuzz</code>，要桥接 FreeType 再加 <code>-lharfbuzz</code> 的 <code>hb-ft</code> 部分（现代版本已内置）。
+  </div>
+
+  <h2>实战问答：在 OpenGL 里「高效又省事」地渲染文字</h2>
+  <p>这是字体渲染里一个<strong>经典问题</strong>。把它讲清楚，正好把前面几章串起来。</p>
+
+  <div class="callout warn">
+    <div class="callout-title">一个很常见、但走偏了的做法</div>
+    用 stb_truetype <strong>把一整串文字渲染成一张图</strong>，再贴到一个 quad 上当纹理。能用，但是——文字一变就要<strong>重建整张纹理</strong>；每段文字都要<strong>各自维护一个 quad + 纹理</strong>；数量一多就很低效。
+  </div>
+
+  <p>问题的根源是<strong>「以整串文字为单位」</strong>去做纹理：文字内容、尺寸、位置一变就得重做，而且无法复用——同一个字母 <code>e</code> 在不同句子里被反复光栅化、反复存。正确的拆法是<strong>「以单个字形为单位」</strong>。</p>
+
+  <div class="callout good">
+    <div class="callout-title">✅ 标准答案：字形图集（Glyph Atlas）+ 批处理（Batching）</div>
+    <ol style="margin:6px 0 0; padding-left:20px; line-height:1.9;">
+      <li><strong>预先把要用的字形烤进一张大纹理</strong>（图集 / atlas）：每个字形光栅化一次，记下它在大图里的 UV 区域和度量。这正是第 7 章讲的图集。</li>
+      <li><strong>渲染文字时不再重建纹理</strong>：只为每个字形生成一个带 UV 的小四边形，位置由 HarfBuzz/度量给出。</li>
+      <li><strong>把一段（甚至整屏）文字的所有四边形合并成一次 draw call</strong>（批处理）。这就是第 8 章讲的「攒一大批顶点、一次画完」。</li>
+    </ol>
+    一句话：<strong>纹理只烤一次，文字变化只改顶点缓冲</strong>。这正是 LibGDX、浏览器、游戏引擎的通用做法。
+  </div>
+
+  <div class="demo">
+    <div class="demo-head"><span class="dot"></span> atlas.batching.flow</div>
+    <div class="demo-body">
+      <p style="margin-top:0; color:var(--text-dim); font-size:14px;">下面这张图把「字形图集 + 批处理」的三步画出来：烤一次图集 → 按字符查 UV 拼四边形 → 全部合并一次画完。</p>
+
+      <!-- Step 1: bake atlas -->
+      <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+        <div style="border:1px solid var(--border); border-radius:10px; padding:12px 14px; background:var(--bg-card);">
+          <div style="font-family:var(--mono); font-size:12px; color:var(--orange); margin-bottom:8px;">① 烤制（仅一次）</div>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span style="font-family:var(--mono); font-size:12px; color:var(--text-dim);">字体文件</span>
+            <span style="color:var(--accent);">→ 光栅化每个字形 →</span>
+          </div>
+          <div style="margin-top:10px; display:grid; grid-template-columns:repeat(6,30px); grid-auto-rows:30px; gap:3px; padding:8px; background:#0b0e13; border-radius:6px; border:1px dashed var(--purple);">
+            <span style="display:grid;place-items:center;color:#e6edf3;font-size:16px;">H</span>
+            <span style="display:grid;place-items:center;color:#e6edf3;font-size:16px;">e</span>
+            <span style="display:grid;place-items:center;color:#e6edf3;font-size:16px;">l</span>
+            <span style="display:grid;place-items:center;color:#e6edf3;font-size:16px;">o</span>
+            <span style="display:grid;place-items:center;color:#e6edf3;font-size:16px;">A</span>
+            <span style="display:grid;place-items:center;color:#e6edf3;font-size:16px;">g</span>
+            <span style="display:grid;place-items:center;color:#e6edf3;font-size:16px;">字</span>
+            <span style="display:grid;place-items:center;color:#e6edf3;font-size:16px;">体</span>
+            <span style="display:grid;place-items:center;color:#e6edf3;font-size:16px;">!</span>
+            <span style="display:grid;place-items:center;color:#e6edf3;font-size:16px;">?</span>
+            <span style="display:grid;place-items:center;color:#e6edf3;font-size:16px;">,</span>
+            <span style="display:grid;place-items:center;color:#3b4252;font-size:12px;">…</span>
+          </div>
+          <div style="font-family:var(--mono); font-size:11px; color:var(--purple); margin-top:6px; text-align:center;">一张图集纹理（含每个字形的 UV）</div>
+        </div>
+      </div>
+
+      <div style="text-align:center; color:var(--accent); font-size:20px; margin:6px 0;">↓</div>
+
+      <!-- Step 2: lookup + build quads -->
+      <div style="border:1px solid var(--border); border-radius:10px; padding:12px 14px; background:var(--bg-card);">
+        <div style="font-family:var(--mono); font-size:12px; color:var(--green); margin-bottom:10px;">② 排文字 = 查 UV + 拼四边形（每帧，几乎零成本）</div>
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-family:var(--mono); font-size:13px;">
+          <span style="color:var(--text-dim);">"Hello" →</span>
+          <span style="border:1px solid var(--accent-2); border-radius:5px; padding:4px 9px;">H<span style="color:var(--text-dim);font-size:11px;"> ·UV</span></span>
+          <span style="border:1px solid var(--accent-2); border-radius:5px; padding:4px 9px;">e<span style="color:var(--text-dim);font-size:11px;"> ·UV</span></span>
+          <span style="border:1px solid var(--accent-2); border-radius:5px; padding:4px 9px;">l<span style="color:var(--text-dim);font-size:11px;"> ·UV</span></span>
+          <span style="border:1px solid var(--accent-2); border-radius:5px; padding:4px 9px;">l<span style="color:var(--text-dim);font-size:11px;"> ·UV</span></span>
+          <span style="border:1px solid var(--accent-2); border-radius:5px; padding:4px 9px;">o<span style="color:var(--text-dim);font-size:11px;"> ·UV</span></span>
+        </div>
+        <div style="color:var(--text-dim); font-size:12.5px; margin-top:8px;">每个字形 = 1 个带 UV 的四边形，位置由度量/塑形累加得到；同一个 <code>l</code> 复用同一块 UV，无需重新光栅化。</div>
+      </div>
+
+      <div style="text-align:center; color:var(--accent); font-size:20px; margin:6px 0;">↓</div>
+
+      <!-- Step 3: batch + draw -->
+      <div style="border:1px solid var(--green); border-radius:10px; padding:12px 14px; background:rgba(63,185,80,.10);">
+        <div style="font-family:var(--mono); font-size:12px; color:var(--green); margin-bottom:8px;">③ 批处理：所有四边形塞进一个顶点缓冲</div>
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; font-family:var(--mono); font-size:13px; color:var(--text);">
+          <span style="color:var(--text-dim);">[H][e][l][l][o] …整屏文字…</span>
+          <span style="color:var(--green);">→ 1 次 glDrawElements →</span>
+          <span style="border:1px solid var(--green); border-radius:5px; padding:4px 10px; color:var(--green);">🖥️ 屏幕</span>
+        </div>
+        <div style="color:var(--text-dim); font-size:12.5px; margin-top:8px;">纹理始终是那一张（不换、不重建），文字变了只改顶点缓冲里的坐标和 UV。</div>
+      </div>
+    </div>
+  </div>
+
+  <h3>还有几个绕不开的坑，也要答上</h3>
+
+  <table class="cmp">
+    <thead><tr><th>方案</th><th>怎么做</th><th>适合 / 代价</th></tr></thead>
+    <tbody>
+      <tr><td>整串烤成纹理<br><span style="color:var(--text-dim);font-size:12px;">（走偏的做法）</span></td><td>一段文字 → 一张纹理 → 一个 quad</td><td>实现最简单；但不可复用、文字一变就重建、数量一多就爆。</td></tr>
+      <tr><td>字形图集 + 批处理<br><span style="color:var(--green);font-size:12px;">推荐</span></td><td>所有字形烤进一张图，按 UV 拼四边形，一次 draw call</td><td>高效、可复用；放大到远超烤制尺寸会糊。</td></tr>
+      <tr><td>SDF / MSDF<br><span style="color:var(--purple);font-size:12px;">要缩放就上这个</span></td><td>图集里存的不是像素，而是「到字形边缘的距离场」，着色器里按距离阈值出边缘</td><td>一张小图就能任意缩放、还能描边/发光；MSDF 还能保住尖角。详见<a href="ch11-sdf.html" style="color:var(--accent);">第 11 章</a>。</td></tr>
+      <tr><td>直接矢量 GPU<br><span style="color:var(--text-dim);font-size:12px;">如 Slug 库</span></td><td>着色器里直接对贝塞尔轮廓求覆盖，完全不要缓存纹理</td><td>无限清晰、无图集；实现复杂，Slug 是商业库。</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout">
+    <div class="callout-title">「像素完美」和「缩放」怎么兼顾？</div>
+    普通图集是<strong>按某个字号烤死</strong>的：原尺寸最清晰，放大就糊。两条路：①<strong>多准备几档字号</strong>的图集，就近选用（最简单）；②用 <strong>SDF/MSDF</strong>，一张图任意缩放（见第 11 章）。注意：真要「像素完美」还涉及<strong>子像素定位</strong>，这也是「漂亮的文字渲染很难」的原因——能接受单一字体 + 固定几档字号时，预烤一切是最省心的。
+  </div>
+
+  <div class="callout warn">
+    <div class="callout-title">本地化 / CJK：图集会不会爆？</div>
+    会。ASCII 一百多个字形，烤进一张图轻轻松松；但中日韩有上万字形，<strong>全烤进一张图不现实</strong>。做法是<strong>动态图集（按需缓存）</strong>：谁出现了才把谁光栅化、塞进图集，满了就淘汰旧的。这正是操作系统和浏览器的策略——<strong>软件光栅化 + 贴到四边形 + 动态缓存</strong>。复杂排版（阿拉伯连写、连字）则继续交给 HarfBuzz。
+  </div>
+
+  <div class="callout good">
+    <div class="callout-title">📌 一句话总结</div>
+    别以「整串文字」为单位贴纹理。<strong>以「字形」为单位</strong>：烤一张<strong>字形图集</strong>、用<strong>批处理</strong>一次画完；<strong>要缩放就上 SDF/MSDF</strong>（见<a href="ch11-sdf.html" style="color:var(--accent);">第 11 章</a>）；<strong>CJK/本地化就用动态图集按需缓存</strong>。塑形交 HarfBuzz、光栅化交 FreeType/stb、绘制交 OpenGL——这一整套，就是前面几章拼出来的答案。
+  </div>
+
+  <div class="checkpoint">
+    <div class="cp-title">检查一下理解 ✅</div>
+    <p class="q">问：HarfBuzz 塑形后拿到的 <code>codepoint</code> 字段，能直接传给 <code>FT_Load_Char</code> 吗？为什么？</p>
+    <details>
+      <summary>看答案</summary>
+      <p style="font-size:14.5px;"><strong>不能。</strong>HarfBuzz 输出里的 <code>codepoint</code> 字段名虽叫 codepoint，装的其实是<strong>字形索引 GID</strong>（已经过 cmap + 塑形）。要用 <code>FT_Load_Glyph(face, gid, ...)</code> 按索引加载；<code>FT_Load_Char</code> 是按 Unicode 码点加载、会自己再查一次 cmap，传 GID 进去就错位了。</p>
+    </details>
+  </div>
+
+  <div class="chapter-foot"></div>
+</div>
+
+<script src="../assets/js/site.js"></script>
+<script>
+// 代码示例 tab 切换
+document.querySelectorAll(".lib-tab").forEach(tab=>{
+  tab.addEventListener("click",()=>{
+    const key=tab.dataset.tab;
+    document.querySelectorAll(".lib-tab").forEach(t=>t.classList.toggle("active", t===tab));
+    document.querySelectorAll(".lib-panel").forEach(p=>p.classList.toggle("active", p.dataset.panel===key));
+  });
+});
+</script>
+</body>
+</html>

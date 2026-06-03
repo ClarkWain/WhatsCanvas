@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第 04 章 · 文本塑形：为什么需要 HarfBuzz · 字体渲染原理</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body data-page="ch4" data-base="../">
+
+<nav class="site-nav">
+  <a href="../index.html" class="brand"><span class="logo">字</span><span>字体渲染原理</span></a>
+  <span class="spacer"></span>
+  <div class="nav-links"></div>
+</nav>
+
+<div class="wrap">
+
+  <div class="chapter-kicker">CHAPTER 04 · TEXT SHAPING</div>
+  <h1 class="title">文本塑形：为什么需要 HarfBuzz</h1>
+  <p class="lede">
+    “一个字符画一个字形，从左到右排好”——这个直觉对英文勉强够用，对阿拉伯文、印度文、甚至带连字的拉丁文都是错的。
+    塑形（shaping）就是把字符序列翻译成<strong>带位置的字形序列</strong>的那一步。
+  </p>
+
+  <h2>塑形到底在做什么</h2>
+  <p>
+    塑形器（如 HarfBuzz）接收三样东西：一串字符、一个字体、一个语言/文字标签；
+    输出一串 <strong>glyph + 位置</strong>。在这个过程里它会处理：
+  </p>
+  <ul>
+    <li><strong>连字（ligature）</strong>：多个字符合并成一个字形，如 <code>f+i → fi</code>。</li>
+    <li><strong>组合符号</strong>：把变音符号精确地叠到基字母上。</li>
+    <li><strong>上下文变形</strong>：阿拉伯字母在词首/词中/词尾形状不同。</li>
+    <li><strong>双向（BiDi）重排</strong>：阿拉伯/希伯来从右到左，与拉丁数字混排时要重新排序。</li>
+    <li><strong>字偶距（kerning）</strong>：调整特定字符对的间距，如 <code>AV</code>。</li>
+  </ul>
+
+  <div class="callout warn">
+    <span class="label">核心反直觉</span>
+    字符数 ≠ 字形数，而且字符的<strong>逻辑顺序</strong> ≠ 字形的<strong>视觉顺序</strong>。这正是不能简单 <code>for each char: draw()</code> 的原因。
+  </div>
+
+  <h2>五种塑形动作，一图看懂</h2>
+  <p>上面五件事光看文字很抽象。下面这个演示把每一种都画出来——切换标签，看「塑形前」到「塑形后」到底发生了什么。</p>
+
+  <div class="demo">
+    <div class="demo-head"><span class="dot"></span><span class="t">shaping.actions</span></div>
+    <div class="demo-body">
+      <div class="toggle-row" style="margin-bottom:20px;">
+        <button class="btn active" data-act="lig">连字</button>
+        <button class="btn" data-act="comb">组合符号</button>
+        <button class="btn" data-act="ctx">上下文变形</button>
+        <button class="btn" data-act="bidi">双向重排</button>
+        <button class="btn" data-act="kern">字偶距</button>
+      </div>
+      <div id="act-view"></div>
+    </div>
+  </div>
+
+  <h2>动手对比：三种文字的塑形差异</h2>
+  <p>切换下面三种语言，观察“字符序列”如何变成“字形序列”，注意数量与方向的变化。</p>
+
+  <div class="demo">
+    <div class="demo-head"><span class="dot"></span><span class="t">shaping.compare</span></div>
+    <div class="demo-body">
+      <div class="toggle-row" style="margin-bottom:18px;">
+        <button class="btn active" data-case="en">英文连字 fi</button>
+        <button class="btn" data-case="cjk">中英混排</button>
+        <button class="btn" data-case="ar">阿拉伯 RTL</button>
+      </div>
+
+      <div id="shape-view"></div>
+    </div>
+  </div>
+
+  <h2>为什么不能自己写一个</h2>
+  <p>
+    塑形规则极其复杂：OpenType 的 GSUB/GPOS 有几十种 lookup 类型，
+    每种文字（拉丁、阿拉伯、天城文、泰文…）还有专门的塑形引擎逻辑。
+    HarfBuzz 把这些规则统一实现了，所以浏览器、操作系统、游戏引擎几乎都用它。
+  </p>
+
+  <table class="cmp">
+    <tr><th>文字</th><th>主要塑形难点</th><th>典型现象</th></tr>
+    <tr><td>拉丁</td><td>连字、字偶距</td><td>fi / fl 合并，AV 收紧</td></tr>
+    <tr><td>CJK</td><td>等宽排版、标点挤压、竖排</td><td>全角/半角、避头尾</td></tr>
+    <tr><td>阿拉伯</td><td>上下文连写、RTL、强制连字</td><td>同一字母 4 种形状</td></tr>
+    <tr><td>天城文/泰文</td><td>重排序、元音附标</td><td>字符显示顺序被打乱</td></tr>
+  </table>
+
+  <div class="callout">
+    <span class="label">职责边界</span>
+    <strong>HarfBuzz 只做塑形</strong>——它告诉你“画哪些字形、画在哪里”，但<strong>不栅格化、不画像素</strong>。拿到字形索引和位置后，还要交给 FreeType / stb_truetype 去取轮廓并栅格化（第 6 章），最后由 OpenGL 上屏（第 8 章）。
+  </div>
+
+  <div class="checkpoint">
+    <div class="q">检查一下理解 ✅</div>
+    <p style="font-size:14.5px;">问：阿拉伯文里输入的字符顺序和屏幕上看到的字形顺序一样吗？</p>
+    <details>
+      <summary>看答案</summary>
+      <p style="font-size:14.5px;">不一样。阿拉伯文是从右到左，塑形/BiDi 会把字形<strong>视觉顺序</strong>反转，
+      而且当中夹杂的拉丁数字仍保持从左到右。所以逻辑存储顺序和视觉绘制顺序是两回事——
+      这也是光标移动、选区在双向文本里很难做的根本原因。</p>
+    </details>
+  </div>
+
+  <div class="chapter-foot"></div>
+</div>
+
+<script src="../assets/js/site.js"></script>
+<script>
+// ============ 五种塑形动作可视化 ============
+function glyphBox(content, color, sub, extraStyle=""){
+  return `<div style="display:inline-flex; flex-direction:column; align-items:center; gap:6px;">
+    <div style="min-width:54px; height:64px; display:grid; place-items:center; font-size:40px; line-height:1;
+      border:1px solid var(--border); border-radius:10px; background:var(--bg-card); color:${color||'var(--text)'}; ${extraStyle}">${content}</div>
+    ${sub?`<div style="font-family:var(--mono); font-size:11px; color:var(--text-dim);">${sub}</div>`:""}</div>`;
+}
+function arrow(label){ return `<div style="display:flex; flex-direction:column; align-items:center; color:var(--text-dim); font-family:var(--mono); font-size:12px; padding:0 6px;"><div style="font-size:20px;">→</div>${label?`<div>${label}</div>`:""}</div>`; }
+function stage(title, inner){ return `<div style="margin-bottom:6px; font-family:var(--mono); font-size:12px; color:var(--text-dim);">${title}</div><div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">${inner}</div>`; }
+
+const ACTS = {
+  lig: {
+    title:"连字 Ligature",
+    render:()=>{
+      const serif="'Georgia','Times New Roman','Songti SC',serif";
+      const noLiga="font-feature-settings:'liga' 0,'clig' 0,'dlig' 0;font-variant-ligatures:none;";
+      // 直接拼：f 和 i 各画各的，钩与点靠得很近会“撞”
+      const clash=(it)=>`
+        <div style="position:relative; display:inline-block; padding:4px 10px;">
+          <span style="font-family:${serif}; font-size:78px; line-height:1; ${noLiga} ${it?'font-style:italic;':''} color:var(--text);">fi</span>
+          <div style="position:absolute; top:2px; ${it?'left:46px':'left:32px'}; width:34px; height:34px; border:2px dashed var(--pink); border-radius:50%;"></div>
+        </div>`;
+      // 连字：真正的合并字形 ﬁ，f 的钩顺势连到 i，点被吸收
+      const liga=(it)=>`
+        <span style="font-family:${serif}; font-size:78px; line-height:1; ${it?'font-style:italic;':''} color:var(--green);">&#xFB01;</span>`;
+      const cell=(inner,label,lc)=>`<div style="display:flex; flex-direction:column; align-items:center; gap:8px;">
+        <div style="min-width:120px; min-height:96px; display:grid; place-items:center; border:1px solid var(--border); border-radius:12px; background:var(--bg-card);">${inner}</div>
+        <div style="font-family:var(--mono); font-size:11.5px; color:${lc};">${label}</div></div>`;
+      return `
+      <div style="display:grid; grid-template-columns:auto auto auto; gap:18px 22px; align-items:center; justify-content:start;">
+        ${cell(clash(false),"直接拼 · 钩 ✕ 点 相撞","var(--pink)")}
+        ${arrow("GSUB")}
+        ${cell(liga(false),"连字 ﬁ · 连成一笔","var(--green)")}
+        ${cell(clash(true),"斜体直接拼 · 撞得更挤","var(--pink)")}
+        ${arrow("GSUB")}
+        ${cell(liga(true),"斜体连字 · 顺势连写","var(--green)")}
+      </div>
+      <p style="font-size:14px; margin-top:18px;">「连字」的<strong style="color:var(--green);">连</strong>，字面意思就是把相邻字母<strong>连成一笔</strong>。单独画 <code>f</code> 和 <code>i</code>（粉圈处），<code>f</code> 顶部外伸的钩会和 <code>i</code> 头上的点<strong style="color:var(--pink);">撞在一起</strong>——斜体里尤其明显。字体设计师预先画好一个合并字形 <code>&#xFB01;</code>：<strong>f 的钩顺势延伸过去，i 的点被吸收进钩里</strong>，像手写时一笔带过。塑形（GSUB）就是把 <code>f</code>、<code>i</code> 两个字符替换成这<strong>一个相连的字形</strong>。结果：2 个字符 → 1 个字形。</p>`;
+    }
+  },
+  comb: {
+    title:"组合符号 Combining Marks",
+    render:()=>`
+      <div style="display:flex; align-items:center; gap:24px; flex-wrap:wrap;">
+        <div>${stage("塑形前 · 基字母 + 独立符号", glyphBox("e","var(--accent)","U+0065")+glyphBox("&#x301;","var(--orange)","U+0301 重音"))}</div>
+        ${arrow("GPOS")}
+        <div>${stage("塑形后 · 符号精确叠放", glyphBox("&eacute;","var(--green)","对齐到顶部"))}</div>
+      </div>
+      <p style="font-size:14px; margin-top:16px;">重音符号 <code>U+0301</code> 本身没有固定位置，塑形器要根据基字母 <code>e</code> 的高度和宽度，把它<strong>精确地叠到正上方居中</strong>。不同字母（i、ê、大写 E）叠放点都不同，这正是 GPOS 标记定位（mark positioning）干的活。</p>`
+  },
+  ctx: {
+    title:"上下文变形 Contextual Forms（阿拉伯）",
+    render:()=>`
+      <div style="margin-bottom:6px; font-family:var(--mono); font-size:12px; color:var(--text-dim);">同一个字母 &#x647;（heh），位置不同形状不同：</div>
+      <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+        ${glyphBox("&#xFEE9;","var(--accent)","独立形")}
+        ${glyphBox("&#xFEEB;","var(--orange)","词首形")}
+        ${glyphBox("&#xFEEC;","var(--purple)","词中形")}
+        ${glyphBox("&#xFEEA;","var(--green)","词尾形")}
+      </div>
+      <p style="font-size:14px; margin-top:16px;">阿拉伯文是连写的，<strong>同一个字符</strong>会因为它在词里的位置（开头 / 中间 / 结尾 / 独立）而选用<strong>不同形状的字形</strong>。塑形器根据左右邻居自动挑选正确的形态，再把它们连成一个词。这是 <code>for each char</code> 永远做不到的。</p>`
+  },
+  bidi: {
+    title:"双向重排 BiDi Reordering",
+    render:()=>`
+      <div>${stage("逻辑顺序（存储 / 输入）",
+        glyphBox("a","var(--accent)","1")+glyphBox("b","var(--accent)","2")+
+        glyphBox("&#x627;","var(--pink)","3 阿")+glyphBox("&#x628;","var(--pink)","4 拉")+
+        glyphBox("5","var(--orange)","5")+glyphBox("6","var(--orange)","6"))}</div>
+      <div style="text-align:center; color:var(--text-dim); margin:14px 0; font-family:var(--mono); font-size:12px;">&#x2193; BiDi 重排（阿拉伯段从右向左，数字仍左向右）</div>
+      <div>${stage("视觉顺序（屏幕上从左到右画）",
+        glyphBox("a","var(--accent)","1")+glyphBox("b","var(--accent)","2")+
+        glyphBox("&#x628;","var(--pink)","4")+glyphBox("&#x627;","var(--pink)","3")+
+        glyphBox("5","var(--orange)","5")+glyphBox("6","var(--orange)","6"))}</div>
+      <p style="font-size:14px; margin-top:16px;">拉丁字母从左到右、阿拉伯从右到左。混排时，阿拉伯段内部字符的<strong style="color:var(--pink);">视觉顺序被反转</strong>（3、4 → 4、3），而其中嵌入的数字 5 6 仍保持从左到右。所以「第几个字符」和「屏幕第几个位置」完全是两回事。</p>`
+  },
+  kern: {
+    title:"字偶距 Kerning",
+    render:()=>{
+      const serif="'Georgia','Times New Roman','Songti SC',serif";
+      // 一个带“字宽框”的字形：右边界虚线代表该字形的 advance（前进宽度）
+      const cellG=(ch,{ml=0,color='var(--text)',w=72}={})=>`
+        <div style="position:relative; width:${w}px; height:120px; margin-left:${ml}px;
+          border-right:1px dashed var(--border); border-left:1px dashed var(--border);">
+          <span style="position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+            font-family:${serif}; font-size:96px; line-height:1; color:${color};">${ch}</span>
+        </div>`;
+      const row=(opts)=>`<div style="display:flex; align-items:flex-end; background:
+          repeating-linear-gradient(90deg,transparent,transparent 23px,rgba(255,255,255,.03) 23px,rgba(255,255,255,.03) 24px);
+          padding:10px 18px; border-radius:10px;">${opts}</div>`;
+      return `
+      <div style="display:flex; flex-direction:column; gap:22px;">
+        <div>
+          <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
+            <span style="display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--pink);color:#000;font-size:13px;font-weight:700;">1</span>
+            <strong style="color:var(--pink);">无字距调整 · NO KERNING</strong>
+          </div>
+          ${row(cellG("A")+cellG("v")+cellG("."))}
+          <div style="font-family:var(--mono); font-size:12px; color:var(--pink); margin-top:8px;">A 的右斜边 与 v 的左斜边 之间空了一大块 &#x276F; 看起来 A &nbsp;&nbsp; v 散开了</div>
+        </div>
+        <div>
+          <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
+            <span style="display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--green);color:#000;font-size:13px;font-weight:700;">2</span>
+            <strong style="color:var(--green);">有字距调整 · YES, KERNING!</strong>
+          </div>
+          ${row(cellG("A",{color:'var(--green)'})+cellG("v",{ml:-26,color:'var(--green)'})+cellG(".",{ml:-8,color:'var(--green)'}))}
+          <div style="font-family:var(--mono); font-size:12px; color:var(--green); margin-top:8px;">给 (A,v) 这对存一个负调整量 &#x2192; v 的框向左挪进 A 的斜边下方，空隙收紧 &#x2713; Much better 好多了</div>
+        </div>
+      </div>
+      <p style="font-size:14px; margin-top:18px;">每个字形都有自己的<strong>字宽框（advance）</strong>——上图虚线就是边界。按框一个挨一个排，遇到 <code>A</code>+<code>v</code>、<code>T</code>+<code>o</code>、<code>W</code>+<code>a</code> 这种<strong>一个右倾、一个左倾</strong>的组合，中间会空出一块「视觉空洞」。字偶距（kerning）针对这些<strong style="color:var(--accent);">特定字符对</strong>预存一个微调量（通常是负值），塑形时让后一个字形的框<strong>向前挪一点</strong>，使字间空白看起来均匀。注意：它<strong>只挪特定的对</strong>，不是整体缩字距。</p>`;
+    }
+  },
+};
+
+const actView = document.getElementById("act-view");
+function renderAct(k){
+  actView.innerHTML = `<h3 style="margin-top:0;">${ACTS[k].title}</h3>${ACTS[k].render()}`;
+}
+document.querySelectorAll("[data-act]").forEach(b=>b.addEventListener("click",()=>{
+  document.querySelectorAll("[data-act]").forEach(x=>x.classList.remove("active"));
+  b.classList.add("active"); renderAct(b.dataset.act);
+}));
+renderAct("lig");
+
+// ============ 三种文字塑形对比 ============
+const CASES = {
+  en: {
+    dir:"LTR · 从左到右",
+    chars:["f","i","l","e"],
+    glyphs:[{g:"fi",note:"连字"},{g:"l"},{g:"e"}],
+    desc:"4 个字符 → 3 个字形：f 和 i 合并成连字 “fi”，避免 f 的钩和 i 的点相撞。字符数 4，字形数 3。"
+  },
+  cjk: {
+    dir:"LTR · 混排",
+    chars:["你","好","A","B"],
+    glyphs:[{g:"你"},{g:"好"},{g:"A"},{g:"B"}],
+    desc:"中文每字一个全角字形，advance 相等；拉丁字母是比例宽度。塑形要处理中西文之间的间距与基线对齐。"
+  },
+  ar: {
+    dir:"RTL · 从右到左",
+    chars:["ب","ي","ت"],
+    glyphs:[{g:"ﺖ",note:"尾形"},{g:"ﻴ",note:"中形"},{g:"ﺑ",note:"首形"}],
+    desc:"3 个字符塑形后连写成一个词，每个字母取不同的上下文形状，且视觉顺序从右向左排列（与输入顺序相反）。"
+  }
+};
+let cur="en";
+const view=document.getElementById("shape-view");
+function arrowsRow(items, rtl){
+  const cells = items.map(it=>`
+    <div class="card" style="margin:0; min-width:64px; text-align:center; padding:14px 10px;">
+      <div style="font-size:30px; line-height:1;">${it.g||it}</div>
+      ${it.note?`<div style="font-size:11px; color:var(--accent-2); font-family:var(--mono); margin-top:6px;">${it.note}</div>`:""}
+    </div>`);
+  return `<div style="display:flex; gap:10px; flex-wrap:wrap; ${rtl?'flex-direction:row-reverse; justify-content:flex-end;':''}">${cells.join("")}</div>`;
+}
+function render(){
+  const c=CASES[cur]; const rtl=cur==="ar";
+  view.innerHTML=`
+    <div style="font-family:var(--mono); font-size:12px; color:var(--text-dim); margin-bottom:8px;">输入字符（逻辑顺序，共 ${c.chars.length} 个）</div>
+    ${arrowsRow(c.chars,false)}
+    <div style="text-align:center; color:var(--text-dim); margin:14px 0; font-family:var(--mono); font-size:13px;">↓ HarfBuzz 塑形 · ${c.dir}</div>
+    <div style="font-family:var(--mono); font-size:12px; color:var(--text-dim); margin-bottom:8px;">输出字形（视觉顺序，共 ${c.glyphs.length} 个）</div>
+    ${arrowsRow(c.glyphs,rtl)}
+    <p style="font-size:14px; margin-top:16px;">${c.desc}</p>`;
+}
+document.querySelectorAll("[data-case]").forEach(b=>b.addEventListener("click",()=>{
+  document.querySelectorAll("[data-case]").forEach(x=>x.classList.remove("active"));
+  b.classList.add("active"); cur=b.dataset.case; render();
+}));
+render();
+</script>
+</body>
+</html>

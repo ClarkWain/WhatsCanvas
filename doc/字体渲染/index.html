@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>字体是如何渲染到屏幕上的 · 交互教程</title>
+<link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body data-page="index" data-base="">
+
+<nav class="site-nav">
+  <a href="index.html" class="brand"><span class="logo">字</span><span>字体渲染原理</span></a>
+  <span class="spacer"></span>
+  <div class="nav-links"></div>
+</nav>
+
+<div class="wrap wide">
+
+  <!-- Hero -->
+  <div style="text-align:center; margin-bottom: 24px;">
+    <div class="chapter-kicker">INTERACTIVE TUTORIAL</div>
+    <div class="hero-glyph">Aa 字 ع</div>
+    <h1 class="title" style="margin-top:0;">文字是如何被画到屏幕上的</h1>
+    <p class="lede" style="margin: 0 auto;">
+      从一串 Unicode 字符，到屏幕上一个个发光的像素，中间隔着一条多达十步的流水线。
+      这套教程用可交互的方式，带你走完 <strong>stb_truetype · FreeType · HarfBuzz · OpenGL</strong>
+      这条真实的文本渲染链路，并理解字体技术为什么会演化成今天的样子。
+    </p>
+  </div>
+
+  <!-- 交互流程图 -->
+  <h2 id="pipeline-overview">一张图看懂整条流水线</h2>
+  <p>点击下面任意一个步骤，看它在做什么、由哪个库负责。这条链路是整套教程的主线，每一章都会回到它的某一段。</p>
+
+  <div class="demo">
+    <div class="demo-head"><span class="dot"></span><span class="t">text-rendering-pipeline.interactive</span></div>
+    <div class="demo-body">
+      <div style="display:grid; grid-template-columns: minmax(0,1.5fr) minmax(240px,1fr); gap: 22px; align-items:start;" class="pipe-layout">
+        <div class="pipeline" id="pipeline"></div>
+        <div id="pipe-detail" class="card" style="position:sticky; top:80px; margin:0;">
+          <div class="chapter-kicker" id="pd-kicker">选中一个步骤</div>
+          <h3 id="pd-title" style="margin-top:6px;">渲染流水线总览</h3>
+          <p id="pd-desc" style="font-size:14.5px;">
+            左侧每个方块代表一个真实存在的处理阶段。很多人以为“渲染文字”就是
+            <code>for each char: draw(char)</code>，但实际上字符在变成像素之前，
+            要先经过编码、查表、塑形、定位、栅格化、上传 GPU 等多个环节。
+          </p>
+          <div id="pd-extra" style="font-size:13.5px; color:var(--text-dim);"></div>
+          <a id="pd-link" href="#" style="display:none; font-size:13.5px; margin-top:10px;">进入对应章节 →</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout">
+    <span class="label">核心观念</span>
+    字体不是图片，而更像一段“程序”：它存的是轮廓和规则，真正的像素是渲染器在运行时算出来的。
+    所以同一个字体文件，在不同字号、不同系统、不同渲染器下，画出来的像素可以完全不同。
+  </div>
+
+  <!-- 章节地图 -->
+  <h2 id="chapters">教程地图</h2>
+  <p>全套教程分为九章，外加一个进阶实验室。你可以顺序阅读，也可以从任意一章独立切入。</p>
+
+  <div class="ch-grid" id="ch-grid"></div>
+
+  <h2>三条贯穿全程的主线</h2>
+  <div class="ch-grid" style="grid-template-columns: repeat(auto-fit,minmax(260px,1fr));">
+    <div class="card" style="margin:0;">
+      <div class="chapter-kicker" style="color:var(--orange);">主线 A</div>
+      <h3 style="margin-top:6px;">字体格式的演化</h3>
+      <p style="font-size:14px;">点阵字体 → 矢量字体 → OpenType → 可变字体 → Web 字体。每一步都在解决“分辨率、存储、排版能力、分发效率”里的某个问题。</p>
+    </div>
+    <div class="card" style="margin:0;">
+      <div class="chapter-kicker" style="color:var(--accent-2);">主线 B</div>
+      <h3 style="margin-top:6px;">字符到像素的链路</h3>
+      <p style="font-size:14px;">字符 → cmap → 塑形 → 度量 → 轮廓 → 栅格化 → 图集 → GPU。这是整套教程的技术骨架。</p>
+    </div>
+    <div class="card" style="margin:0;">
+      <div class="chapter-kicker" style="color:var(--pink);">主线 C</div>
+      <h3 style="margin-top:6px;">语言与平台的差异</h3>
+      <p style="font-size:14px;">英文、CJK、阿拉伯（从右到左）在塑形与排版上规则不同，这正是 HarfBuzz 这类库存在的原因。</p>
+    </div>
+  </div>
+
+  <div class="checkpoint">
+    <div class="q">开始前，先想一个问题 🤔</div>
+    <p style="font-size:14.5px;">当你在编辑框里输入 <code>fi</code> 两个字符，屏幕上最终画出的，一定是两个独立的字形吗？</p>
+    <details>
+      <summary>看看答案</summary>
+      <p style="font-size:14.5px;">不一定。很多字体里 <code>f</code> + <code>i</code> 会被“连字（ligature）”合并成 <strong>一个</strong> 字形 <code>fi</code>，
+      避免 f 的顶部和 i 的点撞在一起。也就是说：<strong>字符数 ≠ 字形数</strong>。这正是第 4 章「文本塑形」要讲的核心。</p>
+    </details>
+  </div>
+
+</div>
+
+<script src="assets/js/site.js"></script>
+<script>
+// 流水线数据
+const PIPE = [
+  { n:1, c:"#58a6ff", h:"输入文本", d:"一串 Unicode 码点", lib:null, ch:null,
+    desc:"一切的起点是内存里的一串字符，例如 <code>U+0066 U+0069</code>（fi）。注意：此时它们只是“逻辑顺序”的码点，还没有任何形状、位置或方向信息。",
+    extra:"关键认知：字符（character）是存储单位，字形（glyph）是显示单位，两者并不一一对应。" },
+  { n:2, c:"#79c0ff", h:"字符 → 字形索引", d:"通过 cmap 表查找", lib:"FreeType", ch:"ch3",
+    desc:"渲染器拿到码点后，要在字体的 <code>cmap</code> 表里查出对应的字形索引（glyph index）。字体内部并不是按 Unicode 排列的，必须经过这一层映射。",
+    extra:"找不到时会触发字体回退（fallback）——这就是为什么有时会看到“豆腐块”□。" },
+  { n:3, c:"#bc8cff", h:"文本塑形 Shaping", d:"连字 / 组合 / 双向", lib:"HarfBuzz", ch:"ch4",
+    desc:"这是最容易被忽略的一步。HarfBuzz 根据语言与 OpenType 规则，把字符序列转换成<strong>带位置的字形序列</strong>：处理连字、组合符号、阿拉伯的连写、双向文本重排等。",
+    extra:"英文几乎是直通的，但阿拉伯一个字符可能有 4 种形状，CJK 与拉丁的断行规则也完全不同。" },
+  { n:4, c:"#ff7b9c", h:"字形度量与定位", d:"advance / bearing / 基线", lib:"HarfBuzz/FreeType", ch:"ch5",
+    desc:"为每个字形计算它的包围盒、步进宽度（advance）、侧边距（bearing），并沿基线累加光标位置，决定每个字形画在哪里。",
+    extra:"这一步决定了“排版”：行高、字距、字偶距（kerning）、对齐都发生在这里。" },
+  { n:5, c:"#ffa657", h:"轮廓 Outline", d:"贝塞尔曲线描述字形", lib:"FreeType/stb", ch:"ch6",
+    desc:"矢量字体里的字形是一组贝塞尔曲线轮廓，以字体单位（em square）存储，与分辨率无关。渲染时先按目标字号缩放这些轮廓。",
+    extra:"这就是矢量字体能任意放大的原因：存的是曲线方程，不是固定像素。" },
+  { n:6, c:"#e3b341", h:"栅格化 Rasterization", d:"轮廓 → 覆盖率位图", lib:"FreeType/stb", ch:"ch6",
+    desc:"把缩放后的轮廓“扫描”成像素：计算每个像素被字形覆盖了多少，得到一张灰度覆盖率位图。抗锯齿、hinting、子像素渲染都发生在这一步。",
+    extra:"抗锯齿的本质，就是“这个像素被覆盖了百分之多少”，而不是简单的开/关。" },
+  { n:7, c:"#3fb950", h:"图集打包与上传", d:"glyph atlas → 纹理", lib:"stb_rect_pack", ch:"ch8",
+    desc:"把栅格化好的字形塞进一张大纹理（texture atlas）里，记录每个字形的 UV 坐标，并上传到 GPU。已经画过的字形会被缓存复用。",
+    extra:"GPU 上通常画的是“贴图”，而不是每帧重新栅格化曲线。" },
+  { n:8, c:"#39d0d8", h:"GPU 批量绘制", d:"四边形 + 着色器", lib:"OpenGL", ch:"ch8",
+    desc:"为每个字形生成一个四边形（两个三角形），附上位置、UV 与颜色，绑定图集纹理与着色器，一次 DrawCall 批量画出整段文字。",
+    extra:"想要无级缩放、描边、发光？这就是 SDF / MSDF 登场的地方（第 8 章扩展）。" },
+  { n:9, c:"#e6edf3", h:"屏幕显示", d:"像素点亮", lib:null, ch:null,
+    desc:"最终，混合（blending）后的颜色被写入帧缓冲，显示器把它们点亮。你读到的每一个字，背后都走完了上面这整条路。",
+    extra:"在低分屏上，子像素渲染还会进一步利用 RGB 子像素提升清晰度。" },
+];
+
+const pipeEl = document.getElementById("pipeline");
+pipeEl.innerHTML = PIPE.map((s,i) => `
+  <div class="pipe-step" data-i="${i}">
+    <div class="num" style="background:${s.c}">${s.n}</div>
+    <div class="body">
+      <div class="h">${s.h}</div>
+      <div class="d">${s.d}</div>
+      ${s.lib ? `<span class="lib">${s.lib}</span>` : ""}
+    </div>
+  </div>
+`).join("");
+
+const pd = {
+  kicker: document.getElementById("pd-kicker"),
+  title: document.getElementById("pd-title"),
+  desc: document.getElementById("pd-desc"),
+  extra: document.getElementById("pd-extra"),
+  link: document.getElementById("pd-link"),
+};
+const chMap = Object.fromEntries(CHAPTERS.map(c => [c.id, c]));
+
+function selectStep(i) {
+  document.querySelectorAll(".pipe-step").forEach(el => el.classList.toggle("active", +el.dataset.i === i));
+  const s = PIPE[i];
+  pd.kicker.textContent = `步骤 ${s.n} / ${PIPE.length}`;
+  pd.title.textContent = s.h;
+  pd.desc.innerHTML = s.desc;
+  pd.extra.innerHTML = s.extra ? `<div style="margin-top:12px; padding-top:12px; border-top:1px solid var(--border);">💡 ${s.extra}</div>` : "";
+  if (s.ch && chMap[s.ch]) {
+    pd.link.style.display = "inline-block";
+    pd.link.href = chMap[s.ch].file;
+    pd.link.textContent = `进入：第 ${chMap[s.ch].num} 章 ${chMap[s.ch].title} →`;
+  } else { pd.link.style.display = "none"; }
+}
+pipeEl.querySelectorAll(".pipe-step").forEach(el => {
+  el.addEventListener("click", () => selectStep(+el.dataset.i));
+});
+selectStep(0);
+
+// 章节卡片
+const grid = document.getElementById("ch-grid");
+const descs = {
+  ch1:"从活字到数字字体：点阵、矢量、可变、Web 字体分别解决了什么问题。",
+  ch2:"font face / glyph / cmap / metrics —— 一个字体文件里到底装了什么。",
+  ch3:"码点如何通过 cmap 找到字形索引，以及为什么会出现“豆腐块”。",
+  ch4:"塑形、连字、组合符号、双向文本：为什么字符数不等于字形数。",
+  ch5:"基线、advance、bearing、字偶距：文字是怎么被“排”出来的。",
+  ch6:"轮廓 → 像素：抗锯齿、hinting、子像素渲染的真正含义。",
+  ch7:"stb_truetype / FreeType / HarfBuzz / OpenGL 各自的职责边界。",
+  ch8:"glyph 缓存、纹理图集、批量绘制，以及 SDF/MSDF 的取舍。",
+  ch9:"@font-face、WOFF2、子集化、可变字体轴、加载与回退策略。",
+};
+grid.innerHTML = CHAPTERS.filter(c => c.id !== "index").map(c => `
+  <a class="ch-card" href="${c.file}">
+    <div class="ci">第 ${c.num} 章</div>
+    <div class="ct">${c.title}</div>
+    <div class="cd">${descs[c.id] || ""}</div>
+  </a>
+`).join("");
+</script>
+
+<style>
+/* 首页流水线：紧凑两列网格，降低整体高度，让右侧详情点击后始终可见 */
+#pipeline{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+#pipeline .pipe-step{ grid-template-columns:42px 1fr; gap:12px; padding:11px 13px; align-content:start; }
+#pipeline .pipe-step:hover{ transform:none; border-color:var(--accent); }
+#pipeline .pipe-step .num{ width:42px; height:42px; font-size:17px; border-radius:10px; }
+#pipeline .pipe-step .body .h{ font-size:14.5px; line-height:1.25; }
+#pipeline .pipe-step .body .d{ font-size:12.5px; }
+#pipeline .pipe-step .lib{ position:static; display:inline-block; margin-top:7px; top:auto; right:auto; }
+
+@media (max-width: 900px){
+  .pipe-layout{ grid-template-columns:1fr !important; }
+  #pipe-detail{ position:static !important; margin-top:4px !important; }
+}
+@media (max-width: 540px){
+  #pipeline{ grid-template-columns:1fr; }
+}
+</style>
+</body>
+</html>

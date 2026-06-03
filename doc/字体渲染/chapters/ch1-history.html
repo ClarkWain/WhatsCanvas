@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第 01 章 · 字体简史：从铅字到可变字体 · 字体渲染原理</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+<!-- 真正的可变字体：Roboto Flex 同时带 wght + wdth 轴，可连续插值 -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght,wdth@8..144,100..1000,25..151&display=swap" rel="stylesheet">
+<style>
+/* 竖向时间轴：左侧节点列 + 右侧 sticky 详情 */
+.tl-layout{ display:grid; grid-template-columns:minmax(0,210px) 1fr; gap:24px; align-items:start; }
+#tl-track{ display:flex; flex-direction:column; }
+.tl-node{ display:grid; grid-template-columns:26px 1fr; gap:12px; align-items:center;
+  background:none; border:none; padding:0; text-align:left; cursor:pointer; width:100%;
+  color:var(--text); opacity:.6; transition:opacity .15s; }
+.tl-node:hover{ opacity:.9; }
+.tl-node.active{ opacity:1; }
+.tl-rail{ position:relative; display:flex; justify-content:center; align-self:stretch; min-height:46px; }
+.tl-rail::before{ content:""; position:absolute; top:0; bottom:0; width:2px; background:var(--border); }
+#tl-track .tl-node:first-child .tl-rail::before{ top:50%; }
+#tl-track .tl-node:last-child .tl-rail::before{ bottom:50%; }
+.tl-dot{ position:relative; z-index:1; width:12px; height:12px; border-radius:50%;
+  background:var(--bg); border:2px solid var(--accent); align-self:center; margin:auto 0;
+  transition:all .15s; }
+.tl-node.active .tl-dot{ background:var(--accent); box-shadow:0 0 0 4px var(--accent-soft); }
+.tl-year{ font-family:var(--mono); font-size:13px; color:var(--accent); font-weight:700; }
+.tl-name{ font-size:13.5px; font-weight:600; margin-top:1px; }
+#tl-detail{ position:sticky; top:80px; }
+@media (max-width: 760px){
+  .tl-layout{ grid-template-columns:1fr; }
+  #tl-detail{ position:static; }
+}
+/* 像素字体演示 */
+#cv-pixel{ image-rendering:pixelated; image-rendering:crisp-edges; width:100%; height:auto;
+  background:#0b0e13; border-radius:8px; }
+/* 可变字体样本 */
+#vf-sample{ font-family:"Roboto Flex","Bahnschrift",system-ui,sans-serif;
+  font-optical-sizing:none; font-stretch:100%; will-change:font-variation-settings; }
+.vf-cjk{ font-family:var(--sans); }
+/* 支持情况表 */
+table.support td:first-child{ white-space:nowrap; font-weight:600; }
+</style>
+</head>
+<body data-page="ch1" data-base="../">
+
+<nav class="site-nav">
+  <a href="../index.html" class="brand"><span class="logo">字</span><span>字体渲染原理</span></a>
+  <span class="spacer"></span>
+  <div class="nav-links"></div>
+</nav>
+
+<div class="wrap">
+
+  <div class="chapter-kicker">CHAPTER 01 · A BRIEF HISTORY OF TYPE</div>
+  <h1 class="title">字体简史：从铅字到可变字体</h1>
+  <p class="lede">要理解今天屏幕上的字怎么来的，先看它走过的五百年。技术每换一代，「字形怎么存、怎么放大、怎么传输」就被重新发明一次——而这些老问题，至今仍藏在每个字体文件里。</p>
+
+  <h2>一条时间轴，看清五次技术跃迁</h2>
+  <p>点击下面任意一个节点，看那一代解决了什么、又留下了什么。</p>
+
+  <div class="demo">
+    <div class="demo-head"><span class="dot"></span> type.timeline</div>
+    <div class="demo-body">
+      <div class="tl-layout">
+        <div id="tl-track"></div>
+        <div id="tl-detail"></div>
+      </div>
+    </div>
+  </div>
+
+  <h2>点阵字体 vs 矢量字体：放大就见真章</h2>
+  <p>这是字体史上最重要的一次分野。早期屏幕字是<strong>点阵（bitmap）</strong>：把每个字在固定网格上画成黑白格子，存的是「哪些格子是黑的」。它在原始尺寸下又快又锐利，但<strong>一放大就露出马赛克</strong>。后来出现<strong>矢量（outline）字体</strong>：存的是字形轮廓的数学曲线，任意缩放都能重新算出光滑边缘。</p>
+
+  <div class="demo">
+    <div class="demo-head"><span class="dot"></span> bitmap.vs.outline</div>
+    <div class="demo-body">
+      <div class="demo-controls">
+        <div class="control">
+          <label>放大倍数 <span class="val" id="zoom-val">3×</span></label>
+          <input type="range" id="zoom" min="1" max="10" value="3" step="1">
+        </div>
+        <div class="toggle-row">
+          <button class="btn active" id="bm-grid">显示网格</button>
+        </div>
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:18px; margin-top:8px;">
+        <div class="canvas-wrap">
+          <div class="canvas-label">点阵 Bitmap · 存黑白格子</div>
+          <canvas id="cv-bitmap" width="320" height="320"></canvas>
+        </div>
+        <div class="canvas-wrap">
+          <div class="canvas-label">矢量 Outline · 存轮廓曲线</div>
+          <canvas id="cv-vector" width="320" height="320"></canvas>
+        </div>
+      </div>
+      <p style="font-size:14px; margin-top:14px;">拖动滑块放大同一个字「<strong>A</strong>」。左边点阵把已经画死的格子整块放大，边缘变成<strong style="color:var(--pink);">锯齿台阶</strong>；右边矢量按轮廓在新尺寸下重新栅格化，边缘始终<strong style="color:var(--green);">光滑</strong>。这就是为什么今天的字体几乎都是矢量的。</p>
+    </div>
+  </div>
+
+  <h2>矢量字体到底怎么「存」一个字？贝塞尔曲线</h2>
+  <p>矢量字体存的不是像素，而是字形<strong>轮廓上的一串点</strong>，再用<strong>贝塞尔曲线（Bézier curve）</strong>把这些点连成光滑的边。最常见的是<strong>三次贝塞尔</strong>：两个落在轮廓上的<strong style="color:var(--accent);">锚点（on-curve）</strong>，加两个不在轮廓上、专门控制弯曲方向的<strong style="color:var(--orange);">控制点（off-curve）</strong>。改变控制点，曲线就被「拉」出不同的弧度。下面以字母「C」为例，看它是怎么由几段贝塞尔曲线拼出来的。</p>
+
+  <div class="demo">
+    <div class="demo-head"><span class="dot"></span> bezier.glyph.C</div>
+    <div class="demo-body">
+      <div class="demo-controls">
+        <div class="toggle-row">
+          <button class="btn active" id="bz-handles">显示锚点 / 控制点</button>
+          <button class="btn active" id="bz-fill">填充字形</button>
+          <button class="btn" id="bz-anim">▶ 描边动画</button>
+        </div>
+      </div>
+      <div class="canvas-wrap" style="margin-top:8px;">
+        <div class="canvas-label">字母 C · 由 <span id="bz-count">—</span> 段三次贝塞尔曲线组成</div>
+        <canvas id="cv-bezier" width="720" height="440"></canvas>
+      </div>
+      <p style="font-size:14px; margin-top:14px;">
+        <span style="display:inline-block; width:11px; height:11px; background:var(--accent); border-radius:2px; vertical-align:middle;"></span>
+        <strong style="color:var(--accent);">方块 = 锚点</strong>，落在轮廓线上，是曲线真正经过的地方；
+        <span style="display:inline-block; width:11px; height:11px; border:2px solid var(--orange); border-radius:50%; vertical-align:middle;"></span>
+        <strong style="color:var(--orange);">圆点 = 控制点</strong>，像「磁铁」一样把曲线朝自己的方向拉弯，虚线是它和锚点的连线。整个字形外、内两条轮廓加上两端的封口，就这样用十几个数字精确描述出来——无论放多大，都按这些点<strong>重新算出光滑边缘</strong>。
+      </p>
+    </div>
+  </div>
+
+  <div class="callout">
+    <div class="callout-title">为什么点阵字体没有彻底消失</div>
+    在极小字号（如 9px、10px）下，矢量字反而因为栅格化误差显得模糊，所以很多字体内嵌了<strong>点阵版本</strong>（EBDT 表）专门给小字号用。点阵也活在像素游戏、嵌入式仪表、复古设计里——它「一格一格」的质感本身成了一种风格。
+  </div>
+
+  <p>下面用一个<strong>真正的点阵渲染</strong>感受一下：每个字符先在 5×7 的小网格上画死，再整块放大——<strong style="color:var(--accent);">不做任何插值</strong>，所以放多大都是清清楚楚的方块。这正是像素字体的灵魂。把开关切到「平滑缩放」，同样的点阵被双线性插值抹糊，那股「数码味」就没了。</p>
+
+  <div class="demo">
+    <div class="demo-head"><span class="dot"></span> pixel.font</div>
+    <div class="demo-body">
+      <div class="demo-controls">
+        <div class="control">
+          <label>放大倍数 <span class="val" id="px-scale-val">10×</span></label>
+          <input type="range" id="px-scale" min="3" max="16" value="10" step="1">
+        </div>
+        <div class="toggle-row">
+          <button class="btn active" id="px-nearest">最近邻（像素）</button>
+          <button class="btn" id="px-smooth">双线性（插值）</button>
+        </div>
+      </div>
+      <div class="canvas-wrap" style="margin-top:8px;">
+        <div class="canvas-label" id="px-label">点阵字体 · 5×7 网格 · 不插值放大</div>
+        <canvas id="cv-pixel" width="720" height="240"></canvas>
+      </div>
+      <p style="font-size:14px; margin-top:14px;">这里的字形数据就是一串 0/1，每一位代表「这个格子点不点亮」。<strong style="color:var(--green);">最近邻</strong>放大时，一个原始像素被复制成一个实心方块，边缘是干脆的台阶；<strong style="color:var(--pink);">双线性</strong>放大会在黑白之间插出灰边，于是糊成一团。像素字体之所以要禁用插值，就是为了守住这份锐利。</p>
+    </div>
+  </div>
+
+  <h2>可变字体：一个文件，无数粗细</h2>
+  <p>2016 年 OpenType 1.8 带来<strong>可变字体（Variable Fonts）</strong>。过去「细体、常规、粗体、特粗」要分成 4 个独立文件；现在一个文件里存一套<strong>主轮廓 + 变化规则</strong>，沿着「轴（axis）」连续插值，就能生成中间任意一档粗细。拖动下面的滑块感受一下。</p>
+
+  <div class="demo">
+    <div class="demo-head"><span class="dot"></span> variable.font</div>
+    <div class="demo-body">
+      <div class="demo-controls">
+        <div class="control">
+          <label>字重轴 wght <span class="val" id="wght-val">400</span></label>
+          <input type="range" id="wght" min="100" max="900" value="400" step="10">
+        </div>
+        <div class="control">
+          <label>字宽轴 wdth <span class="val" id="wdth-val">100%</span></label>
+          <input type="range" id="wdth" min="25" max="151" value="100" step="1">
+        </div>
+      </div>
+      <div style="text-align:center; padding:26px 10px; border:1px solid var(--border); border-radius:12px; background:var(--bg-card); margin-top:8px;">
+        <div id="vf-sample" style="font-size:72px; line-height:1.1; color:var(--accent-2);">Variable&nbsp;123&nbsp;<span class="vf-cjk">永</span></div>
+      </div>
+      <p style="font-size:14px; margin-top:14px;">这里加载的是<strong style="color:var(--green);">真正的可变字体 Roboto Flex</strong>（带 <code>wght</code> 与 <code>wdth</code> 两条轴）。拖动滑块时，字重和字宽在轴的范围内<strong>连续插值</strong>，没有任何「跳档」——因为粗细不是预先做好的几个文件，而是由一套主轮廓 + delta 实时算出来的。真实可变字体还可有 slant、optical size 等多条轴，组合出成千上万种样式却只占一个文件。<span style="color:var(--text-dim);">（联网时用 Roboto Flex；离线时回退到 Windows 自带的可变字体 Bahnschrift。中文「永」字这里用普通字体显示，但 CJK 也有可变字体，如「思源黑体 Variable」。）</span></p>
+    </div>
+  </div>
+
+  <h3>可变字体的支持情况</h3>
+  <p>可变字体从规范走到「随处可用」花了好几年，下面是各平台的大致时间线（按软件类型分）。</p>
+
+  <table class="cmp support">
+    <thead><tr><th>平台 / 软件</th><th>起始支持</th><th>备注</th></tr></thead>
+    <tbody>
+      <tr><td>Windows</td><td>Win10 1709（2017）</td><td>早期对 CFF2 轮廓支持不完善，用某些可变字体可能导致文字渲染崩溃、显示空白；2023 年 KB5032278 才修复。</td></tr>
+      <tr><td>macOS / iOS</td><td>macOS 10.5 / iOS 3.2</td><td>系统层很早就支持；但 Safari 要到 macOS 10.13 / iOS 11 的 Safari 11（WebKit）才支持。</td></tr>
+      <tr><td>Android</td><td>Android 8.0 Oreo / API 26</td><td>起提供接口给应用开发者使用可变字体。</td></tr>
+      <tr><td>Linux / 类 Unix</td><td>FreeType 2.8（2017.5）</td><td>绝大多数类 Unix 系统使用的渲染引擎 FreeType 在该版本加入可变字体支持。</td></tr>
+      <tr><td>Adobe CC</td><td>2018 版</td><td>Photoshop、Illustrator 增加支持，并提供 Acumin、Minion、Myriad、Source Code/Sans/Serif 的可变版本。</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout good">
+    <div class="callout-title">一句话总结</div>
+    系统内核大多在 2017 年前后补齐可变字体支持，但<strong>浏览器、编辑软件的落地更晚</strong>，还伴随过渲染崩溃等坑。今天主流浏览器（基于 WebKit / Blink / Gecko）已普遍支持，可放心在网页用 <code>font-variation-settings</code> / <code>font-weight</code> 连续值。
+  </div>
+
+  <h2>衬线 / 非衬线 / 等宽：字体的三大家族</h2>
+  <p>抛开年代，按「长相」分，今天的字体大体落在三大家族里。它们的差别不只是好看与否，还直接影响阅读场景。</p>
+
+  <div class="demo">
+    <div class="demo-head"><span class="dot"></span> typeface.families</div>
+    <div class="demo-body">
+      <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px;">
+        <div class="canvas-wrap">
+          <div class="canvas-label" style="color:var(--accent);">衬线 Serif</div>
+          <div style="font-family:Georgia,'Times New Roman',serif; font-size:46px; text-align:center; padding:14px 6px;">Rg 永</div>
+          <div style="font-size:12.5px; color:var(--text-dim); padding:0 10px 10px;">笔画末端有「小脚」（衬线），横细竖粗。适合长篇正文、印刷，如宋体、Times。</div>
+        </div>
+        <div class="canvas-wrap">
+          <div class="canvas-label" style="color:var(--green);">非衬线 Sans-serif</div>
+          <div style="font-family:'Segoe UI',Arial,Helvetica,sans-serif; font-size:46px; text-align:center; padding:14px 6px;">Rg 永</div>
+          <div style="font-size:12.5px; color:var(--text-dim); padding:0 10px 10px;">没有小脚，笔画粗细均匀，干净现代。适合屏幕、标题、UI，如黑体、Helvetica。</div>
+        </div>
+        <div class="canvas-wrap">
+          <div class="canvas-label" style="color:var(--orange);">等宽 Monospace</div>
+          <div style="font-family:'JetBrains Mono',Consolas,monospace; font-size:46px; text-align:center; padding:14px 6px;">Rg 永</div>
+          <div style="font-size:12.5px; color:var(--text-dim); padding:0 10px 10px;">每个字符占同样宽度，列对齐。适合代码、终端、表格，如 Consolas。</div>
+        </div>
+      </div>
+      <div class="canvas-wrap" style="margin-top:14px;">
+        <div class="canvas-label">放大看「衬线」到底是什么 <button class="btn active" id="serif-mark" style="margin-left:8px; padding:2px 10px; font-size:12px;">标出小脚</button></div>
+        <canvas id="cv-serif" width="720" height="280"></canvas>
+      </div>
+      <p style="font-size:14px; margin-top:14px;">「衬线（serif）」就是笔画起笔、收笔处那一小撇<strong style="color:var(--pink);">额外的脚</strong>，源自古罗马石刻凿痕。它能引导视线、在小字号下增强辨识；去掉它就是<strong>无衬线（sans-serif，sans 是法语「没有」）</strong>。等宽则是另一个维度——强调「每个字一样宽」，常和衬线/非衬线正交组合。</p>
+    </div>
+  </div>
+
+  <h2>字重、斜体、描边：同一字体的不同「打扮」</h2>
+  <p>同一套字体设计，还能在<strong>粗细、倾斜、轮廓</strong>上变出多种样式。理解它们对应到渲染时，其实是不同的处理方式。</p>
+
+  <div class="demo">
+    <div class="demo-head"><span class="dot"></span> font.style</div>
+    <div class="demo-body">
+      <div class="canvas-wrap">
+        <div class="canvas-label">① 字重 weight：从纤细到特粗（真实可变字体连续插值）</div>
+        <div style="display:flex; align-items:baseline; justify-content:space-around; flex-wrap:wrap; gap:10px; padding:16px 10px; font-family:'Roboto Flex','Bahnschrift',sans-serif; color:var(--accent-2);">
+          <span style="font-size:40px; font-variation-settings:'wght' 100;">Aa<small style="font-size:12px; color:var(--text-dim); display:block; text-align:center; font-variation-settings:'wght' 400;">100 Thin</small></span>
+          <span style="font-size:40px; font-variation-settings:'wght' 300;">Aa<small style="font-size:12px; color:var(--text-dim); display:block; text-align:center; font-variation-settings:'wght' 400;">300 Light</small></span>
+          <span style="font-size:40px; font-variation-settings:'wght' 400;">Aa<small style="font-size:12px; color:var(--text-dim); display:block; text-align:center; font-variation-settings:'wght' 400;">400 Regular</small></span>
+          <span style="font-size:40px; font-variation-settings:'wght' 600;">Aa<small style="font-size:12px; color:var(--text-dim); display:block; text-align:center; font-variation-settings:'wght' 400;">600 SemiBold</small></span>
+          <span style="font-size:40px; font-variation-settings:'wght' 800;">Aa<small style="font-size:12px; color:var(--text-dim); display:block; text-align:center; font-variation-settings:'wght' 400;">800 ExtraBold</small></span>
+        </div>
+      </div>
+
+      <div class="canvas-wrap" style="margin-top:14px;">
+        <div class="canvas-label">② 斜体 italic：真斜体 ≠ 把正体「掰歪」</div>
+        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; padding:14px 10px; font-family:Georgia,serif; font-size:40px; text-align:center;">
+          <div>afg<div style="font-size:12px; color:var(--text-dim);">正体 Roman</div></div>
+          <div style="font-style:italic; color:var(--green);">afg<div style="font-size:12px; color:var(--text-dim); font-style:normal;">真斜体 Italic（字形重画）</div></div>
+          <div><span style="display:inline-block; transform:skewX(-13deg); color:var(--pink);">afg</span><div style="font-size:12px; color:var(--text-dim);">伪斜体 Oblique（仅倾斜）</div></div>
+        </div>
+        <p style="font-size:13px; color:var(--text-dim); padding:0 12px 10px;">真斜体是设计师<strong>重新画</strong>的一套字形（注意 <em>a</em>、<em>f</em> 的形状变了）；伪斜体只是把正体用矩阵<strong>整体倾斜</strong>，没换字形，是渲染器在「凑合」。中文一般没有真斜体，系统多用伪斜体。</p>
+      </div>
+
+      <div class="canvas-wrap" style="margin-top:14px;">
+        <div class="canvas-label">③ 描边 stroke：填充 + 轮廓线</div>
+        <div class="demo-controls" style="padding:8px 12px;">
+          <div class="control">
+            <label>描边粗细 <span class="val" id="stroke-val">3px</span></label>
+            <input type="range" id="stroke-w" min="0" max="8" value="3" step="0.5">
+          </div>
+          <div class="toggle-row">
+            <button class="btn active" id="stroke-fill">显示填充</button>
+          </div>
+        </div>
+        <div style="text-align:center; padding:10px;">
+          <span id="stroke-sample" style="font-size:72px; font-weight:800; color:var(--accent-2); -webkit-text-stroke:3px var(--pink); paint-order:stroke fill;">描边 Aa</span>
+        </div>
+        <p style="font-size:13px; color:var(--text-dim); padding:0 12px 10px;">描边给字形<strong>外加一圈轮廓线</strong>。关掉填充就是<strong>空心字</strong>。游戏 UI、字幕常用「白字 + 黑边」保证在任何背景上都看得清——本质就是 fill + stroke 两层。</p>
+      </div>
+    </div>
+  </div>
+
+  <h2>字体格式的演进</h2>
+  <p>每种格式都是为解决当时的痛点而生，理解它们的差异能帮你看懂字体文件里的表（第 2 章）。</p>
+
+  <table class="cmp">
+    <thead><tr><th>格式</th><th>年代</th><th>轮廓类型</th><th>解决的问题</th></tr></thead>
+    <tbody>
+      <tr><td>PostScript Type 1</td><td>1984</td><td>三次贝塞尔</td><td>高质量印刷输出，但商业封闭</td></tr>
+      <tr><td>TrueType</td><td>1991</td><td>二次贝塞尔</td><td>苹果/微软自研，内置 hinting，屏幕显示好</td></tr>
+      <tr><td>OpenType</td><td>1996</td><td>兼容两者</td><td>统一容器 + 高级排版（GSUB/GPOS）+ Unicode</td></tr>
+      <tr><td>WOFF / WOFF2</td><td>2010 / 2018</td><td>同 OpenType</td><td>为 Web 压缩传输，WOFF2 用 Brotli 体积更小</td></tr>
+      <tr><td>TTC / OTC（字体集合）</td><td>1996 起</td><td>同 TrueType/OpenType</td><td>一个文件打包多套字体，共享字形数据省体积</td></tr>
+      <tr><td>可变字体</td><td>2016</td><td>OpenType + 轴</td><td>一个文件覆盖整个字族，按轴插值</td></tr>
+    </tbody>
+  </table>
+
+  <h2>插曲：.ttc —— 一个文件里装着好几套字体</h2>
+  <p>你在系统字体目录里大概见过 <code>.ttc</code> 文件（macOS 的 <code>PingFang.ttc</code>、Windows 的 <code>simsun.ttc</code>）。TTC 是 <strong>TrueType Collection</strong>（OpenType 版叫 <strong>OTC</strong>）：把<strong>多套字体打包进一个文件</strong>，并让它们<strong>共享</strong>能共享的表（尤其是体积最大的字形数据 <code>glyf</code>）。</p>
+
+  <div class="callout">
+    <div class="callout-title">为什么要这么做？</div>
+    宋体常规、宋体粗体、宋体斜体……它们的<strong>大部分字形是一样的</strong>，CJK 字体一套又有上万字形、文件好几 MB。如果每个样式都存一份完整字形，体积会成倍膨胀。TTC 让多套字体<strong>指向同一份字形数据</strong>，只各自保留不同的部分（如 <code>name</code>、<code>cmap</code>、度量），从而显著省空间。
+  </div>
+
+  <div class="demo">
+    <div class="demo-head"><span class="dot"></span> ttc.layout</div>
+    <div class="demo-body">
+      <p style="margin-top:0; color:var(--text-dim); font-size:14px;">一个 <code>.ttc</code> 文件的内部结构：开头是 TTC 头 + 一张「每套字体的表目录偏移」表，多套字体共用底部的字形数据。</p>
+      <div style="display:flex; flex-direction:column; gap:10px; font-family:var(--mono); font-size:13px;">
+        <div style="border:1px solid var(--accent); border-radius:8px; padding:10px 14px; background:var(--accent-soft); color:var(--accent-2);">
+          <strong>TTC Header</strong> &nbsp;<span style="color:var(--text-dim);">'ttcf' + 字体数量 N + 每套字体的偏移[ ]</span>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;">
+          <div style="border:1px solid var(--purple); border-radius:8px; padding:10px; background:rgba(188,140,255,.10);">
+            <div style="color:var(--purple); font-weight:600;">Face 0 · 常规</div>
+            <div style="color:var(--text-dim); font-size:12px; margin-top:4px;">name / cmap / 度量<br>→ 指向共享字形</div>
+          </div>
+          <div style="border:1px solid var(--purple); border-radius:8px; padding:10px; background:rgba(188,140,255,.10);">
+            <div style="color:var(--purple); font-weight:600;">Face 1 · 粗体</div>
+            <div style="color:var(--text-dim); font-size:12px; margin-top:4px;">name / cmap / 度量<br>→ 指向共享字形</div>
+          </div>
+          <div style="border:1px solid var(--purple); border-radius:8px; padding:10px; background:rgba(188,140,255,.10);">
+            <div style="color:var(--purple); font-weight:600;">Face 2 · 斜体</div>
+            <div style="color:var(--text-dim); font-size:12px; margin-top:4px;">name / cmap / 度量<br>→ 指向共享字形</div>
+          </div>
+        </div>
+        <div style="border:1px solid var(--green); border-radius:8px; padding:12px 14px; background:rgba(63,185,80,.10); color:var(--green); text-align:center;">
+          <strong>共享字形数据 glyf / loca</strong> &nbsp;<span style="color:var(--text-dim);">（最大的一块，三套字体共用）</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout good">
+    <div class="callout-title">和代码的联系</div>
+    第 10 章 stb_truetype 里的 <code>stbtt_GetFontOffsetForIndex(ttf, 0)</code>、FreeType 的 <code>FT_New_Face(lib, path, <strong>face_index</strong>, &amp;face)</code>，那个 <strong>index</strong> 就是「取 TTC 里第几套字体」。普通 <code>.ttf</code> 只有一套，传 0；<code>.ttc</code> 则可以传 0、1、2…… 取出不同样式。
+  </div>
+
+  <div class="callout warn">
+    <div class="callout-title">容易混淆</div>
+    <strong>TTC ≠ 可变字体。</strong> TTC 是把<strong>若干个「已经做好的离散样式」</strong>装进一个文件、共享字形；可变字体是用<strong>一套主轮廓 + 轴</strong>连续插值出无限中间档。前者像「打包多张定妆照」，后者像「一个能连续变形的模型」。现代有些字体两者兼有。
+  </div>
+
+  <div class="checkpoint">
+    <div class="cp-title">检查一下理解 ✅</div>
+    <p class="q">问：为什么矢量字体可以无限放大不失真，点阵字体不行？</p>
+    <details>
+      <summary>看答案</summary>
+      <p style="font-size:14.5px;">因为矢量字体存的是<strong>轮廓曲线（数学描述）</strong>，放大时在目标尺寸下<strong>重新栅格化</strong>，每个尺寸都得到合适的像素；点阵字体存的是<strong>固定网格上的黑白像素</strong>，放大只能把已有的格子整块拉大，于是出现锯齿。换句话说：矢量存的是「怎么画」，点阵存的是「画好的结果」。</p>
+    </details>
+  </div>
+
+  <div class="chapter-foot"></div>
+</div>
+
+<script src="../assets/js/site.js"></script>
+<script>
+// ============ 时间轴 ============
+const ERAS = [
+  { y:"1450", t:"金属活字", lib:"Gutenberg",
+    solved:"古腾堡用可重复使用的铅活字排版印刷，字形第一次被「标准化、可复制」。一个字模反复浇铸，效率碾压手抄。",
+    legacy:"「字体（font）」一词就来自一套同样大小的铅字；「大写字母放上层抽屉、小写放下层」留下了 uppercase / lowercase 这两个词。" },
+  { y:"1950s", t:"照相排版", lib:"Phototypesetting",
+    solved:"用胶片上的字形底片透光成像，告别沉重铅字。字号可以用镜头光学缩放，第一次出现「一套字形、多种大小」的雏形。",
+    legacy:"光学缩放的思路，正是后来「optical size 光学尺寸轴」的祖先——大字和小字其实需要略微不同的字形设计。" },
+  { y:"1980s", t:"点阵字体", lib:"Bitmap",
+    solved:"早期电脑屏幕和点阵打印机，把字画成固定网格的黑白点。在原始尺寸下清晰、渲染极快，存储也简单。",
+    legacy:"小字号内嵌点阵（EBDT）至今还在用；像素字体成为一种独立的美学风格。" },
+  { y:"1984", t:"矢量轮廓", lib:"PostScript Type 1",
+    solved:"Adobe 用贝塞尔曲线描述字形轮廓，配合 PostScript 解释器，实现「分辨率无关」的高质量印刷输出。",
+    legacy:"轮廓 + 曲线的存储方式成为此后所有现代字体的基础；三次贝塞尔被 CFF/OpenType 继承。" },
+  { y:"1991", t:"TrueType", lib:"Apple / Microsoft",
+    solved:"苹果与微软联手对抗 Adobe，推出开放的 TrueType，用二次贝塞尔 + 强大的 hinting 指令，让字体在低分屏上也清晰。",
+    legacy:"hinting 字节码、glyf/loca 表结构沿用至今；TrueType 轮廓是 .ttf 的核心。" },
+  { y:"1996", t:"OpenType", lib:"Microsoft / Adobe",
+    solved:"统一 TrueType 与 PostScript 两种轮廓，加入 Unicode cmap 和 GSUB/GPOS 高级排版表，支持连字、字偶距、复杂文字。",
+    legacy:"今天绝大多数字体都是 OpenType（.otf/.ttf）；本教程后面讲的塑形、cmap 都建立在它之上。" },
+  { y:"2010", t:"Web 字体", lib:"WOFF / WOFF2",
+    solved:"@font-face + WOFF 让网页能下载并使用自定义字体，WOFF2 用 Brotli 压缩把体积再降三成，彻底改变网页排版。",
+    legacy:"网页不再受限于「系统已装字体」；按需子集化、unicode-range 分包成为前端性能课题（第 9 章）。" },
+  { y:"2016", t:"可变字体", lib:"OpenType 1.8",
+    solved:"一个文件内存主轮廓 + delta 变化，沿 weight/width/slant 等轴连续插值，一个文件覆盖整个字族，省体积、可动画。",
+    legacy:"现代设计系统用一条 wght 轴做出全部粗细；CSS font-variation-settings 直接控制轴值。" },
+];
+const track = document.getElementById("tl-track");
+const detail = document.getElementById("tl-detail");
+track.innerHTML = ERAS.map((e,i)=>`
+  <button class="tl-node" data-i="${i}">
+    <div class="tl-rail"><span class="tl-dot"></span></div>
+    <div class="tl-meta">
+      <div class="tl-year">${e.y}</div>
+      <div class="tl-name">${e.t}</div>
+    </div>
+  </button>`).join("");
+function showEra(i){
+  const e = ERAS[i];
+  detail.innerHTML = `
+    <div class="card" style="margin:0;">
+      <div style="display:flex; align-items:baseline; gap:12px; flex-wrap:wrap;">
+        <span style="font-family:var(--mono); font-size:22px; color:var(--accent); font-weight:700;">${e.y}</span>
+        <strong style="font-size:18px;">${e.t}</strong>
+        <span class="tag advanced">${e.lib}</span>
+      </div>
+      <p style="margin:12px 0 8px;"><strong style="color:var(--green);">解决了什么：</strong>${e.solved}</p>
+      <p style="margin:0;"><strong style="color:var(--orange);">留下了什么：</strong>${e.legacy}</p>
+    </div>`;
+  document.querySelectorAll(".tl-node").forEach(n=>{
+    n.classList.toggle("active", +n.dataset.i===i);
+  });
+}
+document.querySelectorAll(".tl-node").forEach(n=>n.addEventListener("click",()=>showEra(+n.dataset.i)));
+showEra(2);
+
+// ============ 点阵 vs 矢量 ============
+// 用一个低分辨率位图蒙版表示字形 A，放大时点阵直接缩放像素，矢量按形状重新填充
+const bmCv = document.getElementById("cv-bitmap"), bmCtx = bmCv.getContext("2d");
+const vcCv = document.getElementById("cv-vector"), vcCtx = vcCv.getContext("2d");
+let zoom = 3, showGrid = true;
+// 字形 A 的多边形（归一化 0..1 坐标）
+const Aout = [[.5,.06],[.78,.92],[.64,.92],[.57,.7],[.43,.7],[.36,.92],[.22,.92]];
+const Ahole = [[.5,.3],[.46,.56],[.54,.56]];
+function pathPoly(ctx,poly,sx,sy,ox,oy){ ctx.moveTo(ox+poly[0][0]*sx, oy+poly[0][1]*sy); for(let k=1;k<poly.length;k++) ctx.lineTo(ox+poly[k][0]*sx, oy+poly[k][1]*sy); ctx.closePath(); }
+// 预生成 16x16 点阵蒙版（对矢量在小尺寸采样）
+const N=16, mask=[];
+(function(){
+  const off=document.createElement("canvas"); off.width=N; off.height=N; const c=off.getContext("2d");
+  c.fillStyle="#fff"; c.beginPath(); pathPoly(c,Aout,N,N,0,0); pathPoly(c,Ahole,N,N,0,0); c.fill("evenodd");
+  const d=c.getImageData(0,0,N,N).data;
+  for(let y=0;y<N;y++){mask[y]=[];for(let x=0;x<N;x++) mask[y][x]= d[(y*N+x)*4+3]>128?1:0;}
+})();
+function drawBitmap(){
+  bmCtx.clearRect(0,0,320,320); bmCtx.fillStyle="#0d1117"; bmCtx.fillRect(0,0,320,320);
+  const cell = (320/N) * (zoom/3); // 放大时格子变大
+  const total = cell*N; const ox=(320-total)/2, oy=(320-total)/2;
+  for(let y=0;y<N;y++)for(let x=0;x<N;x++){
+    if(mask[y][x]){ bmCtx.fillStyle="#e6edf3"; bmCtx.fillRect(ox+x*cell, oy+y*cell, cell+.6, cell+.6); }
+  }
+  if(showGrid){ bmCtx.strokeStyle="rgba(255,123,156,.35)"; bmCtx.lineWidth=1;
+    for(let i=0;i<=N;i++){ bmCtx.beginPath(); bmCtx.moveTo(ox+i*cell,oy); bmCtx.lineTo(ox+i*cell,oy+total); bmCtx.stroke();
+      bmCtx.beginPath(); bmCtx.moveTo(ox,oy+i*cell); bmCtx.lineTo(ox+total,oy+i*cell); bmCtx.stroke(); } }
+}
+function drawVector(){
+  vcCtx.clearRect(0,0,320,320); vcCtx.fillStyle="#0d1117"; vcCtx.fillRect(0,0,320,320);
+  const s = 240*(zoom/3); const ox=(320-s)/2, oy=(320-s)/2;
+  vcCtx.fillStyle="#3fb950"; vcCtx.beginPath(); pathPoly(vcCtx,Aout,s,s,ox,oy); pathPoly(vcCtx,Ahole,s,s,ox,oy); vcCtx.fill("evenodd");
+  if(showGrid){ vcCtx.strokeStyle="rgba(63,185,80,.18)"; vcCtx.lineWidth=1;
+    const cell=s/N; for(let i=0;i<=N;i++){ vcCtx.beginPath(); vcCtx.moveTo(ox+i*cell,oy); vcCtx.lineTo(ox+i*cell,oy+s); vcCtx.stroke();
+      vcCtx.beginPath(); vcCtx.moveTo(ox,oy+i*cell); vcCtx.lineTo(ox+s,oy+i*cell); vcCtx.stroke(); } }
+}
+function drawBoth(){ drawBitmap(); drawVector(); }
+const zEl=document.getElementById("zoom"), zVal=document.getElementById("zoom-val");
+zEl.addEventListener("input",()=>{ zoom=+zEl.value; zVal.textContent=zoom+"×"; drawBoth(); });
+document.getElementById("bm-grid").addEventListener("click",function(){ showGrid=!showGrid; this.classList.toggle("active",showGrid); drawBoth(); });
+drawBoth();
+
+// ============ 像素字体（点阵 + 最近邻放大）============
+(function(){
+  const pCv=document.getElementById("cv-pixel"), pCtx=pCv.getContext("2d");
+  const pLabel=document.getElementById("px-label");
+  // 5×7 点阵字模：每个字符 7 行，每行 5 位（从高位到低位为左到右）
+  const FONT={
+    "0":[0x0E,0x11,0x13,0x15,0x19,0x11,0x0E],"1":[0x04,0x0C,0x04,0x04,0x04,0x04,0x0E],
+    "2":[0x0E,0x11,0x01,0x02,0x04,0x08,0x1F],"3":[0x1F,0x02,0x04,0x02,0x01,0x11,0x0E],
+    "4":[0x02,0x06,0x0A,0x12,0x1F,0x02,0x02],"5":[0x1F,0x10,0x1E,0x01,0x01,0x11,0x0E],
+    "6":[0x06,0x08,0x10,0x1E,0x11,0x11,0x0E],"7":[0x1F,0x01,0x02,0x04,0x08,0x08,0x08],
+    "8":[0x0E,0x11,0x11,0x0E,0x11,0x11,0x0E],"9":[0x0E,0x11,0x11,0x0F,0x01,0x02,0x0C],
+    "P":[0x1E,0x11,0x11,0x1E,0x10,0x10,0x10],"I":[0x0E,0x04,0x04,0x04,0x04,0x04,0x0E],
+    "X":[0x11,0x11,0x0A,0x04,0x0A,0x11,0x11],"E":[0x1F,0x10,0x10,0x1E,0x10,0x10,0x1F],
+    "L":[0x10,0x10,0x10,0x10,0x10,0x10,0x1F],"F":[0x1F,0x10,0x10,0x1E,0x10,0x10,0x10],
+    "O":[0x0E,0x11,0x11,0x11,0x11,0x11,0x0E],"N":[0x11,0x19,0x15,0x13,0x11,0x11,0x11],
+    "T":[0x1F,0x04,0x04,0x04,0x04,0x04,0x04]," ":[0,0,0,0,0,0,0],
+  };
+  const LINES=["PIXEL FONT","0123456789"];
+  // 先把文字画进一张「原始像素」的小离屏画布（1 像素 = 1 格）
+  const CW=5,CH=7,GAP=1;
+  const cols=Math.max(...LINES.map(s=>s.length))*(CW+GAP);
+  const rows=LINES.length*(CH+2);
+  const off=document.createElement("canvas"); off.width=cols; off.height=rows;
+  const oc=off.getContext("2d");
+  function drawSrc(){
+    oc.clearRect(0,0,cols,rows);
+    LINES.forEach((line,li)=>{
+      const oy=li*(CH+2);
+      for(let ci=0;ci<line.length;ci++){
+        const g=FONT[line[ci]]||FONT[" "]; const ox=ci*(CW+GAP);
+        for(let r=0;r<CH;r++) for(let c=0;c<CW;c++)
+          if((g[r]>>(CW-1-c))&1){ oc.fillStyle="#79c0ff"; oc.fillRect(ox+c,oy+r,1,1); }
+      }
+    });
+  }
+  drawSrc();
+  let scale=10, nearest=true;
+  function render(){
+    pCtx.clearRect(0,0,pCv.width,pCv.height);
+    pCtx.fillStyle="#0b0e13"; pCtx.fillRect(0,0,pCv.width,pCv.height);
+    pCtx.imageSmoothingEnabled=!nearest;
+    const dw=cols*scale, dh=rows*scale;
+    const dx=Math.round((pCv.width-dw)/2), dy=Math.round((pCv.height-dh)/2);
+    pCtx.drawImage(off,0,0,cols,rows,dx,dy,dw,dh);
+    pCv.style.imageRendering = nearest ? "pixelated" : "auto";
+  }
+  render();
+  const sc=document.getElementById("px-scale"), scv=document.getElementById("px-scale-val");
+  sc.addEventListener("input",()=>{ scale=+sc.value; scv.textContent=scale+"×"; render(); });
+  const bN=document.getElementById("px-nearest"), bS=document.getElementById("px-smooth");
+  bN.addEventListener("click",()=>{ nearest=true; bN.classList.add("active"); bS.classList.remove("active");
+    pLabel.textContent="点阵字体 · 5×7 网格 · 不插值放大"; render(); });
+  bS.addEventListener("click",()=>{ nearest=false; bS.classList.add("active"); bN.classList.remove("active");
+    pLabel.textContent="同样的点阵 · 双线性插值放大（被抹糊）"; render(); });
+})();
+
+// ============ 贝塞尔曲线字形 C ============
+(function(){
+  const cv=document.getElementById("cv-bezier"), ctx=cv.getContext("2d");
+  const W=cv.width, H=cv.height, cx=W/2, cy=H/2;
+  // 把一段圆弧拆成若干三次贝塞尔（kappa 近似），返回 {p0,c1,c2,p1}
+  function arcSegs(r,a0,a1){
+    const segs=[]; const n=Math.ceil(Math.abs(a1-a0)/(Math.PI/2));
+    const step=(a1-a0)/n;
+    for(let i=0;i<n;i++){
+      const s=a0+step*i, e=a0+step*(i+1);
+      const k=4/3*Math.tan((e-s)/4);
+      const p0={x:cx+r*Math.cos(s), y:cy+r*Math.sin(s)};
+      const p1={x:cx+r*Math.cos(e), y:cy+r*Math.sin(e)};
+      const c1={x:p0.x - k*r*Math.sin(s), y:p0.y + k*r*Math.cos(s)};
+      const c2={x:p1.x + k*r*Math.sin(e), y:p1.y - k*r*Math.cos(e)};
+      segs.push({p0,c1,c2,p1});
+    }
+    return segs;
+  }
+  const R=165, r=100, gap=50*Math.PI/180; // 右侧开口
+  const aOut0=gap, aOut1=2*Math.PI-gap;          // 外轮廓：绕左侧
+  const outer=arcSegs(R, aOut0, aOut1);
+  const inner=arcSegs(r, aOut1, aOut0);
+  const segs=[...outer, ...inner];
+  document.getElementById("bz-count").textContent=segs.length;
+  let showHandles=true, doFill=true, animT=1, rafId=null;
+  function buildPath(){
+    const p=new Path2D();
+    p.moveTo(outer[0].p0.x, outer[0].p0.y);
+    outer.forEach(s=>p.bezierCurveTo(s.c1.x,s.c1.y,s.c2.x,s.c2.y,s.p1.x,s.p1.y));
+    p.lineTo(inner[0].p0.x, inner[0].p0.y);   // 上封口
+    inner.forEach(s=>p.bezierCurveTo(s.c1.x,s.c1.y,s.c2.x,s.c2.y,s.p1.x,s.p1.y));
+    p.closePath();                            // 下封口
+    return p;
+  }
+  const fullPath=buildPath();
+  const lerp=(a,b,t)=>({x:a.x+(b.x-a.x)*t, y:a.y+(b.y-a.y)*t});
+  function splitBezier(s,f){
+    const p0=s.p0,p1=s.c1,p2=s.c2,p3=s.p1;
+    const a=lerp(p0,p1,f), b=lerp(p1,p2,f), c=lerp(p2,p3,f);
+    const d=lerp(a,b,f), e=lerp(b,c,f); const g=lerp(d,e,f);
+    return {c1:a, c2:d, p1:g};
+  }
+  function draw(){
+    ctx.clearRect(0,0,W,H); ctx.fillStyle="#0b0e13"; ctx.fillRect(0,0,W,H);
+    ctx.strokeStyle="rgba(255,255,255,.04)"; ctx.lineWidth=1;
+    for(let x=0;x<=W;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
+    for(let y=0;y<=H;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+    if(doFill){ ctx.fillStyle="rgba(88,166,255,.16)"; ctx.fill(fullPath,"evenodd"); }
+    ctx.strokeStyle="#79c0ff"; ctx.lineWidth=3; ctx.lineJoin="round";
+    const drawList=[outer, inner];
+    let drawn=0; const totalSeg=segs.length, upto=animT*totalSeg;
+    drawList.forEach(list=>{
+      ctx.beginPath(); ctx.moveTo(list[0].p0.x, list[0].p0.y);
+      for(const s of list){
+        if(drawn>=upto) break;
+        const f=Math.min(1, upto-drawn);
+        if(f>=1){ ctx.bezierCurveTo(s.c1.x,s.c1.y,s.c2.x,s.c2.y,s.p1.x,s.p1.y); }
+        else { const pt=splitBezier(s,f); ctx.bezierCurveTo(pt.c1.x,pt.c1.y,pt.c2.x,pt.c2.y,pt.p1.x,pt.p1.y); }
+        drawn++;
+      }
+      ctx.stroke();
+    });
+    if(showHandles && animT>=1){
+      ctx.setLineDash([4,4]); ctx.strokeStyle="rgba(255,166,87,.55)"; ctx.lineWidth=1.5;
+      segs.forEach(s=>{
+        ctx.beginPath(); ctx.moveTo(s.p0.x,s.p0.y); ctx.lineTo(s.c1.x,s.c1.y); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(s.p1.x,s.p1.y); ctx.lineTo(s.c2.x,s.c2.y); ctx.stroke();
+      });
+      ctx.setLineDash([]);
+      segs.forEach(s=>{ ctrl(s.c1); ctrl(s.c2); });
+      segs.forEach(s=>{ anchor(s.p0); }); anchor(segs[segs.length-1].p1);
+    }
+  }
+  function anchor(p){ ctx.fillStyle="#58a6ff"; ctx.strokeStyle="#0b0e13"; ctx.lineWidth=2;
+    ctx.fillRect(p.x-6,p.y-6,12,12); ctx.strokeRect(p.x-6,p.y-6,12,12); }
+  function ctrl(p){ ctx.beginPath(); ctx.arc(p.x,p.y,5,0,2*Math.PI);
+    ctx.fillStyle="#0b0e13"; ctx.fill(); ctx.strokeStyle="#ffa657"; ctx.lineWidth=2; ctx.stroke(); }
+  draw();
+  document.getElementById("bz-handles").addEventListener("click",function(){
+    showHandles=!showHandles; this.classList.toggle("active",showHandles); draw(); });
+  document.getElementById("bz-fill").addEventListener("click",function(){
+    doFill=!doFill; this.classList.toggle("active",doFill); draw(); });
+  document.getElementById("bz-anim").addEventListener("click",function(){
+    if(rafId) cancelAnimationFrame(rafId);
+    const t0=performance.now(), dur=1600;
+    (function step(now){ animT=Math.min(1,(now-t0)/dur); draw();
+      if(animT<1) rafId=requestAnimationFrame(step); })(t0);
+  });
+})();
+
+// ============ 衬线放大示意 ============
+(function(){
+  const cv=document.getElementById("cv-serif"), ctx=cv.getContext("2d");
+  const W=cv.width, H=cv.height; let mark=true;
+  function draw(){
+    ctx.clearRect(0,0,W,H); ctx.fillStyle="#0b0e13"; ctx.fillRect(0,0,W,H);
+    ctx.textAlign="center"; ctx.textBaseline="alphabetic";
+    const baseY=210, size=200;
+    // 衬线 R（左）
+    ctx.fillStyle="#e6edf3"; ctx.font=`${size}px Georgia, 'Times New Roman', serif`;
+    ctx.fillText("R", 200, baseY);
+    // 非衬线 R（右）——换成真正的无衬线字体
+    ctx.font=`${size}px Arial, Helvetica, 'Segoe UI', sans-serif`;
+    ctx.fillText("R", 540, baseY);
+    ctx.font="16px system-ui,sans-serif"; ctx.fillStyle="#58a6ff";
+    ctx.fillText("衬线 Serif", 200, baseY+44);
+    ctx.fillStyle="#3fb950"; ctx.fillText("非衬线 Sans", 540, baseY+44);
+    if(mark){
+      ctx.strokeStyle="#ff7b9c"; ctx.lineWidth=2.5;
+      // 圈出衬线 R 的几处小脚（近似位置）
+      const marks=[[150,208,22],[238,208,20],[150,72,20],[248,118,16]];
+      marks.forEach(([x,y,r])=>{ ctx.beginPath(); ctx.arc(x,y,r,0,2*Math.PI); ctx.stroke(); });
+      ctx.fillStyle="#ff7b9c"; ctx.font="15px system-ui,sans-serif"; ctx.textAlign="left";
+      ctx.fillText("← 这些「小脚」就是衬线", 300, 200);
+      ctx.fillStyle="#3fb950"; ctx.fillText("无衬线没有小脚 →", 380, 100); ctx.textAlign="center";
+    }
+  }
+  draw();
+  document.getElementById("serif-mark").addEventListener("click",function(){
+    mark=!mark; this.classList.toggle("active",mark); draw(); });
+})();
+
+// ============ 描边控制 ============
+(function(){
+  const w=document.getElementById("stroke-w"), wv=document.getElementById("stroke-val");
+  const sample=document.getElementById("stroke-sample"), fillBtn=document.getElementById("stroke-fill");
+  let fill=true;
+  function apply(){
+    sample.style.webkitTextStrokeWidth = w.value+"px";
+    sample.style.color = fill ? "var(--accent-2)" : "transparent";
+    wv.textContent = w.value+"px";
+  }
+  w.addEventListener("input",apply);
+  fillBtn.addEventListener("click",function(){ fill=!fill; this.classList.toggle("active",fill);
+    this.textContent = fill?"显示填充":"已隐藏填充（空心字）"; apply(); });
+  apply();
+})();
+
+// ============ 可变字体（真正的 Roboto Flex / Bahnschrift）============
+const sample=document.getElementById("vf-sample");
+const wght=document.getElementById("wght"), wghtVal=document.getElementById("wght-val");
+const wdth=document.getElementById("wdth"), wdthVal=document.getElementById("wdth-val");
+function applyVF(){
+  sample.style.fontVariationSettings = `"wght" ${wght.value}, "wdth" ${wdth.value}`;
+  wghtVal.textContent = wght.value;
+  wdthVal.textContent = wdth.value+"%";
+}
+wght.addEventListener("input",applyVF); wdth.addEventListener("input",applyVF); applyVF();
+</script>
+</body>
+</html>

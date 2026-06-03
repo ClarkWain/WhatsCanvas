@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第 06 章 · 栅格化：从轮廓到像素 · 字体渲染原理</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body data-page="ch6" data-base="../">
+
+<nav class="site-nav">
+  <a href="../index.html" class="brand"><span class="logo">字</span><span>字体渲染原理</span></a>
+  <span class="spacer"></span>
+  <div class="nav-links"></div>
+</nav>
+
+<div class="wrap">
+
+  <div class="chapter-kicker">CHAPTER 06 · RASTERIZATION</div>
+  <h1 class="title">栅格化：轮廓是怎么变成像素的</h1>
+  <p class="lede">
+    矢量字体存的是无限清晰的贝塞尔曲线，但屏幕只有有限的方格。
+    这一章我们亲手把一条轮廓“扫描”成像素，看清抗锯齿、hinting、子像素渲染到底在做什么。
+  </p>
+
+  <h2>先看见问题</h2>
+  <p>
+    屏幕是一张像素网格，每个像素要么亮、要么不亮。可字形的轮廓是一条平滑曲线，
+    它穿过一个像素时，常常只盖住了这个像素的<strong>一部分</strong>。
+    那这个像素到底该不该亮？亮多少？这就是栅格化要回答的核心问题。
+  </p>
+
+  <div class="callout warn">
+    <span class="label">关键问题</span>
+    一条连续的曲线，如何映射到离散的像素方格上，并且让人眼觉得它依然平滑？
+  </div>
+
+  <h2>动手实验：放大镜下的字形</h2>
+  <p>
+    下面是一个真实的字形轮廓（用贝塞尔曲线定义）。拖动滑块改变“像素网格”的密度，
+    就相当于用不同字号去渲染它。打开/关闭抗锯齿，对比一下边缘的差别。
+  </p>
+
+  <div class="demo">
+    <div class="demo-head"><span class="dot"></span><span class="t">rasterizer.playground</span></div>
+    <div class="demo-body">
+      <div class="canvas-wrap">
+        <div>
+          <canvas id="cv" width="460" height="460"></canvas>
+          <div class="canvas-label" id="cv-label">网格 16 × 16 · 抗锯齿：开</div>
+        </div>
+      </div>
+    </div>
+    <div class="demo-controls">
+      <div class="control">
+        <label>像素网格密度 <span class="val" id="gridVal">16</span></label>
+        <input type="range" id="grid" min="6" max="48" value="16" step="1">
+      </div>
+      <div class="control">
+        <label>选择字形</label>
+        <div class="toggle-row">
+          <button class="btn active" data-glyph="A">A</button>
+          <button class="btn" data-glyph="e">e</button>
+          <button class="btn" data-glyph="o">o</button>
+        </div>
+      </div>
+      <div class="control">
+        <label>显示选项</label>
+        <div class="toggle-row">
+          <button class="btn active" id="t-aa">抗锯齿</button>
+          <button class="btn active" id="t-outline">显示轮廓</button>
+          <button class="btn" id="t-cov">显示覆盖率</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p>
+    把网格调到很低（比如 8×8），你会看到字形“糊”成几个方块——这就是字号太小时发生的事。
+    关掉抗锯齿，边缘会出现明显的锯齿（jaggies）；打开它，渲染器会按
+    <strong>每个像素被覆盖的比例</strong>给出一个灰度，眼睛就会觉得边缘平滑了。
+  </p>
+
+  <div class="callout good">
+    <span class="label">抗锯齿的本质</span>
+    抗锯齿不是“把边缘模糊一下”，而是精确计算：这个像素被字形覆盖了百分之多少，就给它多少灰度（0% = 背景，100% = 纯字色）。开启“显示覆盖率”按钮，方格里的数字就是覆盖率。
+  </div>
+
+  <h2>栅格化的三个步骤</h2>
+  <div class="card">
+    <h3 style="margin-top:0;">① 缩放：把轮廓放进目标网格</h3>
+    <p style="font-size:14.5px;">字形轮廓以“字体单位”（通常 1000 或 2048 em）存储，与字号无关。渲染时先按目标像素尺寸把整条轮廓缩放到网格坐标系里。</p>
+    <h3>② 扫描：判断每个像素的覆盖率</h3>
+    <p style="font-size:14.5px;">用“扫描线 + 非零环绕规则”判断像素中心在轮廓内还是外；要抗锯齿时，则对每个像素采样多个点（或解析地积分），算出被覆盖的面积比例。</p>
+    <h3>③ 输出：写入覆盖率位图</h3>
+    <p style="font-size:14.5px;">结果是一张灰度位图（每像素一个 0–255 的覆盖值），它本身<strong>还没有颜色</strong>。颜色是在最终上屏混合时，用这个覆盖值作为 alpha 把字色混到背景上的。</p>
+  </div>
+
+  <h2>为什么需要 Hinting</h2>
+  <p>
+    在很小的字号下，一条横线可能正好落在两个像素行<strong>之间</strong>，于是上下两行各得约 50% 覆盖，
+    结果是一条灰扑扑、发虚的线——没有哪一行是纯黑的。下面这张图直接演示这个问题：
+    拖动滑块让横线上下移动，看右侧像素的明暗变化。
+  </p>
+
+  <div class="demo">
+    <div class="demo-head"><span class="dot"></span><span class="t">hinting.stem-alignment</span></div>
+    <div class="demo-body">
+      <div class="canvas-wrap">
+        <div>
+          <canvas id="hint-cv" width="520" height="240"></canvas>
+          <div class="canvas-label" id="hint-label"></div>
+        </div>
+      </div>
+    </div>
+    <div class="demo-controls">
+      <div class="control">
+        <label>横线位置 <span class="val" id="stemVal">未对齐</span></label>
+        <input type="range" id="stem" min="0" max="100" value="50" step="1">
+      </div>
+      <div class="control">
+        <label>Hinting</label>
+        <div class="toggle-row">
+          <button class="btn" id="t-hint">开启自动对齐</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p>
+    当横线刚好压在某一像素行中心时，这一行 100% 覆盖、纯黑清晰；当它落在两行之间时，
+    两行各 50%，看起来就「糊」了。<strong>Hinting</strong>（字体微调）就是字体内携带的规则，
+    在低分辨率下把关键的横竖笔画「吸附」到整像素边界上——开启上面的「自动对齐」，
+    无论你怎么拖，横线都会被拉回最近的整行，于是始终锐利。代价是字形被轻微变形了。
+  </p>
+
+  <table class="cmp">
+    <tr><th>概念</th><th>解决的问题</th><th>代价</th></tr>
+    <tr><td>抗锯齿（AA）</td><td>边缘锯齿</td><td>边缘略显柔和/发灰</td></tr>
+    <tr><td>Hinting</td><td>小字号笔画发虚、粗细不均</td><td>字形会被轻微变形以对齐像素</td></tr>
+    <tr><td>子像素渲染</td><td>水平方向清晰度不足</td><td>依赖屏幕 RGB 排列，可能有彩边</td></tr>
+  </table>
+
+  <h2>子像素渲染：偷偷用 RGB 三个灯</h2>
+  <p>
+    放大任何一块液晶屏，你会发现一个「白色像素」其实是由红、绿、蓝三条<strong>竖直子像素</strong>
+    并排组成的。普通灰度抗锯齿把整个像素当成一个采样点；而子像素渲染（如 ClearType）
+    把这三条灯当成<strong>三个独立的水平采样点</strong>，于是水平分辨率被「偷偷」提升了约三倍。
+  </p>
+
+  <div class="demo">
+    <div class="demo-head"><span class="dot"></span><span class="t">subpixel.rgb-stripes</span></div>
+    <div class="demo-body">
+      <div class="canvas-wrap">
+        <div>
+          <canvas id="sub-cv" width="560" height="200"></canvas>
+          <div class="canvas-label">放大后的屏幕：每个像素 = 红 | 绿 | 蓝 三条子像素</div>
+        </div>
+      </div>
+    </div>
+    <div class="demo-controls">
+      <div class="control">
+        <label>字形边缘位置 <span class="val" id="edgeVal">1.5 px</span></label>
+        <input type="range" id="edge" min="0" max="100" value="50" step="1">
+      </div>
+      <div class="control">
+        <label>渲染方式</label>
+        <div class="toggle-row">
+          <button class="btn active" id="m-gray">灰度抗锯齿</button>
+          <button class="btn" id="m-sub">子像素渲染</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p>
+    拖动滑块移动字形边缘。<strong>灰度模式</strong>下，边缘像素只能整体地变灰；
+    <strong>子像素模式</strong>下，红/绿/蓝可以分别取不同亮度，边缘能落在「三分之一像素」的精度上，
+    因此水平方向更清晰。代价：在放大或非标准排列的屏幕上，边缘会出现淡淡的红/蓝<strong>彩边</strong>，
+    而且只对横向 RGB 排列的屏幕有效。
+  </p>
+
+  <div class="checkpoint">
+    <div class="q">检查一下理解 ✅</div>
+    <p style="font-size:14.5px;">问：栅格化输出的位图里，每个像素存的是“颜色”吗？</p>
+    <details>
+      <summary>看答案</summary>
+      <p style="font-size:14.5px;">不是。栅格化输出的是<strong>覆盖率（alpha）</strong>——这个像素被字形盖住了多少。
+      真正的颜色是在上屏时，用这个覆盖率把“字色”和“背景色”混合出来的。
+      这也是为什么同一张字形位图可以用任意颜色绘制。</p>
+    </details>
+  </div>
+
+  <div class="callout">
+    <span class="label">谁在干这件事</span>
+    <strong>stb_truetype</strong> 和 <strong>FreeType</strong> 都能完成栅格化。stb_truetype 轻量、只做轮廓+栅格化；
+    FreeType 更全面，支持 hinting、多种渲染模式（单色/灰度/子像素）。它们都<strong>不负责塑形</strong>——那是 HarfBuzz 的事（见第 4 章）。
+  </div>
+
+  <div class="chapter-foot"></div>
+</div>
+
+<script src="../assets/js/site.js"></script>
+<script>
+// ---- 字形轮廓（归一化坐标 0..1，y 向下）。用直线段近似，足够演示栅格化 ----
+const GLYPHS = {
+  A: [ // 三角形 + 横杠（外轮廓 + 内三角洞）
+    [[0.5,0.08],[0.86,0.92],[0.68,0.92],[0.60,0.68],[0.40,0.68],[0.32,0.92],[0.14,0.92]],
+    [[0.5,0.30],[0.565,0.55],[0.435,0.55]] // 洞
+  ],
+  o: [ // 外圆 + 内圆
+    circle(0.5,0.5,0.40,0.30,32),
+    circle(0.5,0.5,0.22,0.16,32).reverse()
+  ],
+  e: [ // 近似 e：外圈 + 内圈 + 开口横
+    circle(0.5,0.52,0.40,0.34,40),
+    eInner()
+  ],
+};
+function circle(cx,cy,rx,ry,n){ const p=[]; for(let i=0;i<n;i++){const a=i/n*Math.PI*2; p.push([cx+Math.cos(a)*rx, cy+Math.sin(a)*ry]);} return p; }
+function eInner(){ // 内部洞 + 横杠形成的开口（简化）
+  const p=circle(0.5,0.52,0.24,0.20,40).reverse();
+  return p;
+}
+
+let state = { grid:16, glyph:"A", aa:true, outline:true, cov:false };
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+const SIZE = 460, PAD = 18;
+
+// 点在多边形内（射线法），多轮廓用奇偶/非零；这里用“环绕方向”累计
+function coverage(px, py, contours){
+  // 返回 0..1：在该像素中心用 4x4 超采样估算覆盖
+  let hit=0, N=4;
+  for(let sy=0; sy<N; sy++) for(let sx=0; sx<N; sx++){
+    const x = px + (sx+0.5)/N;
+    const y = py + (sy+0.5)/N;
+    if(inside(x/state.grid, y/state.grid, contours)) hit++;
+  }
+  return hit/(N*N);
+}
+function centerInside(px,py,contours){ return inside((px+0.5)/state.grid,(py+0.5)/state.grid,contours); }
+function inside(x,y,contours){
+  let wind=0;
+  for(const c of contours){
+    for(let i=0;i<c.length;i++){
+      const a=c[i], b=c[(i+1)%c.length];
+      if((a[1]<=y)!==(b[1]<=y)){
+        const t=(y-a[1])/(b[1]-a[1]);
+        const xc=a[0]+t*(b[0]-a[0]);
+        if(xc>x) wind += (b[1]>a[1])?1:-1;
+      }
+    }
+  }
+  return wind!==0;
+}
+
+function draw(){
+  const g = state.grid;
+  const cell = (SIZE-2*PAD)/g;
+  ctx.clearRect(0,0,SIZE,SIZE);
+  ctx.fillStyle="#0d1117"; ctx.fillRect(0,0,SIZE,SIZE);
+  const contours = GLYPHS[state.glyph];
+
+  // 像素填充
+  for(let py=0; py<g; py++) for(let px=0; px<g; px++){
+    let cov;
+    if(state.aa) cov = coverage(px,py,contours);
+    else cov = centerInside(px,py,contours)?1:0;
+    if(cov>0){
+      const v = Math.round(cov*255);
+      ctx.fillStyle = `rgb(${v},${v},${v})`;
+      ctx.fillRect(PAD+px*cell, PAD+py*cell, cell, cell);
+    }
+    if(state.cov && cell>22){
+      ctx.fillStyle = cov>0.5?"#0d1117":"#768390";
+      ctx.font = `${Math.min(11,cell*0.32)}px JetBrains Mono, monospace`;
+      ctx.textAlign="center"; ctx.textBaseline="middle";
+      ctx.fillText(Math.round(cov*100), PAD+px*cell+cell/2, PAD+py*cell+cell/2);
+    }
+  }
+
+  // 网格线
+  ctx.strokeStyle="rgba(255,255,255,0.06)"; ctx.lineWidth=1;
+  for(let i=0;i<=g;i++){
+    ctx.beginPath(); ctx.moveTo(PAD+i*cell,PAD); ctx.lineTo(PAD+i*cell,SIZE-PAD); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(PAD,PAD+i*cell); ctx.lineTo(SIZE-PAD,PAD+i*cell); ctx.stroke();
+  }
+
+  // 轮廓线
+  if(state.outline){
+    ctx.strokeStyle="#58a6ff"; ctx.lineWidth=2; ctx.lineJoin="round";
+    for(const c of contours){
+      ctx.beginPath();
+      c.forEach((p,i)=>{ const X=PAD+p[0]*g*cell, Y=PAD+p[1]*g*cell; i?ctx.lineTo(X,Y):ctx.moveTo(X,Y); });
+      ctx.closePath(); ctx.stroke();
+    }
+  }
+
+  document.getElementById("cv-label").textContent =
+    `网格 ${g} × ${g} · 抗锯齿：${state.aa?"开":"关"}`;
+}
+
+// 控件
+const gridEl=document.getElementById("grid");
+gridEl.addEventListener("input",()=>{ state.grid=+gridEl.value; document.getElementById("gridVal").textContent=gridEl.value; draw(); });
+document.querySelectorAll("[data-glyph]").forEach(b=>b.addEventListener("click",()=>{
+  document.querySelectorAll("[data-glyph]").forEach(x=>x.classList.remove("active"));
+  b.classList.add("active"); state.glyph=b.dataset.glyph; draw();
+}));
+function toggle(id,key){ const el=document.getElementById(id); el.addEventListener("click",()=>{ state[key]=!state[key]; el.classList.toggle("active",state[key]); draw(); }); }
+toggle("t-aa","aa"); toggle("t-outline","outline"); toggle("t-cov","cov");
+draw();
+
+// ============ Hinting 横线对齐演示 ============
+(function(){
+  const cv=document.getElementById("hint-cv"), ctx=cv.getContext("2d");
+  const W=520,H=240, rows=6, cellH=H/rows, gridX=300, cellW=(W-gridX)/1;
+  let pos=50, hint=false;
+  const stem=document.getElementById("stem");
+  function stemY(){
+    let y = (pos/100)*(H-cellH*2)+cellH; // 横线中心
+    if(hint){ // 吸附到最近的像素行中心
+      const r=Math.round((y-cellH/2)/cellH); y=r*cellH+cellH/2;
+    }
+    return y;
+  }
+  function cov(rowTop){ // 该像素行被横线（厚度=cellH*0.7）覆盖比例
+    const th=cellH*0.7, y=stemY();
+    const a=Math.max(rowTop, y-th/2), b=Math.min(rowTop+cellH, y+th/2);
+    return Math.max(0,(b-a))/cellH;
+  }
+  function render(){
+    ctx.fillStyle="#0d1117"; ctx.fillRect(0,0,W,H);
+    // 左：连续视图
+    ctx.fillStyle="#adbac7"; ctx.font="12px JetBrains Mono"; ctx.fillText("理想横线（矢量）",16,22);
+    const y=stemY();
+    ctx.fillStyle="#58a6ff"; ctx.fillRect(20,y-cellH*0.35,gridX-60,cellH*0.7);
+    // 像素行网格
+    ctx.fillStyle="#adbac7"; ctx.fillText("栅格化结果",gridX+10,22);
+    for(let r=0;r<rows;r++){
+      const top=r*cellH;
+      const c=cov(top), v=Math.round(c*255);
+      ctx.fillStyle=`rgb(${v},${v},${v})`;
+      ctx.fillRect(gridX, top, cellW, cellH);
+      ctx.strokeStyle="rgba(255,255,255,0.12)"; ctx.strokeRect(gridX, top, cellW, cellH);
+      if(c>0.02){ ctx.fillStyle=c>0.5?"#0d1117":"#768390"; ctx.font="11px JetBrains Mono";
+        ctx.fillText(Math.round(c*100)+"%", gridX+8, top+cellH/2+4); }
+    }
+    const aligned = Math.abs((stemY()-cellH/2)%cellH) < 0.5;
+    document.getElementById("stemVal").textContent = hint ? "已对齐" : (aligned?"恰好对齐":"未对齐(发虚)");
+    document.getElementById("hint-label").textContent = hint
+      ? "Hinting 开：横线被吸附到整行 → 纯黑锐利"
+      : "Hinting 关：横线落在行间 → 两行各 ~50% → 发虚";
+  }
+  stem.addEventListener("input",()=>{pos=+stem.value; render();});
+  const hb=document.getElementById("t-hint");
+  hb.addEventListener("click",()=>{hint=!hint; hb.classList.toggle("active",hint); render();});
+  render();
+})();
+
+// ============ 子像素渲染演示 ============
+(function(){
+  const cv=document.getElementById("sub-cv"), ctx=cv.getContext("2d");
+  const W=560,H=200, px=8, pw=W/px; // 8 个像素，每个含 RGB 三条
+  let edge=50, sub=false;
+  const e=document.getElementById("edge");
+  function edgePx(){ return (edge/100)*px; } // 边缘位置（以像素为单位，0..8）
+  function render(){
+    ctx.fillStyle="#0d1117"; ctx.fillRect(0,0,W,H);
+    const ep=edgePx();
+    document.getElementById("edgeVal").textContent = ep.toFixed(2)+" px";
+    for(let i=0;i<px;i++){
+      const x=i*pw;
+      if(!sub){
+        // 灰度：整像素覆盖率
+        const c=Math.max(0,Math.min(1, ep-i));
+        const v=Math.round(c*255);
+        ctx.fillStyle=`rgb(${v},${v},${v})`;
+        ctx.fillRect(x,40,pw,H-80);
+      } else {
+        // 子像素：R/G/B 三条各自算覆盖
+        for(let s=0;s<3;s++){
+          const subLeft=i+s/3, subRight=i+(s+1)/3;
+          const c=Math.max(0,Math.min(1,(ep-subLeft)/(subRight-subLeft)));
+          const v=Math.round(c*255);
+          const col=s===0?`rgb(${v},0,0)`:s===1?`rgb(0,${v},0)`:`rgb(0,0,${v})`;
+          ctx.fillStyle=col;
+          ctx.fillRect(x+s*(pw/3),40,pw/3,H-80);
+        }
+      }
+      ctx.strokeStyle="rgba(255,255,255,0.10)"; ctx.strokeRect(x,40,pw,H-80);
+    }
+    // 真实边缘线
+    ctx.strokeStyle="#ffa657"; ctx.setLineDash([5,4]); ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(ep*pw,30); ctx.lineTo(ep*pw,H-30); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle="#ffa657"; ctx.font="12px JetBrains Mono"; ctx.fillText("真实边缘",ep*pw+6,H-14);
+  }
+  e.addEventListener("input",()=>{edge=+e.value; render();});
+  const g=document.getElementById("m-gray"), s=document.getElementById("m-sub");
+  g.addEventListener("click",()=>{sub=false; g.classList.add("active"); s.classList.remove("active"); render();});
+  s.addEventListener("click",()=>{sub=true; s.classList.add("active"); g.classList.remove("active"); render();});
+  render();
+})();
+</script>
+</body>
+</html>

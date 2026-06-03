@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第 08 章 · GPU 绘制：字形如何变成三角形 · 字体渲染原理</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body data-page="ch8" data-base="../">
+
+<nav class="site-nav">
+  <a href="../index.html" class="brand"><span class="logo">字</span><span>字体渲染原理</span></a>
+  <span class="spacer"></span>
+  <div class="nav-links"></div>
+</nav>
+
+<div class="wrap wide">
+
+  <div class="chapter-kicker">CHAPTER 08 · DRAWING GLYPHS ON THE GPU</div>
+  <h1 class="title">GPU 绘制：字形如何变成三角形</h1>
+  <p class="lede">显卡不懂「字」，它只会画带纹理的三角形。所以最后一步是把每个字形位图，变成两个三角形、贴上图集纹理、交给着色器。这一章看清这场「字 → 三角形 → 像素」的魔术。</p>
+
+  <h2>一个字形 = 一个四边形 = 两个三角形</h2>
+  <p>GPU 绘制的最小单元是三角形。要把一个矩形字形位图画出来，就用<strong>两个直角三角形</strong>拼成一个四边形（quad）。四个顶点各自带两份坐标：屏幕上的<strong>位置 (x,y)</strong> 和 在图集里的<strong>纹理坐标 (u,v)</strong>。</p>
+
+  <div class="demo">
+    <div class="demo-head"><span class="dot"></span> glyph.quad</div>
+    <div class="demo-body">
+      <div class="demo-controls">
+        <button class="btn active" data-mode="quad">① 字形四边形</button>
+        <button class="btn" data-mode="tri">② 拆成两个三角形</button>
+        <button class="btn" data-mode="uv">③ 顶点带 UV 坐标</button>
+      </div>
+      <div class="canvas-wrap" style="margin-top:14px;">
+        <div class="canvas-label" id="quad-label">字形「A」铺在一个四边形上</div>
+        <canvas id="cv-quad" width="720" height="300"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <h2>两个着色器，分工明确</h2>
+  <p>GPU 跑两段小程序：<strong>顶点着色器</strong>决定每个顶点画在屏幕哪里；中间硬件自动把三角形内部填成一堆片元（像素候选）；<strong>片元着色器</strong>为每个片元决定颜色——它去图集纹理采样，取出该处的<strong>覆盖率（alpha）</strong>，乘上文字颜色。</p>
+
+  <div class="demo">
+    <div class="demo-head"><span class="dot"></span> shader.pipeline</div>
+    <div class="demo-body">
+      <div class="pipeline" id="shader-pipe"></div>
+      <div id="shader-detail" style="margin-top:16px;"></div>
+    </div>
+  </div>
+
+  <div class="callout">
+    <div class="callout-title">字形位图其实是「覆盖率」，不是颜色</div>
+    图集里存的每个像素是 0~255 的<strong>覆盖率 / alpha</strong>（第 6 章栅格化的产物），不是红绿蓝。片元着色器做的核心一行就是：<code>gl_FragColor = vec4(textColor.rgb, textColor.a * atlasAlpha);</code> —— 文字颜色你随便给，形状由图集 alpha 决定。所以同一张图集能画出任何颜色的字。
+  </div>
+
+  <h2>批处理：一次 draw call 画一整段</h2>
+  <p>调用一次 GPU 绘制（draw call）有固定开销，一个字一次会非常慢。诀窍是把一段文字所有字形的四边形顶点，<strong>攒进一个大缓冲</strong>，它们共用同一张图集纹理，于是<strong>一次 draw call</strong> 就能画几百个字。</p>
+
+  <div class="demo">
+    <div class="demo-head"><span class="dot"></span> batch.draw</div>
+    <div class="demo-body">
+      <div class="demo-controls">
+        <span class="control">字数 <span class="val" id="batch-n-val">24</span></span>
+        <input type="range" id="batch-n" min="1" max="60" value="24" style="flex:1;">
+      </div>
+      <div class="canvas-wrap" style="margin-top:12px;">
+        <div class="canvas-label">每个字 = 1 个四边形（2 个三角形），全部攒进一个批次</div>
+        <canvas id="cv-batch" width="720" height="200"></canvas>
+      </div>
+      <div style="display:flex; gap:24px; margin-top:12px; font-family:var(--mono); font-size:13px; flex-wrap:wrap;">
+        <span>四边形 quads: <strong id="b-quad" style="color:var(--accent);">24</strong></span>
+        <span>三角形 tris: <strong id="b-tri" style="color:var(--purple);">48</strong></span>
+        <span>顶点 verts: <strong id="b-vert" style="color:var(--orange);">96</strong></span>
+        <span>draw calls: <strong style="color:var(--green);">1</strong></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout warn">
+    <div class="callout-title">缩放会糊？于是有了 SDF</div>
+    普通图集存的是某个字号的位图，<strong>放大就糊、缩小有锯齿</strong>。游戏/UI 里常用 <strong>SDF（有向距离场）</strong>：图集每个像素存的是「到字形边缘的距离」，片元着色器用一个阈值切出边缘，<strong>任意缩放都保持锐利</strong>，还能轻松加描边、发光。代价是细节和小字精度不如原生栅格化。
+  </div>
+
+  <div class="checkpoint">
+    <div class="cp-title">检查一下理解 ✅</div>
+    <p class="q">问：为什么同一张灰度图集，能画出红色、蓝色、任意颜色的文字？</p>
+    <details>
+      <summary>看答案</summary>
+      <p style="font-size:14.5px;">因为图集里存的是<strong>覆盖率（alpha）</strong>而不是颜色。片元着色器把「文字颜色」和「图集 alpha」相乘：<code>color.rgb 来自你给的颜色，alpha 来自图集</code>。形状由图集决定，颜色由你决定，所以一张图集能画任意颜色，也能做渐变、描边等效果。</p>
+    </details>
+  </div>
+
+  <div class="chapter-foot"></div>
+</div>
+
+<script src="../assets/js/site.js"></script>
+<script>
+// ============ 字形四边形 / 三角形 / UV ============
+const qc=document.getElementById("cv-quad"), qx=qc.getContext("2d");
+const qlabel=document.getElementById("quad-label");
+let qmode="quad";
+// 四边形屏幕坐标
+const Q={x:120,y:50,w:200,h:200};
+const corners=[ {x:Q.x,y:Q.y,u:0,v:0,name:"左上"},{x:Q.x+Q.w,y:Q.y,u:1,v:0,name:"右上"},
+                {x:Q.x+Q.w,y:Q.y+Q.h,u:1,v:1,name:"右下"},{x:Q.x,y:Q.y+Q.h,u:0,v:1,name:"左下"} ];
+function drawQuad(){
+  qx.clearRect(0,0,720,300); qx.fillStyle="#0d1117"; qx.fillRect(0,0,720,300);
+  // 字形 A 填充
+  qx.save();
+  qx.beginPath(); qx.rect(Q.x,Q.y,Q.w,Q.h); qx.clip();
+  qx.fillStyle= qmode==="quad" ? "rgba(88,166,255,.10)":"rgba(88,166,255,.05)";
+  qx.fillRect(Q.x,Q.y,Q.w,Q.h);
+  qx.fillStyle="#e6edf3"; qx.font="180px Georgia, serif"; qx.textAlign="center"; qx.textBaseline="middle";
+  qx.fillText("A",Q.x+Q.w/2,Q.y+Q.h/2+8);
+  qx.restore();
+  // 四边形边框
+  qx.strokeStyle="#58a6ff"; qx.lineWidth=2; qx.strokeRect(Q.x,Q.y,Q.w,Q.h);
+  if(qmode==="tri"){
+    // 对角线，两个三角形
+    qx.strokeStyle="#bc8cff"; qx.lineWidth=2.5;
+    qx.beginPath(); qx.moveTo(Q.x,Q.y); qx.lineTo(Q.x+Q.w,Q.y+Q.h); qx.stroke();
+    qx.fillStyle="rgba(188,140,255,.10)";
+    qx.beginPath(); qx.moveTo(Q.x,Q.y); qx.lineTo(Q.x+Q.w,Q.y); qx.lineTo(Q.x+Q.w,Q.y+Q.h); qx.fill();
+    qx.fillStyle="#bc8cff"; qx.font="13px JetBrains Mono, monospace"; qx.textAlign="center";
+    qx.fillText("三角形 1", Q.x+Q.w*0.66, Q.y+Q.h*0.32);
+    qx.fillText("三角形 2", Q.x+Q.w*0.34, Q.y+Q.h*0.7);
+  }
+  // 顶点
+  corners.forEach(c=>{
+    qx.fillStyle="#ffa657"; qx.beginPath(); qx.arc(c.x,c.y,6,0,7); qx.fill();
+    qx.strokeStyle="#0d1117"; qx.lineWidth=2; qx.stroke();
+    if(qmode==="uv"){
+      qx.fillStyle="#79c0ff"; qx.font="12px JetBrains Mono, monospace";
+      qx.textAlign= c.u===0?"right":"left";
+      const dx=c.u===0?-12:12;
+      qx.fillText(`pos(${Math.round(c.x)},${Math.round(c.y)})`, c.x+dx, c.y-6);
+      qx.fillStyle="#3fb950";
+      qx.fillText(`uv(${c.u},${c.v})`, c.x+dx, c.y+12);
+    }
+  });
+  if(qmode==="uv"){
+    // 右侧画图集示意
+    const A={x:480,y:60,s:160};
+    qx.strokeStyle="#3fb950"; qx.lineWidth=2; qx.strokeRect(A.x,A.y,A.s,A.s);
+    qx.fillStyle="rgba(63,185,80,.05)"; qx.fillRect(A.x,A.y,A.s,A.s);
+    qx.fillStyle="#e6edf3"; qx.font="140px Georgia, serif"; qx.textAlign="center"; qx.textBaseline="middle";
+    qx.save(); qx.beginPath(); qx.rect(A.x,A.y,A.s,A.s); qx.clip();
+    qx.fillText("A",A.x+A.s/2,A.y+A.s/2+6); qx.restore();
+    qx.fillStyle="#3fb950"; qx.font="12px JetBrains Mono, monospace"; qx.textAlign="left";
+    qx.fillText("图集纹理 (0,0)→(1,1)", A.x, A.y-8);
+    qx.fillText("uv 把顶点映射到这里采样", A.x, A.y+A.s+18);
+  }
+}
+drawQuad();
+document.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener("click",()=>{
+  document.querySelectorAll('[data-mode]').forEach(x=>x.classList.remove("active"));
+  b.classList.add("active"); qmode=b.dataset.mode;
+  qlabel.textContent = qmode==="quad"?"字形「A」铺在一个四边形上"
+    : qmode==="tri"?"四边形沿对角线拆成两个三角形（GPU 的最小单元）"
+    : "每个顶点带两份坐标：屏幕位置 pos + 图集纹理 uv";
+  drawQuad();
+}));
+
+// ============ 着色器流水线 ============
+const SH=[
+  { n:"V", t:"顶点着色器", c:"#58a6ff", lib:"vertex shader",
+    desc:"对每个顶点运行一次。把字形顶点的屏幕坐标变换到 GPU 的裁剪空间，并把 uv 坐标原样传给下一阶段。",
+    code:"gl_Position = projection * vec4(pos, 0, 1);\nv_uv = uv;  // 传给片元" },
+  { n:"R", t:"光栅化", c:"#bc8cff", lib:"fixed-function",
+    desc:"硬件固定功能：把三角形覆盖的屏幕区域拆成一堆「片元」（候选像素），并在三角形内部插值出每个片元的 uv。",
+    code:"// 硬件自动：三角形 → 许多片元\n// uv 在三角形内线性插值" },
+  { n:"F", t:"片元着色器", c:"#3fb950", lib:"fragment shader",
+    desc:"对每个片元运行一次。用插值后的 uv 去图集纹理采样，取出覆盖率 alpha，乘上文字颜色，得到最终像素。",
+    code:"float a = texture(atlas, v_uv).r;\ngl_FragColor = vec4(textColor.rgb,\n                    textColor.a * a);" },
+];
+const sp=document.getElementById("shader-pipe");
+sp.innerHTML=SH.map((s,i)=>`
+  <div class="pipe-step" data-si="${i}" style="cursor:pointer;">
+    <div class="num" style="background:${s.c};">${s.n}</div>
+    <div class="body"><div>${s.t}</div><div class="lib" style="color:${s.c};">${s.lib}</div></div>
+  </div>${i<SH.length-1?'<div class="pipe-arrow">→</div>':''}`).join("");
+const sd=document.getElementById("shader-detail");
+function showSh(i){
+  const s=SH[i];
+  sd.innerHTML=`<div class="card" style="margin:0; border-left:3px solid ${s.c};">
+    <strong style="font-size:16px;">${s.t}</strong> <span class="tag advanced" style="color:${s.c};">${s.lib}</span>
+    <p style="margin:10px 0;">${s.desc}</p>
+    <pre style="margin:0;"><code>${s.code}</code></pre></div>`;
+  document.querySelectorAll('[data-si]').forEach(el=>el.classList.toggle("active",+el.dataset.si===i));
+}
+document.querySelectorAll('[data-si]').forEach(el=>el.addEventListener("click",()=>showSh(+el.dataset.si)));
+showSh(2);
+
+// ============ 批处理 ============
+const bc=document.getElementById("cv-batch"), bx=bc.getContext("2d");
+const sample="The quick brown fox 敏捷狐狸跳过懒狗 jumps over 0123";
+function drawBatch(n){
+  bx.clearRect(0,0,720,200); bx.fillStyle="#0d1117"; bx.fillRect(0,0,720,200);
+  const chars=[...sample].slice(0,n);
+  let x=20, y=70; const lh=46;
+  bx.textBaseline="alphabetic";
+  chars.forEach((ch,i)=>{
+    bx.font="26px Georgia, 'Microsoft YaHei', serif";
+    const w=Math.max(bx.measureText(ch).width,10);
+    if(x+w>700){ x=20; y+=lh; }
+    // 四边形框
+    bx.strokeStyle="rgba(88,166,255,.35)"; bx.lineWidth=1;
+    bx.strokeRect(x, y-26, w, 34);
+    // 对角线（两个三角形）
+    bx.strokeStyle="rgba(188,140,255,.25)";
+    bx.beginPath(); bx.moveTo(x,y-26); bx.lineTo(x+w,y+8); bx.stroke();
+    // 字
+    bx.fillStyle="#e6edf3"; bx.fillText(ch, x, y);
+    x+=w+2;
+  });
+}
+const bn=document.getElementById("batch-n");
+function updBatch(){
+  const n=+bn.value;
+  document.getElementById("batch-n-val").textContent=n;
+  document.getElementById("b-quad").textContent=n;
+  document.getElementById("b-tri").textContent=n*2;
+  document.getElementById("b-vert").textContent=n*4;
+  drawBatch(n);
+}
+bn.addEventListener("input",updBatch);
+updBatch();
+</script>
+</body>
+</html>

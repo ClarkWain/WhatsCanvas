@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第 05 章 · 字体测量与排版：基线、度量、笔位 · 字体渲染原理</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body data-page="ch5" data-base="../">
+
+<nav class="site-nav">
+  <a href="../index.html" class="brand"><span class="logo">字</span><span>字体渲染原理</span></a>
+  <span class="spacer"></span>
+  <div class="nav-links"></div>
+</nav>
+
+<div class="wrap">
+
+  <div class="chapter-kicker">CHAPTER 05 · METRICS & LAYOUT</div>
+  <h1 class="title">字体测量与排版：基线、度量、笔位</h1>
+  <p class="lede">塑形（第 4 章）告诉我们「画哪些字形」，但还没说「画在哪个坐标」。这一章讲排版引擎怎么用一套<strong>度量数据</strong>把字形一个个摆到正确位置：横着，靠的是「笔位前进」；竖着，靠的是「基线对齐」。</p>
+
+  <h2>一个字形的解剖：那些看不见的线</h2>
+  <p>每个字形都不是孤立的图案，它挂在一套<strong>参考线</strong>上。下面这张图把它们全画出来——切换开关看每条线的含义。</p>
+
+  <div class="demo">
+    <div class="demo-head"><span class="dot"></span> glyph.metrics</div>
+    <div class="demo-body">
+      <div class="demo-controls" id="metric-toggles">
+        <button class="btn active" data-k="base">基线 baseline</button>
+        <button class="btn active" data-k="asc">上伸部 ascent</button>
+        <button class="btn active" data-k="desc">下伸部 descent</button>
+        <button class="btn active" data-k="xh">x 高度</button>
+        <button class="btn active" data-k="cap">大写高度</button>
+        <button class="btn active" data-k="adv">字宽 advance</button>
+      </div>
+      <div class="canvas-wrap" style="margin-top:8px;">
+        <canvas id="cv-metrics" width="700" height="340"></canvas>
+      </div>
+      <div id="metric-legend" style="margin-top:12px; font-size:13.5px; line-height:1.9;"></div>
+    </div>
+  </div>
+
+  <h2>横向排版：笔位一格格前进</h2>
+  <p>排版引擎心里有一支「笔」，停在<strong>笔位（pen position）</strong>上。每画完一个字形，笔位就<strong>前进一个 advance（字宽）</strong>，停到下一个字形的起点。再加上字偶距（kerning）和字间距（tracking）的微调，就排成一行。</p>
+
+  <div class="demo">
+    <div class="demo-head"><span class="dot"></span> pen.advance</div>
+    <div class="demo-body">
+      <div class="demo-controls">
+        <div class="control">
+          <label>字间距 tracking <span class="val" id="trk-val">0</span></label>
+          <input type="range" id="trk" min="-8" max="40" value="0" step="1">
+        </div>
+        <div class="toggle-row">
+          <button class="btn active" id="show-adv">显示 advance 框</button>
+        </div>
+      </div>
+      <div class="canvas-wrap" style="margin-top:8px;">
+        <canvas id="cv-pen" width="700" height="200"></canvas>
+      </div>
+      <p style="font-size:14px; margin-top:12px;">每个字形下方标着它的 advance 宽度，笔位（红色竖线）累加这些宽度向右走。注意字母 <code>i</code>、<code>l</code> 的 advance 很窄，<code>m</code>、<code>w</code> 很宽——这就是<strong>比例字体</strong>。等宽字体（如代码字体）则强制所有 advance 相等。</p>
+    </div>
+  </div>
+
+  <h2>纵向排版：行高从哪来</h2>
+  <p>一行文字的高度不是「字号」那么简单，而是由字体的 <strong>ascent + descent + line-gap（行间距）</strong> 三段组成，决定了相邻两行<strong>基线到基线</strong>的距离。拖动滑块看行距怎么把文字撑开。</p>
+
+  <div class="demo">
+    <div class="demo-head"><span class="dot"></span> line.height</div>
+    <div class="demo-body">
+      <div class="demo-controls">
+        <div class="control">
+          <label>行高 line-height <span class="val" id="lh-val">1.5</span></label>
+          <input type="range" id="lh" min="1" max="2.4" value="1.5" step="0.1">
+        </div>
+      </div>
+      <div class="canvas-wrap" style="margin-top:8px;">
+        <canvas id="cv-line" width="700" height="300"></canvas>
+      </div>
+      <p style="font-size:14px; margin-top:12px;">蓝色虚线是每行<strong>基线</strong>，相邻基线的间距 = 字号 × 行高。行高太小，上下行的上伸/下伸部会<strong style="color:var(--pink);">打架</strong>；太大则段落松散。正文常用 1.4–1.7。</p>
+    </div>
+  </div>
+
+  <div class="callout warn">
+    <div class="callout-title">CJK 与拉丁的基线差异</div>
+    拉丁字母「坐」在基线上，小写字母的圆底还会稍微<strong>过冲（overshoot）</strong>到基线下一点点。CJK 汉字则基本<strong>填满</strong>从下伸部到上伸部的方框（全角字身框），所以中英混排时，西文字号常要略微下沉或缩放才能视觉对齐。排版引擎用各自字体的度量来协调这件事。
+  </div>
+
+  <div class="checkpoint">
+    <div class="cp-title">检查一下理解 ✅</div>
+    <p class="q">问：为什么把字号设成 16px，一行实际占的高度通常比 16px 大？</p>
+    <details>
+      <summary>看答案</summary>
+      <p style="font-size:14.5px;">因为行高由 <strong>ascent + descent + line-gap</strong> 决定，通常大于 em 字号本身。字号 16px 只是 em 方框的标称大小，而上伸部、下伸部以及额外的行间距会让<strong>基线到基线</strong>的距离更大（比如 line-height:1.5 就是 24px）。这样上下行才不会贴在一起。</p>
+    </details>
+  </div>
+
+  <div class="chapter-foot"></div>
+</div>
+
+<script src="../assets/js/site.js"></script>
+<script>
+// ============ 字形度量图 ============
+const mc = document.getElementById("cv-metrics"), mctx = mc.getContext("2d");
+const show = { base:true, asc:true, desc:true, xh:true, cap:true, adv:true };
+const COL = { base:"#58a6ff", asc:"#bc8cff", desc:"#ff7b9c", xh:"#3fb950", cap:"#ffa657", adv:"#e3b341" };
+const LEG = {
+  base:["基线 baseline","字形「坐」的那条线，所有度量的零点。"],
+  asc:["上伸部 ascent","基线以上最高能到的位置（如 b、h、d 的竖干顶）。"],
+  desc:["下伸部 descent","基线以下最低能到的位置（如 g、p、y 的尾巴）。"],
+  xh:["x 高度 x-height","小写字母主体高度（以 x 为准），影响字体观感大小。"],
+  cap:["大写高度 cap-height","大写字母顶部高度，通常略低于 ascent。"],
+  adv:["字宽 advance","笔位画完这个字形后向右前进的距离（含左右边距）。"],
+};
+function drawMetrics(){
+  mctx.clearRect(0,0,700,340); mctx.fillStyle="#0d1117"; mctx.fillRect(0,0,700,340);
+  const fs=190; mctx.font=`${fs}px Georgia, 'Times New Roman', serif`;
+  mctx.textBaseline="alphabetic"; mctx.textAlign="left";
+  const text="Rg"; const x=210, base=250;
+  const m=mctx.measureText(text);
+  const asc=m.fontBoundingBoxAscent, desc=m.fontBoundingBoxDescent, adv=m.width;
+  // x-height & cap via measuring 'x' and 'H'
+  const xh=mctx.measureText("x").actualBoundingBoxAscent;
+  const cap=mctx.measureText("H").actualBoundingBoxAscent;
+  const line=(y,c,label,dir)=>{ mctx.strokeStyle=c; mctx.lineWidth=1.5; mctx.setLineDash([6,4]);
+    mctx.beginPath(); mctx.moveTo(60,y); mctx.lineTo(660,y); mctx.stroke(); mctx.setLineDash([]);
+    mctx.fillStyle=c; mctx.font="13px var(--mono, monospace)"; mctx.textAlign="left";
+    mctx.fillText(label, 666-606, y+(dir<0?-6:16)); };
+  // draw glyph first (so lines overlay)
+  mctx.fillStyle="#e6edf3"; mctx.font=`${fs}px Georgia, 'Times New Roman', serif`; mctx.textAlign="left";
+  mctx.fillText(text, x, base);
+  // lines
+  mctx.font="13px ui-monospace, monospace";
+  if(show.asc){ mctx.strokeStyle=COL.asc; mctx.lineWidth=1.5; mctx.setLineDash([6,4]); mctx.beginPath(); mctx.moveTo(60,base-asc); mctx.lineTo(660,base-asc); mctx.stroke(); mctx.setLineDash([]); mctx.fillStyle=COL.asc; mctx.fillText("ascent 上伸部", 64, base-asc-7); }
+  if(show.cap){ mctx.strokeStyle=COL.cap; mctx.lineWidth=1.5; mctx.setLineDash([6,4]); mctx.beginPath(); mctx.moveTo(60,base-cap); mctx.lineTo(660,base-cap); mctx.stroke(); mctx.setLineDash([]); mctx.fillStyle=COL.cap; mctx.fillText("cap-height 大写高度", 64, base-cap-7); }
+  if(show.xh){ mctx.strokeStyle=COL.xh; mctx.lineWidth=1.5; mctx.setLineDash([6,4]); mctx.beginPath(); mctx.moveTo(60,base-xh); mctx.lineTo(660,base-xh); mctx.stroke(); mctx.setLineDash([]); mctx.fillStyle=COL.xh; mctx.fillText("x-height", 64, base-xh-7); }
+  if(show.base){ mctx.strokeStyle=COL.base; mctx.lineWidth=2; mctx.beginPath(); mctx.moveTo(60,base); mctx.lineTo(660,base); mctx.stroke(); mctx.fillStyle=COL.base; mctx.fillText("baseline 基线", 64, base-7); }
+  if(show.desc){ mctx.strokeStyle=COL.desc; mctx.lineWidth=1.5; mctx.setLineDash([6,4]); mctx.beginPath(); mctx.moveTo(60,base+desc); mctx.lineTo(660,base+desc); mctx.stroke(); mctx.setLineDash([]); mctx.fillStyle=COL.desc; mctx.fillText("descent 下伸部", 64, base+desc+16); }
+  if(show.adv){ mctx.strokeStyle=COL.adv; mctx.lineWidth=1.5;
+    mctx.beginPath(); mctx.moveTo(x,base+desc+30); mctx.lineTo(x,base-asc-20); mctx.stroke();
+    mctx.beginPath(); mctx.moveTo(x+adv,base+desc+30); mctx.lineTo(x+adv,base-asc-20); mctx.stroke();
+    mctx.fillStyle=COL.adv;
+    mctx.beginPath(); mctx.moveTo(x,base+desc+24); mctx.lineTo(x+adv,base+desc+24); mctx.stroke();
+    mctx.fillText("advance 字宽", x+8, base+desc+44); }
+}
+function renderLegend(){
+  document.getElementById("metric-legend").innerHTML = Object.keys(LEG).filter(k=>show[k]).map(k=>
+    `<div><span style="display:inline-block;width:11px;height:11px;border-radius:2px;background:${COL[k]};margin-right:8px;vertical-align:middle;"></span><strong>${LEG[k][0]}</strong> — ${LEG[k][1]}</div>`).join("");
+}
+document.querySelectorAll("#metric-toggles .btn").forEach(b=>b.addEventListener("click",function(){
+  const k=this.dataset.k; show[k]=!show[k]; this.classList.toggle("active",show[k]); drawMetrics(); renderLegend();
+}));
+drawMetrics(); renderLegend();
+
+// ============ 笔位前进 ============
+const pc=document.getElementById("cv-pen"), pctx=pc.getContext("2d");
+let trk=0, showAdv=true;
+function drawPen(){
+  pctx.clearRect(0,0,700,200); pctx.fillStyle="#0d1117"; pctx.fillRect(0,0,700,200);
+  const fs=64, base=120; pctx.font=`${fs}px Georgia, serif`; pctx.textBaseline="alphabetic"; pctx.textAlign="left";
+  const text="Typing"; let pen=40;
+  // baseline
+  pctx.strokeStyle="rgba(88,166,255,.5)"; pctx.lineWidth=1.5; pctx.setLineDash([5,4]);
+  pctx.beginPath(); pctx.moveTo(20,base); pctx.lineTo(680,base); pctx.stroke(); pctx.setLineDash([]);
+  for(const ch of text){
+    const adv=pctx.measureText(ch).width + trk;
+    if(showAdv){ pctx.strokeStyle="rgba(227,179,65,.45)"; pctx.lineWidth=1;
+      pctx.strokeRect(pen, base-fs*0.75, adv, fs*0.95); }
+    pctx.fillStyle="#e6edf3"; pctx.fillText(ch, pen, base);
+    pctx.fillStyle="var(--text-dim)"; pctx.font="11px ui-monospace, monospace";
+    pctx.fillText(Math.round(adv)+"", pen+2, base+24);
+    pctx.font=`${fs}px Georgia, serif`;
+    pen += adv;
+  }
+  // pen position marker
+  pctx.strokeStyle="#ff7b9c"; pctx.lineWidth=2;
+  pctx.beginPath(); pctx.moveTo(pen, base-fs*0.85); pctx.lineTo(pen, base+12); pctx.stroke();
+  pctx.fillStyle="#ff7b9c"; pctx.font="11px ui-monospace, monospace"; pctx.fillText("笔位 →", pen+4, base-fs*0.7);
+}
+const trkEl=document.getElementById("trk"), trkVal=document.getElementById("trk-val");
+trkEl.addEventListener("input",()=>{ trk=+trkEl.value; trkVal.textContent=trk; drawPen(); });
+document.getElementById("show-adv").addEventListener("click",function(){ showAdv=!showAdv; this.classList.toggle("active",showAdv); drawPen(); });
+drawPen();
+
+// ============ 行高 ============
+const lc=document.getElementById("cv-line"), lctx=lc.getContext("2d");
+let lh=1.5;
+function drawLine(){
+  lctx.clearRect(0,0,700,300); lctx.fillStyle="#0d1117"; lctx.fillRect(0,0,700,300);
+  const fs=34; lctx.font=`${fs}px Georgia, 'PingFang SC','Microsoft YaHei', serif`; lctx.textBaseline="alphabetic"; lctx.textAlign="left";
+  const lineH=fs*lh; const lines=["排版 Typography","行高 line-height","基线 baseline"];
+  let y=fs+20;
+  lines.forEach((t,i)=>{
+    // line box
+    lctx.fillStyle = i%2? "rgba(188,140,255,.06)":"rgba(88,166,255,.06)";
+    lctx.fillRect(20, y-fs+ (lineH-fs)/2 - (lineH-fs)/2, 660, lineH);
+    // baseline
+    lctx.strokeStyle="rgba(88,166,255,.6)"; lctx.lineWidth=1; lctx.setLineDash([5,4]);
+    lctx.beginPath(); lctx.moveTo(20,y); lctx.lineTo(680,y); lctx.stroke(); lctx.setLineDash([]);
+    lctx.fillStyle="#e6edf3"; lctx.fillText(t, 36, y);
+    if(i>0){ // baseline-to-baseline arrow
+      lctx.strokeStyle="#3fb950"; lctx.lineWidth=1.4;
+      lctx.beginPath(); lctx.moveTo(640,y-lineH); lctx.lineTo(640,y); lctx.stroke();
+      lctx.fillStyle="#3fb950"; lctx.font="11px ui-monospace, monospace";
+      lctx.fillText(Math.round(lineH)+"px", 600, y-lineH/2);
+      lctx.font=`${fs}px Georgia, 'PingFang SC', serif`;
+    }
+    y += lineH;
+  });
+}
+const lhEl=document.getElementById("lh"), lhVal=document.getElementById("lh-val");
+lhEl.addEventListener("input",()=>{ lh=+lhEl.value; lhVal.textContent=lh.toFixed(1); drawLine(); });
+drawLine();
+</script>
+</body>
+</html>

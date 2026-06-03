@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第 09 章 · Web 字体：把字体送上网络 · 字体渲染原理</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body data-page="ch9" data-base="../">
+
+<nav class="site-nav">
+  <a href="../index.html" class="brand"><span class="logo">字</span><span>字体渲染原理</span></a>
+  <span class="spacer"></span>
+  <div class="nav-links"></div>
+</nav>
+
+<div class="wrap wide">
+
+  <div class="chapter-kicker">CHAPTER 09 · WEB FONTS</div>
+  <h1 class="title">Web 字体：把字体送上网络</h1>
+  <p class="lede">网页要用一款访客电脑里没有的字体，就得把字体文件<strong>下载下来</strong>。这带来三个新问题：怎么声明、文件多大、下载期间显示什么。这一章讲清 <code>@font-face</code>、WOFF2 压缩、子集化，以及那个让你纠结的 <code>font-display</code>。</p>
+
+  <h2>第一步：用 @font-face 声明一款字体</h2>
+  <p><code>@font-face</code> 把一个「字体名字」绑定到一个「字体文件 URL」。之后在 CSS 里像用本地字体一样用它。浏览器在真正需要时才去下载。</p>
+
+  <div class="card">
+    <pre><code>@font-face {
+  font-family: "MyFont";              <span style="color:var(--text-dim);">/* 你起的名字 */</span>
+  src: url("myfont.woff2") format("woff2"),  <span style="color:var(--text-dim);">/* 首选，最小 */</span>
+       url("myfont.woff")  format("woff");   <span style="color:var(--text-dim);">/* 旧浏览器回退 */</span>
+  font-weight: 400;
+  font-display: swap;                 <span style="color:var(--text-dim);">/* 下载期间的策略，见下 */</span>
+  unicode-range: U+0000-00FF;         <span style="color:var(--text-dim);">/* 只在用到这些字时才下载 */</span>
+}
+
+h1 { font-family: "MyFont", system-ui, sans-serif; }</code></pre>
+  </div>
+
+  <h2>第二步：文件格式与体积 —— WOFF2 几乎是唯一选择</h2>
+  <p>同一份字体，不同封装格式体积差很多。WOFF2 用 Brotli 压缩，是目前最小、支持最广的 Web 字体格式。</p>
+
+  <div class="demo">
+    <div class="demo-head"><span class="dot"></span> format.size</div>
+    <div class="demo-body">
+      <div id="fmt-bars"></div>
+      <p style="font-size:13px; color:var(--text-dim); margin:12px 0 0;">同一款字体的相对体积（示意）。WOFF2 ≈ 原始 TTF 的 40%，对首屏加载速度影响很大。</p>
+    </div>
+  </div>
+
+  <h2>第三步：下载期间显示什么？font-display</h2>
+  <p>Web 字体要下载，期间这段文字怎么办？<code>font-display</code> 决定这段「空窗期」的行为。拖动下面的时间轴，看三种策略的差别。</p>
+
+  <div class="demo">
+    <div class="demo-head"><span class="dot"></span> font-display.timeline</div>
+    <div class="demo-body">
+      <div class="demo-controls">
+        <span class="control">下载进度 <span class="val" id="fd-t-val">0.0s</span></span>
+        <input type="range" id="fd-t" min="0" max="100" value="0" style="flex:1;">
+      </div>
+      <div id="fd-rows" style="margin-top:16px; display:grid; gap:14px;"></div>
+      <p style="font-size:13px; color:var(--text-dim); margin:14px 0 0;" id="fd-note"></p>
+    </div>
+  </div>
+
+  <table class="cmp">
+    <thead><tr><th>font-display</th><th>空窗期（字体没下完）</th><th>体验特点</th></tr></thead>
+    <tbody>
+      <tr><td><code>block</code> / FOIT</td><td>文字<strong>不可见</strong>（留白）</td><td>等字体；超时才用回退。慢网下用户看到空白</td></tr>
+      <tr><td><code>swap</code> / FOUT</td><td>立刻用<strong>回退字体</strong>显示</td><td>内容秒出，字体到了再换 → 会「跳一下」</td></tr>
+      <tr><td><code>optional</code></td><td>用回退；本次几乎不换</td><td>最稳，不闪烁；首次访问可能就用回退字体</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout">
+    <div class="callout-title">FOUT vs FOIT</div>
+    <strong>FOIT</strong>（Flash of Invisible Text）：先空白，字体到了才显示——内容出现慢。<br>
+    <strong>FOUT</strong>（Flash of Unstyled Text）：先用系统字体显示，字体到了再替换——会闪一下但内容不延迟。<br>
+    现代最佳实践通常是 <code>font-display: swap</code>（要内容优先）或 <code>optional</code>（要稳定无闪）。
+  </div>
+
+  <h2>第四步：子集化与 unicode-range —— 别下载用不到的字</h2>
+  <p>一款中文字体动辄几 MB（上万字形）。但一个页面可能只用到几百个汉字。<strong>子集化（subsetting）</strong>把字体裁剪到只剩用到的字形；<code>unicode-range</code> 则让浏览器<strong>按需下载</strong>对应分片。</p>
+
+  <div class="demo">
+    <div class="demo-head"><span class="dot"></span> subset.size</div>
+    <div class="demo-body">
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:18px; align-items:center;">
+        <div class="canvas-wrap">
+          <div class="canvas-label">字体里的字形（绿=页面用到，灰=没用到）</div>
+          <canvas id="cv-subset" width="360" height="220"></canvas>
+        </div>
+        <div>
+          <div class="toggle-row">
+            <button class="btn active" id="ss-full">完整字体</button>
+            <button class="btn" id="ss-sub">子集化后</button>
+          </div>
+          <div style="margin-top:14px; font-family:var(--mono); font-size:14px; line-height:2;">
+            <div>字形数：<strong id="ss-glyphs" style="color:var(--accent);">8000</strong></div>
+            <div>文件大小：<strong id="ss-size" style="color:var(--orange);">4.8 MB</strong></div>
+            <div>下载时间(4G)：<strong id="ss-time" style="color:var(--pink);">~3.5s</strong></div>
+          </div>
+          <p style="font-size:13px; color:var(--text-dim); margin-top:10px;" id="ss-note">完整中文字体包含上万字形，绝大多数页面用不到。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout warn">
+    <div class="callout-title">CJK 的特殊难处</div>
+    英文子集很简单（就一百多个字符）。但中文/日文/韩文有上万字形，且页面用到哪些字往往<strong>事先不知道</strong>（用户生成内容）。常见做法：按 <code>unicode-range</code> 切成几十~上百个分片，浏览器只下载页面实际命中的分片（Google Fonts 的中文就是这么做的），或用工具按已知文案做精确子集。
+  </div>
+
+  <div class="checkpoint">
+    <div class="cp-title">检查一下理解 ✅</div>
+    <p class="q">问：想要「内容立刻出现、字体到了再换」，font-display 该用哪个？会带来什么副作用？</p>
+    <details>
+      <summary>看答案</summary>
+      <p style="font-size:14.5px;">用 <code>font-display: swap</code>（即 FOUT）。文字立刻用回退字体显示，Web 字体下载完成后替换。副作用是<strong>会「闪一下 / 跳一下」</strong>——回退字体和目标字体宽度不同会引起回流。想完全避免闪烁可用 <code>optional</code>，代价是首次访问可能一直用回退字体。</p>
+    </details>
+  </div>
+
+  <div class="callout good">
+    <div class="callout-title">🎉 正文到这里就全部走完了</div>
+    从「计算机怎么把一个字画到屏幕」开始，我们走过了：字体简史 → 字体文件结构 → 字符到字形(cmap) → 文本塑形 → 度量与排版 → 栅格化 → 底层库协作 → GPU 绘制 → Web 字体。现在你应该能看懂一整条字体渲染流水线，以及 stb_truetype / FreeType / HarfBuzz / OpenGL 各自站在哪一段。还想动手写代码？翻到<strong>第 10 章「三大库代码示例」</strong>，看每个库到底怎么调用。
+  </div>
+
+  <div class="chapter-foot"></div>
+</div>
+
+<script src="../assets/js/site.js"></script>
+<script>
+// ============ 格式体积条 ============
+const FMT=[
+  {name:"TTF / OTF（原始）", pct:100, size:"~6.0 MB", c:"#ff7b9c"},
+  {name:"WOFF（zlib）", pct:62, size:"~3.7 MB", c:"#ffa657"},
+  {name:"WOFF2（Brotli）", pct:40, size:"~2.4 MB", c:"#3fb950"},
+];
+document.getElementById("fmt-bars").innerHTML=FMT.map(f=>`
+  <div style="margin:10px 0;">
+    <div style="display:flex; justify-content:space-between; font-size:13.5px; margin-bottom:5px;">
+      <span>${f.name}</span><span style="font-family:var(--mono); color:${f.c};">${f.size}</span></div>
+    <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:6px; height:22px; overflow:hidden;">
+      <div style="width:${f.pct}%; height:100%; background:${f.c}; opacity:.8; border-radius:6px; transition:width .6s;"></div>
+    </div>
+  </div>`).join("");
+
+// ============ font-display 时间轴 ============
+const SAMPLE="Reading on the web 网页阅读体验";
+const FD=[
+  {key:"block", label:"block / FOIT", c:"#ff7b9c"},
+  {key:"swap", label:"swap / FOUT", c:"#3fb950"},
+  {key:"optional", label:"optional", c:"#79c0ff"},
+];
+const fdRows=document.getElementById("fd-rows");
+fdRows.innerHTML=FD.map(f=>`
+  <div style="display:grid; grid-template-columns:150px 1fr; gap:14px; align-items:center;">
+    <div><div style="font-family:var(--mono); font-size:12.5px; color:${f.c};">${f.label}</div>
+         <div id="st-${f.key}" style="font-size:11px; color:var(--text-dim);"></div></div>
+    <div id="row-${f.key}" style="background:var(--bg-card); border:1px solid var(--border); border-radius:8px; padding:12px 16px; font-size:20px; min-height:30px;">${SAMPLE}</div>
+  </div>`).join("");
+const FALLBACK="Georgia, 'Microsoft YaHei', serif";
+const WEBFONT="'Comic Sans MS','STKaiti','KaiTi', cursive";  // 用一个明显不同的字体模拟"web字体到达"
+const fdT=document.getElementById("fd-t");
+function renderFD(){
+  const t=+fdT.value/100*3; // 0~3s
+  document.getElementById("fd-t-val").textContent=t.toFixed(1)+"s";
+  const arrived=t>=2; // 字体 2s 下载完成
+  FD.forEach(f=>{
+    const row=document.getElementById("row-"+f.key);
+    const st=document.getElementById("st-"+f.key);
+    if(!arrived){
+      if(f.key==="block"){ row.style.color="transparent"; row.style.fontFamily=FALLBACK; st.textContent="文字不可见（留白）"; }
+      else { row.style.color="var(--text)"; row.style.fontFamily=FALLBACK; st.textContent="先用回退字体"; }
+    } else {
+      row.style.color="var(--text)"; row.style.fontFamily=WEBFONT;
+      st.textContent= f.key==="optional" ? "本次多半仍用回退" : "已换成 Web 字体";
+      if(f.key==="optional"){ row.style.fontFamily=FALLBACK; }
+    }
+  });
+  document.getElementById("fd-note").textContent= arrived
+    ? "字体已下载完成（2s）：block/swap 切到 Web 字体；optional 为避免闪烁本次多半保持回退。"
+    : "字体下载中：block 留白等待，swap/optional 先用回退字体把内容显示出来。";
+}
+fdT.addEventListener("input",renderFD);
+renderFD();
+
+// ============ 子集化 ============
+const sc=document.getElementById("cv-subset"), sx=sc.getContext("2d");
+let subset=false;
+const cols=12, rows=8, gw=28, gh=26, ox=12, oy=10;
+function drawSubset(){
+  sx.clearRect(0,0,360,220); sx.fillStyle="#0d1117"; sx.fillRect(0,0,360,220);
+  for(let r=0;r<rows;r++)for(let c=0;c<cols;c++){
+    const used=(r*7+c*3)%5===0; // 约 20% 被用到
+    if(subset && !used) continue;
+    const x=ox+c*gw, y=oy+r*gh;
+    sx.fillStyle= used? "rgba(63,185,80,.22)":"rgba(120,120,120,.10)";
+    sx.fillRect(x,y,gw-3,gh-3);
+    sx.strokeStyle= used? "rgba(63,185,80,.6)":"rgba(255,255,255,.08)";
+    sx.lineWidth=1; sx.strokeRect(x,y,gw-3,gh-3);
+    sx.fillStyle= used? "#3fb950":"rgba(180,180,180,.35)";
+    sx.font="14px Georgia, serif"; sx.textAlign="center"; sx.textBaseline="middle";
+    sx.fillText("字", x+(gw-3)/2, y+(gh-3)/2+1);
+  }
+}
+drawSubset();
+function setSubset(on){
+  subset=on;
+  document.getElementById("ss-full").classList.toggle("active",!on);
+  document.getElementById("ss-sub").classList.toggle("active",on);
+  document.getElementById("ss-glyphs").textContent= on? "320":"8000";
+  document.getElementById("ss-size").textContent= on? "0.2 MB":"4.8 MB";
+  document.getElementById("ss-time").textContent= on? "~0.15s":"~3.5s";
+  document.getElementById("ss-note").textContent= on
+    ? "只保留页面真正用到的约 20% 字形，体积骤降，加载几乎瞬时。"
+    : "完整中文字体包含上万字形，绝大多数页面用不到。";
+  drawSubset();
+}
+document.getElementById("ss-full").addEventListener("click",()=>setSubset(false));
+document.getElementById("ss-sub").addEventListener("click",()=>setSubset(true));
+</script>
+</body>
+</html>

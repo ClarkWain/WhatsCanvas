@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第 07 章 · 底层库协作：谁负责哪一段 · 字体渲染原理</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body data-page="ch7" data-base="../">
+
+<nav class="site-nav">
+  <a href="../index.html" class="brand"><span class="logo">字</span><span>字体渲染原理</span></a>
+  <span class="spacer"></span>
+  <div class="nav-links"></div>
+</nav>
+
+<div class="wrap wide">
+
+  <div class="chapter-kicker">CHAPTER 07 · HOW THE LIBRARIES COOPERATE</div>
+  <h1 class="title">底层库协作：谁负责哪一段</h1>
+  <p class="lede">前面几章其实是被几个著名的 C/C++ 库分段实现的：HarfBuzz、FreeType、stb_truetype、OpenGL。它们各管一段、首尾相接。这一章把整条流水线串起来，看清<strong>每个库吃进什么、吐出什么</strong>。</p>
+
+  <h2>一条数据流，四次交接</h2>
+  <p>点击下面任意一段，看那一段的<strong>输入数据 → 处理 → 输出数据</strong>。注意：每一段的「输出」正好是下一段的「输入」。</p>
+
+  <div class="demo">
+    <div class="demo-head"><span class="dot"></span> pipeline.handoff</div>
+    <div class="demo-body">
+      <div class="pipeline" id="lib-pipe"></div>
+      <div id="lib-detail" style="margin-top:18px;"></div>
+    </div>
+  </div>
+
+  <h2>三个字体库，定位完全不同</h2>
+  <p>初学者常把它们搞混。一句话区分：<strong>HarfBuzz 决定画哪些字形、画在哪</strong>；<strong>FreeType / stb_truetype 把字形变成像素</strong>；它们谁也不画到屏幕——那是 OpenGL 的事。</p>
+
+  <table class="cmp">
+    <thead><tr><th>库</th><th>管哪一段</th><th>特点</th><th>什么时候选它</th></tr></thead>
+    <tbody>
+      <tr><td>HarfBuzz</td><td>塑形（shaping）</td><td>只做塑形，不栅格化；复杂文字支持最全</td><td>需要正确排版阿拉伯/印度文/连字时（几乎都要）</td></tr>
+      <tr><td>FreeType</td><td>解析字体 + 取轮廓 + 栅格化 + hinting</td><td>功能最全、质量高，但体积大、API 复杂</td><td>需要高质量渲染、hinting、多格式支持</td></tr>
+      <tr><td>stb_truetype</td><td>解析 TTF + 取轮廓 + 栅格化</td><td>单头文件、几百行、零依赖；功能少</td><td>游戏/嵌入式/工具，要轻量、能接受简单效果</td></tr>
+      <tr><td>OpenGL / 图形 API</td><td>上传纹理 + GPU 绘制</td><td>不懂字体，只画带纹理的三角形</td><td>最终把字形位图画到屏幕（第 8 章）</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout">
+    <div class="callout-title">为什么常常是「HarfBuzz + FreeType」组合</div>
+    HarfBuzz 算出字形索引和位置后，需要有人去<strong>取这些字形的轮廓并栅格化</strong>——这正是 FreeType 的活。事实上 HarfBuzz 本身就能用 FreeType 作为字体后端读取度量。浏览器（Chrome/Firefox）、Android、很多 Linux 桌面都是这个组合。轻量场景则换成 stb_truetype。
+  </div>
+
+  <h2>关键优化：字形图集（glyph atlas）</h2>
+  <p>每帧都重新栅格化每个字形太慢了。实际做法是：第一次遇到某个字形时栅格化一次，把位图存进一张大纹理——<strong>图集（atlas）</strong>——并记下它在图集里的坐标。以后再用到这个字形，直接从图集里取，GPU 一次就能画很多字。</p>
+
+  <div class="demo">
+    <div class="demo-head"><span class="dot"></span> glyph.atlas</div>
+    <div class="demo-body">
+      <div style="display:grid; grid-template-columns:1.1fr 1fr; gap:18px; align-items:center;">
+        <div class="canvas-wrap">
+          <div class="canvas-label">图集纹理 · 每个字形栅格化一次后缓存</div>
+          <canvas id="cv-atlas" width="360" height="240"></canvas>
+        </div>
+        <div>
+          <p style="font-size:14px; margin-top:0;">要画一段文字时，排版引擎为每个字形查图集，拿到它的 <code>(u, v, w, h)</code> 纹理坐标，拼成一批带纹理的四边形，<strong>一次 draw call</strong> 交给 GPU。</p>
+          <ul style="font-size:14px;">
+            <li><strong>命中缓存</strong>：字形已在图集 → 直接取坐标，零栅格化。</li>
+            <li><strong>未命中</strong>：栅格化一次 → 塞进图集空位 → 记录坐标。</li>
+            <li>不同<strong>字号 / 粗细</strong>算不同字形，各占图集一格。</li>
+          </ul>
+          <div class="toggle-row">
+            <button class="btn" id="atlas-hit">模拟一次「命中」</button>
+          </div>
+          <div id="atlas-msg" style="font-family:var(--mono); font-size:12.5px; color:var(--text-dim); margin-top:8px;">点上面的字形格子，看缓存命中/未命中。</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout warn">
+    <div class="callout-title">分层是为了可替换</div>
+    正因为每段职责清晰、接口是简单的数据（字形索引、位图、纹理坐标），你才能<strong>替换其中一层</strong>：把 FreeType 换成 stb_truetype，把 OpenGL 换成 Vulkan / Metal / WebGPU，而其它层几乎不用动。理解这条边界，比记住任何单个库的 API 都重要。
+  </div>
+
+  <div class="checkpoint">
+    <div class="cp-title">检查一下理解 ✅</div>
+    <p class="q">问：HarfBuzz 能把字直接画到屏幕上吗？</p>
+    <details>
+      <summary>看答案</summary>
+      <p style="font-size:14.5px;"><strong>不能。</strong>HarfBuzz 只做塑形——输出「画哪些字形索引、各自放在什么位置」。它不取轮廓像素、不画屏幕。要变成像素得交给 FreeType / stb_truetype 栅格化，最后由 OpenGL 等图形 API 上屏。这是典型的「各管一段」分层。</p>
+    </details>
+  </div>
+
+  <div class="chapter-foot"></div>
+</div>
+
+<script src="../assets/js/site.js"></script>
+<script>
+// ============ 库协作流水线 ============
+const STAGES = [
+  { n:"1", lib:"你的程序", c:"#79c0ff", t:"输入文本",
+    in:"一段字符串 \"Aﬁ 你好\" + 字体文件 + 字号/语言",
+    out:"UTF-8 码点序列 + 字体句柄",
+    desc:"程序把要显示的文本、选用的字体、字号语言等参数准备好，交给塑形器。" },
+  { n:"2", lib:"HarfBuzz", c:"#bc8cff", t:"塑形 shaping",
+    in:"码点序列 + 字体 + 语言/文字标签",
+    out:"字形索引数组 + 每个字形的 (x_advance, y_advance, x_offset, y_offset)",
+    desc:"处理连字、字偶距、上下文变形、双向重排。输出的是带位置的字形序列，但还只是「索引 + 坐标」，没有像素。" },
+  { n:"3", lib:"FreeType / stb", c:"#3fb950", t:"取轮廓 + 栅格化",
+    in:"字形索引 + 字号",
+    out:"每个字形的灰度位图（覆盖率）+ bearing/advance 度量",
+    desc:"按字形索引取出轮廓曲线，在目标字号下栅格化成抗锯齿位图。FreeType 还会做 hinting 让小字更清晰。" },
+  { n:"4", lib:"图集缓存", c:"#ffa657", t:"打包进 atlas",
+    in:"字形位图",
+    out:"图集纹理 + 每个字形的 (u,v,w,h) 坐标",
+    desc:"把位图塞进一张大纹理并缓存坐标，避免重复栅格化，让 GPU 能批量绘制。" },
+  { n:"5", lib:"OpenGL", c:"#e3b341", t:"GPU 绘制上屏",
+    in:"带纹理坐标的四边形批次 + 图集纹理",
+    out:"屏幕上的像素",
+    desc:"为每个字形生成两个三角形（一个四边形），采样图集纹理，一次 draw call 画出整段文字。" },
+];
+const pipe=document.getElementById("lib-pipe");
+pipe.innerHTML = STAGES.map((s,i)=>`
+  <div class="pipe-step" data-i="${i}" style="cursor:pointer;">
+    <div class="num" style="background:${s.c};">${s.n}</div>
+    <div class="body"><div>${s.t}</div><div class="lib" style="color:${s.c};">${s.lib}</div></div>
+  </div>${i<STAGES.length-1?'<div class="pipe-arrow">→</div>':''}`).join("");
+const det=document.getElementById("lib-detail");
+function showStage(i){
+  const s=STAGES[i];
+  det.innerHTML=`
+    <div class="card" style="margin:0; border-left:3px solid ${s.c};">
+      <div style="display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;">
+        <strong style="font-size:17px;">${s.t}</strong>
+        <span class="tag advanced" style="color:${s.c};">${s.lib}</span>
+      </div>
+      <p style="margin:12px 0;">${s.desc}</p>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; font-size:13.5px;">
+        <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:8px; padding:10px 12px;">
+          <div style="font-family:var(--mono); font-size:11px; color:var(--accent); margin-bottom:4px;">▼ 输入 IN</div>${s.in}</div>
+        <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:8px; padding:10px 12px;">
+          <div style="font-family:var(--mono); font-size:11px; color:var(--green); margin-bottom:4px;">▲ 输出 OUT（= 下一段输入）</div>${s.out}</div>
+      </div>
+    </div>`;
+  document.querySelectorAll("#lib-pipe .pipe-step").forEach(el=>el.classList.toggle("active", +el.dataset.i===i));
+}
+document.querySelectorAll("#lib-pipe .pipe-step").forEach(el=>el.addEventListener("click",()=>showStage(+el.dataset.i)));
+showStage(1);
+
+// ============ 字形图集 ============
+const ac=document.getElementById("cv-atlas"), actx=ac.getContext("2d");
+const glyphs="Aﬁ你好Rg@5";
+const cells=[]; const cols=5, cw=68, ch=68, pad=6;
+let cached=new Array(glyphs.length).fill(false);
+function drawAtlas(){
+  actx.clearRect(0,0,360,240); actx.fillStyle="#0d1117"; actx.fillRect(0,0,360,240);
+  cells.length=0;
+  [...glyphs].forEach((g,i)=>{
+    const cx=pad+(i%cols)*(cw+pad), cy=pad+Math.floor(i/cols)*(ch+pad);
+    cells.push({x:cx,y:cy,w:cw,h:ch,i});
+    actx.strokeStyle= cached[i]? "rgba(63,185,80,.7)":"rgba(255,255,255,.12)";
+    actx.lineWidth=1.5; actx.strokeRect(cx,cy,cw,ch);
+    actx.fillStyle= cached[i]? "#3fb950":"#e6edf3";
+    actx.font="42px Georgia, 'PingFang SC','Microsoft YaHei', serif";
+    actx.textAlign="center"; actx.textBaseline="middle";
+    actx.fillText(g, cx+cw/2, cy+ch/2+2);
+  });
+}
+drawAtlas();
+const msg=document.getElementById("atlas-msg");
+ac.addEventListener("click",e=>{
+  const r=ac.getBoundingClientRect(); const mx=(e.clientX-r.left)*(360/r.width), my=(e.clientY-r.top)*(240/r.height);
+  const c=cells.find(c=>mx>=c.x&&mx<=c.x+c.w&&my>=c.y&&my<=c.y+c.h);
+  if(!c) return;
+  if(cached[c.i]){ msg.innerHTML=`<span style="color:var(--green);">缓存命中</span>：字形「${glyphs[c.i]}」已在图集，直接取坐标，<strong>零栅格化</strong>。`; }
+  else { cached[c.i]=true; msg.innerHTML=`<span style="color:var(--orange);">未命中</span>：字形「${glyphs[c.i]}」第一次出现 → 栅格化一次 → 存入图集（变绿）。再点一次就是命中。`; }
+  drawAtlas();
+});
+document.getElementById("atlas-hit").addEventListener("click",()=>{
+  const idx=cached.findIndex(v=>!v);
+  if(idx<0){ msg.textContent="全部字形都已缓存，后续全部命中。"; return; }
+  cached[idx]=true; drawAtlas();
+  msg.innerHTML=`<span style="color:var(--orange);">未命中→已缓存</span>：字形「${glyphs[idx]}」栅格化并存入图集。`;
+});
+</script>
+</body>
+</html>

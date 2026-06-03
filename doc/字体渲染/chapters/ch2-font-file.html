@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第 02 章 · 字体文件里有什么 · 字体渲染原理</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body data-page="ch2" data-base="../">
+
+<nav class="site-nav">
+  <a href="../index.html" class="brand"><span class="logo">字</span><span>字体渲染原理</span></a>
+  <span class="spacer"></span>
+  <div class="nav-links"></div>
+</nav>
+
+<div class="wrap">
+
+  <div class="chapter-kicker">CHAPTER 02 · INSIDE A FONT</div>
+  <h1 class="title">一个字体文件里到底装了什么</h1>
+  <p class="lede">
+    很多人以为 <code>.ttf</code> 里存的是一张张字母图片。其实它更像一个
+    <strong>数据库</strong>：由若干张「表（table）」组成，每张表负责一件事——
+    有的存轮廓，有的存映射，有的存排版规则。这一章我们就把它拆开看看。
+  </p>
+
+  <h2>字体文件 = 一叠表</h2>
+  <p>
+    一个 TrueType / OpenType 文件，开头是一份<strong>表目录（table directory）</strong>，
+    就像一本书的目录：记录每张表叫什么、在文件的哪个字节位置、有多大。
+    渲染器需要哪张表，就按目录跳过去读哪张。结构大致长这样：
+  </p>
+
+  <pre><code>MyFont.ttf
+├─ <span style="color:#768390">sfnt header</span>        // 文件类型 + 表数量
+├─ <span style="color:#768390">table directory</span>   // 目录：每张表的 名字 / 偏移 / 长度
+└─ tables
+   ├─ <span style="color:#58a6ff">cmap</span>   字符 → 字形索引的映射
+   ├─ <span style="color:#ffa657">glyf</span>   字形的轮廓（贝塞尔曲线）
+   ├─ <span style="color:#ff7b9c">hmtx</span>   每个字形的宽度等度量
+   ├─ <span style="color:#bc8cff">head</span>   字体头：em 大小、边界框…
+   ├─ <span style="color:#3fb950">GSUB</span>   连字 / 上下文替换
+   ├─ <span style="color:#3fb950">GPOS</span>   字偶距 / 精确定位
+   ├─ <span style="color:#39d0d8">name</span>   字体名称、版权
+   └─ <span style="color:#e3b341">EBDT</span>   内嵌位图 / 彩色字形
+</code></pre>
+
+  <p>下面点开每一张表，看它具体负责什么、在渲染流水线的哪一步被用到：</p>
+
+  <div class="demo">
+    <div class="demo-head"><span class="dot"></span><span class="t">font-file.anatomy</span></div>
+    <div class="demo-body">
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:22px; align-items:start;" class="anat-layout">
+        <div>
+          <div style="font-family:var(--mono); font-size:12px; color:var(--text-dim); margin-bottom:10px;">MyFont.ttf · 点击一张表</div>
+          <div id="tbl-list"></div>
+        </div>
+        <div class="card" id="tbl-detail" style="margin:0; position:sticky; top:80px;">
+          <div class="chapter-kicker" id="td-tag">选一张表</div>
+          <h3 id="td-name" style="margin-top:6px; font-family:var(--mono);">table directory</h3>
+          <p id="td-desc" style="font-size:14.5px;">点击左侧任意一张表，看它负责什么。表目录本身就像书的目录，告诉渲染器每张表在文件里的偏移和长度。</p>
+          <div id="td-stage" style="font-size:13px; color:var(--text-dim); font-family:var(--mono);"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout">
+    <span class="label">观察</span>
+    这些表在渲染流水线里是<strong>分阶段</strong>被用到的：先用 <code>cmap</code> 找字形索引 →
+    用 <code>GSUB/GPOS</code> 塑形 → 用 <code>glyf</code> 取轮廓 → 用 <code>hmtx</code> 定位。
+    本教程后续几乎每一章，其实都是在深入讲其中某几张表。
+  </div>
+
+  <h2>那「字形」到底是什么</h2>
+  <p>
+    刚才反复出现了三个词：<code>cmap</code> 里被映射的叫「字符」，<code>glyf</code> 里存的叫「字形」，
+    <code>EBDT</code> 里存的叫「位图」。它们天天被混用，但其实是<strong>三个不同层次</strong>的东西。
+    分清楚它们，后面所有内容就都顺了。
+  </p>
+
+  <table class="cmp">
+    <tr><th>名词</th><th>是什么</th><th>住在哪张表</th><th>例子</th></tr>
+    <tr><td><strong>字符 Character</strong></td><td>抽象文字，Unicode 码点，<em>存储</em>单位</td><td><code>cmap</code> 的输入</td><td><code>U+0041</code> = A</td></tr>
+    <tr><td><strong>字形 Glyph</strong></td><td>字体里一个具体形状，<em>显示</em>单位</td><td><code>glyf</code> / <code>CFF</code></td><td>这套字体里 A 的那条轮廓</td></tr>
+    <tr><td><strong>位图 Bitmap</strong></td><td>字形在某字号下栅格化后的灰度方格</td><td>临时生成（或 <code>EBDT</code>）</td><td>16px 下 A 的覆盖率位图</td></tr>
+  </table>
+
+  <p>它们之间是这样一条单向链路——每一步都「多对一」或「一对多」，所以三者数量并不相等：</p>
+
+  <div class="card" style="text-align:center;">
+    <div style="display:flex; gap:10px; align-items:center; justify-content:center; flex-wrap:wrap; font-family:var(--mono); font-size:14px;">
+      <span style="padding:10px 16px; border:1px solid var(--border); border-radius:8px; color:var(--accent);">字符 U+0041</span>
+      <span style="color:var(--text-dim);">—cmap→</span>
+      <span style="padding:10px 16px; border:1px solid var(--border); border-radius:8px; color:var(--orange);">字形 #36 (A的轮廓)</span>
+      <span style="color:var(--text-dim);">—栅格化→</span>
+      <span style="padding:10px 16px; border:1px solid var(--border); border-radius:8px; color:var(--yellow);">位图 16px / 32px / …</span>
+    </div>
+  </div>
+
+  <div class="callout warn">
+    <span class="label">一句话记住</span>
+    字符 ≠ 字形 ≠ 位图。一个字符可能对应多个字形，多个字符也可能合并成一个字形（连字）；
+    而一个字形在不同字号下，又对应无数张不同的位图。
+  </div>
+
+  <h2>动手实验：cmap 查找</h2>
+  <p>
+    既然 <code>cmap</code> 是渲染的第一站，我们就先体验它。输入任意字符，
+    看它的 Unicode 码点如何被「查表」成一个字形索引——注意真实字体里这个映射<strong>毫无顺序规律</strong>。
+  </p>
+
+  <div class="demo">
+    <div class="demo-head"><span class="dot"></span><span class="t">cmap.lookup</span></div>
+    <div class="demo-body">
+      <div class="control" style="max-width:280px;">
+        <label>输入字符</label>
+        <input class="text-input" id="cin" value="Aあ字" maxlength="12">
+      </div>
+      <div id="cmap-out" style="margin-top:18px; display:flex; flex-wrap:wrap; gap:12px;"></div>
+    </div>
+  </div>
+
+  <div class="callout">
+    <span class="label">为什么会出现「豆腐块」</span>
+    如果某个字符在 <code>cmap</code> 里查不到，就会得到字形索引 0（<code>.notdef</code>），
+    也就是常见的 □。这通常意味着当前字体里没有这个字——系统会尝试「字体回退」去别的字体里找。
+    下一章我们专门讲这个查找与回退过程。
+  </div>
+
+  <div class="checkpoint">
+    <div class="q">检查一下理解 ✅</div>
+    <p style="font-size:14.5px;">问：把字号从 16px 改成 32px，字体文件里 <code>glyf</code> 表中的轮廓数据会变吗？</p>
+    <details>
+      <summary>看答案</summary>
+      <p style="font-size:14.5px;">不会。轮廓是与分辨率无关的曲线，永远不变。变的只是渲染时的<strong>缩放系数</strong>，
+      以及最终栅格化出来的位图。字号只影响「怎么画」，不影响「文件里存了什么」。</p>
+    </details>
+  </div>
+
+  <div class="chapter-foot"></div>
+</div>
+
+<script src="../assets/js/site.js"></script>
+<script>
+const TABLES = [
+  { name:"(table directory)", tag:"目录", color:"#768390", stage:"文件最开头",
+    desc:"表目录：列出文件里每一张表的名字、偏移量和长度。渲染器靠它定位其它表。它不是字体数据，而是「数据的目录」。" },
+  { name:"cmap", tag:"映射", color:"#58a6ff", stage:"流水线第 2 步 · 字符→字形索引",
+    desc:"字符到字形的地图：把 Unicode 码点映射到字体内部的字形索引（glyph index）。渲染第一件事就是查它。详见第 3 章。" },
+  { name:"glyf / CFF", tag:"轮廓", color:"#ffa657", stage:"流水线第 5 步 · 取轮廓",
+    desc:"字形的轮廓数据。TrueType 用 glyf（二次贝塞尔曲线），OpenType/CFF 用三次贝塞尔。这是「形状」真正存放的地方。详见第 6 章。" },
+  { name:"hmtx / hhea", tag:"度量", color:"#ff7b9c", stage:"流水线第 4 步 · 定位",
+    desc:"水平度量：每个字形的步进宽度（advance）和左侧边距，以及全局的 ascent / descent / line gap。排版全靠它。详见第 5 章。" },
+  { name:"head / maxp", tag:"元信息", color:"#bc8cff", stage:"加载时",
+    desc:"字体头信息：单位 em 大小（如 1000 / 2048）、版本、字形总数、边界框等。栅格化缩放时要用到 em 大小。" },
+  { name:"GSUB / GPOS", tag:"排版", color:"#3fb950", stage:"流水线第 3 步 · 塑形",
+    desc:"OpenType 排版特性：GSUB 做替换（连字、上下文变形），GPOS 做定位（字偶距、标记定位）。塑形阶段由 HarfBuzz 读取。详见第 4 章。" },
+  { name:"name / OS/2", tag:"信息", color:"#39d0d8", stage:"系统枚举时",
+    desc:"字体名称、版权、家族、字重、风格等元数据。操作系统用它在字体菜单里显示「思源黑体 Bold」这类信息。" },
+  { name:"EBDT / sbix / COLR", tag:"位图/彩色", color:"#e3b341", stage:"特殊字形",
+    desc:"内嵌位图与彩色字形：点阵字体直接存像素；彩色 emoji 用 sbix / COLR 存多层颜色。这类字形不走轮廓栅格化。" },
+];
+
+const list = document.getElementById("tbl-list");
+list.innerHTML = TABLES.map((t,i)=>`
+  <div class="tbl-row" data-i="${i}" style="display:flex; align-items:center; gap:12px; padding:11px 14px; border:1px solid var(--border); border-left:3px solid ${t.color}; border-radius:8px; background:var(--bg-card); cursor:pointer; margin-bottom:8px; transition:all .15s;">
+    <span style="font-family:var(--mono); font-weight:700; color:var(--text); font-size:14px; flex:1;">${t.name}</span>
+    <span style="font-family:var(--mono); font-size:11px; color:${t.color}; border:1px solid var(--border); border-radius:20px; padding:1px 9px;">${t.tag}</span>
+  </div>`).join("");
+
+const td = { tag:document.getElementById("td-tag"), name:document.getElementById("td-name"),
+  desc:document.getElementById("td-desc"), stage:document.getElementById("td-stage") };
+function selectTable(i){
+  document.querySelectorAll(".tbl-row").forEach(el=>{
+    const on = +el.dataset.i===i;
+    el.style.background = on ? "var(--accent-soft)" : "var(--bg-card)";
+    el.style.borderColor = on ? "var(--accent)" : "var(--border)";
+    el.style.borderLeftColor = TABLES[+el.dataset.i].color;
+  });
+  const t=TABLES[i];
+  td.tag.textContent = t.tag; td.tag.style.color = t.color;
+  td.name.textContent = t.name;
+  td.desc.textContent = t.desc;
+  td.stage.innerHTML = `<div style="margin-top:12px; padding-top:12px; border-top:1px solid var(--border);">⛓ 用在：${t.stage}</div>`;
+}
+document.querySelectorAll(".tbl-row").forEach(el=>el.addEventListener("click",()=>selectTable(+el.dataset.i)));
+selectTable(1);
+
+function fakeGlyphIndex(cp){ let h=(cp*2654435761)>>>0; return (h%900)+1; }
+const cin=document.getElementById("cin"), out=document.getElementById("cmap-out");
+function renderCmap(){
+  const chars=[...cin.value];
+  out.innerHTML = chars.map(ch=>{
+    const cp=ch.codePointAt(0);
+    const hex="U+"+cp.toString(16).toUpperCase().padStart(4,"0");
+    const gid=fakeGlyphIndex(cp);
+    return `<div class="card" style="margin:0; min-width:120px; text-align:center; padding:16px;">
+      <div style="font-size:40px; line-height:1;">${ch==="<"?"&lt;":ch}</div>
+      <div style="font-family:var(--mono); font-size:12px; color:var(--text-dim); margin-top:10px;">${hex}</div>
+      <div style="font-family:var(--mono); font-size:12px; color:var(--text-dim);">↓ cmap</div>
+      <div style="font-family:var(--mono); font-size:14px; color:var(--accent-2);">glyph #${gid}</div>
+    </div>`;
+  }).join("") || `<span style="color:var(--text-dim);">输入一些字符…</span>`;
+}
+cin.addEventListener("input",renderCmap); renderCmap();
+</script>
+<style>
+.tbl-row:hover{ transform:translateX(3px); }
+@media (max-width:760px){ .anat-layout{ grid-template-columns:1fr !important; } #tbl-detail{ position:static !important; } }
+</style>
+</body>
+</html>

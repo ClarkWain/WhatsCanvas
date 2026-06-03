@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第 03 章 · 字符到字形：cmap 是怎么查的 · 字体渲染原理</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+</head>
+<body data-page="ch3" data-base="../">
+
+<nav class="site-nav">
+  <a href="../index.html" class="brand"><span class="logo">字</span><span>字体渲染原理</span></a>
+  <span class="spacer"></span>
+  <div class="nav-links"></div>
+</nav>
+
+<div class="wrap">
+
+  <div class="chapter-kicker">CHAPTER 03 · CHARACTER TO GLYPH</div>
+  <h1 class="title">字符到字形：cmap 是怎么查的</h1>
+  <p class="lede">你按下键盘的「永」，存进文件的是码点 <code>U+6C38</code>；但字体里画的那一笔，叫字形 #1234。这两者之间隔着一张查找表——<strong>cmap</strong>。这一章把这张表彻底拆开。</p>
+
+  <h2>先分清两个东西：码点 ≠ 字形索引</h2>
+  <p>这是整章的基石，务必分清：</p>
+
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:18px 0;">
+    <div class="card" style="margin:0;">
+      <div style="font-family:var(--mono); font-size:13px; color:var(--accent);">code point · 码点</div>
+      <div style="font-size:28px; font-family:var(--mono); margin:8px 0;">U+6C38</div>
+      <p style="font-size:14px; margin:0;">Unicode 给每个<strong>抽象字符</strong>分配的唯一编号，表示「这是『永』这个字」。它跟用哪个字体<strong>无关</strong>——换成宋体、黑体，码点都是 U+6C38。</p>
+    </div>
+    <div class="card" style="margin:0;">
+      <div style="font-family:var(--mono); font-size:13px; color:var(--purple);">glyph index · 字形索引</div>
+      <div style="font-size:28px; font-family:var(--mono); margin:8px 0;">#1234</div>
+      <p style="font-size:14px; margin:0;">这个字在<strong>当前这个字体文件</strong>里排第几个图形。同一个「永」，在宋体里可能是 #1234，在黑体里是 #5678。它只在<strong>本字体内</strong>有意义。</p>
+    </div>
+  </div>
+
+  <div class="callout">
+    <div class="callout-title">一句话记住</div>
+    码点回答「<strong>这是哪个字</strong>」（身份），字形索引回答「<strong>在这个字体里画哪一幅图</strong>」（位置）。cmap 表就是把前者翻译成后者的字典。
+  </div>
+
+  <h2>动手查一次：字符 → 码点 → 字形索引</h2>
+  <p>下面是一张<strong>模拟 cmap</strong>。输入或点击一个字符，看它怎么一步步被查成字形索引；如果这张表里<strong>没有</strong>这个字，就会回退到 <code>.notdef</code>（豆腐块）。</p>
+
+  <div class="demo">
+    <div class="demo-head"><span class="dot"></span> cmap.lookup</div>
+    <div class="demo-body">
+      <div class="demo-controls">
+        <div class="control" style="flex:1;">
+          <label>输入一个字符</label>
+          <input type="text" id="ch-input" class="text-input" maxlength="2" value="永" style="font-size:20px; width:90px; text-align:center;">
+        </div>
+        <div class="toggle-row" id="quick-chars"></div>
+      </div>
+      <div id="lookup-view" style="margin-top:10px;"></div>
+    </div>
+  </div>
+
+  <h2>cmap 内部长什么样：分段映射</h2>
+  <p>字体不可能为每个码点都存一行（Unicode 有十几万码点）。cmap 用<strong>分段（segment）</strong>压缩：把连续的码点段映射到连续的字形索引段，只存「段的起止 + 偏移」。最常用的是 <strong>format 4</strong>（覆盖基本多文种平面 BMP）和 <strong>format 12</strong>（覆盖全部 Unicode，含 emoji、扩展汉字）。</p>
+
+  <div class="demo">
+    <div class="demo-head"><span class="dot"></span> cmap.segments</div>
+    <div class="demo-body">
+      <div id="seg-view"></div>
+      <p style="font-size:14px; margin-top:14px;">每一段记的是 <code>[起始码点, 结束码点] → 字形索引偏移</code>。查 <code>U+0043('C')</code> 时，先二分找到它落在哪一段，再用 <code>字形索引 = 码点 − 段起点 + 偏移</code> 算出结果。这样几十万码点只用几百段就能表达，查找还是 O(log n)。</p>
+    </div>
+  </div>
+
+  <h2>查不到怎么办：.notdef 与字体回退</h2>
+  <p>如果 cmap 里没有这个码点，会发生两件事中的一件：</p>
+  <ul>
+    <li><strong>字形索引 0 = .notdef</strong>：每个字体的第 0 号字形固定是「缺字符」图形，通常是一个空心方框 □，俗称<strong>豆腐块（tofu）</strong>。</li>
+    <li><strong>字体回退（font fallback）</strong>：操作系统/浏览器发现当前字体没有这个字，会去候选字体列表里<strong>换一个有的字体</strong>来画——所以一句话里可能混着好几个字体。</li>
+  </ul>
+
+  <div class="demo">
+    <div class="demo-head"><span class="dot"></span> fallback.tofu</div>
+    <div class="demo-body">
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:18px;">
+        <div class="canvas-wrap">
+          <div class="canvas-label">字体里没有 → 豆腐块 .notdef</div>
+          <div style="font-size:64px; text-align:center; padding:18px; color:var(--pink); font-family:var(--mono);">&#x25A1;</div>
+        </div>
+        <div class="canvas-wrap">
+          <div class="canvas-label">回退到有此字的字体 → 正常显示</div>
+          <div style="font-size:64px; text-align:center; padding:18px; color:var(--green);">永</div>
+        </div>
+      </div>
+      <p style="font-size:14px; margin-top:14px;">「名字里有生僻字显示成方框」「emoji 在老系统变空框」，本质都是：<strong>码点存在，但当前字体的 cmap 查不到对应字形，又没有可回退的字体</strong>。</p>
+    </div>
+  </div>
+
+  <h2>插曲：汉字编码的演进，与「打不出的名字」</h2>
+  <p>对汉字来说，「查不到字」不只是字体问题，背后还有一段<strong>编码扩容史</strong>。计算机最早只为英文设计，汉字要先有一套「码」才能进电脑——而这套码能装下多少字，直接决定了哪些字「打得出、显示得了」。</p>
+
+  <table class="cmp">
+    <thead><tr><th>编码标准</th><th>年代</th><th>收录汉字量</th><th>解决 / 遗留</th></tr></thead>
+    <tbody>
+      <tr><td>GB2312</td><td>1980</td><td>约 6763 个</td><td>覆盖日常用字，但<strong style="color:var(--pink);">大量生僻字、繁体字、人名地名用字打不出</strong></td></tr>
+      <tr><td>GBK</td><td>1995</td><td>约 21886 个</td><td>兼容 GB2312，补入繁体字和更多汉字，缓解但未根治</td></tr>
+      <tr><td>GB18030</td><td>2000 / 2005 / 2022</td><td>覆盖全部 Unicode CJK</td><td>国家强制标准，用 1/2/4 字节变长编码，收录少数民族文字</td></tr>
+      <tr><td>Unicode CJK</td><td>1993 至今</td><td>已超 <strong>9.8 万</strong> 个</td><td>统一全球文字；汉字仍在「扩展区」不断新增</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout">
+    <div class="callout-title">那些「打不出的名字」</div>
+    早年用 GB2312 录入系统时，有人名里带<strong>生僻字</strong>（如「𬬮」「龘」「煊」中的某些），系统里根本<strong>没有这个码</strong>，于是户籍、银行、机票系统只能用同音字、拼音甚至 <code>?</code> 代替——这是真实困扰过很多人的麻烦。随着 GBK → GB18030 → Unicode 一路扩容，<strong>能「编码」的字越来越多</strong>，这个问题大为缓解。
+  </div>
+
+  <div class="callout warn">
+    <div class="callout-title">编码有了，字体不一定有</div>
+    注意「<strong>能编码</strong>」和「<strong>能显示</strong>」是两回事。Unicode 收了近 10 万汉字，但<strong>一个字体文件通常只画了其中 2–7 万个</strong>（常用字 + 次常用字）。遇到特别生僻的字（多在 CJK 扩展 B/C/D/E/F 区），即使码点合法、能存进电脑，字体里<strong>没有对应字形</strong>，照样显示成豆腐块 □。这时只能换装一个收录更全的「大字库」字体（如部分思源字体、方正超大字符集），或靠系统字体回退。
+  </div>
+
+  <div class="callout warn">
+    <div class="callout-title">cmap 之后还没完</div>
+    cmap 给出的只是<strong>初步</strong>字形索引。接下来塑形（第 4 章）还会把它们替换/重排：连字会把两个字形并一个，阿拉伯字母会按位置换成不同形态。所以「码点序列 → cmap → 字形序列」只是第一步，<strong>不是最终上屏的字形</strong>。
+  </div>
+
+  <div class="checkpoint">
+    <div class="cp-title">检查一下理解 ✅</div>
+    <p class="q">问：同一个汉字「永」，在宋体和黑体里的「码点」和「字形索引」分别一样吗？</p>
+    <details>
+      <summary>看答案</summary>
+      <p style="font-size:14.5px;"><strong>码点一样</strong>（都是 U+6C38，由 Unicode 决定，与字体无关）；<strong>字形索引通常不一样</strong>（每个字体内部字形的排列顺序不同，宋体里可能是 #1234，黑体里是 #5678）。这正是为什么字形索引「只在本字体内有意义」。</p>
+    </details>
+  </div>
+
+  <div class="chapter-foot"></div>
+</div>
+
+<script src="../assets/js/site.js"></script>
+<script>
+// ============ 模拟 cmap ============
+// 只收录少量字符；其余一律 .notdef
+const FAKE_CMAP = {
+  0x41:36, 0x42:37, 0x43:38, 0x61:68, 0x62:69, 0x63:70,
+  0x6C38:1234, // 永
+  0x4F60:1501, 0x597D:1502, // 你 好
+  0x1F600:3001 // 😀
+};
+const view = document.getElementById("lookup-view");
+const input = document.getElementById("ch-input");
+function box(label, big, sub, color){
+  return `<div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+    <div style="min-width:120px; padding:14px 16px; display:grid; place-items:center; border:1px solid var(--border); border-radius:12px; background:var(--bg-card);">
+      <div style="font-size:30px; font-family:${big.mono?'var(--mono)':'inherit'}; color:${color};">${big.t}</div>
+    </div>
+    <div style="font-family:var(--mono); font-size:11.5px; color:var(--text-dim);">${label}</div>
+    ${sub?`<div style="font-size:11px; color:var(--text-dim);">${sub}</div>`:""}</div>`;
+}
+function arrow(t){ return `<div style="display:flex; flex-direction:column; align-items:center; color:var(--text-dim); font-family:var(--mono); font-size:11px; padding:0 4px;"><div style="font-size:20px;">→</div>${t||""}</div>`; }
+function lookup(){
+  const s = [...(input.value||"")];
+  if(!s.length){ view.innerHTML=`<p style="color:var(--text-dim);">输入一个字符…</p>`; return; }
+  const ch = s[0]; const cp = ch.codePointAt(0);
+  const hit = FAKE_CMAP[cp];
+  const found = hit!==undefined;
+  const gid = found ? hit : 0;
+  view.innerHTML = `
+    <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+      ${box("字符", {t:ch}, "你输入的", "var(--text)")}
+      ${arrow("Unicode")}
+      ${box("码点 code point", {t:"U+"+cp.toString(16).toUpperCase().padStart(4,"0"), mono:true}, "字符的身份", "var(--accent)")}
+      ${arrow("cmap 查表")}
+      ${box(found?"字形索引 glyph index":".notdef（查不到）", {t:found? "#"+gid : "#0 &#x25A1;", mono:true}, found?"本字体里第几幅图":"回退到豆腐块", found?"var(--purple)":"var(--pink)")}
+    </div>
+    <p style="font-size:13.5px; margin-top:14px; color:${found?'var(--text)':'var(--pink)'};">
+      ${found
+        ? `cmap 里有 <code>U+${cp.toString(16).toUpperCase()}</code> 这条，映射到字形 <strong>#${gid}</strong>，可以正常取轮廓去画。`
+        : `这张模拟 cmap 里<strong>没有</strong> <code>U+${cp.toString(16).toUpperCase()}</code>，于是返回字形 <strong>#0 (.notdef)</strong> —— 显示成豆腐块 &#x25A1;。真实系统这时会尝试字体回退。`}
+    </p>`;
+}
+input.addEventListener("input",lookup);
+// 快捷字符
+const quick = ["永","你","好","C","b","😀","囍"];
+document.getElementById("quick-chars").innerHTML = quick.map(c=>`<button class="btn" data-c="${c}">${c}</button>`).join("");
+document.querySelectorAll("#quick-chars .btn").forEach(b=>b.addEventListener("click",()=>{ input.value=b.dataset.c; lookup(); }));
+lookup();
+
+// ============ cmap 分段可视化 ============
+const SEGS = [
+  { lo:0x0041, hi:0x005A, off:36, label:"A–Z 大写拉丁" },
+  { lo:0x0061, hi:0x007A, off:68, label:"a–z 小写拉丁" },
+  { lo:0x4E00, hi:0x9FFF, off:1000, label:"CJK 统一汉字" },
+  { lo:0x1F600,hi:0x1F64F,off:3000, label:"emoji 表情（format 12 才覆盖）" },
+];
+document.getElementById("seg-view").innerHTML = `
+  <div style="overflow-x:auto;">
+  <table class="cmp" style="min-width:560px;">
+    <thead><tr><th>段（码点范围）</th><th>字形索引偏移</th><th>含义</th><th>示例</th></tr></thead>
+    <tbody>
+    ${SEGS.map(s=>{
+      const sample = s.lo===0x4E00 ? "U+4E00 一 → #"+ (1000) : "U+"+s.lo.toString(16).toUpperCase()+" → #"+s.off;
+      return `<tr>
+        <td><code>U+${s.lo.toString(16).toUpperCase().padStart(4,"0")}</code> – <code>U+${s.hi.toString(16).toUpperCase().padStart(4,"0")}</code></td>
+        <td style="font-family:var(--mono); color:var(--purple);">+${s.off}</td>
+        <td>${s.label}</td>
+        <td style="font-family:var(--mono); font-size:12px; color:var(--text-dim);">${sample}</td>
+      </tr>`;
+    }).join("")}
+    </tbody>
+  </table></div>`;
+</script>
+</body>
+</html>

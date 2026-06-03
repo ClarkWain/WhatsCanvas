@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第 11 章 · SDF / MSDF：让一张小图任意缩放 · 字体渲染原理</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+<style>
+#cv-sdf{ width:100%; height:auto; background:#0b0e13; border-radius:8px; }
+.cmp-grid{ display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+.cmp-grid canvas{ width:100%; height:auto; background:#0b0e13; border-radius:8px; image-rendering:auto; }
+.cmp-cap{ text-align:center; font-family:var(--mono); font-size:12.5px; color:var(--text-dim); margin-top:6px; }
+.ch-pick{ display:flex; gap:6px; }
+.ch-pick .btn{ min-width:42px; }
+.field-note{ font-family:var(--mono); font-size:12px; color:var(--purple); }
+.store-legend{ display:flex; align-items:center; gap:12px; margin-top:12px; font-family:var(--mono); font-size:12px; color:var(--text-dim); }
+.store-legend .bar{ height:12px; flex:1; border-radius:6px; background:linear-gradient(90deg,#286eeb,#f5f5f5 50%,#ffa657); border:1px solid var(--border); }
+.store-legend .mid{ position:relative; }
+</style>
+</head>
+<body data-page="ch11" data-base="../">
+
+<nav class="site-nav">
+  <a href="../index.html" class="brand"><span class="logo">字</span><span>字体渲染原理</span></a>
+  <span class="spacer"></span>
+  <div class="nav-links"></div>
+</nav>
+
+<div class="wrap wide">
+
+  <div class="chapter-kicker">CHAPTER 11 · SDF / MSDF</div>
+  <h1 class="title">SDF / MSDF：让一张小图任意缩放</h1>
+  <p class="lede">第 10 章留了个尾巴：普通字形图集是「按某个字号烤死」的，放大就糊。要让<strong>一张小纹理</strong>也能任意放大还保持锐利边缘，业界的答案是<strong>有向距离场（SDF）</strong>，以及它的升级版 <strong>MSDF</strong>。这一章把原理讲透，并配可交互演示。</p>
+
+  <h2>先看问题：图集放大就糊</h2>
+  <p>图集纹理里存的是<strong>像素的明暗</strong>。GPU 放大时只能在这些像素之间做<strong>双线性插值</strong>——边缘会被「抹开」成一片灰，于是发虚、发糊。字号放得越大越明显。要解决它，得换一种<strong>存储内容</strong>。</p>
+
+  <h2>核心思想：别存像素，存「到边缘的距离」</h2>
+  <p>SDF（Signed Distance Field，有向距离场）不存「这个像素是黑是白」，而存<strong>「这个像素到字形轮廓的最近距离」</strong>：在字形<strong>内部</strong>距离为正、<strong>外部</strong>为负、正好在<strong>边缘上</strong>为 0。</p>
+  <p>渲染时，着色器对这张距离图做双线性插值（距离插值是<strong>平滑且线性</strong>的，不像明暗那样一抹就糊），再判断：<strong>距离 ≥ 0 就是字内、上色；&lt; 0 就是字外、透明</strong>。无论放多大，「距离 = 0 的那条线」始终能算得清清楚楚，边缘自然锐利。</p>
+
+  <p>但「存像素」和「存距离」到底差在哪？一图胜千言——下面左边是<strong>存像素</strong>（每格只有黑/白两种值），右边是<strong>存距离</strong>（每格是一个「到边缘有多远」的数值，用颜色表示：蓝=字外、白=边缘、橙=字内）。拖动滑块选一行，看最下方那行数值在<strong>放大插值</strong>时各自会怎样。</p>
+
+  <div class="demo">
+    <div class="demo-head"><span class="dot"></span> store.pixels.vs.sdf</div>
+    <div class="demo-body">
+      <div class="demo-controls">
+        <div class="control">取样字形<div class="ch-pick" id="store-chars">
+          <button class="btn active" data-ch="A">A</button>
+          <button class="btn" data-ch="g">g</button>
+          <button class="btn" data-ch="&">&amp;</button>
+          <button class="btn" data-ch="永">永</button>
+        </div></div>
+        <div class="control">扫描行（拖动看不同行）<input type="range" id="store-row" min="2" max="21" step="1" value="14"></div>
+      </div>
+      <div class="cmp-grid" style="margin-top:12px;">
+        <div>
+          <canvas id="cv-store-pix" width="360" height="360"></canvas>
+          <div class="cmp-cap">存像素：每格只有 0 / 1（黑 / 白）</div>
+        </div>
+        <div>
+          <canvas id="cv-store-dist" width="360" height="360"></canvas>
+          <div class="cmp-cap">存距离：每格是一个距离值（白＝边缘 0）</div>
+        </div>
+      </div>
+      <div class="store-legend"><span>字外 −（远）</span><span class="bar"></span><span>字内 ＋（远）</span><span style="color:var(--text-dim);">中间白 ＝ 边缘 0</span></div>
+      <canvas id="cv-store-scan" width="760" height="230" style="width:100%;height:auto;background:#0b0e13;border-radius:8px;margin-top:14px;"></canvas>
+      <p style="margin-bottom:0;color:var(--text-dim);font-size:13.5px;">
+        关键就在这条扫描线（两图中的<strong style="color:var(--accent);">蓝框行</strong>）：<strong style="color:#9aa6b8;">存像素</strong>是 0/1 的<strong>阶跃</strong>——放大时在 1 和 0 之间插值，必然经过一片 0.5 左右的<strong>灰带</strong>（即边缘发糊，灰带还随放大变宽）；<strong style="color:var(--accent);">存距离</strong>是一条<strong>平滑斜线</strong>，无论放多大，「＝ 0 的那一点」（<strong style="color:#3fb950;">绿虚线</strong>）位置精确不动，卡这条线就得到<strong>锐利边缘</strong>。
+      </p>
+    </div>
+  </div>
+
+  <div class="demo">
+    <div class="demo-head"><span class="dot"></span> sdf.threshold</div>
+    <div class="demo-body">
+      <p style="margin-top:0; color:var(--text-dim); font-size:14px;">下面这张图<strong>只用一张 <span class="field-note">72×72</span> 的距离场</strong>，却放大到这么大还很锐利。拖动滑块感受 SDF 的两个「超能力」：移动判定阈值 = 调字重；调平滑半径 = 控抗锯齿。</p>
+      <canvas id="cv-sdf" width="760" height="320"></canvas>
+      <div class="demo-controls" style="margin-top:14px;">
+        <div class="control">取样字形
+          <div class="ch-pick" id="sdf-chars">
+            <button class="btn active" data-ch="A">A</button>
+            <button class="btn" data-ch="g">g</button>
+            <button class="btn" data-ch="&">&amp;</button>
+            <button class="btn" data-ch="永">永</button>
+          </div>
+        </div>
+        <div class="control">判定阈值（字重）<input type="range" id="sdf-thr" min="-0.35" max="0.35" step="0.01" value="0"><span class="val" id="sdf-thr-v">0.00</span></div>
+        <div class="control">平滑半径（抗锯齿）<input type="range" id="sdf-sm" min="0.005" max="0.25" step="0.005" value="0.07"><span class="val" id="sdf-sm-v">0.07</span></div>
+        <div class="toggle-row"><button class="btn" id="sdf-outline">加描边（白送的效果）</button></div>
+      </div>
+      <p style="font-size:13px; color:var(--text-dim); margin-top:10px;">注意：阈值往<strong>负</strong>调，字变粗（把更多「字外一点点」也算进来）；往<strong>正</strong>调，字变细。这就是 SDF 能从<strong>一套</strong>距离场<strong>免费</strong>生成不同字重、还能描边/发光的原因。</p>
+    </div>
+  </div>
+
+  <h2>为什么能任意缩放：和点阵放大对比</h2>
+  <p>同样是把一张 <strong>72×72</strong> 的小图放大，左边是普通点阵（存明暗，最近邻/双线性都糊），右边是 SDF（存距离，阈值一卡边缘就回来）。</p>
+
+  <div class="demo">
+    <div class="demo-head"><span class="dot"></span> bitmap.vs.sdf</div>
+    <div class="demo-body">
+      <div class="cmp-grid">
+        <div>
+          <canvas id="cv-bmp" width="320" height="320"></canvas>
+          <div class="cmp-cap">点阵放大：边缘发糊 / 锯齿</div>
+        </div>
+        <div>
+          <canvas id="cv-sdf2" width="320" height="320"></canvas>
+          <div class="cmp-cap">SDF 放大：边缘依旧锐利</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2>SDF 的软肋：尖角会被磨圆</h2>
+  <p>单通道 SDF 有个先天缺陷：它只记录「到最近边缘的距离」这<strong>一个标量</strong>。在字形的<strong>尖角</strong>处，距离场会像「等高线绕过山尖」一样把拐角抹圆——放大后本该锋利的尖角变成了<strong>小圆角</strong>。字号越大越明显，对衬线、尖锐的笔锋尤其伤。</p>
+
+  <div class="callout">
+    <div class="callout-title">MSDF：用「多通道」把尖角找回来</div>
+    <strong>MSDF（Multi-channel SDF，多通道有向距离场）</strong>把距离场分别编码进纹理的 <span style="color:#ff6b6b;">R</span> / <span style="color:#51cf66;">G</span> / <span style="color:#74c0fc;">B</span> 三个通道，每个通道负责轮廓的不同边。着色器取三者的<strong>中位数（median）</strong>作为最终距离。多个通道在拐角处「交叉」，正好把<strong>尖角的两条边</strong>都保住，于是放大也不圆。代价是生成更复杂（常用 <code>msdfgen</code> 库预处理）、纹理占 3 个通道。
+  </div>
+
+  <div class="demo">
+    <div class="demo-head"><span class="dot"></span> sdf.vs.msdf.corner</div>
+    <div class="demo-body">
+      <p style="margin-top:0; color:var(--text-dim); font-size:14px;">放大一个<strong>直角尖角</strong>看差别：单通道 SDF 把角磨圆了，MSDF 取三通道中位数后角是尖的。</p>
+      <div class="cmp-grid">
+        <div>
+          <canvas id="cv-corner-sdf" width="320" height="260"></canvas>
+          <div class="cmp-cap">单通道 SDF：尖角被磨圆</div>
+        </div>
+        <div>
+          <canvas id="cv-corner-msdf" width="320" height="260"></canvas>
+          <div class="cmp-cap">MSDF：尖角保住</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2>顺带白送：描边、发光、阴影</h2>
+  <p>因为 SDF 在每个像素都知道「离边缘多远」，很多效果几乎<strong>零成本</strong>：</p>
+  <table class="cmp">
+    <thead><tr><th>效果</th><th>在着色器里怎么做</th></tr></thead>
+    <tbody>
+      <tr><td>抗锯齿</td><td>在 距离=0 附近用 <code>smoothstep</code> 做一条柔和过渡带</td></tr>
+      <tr><td>加粗 / 变细</td><td>把判定阈值从 0 改成 ±一点（上面滑块就是它）</td></tr>
+      <tr><td>描边</td><td>距离在 <code>[-w, 0]</code> 的环形区域涂边框色</td></tr>
+      <tr><td>外发光 / 阴影</td><td>对负距离区域按距离做渐隐，偏移一点就是阴影</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout warn">
+    <div class="callout-title">SDF 不是万能</div>
+    SDF/MSDF 适合<strong>会被缩放、需要特效</strong>的文字（游戏 UI、标题、3D 场景里的字）。但它<strong>不擅长极小字号的正文</strong>——小字号要的是 hinting、子像素这类「像素级精修」，SDF 在那个尺度反而不如直接按字号光栅化的图集清晰。CJK 上万字形做 MSDF 图集也很重。<strong>所以浏览器正文仍走 FreeType 直接光栅化</strong>，SDF 是「特定场景的利器」，不是替代品。
+  </div>
+
+  <div class="callout good">
+    <div class="callout-title">📌 一句话总结</div>
+    SDF 把图集里存的「<strong>像素明暗</strong>」换成「<strong>到边缘的距离</strong>」，于是一张小图也能任意放大、还白送描边/发光；<strong>MSDF</strong> 用三通道取中位数把<strong>尖角</strong>救回来。代价是预生成更复杂、不适合极小正文——它是<strong>缩放与特效场景的利器</strong>。
+  </div>
+
+  <div class="checkpoint">
+    <div class="cp-title">检查一下理解 ✅</div>
+    <p class="q">问：SDF 为什么放大不糊，而普通点阵图集放大会糊？</p>
+    <details>
+      <summary>看答案</summary>
+      <p style="font-size:14.5px;">点阵图集存的是<strong>像素明暗</strong>，放大时在明暗之间插值，边缘被抹成一片灰 → 糊。SDF 存的是<strong>到边缘的距离</strong>，距离插值是平滑线性的；着色器只要找「距离 = 0」那条线就能<strong>重新算出</strong>锐利边缘，与放大倍数无关。代价是单通道 SDF 会把<strong>尖角磨圆</strong>，需要 MSDF 用多通道中位数来修。</p>
+    </details>
+  </div>
+
+  <div class="chapter-foot"></div>
+</div>
+
+<script src="../assets/js/site.js"></script>
+<script>
+(function(){
+  const N=72;                      // 距离场分辨率（刻意做小，凸显「小图也能放大」）
+  const off=document.createElement("canvas"); off.width=N; off.height=N;
+  const octx=off.getContext("2d");
+  let field=null;
+
+  function buildField(ch){
+    octx.clearRect(0,0,N,N);
+    octx.fillStyle="#fff"; octx.textAlign="center"; octx.textBaseline="middle";
+    octx.font=`${Math.floor(N*0.82)}px Georgia, 'Times New Roman', serif`;
+    octx.fillText(ch, N/2, N/2+2);
+    const data=octx.getImageData(0,0,N,N).data;
+    const inside=new Uint8Array(N*N);
+    for(let i=0;i<N*N;i++) inside[i]= data[i*4+3]>127 ? 1 : 0;
+    // 收集边界格子
+    const bx=[], by=[];
+    for(let y=0;y<N;y++) for(let x=0;x<N;x++){
+      const c=inside[y*N+x]; let edge=false;
+      const nb=[[1,0],[-1,0],[0,1],[0,-1]];
+      for(let k=0;k<4;k++){
+        const nx=x+nb[k][0], ny=y+nb[k][1];
+        const nc=(nx<0||ny<0||nx>=N||ny>=N)?0:inside[ny*N+nx];
+        if(nc!==c){ edge=true; break; }
+      }
+      if(edge){ bx.push(x); by.push(y); }
+    }
+    const sd=new Float32Array(N*N);
+    const spread=N*0.16;
+    for(let y=0;y<N;y++) for(let x=0;x<N;x++){
+      let best=1e9;
+      for(let k=0;k<bx.length;k++){
+        const dx=x-bx[k], dy=y-by[k], d=dx*dx+dy*dy;
+        if(d<best) best=d;
+      }
+      const s=inside[y*N+x]?1:-1;
+      sd[y*N+x]=Math.max(-1,Math.min(1, s*Math.sqrt(best)/spread));
+    }
+    field={N, sd, inside};
+  }
+
+  function sampleSD(fx,fy){
+    const n=field.N, sd=field.sd;
+    fx=Math.max(0,Math.min(n-1.001,fx)); fy=Math.max(0,Math.min(n-1.001,fy));
+    const x0=fx|0, y0=fy|0, tx=fx-x0, ty=fy-y0;
+    const a=sd[y0*n+x0], b=sd[y0*n+x0+1], c=sd[(y0+1)*n+x0], d=sd[(y0+1)*n+x0+1];
+    return (a*(1-tx)+b*tx)*(1-ty)+(c*(1-tx)+d*tx)*ty;
+  }
+  function smoothstep(e0,e1,x){ const t=Math.max(0,Math.min(1,(x-e0)/(e1-e0))); return t*t*(3-2*t); }
+  function lerp(a,b,t){ return a+(b-a)*t; }
+
+  // ---- 主演示：阈值/平滑/描边 ----
+  const cv=document.getElementById("cv-sdf"), ctx=cv.getContext("2d");
+  const thrEl=document.getElementById("sdf-thr"), thrV=document.getElementById("sdf-thr-v");
+  const smEl=document.getElementById("sdf-sm"), smV=document.getElementById("sdf-sm-v");
+  let outline=false;
+  function renderMain(){
+    const W=cv.width, H=cv.height, img=ctx.createImageData(W,H), o=img.data;
+    const thr=parseFloat(thrEl.value), sm=parseFloat(smEl.value), OW=0.14;
+    // 字形在画布中央偏左，留点边
+    const scale=Math.min(W,H)*0.78, ox=(W-scale)/2, oy=(H-scale)/2;
+    for(let py=0;py<H;py++) for(let px=0;px<W;px++){
+      const fx=(px-ox)/scale*field.N, fy=(py-oy)/scale*field.N;
+      let s;
+      if(fx<0||fy<0||fx>=field.N||fy>=field.N){ s=-1; } else { s=sampleSD(fx,fy); }
+      const fill=smoothstep(thr-sm, thr+sm, s);
+      let r=11,g=14,b=19;
+      if(outline){
+        const outer=smoothstep(thr-OW-sm, thr-OW+sm, s);
+        const ring=Math.max(0, outer-fill);
+        r=lerp(r,255,ring*0.95); g=lerp(g,123,ring*0.95); b=lerp(b,156,ring*0.95); // 粉描边
+      }
+      r=lerp(r,230,fill); g=lerp(g,237,fill); b=lerp(b,243,fill);
+      const i=(py*W+px)*4; o[i]=r; o[i+1]=g; o[i+2]=b; o[i+3]=255;
+    }
+    ctx.putImageData(img,0,0);
+    thrV.textContent=parseFloat(thrEl.value).toFixed(2);
+    smV.textContent=parseFloat(smEl.value).toFixed(3);
+  }
+
+  // ---- 对比演示：点阵 vs SDF ----
+  const bmp=document.getElementById("cv-bmp"), bctx=bmp.getContext("2d");
+  const sdf2=document.getElementById("cv-sdf2"), s2ctx=sdf2.getContext("2d");
+  function renderCompare(){
+    // 点阵：把 N×N 的 inside 当像素，最近邻放大
+    const tmp=document.createElement("canvas"); tmp.width=field.N; tmp.height=field.N;
+    const tctx=tmp.getContext("2d");
+    const ti=tctx.createImageData(field.N, field.N), td=ti.data;
+    for(let i=0;i<field.N*field.N;i++){ const v=field.inside[i]?230:11; td[i*4]=v; td[i*4+1]=field.inside[i]?237:14; td[i*4+2]=field.inside[i]?243:19; td[i*4+3]=255; }
+    tctx.putImageData(ti,0,0);
+    bctx.fillStyle="#0b0e13"; bctx.fillRect(0,0,bmp.width,bmp.height);
+    bctx.imageSmoothingEnabled=true; // 双线性放大 → 糊
+    bctx.drawImage(tmp, 0,0, bmp.width, bmp.height);
+    // SDF：阈值卡 0
+    const W=sdf2.width,H=sdf2.height, img=s2ctx.createImageData(W,H), o=img.data, sm=0.03;
+    const scale=Math.min(W,H)*0.92, ox=(W-scale)/2, oy=(H-scale)/2;
+    for(let py=0;py<H;py++) for(let px=0;px<W;px++){
+      const fx=(px-ox)/scale*field.N, fy=(py-oy)/scale*field.N;
+      let s=(fx<0||fy<0||fx>=field.N||fy>=field.N)?-1:sampleSD(fx,fy);
+      const fill=smoothstep(-sm, sm, s);
+      const r=lerp(11,230,fill),g=lerp(14,237,fill),b=lerp(19,243,fill);
+      const i=(py*W+px)*4; o[i]=r;o[i+1]=g;o[i+2]=b;o[i+3]=255;
+    }
+    s2ctx.putImageData(img,0,0);
+  }
+
+  function rebuild(ch){ buildField(ch); renderMain(); renderCompare(); }
+
+  document.querySelectorAll("#sdf-chars .btn").forEach(b=>{
+    b.addEventListener("click",()=>{
+      document.querySelectorAll("#sdf-chars .btn").forEach(x=>x.classList.toggle("active",x===b));
+      rebuild(b.dataset.ch);
+    });
+  });
+  thrEl.addEventListener("input",renderMain);
+  smEl.addEventListener("input",renderMain);
+  document.getElementById("sdf-outline").addEventListener("click",function(){
+    outline=!outline; this.classList.toggle("active",outline); renderMain();
+  });
+  rebuild("A");
+
+  // ---- 尖角：SDF 磨圆 vs MSDF 保住 ----
+  // 用一个右下方向的直角缺口示意：true SDF 取单一距离会把内角抹圆；MSDF 取两边距离的 min（中位数近似）保住尖角。
+  (function(){
+    const cs=document.getElementById("cv-corner-sdf"), c1=cs.getContext("2d");
+    const cm=document.getElementById("cv-corner-msdf"), c2=cm.getContext("2d");
+    // 形状：占据左上的一个直角块，尖角在右下 (cx,cy)
+    const cx=0.62, cy=0.60; // 归一化角位置
+    function field2(nx,ny){
+      // 到两条边的有向距离（块内为正）：右边界 x=cx（块在左侧 => 距离=cx-nx），下边界 y=cy（块在上 => cy-ny）
+      const dRight=cx-nx, dBottom=cy-ny;
+      return {dRight,dBottom};
+    }
+    function draw(ctx2, msdf){
+      const W=ctx2.canvas.width, H=ctx2.canvas.height;
+      const img=ctx2.createImageData(W,H), o=img.data, sm=0.012;
+      for(let py=0;py<H;py++) for(let px=0;px<W;px++){
+        const nx=px/W, ny=py/H;
+        const {dRight,dBottom}=field2(nx,ny);
+        let s;
+        if(msdf){
+          // MSDF 近似：两条边各自一个通道，取 min（在凸角处 = 两边都满足才在内），尖角保留
+          s=Math.min(dRight,dBottom);
+        } else {
+          // 单通道 SDF：到角点/边的欧氏有向距离，内角被抹圆
+          if(dRight>0 && dBottom>0){ s=Math.min(dRight,dBottom); }
+          else if(dRight<=0 && dBottom<=0){ s=-Math.hypot(dRight,dBottom); } // 外侧到角点的圆弧 → 磨圆
+          else { s=Math.min(dRight,dBottom); }
+        }
+        const fill=smoothstep(-sm,sm,s);
+        const r=lerp(11,230,fill),g=lerp(14,237,fill),b=lerp(19,243,fill);
+        const i=(py*W+px)*4; o[i]=r;o[i+1]=g;o[i+2]=b;o[i+3]=255;
+      }
+      ctx2.putImageData(img,0,0);
+      // 标注角点
+      ctx2.strokeStyle="#ff7b9c"; ctx2.lineWidth=2;
+      ctx2.beginPath(); ctx2.arc(cx*W, cy*H, 16, 0, 2*Math.PI); ctx2.stroke();
+    }
+    draw(c1,false); draw(c2,true);
+  })();
+
+  // ---- 存什么：像素 vs 距离（低分辨率直观对比 + 扫描线）----
+  (function(){
+    const ACCENT="#58a6ff", GREEN="#3fb950";
+    const M=24;                       // 低分辨率，方便看清每个格子存了什么
+    const cvP=document.getElementById("cv-store-pix"), cP=cvP.getContext("2d");
+    const cvD=document.getElementById("cv-store-dist"), cD=cvD.getContext("2d");
+    const cvS=document.getElementById("cv-store-scan"), cS=cvS.getContext("2d");
+    const rowEl=document.getElementById("store-row");
+    const off2=document.createElement("canvas"); off2.width=M; off2.height=M;
+    const o2=off2.getContext("2d");
+    let inside=null, sd=null, scanRow=parseInt(rowEl.value,10);
+
+    function build(ch){
+      o2.clearRect(0,0,M,M);
+      o2.fillStyle="#fff"; o2.textAlign="center"; o2.textBaseline="middle";
+      o2.font=`${Math.floor(M*0.86)}px Georgia,'Times New Roman',serif`;
+      o2.fillText(ch, M/2, M/2+1);
+      const d=o2.getImageData(0,0,M,M).data;
+      inside=new Uint8Array(M*M);
+      for(let i=0;i<M*M;i++) inside[i]= d[i*4+3]>120 ? 1 : 0;
+      const bx=[], by=[];
+      for(let y=0;y<M;y++) for(let x=0;x<M;x++){
+        const c=inside[y*M+x]; let e=false;
+        const nb=[[1,0],[-1,0],[0,1],[0,-1]];
+        for(let k=0;k<4;k++){ const nx=x+nb[k][0], ny=y+nb[k][1];
+          const nc=(nx<0||ny<0||nx>=M||ny>=M)?0:inside[ny*M+nx]; if(nc!==c){ e=true; break; } }
+        if(e){ bx.push(x); by.push(y); }
+      }
+      sd=new Float32Array(M*M);
+      const spread=M*0.30;
+      for(let y=0;y<M;y++) for(let x=0;x<M;x++){
+        let best=1e9;
+        for(let k=0;k<bx.length;k++){ const dx=x-bx[k], dy=y-by[k], dd=dx*dx+dy*dy; if(dd<best) best=dd; }
+        const s=inside[y*M+x]?1:-1;
+        sd[y*M+x]=Math.max(-1,Math.min(1, s*Math.sqrt(best)/spread));
+      }
+    }
+
+    function heat(d){
+      if(d>=0){ const t=Math.min(1,d); return [lerp(245,255,t)|0, lerp(245,166,t)|0, lerp(245,87,t)|0]; }
+      const t=Math.min(1,-d); return [lerp(245,40,t)|0, lerp(245,110,t)|0, lerp(245,235,t)|0];
+    }
+
+    function drawGrid(ctx2, mode){
+      const W=ctx2.canvas.width, H=ctx2.canvas.height, cw=W/M, ch=H/M;
+      ctx2.clearRect(0,0,W,H);
+      for(let y=0;y<M;y++) for(let x=0;x<M;x++){
+        if(mode==="pix"){ ctx2.fillStyle = inside[y*M+x] ? "#e6edf3" : "#0d1117"; }
+        else { const c=heat(sd[y*M+x]); ctx2.fillStyle=`rgb(${c[0]},${c[1]},${c[2]})`; }
+        ctx2.fillRect(x*cw, y*ch, cw+0.5, ch+0.5);
+      }
+      ctx2.strokeStyle="rgba(120,140,170,0.16)"; ctx2.lineWidth=1;
+      for(let i=0;i<=M;i++){
+        ctx2.beginPath(); ctx2.moveTo(i*cw,0); ctx2.lineTo(i*cw,H); ctx2.stroke();
+        ctx2.beginPath(); ctx2.moveTo(0,i*ch); ctx2.lineTo(W,i*ch); ctx2.stroke();
+      }
+      // 高亮扫描行
+      ctx2.strokeStyle=ACCENT; ctx2.lineWidth=2.5;
+      ctx2.strokeRect(1, scanRow*ch+1, W-2, ch-2);
+    }
+
+    function pixAt(fx){ fx=Math.max(0,Math.min(M-1,fx)); const x0=fx|0,t=fx-x0,x1=Math.min(M-1,x0+1); return inside[scanRow*M+x0]*(1-t)+inside[scanRow*M+x1]*t; }
+    function sdAt(fx){ fx=Math.max(0,Math.min(M-1,fx)); const x0=fx|0,t=fx-x0,x1=Math.min(M-1,x0+1); return sd[scanRow*M+x0]*(1-t)+sd[scanRow*M+x1]*t; }
+
+    function drawScan(){
+      const W=cvS.width, H=cvS.height;
+      cS.clearRect(0,0,W,H); cS.fillStyle="#0b0e13"; cS.fillRect(0,0,W,H);
+      const padL=26, padR=20, padT=28, padB=20, gap=30;
+      const plotW=W-padL-padR, areaH=H-padT-padB-gap;
+      const topH=areaH*0.5, botH=areaH*0.5;
+      const topBase=padT+topH;
+      const botZero=padT+topH+gap+botH/2;
+      const colX=x=>padL + (x/(M-1))*plotW;
+      const fxOf=px=>(px-padL)/plotW*(M-1);
+      const sScale=botH/2*0.92;
+
+      cS.font='12px "JetBrains Mono",monospace'; cS.textBaseline="alphabetic"; cS.textAlign="left";
+      cS.fillStyle="#9aa6b8"; cS.fillText("存像素值（0 / 1 阶跃 → 插值得 0.5 灰带，糊）", padL, padT-12);
+      cS.fillStyle=ACCENT;   cS.fillText("存距离值（平滑斜线，过 0 处＝锐利边缘）", padL, padT+topH+gap-12);
+
+      // 像素：灰带阴影
+      for(let px=padL;px<=W-padR;px++){ const pv=pixAt(fxOf(px));
+        if(pv>0.15 && pv<0.85){ cS.strokeStyle="rgba(154,166,184,0.18)"; cS.beginPath(); cS.moveTo(px,padT); cS.lineTo(px,topBase); cS.stroke(); } }
+      // 像素：0/1 参考线
+      cS.strokeStyle="rgba(120,140,170,0.22)"; cS.lineWidth=1;
+      cS.beginPath(); cS.moveTo(padL,topBase); cS.lineTo(W-padR,topBase); cS.stroke();
+      cS.beginPath(); cS.moveTo(padL,topBase-topH); cS.lineTo(W-padR,topBase-topH); cS.stroke();
+      cS.fillStyle="#5a6b82"; cS.font='11px "JetBrains Mono",monospace'; cS.textAlign="right";
+      cS.fillText("1", padL-3, topBase-topH+4); cS.fillText("0", padL-3, topBase+4);
+      // 像素：插值折线
+      cS.strokeStyle="#9aa6b8"; cS.lineWidth=2; cS.beginPath();
+      for(let px=padL;px<=W-padR;px++){ const y=topBase - pixAt(fxOf(px))*topH; if(px===padL)cS.moveTo(px,y); else cS.lineTo(px,y);} cS.stroke();
+      for(let x=0;x<M;x++){ const v=inside[scanRow*M+x], X=colX(x), Y=topBase - v*topH; cS.fillStyle=v?"#e6edf3":"#566373"; cS.beginPath(); cS.arc(X,Y,2.6,0,6.283); cS.fill(); }
+
+      // 距离：0 轴
+      cS.strokeStyle="rgba(120,140,170,0.22)"; cS.lineWidth=1; cS.beginPath(); cS.moveTo(padL,botZero); cS.lineTo(W-padR,botZero); cS.stroke();
+      cS.fillStyle="#5a6b82"; cS.font='11px "JetBrains Mono",monospace'; cS.textAlign="right"; cS.fillText("0", padL-3, botZero+4);
+      // 距离：插值斜线
+      cS.strokeStyle=ACCENT; cS.lineWidth=2; cS.beginPath();
+      for(let px=padL;px<=W-padR;px++){ const y=botZero - sdAt(fxOf(px))*sScale; if(px===padL)cS.moveTo(px,y); else cS.lineTo(px,y);} cS.stroke();
+      for(let x=0;x<M;x++){ const s=sd[scanRow*M+x], X=colX(x), Y=botZero - s*sScale; cS.fillStyle=ACCENT; cS.beginPath(); cS.arc(X,Y,2.4,0,6.283); cS.fill(); }
+      // 过零点：绿色虚线贯穿两图 → 边缘位置
+      let labeled=false;
+      for(let x=0;x<M-1;x++){ const a=sd[scanRow*M+x], b=sd[scanRow*M+x+1];
+        if((a<0&&b>=0)||(a>=0&&b<0)){
+          const t=a/(a-b), X=colX(x+t);
+          cS.strokeStyle=GREEN; cS.setLineDash([4,3]); cS.lineWidth=1.5;
+          cS.beginPath(); cS.moveTo(X,padT); cS.lineTo(X,H-padB); cS.stroke(); cS.setLineDash([]);
+          cS.fillStyle=GREEN; cS.beginPath(); cS.arc(X,botZero,3.5,0,6.283); cS.fill();
+          if(!labeled){ cS.fillStyle=GREEN; cS.font='11px "JetBrains Mono",monospace'; cS.textAlign="center"; cS.fillText("边缘", X, padT-2); labeled=true; }
+        }
+      }
+    }
+
+    function redraw(){ drawGrid(cP,"pix"); drawGrid(cD,"dist"); drawScan(); }
+    function rebuild2(ch){ build(ch); redraw(); }
+
+    document.querySelectorAll("#store-chars .btn").forEach(b=>{
+      b.addEventListener("click",()=>{ document.querySelectorAll("#store-chars .btn").forEach(x=>x.classList.toggle("active",x===b)); rebuild2(b.dataset.ch); });
+    });
+    rowEl.addEventListener("input",()=>{ scanRow=parseInt(rowEl.value,10); redraw(); });
+    rebuild2("A");
+  })();
+})();
+</script>
+</body>
+</html>
