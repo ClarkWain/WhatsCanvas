@@ -75,9 +75,7 @@ function(whatscanvas_add_opengl_library target_name project_root)
             "${src_dir}"
         INTERFACE
             "$<BUILD_INTERFACE:${project_root}/include>"
-            "$<BUILD_INTERFACE:${src_dir}>"
             "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
-            "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/whatscanvas-src>"
     )
     target_compile_definitions(${target_name} PUBLIC GLEW_STATIC)
     target_link_libraries(${target_name}

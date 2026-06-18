@@ -11,9 +11,9 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 
-#include "canvas/Canvas.h"
-#include "canvas/Paint.h"
-#include "canvas/base.h"
+#include "wsc/wsc.h"
+
+using namespace wsc;
 
 constexpr int COLS = 10;
 constexpr int ROWS = 20;

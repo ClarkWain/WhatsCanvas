@@ -13,9 +13,9 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 
-#include "canvas/Canvas.h"
-#include "canvas/Paint.h"
-#include "canvas/base.h"
+#include "wsc/wsc.h"
+
+using namespace wsc;
 
 namespace {
 constexpr float kPi = 3.1415926535f;

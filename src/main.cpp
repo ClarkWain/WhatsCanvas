@@ -7,11 +7,11 @@
 #include <limits>
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
-#include "canvas/Canvas.h"
-#include "canvas/Image.h"
-#include "canvas/Paint.h"
+#include "wsc/wsc.h"
 #include <glm/glm.hpp>
 #include <gtc/matrix_transform.hpp>
+
+using namespace wsc;
 
 const float PI = 3.14159265359f;
 constexpr int kWindowWidth = 800;
