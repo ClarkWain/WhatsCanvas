@@ -1,11 +1,41 @@
 #pragma once
 
-#if __has_include("../whatscanvas-src/canvas/Image.h")
-#include "../whatscanvas-src/canvas/Image.h"
-#else
-#include "../../src/canvas/Image.h"
-#endif
+#include <memory>
+
+class IRenderer;
+class ImageResource;
 
 namespace wsc {
-using ::Image;
-}
+class Canvas;
+
+/// GPU-backed image resource managed by the canvas runtime.
+class Image
+{
+public:
+	Image();
+	~Image();
+
+	Image(const Image &) = delete;
+	Image &operator=(const Image &) = delete;
+	Image(Image &&other) noexcept;
+	Image &operator=(Image &&other) noexcept;
+
+	int getWidth() const { return width_; }
+	int getHeight() const { return height_; }
+	bool hasMipmaps() const { return mipmapsGenerated_; }
+
+private:
+	struct Storage;
+
+	friend class Canvas;
+
+	bool load(::IRenderer &renderer, const char *imagePath);
+	std::shared_ptr<::ImageResource> getImageResource() const;
+	void reset();
+
+	std::unique_ptr<Storage> storage_;
+	int width_ = 0;
+	int height_ = 0;
+	bool mipmapsGenerated_ = false;
+};
+} // namespace wsc

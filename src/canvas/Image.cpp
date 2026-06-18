@@ -9,16 +9,16 @@
 #include <memory>
 #include <iostream>
 
-struct Image::Storage {
+struct wsc::Image::Storage {
     SharedImageResource imageResource;
 };
 
-Image::Image()
+wsc::Image::Image()
     : storage_(std::make_unique<Storage>())
 {
 }
 
-Image::Image(Image &&other) noexcept
+wsc::Image::Image(Image &&other) noexcept
     : storage_(std::move(other.storage_)), width_(other.width_), height_(other.height_),
       mipmapsGenerated_(other.mipmapsGenerated_)
 {
@@ -27,7 +27,7 @@ Image::Image(Image &&other) noexcept
     other.mipmapsGenerated_ = false;
 }
 
-Image &Image::operator=(Image &&other) noexcept
+wsc::Image &wsc::Image::operator=(Image &&other) noexcept
 {
     if (this == &other) {
         return *this;
@@ -45,12 +45,12 @@ Image &Image::operator=(Image &&other) noexcept
     return *this;
 }
 
-Image::~Image()
+wsc::Image::~Image()
 {
     reset();
 }
 
-std::shared_ptr<ImageResource> Image::getImageResource() const
+std::shared_ptr<ImageResource> wsc::Image::getImageResource() const
 {
     if (!storage_) {
         return {};
@@ -59,7 +59,7 @@ std::shared_ptr<ImageResource> Image::getImageResource() const
     return storage_->imageResource;
 }
 
-void Image::reset()
+void wsc::Image::reset()
 {
     if (storage_) {
         storage_->imageResource.reset();
@@ -69,7 +69,7 @@ void Image::reset()
     mipmapsGenerated_ = false;
 }
 
-bool Image::load(IRenderer &renderer, const char *imagePath)
+bool wsc::Image::load(IRenderer &renderer, const char *imagePath)
 {
     int width, height, channels;
     unsigned char *data = stbi_load(imagePath, &width, &height, &channels, 0);

@@ -195,14 +195,6 @@ if (WHATSCANVAS_INSTALL)
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
     )
 
-    install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/canvas"
-        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/whatscanvas-src"
-        FILES_MATCHING PATTERN "*.h"
-    )
-    install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/render"
-        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/whatscanvas-src"
-        FILES_MATCHING PATTERN "*.h"
-    )
     install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/third_party/glm/glm"
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
     )
