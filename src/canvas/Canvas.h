@@ -8,15 +8,17 @@
 #include "Image.h"
 #include "Paint.h"
 #include "Path.h"
-#include "render/GraphicsState.h"
-#include "render/GraphicsStateStack.h"
-#include "render/IRenderer.h"
-#include "render/RenderTypes.h"
 #include "base.h"
 
 namespace prismcanvas::text {
 class ITextBackend;
 }
+
+class IRenderer;
+class GraphicsStateStack;
+struct GraphicsState;
+struct ScissorState;
+struct ClipMaskState;
 
 class Canvas
 {
@@ -178,15 +180,15 @@ private:
     ScissorState makeCurrentScissorState() const;
     ClipMaskState makeCurrentClipMaskState() const;
     void restoreLayer(const LayerState &layer);
-    GraphicsState &currentState() { return graphicsStates_.current(); }
-    const GraphicsState &currentState() const { return graphicsStates_.current(); }
+    GraphicsState &currentState() { return graphicsStates_->current(); }
+    const GraphicsState &currentState() const { return graphicsStates_->current(); }
 
     int width_ = 0;
     int height_ = 0;
     Color color_;
     std::unique_ptr<IRenderer> renderer_;
     std::unique_ptr<prismcanvas::text::ITextBackend> textBackend_;
-    GraphicsStateStack graphicsStates_;
+    std::unique_ptr<GraphicsStateStack> graphicsStates_;
     std::vector<LayerState> layerStack_;
     bool rendererInitialized_ = false;
 };

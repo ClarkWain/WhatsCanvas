@@ -13,6 +13,10 @@
 #include "Canvas.h"
 #include "Paint.h"
 #include "Path.h"
+#include "render/GraphicsState.h"
+#include "render/GraphicsStateStack.h"
+#include "render/IRenderer.h"
+#include "render/RenderTypes.h"
 #include "render/Renderer.h"
 #include "text/BasicTextBackend.h"
 #include "text/ITextBackend.h"
@@ -1506,7 +1510,8 @@ Canvas::Canvas(std::unique_ptr<IRenderer> renderer)
 
 Canvas::Canvas(std::unique_ptr<IRenderer> renderer, std::unique_ptr<prismcanvas::text::ITextBackend> textBackend)
     : renderer_(std::move(renderer)),
-      textBackend_(std::move(textBackend))
+      textBackend_(std::move(textBackend)),
+      graphicsStates_(std::make_unique<GraphicsStateStack>())
 {
     registerCanvasInstance(this);
 }
@@ -2649,7 +2654,7 @@ Canvas::TextMetrics Canvas::measureTextMetrics(const std::string &text, const Pa
 int Canvas::save()
 {
     const int savedCount = getSaveCount();
-    graphicsStates_.save();
+    graphicsStates_->save();
     return savedCount;
 }
 
@@ -2676,7 +2681,7 @@ int Canvas::saveLayer(const Rect &bounds, const Paint &paint)
 
 void Canvas::restore()
 {
-    if (!graphicsStates_.canRestore()) {
+    if (!graphicsStates_->canRestore()) {
         return;
     }
 
@@ -2685,12 +2690,12 @@ void Canvas::restore()
         layerStack_.pop_back();
     }
 
-    graphicsStates_.restore();
+    graphicsStates_->restore();
 }
 
 int Canvas::getSaveCount() const
 {
-    return graphicsStates_.getSaveCount();
+    return graphicsStates_->getSaveCount();
 }
 
 const glm::mat4& Canvas::getMatrix() const
@@ -2887,7 +2892,7 @@ bool Canvas::quickReject(const Path &path, const Paint &paint) const
 void Canvas::restoreToCount(int saveCount)
 {
     const int targetCount = std::max(1, saveCount);
-    graphicsStates_.restoreToCount(targetCount);
+    graphicsStates_->restoreToCount(targetCount);
 }
 
 void Canvas::restoreLayer(const LayerState &layer)
@@ -3158,7 +3163,7 @@ void Canvas::flush()
         return;
     }
 
-    while (!layerStack_.empty() && graphicsStates_.canRestore()) {
+    while (!layerStack_.empty() && graphicsStates_->canRestore()) {
         restore();
     }
     renderer_->flush();
