@@ -5,10 +5,10 @@
 #include "Paint.h"
 #include "Path.h"
 
-#if __has_include("../../src/canvas/Canvas.h")
-#include "../../src/canvas/Canvas.h"
-#else
+#if __has_include("../whatscanvas-src/canvas/Canvas.h")
 #include "../whatscanvas-src/canvas/Canvas.h"
+#else
+#include "../../src/canvas/Canvas.h"
 #endif
 
 namespace wsc {

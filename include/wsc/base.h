@@ -1,9 +1,9 @@
 #pragma once
 
-#if __has_include("../../src/canvas/base.h")
-#include "../../src/canvas/base.h"
-#else
+#if __has_include("../whatscanvas-src/canvas/base.h")
 #include "../whatscanvas-src/canvas/base.h"
+#else
+#include "../../src/canvas/base.h"
 #endif
 
 namespace wsc {

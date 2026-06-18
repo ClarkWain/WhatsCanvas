@@ -2,7 +2,7 @@
 
 #include <vector>
 
-#include <glm.hpp>
+#include <glm/glm.hpp>
 
 #include "base.h"
 #include "canvas/Path.h"

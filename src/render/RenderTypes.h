@@ -4,7 +4,7 @@
 #include <memory>
 #include <vector>
 
-#include <glm.hpp>
+#include <glm/glm.hpp>
 
 class RenderContext;
 struct ScissorState;

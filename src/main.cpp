@@ -10,7 +10,7 @@
 #include "canvas/Canvas.h"
 #include "canvas/Image.h"
 #include "canvas/Paint.h"
-#include <glm.hpp>
+#include <glm/glm.hpp>
 #include <gtc/matrix_transform.hpp>
 
 const float PI = 3.14159265359f;

@@ -4,7 +4,7 @@
 #include <GLFW/glfw3.h>
 #include <string>
 #include <stdexcept>
-#include <glm.hpp>
+#include <glm/glm.hpp>
 
 // 自定义异常类
 class GLProgramException : public std::runtime_error {

@@ -5,7 +5,7 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
-#include <glm.hpp>
+#include <glm/glm.hpp>
 #include <gtc/matrix_transform.hpp>
 #include <memory>
 #include <vector>

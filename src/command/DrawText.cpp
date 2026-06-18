@@ -4,7 +4,7 @@
 #include <string>
 
 #include <glad/glad.h>
-#include <glm.hpp>
+#include <glm/glm.hpp>
 #include <gtc/matrix_transform.hpp>
 
 DrawTextProgram *DrawTextProgram::instance_ = nullptr;
