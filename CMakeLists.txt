@@ -4,6 +4,7 @@ project(WhatsCanvas VERSION 0.1.0 LANGUAGES C CXX)
 
 include(CTest)
 include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -205,8 +206,15 @@ if (WHATSCANVAS_INSTALL)
         @ONLY
     )
 
+    write_basic_package_version_file(
+        "${CMAKE_CURRENT_BINARY_DIR}/WhatsCanvasConfigVersion.cmake"
+        VERSION ${PROJECT_VERSION}
+        COMPATIBILITY SameMajorVersion
+    )
+
     install(FILES
         "${CMAKE_CURRENT_BINARY_DIR}/WhatsCanvasConfig.cmake"
+        "${CMAKE_CURRENT_BINARY_DIR}/WhatsCanvasConfigVersion.cmake"
         DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/WhatsCanvas"
     )
 endif()

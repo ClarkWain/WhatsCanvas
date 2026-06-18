@@ -159,6 +159,33 @@ chmod +x build.sh
 
 其中库文件在 `lib/`，公共头入口在 `include/wsc/`。
 
+## 作为库接入
+
+如果你希望把 WhatsCanvas 当成库使用，推荐使用 `--package` 生成交付目录，再在你的项目中通过 CMake 包方式接入。
+
+生成发布目录：
+
+```bat
+build.bat --release --package --no-run
+```
+
+典型接入方式：
+
+```cmake
+find_package(WhatsCanvas 0.1 CONFIG REQUIRED)
+
+add_executable(MyApp main.cpp)
+target_link_libraries(MyApp PRIVATE WhatsCanvas::OpenGL)
+```
+
+最常见的头文件入口：
+
+```cpp
+#include <wsc/wsc.h>
+```
+
+如果你只想按模块引入，也可以分别包含 `wsc/Canvas.h`、`wsc/Paint.h`、`wsc/Path.h`、`wsc/Image.h` 和 `wsc/base.h`。
+
 常用验证入口：
 
 ```bat

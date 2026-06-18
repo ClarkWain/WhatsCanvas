@@ -69,6 +69,7 @@ public:
 	Canvas(const Canvas &) = delete;
 	Canvas &operator=(const Canvas &) = delete;
 
+	// Canvas lifetime and state.
 	void setSize(int width, int height);
 	int getWidth() const { return width_; }
 	int getHeight() const { return height_; }
@@ -76,6 +77,7 @@ public:
 	void drawColor(const Color &color);
 	void drawPaint(const Paint &paint);
 
+	// Primitive drawing.
 	void drawPoint(int x, int y, const Paint &paint);
 	void drawPoint(float x, float y, const Paint &paint);
 	void drawPoint(const Point &point, const Paint &paint);
@@ -110,6 +112,8 @@ public:
 	void drawArc(const Rect &bounds, float startRadians, float sweepRadians, bool useCenter, const Paint &paint);
 	void drawPath(const Path &path, const Paint &paint);
 	RectF measureStrokeBounds(const Path &path, const Paint &paint) const;
+
+	// Image drawing.
 	void drawImage(const Image &image, float x, float y, const Paint &paint);
 	void drawImage(const Image &image, const RectF &dst, const Paint &paint);
 	void drawImage(const Image &image, const RectF &src, const RectF &dst, const Paint &paint);
@@ -120,6 +124,8 @@ public:
 	void drawImageTiled(const Image &image, const RectF &dst, const Paint &paint);
 	void drawImageTiled(const Image &image, const RectF &dst, float tileWidth, float tileHeight, const Paint &paint);
 	bool loadImage(Image &image, const char *imagePath);
+
+	// Text drawing and measurement.
 	void drawText(const std::string &text, float x, float y, const Paint &paint);
 	void drawTextBox(const std::string &text, const RectF &bounds, const Paint &paint);
 	void drawTextBox(const std::string &text, const RectF &bounds, float lineHeight, const Paint &paint);
@@ -130,12 +136,15 @@ public:
 	RectF measureTextBounds(const std::string &text, const Paint &paint) const;
 	TextMetrics measureTextMetrics(const std::string &text, const Paint &paint) const;
 
+	// Save stack and offscreen layering.
 	int save();
 	int saveLayer(const RectF &bounds, const Paint &paint);
 	int saveLayer(const Rect &bounds, const Paint &paint);
 	void restore();
 	int getSaveCount() const;
 	void restoreToCount(int saveCount);
+
+	// Transform and hit-test helpers.
 	const glm::mat4 &getMatrix() const;
 	PointF mapPoint(const PointF &point) const;
 	RectF mapRect(const RectF &rect) const;
@@ -160,6 +169,7 @@ public:
 	void scale(float sx, float sy);
 	void rotate(float radians);
 
+	// Frame and pixel readback helpers.
 	void beginFrame();
 	void flush();
 	void endFrame();
