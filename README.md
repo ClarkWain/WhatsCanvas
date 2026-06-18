@@ -140,6 +140,7 @@ Windows：
 ```bat
 build.bat --no-run
 build.bat
+build.bat --package --no-run
 ```
 
 macOS / Linux：
@@ -148,7 +149,15 @@ macOS / Linux：
 chmod +x build.sh
 ./build.sh --no-run
 ./build.sh
+./build.sh --package --no-run
 ```
+
+默认构建产物位于 `build/Debug/` 或 `build/Release/`。如果加上 `--package`，脚本还会额外整理出一份更适合交付的目录：
+
+- Windows：`out\package\Debug\` 或 `out\package\Release\`
+- macOS / Linux：`out/package/Debug/` 或 `out/package/Release/`
+
+其中库文件在 `lib/`，公共头入口在 `include/wsc/`。
 
 常用验证入口：
 

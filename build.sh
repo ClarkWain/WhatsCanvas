@@ -6,19 +6,23 @@ BUILD_DIR="$ROOT_DIR/build"
 CONFIG="Debug"
 TARGET="WhatsCanvasDemo"
 NO_RUN=0
+PACKAGE=0
 
 for arg in "$@"; do
     case "$arg" in
         --no-run) NO_RUN=1 ;;
         --release) CONFIG="Release" ;;
         --debug) CONFIG="Debug" ;;
+        --package) PACKAGE=1 ;;
         *)
             echo "Unknown argument: $arg"
-            echo "Usage: ./build.sh [--no-run] [--debug|--release]"
+            echo "Usage: ./build.sh [--no-run] [--debug|--release] [--package]"
             exit 1
             ;;
     esac
 done
+
+PACKAGE_DIR="$ROOT_DIR/out/package/$CONFIG"
 
 if ! command -v cmake >/dev/null 2>&1; then
     echo "CMake was not found in PATH."
@@ -36,8 +40,19 @@ cmake -S "$ROOT_DIR" -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE="$CONFIG" -DCMAKE_EXPORT
 echo "[2/3] Building..."
 cmake --build "$BUILD_DIR" --config "$CONFIG" --target "$TARGET"
 
+if [ "$PACKAGE" -eq 1 ]; then
+    echo "[3/4] Packaging..."
+    rm -rf "$PACKAGE_DIR"
+    cmake --install "$BUILD_DIR" --config "$CONFIG" --prefix "$PACKAGE_DIR"
+    echo "BUILD_PACKAGE_DIR=$PACKAGE_DIR"
+fi
+
 if [ "$NO_RUN" -eq 1 ]; then
-    echo "[3/3] Skipping run."
+    if [ "$PACKAGE" -eq 1 ]; then
+        echo "[4/4] Skipping run."
+    else
+        echo "[3/3] Skipping run."
+    fi
     exit 0
 fi
 
@@ -54,5 +69,9 @@ if [ ! -x "$EXE_PATH" ]; then
     exit 1
 fi
 
-echo "[3/3] Running..."
+if [ "$PACKAGE" -eq 1 ]; then
+    echo "[4/4] Running..."
+else
+    echo "[3/3] Running..."
+fi
 "$EXE_PATH"

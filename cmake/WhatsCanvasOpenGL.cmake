@@ -50,7 +50,7 @@ endfunction()
 function(whatscanvas_add_opengl_library target_name project_root)
     set(src_dir "${project_root}/src")
 
-    add_library(${target_name} STATIC
+    add_library(${target_name}
         "${src_dir}/canvas/Canvas.cpp"
         "${src_dir}/canvas/Image.cpp"
         "${src_dir}/canvas/Paint.cpp"
@@ -70,7 +70,15 @@ function(whatscanvas_add_opengl_library target_name project_root)
         "${src_dir}/render/Renderer.cpp"
     )
 
-    target_include_directories(${target_name} PUBLIC "${src_dir}")
+    target_include_directories(${target_name}
+        PRIVATE
+            "${src_dir}"
+        INTERFACE
+            "$<BUILD_INTERFACE:${project_root}/include>"
+            "$<BUILD_INTERFACE:${src_dir}>"
+            "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
+            "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/whatscanvas-src>"
+    )
     target_compile_definitions(${target_name} PUBLIC GLEW_STATIC)
     target_link_libraries(${target_name}
         PUBLIC
@@ -82,6 +90,10 @@ function(whatscanvas_add_opengl_library target_name project_root)
             GLAD
             OpenGL::GL
     )
+
+    if (WIN32 AND BUILD_SHARED_LIBS)
+        set_target_properties(${target_name} PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+    endif()
 
     if (WIN32)
         target_link_libraries(${target_name} PRIVATE gdi32)

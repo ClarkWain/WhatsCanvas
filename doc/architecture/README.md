@@ -39,3 +39,4 @@ This directory captures the Phase 0 architecture decisions for turning WhatsCanv
 - [ADR-002](ADR-002-renderer-abstraction.md): renderer abstraction and backend boundary.
 - [ADR-003](ADR-003-text-architecture.md): pluggable text, font, and shaping stack.
 - [ADR-004](ADR-004-validation-gates.md): architecture, correctness, and performance verification.
+- [ADR-005](ADR-005-distribution-ready-library-packaging.md): packaging the project as installable static/shared libraries with public headers.

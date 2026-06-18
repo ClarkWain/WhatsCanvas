@@ -9,6 +9,7 @@ set "GENERATOR=Visual Studio 17 2022"
 set "CONFIG=Debug"
 set "TARGET=WhatsCanvasDemo"
 set "NO_RUN=0"
+set "PACKAGE=0"
 
 :parse_args
 if "%~1"=="" goto args_done
@@ -20,9 +21,11 @@ if /I "%~1"=="--no-run" (
     set "CONFIG=Release"
 ) else if /I "%~1"=="--debug" (
     set "CONFIG=Debug"
+) else if /I "%~1"=="--package" (
+    set "PACKAGE=1"
 ) else (
     echo Unknown argument: %~1
-    echo Usage: build.bat [--no-run] [--debug^|--release]
+    echo Usage: build.bat [--no-run] [--debug^|--release] [--package]
     exit /b 1
 )
 shift
@@ -30,6 +33,7 @@ goto parse_args
 
 :args_done
 set "EXE_PATH=%BUILD_DIR%\%CONFIG%\%TARGET%.exe"
+set "PACKAGE_DIR=%ROOT_DIR%\out\package\%CONFIG%"
 
 call :get_tick BUILD_START_MS
 
@@ -88,8 +92,31 @@ if not exist "%EXE_PATH%" (
     exit /b 1
 )
 
+if "%PACKAGE%"=="1" (
+    echo [3/4] Packaging...
+    if exist "%PACKAGE_DIR%" rmdir /s /q "%PACKAGE_DIR%"
+    call :get_tick STEP_START_MS
+    cmake --install "%BUILD_DIR%" --config %CONFIG% --prefix "%PACKAGE_DIR%"
+    set "STEP_EXIT=%ERRORLEVEL%"
+    call :elapsed_ms STEP_START_MS INSTALL_MS
+    echo BUILD_INSTALL_MS=!INSTALL_MS!
+    echo BUILD_PACKAGE_DIR=%PACKAGE_DIR%
+    if not "!STEP_EXIT!"=="0" (
+        echo Package install failed.
+        echo BUILD_RESULT=FAIL
+        echo BUILD_FAILED_STAGE=INSTALL
+        exit /b 1
+    )
+) else (
+    echo BUILD_INSTALL_MS=0
+)
+
 if "%NO_RUN%"=="1" (
-    echo [3/3] Skipping run.
+    if "%PACKAGE%"=="1" (
+        echo [4/4] Skipping run.
+    ) else (
+        echo [3/3] Skipping run.
+    )
     echo BUILD_RUN_MS=0
     call :elapsed_ms BUILD_START_MS TOTAL_MS
     echo BUILD_TOTAL_MS=!TOTAL_MS!
@@ -97,7 +124,11 @@ if "%NO_RUN%"=="1" (
     exit /b 0
 )
 
-echo [3/3] Running...
+if "%PACKAGE%"=="1" (
+    echo [4/4] Running...
+) else (
+    echo [3/3] Running...
+)
 call :get_tick STEP_START_MS
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%EXE_PATH%'"
 set "STEP_EXIT=%ERRORLEVEL%"

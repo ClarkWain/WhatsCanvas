@@ -1,8 +1,9 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(WhatsCanvas LANGUAGES C CXX)
+project(WhatsCanvas VERSION 0.1.0 LANGUAGES C CXX)
 
 include(CTest)
+include(GNUInstallDirs)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -10,6 +11,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(WHATSCANVAS_ENABLE_SCRIPT_TESTS "Register existing smoke/example script gates with CTest." ON)
 option(WHATSCANVAS_ENABLE_LOCAL_REGRESSION_TEST "Register the strict local pixel-hash regression gate with CTest." OFF)
+option(WHATSCANVAS_BUILD_DEMO "Build the root WhatsCanvas demo executable." ON)
+option(WHATSCANVAS_INSTALL "Enable install and package export rules." ON)
 set(WHATSCANVAS_DEFAULT_SMOKE_HASH "2458027664413625913" CACHE STRING "Default local smoke hash for regression ctest registration.")
 set(WHATSCANVAS_CLIP_SMOKE_HASH "12248791335057056593" CACHE STRING "Default local clip-path smoke hash for regression ctest registration.")
 
@@ -35,17 +38,19 @@ whatscanvas_add_opengl_library(WhatsCanvasOpenGL ${CMAKE_CURRENT_LIST_DIR})
 
 add_library(WhatsCanvas::OpenGL ALIAS WhatsCanvasOpenGL)
 
-add_executable(WhatsCanvasDemo
-    "${SRC_DIR}/main.cpp"
-    src/render/OpenGLRenderDevice.h
-)
+if (WHATSCANVAS_BUILD_DEMO)
+    add_executable(WhatsCanvasDemo
+        "${SRC_DIR}/main.cpp"
+        src/render/OpenGLRenderDevice.h
+    )
 
-target_link_libraries(WhatsCanvasDemo
-    PRIVATE
-        WhatsCanvas::OpenGL
-)
+    target_link_libraries(WhatsCanvasDemo
+        PRIVATE
+            WhatsCanvas::OpenGL
+    )
 
-whatscanvas_link_gl_app(WhatsCanvasDemo)
+    whatscanvas_link_gl_app(WhatsCanvasDemo)
+endif()
 
 if (BUILD_TESTING)
     add_executable(WhatsCanvasGraphicsStateStackTests
@@ -148,5 +153,38 @@ if (BUILD_TESTING AND WHATSCANVAS_ENABLE_SCRIPT_TESTS)
     set_tests_properties(WhatsCanvasSmoke PROPERTIES LABELS "smoke")
     set_tests_properties(WhatsCanvasClipPathSmoke PROPERTIES LABELS "smoke;clip")
     set_tests_properties(WhatsCanvasExamplesSmoke PROPERTIES LABELS "smoke;examples")
+endif()
+
+if (WHATSCANVAS_INSTALL)
+    install(TARGETS WhatsCanvasOpenGL GLAD glfw
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    )
+
+    install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include/wsc"
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    )
+
+    install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/canvas"
+        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/whatscanvas-src"
+        FILES_MATCHING PATTERN "*.h"
+    )
+    install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/render"
+        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/whatscanvas-src"
+        FILES_MATCHING PATTERN "*.h"
+    )
+    install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/text"
+        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/whatscanvas-src"
+        FILES_MATCHING PATTERN "*.h"
+    )
+    install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/opengl"
+        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/whatscanvas-src"
+        FILES_MATCHING PATTERN "*.h"
+    )
+
+    install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/third_party/glm/glm"
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    )
 endif()
 

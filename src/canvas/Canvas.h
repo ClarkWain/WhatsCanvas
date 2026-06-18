@@ -4,7 +4,7 @@
 #include <memory>
 #include <string>
 #include <cstdint>
-#include <glm.hpp>
+#include <glm/glm.hpp>
 #include "Image.h"
 #include "Paint.h"
 #include "Path.h"
