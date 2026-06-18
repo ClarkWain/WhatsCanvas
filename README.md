@@ -1,22 +1,29 @@
 # WhatsCanvas
 
-WhatsCanvas 是一个适合直接上手，也适合拿来拆解学习的 C++17 二维画布项目。
+WhatsCanvas 是一个用 C++17 编写的轻量级二维渲染引擎项目，以 Canvas 的使用方式对外呈现。
 
-它把熟悉的 `Canvas` 绘制模型放在前台，把 OpenGL、命令录制、状态栈、文本后端、验证脚本这些真正的引擎细节放在后台。你可以把它当成一个可运行的二维绘图试验场，也可以把它当成一套中小型图形引擎的学习范本。
+它不是要取代 Skia、Cocos2d 这类成熟的大型框架，也不是只停留在 NanoVG 式的轻量绘制层。它更像是介于两者之间的一种选择：比大型框架更轻、更容易接入和阅读，比极简绘图库更完整，既能拿来做 UI、工具界面和 2D 游戏项目，也适合作为学习 Canvas 渲染原理的工程样本。
+
+## 项目定位
+
+- 当前以 OpenGL 路线最完整，工程结构已经为 OpenGLES、Vulkan、Metal 等后端预留扩展空间，相关能力仍在持续完善中。
+- 对外提供的是 Canvas 风格 API，而不是底层图形接口的直接暴露。
+- 定位偏轻量，强调易接入、易阅读、易验证，适合中小型项目和教学场景。
+- 如果你需要的是一套更容易掌控、方便按需裁剪的 2D 渲染底座，WhatsCanvas 会比大型框架更灵活；如果你觉得 NanoVG 这一类库过于轻薄，它又能提供更多工程能力。
 
 ## 为什么值得用
 
-- 想快速得到一个 OpenGL 驱动的二维画布项目，而不是从窗口、着色器和状态管理开始重新搭脚手架。
-- 想在一个工程里同时拥有路径绘制、变换、裁剪、`saveLayer`、图像布局、文本绘制、像素回读和本地回归能力。
-- 想用真实例子验证引擎能力，而不是只看零散的 API 示例。
-- 想把根工程和示例工程复用在同一套 OpenGL 目标和依赖配置上。
+- 它由 C++17 编写，工程结构清晰，适合直接嵌入跨平台项目中继续演进。
+- 它对外暴露的是熟悉的 Canvas 形式，能较自然地承接 UI、工具型界面、2D 游戏和可视化项目的绘制需求。
+- 它不只提供基础图元，还覆盖路径、变换、裁剪、`saveLayer`、图像布局、文本绘制、像素回读和本地回归这些真正会落到项目里的能力。
+- 它自带根工程演示和三个游戏示例，既能快速试用，也能拿来验证改动是否可靠。
 
 ## 为什么值得学
 
-- 项目规模适中，不会大到难以下手，也不会小到失去工程价值。
-- 你可以顺着 `Canvas` API 一路读到命令提交、渲染器、设备层和 OpenGL 执行路径。
-- 仓库里有 ADR、架构说明、测试入口和评估记录，适合学习“功能是怎么做出来的”，也适合学习“工程是怎么稳住的”。
-- Tetris、Racer、Bubble Shooter 三个示例让它不只是图形 API 的展示，而是接近真实项目形态的可运行样本。
+- 项目规模拿捏得比较合适，足够覆盖真实工程问题，又没有大到让人无从下手。
+- 你可以顺着 `Canvas` API 一路读到命令录制、渲染器、设备层和 OpenGL 执行路径，看到一条完整的 2D 渲染链路。
+- `doc/architecture/` 里有分层设计和 ADR，`doc/CanvasEvaluation.md` 里有功能演进和验证记录，`doc/polyline/polyline2d_teaching_deepseek_flash.html` 里还有偏原理向的互动教学内容。
+- Tetris、Racer、Bubble Shooter 三个示例不是单纯摆效果图，而是能帮助你理解这个引擎在真实场景里怎么组织绘制、状态和界面。
 
 ## 能力概览
 
@@ -26,6 +33,91 @@ WhatsCanvas 是一个适合直接上手，也适合拿来拆解学习的 C++17 �
 - 图像能力：普通绘制、contain / cover / fill 布局、九宫格、平铺绘制。
 - 文本能力：`drawText`、`drawTextBox`、`drawTextOnPath`、测量与基础布局。
 - 验证能力：PPM 截图、像素哈希、固定时间首帧冒烟测试、严格本地回归检查。
+
+## Canvas API
+
+公开的 `Canvas` API 保持在一个熟悉、直接的二维绘制模型上，便于上层调用，也便于顺着接口往下理解内部实现。
+
+```cpp
+class Canvas {
+	struct TextMetrics;
+	enum class ImageFit { FILL, CONTAIN, COVER };
+	enum class ImageAnchor { ... };
+
+	static void initialize();
+	static void finalize();
+
+	void shutdown();
+	void setSize(int width, int height);
+	int getWidth() const;
+	int getHeight() const;
+	void setColor(Color color);
+
+	void drawColor(const Color& color);
+	void drawPaint(const Paint& paint);
+	void drawPoint(...);
+	void drawPoints(...);
+	void drawLine(...);
+	void drawLines(...);
+	void drawPolyline(...);
+	void drawPolygon(...);
+	void drawRect(...);
+	void drawRoundRect(...);
+	void drawCircle(...);
+	void drawOval(...);
+	void drawArc(...);
+	void drawPath(const Path& path, ...);
+	RectF measureStrokeBounds(...);
+
+	void drawImage(...);
+	void drawImageFit(...);
+	void drawImageNinePatch(...);
+	void drawImageTiled(...);
+
+	void drawText(...);
+	void drawTextBox(...);
+	void drawTextOnPath(...);
+	float measureText(...);
+	RectF measureTextBounds(...);
+	TextMetrics measureTextMetrics(...);
+
+	int save();
+	int saveLayer(...);
+	void restore();
+	int getSaveCount() const;
+	void restoreToCount(int saveCount);
+
+	const glm::mat4& getMatrix() const;
+	PointF mapPoint(...);
+	RectF mapRect(...);
+	bool inverseMapPoint(...);
+	bool inverseMapRect(...);
+	void setMatrix(const glm::mat4& matrix);
+	void resetMatrix();
+	void concat(const glm::mat4& matrix);
+	void translate(float dx, float dy);
+	void scale(float sx, float sy);
+	void rotate(float radians);
+
+	void clipRect(...);
+	void clipPath(const Path& path);
+	bool hasClip() const;
+	bool getClipBounds(RectF& bounds) const;
+	bool isPointInClip(...);
+	bool quickReject(...);
+	bool hitTestPathFill(...);
+	bool hitTestPathStroke(...);
+
+	void beginFrame();
+	void flush();
+	void endFrame();
+	bool readPixelsRGBA(...);
+	std::vector<unsigned char> readPixelsRGBA() const;
+	bool savePixelsPPM(const std::string& path) const;
+	static std::uint64_t hashPixelsRGBA(...);
+	std::uint64_t computePixelsHashRGBA() const;
+};
+```
 
 ## 5 分钟上手
 
@@ -103,18 +195,20 @@ build.bat --no-run
 如果你是第一次读这个仓库，建议按这个顺序：
 
 1. 先跑根工程，确认你能看到 `WhatsCanvasDemo` 正常启动。
-2. 阅读 [doc/architecture/README.md](doc/architecture/README.md)，建立整体分层认识。
-3. 查看 [src/main.cpp](src/main.cpp)，理解演示程序是怎样驱动 `Canvas` 的。
-4. 进入 `src/canvas`、`src/render`、`src/opengl`，顺着绘制请求往下读。
-5. 结合 [tests/README.md](tests/README.md) 和 `scripts/` 目录，看这个仓库如何做本地验证。
-6. 最后再读 [doc/CanvasEvaluation.md](doc/CanvasEvaluation.md)，回看功能演进和验证轨迹。
+2. 阅读 [doc/architecture/README.md](doc/architecture/README.md)，先建立整体分层认识。
+3. 打开 [doc/polyline/polyline2d_teaching_deepseek_flash.html](doc/polyline/polyline2d_teaching_deepseek_flash.html)，补一遍描边网格和 Path 相关原理。
+4. 查看 [src/main.cpp](src/main.cpp)，理解演示程序是怎样驱动 `Canvas` 的。
+5. 进入 `src/canvas`、`src/render`、`src/opengl`，顺着绘制请求一路往下读。
+6. 结合 [tests/README.md](tests/README.md) 和 `scripts/` 目录，看这个仓库如何做本地验证。
+7. 最后再读 [doc/CanvasEvaluation.md](doc/CanvasEvaluation.md)，回看功能演进和验证轨迹。
 
 ## 仓库导览
 
 - `src/`: 核心实现，包含 Canvas、命令、渲染器、OpenGL 后端和文本模块。
 - `example/game/`: 三个完整示例工程。
 - `tests/`: 单元测试入口与测试说明。
-- `scripts/`: 冒烟、clip-path、regression、examples 四类验证脚本。
+- `scripts/`: 冒烟、clip-path、回归、示例构建四类验证脚本。
+- `doc/polyline/`: 偏原理和互动演示导向的教学材料。
 - `doc/architecture/`: ADR 和架构文档，适合系统性阅读。
 - `doc/CanvasEvaluation.md`: 功能演进与验证记录。
 - `third_party/`: GLFW、GLM、STB、Polyline2D 等依赖。
