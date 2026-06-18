@@ -22,7 +22,7 @@ WhatsCanvas 是一个用 C++17 编写的轻量级二维渲染引擎项目，以 
 
 - 项目规模拿捏得比较合适，足够覆盖真实工程问题，又没有大到让人无从下手。
 - 你可以顺着 `Canvas` API 一路读到命令录制、渲染器、设备层和 OpenGL 执行路径，看到一条完整的 2D 渲染链路。
-- `doc/architecture/` 里有分层设计和 ADR，`doc/CanvasEvaluation.md` 里有功能演进和验证记录，`doc/polyline/polyline2d_teaching_deepseek_flash.html` 里还有偏原理向的互动教学内容。
+- [doc/architecture/README.md](doc/architecture/README.md) 里有分层设计和 ADR，[doc/CanvasEvaluation.md](doc/CanvasEvaluation.md) 里有功能演进和验证记录，[doc/polyline/polyline2d_interactive_tutorial.html](doc/polyline/polyline2d_interactive_tutorial.html) 和 [doc/Font Rendering Techniques/index.html](doc/Font%20Rendering%20Techniques/index.html) 则补充了偏原理和偏专题的学习内容。
 - Tetris、Racer、Bubble Shooter 三个示例不是单纯摆效果图，而是能帮助你理解这个引擎在真实场景里怎么组织绘制、状态和界面。
 
 ## 能力概览
@@ -119,6 +119,13 @@ class Canvas {
 };
 ```
 
+## 文档入口
+
+- [架构总览](doc/architecture/README.md)：适合先建立整体分层和模块边界认知。
+- [Polyline2D 互动教学](doc/polyline/polyline2d_interactive_tutorial.html)：适合理解路径描边、网格生成和相关几何细节。
+- [字体渲染专题](doc/Font%20Rendering%20Techniques/index.html)：适合补字体渲染、排版和文本后端相关知识。
+- [功能演进记录](doc/CanvasEvaluation.md)：适合回看功能推进、验证方式和阶段性成果。
+
 ## 5 分钟上手
 
 环境要求：
@@ -196,11 +203,12 @@ build.bat --no-run
 
 1. 先跑根工程，确认你能看到 `WhatsCanvasDemo` 正常启动。
 2. 阅读 [doc/architecture/README.md](doc/architecture/README.md)，先建立整体分层认识。
-3. 打开 [doc/polyline/polyline2d_teaching_deepseek_flash.html](doc/polyline/polyline2d_teaching_deepseek_flash.html)，补一遍描边网格和 Path 相关原理。
-4. 查看 [src/main.cpp](src/main.cpp)，理解演示程序是怎样驱动 `Canvas` 的。
-5. 进入 `src/canvas`、`src/render`、`src/opengl`，顺着绘制请求一路往下读。
-6. 结合 [tests/README.md](tests/README.md) 和 `scripts/` 目录，看这个仓库如何做本地验证。
-7. 最后再读 [doc/CanvasEvaluation.md](doc/CanvasEvaluation.md)，回看功能演进和验证轨迹。
+3. 打开 [doc/polyline/polyline2d_interactive_tutorial.html](doc/polyline/polyline2d_interactive_tutorial.html)，补一遍描边网格和 Path 相关原理。
+4. 阅读 [doc/Font Rendering Techniques/index.html](doc/Font%20Rendering%20Techniques/index.html)，把字体与文本渲染相关知识补完整。
+5. 查看 [src/main.cpp](src/main.cpp)，理解演示程序是怎样驱动 `Canvas` 的。
+6. 进入 `src/canvas`、`src/render`、`src/opengl`，顺着绘制请求一路往下读。
+7. 结合 [tests/README.md](tests/README.md) 和 `scripts/` 目录，看这个仓库如何做本地验证。
+8. 最后再读 [doc/CanvasEvaluation.md](doc/CanvasEvaluation.md)，回看功能演进和验证轨迹。
 
 ## 仓库导览
 
@@ -209,6 +217,7 @@ build.bat --no-run
 - `tests/`: 单元测试入口与测试说明。
 - `scripts/`: 冒烟、clip-path、回归、示例构建四类验证脚本。
 - `doc/polyline/`: 偏原理和互动演示导向的教学材料。
+- `doc/Font Rendering Techniques/`: 字体渲染与文本专题材料。
 - `doc/architecture/`: ADR 和架构文档，适合系统性阅读。
 - `doc/CanvasEvaluation.md`: 功能演进与验证记录。
 - `third_party/`: GLFW、GLM、STB、Polyline2D 等依赖。
