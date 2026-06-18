@@ -1,6 +1,6 @@
-# PrismCanvas Architecture
+# WhatsCanvas Architecture
 
-This directory captures the Phase 0 architecture decisions for turning PrismCanvas from a demo-first OpenGL playground into a reusable, backend-aware 2D canvas engine.
+This directory captures the Phase 0 architecture decisions for turning WhatsCanvas from a demo-first OpenGL playground into a reusable, backend-aware 2D canvas engine.
 
 ## Goals
 
@@ -28,7 +28,7 @@ This directory captures the Phase 0 architecture decisions for turning PrismCanv
 
 ## Current Phase 0 Outcomes
 
-- Top-level and example builds now consume a shared CMake module instead of duplicating PrismCanvas target setup.
+- Top-level and example builds now consume a shared CMake module instead of duplicating WhatsCanvas target setup.
 - The reusable OpenGL implementation is built as a library target before demo executables.
 - Canvas now depends on an `IRenderer` abstraction instead of embedding the concrete `Renderer` implementation directly.
 - Canvas text measurement and render planning now flow through an `ITextBackend` abstraction, with shared `TextUtils` and `NativeText` modules under `src/text`.

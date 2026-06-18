@@ -514,7 +514,7 @@ Vec2 norm(Vec2 v)            { <span class="keyword">return</span> mul(v, 1/mag(
 
 <p>Polyline2D 输出的是 <strong>连续的三角形顶点流</strong>，每个三角形 3 个顶点，每段 2 个三角形，拐角和端头额外增加。</p>
 
-<p>在 PrismCanvas 中的使用流程：</p>
+<p>在 WhatsCanvas 中的使用流程：</p>
 
 <div class="code-block">
 <div class="code-header">Canvas.cpp — 从路径到 GPU 渲染</div>
@@ -573,7 +573,7 @@ renderer.submit(
 <!-- ========== Section 9 ========== -->
 <h2 id="sec9">9. 虚线：动态切分路径</h2>
 
-<p>PrismCanvas 在调用 Polyline2D 之前做了虚线拆分。这不是 Polyline2D 的一部分，但了解它对理解完整管线有帮助：</p>
+<p>WhatsCanvas 在调用 Polyline2D 之前做了虚线拆分。这不是 Polyline2D 的一部分，但了解它对理解完整管线有帮助：</p>
 
 <div class="code-block">
 <div class="code-header">Canvas.cpp — 虚线拆分逻辑</div>
@@ -676,7 +676,7 @@ std::vector&lt;Vec2&gt; currentDash;
 <div class="callout tip">
   <h4>📐 为什么叫 Polyline2D？</h4>
   <p>它处理的不是"曲线"而是"折线"（polyline = 多段线）。如果需要圆滑曲线（如贝塞尔曲线），调用方需要事先把曲线展平（flatten）成一系列短直线段。</p>
-  <p>PrismCanvas 的 Path 类中 <code>quadTo</code> 和 <code>cubicTo</code> 做的就是这件事：把曲线切成 8~96 段小直线，然后再送入 Polyline2D。</p>
+  <p>WhatsCanvas 的 Path 类中 <code>quadTo</code> 和 <code>cubicTo</code> 做的就是这件事：把曲线切成 8~96 段小直线，然后再送入 Polyline2D。</p>
 </div>
 
 <hr style="border-color:#30363d;margin:40px 0">

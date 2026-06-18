@@ -6,7 +6,7 @@ Accepted.
 
 ## Context
 
-The project historically built demo executables by compiling PrismCanvas source files directly into each sample. That made the demo target the unit of ownership instead of the canvas engine itself.
+The project historically built demo executables by compiling WhatsCanvas source files directly into each sample. That made the demo target the unit of ownership instead of the canvas engine itself.
 
 This blocked several medium-term goals:
 
@@ -17,28 +17,28 @@ This blocked several medium-term goals:
 
 ## Decision
 
-PrismCanvas will move to a library-first build layout.
+WhatsCanvas will move to a library-first build layout.
 
 The first concrete step is already in place:
 
-- the reusable OpenGL-backed implementation is built as `PrismCanvasOpenGL`;
+- the reusable OpenGL-backed implementation is built as `WhatsCanvasOpenGL`;
 - the top-level demo links the library instead of owning the source list;
-- standalone examples share the same target setup through `cmake/PrismCanvasOpenGL.cmake`.
+- standalone examples share the same target setup through `cmake/WhatsCanvasOpenGL.cmake`.
 
 The intended next module split is:
 
-- `prismcanvas_core`
-- `prismcanvas_recording`
-- `prismcanvas_backend_opengl`
-- `prismcanvas_text_basic`
-- `prismcanvas_capi`
-- `prismcanvas_demo`
+- `whatscanvas_core`
+- `whatscanvas_recording`
+- `whatscanvas_backend_opengl`
+- `whatscanvas_text_basic`
+- `whatscanvas_capi`
+- `whatscanvas_demo`
 
 ## Consequences
 
 ### Positive
 
-- One canonical place defines PrismCanvas source ownership and dependencies.
+- One canonical place defines WhatsCanvas source ownership and dependencies.
 - Example projects stop drifting from the root build.
 - Future tests and tools can link the same engine targets as the demos.
 
@@ -49,6 +49,6 @@ The intended next module split is:
 
 ## Follow-up
 
-1. Introduce `prismcanvas_core` and move backend-neutral data models there.
+1. Introduce `whatscanvas_core` and move backend-neutral data models there.
 2. Move OpenGL-only sources under a backend-specific subtree.
 3. Add install/export rules once the target graph stabilizes.

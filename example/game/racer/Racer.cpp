@@ -1254,10 +1254,10 @@ static void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 int main() {
     std::cout << "Starting Racer..." << std::endl;
 
-    const bool disableMsaa = !getEnvironmentValue("CPPDEMO_DISABLE_MSAA").empty();
-    const std::string capturePath = getEnvironmentValue("CPPDEMO_CAPTURE_PPM");
-    const bool exitAfterFirstFrame = !getEnvironmentValue("CPPDEMO_EXIT_AFTER_FIRST_FRAME").empty();
-    const std::string fixedTimeText = getEnvironmentValue("CPPDEMO_FIXED_TIME_SECONDS");
+    const bool disableMsaa = !getEnvironmentValue("WHATSCANVAS_DISABLE_MSAA").empty();
+    const std::string capturePath = getEnvironmentValue("WHATSCANVAS_CAPTURE_PPM");
+    const bool exitAfterFirstFrame = !getEnvironmentValue("WHATSCANVAS_EXIT_AFTER_FIRST_FRAME").empty();
+    const std::string fixedTimeText = getEnvironmentValue("WHATSCANVAS_FIXED_TIME_SECONDS");
     float fixedTimeSeconds = 0.0f;
     const bool hasFixedTime = parseFloat(fixedTimeText, fixedTimeSeconds) && fixedTimeSeconds >= 0.0f;
 

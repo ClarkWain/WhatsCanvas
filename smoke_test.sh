@@ -8,12 +8,12 @@ EXPECTED_HASH="${1:-}"
 
 sh "$ROOT_DIR/build.sh" --no-run
 
-EXE_PATH="$BUILD_DIR/PrismCanvasDemo"
-if [ ! -x "$EXE_PATH" ] && [ -x "$BUILD_DIR/Debug/PrismCanvasDemo" ]; then
-    EXE_PATH="$BUILD_DIR/Debug/PrismCanvasDemo"
+EXE_PATH="$BUILD_DIR/WhatsCanvasDemo"
+if [ ! -x "$EXE_PATH" ] && [ -x "$BUILD_DIR/Debug/WhatsCanvasDemo" ]; then
+    EXE_PATH="$BUILD_DIR/Debug/WhatsCanvasDemo"
 fi
-if [ ! -x "$EXE_PATH" ] && [ -x "$BUILD_DIR/Debug/PrismCanvasDemo.exe" ]; then
-    EXE_PATH="$BUILD_DIR/Debug/PrismCanvasDemo.exe"
+if [ ! -x "$EXE_PATH" ] && [ -x "$BUILD_DIR/Debug/WhatsCanvasDemo.exe" ]; then
+    EXE_PATH="$BUILD_DIR/Debug/WhatsCanvasDemo.exe"
 fi
 
 if [ ! -x "$EXE_PATH" ]; then
@@ -21,12 +21,12 @@ if [ ! -x "$EXE_PATH" ]; then
     exit 1
 fi
 
-export CPPDEMO_PRINT_PIXEL_HASH=1
-export CPPDEMO_EXIT_AFTER_FIRST_FRAME=1
-export CPPDEMO_FIXED_TIME_SECONDS=1.25
-export CPPDEMO_DISABLE_MSAA=1
+export WHATSCANVAS_PRINT_PIXEL_HASH=1
+export WHATSCANVAS_EXIT_AFTER_FIRST_FRAME=1
+export WHATSCANVAS_FIXED_TIME_SECONDS=1.25
+export WHATSCANVAS_DISABLE_MSAA=1
 if [ -n "$EXPECTED_HASH" ]; then
-    export CPPDEMO_EXPECT_PIXEL_HASH="$EXPECTED_HASH"
+    export WHATSCANVAS_EXPECT_PIXEL_HASH="$EXPECTED_HASH"
 fi
 
 "$EXE_PATH" > "$LOG_PATH" 2>&1

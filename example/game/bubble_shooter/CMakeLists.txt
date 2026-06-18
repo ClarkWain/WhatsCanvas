@@ -9,10 +9,10 @@ if (MSVC)
 endif()
 
 set(PROJECT_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../..)
-include(${PROJECT_ROOT}/cmake/PrismCanvasOpenGL.cmake)
+include(${PROJECT_ROOT}/cmake/WhatsCanvasOpenGL.cmake)
 
-prismcanvas_add_common_dependencies(${PROJECT_ROOT})
-prismcanvas_add_opengl_library(PrismCanvasExampleOpenGL ${PROJECT_ROOT})
+whatscanvas_add_common_dependencies(${PROJECT_ROOT})
+whatscanvas_add_opengl_library(WhatsCanvasExampleOpenGL ${PROJECT_ROOT})
 
 add_executable(BubbleShooter
     "BubbleShooter.cpp"
@@ -20,7 +20,7 @@ add_executable(BubbleShooter
 
 target_link_libraries(BubbleShooter
     PRIVATE
-        PrismCanvasExampleOpenGL
+    WhatsCanvasExampleOpenGL
 )
 
-prismcanvas_link_gl_app(BubbleShooter)
+whatscanvas_link_gl_app(BubbleShooter)

@@ -10,7 +10,7 @@ The current smoke and pixel-hash hooks are useful, but they are not enough to pr
 
 ## Decision
 
-PrismCanvas will adopt a layered verification model.
+WhatsCanvas will adopt a layered verification model.
 
 ## Validation Layers
 
@@ -79,6 +79,6 @@ PrismCanvas will adopt a layered verification model.
 - `clip_path_smoke.bat` / `clip_path_smoke.sh`: fixed-time first-frame render gate for the root demo with stacked non-rect `clipPath` explicitly enabled.
 - `regression_smoke.bat` / `regression_smoke.sh`: strict local pixel-baseline gate that runs both the default smoke scene and the stacked non-rect `clipPath` smoke scene with expected hashes.
 - `examples_smoke.bat` / `examples_smoke.sh`: aggregated independent example build gate for Tetris, Racer, and Bubble Shooter.
-- `PrismCanvasGraphicsStateStackTests`: lightweight unit-test executable, registered through `ctest`, that currently covers `GraphicsStateStack` save/restore semantics plus header-only `Path` behaviors such as even-odd contains, strokeContains, trim, and reversed traversal.
-- `ctest` registration: when `PRISMCANVAS_ENABLE_SCRIPT_TESTS=ON`, the root CMake project now exposes the existing smoke/example script gates through standard `ctest` entry points; the strict local regression gate is opt-in through `PRISMCANVAS_ENABLE_LOCAL_REGRESSION_TEST=ON`.
+- `WhatsCanvasGraphicsStateStackTests`: lightweight unit-test executable, registered through `ctest`, that currently covers `GraphicsStateStack` save/restore semantics plus header-only `Path` behaviors such as even-odd contains, strokeContains, trim, and reversed traversal.
+- `ctest` registration: when `WHATSCANVAS_ENABLE_SCRIPT_TESTS=ON`, the root CMake project now exposes the existing smoke/example script gates through standard `ctest` entry points; the strict local regression gate is opt-in through `WHATSCANVAS_ENABLE_LOCAL_REGRESSION_TEST=ON`.
 - `tests/README.md` / `benchmarks/README.md`: top-level documentation and growth points for validation and benchmark work.

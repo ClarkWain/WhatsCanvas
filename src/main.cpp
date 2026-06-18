@@ -83,8 +83,8 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
 
 int main() {
     std::cout << "Starting application..." << std::endl;
-    const bool disableMsaa = !getEnvironmentValue("CPPDEMO_DISABLE_MSAA").empty();
-    const bool exerciseClipPath = !getEnvironmentValue("CPPDEMO_EXERCISE_CLIP_PATH").empty();
+    const bool disableMsaa = !getEnvironmentValue("WHATSCANVAS_DISABLE_MSAA").empty();
+    const bool exerciseClipPath = !getEnvironmentValue("WHATSCANVAS_EXERCISE_CLIP_PATH").empty();
 
     // 初始化 GLFW
     if (!glfwInit()) {
@@ -106,7 +106,7 @@ int main() {
     #endif
 
     // 创建窗口
-    GLFWwindow* window = glfwCreateWindow(kWindowWidth, kWindowHeight, "PrismCanvas Demo", nullptr, nullptr);
+    GLFWwindow* window = glfwCreateWindow(kWindowWidth, kWindowHeight, "WhatsCanvas Demo", nullptr, nullptr);
     if (!window) {
         std::cerr << "Failed to create GLFW window" << std::endl;
         glfwTerminate();
@@ -517,11 +517,11 @@ int main() {
     const float colorSpeed = 0.5f;  // 颜色变化速度
     bool pixelReadbackChecked = false;
     bool captureChecked = false;
-    const std::string capturePath = getEnvironmentValue("CPPDEMO_CAPTURE_PPM");
-    const bool printPixelHash = !getEnvironmentValue("CPPDEMO_PRINT_PIXEL_HASH").empty();
-    const bool exitAfterFirstFrame = !getEnvironmentValue("CPPDEMO_EXIT_AFTER_FIRST_FRAME").empty();
-    const std::string expectedPixelHashText = getEnvironmentValue("CPPDEMO_EXPECT_PIXEL_HASH");
-    const std::string fixedTimeText = getEnvironmentValue("CPPDEMO_FIXED_TIME_SECONDS");
+    const std::string capturePath = getEnvironmentValue("WHATSCANVAS_CAPTURE_PPM");
+    const bool printPixelHash = !getEnvironmentValue("WHATSCANVAS_PRINT_PIXEL_HASH").empty();
+    const bool exitAfterFirstFrame = !getEnvironmentValue("WHATSCANVAS_EXIT_AFTER_FIRST_FRAME").empty();
+    const std::string expectedPixelHashText = getEnvironmentValue("WHATSCANVAS_EXPECT_PIXEL_HASH");
+    const std::string fixedTimeText = getEnvironmentValue("WHATSCANVAS_FIXED_TIME_SECONDS");
     float fixedTimeSeconds = 0.0f;
     const bool hasFixedTime = parseFloat(fixedTimeText, fixedTimeSeconds);
     if (!fixedTimeText.empty() && !hasFixedTime) {

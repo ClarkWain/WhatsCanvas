@@ -7,7 +7,7 @@ if "%ROOT_DIR:~-1%"=="\" set "ROOT_DIR=%ROOT_DIR:~0,-1%"
 set "BUILD_DIR=%ROOT_DIR%\build"
 set "GENERATOR=Visual Studio 17 2022"
 set "CONFIG=Debug"
-set "TARGET=PrismCanvasDemo"
+set "TARGET=WhatsCanvasDemo"
 set "NO_RUN=0"
 
 :parse_args

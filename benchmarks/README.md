@@ -1,4 +1,4 @@
-# PrismCanvas Benchmarks
+# WhatsCanvas Benchmarks
 
 This directory is reserved for repeatable local and CI benchmark assets.
 

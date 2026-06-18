@@ -1,10 +1,10 @@
-# PrismCanvas Tests
+# WhatsCanvas Tests
 
-This directory is the top-level home for PrismCanvas validation beyond ad-hoc local commands.
+This directory is the top-level home for WhatsCanvas validation beyond ad-hoc local commands.
 
 ## Current Entry Points
 
-- `ctest -C Debug -R ^PrismCanvasGraphicsStateStackTests$ --output-on-failure`: lightweight unit executable covering `GraphicsStateStack` save/restore semantics and header-only `Path` behavior such as even-odd contains, stroke hit-testing, trim, and reverse.
+- `ctest -C Debug -R ^WhatsCanvasGraphicsStateStackTests$ --output-on-failure`: lightweight unit executable covering `GraphicsStateStack` save/restore semantics and header-only `Path` behavior such as even-odd contains, stroke hit-testing, trim, and reverse.
 - `ctest -C Debug -L smoke --output-on-failure`: standard entry for the registered smoke/example script gates.
 - `smoke_test.bat` / `smoke_test.sh`: fixed-time first-frame smoke gate.
 - `clip_path_smoke.bat` / `clip_path_smoke.sh`: stacked non-rect `clipPath` smoke gate.

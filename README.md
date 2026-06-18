@@ -1,6 +1,6 @@
-# PrismCanvas
+# WhatsCanvas
 
-PrismCanvas is a small C++17 canvas playground that builds a Skia-like 2D drawing surface on top of OpenGL. The repository is organized around a single `Canvas` surface, a `Paint` state object, and a renderer-facing backend split so the API stays stable as the implementation evolves.
+WhatsCanvas is a small C++17 canvas playground that builds a Skia-like 2D drawing surface on top of OpenGL. The repository is organized around a single `Canvas` surface, a `Paint` state object, and a renderer-facing backend split so the API stays stable as the implementation evolves.
 
 ## What It Can Do
 
@@ -156,19 +156,19 @@ The `example/game` folder contains the current gameplay demos.
 
 The Tetris example is under [example/game/tetris](example/game/tetris). It draws the board, falling blocks, preview area, score panel, and game-state overlays.
 
-![Tetris example built with PrismCanvas](images/tetris.jpg)
+![Tetris example built with WhatsCanvas](images/tetris.jpg)
 
 ### Racer
 
 The Racer example is under [example/game/racer](example/game/racer). It renders a vertically scrolling road, clipped traffic and fuel pickups, a side speed meter, and an arcade-style HUD.
 
-![Racer example built with PrismCanvas](images/racer.png)
+![Racer example built with WhatsCanvas](images/racer.png)
 
 ### Bubble Shooter
 
 The Bubble Shooter example is under [example/game/bubble_shooter](example/game/bubble_shooter). It renders the hex-grid board, aiming guide, launcher, and compact sidebar HUD.
 
-![Bubble Shooter example built with PrismCanvas](images/bubble_shooter.jpg)
+![Bubble Shooter example built with WhatsCanvas](images/bubble_shooter.jpg)
 
 Run the examples from their own folders:
 
@@ -231,16 +231,16 @@ build.bat --no-run
 The demo still supports local render checks through environment variables:
 
 ```bat
-CPPDEMO_CAPTURE_PPM=build\capture.ppm .\build\PrismCanvasDemo.exe
-CPPDEMO_PRINT_PIXEL_HASH=1 .\build\PrismCanvasDemo.exe
-CPPDEMO_EXPECT_PIXEL_HASH=<uint64> .\build\PrismCanvasDemo.exe
-CPPDEMO_EXIT_AFTER_FIRST_FRAME=1 .\build\PrismCanvasDemo.exe
-CPPDEMO_FIXED_TIME_SECONDS=1.25 .\build\PrismCanvasDemo.exe
-CPPDEMO_DISABLE_MSAA=1 .\build\PrismCanvasDemo.exe
-CPPDEMO_EXERCISE_CLIP_PATH=1 .\build\PrismCanvasDemo.exe
+WHATSCANVAS_CAPTURE_PPM=build\capture.ppm .\build\WhatsCanvasDemo.exe
+WHATSCANVAS_PRINT_PIXEL_HASH=1 .\build\WhatsCanvasDemo.exe
+WHATSCANVAS_EXPECT_PIXEL_HASH=<uint64> .\build\WhatsCanvasDemo.exe
+WHATSCANVAS_EXIT_AFTER_FIRST_FRAME=1 .\build\WhatsCanvasDemo.exe
+WHATSCANVAS_FIXED_TIME_SECONDS=1.25 .\build\WhatsCanvasDemo.exe
+WHATSCANVAS_DISABLE_MSAA=1 .\build\WhatsCanvasDemo.exe
+WHATSCANVAS_EXERCISE_CLIP_PATH=1 .\build\WhatsCanvasDemo.exe
 ```
 
-On Windows, the example games also honor `CPPDEMO_CAPTURE_PPM`, `CPPDEMO_EXIT_AFTER_FIRST_FRAME`, `CPPDEMO_FIXED_TIME_SECONDS`, and `CPPDEMO_DISABLE_MSAA`, which makes it easy to script one-frame captures into [images/](images).
+On Windows, the example games also honor `WHATSCANVAS_CAPTURE_PPM`, `WHATSCANVAS_EXIT_AFTER_FIRST_FRAME`, `WHATSCANVAS_FIXED_TIME_SECONDS`, and `WHATSCANVAS_DISABLE_MSAA`, which makes it easy to script one-frame captures into [images/](images).
 
 Use `smoke_test.bat` on Windows or `sh smoke_test.sh` on macOS/Linux to build the Debug target, run one fixed-time non-MSAA frame, and check for rendering failure markers.
 
@@ -254,9 +254,9 @@ Typical local test entry points:
 
 ```bat
 ctest -C Debug -N
-ctest -C Debug -R ^PrismCanvasGraphicsStateStackTests$ --output-on-failure
+ctest -C Debug -R ^WhatsCanvasGraphicsStateStackTests$ --output-on-failure
 ctest -C Debug -L smoke --output-on-failure
-ctest -C Debug -R ^PrismCanvasSmoke$ --output-on-failure
+ctest -C Debug -R ^WhatsCanvasSmoke$ --output-on-failure
 ```
 
 ## Dependencies

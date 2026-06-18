@@ -1,4 +1,4 @@
-function(prismcanvas_add_common_dependencies project_root)
+function(whatscanvas_add_common_dependencies project_root)
     set(third_party_dir "${project_root}/third_party")
     set(glfw_path "${third_party_dir}/glfw")
     set(glad_path "${third_party_dir}/glad")
@@ -28,26 +28,26 @@ function(prismcanvas_add_common_dependencies project_root)
         target_include_directories(GLAD PUBLIC "${glad_path}/include")
     endif()
 
-    if (NOT TARGET PrismCanvasGLM)
-        add_library(PrismCanvasGLM INTERFACE)
-        target_include_directories(PrismCanvasGLM INTERFACE
+    if (NOT TARGET WhatsCanvasGLM)
+        add_library(WhatsCanvasGLM INTERFACE)
+        target_include_directories(WhatsCanvasGLM INTERFACE
             "${glm_path}"
             "${glm_path}/glm"
         )
     endif()
 
-    if (NOT TARGET PrismCanvasSTB)
-        add_library(PrismCanvasSTB INTERFACE)
-        target_include_directories(PrismCanvasSTB INTERFACE "${stb_path}")
+    if (NOT TARGET WhatsCanvasSTB)
+        add_library(WhatsCanvasSTB INTERFACE)
+        target_include_directories(WhatsCanvasSTB INTERFACE "${stb_path}")
     endif()
 
-    if (NOT TARGET PrismCanvasPolyline2D)
-        add_library(PrismCanvasPolyline2D INTERFACE)
-        target_include_directories(PrismCanvasPolyline2D SYSTEM INTERFACE "${polyline2d_path}/include")
+    if (NOT TARGET WhatsCanvasPolyline2D)
+        add_library(WhatsCanvasPolyline2D INTERFACE)
+        target_include_directories(WhatsCanvasPolyline2D SYSTEM INTERFACE "${polyline2d_path}/include")
     endif()
 endfunction()
 
-function(prismcanvas_add_opengl_library target_name project_root)
+function(whatscanvas_add_opengl_library target_name project_root)
     set(src_dir "${project_root}/src")
 
     add_library(${target_name} STATIC
@@ -74,9 +74,9 @@ function(prismcanvas_add_opengl_library target_name project_root)
     target_compile_definitions(${target_name} PUBLIC GLEW_STATIC)
     target_link_libraries(${target_name}
         PUBLIC
-            PrismCanvasGLM
-            PrismCanvasSTB
-            PrismCanvasPolyline2D
+            WhatsCanvasGLM
+            WhatsCanvasSTB
+            WhatsCanvasPolyline2D
         PRIVATE
             glfw
             GLAD
@@ -88,7 +88,7 @@ function(prismcanvas_add_opengl_library target_name project_root)
     endif()
 endfunction()
 
-function(prismcanvas_link_gl_app target_name)
+function(whatscanvas_link_gl_app target_name)
     target_link_libraries(${target_name}
         PRIVATE
             glfw
