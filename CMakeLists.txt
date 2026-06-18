@@ -203,29 +203,7 @@ if (WHATSCANVAS_INSTALL)
         DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/whatscanvas-src"
         FILES_MATCHING PATTERN "*.h"
     )
-    install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/text"
-        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/whatscanvas-src"
-        FILES_MATCHING PATTERN "*.h"
-    )
-    install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/opengl"
-        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/whatscanvas-src"
-        FILES_MATCHING PATTERN "*.h"
-    )
-    install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/src/command"
-        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/whatscanvas-src"
-        FILES_MATCHING PATTERN "*.h"
-    )
-
     install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/third_party/glm/glm"
-        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-    )
-    install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/third_party/glad/include/glad"
-        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-    )
-    install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/third_party/glad/include/KHR"
-        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-    )
-    install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/third_party/glfw/include/GLFW"
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
     )
 

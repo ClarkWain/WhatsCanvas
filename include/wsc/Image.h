@@ -8,5 +8,4 @@
 
 namespace wsc {
 using ::Image;
-using ::IRenderer;
 }

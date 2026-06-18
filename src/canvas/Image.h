@@ -16,8 +16,6 @@ public:
     Image(Image &&other) noexcept;
     Image &operator=(Image &&other) noexcept;
 
-    bool load(IRenderer &renderer, const char *imagePath);
-
     int getWidth() const { return width_; }
 
     int getHeight() const { return height_; }
@@ -29,6 +27,7 @@ private:
 
     friend class Canvas;
 
+    bool load(IRenderer &renderer, const char *imagePath);
     std::shared_ptr<ImageResource> getImageResource() const;
     void reset();
 

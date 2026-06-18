@@ -1522,6 +1522,16 @@ Canvas::~Canvas()
     unregisterCanvasInstance(this);
 }
 
+GraphicsState &Canvas::currentState()
+{
+    return graphicsStates_->current();
+}
+
+const GraphicsState &Canvas::currentState() const
+{
+    return graphicsStates_->current();
+}
+
 void Canvas::initialize()
 {
     for (Canvas *canvas : registeredCanvases()) {

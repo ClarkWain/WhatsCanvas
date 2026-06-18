@@ -3,6 +3,7 @@
 #include <vector>
 #include <memory>
 
+#include "command/DrawCommand.h"
 #include "IRenderDevice.h"
 #include "IRenderer.h"
 #include "RenderContext.h"

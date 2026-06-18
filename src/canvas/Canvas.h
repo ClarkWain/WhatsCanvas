@@ -59,8 +59,6 @@ public:
 
 public:
     Canvas();
-    explicit Canvas(std::unique_ptr<IRenderer> renderer);
-    Canvas(std::unique_ptr<IRenderer> renderer, std::unique_ptr<prismcanvas::text::ITextBackend> textBackend);
     ~Canvas();
 
     Canvas(const Canvas &) = delete;
@@ -168,6 +166,8 @@ public:
     std::uint64_t computePixelsHashRGBA() const;
 
 private:
+    explicit Canvas(std::unique_ptr<IRenderer> renderer);
+    Canvas(std::unique_ptr<IRenderer> renderer, std::unique_ptr<prismcanvas::text::ITextBackend> textBackend);
     bool ensureRendererInitialized();
     void finalizeRenderer();
     struct LayerState {
@@ -180,8 +180,8 @@ private:
     ScissorState makeCurrentScissorState() const;
     ClipMaskState makeCurrentClipMaskState() const;
     void restoreLayer(const LayerState &layer);
-    GraphicsState &currentState() { return graphicsStates_->current(); }
-    const GraphicsState &currentState() const { return graphicsStates_->current(); }
+    GraphicsState &currentState();
+    const GraphicsState &currentState() const;
 
     int width_ = 0;
     int height_ = 0;

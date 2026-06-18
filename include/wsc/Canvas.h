@@ -13,9 +13,4 @@
 
 namespace wsc {
 using ::Canvas;
-using ::IRenderer;
-
-namespace text {
-using ITextBackend = ::prismcanvas::text::ITextBackend;
-}
 }

@@ -3,7 +3,9 @@
 #include <memory>
 #include <vector>
 
-#include "command/DrawCommand.h"
+#include "render/RenderTypes.h"
+
+class Command;
 
 struct OffscreenRenderRequest
 {
