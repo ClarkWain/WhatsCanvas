@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 START_TS=$(date +%s)
 
 echo "EXAMPLES_SMOKE_TARGETS=Tetris,Racer,BubbleShooter"

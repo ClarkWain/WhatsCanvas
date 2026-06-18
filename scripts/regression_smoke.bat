@@ -1,8 +1,9 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 
-set "ROOT_DIR=%~dp0"
-if "%ROOT_DIR:~-1%"=="\" set "ROOT_DIR=%ROOT_DIR:~0,-1%"
+set "SCRIPT_DIR=%~dp0"
+if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
+for %%I in ("%SCRIPT_DIR%\..") do set "ROOT_DIR=%%~fI"
 set "DEFAULT_HASH=%~1"
 set "CLIP_HASH=%~2"
 if "%DEFAULT_HASH%"=="" set "DEFAULT_HASH=2458027664413625913"
@@ -10,7 +11,7 @@ if "%CLIP_HASH%"=="" set "CLIP_HASH=12248791335057056593"
 
 call :get_tick REGRESSION_SMOKE_START_MS
 
-call "%ROOT_DIR%\smoke_test.bat" %DEFAULT_HASH%
+call "%ROOT_DIR%\scripts\smoke_test.bat" %DEFAULT_HASH%
 set "DEFAULT_EXIT=%ERRORLEVEL%"
 if not "%DEFAULT_EXIT%"=="0" (
     call :elapsed_ms REGRESSION_SMOKE_START_MS TOTAL_MS
@@ -19,7 +20,7 @@ if not "%DEFAULT_EXIT%"=="0" (
     exit /b %DEFAULT_EXIT%
 )
 
-call "%ROOT_DIR%\clip_path_smoke.bat" %CLIP_HASH%
+call "%ROOT_DIR%\scripts\clip_path_smoke.bat" %CLIP_HASH%
 set "CLIP_EXIT=%ERRORLEVEL%"
 call :elapsed_ms REGRESSION_SMOKE_START_MS TOTAL_MS
 echo REGRESSION_SMOKE_TOTAL_MS=!TOTAL_MS!

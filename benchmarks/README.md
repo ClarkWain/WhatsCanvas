@@ -5,8 +5,8 @@ This directory is reserved for repeatable local and CI benchmark assets.
 ## Current Signals
 
 - `build.bat` / `build.sh` emit structured `BUILD_*` timings.
-- `smoke_test.bat` / `smoke_test.sh` emit structured `SMOKE_*` timings.
-- `examples_smoke.bat` / `examples_smoke.sh` emit structured `EXAMPLES_SMOKE_*` timings.
+- `scripts/smoke_test.bat` / `scripts/smoke_test.sh` emit structured `SMOKE_*` timings.
+- `scripts/examples_smoke.bat` / `scripts/examples_smoke.sh` emit structured `EXAMPLES_SMOKE_*` timings.
 
 ## Intended Growth
 

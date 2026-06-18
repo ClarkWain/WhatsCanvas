@@ -1,13 +1,14 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 
-set "ROOT_DIR=%~dp0"
-if "%ROOT_DIR:~-1%"=="\" set "ROOT_DIR=%ROOT_DIR:~0,-1%"
+set "SCRIPT_DIR=%~dp0"
+if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
+for %%I in ("%SCRIPT_DIR%\..") do set "ROOT_DIR=%%~fI"
 set "EXPECTED_HASH=%~1"
 
 call :get_tick CLIP_PATH_SMOKE_START_MS
 set "WHATSCANVAS_EXERCISE_CLIP_PATH=1"
-call "%ROOT_DIR%\smoke_test.bat" %EXPECTED_HASH%
+call "%ROOT_DIR%\scripts\smoke_test.bat" %EXPECTED_HASH%
 set "SMOKE_EXIT=%ERRORLEVEL%"
 call :elapsed_ms CLIP_PATH_SMOKE_START_MS TOTAL_MS
 echo CLIP_PATH_SMOKE_TOTAL_MS=!TOTAL_MS!

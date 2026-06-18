@@ -1,8 +1,9 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 
-set "ROOT_DIR=%~dp0"
-if "%ROOT_DIR:~-1%"=="\" set "ROOT_DIR=%ROOT_DIR:~0,-1%"
+set "SCRIPT_DIR=%~dp0"
+if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
+for %%I in ("%SCRIPT_DIR%\..") do set "ROOT_DIR=%%~fI"
 
 call :get_tick EXAMPLES_START_MS
 

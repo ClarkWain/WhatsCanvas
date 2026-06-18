@@ -1,207 +1,49 @@
 # WhatsCanvas
 
-WhatsCanvas is a small C++17 canvas playground that builds a Skia-like 2D drawing surface on top of OpenGL. The repository is organized around a single `Canvas` surface, a `Paint` state object, and a renderer-facing backend split so the API stays stable as the implementation evolves.
+WhatsCanvas 是一个适合直接上手，也适合拿来拆解学习的 C++17 二维画布项目。
 
-## What It Can Do
+它把熟悉的 `Canvas` 绘制模型放在前台，把 OpenGL、命令录制、状态栈、文本后端、验证脚本这些真正的引擎细节放在后台。你可以把它当成一个可运行的二维绘图试验场，也可以把它当成一套中小型图形引擎的学习范本。
 
-- Draw points, lines, polylines, polygons, rectangles, rounded rectangles, circles, ovals, arcs, and arbitrary paths.
-- Style fills and strokes with alpha, gradients, blend modes, dash effects, corner effects, image sampling, tile modes, and text layout controls.
-- Manage save/restore, transforms, rectangular clip, `clipPath`, `saveLayer`, hit testing, image fit/fill/cover placement, nine-patch rendering, and tiled images.
-- Render text through a backend boundary with `drawText`, `drawTextBox`, `drawTextOnPath`, and measurement APIs.
-- Capture pixels with framebuffer readback, PPM export, and FNV-1a hashing for local regression checks.
+## 为什么值得用
 
-## Canvas Surface
+- 想快速得到一个 OpenGL 驱动的二维画布项目，而不是从窗口、着色器和状态管理开始重新搭脚手架。
+- 想在一个工程里同时拥有路径绘制、变换、裁剪、`saveLayer`、图像布局、文本绘制、像素回读和本地回归能力。
+- 想用真实例子验证引擎能力，而不是只看零散的 API 示例。
+- 想把根工程和示例工程复用在同一套 OpenGL 目标和依赖配置上。
 
-The public `Canvas` API is intentionally close to a familiar 2D canvas model.
+## 为什么值得学
 
-```cpp
-class Canvas {
-    struct TextMetrics;
-    enum class ImageFit { FILL, CONTAIN, COVER };
-    enum class ImageAnchor { ... };
+- 项目规模适中，不会大到难以下手，也不会小到失去工程价值。
+- 你可以顺着 `Canvas` API 一路读到命令提交、渲染器、设备层和 OpenGL 执行路径。
+- 仓库里有 ADR、架构说明、测试入口和评估记录，适合学习“功能是怎么做出来的”，也适合学习“工程是怎么稳住的”。
+- Tetris、Racer、Bubble Shooter 三个示例让它不只是图形 API 的展示，而是接近真实项目形态的可运行样本。
 
-    static void initialize();
-    static void finalize();
+## 能力概览
 
-    void shutdown();
-    void setSize(int width, int height);
-    int getWidth() const;
-    int getHeight() const;
-    void setColor(Color color);
+- 基础图元：点、线、折线、多边形、矩形、圆角矩形、圆、椭圆、圆弧、任意路径。
+- 绘制样式：填充、描边、透明度、渐变、混合模式、虚线、圆角路径效果、图像采样与贴图模式。
+- 画布状态：`save` / `restore`、矩阵变换、矩形裁剪、`clipPath`、`saveLayer`、命中测试。
+- 图像能力：普通绘制、contain / cover / fill 布局、九宫格、平铺绘制。
+- 文本能力：`drawText`、`drawTextBox`、`drawTextOnPath`、测量与基础布局。
+- 验证能力：PPM 截图、像素哈希、固定时间首帧冒烟测试、严格本地回归检查。
 
-    void drawColor(const Color& color);
-    void drawPaint(const Paint& paint);
-    void drawPoint(...);
-    void drawPoints(...);
-    void drawLine(...);
-    void drawLines(...);
-    void drawPolyline(...);
-    void drawPolygon(...);
-    void drawRect(...);
-    void drawRoundRect(...);
-    void drawCircle(...);
-    void drawOval(...);
-    void drawArc(...);
-    void drawPath(const Path& path, ...);
-    RectF measureStrokeBounds(...);
+## 5 分钟上手
 
-    void drawImage(...);
-    void drawImageFit(...);
-    void drawImageNinePatch(...);
-    void drawImageTiled(...);
+环境要求：
 
-    void drawText(...);
-    void drawTextBox(...);
-    void drawTextOnPath(...);
-    float measureText(...);
-    RectF measureTextBounds(...);
-    TextMetrics measureTextMetrics(...);
+- CMake 3.16 或更新版本。
+- 支持 C++17 的编译器。
+- Windows：Visual Studio 2022 + 桌面 C++ 工作负载。
+- macOS / Linux：OpenGL 开发环境和可用的 GLFW 工具链。
 
-    int save();
-    int saveLayer(...);
-    void restore();
-    int getSaveCount() const;
-    void restoreToCount(int saveCount);
-
-    const glm::mat4& getMatrix() const;
-    PointF mapPoint(...);
-    RectF mapRect(...);
-    bool inverseMapPoint(...);
-    bool inverseMapRect(...);
-    void setMatrix(const glm::mat4& matrix);
-    void resetMatrix();
-    void concat(const glm::mat4& matrix);
-    void translate(float dx, float dy);
-    void scale(float sx, float sy);
-    void rotate(float radians);
-
-    void clipRect(...);
-    void clipPath(const Path& path);
-    bool hasClip() const;
-    bool getClipBounds(RectF& bounds) const;
-    bool isPointInClip(...);
-    bool quickReject(...);
-    bool hitTestPathFill(...);
-    bool hitTestPathStroke(...);
-
-    void beginFrame();
-    void flush();
-    void endFrame();
-    bool readPixelsRGBA(...);
-    std::vector<unsigned char> readPixelsRGBA() const;
-    bool savePixelsPPM(const std::string& path) const;
-    static std::uint64_t hashPixelsRGBA(...);
-    std::uint64_t computePixelsHashRGBA() const;
-};
-```
-
-## Rendering Architecture
-
-The engine is split so `Canvas` records backend-neutral intent, the renderer coordinates command submission, and backend resources stay behind renderer/device boundaries.
-
-```mermaid
-flowchart TD
-	subgraph API[Public API]
-		Canvas[Canvas]
-		Paint[Paint / Path / Image]
-	end
-
-	subgraph Recording[Recording and State]
-		State[GraphicsStateStack\ntransform / clip / layer state]
-		Commands[DrawCommand queue\nbackend-neutral snapshots]
-	end
-
-	subgraph Text[Text Layer]
-		TextBackend[ITextBackend\nBasicTextBackend / NativeText]
-	end
-
-	subgraph Render[Render Abstraction]
-		Renderer[IRenderer / Renderer]
-		Context[RenderContext]
-	end
-
-	subgraph Device[Backend Device and Resources]
-		DeviceApi[IRenderDevice\nOpenGLRenderDevice]
-		Target[IRenderTarget]
-		ImageRes[ImageResource]
-		ClipRes[ClipMaskResource]
-	end
-
-	subgraph Backend[Backend]
-		OpenGL[OpenGL 3.3 + GLFW + GLAD]
-	end
-
-	Canvas --> State
-	Canvas --> Commands
-	Paint --> Commands
-	TextBackend --> Commands
-	State --> Commands
-	Commands --> Renderer
-	Renderer --> Context
-	Renderer --> DeviceApi
-	DeviceApi --> Target
-	DeviceApi --> ImageRes
-	DeviceApi --> ClipRes
-	Context --> OpenGL
-	DeviceApi --> OpenGL
-```
-
-More detail lives in [doc/architecture/README.md](doc/architecture/README.md).
-
-## Examples
-
-The `example/game` folder contains the current gameplay demos.
-
-### Tetris
-
-The Tetris example is under [example/game/tetris](example/game/tetris). It draws the board, falling blocks, preview area, score panel, and game-state overlays.
-
-![Tetris example built with WhatsCanvas](images/tetris.jpg)
-
-### Racer
-
-The Racer example is under [example/game/racer](example/game/racer). It renders a vertically scrolling road, clipped traffic and fuel pickups, a side speed meter, and an arcade-style HUD.
-
-![Racer example built with WhatsCanvas](images/racer.png)
-
-### Bubble Shooter
-
-The Bubble Shooter example is under [example/game/bubble_shooter](example/game/bubble_shooter). It renders the hex-grid board, aiming guide, launcher, and compact sidebar HUD.
-
-![Bubble Shooter example built with WhatsCanvas](images/bubble_shooter.jpg)
-
-Run the examples from their own folders:
-
-```bat
-cd example\game\tetris
-build.bat
-```
-
-```bat
-cd example\game\racer
-build.bat
-```
-
-```bat
-cd example\game\bubble_shooter
-build.bat
-```
-
-## Build
-
-Requirements:
-
-- CMake 3.16 or newer.
-- A C++17 compiler.
-- Windows: Visual Studio 2022 with the Desktop C++ workload.
-- macOS/Linux: OpenGL development libraries and a GLFW-compatible toolchain.
-
-Root build:
+Windows：
 
 ```bat
 build.bat --no-run
 build.bat
 ```
+
+macOS / Linux：
 
 ```bash
 chmod +x build.sh
@@ -209,7 +51,37 @@ chmod +x build.sh
 ./build.sh
 ```
 
-Example builds:
+常用验证入口：
+
+```bat
+cmd /c scripts\smoke_test.bat
+cmd /c scripts\clip_path_smoke.bat
+cmd /c scripts\regression_smoke.bat
+cmd /c scripts\examples_smoke.bat
+ctest -C Debug -L smoke --output-on-failure
+```
+
+## 示例展示
+
+### Tetris
+
+位于 [example/game/tetris](example/game/tetris)。这是一个很适合学习布局、文本面板、方块绘制和游戏状态叠加的示例。
+
+![Tetris example built with WhatsCanvas](images/tetris.jpg)
+
+### Racer
+
+位于 [example/game/racer](example/game/racer)。这个示例更强调滚动场景、裁剪区域、HUD，以及节奏明确的动画驱动。
+
+![Racer example built with WhatsCanvas](images/racer.png)
+
+### Bubble Shooter
+
+位于 [example/game/bubble_shooter](example/game/bubble_shooter)。适合学习网格排布、瞄准辅助线和轻量 UI 绘制。
+
+![Bubble Shooter example built with WhatsCanvas](images/bubble_shooter.jpg)
+
+示例单独构建：
 
 ```bat
 cd example\game\tetris
@@ -226,56 +98,59 @@ cd example\game\bubble_shooter
 build.bat --no-run
 ```
 
-## Validation
+## 学习路线
 
-The demo still supports local render checks through environment variables:
+如果你是第一次读这个仓库，建议按这个顺序：
+
+1. 先跑根工程，确认你能看到 `WhatsCanvasDemo` 正常启动。
+2. 阅读 [doc/architecture/README.md](doc/architecture/README.md)，建立整体分层认识。
+3. 查看 [src/main.cpp](src/main.cpp)，理解演示程序是怎样驱动 `Canvas` 的。
+4. 进入 `src/canvas`、`src/render`、`src/opengl`，顺着绘制请求往下读。
+5. 结合 [tests/README.md](tests/README.md) 和 `scripts/` 目录，看这个仓库如何做本地验证。
+6. 最后再读 [doc/CanvasEvaluation.md](doc/CanvasEvaluation.md)，回看功能演进和验证轨迹。
+
+## 仓库导览
+
+- `src/`: 核心实现，包含 Canvas、命令、渲染器、OpenGL 后端和文本模块。
+- `example/game/`: 三个完整示例工程。
+- `tests/`: 单元测试入口与测试说明。
+- `scripts/`: 冒烟、clip-path、regression、examples 四类验证脚本。
+- `doc/architecture/`: ADR 和架构文档，适合系统性阅读。
+- `doc/CanvasEvaluation.md`: 功能演进与验证记录。
+- `third_party/`: GLFW、GLM、STB、Polyline2D 等依赖。
+
+## 本地回归钩子
+
+根 demo 支持以下环境变量：
 
 ```bat
-WHATSCANVAS_CAPTURE_PPM=build\capture.ppm .\build\WhatsCanvasDemo.exe
-WHATSCANVAS_PRINT_PIXEL_HASH=1 .\build\WhatsCanvasDemo.exe
-WHATSCANVAS_EXPECT_PIXEL_HASH=<uint64> .\build\WhatsCanvasDemo.exe
-WHATSCANVAS_EXIT_AFTER_FIRST_FRAME=1 .\build\WhatsCanvasDemo.exe
-WHATSCANVAS_FIXED_TIME_SECONDS=1.25 .\build\WhatsCanvasDemo.exe
-WHATSCANVAS_DISABLE_MSAA=1 .\build\WhatsCanvasDemo.exe
-WHATSCANVAS_EXERCISE_CLIP_PATH=1 .\build\WhatsCanvasDemo.exe
+WHATSCANVAS_CAPTURE_PPM=build\capture.ppm .\build\Debug\WhatsCanvasDemo.exe
+WHATSCANVAS_PRINT_PIXEL_HASH=1 .\build\Debug\WhatsCanvasDemo.exe
+WHATSCANVAS_EXPECT_PIXEL_HASH=<uint64> .\build\Debug\WhatsCanvasDemo.exe
+WHATSCANVAS_EXIT_AFTER_FIRST_FRAME=1 .\build\Debug\WhatsCanvasDemo.exe
+WHATSCANVAS_FIXED_TIME_SECONDS=1.25 .\build\Debug\WhatsCanvasDemo.exe
+WHATSCANVAS_DISABLE_MSAA=1 .\build\Debug\WhatsCanvasDemo.exe
+WHATSCANVAS_EXERCISE_CLIP_PATH=1 .\build\Debug\WhatsCanvasDemo.exe
 ```
 
-On Windows, the example games also honor `WHATSCANVAS_CAPTURE_PPM`, `WHATSCANVAS_EXIT_AFTER_FIRST_FRAME`, `WHATSCANVAS_FIXED_TIME_SECONDS`, and `WHATSCANVAS_DISABLE_MSAA`, which makes it easy to script one-frame captures into [images/](images).
+这些钩子非常适合做三类事情：
 
-Use `smoke_test.bat` on Windows or `sh smoke_test.sh` on macOS/Linux to build the Debug target, run one fixed-time non-MSAA frame, and check for rendering failure markers.
+- 本地快速回归，确认渲染改动没有明显破坏。
+- 学习读回 framebuffer、固定时间驱动和像素基线这些工程写法。
+- 为后续 CI 和自动化测试打基础。
 
-Use `clip_path_smoke.bat` or `sh clip_path_smoke.sh` to exercise the non-rect `clipPath` path explicitly.
+## 依赖组成
 
-Use `regression_smoke.bat` or `sh regression_smoke.sh` to run both strict local pixel-hash gates back to back.
+- GLFW：窗口与 OpenGL 上下文创建。
+- GLM：矩阵和向量数学。
+- STB：图像加载与轻量文本方案。
+- Polyline2D：描边网格生成。
+- GLAD：OpenGL 3.3 加载器，源码保存在 `third_party/glad`。
 
-Use `examples_smoke.bat` or `sh examples_smoke.sh` to verify that the Tetris, Racer, and Bubble Shooter example projects still build.
+## 接下来会继续变强
 
-Typical local test entry points:
-
-```bat
-ctest -C Debug -N
-ctest -C Debug -R ^WhatsCanvasGraphicsStateStackTests$ --output-on-failure
-ctest -C Debug -L smoke --output-on-failure
-ctest -C Debug -R ^WhatsCanvasSmoke$ --output-on-failure
-```
-
-## Dependencies
-
-Submodules:
-
-- GLFW: window and OpenGL context creation.
-- GLM: matrix and vector math.
-- STB: image loading and lightweight demo text generation.
-- Polyline2D: stroke mesh generation.
-
-Generated source kept in-tree:
-
-- GLAD: generated OpenGL 3.3 core loader files under `third_party/glad`.
-
-## Roadmap
-
-- Document the engine architecture and ADRs under [doc/architecture](doc/architecture/README.md).
-- Extract the Canvas core into a reusable library target.
-- Add backend abstraction points for Metal and Vulkan.
-- Replace the lightweight text path with real font metrics, shaping, and glyph atlas rendering.
-- Add automated render tests and a small UI layer on top of Canvas.
+- 持续完善文档、ADR 和学习路径。
+- 继续把 Canvas 核心抽成更清晰的可复用库目标。
+- 逐步增强文本、字体度量、字形整形和 Glyph Atlas。
+- 增强自动化验证、渲染回归和性能基准能力。
+- 为更多图形后端保留清晰的扩展边界。

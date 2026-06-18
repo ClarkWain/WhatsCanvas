@@ -72,19 +72,19 @@ if (BUILD_TESTING AND WHATSCANVAS_ENABLE_SCRIPT_TESTS)
     if (WIN32)
         add_test(NAME WhatsCanvasSmoke
             COMMAND ${CMAKE_COMMAND}
-                -DWHATSCANVAS_GATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/smoke_test.bat
+                -DWHATSCANVAS_GATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/smoke_test.bat
                 -DWHATSCANVAS_GATE_WORKDIR=${CMAKE_CURRENT_SOURCE_DIR}
                 -P ${WHATSCANVAS_TEST_WRAPPER}
         )
         add_test(NAME WhatsCanvasClipPathSmoke
             COMMAND ${CMAKE_COMMAND}
-                -DWHATSCANVAS_GATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/clip_path_smoke.bat
+                -DWHATSCANVAS_GATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/clip_path_smoke.bat
                 -DWHATSCANVAS_GATE_WORKDIR=${CMAKE_CURRENT_SOURCE_DIR}
                 -P ${WHATSCANVAS_TEST_WRAPPER}
         )
         add_test(NAME WhatsCanvasExamplesSmoke
             COMMAND ${CMAKE_COMMAND}
-                -DWHATSCANVAS_GATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/examples_smoke.bat
+                -DWHATSCANVAS_GATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/examples_smoke.bat
                 -DWHATSCANVAS_GATE_WORKDIR=${CMAKE_CURRENT_SOURCE_DIR}
                 -P ${WHATSCANVAS_TEST_WRAPPER}
         )
@@ -92,7 +92,7 @@ if (BUILD_TESTING AND WHATSCANVAS_ENABLE_SCRIPT_TESTS)
         if (WHATSCANVAS_ENABLE_LOCAL_REGRESSION_TEST)
             add_test(NAME WhatsCanvasRegressionSmoke
                 COMMAND ${CMAKE_COMMAND}
-                    -DWHATSCANVAS_GATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/regression_smoke.bat
+                    -DWHATSCANVAS_GATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/regression_smoke.bat
                     -DWHATSCANVAS_GATE_WORKDIR=${CMAKE_CURRENT_SOURCE_DIR}
                     -DWHATSCANVAS_GATE_ARGS=${WHATSCANVAS_DEFAULT_SMOKE_HASH};${WHATSCANVAS_CLIP_SMOKE_HASH}
                     -P ${WHATSCANVAS_TEST_WRAPPER}
@@ -103,21 +103,21 @@ if (BUILD_TESTING AND WHATSCANVAS_ENABLE_SCRIPT_TESTS)
     else()
         add_test(NAME WhatsCanvasSmoke
             COMMAND ${CMAKE_COMMAND}
-                -DWHATSCANVAS_GATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/smoke_test.sh
+                -DWHATSCANVAS_GATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/smoke_test.sh
                 -DWHATSCANVAS_GATE_WORKDIR=${CMAKE_CURRENT_SOURCE_DIR}
                 -DWHATSCANVAS_GATE_LAUNCHER=sh
                 -P ${WHATSCANVAS_TEST_WRAPPER}
         )
         add_test(NAME WhatsCanvasClipPathSmoke
             COMMAND ${CMAKE_COMMAND}
-                -DWHATSCANVAS_GATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/clip_path_smoke.sh
+                -DWHATSCANVAS_GATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/clip_path_smoke.sh
                 -DWHATSCANVAS_GATE_WORKDIR=${CMAKE_CURRENT_SOURCE_DIR}
                 -DWHATSCANVAS_GATE_LAUNCHER=sh
                 -P ${WHATSCANVAS_TEST_WRAPPER}
         )
         add_test(NAME WhatsCanvasExamplesSmoke
             COMMAND ${CMAKE_COMMAND}
-                -DWHATSCANVAS_GATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/examples_smoke.sh
+                -DWHATSCANVAS_GATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/examples_smoke.sh
                 -DWHATSCANVAS_GATE_WORKDIR=${CMAKE_CURRENT_SOURCE_DIR}
                 -DWHATSCANVAS_GATE_LAUNCHER=sh
                 -P ${WHATSCANVAS_TEST_WRAPPER}
@@ -126,7 +126,7 @@ if (BUILD_TESTING AND WHATSCANVAS_ENABLE_SCRIPT_TESTS)
         if (WHATSCANVAS_ENABLE_LOCAL_REGRESSION_TEST)
             add_test(NAME WhatsCanvasRegressionSmoke
                 COMMAND ${CMAKE_COMMAND}
-                    -DWHATSCANVAS_GATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/regression_smoke.sh
+                    -DWHATSCANVAS_GATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/regression_smoke.sh
                     -DWHATSCANVAS_GATE_WORKDIR=${CMAKE_CURRENT_SOURCE_DIR}
                     -DWHATSCANVAS_GATE_LAUNCHER=sh
                     -DWHATSCANVAS_GATE_ARGS=${WHATSCANVAS_DEFAULT_SMOKE_HASH};${WHATSCANVAS_CLIP_SMOKE_HASH}
