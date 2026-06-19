@@ -1701,13 +1701,13 @@ bool Canvas::isRenderTargetMode() const
     return impl_->renderTargetMode;
 }
 
-std::shared_ptr<ImageResource> Canvas::acquireImageResource() const
+void *Canvas::getTextureHandleOpaque() const
 {
     if (impl_->renderTargetMode && impl_->renderTargetImageResource &&
         impl_->renderTargetImageResource->isValid()) {
-        return impl_->renderTargetImageResource;
+        return static_cast<void *>(&impl_->renderTargetImageResource);
     }
-    return {};
+    return nullptr;
 }
 
 void Canvas::drawColor(const Color &color)
@@ -2354,7 +2354,14 @@ void Canvas::drawImage(const ITextureSource &source, float x, float y, const Pai
 
 void Canvas::drawImage(const ITextureSource &source, const RectF &dst, const Paint &paint)
 {
-    SharedImageResource imageResource = source.acquireImageResource();
+    void *handleOpaque = source.getTextureHandleOpaque();
+    if (!handleOpaque) {
+        return;
+    }
+
+    // The opaque handle points to a shared_ptr<ImageResource> stored by the source.
+    const auto *imageResourcePtr = static_cast<SharedImageResource *>(handleOpaque);
+    const SharedImageResource &imageResource = *imageResourcePtr;
     const bool mipmapsReady = source.hasMipmapsGenerated();
 
     if (!imageResource || !imageResource->isValid()) {
@@ -2367,7 +2374,6 @@ void Canvas::drawImage(const ITextureSource &source, const RectF &dst, const Pai
         return;
     }
 
-    const RectF fullSrc(0.0f, 0.0f, static_cast<float>(srcW), static_cast<float>(srcH));
     RectF normalizedDst = normalizeRect(dst);
     if (normalizedDst.getWidth() <= 0.0f || normalizedDst.getHeight() <= 0.0f) {
         return;
@@ -3380,9 +3386,6 @@ void Canvas::beginFrame()
     impl_->renderer->resetRenderState();
     impl_->layerStack.clear();
     impl_->renderer->clear();
-    if (impl_->renderTargetMode) {
-        impl_->renderTargetImageResource.reset();
-    }
 }
 
 void Canvas::flush()
@@ -3396,18 +3399,19 @@ void Canvas::flush()
     }
 
     if (impl_->renderTargetMode && impl_->width > 0 && impl_->height > 0) {
-        // Render all commands to an offscreen FBO and cache the image resource.
-        auto commands = impl_->renderer->takeCommandsFrom(0);
-        if (!commands.empty()) {
-            OffscreenRenderRequest request;
-            request.canvasWidth = impl_->width;
-            request.canvasHeight = impl_->height;
-            request.targetWidth = impl_->width;
-            request.targetHeight = impl_->height;
-            impl_->renderTargetImageResource = impl_->renderer->renderCommandsToImageResource(commands, request);
-        } else {
-            impl_->renderTargetImageResource.reset();
+        // Only rebuild FBO/texture when there are new commands to render.
+        if (impl_->renderer->commandCount() > 0) {
+            auto commands = impl_->renderer->takeCommandsFrom(0);
+            if (!commands.empty()) {
+                OffscreenRenderRequest request;
+                request.canvasWidth = impl_->width;
+                request.canvasHeight = impl_->height;
+                request.targetWidth = impl_->width;
+                request.targetHeight = impl_->height;
+                impl_->renderTargetImageResource = impl_->renderer->renderCommandsToImageResource(commands, request);
+            }
         }
+        // Always clear command buffer and reset render state.
         impl_->renderer->clear();
         impl_->renderer->resetRenderState();
     } else {

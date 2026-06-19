@@ -88,7 +88,7 @@ public:
 	bool isRenderTargetMode() const;
 
 protected:
-	std::shared_ptr<ImageResource> acquireImageResource() const override;
+	void *getTextureHandleOpaque() const override;
 
 public:
 	// Canvas lifetime and state.

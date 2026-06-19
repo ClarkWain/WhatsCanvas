@@ -113,8 +113,8 @@ bool wsc::Image::isTextureValid() const
     return storage_->imageResource->isValid() && width_ > 0 && height_ > 0;
 }
 
-std::shared_ptr<ImageResource> wsc::Image::acquireImageResource() const
+void *wsc::Image::getTextureHandleOpaque() const
 {
-    return getImageResource();
+    return storage_ ? static_cast<void *>(&storage_->imageResource) : nullptr;
 }
 

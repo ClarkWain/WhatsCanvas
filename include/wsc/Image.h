@@ -34,7 +34,7 @@ public:
 	bool isRenderTarget() const override { return false; }
 
 protected:
-	std::shared_ptr<ImageResource> acquireImageResource() const override;
+	void *getTextureHandleOpaque() const override;
 	bool hasMipmapsGenerated() const override { return mipmapsGenerated_; }
 
 private:

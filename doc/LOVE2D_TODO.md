@@ -5,8 +5,8 @@
 
 | # | 改进项 | 分数 | 耗时 | 状态 |
 |---|--------|------|------|------|
-| 1 | Canvas/Texture 统一 | 5 | XL | 🔧 进行中 |
-| 2 | 流式批处理 (Batched Draw) | 5 | L | ⬜ 待开始 |
+| 1 | Canvas/Texture 统一 | 5 | XL | ✅ 已完成 |
+| 2 | 流式批处理 (Batched Draw) | 5 | L | 🔧 进行中 |
 | 3 | 多后端渲染抽象 | 4 | XL | ⬜ 待开始 |
 | 4 | 统一 DrawCommand 结构 | 5 | M | ⬜ 待开始 |
 | 5 | GraphicsState 栈扩展 | 4 | S | ⬜ 待开始 |
