@@ -7,6 +7,7 @@
 
 #include "Color.h"
 #include "Export.h"
+#include "TextureSource.h"
 #include "base.h"
 
 namespace wsc {
@@ -16,7 +17,7 @@ class Paint;
 class Path;
 
 /// Main drawing surface exposed by WhatsCanvas.
-class WSC_API Canvas
+class WSC_API Canvas : public ITextureSource
 {
 public:
 	/// Aggregated text metrics returned by measurement helpers.
@@ -72,6 +73,24 @@ public:
 	Canvas(const Canvas &) = delete;
 	Canvas &operator=(const Canvas &) = delete;
 
+	// ITextureSource interface
+	int getTextureWidth() const override { return getWidth(); }
+	int getTextureHeight() const override { return getHeight(); }
+	bool isTextureValid() const override;
+	bool isRenderTarget() const override;
+
+	/// Enable or disable render-target mode. When enabled, all drawing is
+	/// redirected to an offscreen FBO. The result can then be used as a
+	/// texture via ITextureSource (e.g. passed to drawImage).
+	void setRenderTargetMode(bool enabled);
+
+	/// Check whether render-target mode is currently active.
+	bool isRenderTargetMode() const;
+
+protected:
+	std::shared_ptr<ImageResource> acquireImageResource() const override;
+
+public:
 	// Canvas lifetime and state.
 	void setSize(int width, int height);
 	int getWidth() const;
@@ -128,6 +147,14 @@ public:
 	void drawImageNinePatch(const Image &image, const RectF &centerSrc, const RectF &dst, const Paint &paint);
 	void drawImageTiled(const Image &image, const RectF &dst, const Paint &paint);
 	void drawImageTiled(const Image &image, const RectF &dst, float tileWidth, float tileHeight, const Paint &paint);
+
+	// Texture-source drawing (supports Canvas-as-texture when render-target mode is active).
+	/// NOTE: The source Canvas must have been flushed (or endFrame'd) before
+	/// passing it to drawImage. Drawing an unflushed Canvas is a silent no-op.
+	void drawImage(const ITextureSource &source, float x, float y, const Paint &paint);
+	/// NOTE: The source Canvas must have been flushed (or endFrame'd) before
+	/// passing it to drawImage. Drawing an unflushed Canvas is a silent no-op.
+	void drawImage(const ITextureSource &source, const RectF &dst, const Paint &paint);
 	bool loadImage(Image &image, const char *imagePath);
 
 	// Text drawing and measurement.

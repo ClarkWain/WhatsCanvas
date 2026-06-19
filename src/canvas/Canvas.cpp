@@ -1559,6 +1559,10 @@ struct Canvas::Impl
     std::unique_ptr<GraphicsStateStack> graphicsStates;
     std::vector<LayerState> layerStack;
     bool rendererInitialized = false;
+
+    // Render-target mode support
+    bool renderTargetMode = false;
+    std::shared_ptr<ImageResource> renderTargetImageResource;
 };
 
 Canvas::Canvas()
@@ -1665,6 +1669,45 @@ int Canvas::getHeight() const
 void Canvas::setColor(Color color)
 {
     impl_->color = color;
+}
+
+bool Canvas::isTextureValid() const
+{
+    if (!impl_->rendererInitialized || impl_->width <= 0 || impl_->height <= 0) {
+        return false;
+    }
+    if (impl_->renderTargetMode) {
+        return impl_->renderTargetImageResource && impl_->renderTargetImageResource->isValid();
+    }
+    return true;
+}
+
+bool Canvas::isRenderTarget() const
+{
+    return impl_->renderTargetMode;
+}
+
+void Canvas::setRenderTargetMode(bool enabled)
+{
+    if (impl_->renderTargetMode == enabled) {
+        return;
+    }
+    impl_->renderTargetMode = enabled;
+    impl_->renderTargetImageResource.reset();
+}
+
+bool Canvas::isRenderTargetMode() const
+{
+    return impl_->renderTargetMode;
+}
+
+std::shared_ptr<ImageResource> Canvas::acquireImageResource() const
+{
+    if (impl_->renderTargetMode && impl_->renderTargetImageResource &&
+        impl_->renderTargetImageResource->isValid()) {
+        return impl_->renderTargetImageResource;
+    }
+    return {};
 }
 
 void Canvas::drawColor(const Color &color)
@@ -2293,6 +2336,62 @@ void Canvas::drawImage(const Image &image, const RectF &src, const RectF &dst, c
     data.sampling = toDrawImageSampling(paint.getImageSampling());
     data.tileMode = toDrawImageTileMode(paint.getImageTileMode());
     data.mipmapsReady = image.hasMipmaps();
+    data.transform = impl_->currentState().matrix;
+    data.scissor = impl_->makeCurrentScissorState();
+    data.blendMode = toDrawBlendMode(paint.getBlendMode());
+    data.clipMask = impl_->makeCurrentClipMaskState();
+    applyImageColorMatrix(paint, data);
+
+    impl_->renderer->submit(std::make_unique<DrawImageCommand>(data));
+}
+
+void Canvas::drawImage(const ITextureSource &source, float x, float y, const Paint &paint)
+{
+    const RectF dst(x, y, static_cast<float>(source.getTextureWidth()),
+                    static_cast<float>(source.getTextureHeight()));
+    drawImage(source, dst, paint);
+}
+
+void Canvas::drawImage(const ITextureSource &source, const RectF &dst, const Paint &paint)
+{
+    SharedImageResource imageResource = source.acquireImageResource();
+    const bool mipmapsReady = source.hasMipmapsGenerated();
+
+    if (!imageResource || !imageResource->isValid()) {
+        return;
+    }
+
+    const int srcW = source.getTextureWidth();
+    const int srcH = source.getTextureHeight();
+    if (srcW <= 0 || srcH <= 0) {
+        return;
+    }
+
+    const RectF fullSrc(0.0f, 0.0f, static_cast<float>(srcW), static_cast<float>(srcH));
+    RectF normalizedDst = normalizeRect(dst);
+    if (normalizedDst.getWidth() <= 0.0f || normalizedDst.getHeight() <= 0.0f) {
+        return;
+    }
+
+    DrawImageData data;
+    data.imageResource = imageResource;
+    data.x = normalizedDst.getX();
+    data.y = normalizedDst.getY();
+    data.width = normalizedDst.getWidth();
+    data.height = normalizedDst.getHeight();
+    data.u0 = 0.0f;
+    data.v0 = 0.0f;
+    data.u1 = 1.0f;
+    data.v1 = 1.0f;
+    const Color tintColor = paint.getColor();
+    data.tintColor[0] = tintColor.r();
+    data.tintColor[1] = tintColor.g();
+    data.tintColor[2] = tintColor.b();
+    data.tintColor[3] = 1.0f;
+    data.alpha = std::clamp(paint.getColor().a() * paint.getAlphaF(), 0.0f, 1.0f);
+    data.sampling = toDrawImageSampling(paint.getImageSampling());
+    data.tileMode = toDrawImageTileMode(paint.getImageTileMode());
+    data.mipmapsReady = mipmapsReady;
     data.transform = impl_->currentState().matrix;
     data.scissor = impl_->makeCurrentScissorState();
     data.blendMode = toDrawBlendMode(paint.getBlendMode());
@@ -3281,6 +3380,9 @@ void Canvas::beginFrame()
     impl_->renderer->resetRenderState();
     impl_->layerStack.clear();
     impl_->renderer->clear();
+    if (impl_->renderTargetMode) {
+        impl_->renderTargetImageResource.reset();
+    }
 }
 
 void Canvas::flush()
@@ -3292,9 +3394,27 @@ void Canvas::flush()
     while (!impl_->layerStack.empty() && impl_->graphicsStates->canRestore()) {
         restore();
     }
-    impl_->renderer->flush();
-    impl_->renderer->clear();
-    impl_->renderer->resetRenderState();
+
+    if (impl_->renderTargetMode && impl_->width > 0 && impl_->height > 0) {
+        // Render all commands to an offscreen FBO and cache the image resource.
+        auto commands = impl_->renderer->takeCommandsFrom(0);
+        if (!commands.empty()) {
+            OffscreenRenderRequest request;
+            request.canvasWidth = impl_->width;
+            request.canvasHeight = impl_->height;
+            request.targetWidth = impl_->width;
+            request.targetHeight = impl_->height;
+            impl_->renderTargetImageResource = impl_->renderer->renderCommandsToImageResource(commands, request);
+        } else {
+            impl_->renderTargetImageResource.reset();
+        }
+        impl_->renderer->clear();
+        impl_->renderer->resetRenderState();
+    } else {
+        impl_->renderer->flush();
+        impl_->renderer->clear();
+        impl_->renderer->resetRenderState();
+    }
 }
 
 void Canvas::endFrame()

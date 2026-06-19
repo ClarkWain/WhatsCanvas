@@ -105,3 +105,16 @@ bool wsc::Image::load(IRenderer &renderer, const char *imagePath)
     }
 }
 
+bool wsc::Image::isTextureValid() const
+{
+    if (!storage_ || !storage_->imageResource) {
+        return false;
+    }
+    return storage_->imageResource->isValid() && width_ > 0 && height_ > 0;
+}
+
+std::shared_ptr<ImageResource> wsc::Image::acquireImageResource() const
+{
+    return getImageResource();
+}
+
