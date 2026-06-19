@@ -21,7 +21,7 @@
 | 14 | 全局 Quad/Fan Index Buffer | 4 | S | ✅ 已完成 |
 | 15 | Texel Buffer 抽象 | 2 | M | ✅ 已完成 |
 | 16 | DrawMode/ArcMode 组合枚举 | 3 | S | ✅ 已完成 |
-| 17 | Deprecation Warning 系统 | 2 | S | 🔧 进行中 |
-| 18 | isPixelFormatSupported 能力查询 | 4 | S | ⬜ 待开始 |
+| 17 | Deprecation Warning 系统 | 2 | S | ✅ 已完成 |
+| 18 | isPixelFormatSupported 能力查询 | 4 | S | 🔧 进行中 |
 | 19 | SpriteBatch 批量绘制 | 3 | L | ⬜ 待开始 |
 | 20 | 窗口 resize 无痛重建 | 4 | M | ⬜ 待开始 |
