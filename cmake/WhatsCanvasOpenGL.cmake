@@ -88,6 +88,7 @@ function(whatscanvas_add_opengl_library target_name project_root)
         "${src_dir}/render/OpenGLRenderDevice.cpp"
         "${src_dir}/render/RenderDeviceFactory.cpp"
         "${src_dir}/render/RenderTargetPool.cpp"
+        "${src_dir}/render/SpriteBatch.cpp"
         "${src_dir}/render/Renderer.cpp"
     )
 
