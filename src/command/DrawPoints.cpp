@@ -6,6 +6,7 @@
 #include <glad/glad.h>
 #include <string>
 #include "opengl/GLProgram.h"
+#include "DrawValidation.h"
 
 DrawPointsProgram *DrawPointsProgram::instance_ = nullptr;
 
@@ -105,13 +106,11 @@ void DrawPointsProgram::release()
 
 void DrawPointsProgram::draw(const RenderContext &context, const DrawPointsData &data)
 {
-    if (!initialized_)
-    {
-        std::cerr << "DrawPointProgram has not been initialized." << std::endl;
+    if (!DrawValidation::validateProgram(initialized_, "DrawPointsProgram::draw")) {
         return;
     }
 
-    if (data.points.empty()) {
+    if (!DrawValidation::validateVertexData(data.getPointCount(), "DrawPointsProgram::draw")) {
         return;
     }
 

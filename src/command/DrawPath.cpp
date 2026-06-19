@@ -5,6 +5,7 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <iostream>
 #include <glad/glad.h>
+#include "DrawValidation.h"
 
 DrawPathProgram* DrawPathProgram::instance_ = nullptr;
 
@@ -102,14 +103,13 @@ void DrawPathProgram::release()
 
 void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &data)
 {
-    if (!initialized_)
-    {
-        std::cerr << "DrawPathProgram has not been initialized." << std::endl;
+    if (!DrawValidation::validateProgram(initialized_, "DrawPathProgram::draw")) {
         return;
     }
 
-    if (data.points.empty())
+    if (!DrawValidation::validateVertexData(data.getPointCount(), "DrawPathProgram::draw")) {
         return;
+    }
 
     // Resize the buffer when needed
     size_t requiredSize = data.points.size();

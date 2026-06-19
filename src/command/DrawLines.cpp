@@ -5,6 +5,7 @@
 #include <iostream>
 #include <glad/glad.h>
 #include <string>
+#include "DrawValidation.h"
 
 DrawLinesProgram* DrawLinesProgram::instance_ = nullptr;
 
@@ -97,13 +98,11 @@ void DrawLinesProgram::release()
 
 void DrawLinesProgram::draw(const RenderContext &context, const DrawLinesData &data)
 {
-    if (!initialized_)
-    {
-        std::cerr << "DrawLinesProgram has not been initialized." << std::endl;
+    if (!DrawValidation::validateProgram(initialized_, "DrawLinesProgram::draw")) {
         return;
     }
 
-    if (data.points.empty()) {
+    if (!DrawValidation::validateVertexData(data.getLineCount(), "DrawLinesProgram::draw")) {
         return;
     }
 

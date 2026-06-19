@@ -6,6 +6,7 @@
 #include <glad/glad.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include "DrawValidation.h"
 
 DrawImageProgram *DrawImageProgram::instance_ = nullptr;
 
@@ -116,12 +117,15 @@ void DrawImageProgram::release()
 
 void DrawImageProgram::draw(const RenderContext &context, const DrawImageData &data)
 {
-    if (!initialized_) {
-        std::cerr << "DrawImageProgram has not been initialized." << std::endl;
+    if (!DrawValidation::validateProgram(initialized_, "DrawImageProgram::draw")) {
         return;
     }
 
-    if (!data.imageResource || !data.imageResource->isValid() || data.width <= 0.0f || data.height <= 0.0f) {
+    if (!DrawValidation::validateResource(data.imageResource, "imageResource", "DrawImageProgram::draw")) {
+        return;
+    }
+
+    if (!DrawValidation::validateImageDimensions(data.width, data.height, "DrawImageProgram::draw")) {
         return;
     }
 

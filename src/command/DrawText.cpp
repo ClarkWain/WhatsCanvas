@@ -6,6 +6,7 @@
 #include <glad/glad.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include "DrawValidation.h"
 
 DrawTextProgram *DrawTextProgram::instance_ = nullptr;
 
@@ -92,12 +93,11 @@ void DrawTextProgram::release()
 
 void DrawTextProgram::draw(const RenderContext &context, const DrawTextData &data)
 {
-    if (!initialized_) {
-        std::cerr << "DrawTextProgram has not been initialized." << std::endl;
+    if (!DrawValidation::validateProgram(initialized_, "DrawTextProgram::draw")) {
         return;
     }
 
-    if (data.vertices.empty()) {
+    if (!DrawValidation::validateVertexData(data.getVertexCount(), "DrawTextProgram::draw")) {
         return;
     }
 
