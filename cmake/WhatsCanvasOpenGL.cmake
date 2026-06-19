@@ -61,10 +61,12 @@ function(whatscanvas_add_opengl_library target_name project_root)
 
     add_library(${target_name}
         "${glad_path}/src/glad.c"
+        "${src_dir}/canvas/base.cpp"
         "${src_dir}/canvas/Canvas.cpp"
         "${src_dir}/canvas/Image.cpp"
         "${src_dir}/canvas/Matrix.cpp"
         "${src_dir}/canvas/Paint.cpp"
+        "${src_dir}/canvas/Path.cpp"
         "${src_dir}/text/BasicTextBackend.cpp"
         "${src_dir}/text/NativeText.cpp"
         "${src_dir}/text/TextUtils.cpp"
