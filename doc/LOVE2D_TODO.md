@@ -7,8 +7,8 @@
 |---|--------|------|------|------|
 | 1 | Canvas/Texture 统一 | 5 | XL | ✅ 已完成 |
 | 2 | 流式批处理 (Batched Draw) | 5 | L | ✅ 已完成 |
-| 3 | 多后端渲染抽象 | 4 | XL | 🔧 进行中 |
-| 4 | 统一 DrawCommand 结构 | 5 | M | ⬜ 待开始 |
+| 3 | 多后端渲染抽象 | 4 | XL | ✅ 已完成 |
+| 4 | 统一 DrawCommand 结构 | 5 | M | 🔧 进行中 |
 | 5 | GraphicsState 栈扩展 | 4 | S | ⬜ 待开始 |
 | 6 | Shader validateDrawState | 4 | S | ⬜ 待开始 |
 | 7 | StreamBuffer 顶点流 | 5 | M | ⬜ 待开始 |

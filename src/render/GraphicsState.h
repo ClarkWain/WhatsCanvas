@@ -28,4 +28,10 @@ struct GraphicsState
 {
     glm::mat4 matrix = glm::mat4(1.0f);
     ClipState clip;
+
+    /// Current blend mode (saved/restored with the graphics state stack).
+    DrawBlendMode blendMode = DrawBlendMode::SrcOver;
+
+    /// Current fill color (saved/restored with the graphics state stack).
+    float color[4] = {1.0f, 1.0f, 1.0f, 1.0f};
 };
