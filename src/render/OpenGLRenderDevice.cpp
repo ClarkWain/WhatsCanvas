@@ -124,33 +124,61 @@ public:
             return false;
         }
 
+        // Lazy mode: only store the request, don't bind FBO yet.
+        request_ = request;
+        begun_ = true;
+        activated_ = false;
+        return true;
+    }
+
+    void activate() override
+    {
+        if (activated_ || !begun_) {
+            return;
+        }
+
+        // Save previous GL state.
         glGetIntegerv(GL_FRAMEBUFFER_BINDING, &previousFramebuffer_);
         glGetIntegerv(GL_TEXTURE_BINDING_2D, &previousTexture_);
         glGetIntegerv(GL_VIEWPORT, previousViewport_);
         glGetFloatv(GL_COLOR_CLEAR_VALUE, previousClearColor_);
 
+        // Bind FBO and set viewport.
         glBindFramebuffer(GL_FRAMEBUFFER, framebuffer_);
-        glViewport(request.viewportX, request.viewportY, request.canvasWidth, request.canvasHeight);
+        glViewport(request_.viewportX, request_.viewportY,
+                   request_.canvasWidth, request_.canvasHeight);
         glDisable(GL_SCISSOR_TEST);
         glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-        active_ = true;
-        return true;
+
+        activated_ = true;
+    }
+
+    bool isActivated() const override
+    {
+        return activated_;
     }
 
     void end() override
     {
-        if (!active_) {
+        if (!begun_) {
             return;
         }
 
-        glBindFramebuffer(GL_FRAMEBUFFER, static_cast<unsigned int>(previousFramebuffer_));
-        glViewport(previousViewport_[0], previousViewport_[1], previousViewport_[2], previousViewport_[3]);
-        glClearColor(previousClearColor_[0], previousClearColor_[1], previousClearColor_[2], previousClearColor_[3]);
-        glBindTexture(GL_TEXTURE_2D, static_cast<unsigned int>(previousTexture_));
-        glDisable(GL_SCISSOR_TEST);
-        glDisable(GL_STENCIL_TEST);
-        active_ = false;
+        if (activated_) {
+            // Restore previous GL state only if we actually bound the FBO.
+            glBindFramebuffer(GL_FRAMEBUFFER, static_cast<unsigned int>(previousFramebuffer_));
+            glViewport(previousViewport_[0], previousViewport_[1],
+                       previousViewport_[2], previousViewport_[3]);
+            glClearColor(previousClearColor_[0], previousClearColor_[1],
+                         previousClearColor_[2], previousClearColor_[3]);
+            glBindTexture(GL_TEXTURE_2D, static_cast<unsigned int>(previousTexture_));
+            glDisable(GL_SCISSOR_TEST);
+            glDisable(GL_STENCIL_TEST);
+        }
+
+        begun_ = false;
+        activated_ = false;
     }
 
     SharedImageResource getImageResource() const override
@@ -164,7 +192,13 @@ private:
     SharedImageResource imageResource_;
     GLuint framebuffer_ = 0;
     GLuint stencilRenderbuffer_ = 0;
-    bool active_ = false;
+
+    // Lazy activation state.
+    bool begun_ = false;
+    bool activated_ = false;
+    OffscreenRenderRequest request_;
+
+    // Saved GL state (populated on activate).
     GLint previousFramebuffer_ = 0;
     GLint previousTexture_ = 0;
     GLint previousViewport_[4] = {0, 0, 0, 0};
@@ -336,6 +370,8 @@ SharedImageResource OpenGLRenderDevice::renderCommandsToImageResource(const std:
         return {};
     }
 
+    // Lazy activation: only bind FBO when we know there are commands to execute.
+    renderTarget->activate();
     executeCommandList(commands, request.canvasWidth, request.canvasHeight,
                        request.scissorOffsetX, request.scissorOffsetY);
     renderTarget->end();
