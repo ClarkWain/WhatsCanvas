@@ -8,7 +8,7 @@ GLVertexArray::GLVertexArray() {
 
     GLenum err = glGetError();
     if (err != GL_NO_ERROR) {
-        std::cerr << "构造函数中发生OpenGL错误: " << err << std::endl;
+        std::cerr << "OpenGL error in constructor: " << err << std::endl;
     }
 }
 
@@ -66,6 +66,7 @@ void GLVertexArray::setIndexData(const void* data, size_t size, GLenum usage) co
     
     GLenum err = glGetError();
     if (err != GL_NO_ERROR) {
-        std::cerr << "setIndexData中发生OpenGL错误: " << err << std::endl;
+        std::cerr << "OpenGL error in setIndexData: " << err << std::endl;
     }
 }
+

@@ -8,11 +8,11 @@
 class DrawPathProgram
 {
 public:
-    // 删除拷贝构造和赋值运算符
+    // Disable copy construction and copy assignment
     DrawPathProgram(const DrawPathProgram&) = delete;
     DrawPathProgram& operator=(const DrawPathProgram&) = delete;
 
-    // 获取单例实例的方法
+    // Get the singleton instance
     static DrawPathProgram* getInstance() {
         if (instance_ == nullptr) {
             instance_ = new DrawPathProgram();
@@ -42,5 +42,5 @@ private:
     int maxVertices_ = 200;
     static constexpr int BUFFER_GROW_FACTOR = 2;
 
-    std::vector<float> vertexCache_;  // 缓存顶点数据
+    std::vector<float> vertexCache_;  // Cached vertex data
 };

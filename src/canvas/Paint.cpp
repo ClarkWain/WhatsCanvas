@@ -1,7 +1,7 @@
 
 #include "Paint.h"
 
-// 静态成员的定义
+// Static member definitions
 const wsc::Color wsc::Color::RED = wsc::Color(255, 0, 0);
 const wsc::Color wsc::Color::GREEN = wsc::Color(0, 255, 0);
 const wsc::Color wsc::Color::BLUE = wsc::Color(0, 0, 255);

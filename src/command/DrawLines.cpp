@@ -70,7 +70,7 @@ void DrawLinesProgram::initialize()
 
     glBindVertexArray(0);
 
-    // 预分配vertexCache
+    // Preallocate vertexCache
     vertexCache_.reserve(maxLines_ * 12);
 
     initialized_ = true;
@@ -109,26 +109,26 @@ void DrawLinesProgram::draw(const RenderContext &context, const DrawLinesData &d
 
     const size_t requiredSize = data.getLineCount() * 6 * 6;
     
-    // 只在必要时重新分配缓冲区
+    // Reallocate the buffer only when required
     if (requiredSize > maxLines_ * 6 * 6) {
-        maxLines_ = static_cast<int>(requiredSize * BUFFER_GROW_FACTOR);  // 成倍增长策略
+        maxLines_ = static_cast<int>(requiredSize * BUFFER_GROW_FACTOR);  // geometric growth policy
         glBindBuffer(GL_ARRAY_BUFFER, VBO_);
         glBufferData(GL_ARRAY_BUFFER, maxLines_ * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
         vertexCache_.reserve(maxLines_);
     }
 
-    // 重用vertexCache
+    // Reuse vertexCache
     vertexCache_.clear();
     vertexCache_.reserve(requiredSize);
 
-    // 批量处理顶点数据
+    // Process vertex data in batches
     for (size_t i = 0; i < data.points.size(); i += 4) {
         float x1 = data.points[i];
         float y1 = data.points[i + 1];
         float x2 = data.points[i + 2];
         float y2 = data.points[i + 3];
 
-        // 计算方向向量和法向量
+        // Compute direction and normal vectors
         float dx = x2 - x1;
         float dy = y2 - y1;
         float length = sqrt(dx * dx + dy * dy);
@@ -137,7 +137,7 @@ void DrawLinesProgram::draw(const RenderContext &context, const DrawLinesData &d
         float nx = -dy * data.width * 0.5f;
         float ny = dx * data.width * 0.5f;
 
-        // 四个顶点
+        // Four quad vertices
         float vertices[12] = {
             x1 + nx, y1 + ny,
             x1 - nx, y1 - ny,
@@ -147,11 +147,11 @@ void DrawLinesProgram::draw(const RenderContext &context, const DrawLinesData &d
             x2 - nx, y2 - ny
         };
 
-        // 保持像素空间坐标，交给shader统一做投影和模型变换
+        // Keep pixel-space coordinates and let the shader handle projection/model transforms
         for (int j = 0; j < 12; j += 2) {
             vertexCache_.push_back(vertices[j]);
             vertexCache_.push_back(vertices[j + 1]);
-            // 添加颜色
+            // Append color values
             vertexCache_.push_back(data.color[0]);
             vertexCache_.push_back(data.color[1]);
             vertexCache_.push_back(data.color[2]);
@@ -170,3 +170,4 @@ void DrawLinesProgram::draw(const RenderContext &context, const DrawLinesData &d
     glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(vertexCache_.size() / 6));
     glBindVertexArray(0);
 }
+

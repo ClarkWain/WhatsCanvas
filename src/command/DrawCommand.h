@@ -9,7 +9,7 @@
 #include "command/DrawText.h"
 
 // **********************************
-// ***** Command 类 *****
+// ***** Command class *****
 // **********************************
 class Command
 {
@@ -18,7 +18,7 @@ public:
 };
 
 // **********************************
-// ***** DrawPointCommand 类 *****
+// ***** DrawPointsCommand class *****
 // **********************************
 class DrawPointsCommand : public Command
 {
@@ -39,7 +39,7 @@ private:
 };
 
 // **********************************
-// ***** DrawLinesCommand 类 *****
+// ***** DrawLinesCommand class *****
 // **********************************
 class DrawLinesCommand : public Command
 {
@@ -60,7 +60,7 @@ private:
 };
 
 // **********************************
-// ***** DrawPathCommand 类 *****
+// ***** DrawPathCommand class *****
 // **********************************
 class DrawPathCommand : public Command
 {

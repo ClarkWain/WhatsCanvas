@@ -18,7 +18,7 @@ set(WHATSCANVAS_DEFAULT_SMOKE_HASH "2458027664413625913" CACHE STRING "Default l
 set(WHATSCANVAS_CLIP_SMOKE_HASH "12248791335057056593" CACHE STRING "Default local clip-path smoke hash for regression ctest registration.")
 
 if (MSVC)
-    # 全局禁用警告 C4819
+    # Globally disable warning C4819
     add_compile_options(/wd4819)
 endif()
 
@@ -218,4 +218,5 @@ if (WHATSCANVAS_INSTALL)
         DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/WhatsCanvas"
     )
 endif()
+
 

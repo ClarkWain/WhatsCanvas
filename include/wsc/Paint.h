@@ -319,13 +319,13 @@ public:
         antiAlias_ = aa;
     }
 
-    // 获取抗锯齿
+    // Get anti-aliasing state
     bool isAntiAlias() const
     {
         return antiAlias_;
     }
 
-    // 设置颜色
+    // Set color
     void setColor(const Color &color)
     {
         color_ = color;
@@ -333,13 +333,13 @@ public:
         clearShader();
     }
 
-    // 设置颜色
+    // Set color
     void setColor(int r, int g, int b, int a = 255)
     {
         setColor(Color(r, g, b, a));
     }
 
-    // 设置颜色
+    // Set color
     void setColor(float r, float g, float b, float a = 1.0f)
     {
         setColor(Color(static_cast<int>(r * 255), static_cast<int>(g * 255),
@@ -499,19 +499,19 @@ public:
     float getShadowDy() const { return shadowDy_; }
     Color getShadowColor() const { return shadowColor_; }
 
-    // 获取颜色
+    // Get fill color
     Color getColor() const
     {
         return color_;
     }
 
-    // 设置线条宽度
+    // Set stroke width
     void setStrokeWidth(float width)
     {
         strokeWidth_ = width;
     }
 
-    // 获取线条宽度
+    // Get stroke width
     float getStrokeWidth() const
     {
         return strokeWidth_;
@@ -735,31 +735,31 @@ public:
                              static_cast<int>(b * 255), static_cast<int>(a * 255));
     }
 
-    // 获取线条颜色
+    // Get stroke color
     Color getStrokeColor() const
     {
         return strokeColor_;
     }
 
-    // 设置样式
+    // Set paint style
     void setStyle(Style style)
     {
         style_ = style;
     }
 
-    // 获取样式
+    // Get paint style
     Style getStyle() const
     {
         return style_;
     }
 
-    // 设置线条端点样式
+    // Set stroke cap style
     void setStrokeCap(StrokeCap cap)
     {
         strokeCap_ = cap;
     }
 
-    // 获取线条端点样式
+    // Get stroke cap style
     StrokeCap getStrokeCap() const
     {
         return strokeCap_;
@@ -841,4 +841,5 @@ private:
 };
 
 } // namespace wsc
+
 

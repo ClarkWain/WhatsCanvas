@@ -35,7 +35,8 @@ private:
     bool initialized_ = false;
     int maxLines_ = 200;
 
-    std::vector<float> vertexCache_;  // 缓存顶点数据
-    size_t lastBufferSize_ = 0;       // 上次缓冲区大小
-    static constexpr size_t BUFFER_GROW_FACTOR = 2;  // 缓冲区增长因子
+    std::vector<float> vertexCache_;  // Cached vertex data
+    size_t lastBufferSize_ = 0;       // Previous buffer size
+    static constexpr size_t BUFFER_GROW_FACTOR = 2;  // Buffer growth factor
 };
+

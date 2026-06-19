@@ -8,11 +8,11 @@
 class DrawPointsProgram 
 {
 public:
-    // 删除拷贝构造和赋值运算符
+    // Disable copy construction and copy assignment
     DrawPointsProgram(const DrawPointsProgram&) = delete;
     DrawPointsProgram& operator=(const DrawPointsProgram&) = delete;
     
-    // 获取单例实例的静态方法
+    // Static accessor for the singleton instance
     static DrawPointsProgram* getInstance() {
         if (instance_ == nullptr) {
             instance_ = new DrawPointsProgram();
@@ -28,10 +28,10 @@ public:
     void draw(const RenderContext &context, const DrawPointsData &data);
 
 private:
-    // 构造函数改为私有
+    // Make the constructor private
     DrawPointsProgram();
     
-    // 静态实例指针
+    // Static instance pointer
     static DrawPointsProgram* instance_;
     
     GLProgram* program_ =  nullptr;
@@ -42,7 +42,8 @@ private:
 
     int maxPoints_ = 200;
 
-    std::vector<float> vertexCache_;  // 缓存顶点数据
-    size_t lastBufferSize_ = 0;       // 上次缓冲区大小
-    static constexpr size_t BUFFER_GROW_FACTOR = 2;  // 缓冲区增长因子
+    std::vector<float> vertexCache_;  // Cached vertex data
+    size_t lastBufferSize_ = 0;       // Previous buffer size
+    static constexpr size_t BUFFER_GROW_FACTOR = 2;  // Buffer growth factor
 };
+

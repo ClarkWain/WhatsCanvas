@@ -8,11 +8,11 @@ public:
     GLVertexArray();
     ~GLVertexArray();
 
-    // 禁用拷贝构造和拷贝赋值
+    // Disable copy construction and copy assignment
     GLVertexArray(const GLVertexArray&) = delete;
     GLVertexArray& operator=(const GLVertexArray&) = delete;
 
-    // 移动构造和移动赋值
+    // Move constructor and move assignment
     GLVertexArray(GLVertexArray&& other) noexcept;
     GLVertexArray& operator=(GLVertexArray&& other) noexcept;
 
@@ -22,7 +22,7 @@ public:
     void enableVertexAttribArray(GLuint index, GLint size, GLenum type, GLboolean normalized, GLsizei stride, const void* pointer) const;
     void setIndexData(const void* data, size_t size, GLenum usage = GL_STATIC_DRAW) const;
 
-    // 内联getter函数
+    // Inline getter functions
     GLuint getVAO() const { return vaoID; }
     GLuint getVBO() const { return vboID; }
     GLuint getEBO() const { return eboID; }
@@ -32,3 +32,4 @@ private:
     GLuint vboID = 0;
     GLuint eboID = 0;
 };
+

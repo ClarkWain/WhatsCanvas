@@ -72,7 +72,7 @@ bool parseFloat(const std::string& text, float& value)
     return true;
 }
 
-// 回调函数：当窗口大小变化时调整视口
+// Callback: update the viewport when the framebuffer size changes
 void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
     glViewport(0, 0, width, height);
     Canvas* canvas = static_cast<Canvas*>(glfwGetWindowUserPointer(window));
@@ -86,26 +86,26 @@ int main() {
     const bool disableMsaa = !getEnvironmentValue("WHATSCANVAS_DISABLE_MSAA").empty();
     const bool exerciseClipPath = !getEnvironmentValue("WHATSCANVAS_EXERCISE_CLIP_PATH").empty();
 
-    // 初始化 GLFW
+    // Initialize GLFW
     if (!glfwInit()) {
         std::cerr << "Failed to initialize GLFW" << std::endl;
         return -1;
     }
     std::cout << "GLFW initialized successfully." << std::endl;
 
-    // 设置 GLFW 上下文版本和 OpenGL 配置
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3); // 主版本号
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3); // 次版本号
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE); // 使用核心模式
-    glfwWindowHint(GLFW_SAMPLES, disableMsaa ? 0 : 4); // 请求 MSAA，若不支持 GLFW 会回退。
+    // Configure the GLFW context version and OpenGL settings
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3); // major version
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3); // minor version
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE); // use the core profile
+    glfwWindowHint(GLFW_SAMPLES, disableMsaa ? 0 : 4); // request MSAA; GLFW falls back if it is unavailable.
     glfwWindowHint(GLFW_STENCIL_BITS, 8);
 
-    // 在 macOS 上需要启用兼容性视图
+    // macOS requires a forward-compatible context
     #ifdef __APPLE__
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
     #endif
 
-    // 创建窗口
+    // Create the window
     GLFWwindow* window = glfwCreateWindow(kWindowWidth, kWindowHeight, "WhatsCanvas Demo", nullptr, nullptr);
     if (!window) {
         std::cerr << "Failed to create GLFW window" << std::endl;
@@ -114,18 +114,18 @@ int main() {
     }
     std::cout << "GLFW window created successfully." << std::endl;
 
-    // 设置当前上下文
+    // Make the context current
     glfwMakeContextCurrent(window);
     std::cout << "GLFW context set successfully." << std::endl;
 
-    // 初始化 GLAD
+    // Initialize GLAD
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
         std::cerr << "Failed to initialize GLAD" << std::endl;
         return -1;
     }
     std::cout << "GLAD initialized successfully." << std::endl;
 
-    // 检查 OpenGL 版本
+    // Check the OpenGL version
     std::cout << "OpenGL " << glGetString(GL_VERSION) << " loaded." << std::endl;
 
     int framebufferWidth = 0;
@@ -138,13 +138,13 @@ int main() {
         framebufferHeight = kWindowHeight;
     }
 
-    // 设置视口
+    // Set the viewport
     glViewport(0, 0, framebufferWidth, framebufferHeight);
     if (!disableMsaa) {
         glEnable(GL_MULTISAMPLE);
     }
 
-    // 设置清除颜色
+    // Set the clear color
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     Canvas canvas;
         canvas.setSize(framebufferWidth, framebufferHeight);
@@ -508,13 +508,13 @@ int main() {
     const float rotatingTextClipHalfWidth = rotatingTextMetrics.width * 0.5f + 14.0f;
     const float rotatingTextClipHeight = rotatingTextMetrics.height + 24.0f;
     
-    // 动画参数
+    // Animation parameters
     const float centerX = 400.0f;
     const float centerY = 300.0f;
     const float radius = 100.0f;
     const int numPoints = 5;
     const float rotationSpeed = 1.0f;
-    const float colorSpeed = 0.5f;  // 颜色变化速度
+    const float colorSpeed = 0.5f;  // color animation speed
     bool pixelReadbackChecked = false;
     bool captureChecked = false;
     const std::string capturePath = getEnvironmentValue("WHATSCANVAS_CAPTURE_PPM");
@@ -528,14 +528,14 @@ int main() {
         std::cerr << "Fixed time invalid" << std::endl;
     }
     
-    // 主循环
+    // Main loop
     while (!glfwWindowShouldClose(window)) {
         glClear(GL_COLOR_BUFFER_BIT);
         
         float currentTime = hasFixedTime ? fixedTimeSeconds : static_cast<float>(glfwGetTime());
         float rotation = currentTime * rotationSpeed;
         
-        // 计算颜色
+        // Compute animated color
         float r = (sin(currentTime * colorSpeed) + 1.0f) * 0.5f;
         float g = (sin(currentTime * colorSpeed + 2.0f * PI / 3.0f) + 1.0f) * 0.5f;
         float b = (sin(currentTime * colorSpeed + 4.0f * PI / 3.0f) + 1.0f) * 0.5f;
@@ -683,7 +683,7 @@ int main() {
             canvas.restore();
             canvas.drawRect(rotatingTextDeviceBounds, clipBoundsPaint);
         
-        // 计算并存储顶点
+        // Compute and store vertices
         std::vector<std::pair<float, float>> points;
         for (int i = 0; i < numPoints; i++) {
             float angle = rotation + i * (2 * PI / numPoints);
@@ -692,7 +692,7 @@ int main() {
             points.push_back({x, y});
         }
         
-        // 绘制线条
+        // Draw the lines
         for (int i = 0; i < numPoints; i++) {
             int next = (i + 2) % numPoints;
             canvas.drawLine(
@@ -747,7 +747,7 @@ int main() {
     
     canvas.shutdown();
 
-    // 终止 GLFW
+    // Terminate GLFW
     glfwTerminate();
     std::cout << "GLFW terminated. Exiting application." << std::endl;
 

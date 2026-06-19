@@ -4,7 +4,7 @@
 #include "render/RenderTypes.h"
 
 struct DrawPointsData {
-    std::vector<float> points;  // 每个点包含x,y坐标
+    std::vector<float> points;  // Each point stores x/y coordinates
     float size;
     float color[4];
     glm::mat4 transform = glm::mat4(1.0f);
@@ -16,7 +16,7 @@ struct DrawPointsData {
 
 
 struct DrawLinesData {
-    std::vector<float> points;  // 每个点包含x,y坐标
+    std::vector<float> points;  // Each point stores x/y coordinates
     float width;
     float color[4];
     glm::mat4 transform = glm::mat4(1.0f);
@@ -39,12 +39,12 @@ enum class PathCapStyle {
 };
 
 struct DrawPathData {
-    std::vector<float> points;    // 路径点，每个点包含 x, y 坐标
-    std::vector<float> colors;    // 可选顶点颜色，每个顶点包含 r,g,b,a
-    float width = 1.0f;           // 线条宽度
-    float color[4];               // 颜色 RGBA
-    PathDrawMode drawMode;        // 绘制模式
-    PathCapStyle capStyle;        // 笔锋样式
+    std::vector<float> points;    // Path points, each storing x/y coordinates
+    std::vector<float> colors;    // Optional per-vertex colors, each storing r/g/b/a
+    float width = 1.0f;           // Stroke width
+    float color[4];               // RGBA color
+    PathDrawMode drawMode;        // Draw mode
+    PathCapStyle capStyle;        // Cap style
     glm::mat4 transform = glm::mat4(1.0f);
     ScissorState scissor;
     DrawBlendMode blendMode = DrawBlendMode::SrcOver;

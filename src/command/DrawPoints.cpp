@@ -57,28 +57,28 @@ void DrawPointsProgram::initialize()
 
     program_ = new GLProgram(vertexSrc, fragmentSrc);
 
-    // 创建VAO和VBO
+    // Create the VAO and VBO
     glGenVertexArrays(1, &VAO_);
     glGenBuffers(1, &VBO_);
 
-    // 绑定VAO和VBO
+    // Bind the VAO and VBO
     glBindVertexArray(VAO_);
     glBindBuffer(GL_ARRAY_BUFFER, VBO_);
 
-    // 预分配更大的缓冲区大小
+    // Preallocate a larger buffer
     glBufferData(GL_ARRAY_BUFFER, maxPoints_ * 6 * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
 
-    // 设置顶点属性（位置和颜色）
+    // Configure vertex attributes (position and color)
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *)0);
     glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *)(2 * sizeof(float)));
 
     glEnableVertexAttribArray(0);
     glEnableVertexAttribArray(1);
 
-    // 解绑
+    // Unbind the current objects
     glBindVertexArray(0);
 
-    // 预分配vertexCache
+    // Preallocate vertexCache
     vertexCache_.reserve(maxPoints_ * 6);
 
     initialized_ = true;
@@ -117,19 +117,19 @@ void DrawPointsProgram::draw(const RenderContext &context, const DrawPointsData 
 
     const size_t requiredSize = data.getPointCount() * 6;
     
-    // 只在必要时重新分配缓冲区
+    // Reallocate the buffer only when required
     if (requiredSize > maxPoints_ * 6) {
-        maxPoints_ = static_cast<int>(requiredSize * BUFFER_GROW_FACTOR);  // 成倍增长策略
+        maxPoints_ = static_cast<int>(requiredSize * BUFFER_GROW_FACTOR);  // geometric growth policy
         glBindBuffer(GL_ARRAY_BUFFER, VBO_);
         glBufferData(GL_ARRAY_BUFFER, maxPoints_ * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
         vertexCache_.reserve(maxPoints_);
     }
 
-    // 重用vertexCache
+    // Reuse vertexCache
     vertexCache_.clear();
     vertexCache_.reserve(requiredSize);
 
-    // 批量处理顶点数据
+    // Process vertex data in batches
     for (size_t i = 0; i < data.points.size(); i += 2) {
         vertexCache_.push_back(data.points[i]);
         vertexCache_.push_back(data.points[i + 1]);

@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <algorithm>
 #include <cmath>
@@ -40,7 +40,7 @@ public:
         return fillType_;
     }
 
-    // 移动到指定点
+    // Move to the specified point
     void moveTo(float x, float y) {
         points_.emplace_back(Op::MOVE_TO, PointF(x, y));
         currentPoint_ = PointF(x, y);
@@ -49,7 +49,7 @@ public:
         hasContourStart_ = true;
     }
 
-    // 从当前点连线到指定点
+    // Add a line from the current point
     void lineTo(float x, float y) {
         if (!hasCurrentPoint_) {
             moveTo(x, y);
@@ -121,7 +121,7 @@ public:
         cubicTo(control1.getX(), control1.getY(), control2.getX(), control2.getY(), end.getX(), end.getY());
     }
 
-    // 闭合路径（连接到起始点）
+    // Close the path by linking back to the contour start
     void close() {
         points_.emplace_back(Op::CLOSE, PointF());
         if (hasContourStart_) {
@@ -130,7 +130,7 @@ public:
         }
     }
 
-    // 重置路径
+    // Reset the path
     void reset() {
         points_.clear();
         hasCurrentPoint_ = false;
@@ -138,12 +138,12 @@ public:
         fillType_ = FillType::WINDING;
     }
 
-    // 获取路径点集合
+    // Get the stored path points
     const std::vector<PathPoint>& getPoints() const {
         return points_;
     }
 
-    // 检查路径是否为空
+    // Check whether the path is empty
     bool isEmpty() const {
         return points_.empty();
     }
@@ -949,7 +949,7 @@ public:
         }
     }
 
-    // 添加矩形
+    // Append a rectangle
     void addRect(const RectF& rect) {
         moveTo(rect.getX(), rect.getY());
         lineTo(rect.getX() + rect.getWidth(), rect.getY());
@@ -1036,14 +1036,14 @@ public:
         close();
     }
 
-    // 添加圆形
+    // Append a circle
     void addCircle(float x, float y, float radius) {
         constexpr float pi = 3.14159265358979323846f;
-        // 根据半径计算合适的细分段数
-        // 每4个像素对应一个细分段，最少12段，最多180段
-        const float segmentsPerPixel = 0.25f;  // 每4个像素一段
-        const int minSegments = 12;            // 最少段数
-        const int maxSegments = 180;           // 最多段数
+        // Choose a segment count based on the radius
+        // Use one segment per 4 pixels, clamped to [12, 180]
+        const float segmentsPerPixel = 0.25f;  // one segment per 4 pixels
+        const int minSegments = 12;            // minimum segment count
+        const int maxSegments = 180;           // maximum segment count
         
         int segments = static_cast<int>(2.0f * pi * radius * segmentsPerPixel);
         segments = std::max(minSegments, std::min(maxSegments, segments));
@@ -1125,3 +1125,4 @@ private:
 
 
 } // namespace wsc
+

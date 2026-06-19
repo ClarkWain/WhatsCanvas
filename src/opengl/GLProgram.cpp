@@ -1,14 +1,14 @@
 #include "GLProgram.h"
 #include <iostream>
 
-// 移动构造函数
+// Move constructor
 GLProgram::GLProgram(GLProgram &&other) noexcept
     : program_(other.program_)
 {
     other.program_ = 0;
 }
 
-// 移动赋值运算符
+// Move assignment operator
 GLProgram &GLProgram::operator=(GLProgram &&other) noexcept
 {
     if (this != &other)
@@ -57,7 +57,7 @@ void GLProgram::linkProgram(GLuint vertexShader, GLuint fragmentShader, GLuint g
     glLinkProgram(program_);
     checkLinkErrors();
 
-    // 清理着色器
+    // Delete shader objects
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 

@@ -22,7 +22,7 @@ void DrawPathProgram::initialize()
     if (initialized_)
         return;
 
-    // 创建着色器程序
+    // Create the shader program
     std::string vertexSrc = R"(
         #version 330 core
         layout (location = 0) in vec2 aPos;
@@ -51,19 +51,19 @@ void DrawPathProgram::initialize()
 
     program_ = new GLProgram(vertexSrc, fragmentSrc);
 
-    // 创建 VAO 和 VBO
+    // Create the VAO and VBO
     glGenVertexArrays(1, &VAO_);
     glGenBuffers(1, &VBO_);
     glGenBuffers(1, &CBO_);
 
-    // 绑定 VAO 和 VBO
+    // Bind the VAO and VBO
     glBindVertexArray(VAO_);
     glBindBuffer(GL_ARRAY_BUFFER, VBO_);
 
-    // 预分配缓冲区
+    // Preallocate the buffer
     glBufferData(GL_ARRAY_BUFFER, maxVertices_ * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
 
-    // 设置顶点属性
+    // Configure vertex attributes
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
 
@@ -72,7 +72,7 @@ void DrawPathProgram::initialize()
     glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(1);
 
-    // 解绑
+    // Unbind the current objects
     glBindVertexArray(0);
 
     vertexCache_.reserve(maxVertices_);
@@ -111,7 +111,7 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
     if (data.points.empty())
         return;
 
-    // 根据需要调整缓冲区大小
+    // Resize the buffer when needed
     size_t requiredSize = data.points.size();
     if (requiredSize > maxVertices_)
     {
@@ -124,7 +124,7 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
         vertexCache_.reserve(maxVertices_);
     }
 
-    // 设置投影矩阵
+    // Set the projection matrix
     glm::mat4 projection = glm::ortho(0.0f, static_cast<float>(context.getWidth()), static_cast<float>(context.getHeight()), 0.0f);
     program_->use();
     program_->setMat4("uProjection", projection);
@@ -132,7 +132,7 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
     program_->setVec4("uColor", glm::make_vec4(data.color));
     program_->setInt("uUseVertexColor", data.hasVertexColors() ? 1 : 0);
 
-    // 更新顶点数据
+    // Upload vertex data
     glBindVertexArray(VAO_);
     glBindBuffer(GL_ARRAY_BUFFER, VBO_);
     glBufferSubData(GL_ARRAY_BUFFER, 0, requiredSize * sizeof(float), data.points.data());
@@ -142,7 +142,7 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
         glBufferSubData(GL_ARRAY_BUFFER, 0, data.colors.size() * sizeof(float), data.colors.data());
     }
 
-    // 根据绘制模式绘制
+    // Draw according to the selected draw mode
     if (data.drawMode == PathDrawMode::Fill)
     {
         glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(data.getPointCount()));

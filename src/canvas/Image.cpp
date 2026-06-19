@@ -99,8 +99,9 @@ bool wsc::Image::load(IRenderer &renderer, const char *imagePath)
     {
         reset();
 
-        // 处理加载失败的情况
+        // Handle image load failure
         std::cerr << "Failed to load image: " << imagePath << std::endl;
         return false;
     }
 }
+

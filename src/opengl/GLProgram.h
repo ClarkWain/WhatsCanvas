@@ -6,7 +6,7 @@
 #include <stdexcept>
 #include <glm/glm.hpp>
 
-// 自定义异常类
+// Custom exception type
 class GLProgramException : public std::runtime_error {
 public:
     explicit GLProgramException(const std::string& message) : std::runtime_error(message) {}
@@ -16,10 +16,10 @@ class GLProgram {
 public:
     GLProgram(const std::string& vertexSrc, const std::string& fragmentSrc);
     GLProgram(const std::string& vertexSrc, const std::string& geometrySrc, const std::string& fragmentSrc);
-    // 禁用拷贝
+    // Disable copy operations
     GLProgram(const GLProgram&) = delete;
     GLProgram& operator=(const GLProgram&) = delete;
-    // 启用移动
+    // Enable move operations
     GLProgram(GLProgram&& other) noexcept;
     GLProgram& operator=(GLProgram&& other) noexcept;
     
@@ -27,7 +27,7 @@ public:
     void use();
     GLuint getProgram() const;
 
-    // Uniform设置方法
+    // Uniform setter helpers
     void setFloat(const std::string& name, float value);
     void setInt(const std::string& name, int value);
     void setVec2(const std::string& name, const glm::vec2& value);
@@ -42,3 +42,4 @@ private:
     void checkCompileErrors(GLuint shader, const std::string& type);
     void checkLinkErrors();
 };
+
