@@ -27,6 +27,19 @@ Color::Color(int r, int g, int b, int a)
 {
 }
 
+Color::Color(float r, float g, float b, float a)
+    : r_(static_cast<int>(std::clamp(r, 0.0f, 1.0f) * 255.0f + 0.5f)),
+      g_(static_cast<int>(std::clamp(g, 0.0f, 1.0f) * 255.0f + 0.5f)),
+      b_(static_cast<int>(std::clamp(b, 0.0f, 1.0f) * 255.0f + 0.5f)),
+      a_(static_cast<int>(std::clamp(a, 0.0f, 1.0f) * 255.0f + 0.5f))
+{
+}
+
+Color Color::fromFloat(float r, float g, float b, float a)
+{
+    return Color(r, g, b, a);
+}
+
 Color Color::fromHex(const std::string &hex)
 {
     if (hex.size() != 9 && hex.size() != 7) {

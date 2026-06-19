@@ -81,6 +81,7 @@ function(whatscanvas_add_opengl_library target_name project_root)
         "${src_dir}/command/DrawText.cpp"
         "${src_dir}/render/RenderContext.cpp"
         "${src_dir}/render/OpenGLRenderDevice.cpp"
+        "${src_dir}/render/RenderDeviceFactory.cpp"
         "${src_dir}/render/Renderer.cpp"
     )
 

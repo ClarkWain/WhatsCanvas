@@ -8,6 +8,9 @@
 #include "IRenderer.h"
 #include "RenderContext.h"
 
+// Forward declaration for backend type enum.
+enum class RenderBackendType;
+
 class Renderer : public IRenderer
 {
 public:

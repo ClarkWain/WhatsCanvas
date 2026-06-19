@@ -2,7 +2,7 @@
 #include "Renderer.h"
 
 #include "command/DrawCommand.h"
-#include "OpenGLRenderDevice.h"
+#include "RenderDeviceFactory.h"
 
 #include <cmath>
 #include <glm/glm.hpp>
@@ -12,7 +12,7 @@ constexpr float kMergeEpsilon = 0.001f;
 } // namespace
 
 Renderer::Renderer()
-    : Renderer(std::make_unique<OpenGLRenderDevice>())
+    : Renderer(RenderDeviceFactory::createBestAvailable())
 {
 }
 

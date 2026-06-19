@@ -96,7 +96,9 @@ public:
 	int getWidth() const;
 	int getHeight() const;
 	void setColor(Color color);
+	void setColor(float r, float g, float b, float a = 1.0f);
 	void drawColor(const Color &color);
+	void drawColor(float r, float g, float b, float a = 1.0f);
 	void drawPaint(const Paint &paint);
 
 	// Primitive drawing.

@@ -1671,6 +1671,11 @@ void Canvas::setColor(Color color)
     impl_->color = color;
 }
 
+void Canvas::setColor(float r, float g, float b, float a)
+{
+    impl_->color = Color(r, g, b, a);
+}
+
 bool Canvas::isTextureValid() const
 {
     if (!impl_->rendererInitialized || impl_->width <= 0 || impl_->height <= 0) {
@@ -1716,6 +1721,11 @@ void Canvas::drawColor(const Color &color)
     paint.setStyle(Paint::Style::FILL);
     paint.setFillColor(color);
     drawPaint(paint);
+}
+
+void Canvas::drawColor(float r, float g, float b, float a)
+{
+    drawColor(Color(r, g, b, a));
 }
 
 void Canvas::drawPaint(const Paint &paint)
