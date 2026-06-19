@@ -3,6 +3,7 @@
 
 #include "DrawData.h"
 #include "opengl/GLProgram.h"
+#include "opengl/StreamBuffer.h"
 #include "render/RenderContext.h"
 
 class DrawPathProgram
@@ -34,13 +35,9 @@ private:
 
     GLProgram* program_ = nullptr;
     unsigned int VAO_ = -1;
-    unsigned int VBO_ = -1;
-    unsigned int CBO_ = -1;
 
     bool initialized_ = false;
 
-    int maxVertices_ = 200;
-    static constexpr int BUFFER_GROW_FACTOR = 2;
-
-    std::vector<float> vertexCache_;  // Cached vertex data
+    StreamBuffer positionBuffer_;
+    StreamBuffer colorBuffer_;
 };

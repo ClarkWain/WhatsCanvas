@@ -10,8 +10,8 @@
 | 3 | 多后端渲染抽象 | 4 | XL | ✅ 已完成 |
 | 4 | 统一 DrawCommand 结构 | 5 | M | 🔧 进行中 |
 | 5 | GraphicsState 栈扩展 | 4 | S | ✅ 已完成 |
-| 6 | Shader validateDrawState | 4 | S | 🔧 进行中 |
-| 7 | StreamBuffer 顶点流 | 5 | M | ⬜ 待开始 |
+| 6 | Shader validateDrawState | 4 | S | ✅ 已完成 |
+| 7 | StreamBuffer 顶点流 | 5 | M | 🔧 进行中 |
 | 8 | Lazy Render Pass | 3 | S | ⬜ 待开始 |
 | 9 | Gamma 校正管线 | 3 | M | ⬜ 待开始 |
 | 10 | 帧边界 present/reset | 4 | S | ⬜ 待开始 |

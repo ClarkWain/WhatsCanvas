@@ -52,31 +52,26 @@ void DrawPathProgram::initialize()
 
     program_ = new GLProgram(vertexSrc, fragmentSrc);
 
-    // Create the VAO and VBO
+    // Create the VAO
     glGenVertexArrays(1, &VAO_);
-    glGenBuffers(1, &VBO_);
-    glGenBuffers(1, &CBO_);
 
-    // Bind the VAO and VBO
+    // Initialize stream buffers
+    positionBuffer_.initialize(4096);
+    colorBuffer_.initialize(8192);
+
+    // Bind the VAO and configure vertex attributes
     glBindVertexArray(VAO_);
-    glBindBuffer(GL_ARRAY_BUFFER, VBO_);
 
-    // Preallocate the buffer
-    glBufferData(GL_ARRAY_BUFFER, maxVertices_ * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
-
-    // Configure vertex attributes
+    glBindBuffer(GL_ARRAY_BUFFER, positionBuffer_.handle());
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
 
-    glBindBuffer(GL_ARRAY_BUFFER, CBO_);
-    glBufferData(GL_ARRAY_BUFFER, maxVertices_ * 2 * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, colorBuffer_.handle());
     glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(1);
 
-    // Unbind the current objects
+    // Unbind
     glBindVertexArray(0);
-
-    vertexCache_.reserve(maxVertices_);
 
     initialized_ = true;
 }
@@ -92,11 +87,8 @@ void DrawPathProgram::release()
     if (VAO_ != -1)
         glDeleteVertexArrays(1, &VAO_);
 
-    if (VBO_ != -1)
-        glDeleteBuffers(1, &VBO_);
-
-    if (CBO_ != -1)
-        glDeleteBuffers(1, &CBO_);
+    positionBuffer_.release();
+    colorBuffer_.release();
 
     initialized_ = false;
 }
@@ -111,17 +103,11 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
         return;
     }
 
-    // Resize the buffer when needed
-    size_t requiredSize = data.points.size();
-    if (requiredSize > maxVertices_)
-    {
-        while (requiredSize > maxVertices_)
-            maxVertices_ *= BUFFER_GROW_FACTOR;
-        glBindBuffer(GL_ARRAY_BUFFER, VBO_);
-        glBufferData(GL_ARRAY_BUFFER, maxVertices_ * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
-        glBindBuffer(GL_ARRAY_BUFFER, CBO_);
-        glBufferData(GL_ARRAY_BUFFER, maxVertices_ * 2 * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
-        vertexCache_.reserve(maxVertices_);
+    // Upload vertex data via stream buffers
+    positionBuffer_.upload(data.points.data(), data.points.size());
+
+    if (data.hasVertexColors()) {
+        colorBuffer_.upload(data.colors.data(), data.colors.size());
     }
 
     // Set the projection matrix
@@ -132,17 +118,9 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
     program_->setVec4("uColor", glm::make_vec4(data.color));
     program_->setInt("uUseVertexColor", data.hasVertexColors() ? 1 : 0);
 
-    // Upload vertex data
+    // Bind VAO and draw (StreamBuffer already bound the data via upload)
     glBindVertexArray(VAO_);
-    glBindBuffer(GL_ARRAY_BUFFER, VBO_);
-    glBufferSubData(GL_ARRAY_BUFFER, 0, requiredSize * sizeof(float), data.points.data());
 
-    if (data.hasVertexColors()) {
-        glBindBuffer(GL_ARRAY_BUFFER, CBO_);
-        glBufferSubData(GL_ARRAY_BUFFER, 0, data.colors.size() * sizeof(float), data.colors.data());
-    }
-
-    // Draw according to the selected draw mode
     if (data.drawMode == PathDrawMode::Fill)
     {
         glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(data.getPointCount()));
