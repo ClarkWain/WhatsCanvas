@@ -14,8 +14,8 @@
 | 7 | StreamBuffer 顶点流 | 5 | M | ✅ 已完成 |
 | 8 | Lazy Render Pass | 3 | S | ✅ 已完成 |
 | 9 | Gamma 校正管线 | 3 | M | ✅ 已完成 |
-| 10 | 帧边界 present/reset | 4 | S | 🔧 进行中 |
-| 11 | Volatile 资源生命周期 | 4 | M | ⬜ 待开始 |
+| 10 | 帧边界 present/reset | 4 | S | ✅ 已完成 |
+| 11 | Volatile 资源生命周期 | 4 | M | 🔧 进行中 |
 | 12 | 临时资源池 | 3 | M | ⬜ 待开始 |
 | 13 | 异步 Readback + Fence Sync | 3 | M | ⬜ 待开始 |
 | 14 | 全局 Quad/Fan Index Buffer | 4 | S | ⬜ 待开始 |

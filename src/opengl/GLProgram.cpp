@@ -24,6 +24,7 @@ GLProgram &GLProgram::operator=(GLProgram &&other) noexcept
 }
 
 GLProgram::GLProgram(const std::string &vertexSrc, const std::string &fragmentSrc)
+    : vertexSrc_(vertexSrc), fragmentSrc_(fragmentSrc)
 {
     GLuint vertexShader = compileShader(GL_VERTEX_SHADER, vertexSrc);
     GLuint fragmentShader = compileShader(GL_FRAGMENT_SHADER, fragmentSrc);
@@ -31,11 +32,44 @@ GLProgram::GLProgram(const std::string &vertexSrc, const std::string &fragmentSr
 }
 
 GLProgram::GLProgram(const std::string &vertexSrc, const std::string &geometrySrc, const std::string &fragmentSrc)
+    : vertexSrc_(vertexSrc), fragmentSrc_(fragmentSrc), geometrySrc_(geometrySrc)
 {
     GLuint vertexShader = compileShader(GL_VERTEX_SHADER, vertexSrc);
     GLuint geometryShader = compileShader(GL_GEOMETRY_SHADER, geometrySrc);
     GLuint fragmentShader = compileShader(GL_FRAGMENT_SHADER, fragmentSrc);
     linkProgram(vertexShader, fragmentShader, geometryShader);
+}
+
+bool GLProgram::loadVolatile()
+{
+    if (program_ != 0) {
+        return true;  // Already loaded.
+    }
+    if (vertexSrc_.empty() || fragmentSrc_.empty()) {
+        return false;  // No source to recompile from.
+    }
+
+    try {
+        GLuint vertexShader = compileShader(GL_VERTEX_SHADER, vertexSrc_);
+        GLuint fragmentShader = compileShader(GL_FRAGMENT_SHADER, fragmentSrc_);
+        if (!geometrySrc_.empty()) {
+            GLuint geometryShader = compileShader(GL_GEOMETRY_SHADER, geometrySrc_);
+            linkProgram(vertexShader, fragmentShader, geometryShader);
+        } else {
+            linkProgram(vertexShader, fragmentShader);
+        }
+        return true;
+    } catch (const GLProgramException &) {
+        return false;
+    }
+}
+
+void GLProgram::unloadVolatile()
+{
+    if (program_ != 0) {
+        glDeleteProgram(program_);
+        program_ = 0;
+    }
 }
 
 GLProgram::~GLProgram()

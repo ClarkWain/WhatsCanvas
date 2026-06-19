@@ -4,6 +4,7 @@
 #include <string>
 #include <stdexcept>
 #include <glm/glm.hpp>
+#include "render/IVolatile.h"
 
 // Custom exception type
 class GLProgramException : public std::runtime_error {
@@ -11,7 +12,7 @@ public:
     explicit GLProgramException(const std::string& message) : std::runtime_error(message) {}
 };
 
-class GLProgram {
+class GLProgram : public IVolatile {
 public:
     GLProgram(const std::string& vertexSrc, const std::string& fragmentSrc);
     GLProgram(const std::string& vertexSrc, const std::string& geometrySrc, const std::string& fragmentSrc);
@@ -22,9 +23,13 @@ public:
     GLProgram(GLProgram&& other) noexcept;
     GLProgram& operator=(GLProgram&& other) noexcept;
     
-    ~GLProgram();
+    ~GLProgram() override;
     void use();
     GLuint getProgram() const;
+
+    // IVolatile interface
+    bool loadVolatile() override;
+    void unloadVolatile() override;
 
     // Uniform setter helpers
     void setFloat(const std::string& name, float value);
@@ -36,6 +41,9 @@ public:
 
 private:
     GLuint program_;
+    std::string vertexSrc_;
+    std::string fragmentSrc_;
+    std::string geometrySrc_;
     GLuint compileShader(GLenum type, const std::string& source);
     void linkProgram(GLuint vertexShader, GLuint fragmentShader, GLuint geometryShader = 0);
     void checkCompileErrors(GLuint shader, const std::string& type);
