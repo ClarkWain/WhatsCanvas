@@ -28,6 +28,7 @@
 #include "command/DrawData.h"
 #include "command/DrawCommand.h"
 #include "render/GammaCorrect.h"
+#include "render/ResizeHandler.h"
 #include "Polyline2D.h"
 #include "Vec2.h"
 #include "stb_easy_font.h"
@@ -1670,6 +1671,9 @@ void Canvas::setSize(int width, int height)
     if (impl_->ensureRendererInitialized()) {
         impl_->renderer->setViewport(width, height);
     }
+
+    // Notify resize listeners.
+    ResizeHandler::instance().notify(width, height);
 }
 
 int Canvas::getWidth() const

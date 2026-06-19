@@ -23,5 +23,5 @@
 | 16 | DrawMode/ArcMode 组合枚举 | 3 | S | ✅ 已完成 |
 | 17 | Deprecation Warning 系统 | 2 | S | ✅ 已完成 |
 | 18 | isPixelFormatSupported 能力查询 | 4 | S | ✅ 已完成 |
-| 19 | SpriteBatch 批量绘制 | 3 | L | 🔧 进行中 |
-| 20 | 窗口 resize 无痛重建 | 4 | M | ⬜ 待开始 |
+| 19 | SpriteBatch 批量绘制 | 3 | L | ✅ 已完成 |
+| 20 | 窗口 resize 无痛重建 | 4 | M | 🔧 进行中 |
