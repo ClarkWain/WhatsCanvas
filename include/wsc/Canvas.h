@@ -51,6 +51,14 @@ public:
 		BOTTOM_RIGHT
 	};
 
+	/// Controls how arcs are closed (open stroke, chord, or pie slice).
+	enum class ArcMode
+	{
+		OPEN,   ///< Arc only, no closing segment.
+		CHORD,  ///< Arc with a straight line between start and end points.
+		PIE     ///< Arc with lines from center to start and end points.
+	};
+
 	static void initialize();
 	static void finalize();
 	using OpenGLProcAddress = void *(*)(const char *name);
@@ -105,6 +113,8 @@ public:
 	void drawOval(const Rect &bounds, const Paint &paint);
 	void drawArc(const RectF &bounds, float startRadians, float sweepRadians, bool useCenter, const Paint &paint);
 	void drawArc(const Rect &bounds, float startRadians, float sweepRadians, bool useCenter, const Paint &paint);
+	void drawArc(const RectF &bounds, float startRadians, float sweepRadians, ArcMode mode, const Paint &paint);
+	void drawArc(const Rect &bounds, float startRadians, float sweepRadians, ArcMode mode, const Paint &paint);
 	void drawPath(const Path &path, const Paint &paint);
 	RectF measureStrokeBounds(const Path &path, const Paint &paint) const;
 

@@ -2079,6 +2079,36 @@ void Canvas::drawArc(const Rect &bounds, float startRadians, float sweepRadians,
             startRadians, sweepRadians, useCenter, paint);
 }
 
+void Canvas::drawArc(const RectF &bounds, float startRadians, float sweepRadians, ArcMode mode, const Paint &paint)
+{
+    switch (mode) {
+    case ArcMode::OPEN:
+        drawArc(bounds, startRadians, sweepRadians, false, paint);
+        break;
+    case ArcMode::CHORD: {
+        // Chord: arc + straight line between endpoints, no center lines.
+        RectF normalized = normalizeRect(bounds);
+        if (normalized.getWidth() <= 0.0f || normalized.getHeight() <= 0.0f || std::abs(sweepRadians) <= kPointEpsilon) {
+            return;
+        }
+        Path path;
+        addArc(path, normalized, startRadians, sweepRadians, false, true);
+        drawPath(path, paint);
+        break;
+    }
+    case ArcMode::PIE:
+        drawArc(bounds, startRadians, sweepRadians, true, paint);
+        break;
+    }
+}
+
+void Canvas::drawArc(const Rect &bounds, float startRadians, float sweepRadians, ArcMode mode, const Paint &paint)
+{
+    drawArc(RectF(static_cast<float>(bounds.getX()), static_cast<float>(bounds.getY()),
+                  static_cast<float>(bounds.getWidth()), static_cast<float>(bounds.getHeight())),
+            startRadians, sweepRadians, mode, paint);
+}
+
 void Canvas::drawPath(const Path &path, const Paint &paint)
 {
     if (path.isEmpty()) {
