@@ -7,6 +7,7 @@
 
 #include <glm/glm.hpp>
 
+#include "Export.h"
 #include "Image.h"
 #include "Paint.h"
 #include "Path.h"
@@ -24,7 +25,7 @@ struct ClipMaskState;
 
 namespace wsc {
 /// Main drawing surface exposed by WhatsCanvas.
-class Canvas
+class WSC_API Canvas
 {
 public:
 	/// Aggregated text metrics returned by measurement helpers.

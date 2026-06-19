@@ -75,22 +75,30 @@ function(whatscanvas_add_opengl_library target_name project_root)
             "${src_dir}"
         INTERFACE
             "$<BUILD_INTERFACE:${project_root}/include>"
+            "$<BUILD_INTERFACE:${project_root}/third_party/glm>"
             "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
     )
     target_compile_definitions(${target_name} PUBLIC GLEW_STATIC)
     target_link_libraries(${target_name}
-        PUBLIC
-            WhatsCanvasGLM
-            WhatsCanvasSTB
-            WhatsCanvasPolyline2D
         PRIVATE
-            glfw
-            GLAD
-            OpenGL::GL
+            "$<BUILD_INTERFACE:WhatsCanvasGLM>"
+            "$<BUILD_INTERFACE:WhatsCanvasSTB>"
+            "$<BUILD_INTERFACE:WhatsCanvasPolyline2D>"
+            "$<BUILD_INTERFACE:glfw>"
+            "$<BUILD_INTERFACE:GLAD>"
+            "$<BUILD_INTERFACE:OpenGL::GL>"
+        INTERFACE
+            "$<INSTALL_INTERFACE:WhatsCanvas::GLFW>"
+            "$<INSTALL_INTERFACE:WhatsCanvas::GLAD>"
+            "$<INSTALL_INTERFACE:OpenGL::GL>"
     )
 
-    if (WIN32 AND BUILD_SHARED_LIBS)
-        set_target_properties(${target_name} PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+    if (BUILD_SHARED_LIBS)
+        target_compile_definitions(${target_name} PRIVATE WSC_EXPORTS PUBLIC WSC_SHARED)
+        set_target_properties(${target_name} PROPERTIES
+            CXX_VISIBILITY_PRESET hidden
+            VISIBILITY_INLINES_HIDDEN YES
+        )
     endif()
 
     if (WIN32)

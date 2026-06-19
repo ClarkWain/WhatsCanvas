@@ -3,8 +3,8 @@
 #include <memory>
 #include <string>
 
-#include <glm.hpp>
-#include <gtc/matrix_transform.hpp>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 #include "canvas/Path.h"
 #include "render/GraphicsStateStack.h"

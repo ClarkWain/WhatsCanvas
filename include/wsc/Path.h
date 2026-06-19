@@ -3,13 +3,15 @@
 #include <algorithm>
 #include <cmath>
 #include <vector>
+
+#include "Export.h"
 #include "base.h"
 
 namespace wsc {
 // Public path declaration for WhatsCanvas.
 
 /// Mutable 2D path with measurement, trimming and hit-test helpers.
-class Path {
+class WSC_API Path {
 public:
     enum class FillType {
         WINDING,

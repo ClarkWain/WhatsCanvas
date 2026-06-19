@@ -22,18 +22,14 @@ if (NOT TARGET WhatsCanvas::GLFW)
     )
 endif()
 
-if (NOT TARGET WhatsCanvas::OpenGL)
-    add_library(WhatsCanvas::OpenGL @WHATSCANVAS_OPENGL_IMPORTED_TYPE@ IMPORTED)
-    set_target_properties(WhatsCanvas::OpenGL PROPERTIES
-        IMPORTED_LOCATION "${_WHATSCANVAS_PREFIX}/@WHATSCANVAS_OPENGL_PACKAGE_LOCATION@"
-        INTERFACE_INCLUDE_DIRECTORIES "${_WHATSCANVAS_PREFIX}/include"
-        INTERFACE_LINK_LIBRARIES "WhatsCanvas::GLAD;WhatsCanvas::GLFW;OpenGL::GL"
-    )
+include("${CMAKE_CURRENT_LIST_DIR}/WhatsCanvasTargets.cmake")
 
-    if ("@WHATSCANVAS_OPENGL_PACKAGE_IMPLIB@" STREQUAL "")
-    else()
-        set_target_properties(WhatsCanvas::OpenGL PROPERTIES
-            IMPORTED_IMPLIB "${_WHATSCANVAS_PREFIX}/@WHATSCANVAS_OPENGL_PACKAGE_IMPLIB@"
-        )
-    endif()
+if (TARGET WhatsCanvas::WhatsCanvasOpenGL AND NOT TARGET WhatsCanvas::OpenGL)
+    add_library(WhatsCanvas::OpenGL ALIAS WhatsCanvas::WhatsCanvasOpenGL)
+endif()
+
+if (TARGET WhatsCanvas::WhatsCanvasOpenGL AND NOT "@WHATSCANVAS_OPENGL_PACKAGE_IMPLIB@" STREQUAL "")
+    set_target_properties(WhatsCanvas::WhatsCanvasOpenGL PROPERTIES
+        IMPORTED_IMPLIB "${_WHATSCANVAS_PREFIX}/@WHATSCANVAS_OPENGL_PACKAGE_IMPLIB@"
+    )
 endif()

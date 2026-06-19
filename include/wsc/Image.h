@@ -2,6 +2,8 @@
 
 #include <memory>
 
+#include "Export.h"
+
 class IRenderer;
 class ImageResource;
 
@@ -9,7 +11,7 @@ namespace wsc {
 class Canvas;
 
 /// GPU-backed image resource managed by the canvas runtime.
-class Image
+class WSC_API Image
 {
 public:
 	Image();

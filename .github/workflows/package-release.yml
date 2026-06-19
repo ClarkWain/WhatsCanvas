@@ -9,14 +9,21 @@ on:
   workflow_dispatch:
 
 jobs:
-  package-windows:
-    runs-on: windows-latest
+  package:
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        config:
-          - Debug
-          - Release
+        include:
+          - os: windows-latest
+            os_id: win64
+            config: Release
+          - os: ubuntu-latest
+            os_id: linux-x64
+            config: Release
+          - os: macos-latest
+            os_id: macos-universal
+            config: Release
 
     steps:
       - name: Checkout repository
@@ -24,14 +31,24 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Build package
+      - name: Install Linux OpenGL dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
+
+      - name: Build package on Windows
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          if ("${{ matrix.config }}" -eq "Release") {
-            cmd /c build.bat --release --package --no-run
-          } else {
-            cmd /c build.bat --debug --package --no-run
-          }
+          cmd /c build.bat --release --package --no-run
+
+      - name: Build package on Unix
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          chmod +x build.sh
+          ./build.sh --release --package --no-run
 
       - name: Archive package
         id: archive
@@ -39,7 +56,7 @@ jobs:
         run: |
           $version = "0.1.10"
           $configLower = "${{ matrix.config }}".ToLowerInvariant()
-          $artifactName = "whatscanvas-win64-$configLower-$version"
+          $artifactName = "whatscanvas-${{ matrix.os_id }}-$configLower-$version"
           $archivePath = Join-Path $PWD "$artifactName.zip"
           Compress-Archive -Path "out/package/${{ matrix.config }}/*" -DestinationPath $archivePath -Force
           "archive=$archivePath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8

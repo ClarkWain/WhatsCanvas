@@ -2,6 +2,8 @@
 
 #include <algorithm>
 
+#include "Export.h"
+
 namespace wsc {
 // Basic geometry types exposed by the public Canvas API.
 
@@ -11,7 +13,7 @@ class Rect;
 class RectF;
 
 /// Integer point in 2D space.
-class Point
+class WSC_API Point
 {
 private:
     int x;
@@ -111,7 +113,7 @@ public:
 };
 
 /// Floating-point point in 2D space.
-class PointF
+class WSC_API PointF
 {
 private:
     float x;
@@ -216,7 +218,7 @@ public:
 };
 
 /// Integer width and height pair.
-class Size
+class WSC_API Size
 {
 private:
     int width;
@@ -263,7 +265,7 @@ public:
 };
 
 /// Floating-point width and height pair.
-class SizeF
+class WSC_API SizeF
 {
 private:
     float width;
@@ -311,7 +313,7 @@ public:
 
 
 /// Floating-point rectangle in 2D space.
-class RectF
+class WSC_API RectF
 {
 private:
     float x;
@@ -463,7 +465,7 @@ public:
 
 
 /// Integer rectangle in 2D space.
-class Rect
+class WSC_API Rect
 {
 private:
     int x;

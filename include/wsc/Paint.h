@@ -9,11 +9,13 @@
 #include <vector>
 #include <array>
 
+#include "Export.h"
+
 namespace wsc {
 // Public color and painting declarations for WhatsCanvas.
 
 /// RGBA color value used by drawing operations.
-class Color
+class WSC_API Color
 {
 public:
     static const Color RED;
@@ -72,7 +74,7 @@ private:
 };
 
 /// Drawing state container for fill, stroke, text and image options.
-class Paint
+class WSC_API Paint
 {
 public:
     struct ColorStop
