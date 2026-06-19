@@ -204,36 +204,36 @@ ctest -C Debug -L smoke --output-on-failure
 
 ### Tetris
 
-位于 [example/game/tetris](example/game/tetris)。这是一个很适合学习布局、文本面板、方块绘制和游戏状态叠加的示例。
+位于 [examples/game/tetris](examples/game/tetris)。这是一个很适合学习布局、文本面板、方块绘制和游戏状态叠加的示例。
 
 ![Tetris example built with WhatsCanvas](images/tetris.jpg)
 
 ### Racer
 
-位于 [example/game/racer](example/game/racer)。这个示例更强调滚动场景、裁剪区域、HUD，以及节奏明确的动画驱动。
+位于 [examples/game/racer](examples/game/racer)。这个示例更强调滚动场景、裁剪区域、HUD，以及节奏明确的动画驱动。
 
 ![Racer example built with WhatsCanvas](images/racer.png)
 
 ### Bubble Shooter
 
-位于 [example/game/bubble_shooter](example/game/bubble_shooter)。适合学习网格排布、瞄准辅助线和轻量 UI 绘制。
+位于 [examples/game/bubble_shooter](examples/game/bubble_shooter)。适合学习网格排布、瞄准辅助线和轻量 UI 绘制。
 
 ![Bubble Shooter example built with WhatsCanvas](images/bubble_shooter.jpg)
 
 示例单独构建：
 
 ```bat
-cd example\game\tetris
+cd examples\game\tetris
 build.bat --no-run
 ```
 
 ```bat
-cd example\game\racer
+cd examples\game\racer
 build.bat --no-run
 ```
 
 ```bat
-cd example\game\bubble_shooter
+cd examples\game\bubble_shooter
 build.bat --no-run
 ```
 
@@ -245,7 +245,7 @@ build.bat --no-run
 2. 阅读 [doc/architecture/README.md](doc/architecture/README.md)，先建立整体分层认识。
 3. 打开 [doc/polyline/polyline2d_interactive_tutorial.html](doc/polyline/polyline2d_interactive_tutorial.html)，补一遍描边网格和 Path 相关原理。
 4. 阅读 [doc/Font Rendering Techniques/index.html](doc/Font%20Rendering%20Techniques/index.html)，把字体与文本渲染相关知识补完整。
-5. 查看 [src/main.cpp](src/main.cpp)，理解演示程序是怎样驱动 `Canvas` 的。
+5. 查看 [examples/showcase/main.cpp](examples/showcase/main.cpp)，理解演示程序是怎样驱动 `Canvas` 的。
 6. 进入 `src/canvas`、`src/render`、`src/opengl`，顺着绘制请求一路往下读。
 7. 结合 [tests/README.md](tests/README.md) 和 `scripts/` 目录，看这个仓库如何做本地验证。
 8. 最后再读 [doc/CanvasEvaluation.md](doc/CanvasEvaluation.md)，回看功能演进和验证轨迹。
@@ -253,7 +253,8 @@ build.bat --no-run
 ## 仓库导览
 
 - `src/`: 核心实现，包含 Canvas、命令、渲染器、OpenGL 后端和文本模块。
-- `example/game/`: 三个完整示例工程。
+- `examples/game/`: 三个完整示例工程。
+- `examples/showcase/`: 根演示程序，适合快速浏览公共 Canvas API 的综合使用方式。
 - `tests/`: 单元测试入口与测试说明。
 - `scripts/`: 冒烟、clip-path、回归、示例构建四类验证脚本。
 - `doc/polyline/`: 偏原理和互动演示导向的教学材料。

@@ -9,13 +9,13 @@ call :get_tick EXAMPLES_START_MS
 
 echo EXAMPLES_SMOKE_TARGETS=Tetris,Racer,BubbleShooter
 
-call :run_example Tetris "%ROOT_DIR%\example\game\tetris\build.bat"
+call :run_example Tetris "%ROOT_DIR%\examples\game\tetris\build.bat"
 if errorlevel 1 goto fail
 
-call :run_example Racer "%ROOT_DIR%\example\game\racer\build.bat"
+call :run_example Racer "%ROOT_DIR%\examples\game\racer\build.bat"
 if errorlevel 1 goto fail
 
-call :run_example BubbleShooter "%ROOT_DIR%\example\game\bubble_shooter\build.bat"
+call :run_example BubbleShooter "%ROOT_DIR%\examples\game\bubble_shooter\build.bat"
 if errorlevel 1 goto fail
 
 call :elapsed_ms EXAMPLES_START_MS TOTAL_MS

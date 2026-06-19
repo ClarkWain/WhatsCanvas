@@ -26,9 +26,9 @@ run_example() {
     echo "EXAMPLES_SMOKE_${name}_MS=$step_ms"
 }
 
-run_example Tetris "$ROOT_DIR/example/game/tetris/build.sh"
-run_example Racer "$ROOT_DIR/example/game/racer/build.sh"
-run_example BubbleShooter "$ROOT_DIR/example/game/bubble_shooter/build.sh"
+run_example Tetris "$ROOT_DIR/examples/game/tetris/build.sh"
+run_example Racer "$ROOT_DIR/examples/game/racer/build.sh"
+run_example BubbleShooter "$ROOT_DIR/examples/game/bubble_shooter/build.sh"
 
 END_TS=$(date +%s)
 TOTAL_MS=$(( (END_TS - START_TS) * 1000 ))

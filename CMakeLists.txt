@@ -40,17 +40,7 @@ whatscanvas_add_opengl_library(WhatsCanvasOpenGL ${CMAKE_CURRENT_LIST_DIR})
 add_library(WhatsCanvas::OpenGL ALIAS WhatsCanvasOpenGL)
 
 if (WHATSCANVAS_BUILD_DEMO)
-    add_executable(WhatsCanvasDemo
-        "${SRC_DIR}/main.cpp"
-        src/render/OpenGLRenderDevice.h
-    )
-
-    target_link_libraries(WhatsCanvasDemo
-        PRIVATE
-            WhatsCanvas::OpenGL
-    )
-
-    whatscanvas_link_gl_app(WhatsCanvasDemo)
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/showcase")
 endif()
 
 if (BUILD_TESTING)
