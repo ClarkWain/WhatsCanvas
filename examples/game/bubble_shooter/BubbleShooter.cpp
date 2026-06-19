@@ -10,7 +10,6 @@
 #include <string>
 #include <vector>
 
-#include <glad/glad.h>
 #include <GLFW/glfw3.h>
 
 #include "wsc/wsc.h"
@@ -32,6 +31,7 @@ constexpr float SHOOTER_Y = GRID_TOP + BOARD_HEIGHT + 94.0f;
 constexpr float SIDE_X = GRID_LEFT + BOARD_WIDTH + 48.0f;
 constexpr int DESIGN_W = 860;
 constexpr int DESIGN_H = 820;
+constexpr unsigned int kOpenGLMultisample = 0x809D;
 constexpr float SHOT_SPEED = 720.0f;
 constexpr float AIM_SPEED = 2.2f;
 constexpr float MIN_AIM_ANGLE = 22.0f * kPi / 180.0f;
@@ -1165,8 +1165,8 @@ int main()
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1);
 
-    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
-        std::cerr << "Failed to initialize GLAD" << std::endl;
+    if (!Canvas::loadOpenGL(reinterpret_cast<Canvas::OpenGLProcAddress>(glfwGetProcAddress))) {
+        std::cerr << "Failed to load OpenGL functions" << std::endl;
         glfwDestroyWindow(window);
         glfwTerminate();
         return -1;
@@ -1183,7 +1183,7 @@ int main()
     }
 
     glViewport(0, 0, framebufferWidth, framebufferHeight);
-    glEnable(GL_MULTISAMPLE);
+    glEnable(kOpenGLMultisample);
 
     Canvas canvas;
     canvas.setSize(framebufferWidth, framebufferHeight);

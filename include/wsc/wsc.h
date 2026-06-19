@@ -6,6 +6,7 @@
 #include "Version.h"
 #include "Canvas.h"
 #include "Image.h"
+#include "Matrix.h"
 #include "Paint.h"
 #include "Path.h"
 #include "base.h"

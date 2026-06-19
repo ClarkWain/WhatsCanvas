@@ -23,4 +23,4 @@ target_link_libraries(Tetris
     WhatsCanvasExampleOpenGL
 )
 
-whatscanvas_link_gl_app(Tetris)
+whatscanvas_link_gl_app(Tetris "${PROJECT_ROOT}")

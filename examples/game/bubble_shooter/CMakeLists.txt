@@ -23,4 +23,4 @@ target_link_libraries(BubbleShooter
     WhatsCanvasExampleOpenGL
 )
 
-whatscanvas_link_gl_app(BubbleShooter)
+whatscanvas_link_gl_app(BubbleShooter "${PROJECT_ROOT}")

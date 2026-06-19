@@ -7,3 +7,4 @@
 #include "../../include/wsc/Canvas.h"
 
 using wsc::Canvas;
+using wsc::Matrix4;

@@ -7,7 +7,6 @@
 #include <string>
 #include <vector>
 
-#include <glad/glad.h>
 #include <GLFW/glfw3.h>
 
 #include "wsc/wsc.h"
@@ -20,6 +19,7 @@ constexpr int kLaneCount = 3;
 
 constexpr int DESIGN_W = 686;
 constexpr int DESIGN_H = 960;
+constexpr unsigned int kOpenGLMultisample = 0x809D;
 
 constexpr float MINI_PANEL_X = 28.0f;
 constexpr float MINI_PANEL_Y = 112.0f;
@@ -1281,8 +1281,8 @@ int main() {
 
     glfwMakeContextCurrent(window);
 
-    if (!gladLoadGLLoader(reinterpret_cast<GLADloadproc>(glfwGetProcAddress))) {
-        std::cerr << "Failed to initialize GLAD" << std::endl;
+    if (!Canvas::loadOpenGL(reinterpret_cast<Canvas::OpenGLProcAddress>(glfwGetProcAddress))) {
+        std::cerr << "Failed to load OpenGL functions" << std::endl;
         glfwDestroyWindow(window);
         glfwTerminate();
         return -1;
@@ -1300,7 +1300,7 @@ int main() {
 
     glViewport(0, 0, fbw, fbh);
     if (!disableMsaa) {
-        glEnable(GL_MULTISAMPLE);
+        glEnable(kOpenGLMultisample);
     }
 
     Canvas canvas;

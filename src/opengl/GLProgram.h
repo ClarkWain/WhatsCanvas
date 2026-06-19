@@ -1,7 +1,6 @@
 #pragma once
 
 #include <glad/glad.h>
-#include <GLFW/glfw3.h>
 #include <string>
 #include <stdexcept>
 #include <glm/glm.hpp>
@@ -42,4 +41,3 @@ private:
     void checkCompileErrors(GLuint shader, const std::string& type);
     void checkLinkErrors();
 };
-

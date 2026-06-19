@@ -23,4 +23,4 @@ target_link_libraries(Racer
     WhatsCanvasExampleOpenGL
 )
 
-whatscanvas_link_gl_app(Racer)
+whatscanvas_link_gl_app(Racer "${PROJECT_ROOT}")

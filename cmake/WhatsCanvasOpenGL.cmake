@@ -1,12 +1,12 @@
 function(whatscanvas_add_common_dependencies project_root)
     set(third_party_dir "${project_root}/third_party")
-    set(glfw_path "${third_party_dir}/glfw")
     set(glad_path "${third_party_dir}/glad")
     set(stb_path "${third_party_dir}/stb")
     set(glm_path "${third_party_dir}/glm")
     set(polyline2d_path "${third_party_dir}/polyline2d")
 
-    if (NOT EXISTS "${glfw_path}/CMakeLists.txt" OR
+    if (NOT EXISTS "${glad_path}/src/glad.c" OR
+        NOT EXISTS "${glad_path}/include/glad/glad.h" OR
         NOT EXISTS "${glm_path}/glm/glm.hpp" OR
         NOT EXISTS "${stb_path}/stb_image.h" OR
         NOT EXISTS "${polyline2d_path}/include/Polyline2D.h")
@@ -15,17 +15,9 @@ function(whatscanvas_add_common_dependencies project_root)
 
     find_package(OpenGL REQUIRED)
 
-    if (NOT TARGET glfw)
-        set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-        set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-        set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
-        set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
-        add_subdirectory("${glfw_path}" "${CMAKE_CURRENT_BINARY_DIR}/third_party/glfw" EXCLUDE_FROM_ALL)
-    endif()
-
-    if (NOT TARGET GLAD)
-        add_library(GLAD STATIC "${glad_path}/src/glad.c")
-        target_include_directories(GLAD PUBLIC "${glad_path}/include")
+    if (NOT TARGET WhatsCanvasGLAD)
+        add_library(WhatsCanvasGLAD INTERFACE)
+        target_include_directories(WhatsCanvasGLAD INTERFACE "${glad_path}/include")
     endif()
 
     if (NOT TARGET WhatsCanvasGLM)
@@ -47,12 +39,31 @@ function(whatscanvas_add_common_dependencies project_root)
     endif()
 endfunction()
 
+function(whatscanvas_add_glfw_dependency project_root)
+    set(glfw_path "${project_root}/third_party/glfw")
+
+    if (NOT EXISTS "${glfw_path}/CMakeLists.txt")
+        message(FATAL_ERROR "Missing GLFW dependency. Run: git submodule update --init --recursive")
+    endif()
+
+    if (NOT TARGET glfw)
+        set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+        set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+        set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+        set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
+        add_subdirectory("${glfw_path}" "${CMAKE_CURRENT_BINARY_DIR}/third_party/glfw" EXCLUDE_FROM_ALL)
+    endif()
+endfunction()
+
 function(whatscanvas_add_opengl_library target_name project_root)
     set(src_dir "${project_root}/src")
+    set(glad_path "${project_root}/third_party/glad")
 
     add_library(${target_name}
+        "${glad_path}/src/glad.c"
         "${src_dir}/canvas/Canvas.cpp"
         "${src_dir}/canvas/Image.cpp"
+        "${src_dir}/canvas/Matrix.cpp"
         "${src_dir}/canvas/Paint.cpp"
         "${src_dir}/text/BasicTextBackend.cpp"
         "${src_dir}/text/NativeText.cpp"
@@ -73,23 +84,20 @@ function(whatscanvas_add_opengl_library target_name project_root)
     target_include_directories(${target_name}
         PRIVATE
             "${src_dir}"
+            "${glad_path}/include"
         INTERFACE
             "$<BUILD_INTERFACE:${project_root}/include>"
-            "$<BUILD_INTERFACE:${project_root}/third_party/glm>"
             "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
     )
-    target_compile_definitions(${target_name} PUBLIC GLEW_STATIC)
+    target_compile_definitions(${target_name} PRIVATE GLEW_STATIC)
     target_link_libraries(${target_name}
         PRIVATE
             "$<BUILD_INTERFACE:WhatsCanvasGLM>"
+            "$<BUILD_INTERFACE:WhatsCanvasGLAD>"
             "$<BUILD_INTERFACE:WhatsCanvasSTB>"
             "$<BUILD_INTERFACE:WhatsCanvasPolyline2D>"
-            "$<BUILD_INTERFACE:glfw>"
-            "$<BUILD_INTERFACE:GLAD>"
             "$<BUILD_INTERFACE:OpenGL::GL>"
         INTERFACE
-            "$<INSTALL_INTERFACE:WhatsCanvas::GLFW>"
-            "$<INSTALL_INTERFACE:WhatsCanvas::GLAD>"
             "$<INSTALL_INTERFACE:OpenGL::GL>"
     )
 
@@ -106,11 +114,12 @@ function(whatscanvas_add_opengl_library target_name project_root)
     endif()
 endfunction()
 
-function(whatscanvas_link_gl_app target_name)
+function(whatscanvas_link_gl_app target_name project_root)
+    whatscanvas_add_glfw_dependency("${project_root}")
+
     target_link_libraries(${target_name}
         PRIVATE
             glfw
-            GLAD
             OpenGL::GL
     )
 

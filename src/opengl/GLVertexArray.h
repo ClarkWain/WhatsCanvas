@@ -1,7 +1,7 @@
 #pragma once
 
+#include <cstddef>
 #include <glad/glad.h>
-#include <GLFW/glfw3.h>
 
 class GLVertexArray {
 public:
@@ -32,4 +32,3 @@ private:
     GLuint vboID = 0;
     GLuint eboID = 0;
 };
-

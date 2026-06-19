@@ -8,7 +8,6 @@
 #include <thread>
 #include <chrono>
 
-#include <glad/glad.h>
 #include <GLFW/glfw3.h>
 
 #include "wsc/wsc.h"
@@ -24,6 +23,7 @@ constexpr int SIDE_X = GRID_X + COLS * CELL + 70;
 constexpr int DESIGN_W = SIDE_X + 220;
 constexpr int DESIGN_H = GRID_Y + ROWS * CELL + 30;
 constexpr int DROP_INTERVAL_MS = 800;
+constexpr unsigned int kOpenGLMultisample = 0x809D;
 
 enum PieceType : int { PIECE_I=0, PIECE_O, PIECE_T, PIECE_S, PIECE_Z, PIECE_J, PIECE_L, PIECE_COUNT };
 
@@ -700,19 +700,19 @@ int main() {
 
     glfwMakeContextCurrent(window);
 
-    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
-        std::cerr << "Failed to initialize GLAD" << std::endl;
+    if (!Canvas::loadOpenGL(reinterpret_cast<Canvas::OpenGLProcAddress>(glfwGetProcAddress))) {
+        std::cerr << "Failed to load OpenGL functions" << std::endl;
         return -1;
     }
 
-    std::cout << "OpenGL " << glGetString(GL_VERSION) << " loaded." << std::endl;
+    std::cout << "OpenGL " << Canvas::getOpenGLVersionString() << " loaded." << std::endl;
 
     int fbw = 0, fbh = 0;
     glfwGetFramebufferSize(window, &fbw, &fbh);
     if (fbw <= 0) fbw = DESIGN_W;
     if (fbh <= 0) fbh = DESIGN_H;
     glViewport(0, 0, fbw, fbh);
-    glEnable(GL_MULTISAMPLE);
+    glEnable(kOpenGLMultisample);
 
     Canvas canvas;
     canvas.setSize(fbw, fbh);

@@ -25,7 +25,7 @@ if (TARGET WhatsCanvas::OpenGL)
             WhatsCanvas::OpenGL
     )
 
-    whatscanvas_link_gl_app(WhatsCanvasDemo)
+    whatscanvas_link_gl_app(WhatsCanvasDemo "${CMAKE_CURRENT_LIST_DIR}/../..")
     return()
 endif()
 
@@ -51,4 +51,4 @@ target_link_libraries(WhatsCanvasDemo
         WhatsCanvasShowcaseOpenGL
 )
 
-whatscanvas_link_gl_app(WhatsCanvasDemo)
+whatscanvas_link_gl_app(WhatsCanvasDemo "${PROJECT_ROOT}")

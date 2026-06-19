@@ -5,17 +5,15 @@
 #include <string>
 #include <array>
 #include <limits>
-#include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include "wsc/wsc.h"
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
 
 using namespace wsc;
 
 const float PI = 3.14159265359f;
 constexpr int kWindowWidth = 800;
 constexpr int kWindowHeight = 600;
+constexpr unsigned int kOpenGLMultisample = 0x809D;
 
 std::string getEnvironmentValue(const char* name)
 {
@@ -118,15 +116,14 @@ int main() {
     glfwMakeContextCurrent(window);
     std::cout << "GLFW context set successfully." << std::endl;
 
-    // Initialize GLAD
-    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
-        std::cerr << "Failed to initialize GLAD" << std::endl;
+    if (!Canvas::loadOpenGL(reinterpret_cast<Canvas::OpenGLProcAddress>(glfwGetProcAddress))) {
+        std::cerr << "Failed to load OpenGL functions" << std::endl;
         return -1;
     }
-    std::cout << "GLAD initialized successfully." << std::endl;
+    std::cout << "OpenGL functions loaded successfully." << std::endl;
 
     // Check the OpenGL version
-    std::cout << "OpenGL " << glGetString(GL_VERSION) << " loaded." << std::endl;
+    std::cout << "OpenGL " << Canvas::getOpenGLVersionString() << " loaded." << std::endl;
 
     int framebufferWidth = 0;
     int framebufferHeight = 0;
@@ -141,7 +138,7 @@ int main() {
     // Set the viewport
     glViewport(0, 0, framebufferWidth, framebufferHeight);
     if (!disableMsaa) {
-        glEnable(GL_MULTISAMPLE);
+        glEnable(kOpenGLMultisample);
     }
 
     // Set the clear color

@@ -5,10 +5,9 @@
 #include <string>
 #include <vector>
 
-#include <glm/glm.hpp>
-
 #include "Export.h"
 #include "Image.h"
+#include "Matrix.h"
 #include "Paint.h"
 #include "Path.h"
 #include "base.h"
@@ -62,6 +61,9 @@ public:
 
 	static void initialize();
 	static void finalize();
+	using OpenGLProcAddress = void *(*)(const char *name);
+	static bool loadOpenGL(OpenGLProcAddress loadProcAddress);
+	static std::string getOpenGLVersionString();
 
 public:
 	Canvas();
@@ -146,7 +148,7 @@ public:
 	void restoreToCount(int saveCount);
 
 	// Transform and hit-test helpers.
-	const glm::mat4 &getMatrix() const;
+	Matrix4 getMatrix() const;
 	PointF mapPoint(const PointF &point) const;
 	RectF mapRect(const RectF &rect) const;
 	RectF mapRect(const Rect &rect) const;
@@ -163,9 +165,9 @@ public:
 	void clipPath(const Path &path);
 	void clipRect(const RectF &rect);
 	void clipRect(const Rect &rect);
-	void setMatrix(const glm::mat4 &matrix);
+	void setMatrix(const Matrix4 &matrix);
 	void resetMatrix();
-	void concat(const glm::mat4 &matrix);
+	void concat(const Matrix4 &matrix);
 	void translate(float dx, float dy);
 	void scale(float sx, float sy);
 	void rotate(float radians);

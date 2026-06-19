@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <glad/glad.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <memory>
@@ -53,6 +54,29 @@ constexpr float kPointEpsilon = 0.0001f;
 constexpr std::uint64_t kFnvOffsetBasis = 1469598103934665603ull;
 constexpr std::uint64_t kFnvPrime = 1099511628211ull;
 constexpr std::size_t kMaxClipMaskPathCount = 255u;
+
+Matrix4 toPublicMatrix(const glm::mat4 &matrix)
+{
+    std::array<float, 16> values{};
+    for (std::size_t column = 0; column < 4; ++column) {
+        for (std::size_t row = 0; row < 4; ++row) {
+            values[column * 4 + row] = matrix[column][row];
+        }
+    }
+    return Matrix4(values);
+}
+
+glm::mat4 toGlmMatrix(const Matrix4 &matrix)
+{
+    glm::mat4 result(1.0f);
+    const auto &values = matrix.values();
+    for (std::size_t column = 0; column < 4; ++column) {
+        for (std::size_t row = 0; row < 4; ++row) {
+            result[column][row] = values[column * 4 + row];
+        }
+    }
+    return result;
+}
 
 struct ShadowPass {
     glm::mat4 transform = glm::mat4(1.0f);
@@ -1550,6 +1574,21 @@ void Canvas::finalize()
     }
 }
 
+bool Canvas::loadOpenGL(OpenGLProcAddress loadProcAddress)
+{
+    if (loadProcAddress == nullptr) {
+        return false;
+    }
+
+    return gladLoadGLLoader(reinterpret_cast<GLADloadproc>(loadProcAddress)) != 0;
+}
+
+std::string Canvas::getOpenGLVersionString()
+{
+    const auto *version = glGetString(GL_VERSION);
+    return version == nullptr ? std::string() : reinterpret_cast<const char *>(version);
+}
+
 bool Canvas::ensureRendererInitialized()
 {
     if (renderer_ == nullptr) {
@@ -2708,9 +2747,9 @@ int Canvas::getSaveCount() const
     return graphicsStates_->getSaveCount();
 }
 
-const glm::mat4& Canvas::getMatrix() const
+Matrix4 Canvas::getMatrix() const
 {
-    return currentState().matrix;
+    return toPublicMatrix(currentState().matrix);
 }
 
 PointF Canvas::mapPoint(const PointF &point) const
@@ -3053,9 +3092,9 @@ void Canvas::clipRect(const Rect &rect)
                    static_cast<float>(rect.getWidth()), static_cast<float>(rect.getHeight())));
 }
 
-void Canvas::setMatrix(const glm::mat4 &matrix)
+void Canvas::setMatrix(const Matrix4 &matrix)
 {
-    currentState().matrix = matrix;
+    currentState().matrix = toGlmMatrix(matrix);
 }
 
 void Canvas::resetMatrix()
@@ -3063,9 +3102,9 @@ void Canvas::resetMatrix()
     currentState().matrix = glm::mat4(1.0f);
 }
 
-void Canvas::concat(const glm::mat4 &matrix)
+void Canvas::concat(const Matrix4 &matrix)
 {
-    currentState().matrix *= matrix;
+    currentState().matrix *= toGlmMatrix(matrix);
 }
 
 void Canvas::translate(float dx, float dy)
@@ -3258,4 +3297,3 @@ std::uint64_t Canvas::computePixelsHashRGBA() const
     }
     return hashPixelsRGBA(pixels);
 }
-

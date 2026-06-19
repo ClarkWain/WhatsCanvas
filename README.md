@@ -87,14 +87,14 @@ class Canvas {
 	int getSaveCount() const;
 	void restoreToCount(int saveCount);
 
-	const glm::mat4& getMatrix() const;
+	Matrix4 getMatrix() const;
 	PointF mapPoint(...);
 	RectF mapRect(...);
 	bool inverseMapPoint(...);
 	bool inverseMapRect(...);
-	void setMatrix(const glm::mat4& matrix);
+	void setMatrix(const Matrix4& matrix);
 	void resetMatrix();
-	void concat(const glm::mat4& matrix);
+	void concat(const Matrix4& matrix);
 	void translate(float dx, float dy);
 	void scale(float sx, float sy);
 	void rotate(float radians);
@@ -133,7 +133,7 @@ class Canvas {
 - CMake 3.16 或更新版本。
 - 支持 C++17 的编译器。
 - Windows：Visual Studio 2022 + 桌面 C++ 工作负载。
-- macOS / Linux：OpenGL 开发环境和可用的 GLFW 工具链。
+- macOS / Linux：OpenGL 开发环境，以及可编译 GLFW 示例的系统图形开发库。
 
 Windows：
 
@@ -187,6 +187,14 @@ target_link_libraries(MyApp PRIVATE WhatsCanvas::OpenGL)
 ```
 
 如果你只想按模块引入，也可以分别包含 `wsc/Canvas.h`、`wsc/Paint.h`、`wsc/Path.h`、`wsc/Image.h` 和 `wsc/base.h`。
+
+安装包的消费面只暴露 `WhatsCanvas::OpenGL` 和 `include/wsc/`。GLFW 只用于仓库内 examples 的窗口与事件循环，GLAD 被编进 OpenGL 后端，GLM 只作为内部数学实现依赖；普通消费者不需要 include 或链接这三者。
+
+如果你的应用自己创建 OpenGL 上下文，需要在使用 Canvas 前把平台的 proc-address 函数交给库：
+
+```cpp
+Canvas::loadOpenGL(reinterpret_cast<Canvas::OpenGLProcAddress>(glfwGetProcAddress));
+```
 
 如果你走 GitHub Release 方式分发，可以直接复用仓库里的 Actions 打包流程，让每次 tag 发布都产出对应的 package zip。
 
@@ -261,7 +269,7 @@ build.bat --no-run
 - `doc/Font Rendering Techniques/`: 字体渲染与文本专题材料。
 - `doc/architecture/`: ADR 和架构文档，适合系统性阅读。
 - `doc/CanvasEvaluation.md`: 功能演进与验证记录。
-- `third_party/`: GLFW、GLM、STB、Polyline2D 等依赖。
+- `third_party/`: 内部实现和示例构建使用的第三方源码。
 
 ## 本地回归钩子
 
@@ -283,13 +291,13 @@ WHATSCANVAS_EXERCISE_CLIP_PATH=1 .\build\Debug\WhatsCanvasDemo.exe
 - 学习读回 framebuffer、固定时间驱动和像素基线这些工程写法。
 - 为后续 CI 和自动化测试打基础。
 
-## 依赖组成
+## 依赖边界
 
-- GLFW：窗口与 OpenGL 上下文创建。
-- GLM：矩阵和向量数学。
-- STB：图像加载与轻量文本方案。
-- Polyline2D：描边网格生成。
-- GLAD：OpenGL 3.3 加载器，源码保存在 `third_party/glad`。
+- 对外消费面：C++17、CMake package、`WhatsCanvas::OpenGL`、`include/wsc/`。
+- GLFW：只用于 examples 的窗口、OpenGL 上下文和事件循环，不随主库安装，也不是 `WhatsCanvas::OpenGL` 的传递依赖。
+- GLAD：作为 OpenGL loader 编进后端库，消费者通过 `Canvas::loadOpenGL` 传入 proc-address 函数，不直接 include 或链接 GLAD。
+- GLM：仅用于内部矩阵和向量实现，公共头使用 `wsc::Matrix4`。
+- STB / Polyline2D：内部图像加载、轻量文本和描边网格实现依赖，不作为公共 API 暴露。
 
 ## 接下来会继续变强
 
