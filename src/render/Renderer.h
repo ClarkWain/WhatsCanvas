@@ -7,6 +7,7 @@
 #include "IRenderDevice.h"
 #include "IRenderer.h"
 #include "RenderContext.h"
+#include "FrameStats.h"
 
 // Forward declaration for backend type enum.
 enum class RenderBackendType;
@@ -42,9 +43,16 @@ public:
     void clear() override;
     void flush() override;
 
+    /// Get per-frame rendering statistics.
+    const FrameStats &frameStats() const { return stats_; }
+
+    /// Reset per-frame statistics (called at frame boundaries).
+    void resetFrameStats() { stats_.reset(); }
+
 private:
     std::vector<std::unique_ptr<Command>> commands_;
     std::unique_ptr<IRenderDevice> device_;
     RenderContext context_;
     bool backendInitialized_ = false;
+    FrameStats stats_;
 };

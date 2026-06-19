@@ -137,6 +137,8 @@ void Renderer::clear()
 
 void Renderer::flush()
 {
+    stats_.commandCount += commands_.size();
+
     // Merge consecutive compatible DrawPathCommands to reduce draw calls.
     // Two consecutive path commands are compatible when they share:
     // - same draw mode (fill/stroke)
@@ -227,9 +229,12 @@ void Renderer::flush()
 
             DrawPathCommand mergedCmd(merged);
             mergedCmd.execute(context_);
+            ++stats_.drawCallCount;
+            ++stats_.mergedBatchCount;
             i = j;
         } else {
             commands_[i]->execute(context_);
+            ++stats_.drawCallCount;
             ++i;
         }
     }
