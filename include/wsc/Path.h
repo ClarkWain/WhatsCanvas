@@ -31,6 +31,7 @@ public:
 
     Path() = default;
 
+    // Fill rule selection.
     void setFillType(FillType fillType) {
         fillType_ = fillType;
     }
@@ -267,6 +268,7 @@ public:
         return bounds;
     }
 
+    // Geometric queries.
     bool contains(float x, float y) const {
         std::vector<PointF> contour;
         bool contourClosed = false;
@@ -423,6 +425,7 @@ public:
         return strokeContains(point.getX(), point.getY(), strokeWidth);
     }
 
+    // Path measurement.
     float length() const {
         float totalLength = 0.0f;
         PointF contourStart;
@@ -926,7 +929,7 @@ public:
         return result;
     }
 
-    // 移动整个路径
+    // Path mutation helpers.
     void offset(float dx, float dy) {
         for (auto& point : points_) {
             if (point.op != Op::CLOSE) {

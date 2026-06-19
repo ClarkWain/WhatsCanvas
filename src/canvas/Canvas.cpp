@@ -1499,16 +1499,16 @@ std::vector<float> buildTextVertices(const std::string &asciiText, float x, floa
 }
 
 Canvas::Canvas()
-    : Canvas(std::make_unique<Renderer>(), prismcanvas::text::createBasicTextBackend())
+    : Canvas(std::make_unique<Renderer>(), wsc::text::createBasicTextBackend())
 {
 }
 
 Canvas::Canvas(std::unique_ptr<IRenderer> renderer)
-    : Canvas(std::move(renderer), prismcanvas::text::createBasicTextBackend())
+    : Canvas(std::move(renderer), wsc::text::createBasicTextBackend())
 {
 }
 
-Canvas::Canvas(std::unique_ptr<IRenderer> renderer, std::unique_ptr<prismcanvas::text::ITextBackend> textBackend)
+Canvas::Canvas(std::unique_ptr<IRenderer> renderer, std::unique_ptr<wsc::text::ITextBackend> textBackend)
     : renderer_(std::move(renderer)),
       textBackend_(std::move(textBackend)),
       graphicsStates_(std::make_unique<GraphicsStateStack>())
@@ -2380,12 +2380,12 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
     }
 
     const auto renderedText = textBackend_->renderText(text, x, y, paint);
-    if (renderedText.kind == prismcanvas::text::TextRenderKind::None) {
+    if (renderedText.kind == wsc::text::TextRenderKind::None) {
         return;
     }
 
     const Color color = resolveTextColor(paint);
-    if (renderedText.kind == prismcanvas::text::TextRenderKind::Bitmap) {
+    if (renderedText.kind == wsc::text::TextRenderKind::Bitmap) {
         const SharedImageResource imageResource = renderer_->createImageResourceRGBA(renderedText.bitmapWidth,
                                                  renderedText.bitmapHeight,
                                                  renderedText.bitmapPixels);
@@ -2589,7 +2589,7 @@ void Canvas::drawTextOnPath(const std::string &text, const Path &path, const Pai
 
 void Canvas::drawTextOnPath(const std::string &text, const Path &path, float hOffset, float vOffset, const Paint &paint)
 {
-    const std::string asciiText = prismcanvas::text::sanitizeTextToAscii(text);
+    const std::string asciiText = wsc::text::sanitizeTextToAscii(text);
     const float pathLength = path.length();
     if (asciiText.empty() || pathLength <= 0.0f || paint.getTextSize() <= 0.0f || !std::isfinite(hOffset) || !std::isfinite(vOffset)) {
         return;
@@ -3258,3 +3258,4 @@ std::uint64_t Canvas::computePixelsHashRGBA() const
     }
     return hashPixelsRGBA(pixels);
 }
+

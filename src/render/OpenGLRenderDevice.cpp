@@ -25,7 +25,7 @@ public:
     ~OpenGLImageResource() override
     {
         if (handle_.isValid()) {
-            prismcanvas::opengl::destroyTexture(handle_);
+            wsc::opengl::destroyTexture(handle_);
         }
     }
 
@@ -281,7 +281,7 @@ std::unique_ptr<IRenderTarget> OpenGLRenderDevice::createRenderTarget(int width,
     GLuint framebuffer = 0;
     GLuint stencilRenderbuffer = 0;
     ImageResourceHandle texture;
-    if (!prismcanvas::opengl::createRenderTargetTexture(width, height, framebuffer, stencilRenderbuffer, texture)) {
+    if (!wsc::opengl::createRenderTargetTexture(width, height, framebuffer, stencilRenderbuffer, texture)) {
         if (stencilRenderbuffer != 0) {
             glDeleteRenderbuffers(1, &stencilRenderbuffer);
         }
@@ -307,7 +307,7 @@ SharedClipMaskResource OpenGLRenderDevice::createClipMaskResource(const ClipMask
 SharedImageResource OpenGLRenderDevice::createImageResourceRGBA(int width, int height,
                                                                 const std::vector<unsigned char> &pixels) const
 {
-    return createSharedOpenGLImageResource(prismcanvas::opengl::createTextureRGBA(width, height, pixels));
+    return createSharedOpenGLImageResource(wsc::opengl::createTextureRGBA(width, height, pixels));
 }
 
 SharedImageResource OpenGLRenderDevice::createImageResourceFromImageData(int width, int height, int channels,
@@ -315,7 +315,7 @@ SharedImageResource OpenGLRenderDevice::createImageResourceFromImageData(int wid
                                                                          bool generateMipmaps) const
 {
     return createSharedOpenGLImageResource(
-        prismcanvas::opengl::createTextureFromImageData(width, height, channels, pixels, generateMipmaps));
+        wsc::opengl::createTextureFromImageData(width, height, channels, pixels, generateMipmaps));
 }
 
 SharedImageResource OpenGLRenderDevice::renderCommandsToImageResource(const std::vector<std::unique_ptr<Command>> &commands,

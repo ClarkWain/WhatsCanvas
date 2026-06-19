@@ -163,6 +163,8 @@ chmod +x build.sh
 
 如果你希望把 WhatsCanvas 当成库使用，推荐使用 `--package` 生成交付目录，再在你的项目中通过 CMake 包方式接入。
 
+当前对外发布版本建议继续使用 `0.1.x` 这条线，例如当前仓库使用的是 `0.1.10`。
+
 生成发布目录：
 
 ```bat
@@ -185,6 +187,8 @@ target_link_libraries(MyApp PRIVATE WhatsCanvas::OpenGL)
 ```
 
 如果你只想按模块引入，也可以分别包含 `wsc/Canvas.h`、`wsc/Paint.h`、`wsc/Path.h`、`wsc/Image.h` 和 `wsc/base.h`。
+
+如果你走 GitHub Release 方式分发，可以直接复用仓库里的 Actions 打包流程，让每次 tag 发布都产出对应的 package zip。
 
 常用验证入口：
 

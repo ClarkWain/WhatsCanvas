@@ -12,7 +12,7 @@
 #include "Path.h"
 #include "base.h"
 
-namespace prismcanvas::text {
+namespace wsc::text {
 class ITextBackend;
 }
 
@@ -182,7 +182,7 @@ public:
 
 private:
 	explicit Canvas(std::unique_ptr<::IRenderer> renderer);
-	Canvas(std::unique_ptr<::IRenderer> renderer, std::unique_ptr<prismcanvas::text::ITextBackend> textBackend);
+	Canvas(std::unique_ptr<::IRenderer> renderer, std::unique_ptr<wsc::text::ITextBackend> textBackend);
 	bool ensureRendererInitialized();
 	void finalizeRenderer();
 
@@ -203,7 +203,7 @@ private:
 	int height_ = 0;
 	Color color_;
 	std::unique_ptr<::IRenderer> renderer_;
-	std::unique_ptr<prismcanvas::text::ITextBackend> textBackend_;
+	std::unique_ptr<wsc::text::ITextBackend> textBackend_;
 	std::unique_ptr<::GraphicsStateStack> graphicsStates_;
 	std::vector<LayerState> layerStack_;
 	bool rendererInitialized_ = false;

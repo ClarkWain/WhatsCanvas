@@ -69,7 +69,7 @@ HFONT createNativeFont(const Paint &paint)
 
 } // namespace
 
-namespace prismcanvas::text {
+namespace wsc::text {
 
 NativeTextMeasure measureNativeText(const std::string &text, const Paint &paint)
 {
@@ -216,4 +216,4 @@ NativeTextBitmap renderNativeTextBitmap(const std::string &text, const Paint &pa
     return bitmap;
 }
 
-} // namespace prismcanvas::text
+} // namespace wsc::text

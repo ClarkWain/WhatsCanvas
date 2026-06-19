@@ -5,7 +5,7 @@
 
 #include "canvas/Paint.h"
 
-namespace prismcanvas::text {
+namespace wsc::text {
 
 struct NativeTextMeasure
 {
@@ -27,4 +27,4 @@ NativeTextMeasure measureNativeText(const std::string &text, const Paint &paint)
 NativeTextBitmap renderNativeTextBitmap(const std::string &text, const Paint &paint,
                                         const NativeTextMeasure &measure);
 
-} // namespace prismcanvas::text
+} // namespace wsc::text

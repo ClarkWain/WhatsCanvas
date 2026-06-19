@@ -1,0 +1,58 @@
+name: Package WhatsCanvas
+
+on:
+  push:
+    branches:
+      - master
+    tags:
+      - "v0.1.*"
+  workflow_dispatch:
+
+jobs:
+  package-windows:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - Debug
+          - Release
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build package
+        shell: pwsh
+        run: |
+          if ("${{ matrix.config }}" -eq "Release") {
+            cmd /c build.bat --release --package --no-run
+          } else {
+            cmd /c build.bat --debug --package --no-run
+          }
+
+      - name: Archive package
+        id: archive
+        shell: pwsh
+        run: |
+          $version = "0.1.10"
+          $configLower = "${{ matrix.config }}".ToLowerInvariant()
+          $artifactName = "whatscanvas-win64-$configLower-$version"
+          $archivePath = Join-Path $PWD "$artifactName.zip"
+          Compress-Archive -Path "out/package/${{ matrix.config }}/*" -DestinationPath $archivePath -Force
+          "archive=$archivePath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "artifact_name=$artifactName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.archive.outputs.artifact_name }}
+          path: ${{ steps.archive.outputs.archive }}
+
+      - name: Upload release asset
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.archive.outputs.archive }}

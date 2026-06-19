@@ -313,7 +313,7 @@ public:
         other.shadowLayerEnabled_ = false;
     }
 
-    // 设置抗锯齿
+    // Rasterization options.
     void setAntiAlias(bool aa)
     {
         antiAlias_ = aa;
@@ -377,6 +377,7 @@ public:
         return color_;
     }
 
+    // Gradient and shader options.
     void setLinearGradient(float startX, float startY, float endX, float endY,
                            const Color &startColor, const Color &endColor)
     {
@@ -516,6 +517,7 @@ public:
         return strokeWidth_;
     }
 
+    // Text styling options.
     void setTextSize(float size)
     {
         textSize_ = size;
@@ -591,6 +593,7 @@ public:
         return textBaseline_;
     }
 
+    // Compositing and image options.
     void setBlendMode(BlendMode blendMode)
     {
         blendMode_ = blendMode;
@@ -715,7 +718,7 @@ public:
         return colorMatrix_;
     }
 
-    // 设置线条颜色
+    // Stroke styling options.
     void setStrokeColor(const Color &color)
     {
         strokeColor_ = color;

@@ -7,7 +7,7 @@
 
 class Paint;
 
-namespace prismcanvas::text {
+namespace wsc::text {
 
 enum class TextRenderKind {
     None,
@@ -38,4 +38,4 @@ public:
     virtual TextRenderResult renderText(const std::string &text, float x, float y, const Paint &paint) const = 0;
 };
 
-} // namespace prismcanvas::text
+} // namespace wsc::text

@@ -6,7 +6,7 @@
 
 #include "render/RenderTypes.h"
 
-namespace prismcanvas::opengl {
+namespace wsc::opengl {
 
 TextureHandle createTextureRGBA(int width, int height, const std::vector<unsigned char> &pixels);
 TextureHandle createTextureFromImageData(int width, int height, int channels, const unsigned char *pixels,
@@ -15,4 +15,4 @@ bool createRenderTargetTexture(int width, int height, GLuint &framebuffer, GLuin
                                TextureHandle &texture);
 void destroyTexture(TextureHandle handle);
 
-} // namespace prismcanvas::opengl
+} // namespace wsc::opengl

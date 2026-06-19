@@ -37,7 +37,7 @@ TextureHandle createTexture(int width, int height, GLenum internalFormat, GLenum
 
 } // namespace
 
-namespace prismcanvas::opengl {
+namespace wsc::opengl {
 
 TextureHandle createTextureRGBA(int width, int height, const std::vector<unsigned char> &pixels)
 {
@@ -113,4 +113,4 @@ void destroyTexture(TextureHandle handle)
     glDeleteTextures(1, &nativeTexture);
 }
 
-} // namespace prismcanvas::opengl
+} // namespace wsc::opengl

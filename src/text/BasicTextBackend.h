@@ -2,10 +2,10 @@
 
 #include <memory>
 
-namespace prismcanvas::text {
+namespace wsc::text {
 
 class ITextBackend;
 
 std::unique_ptr<ITextBackend> createBasicTextBackend();
 
-} // namespace prismcanvas::text
+} // namespace wsc::text

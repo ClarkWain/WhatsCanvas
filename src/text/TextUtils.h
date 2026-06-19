@@ -5,7 +5,7 @@
 
 #include "canvas/Paint.h"
 
-namespace prismcanvas::text {
+namespace wsc::text {
 
 std::string sanitizeTextToAscii(const std::string &text);
 float measureAsciiTextWidth(const std::string &asciiText, float scale, float letterSpacing);
@@ -14,4 +14,4 @@ float textBaselineOffset(Paint::TextBaseline baseline, float textHeight);
 std::vector<float> buildTextVertices(const std::string &asciiText, float x, float y, float scale,
                                      float letterSpacing = 0.0f);
 
-} // namespace prismcanvas::text
+} // namespace wsc::text

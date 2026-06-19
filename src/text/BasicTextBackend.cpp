@@ -14,17 +14,17 @@
 
 namespace {
 
-using prismcanvas::text::TextRenderKind;
-using prismcanvas::text::TextRenderResult;
+using wsc::text::TextRenderKind;
+using wsc::text::TextRenderResult;
 
 constexpr size_t kMaxNativeTextCacheEntries = 128;
 
-class BasicTextBackend final : public prismcanvas::text::ITextBackend
+class BasicTextBackend final : public wsc::text::ITextBackend
 {
 public:
     float measureTextWidth(const std::string &text, const Paint &paint) const override
     {
-        const std::string asciiText = prismcanvas::text::sanitizeTextToAscii(text);
+        const std::string asciiText = wsc::text::sanitizeTextToAscii(text);
         if (asciiText.empty() || paint.getTextSize() <= 0.0f) {
             return 0.0f;
         }
@@ -40,12 +40,12 @@ public:
 
         constexpr float kTextBaseSize = 8.0f;
         const float textScale = std::max(0.01f, paint.getTextSize() / kTextBaseSize);
-        return prismcanvas::text::measureAsciiTextWidth(asciiText, textScale, paint.getLetterSpacing());
+        return wsc::text::measureAsciiTextWidth(asciiText, textScale, paint.getLetterSpacing());
     }
 
     RectF measureTextBounds(const std::string &text, const Paint &paint) const override
     {
-        const std::string asciiText = prismcanvas::text::sanitizeTextToAscii(text);
+        const std::string asciiText = wsc::text::sanitizeTextToAscii(text);
         if (asciiText.empty() || paint.getTextSize() <= 0.0f) {
             return RectF();
         }
@@ -61,7 +61,7 @@ public:
                     left = -nativeMeasure.width;
                 }
                 return RectF(left,
-                             prismcanvas::text::textBaselineOffset(paint.getTextBaseline(), nativeMeasure.height),
+                             wsc::text::textBaselineOffset(paint.getTextBaseline(), nativeMeasure.height),
                              nativeMeasure.width,
                              nativeMeasure.height);
             }
@@ -71,7 +71,7 @@ public:
         constexpr float kTextBaseSize = 8.0f;
         const float textScale = std::max(0.01f, paint.getTextSize() / kTextBaseSize);
         const float width = measureTextWidth(asciiText, paint);
-        const float height = prismcanvas::text::measureAsciiTextHeight(asciiText, textScale);
+        const float height = wsc::text::measureAsciiTextHeight(asciiText, textScale);
 
         float left = 0.0f;
         if (paint.getTextAlign() == Paint::TextAlign::CENTER) {
@@ -81,7 +81,7 @@ public:
         }
 
         return RectF(left,
-                     prismcanvas::text::textBaselineOffset(paint.getTextBaseline(), height),
+                     wsc::text::textBaselineOffset(paint.getTextBaseline(), height),
                      width,
                      height);
     }
@@ -89,7 +89,7 @@ public:
     TextRenderResult renderText(const std::string &text, float x, float y, const Paint &paint) const override
     {
         TextRenderResult result;
-        const std::string asciiText = prismcanvas::text::sanitizeTextToAscii(text);
+        const std::string asciiText = wsc::text::sanitizeTextToAscii(text);
         if (asciiText.empty() || paint.getTextSize() <= 0.0f) {
             return result;
         }
@@ -109,7 +109,7 @@ public:
 
                     result.kind = TextRenderKind::Bitmap;
                     result.drawX = alignedX;
-                    result.drawY = y + prismcanvas::text::textBaselineOffset(paint.getTextBaseline(), nativeMeasure.height);
+                    result.drawY = y + wsc::text::textBaselineOffset(paint.getTextBaseline(), nativeMeasure.height);
                     result.width = nativeMeasure.width;
                     result.height = nativeMeasure.height;
                     result.bitmapWidth = bitmap.width;
@@ -123,7 +123,7 @@ public:
 
         constexpr float kTextBaseSize = 8.0f;
         const float textScale = std::max(0.01f, paint.getTextSize() / kTextBaseSize);
-        const float textHeight = prismcanvas::text::measureAsciiTextHeight(asciiText, textScale);
+        const float textHeight = wsc::text::measureAsciiTextHeight(asciiText, textScale);
         const float textWidth = measureTextWidth(asciiText, paint);
         float alignedX = x;
         if (paint.getTextAlign() == Paint::TextAlign::CENTER) {
@@ -134,10 +134,10 @@ public:
 
         result.kind = TextRenderKind::Geometry;
         result.drawX = alignedX;
-        result.drawY = y + prismcanvas::text::textBaselineOffset(paint.getTextBaseline(), textHeight);
+        result.drawY = y + wsc::text::textBaselineOffset(paint.getTextBaseline(), textHeight);
         result.width = textWidth;
         result.height = textHeight;
-        result.vertices = prismcanvas::text::buildTextVertices(asciiText, alignedX, result.drawY,
+        result.vertices = wsc::text::buildTextVertices(asciiText, alignedX, result.drawY,
                                                                textScale, paint.getLetterSpacing());
         if (result.vertices.empty()) {
             result.kind = TextRenderKind::None;
@@ -172,7 +172,7 @@ private:
                std::to_string(paint.getLetterSpacing());
     }
 
-    prismcanvas::text::NativeTextMeasure getNativeMeasure(const std::string &text, const Paint &paint) const
+    wsc::text::NativeTextMeasure getNativeMeasure(const std::string &text, const Paint &paint) const
     {
         const std::string cacheKey = makeNativeCacheKey(text, paint);
         auto cached = nativeMeasureCache_.find(cacheKey);
@@ -181,14 +181,14 @@ private:
             return cached->second;
         }
 
-        const auto measure = prismcanvas::text::measureNativeText(text, paint);
+        const auto measure = wsc::text::measureNativeText(text, paint);
         nativeMeasureCache_[cacheKey] = measure;
         touchCacheEntry(cacheKey, nativeMeasureCache_, nativeMeasureCacheOrder_);
         return measure;
     }
 
-    prismcanvas::text::NativeTextBitmap getNativeBitmap(const std::string &text, const Paint &paint,
-                                                        const prismcanvas::text::NativeTextMeasure &measure) const
+    wsc::text::NativeTextBitmap getNativeBitmap(const std::string &text, const Paint &paint,
+                                                        const wsc::text::NativeTextMeasure &measure) const
     {
         const std::string cacheKey = makeNativeCacheKey(text, paint);
         auto cached = nativeBitmapCache_.find(cacheKey);
@@ -197,14 +197,14 @@ private:
             return cached->second;
         }
 
-        const auto bitmap = prismcanvas::text::renderNativeTextBitmap(text, paint, measure);
+        const auto bitmap = wsc::text::renderNativeTextBitmap(text, paint, measure);
         nativeBitmapCache_[cacheKey] = bitmap;
         touchCacheEntry(cacheKey, nativeBitmapCache_, nativeBitmapCacheOrder_);
         return bitmap;
     }
 
-    mutable std::unordered_map<std::string, prismcanvas::text::NativeTextMeasure> nativeMeasureCache_;
-    mutable std::unordered_map<std::string, prismcanvas::text::NativeTextBitmap> nativeBitmapCache_;
+    mutable std::unordered_map<std::string, wsc::text::NativeTextMeasure> nativeMeasureCache_;
+    mutable std::unordered_map<std::string, wsc::text::NativeTextBitmap> nativeBitmapCache_;
     mutable std::deque<std::string> nativeMeasureCacheOrder_;
     mutable std::deque<std::string> nativeBitmapCacheOrder_;
 #endif
@@ -212,11 +212,11 @@ private:
 
 } // namespace
 
-namespace prismcanvas::text {
+namespace wsc::text {
 
 std::unique_ptr<ITextBackend> createBasicTextBackend()
 {
     return std::make_unique<BasicTextBackend>();
 }
 
-} // namespace prismcanvas::text
+} // namespace wsc::text

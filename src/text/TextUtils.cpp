@@ -37,7 +37,7 @@ size_t estimateAsciiTextVertexBufferBytes(const std::string &asciiText)
 
 } // namespace
 
-namespace prismcanvas::text {
+namespace wsc::text {
 
 std::string sanitizeTextToAscii(const std::string &text)
 {
@@ -173,4 +173,4 @@ std::vector<float> buildTextVertices(const std::string &asciiText, float x, floa
     return vertices;
 }
 
-} // namespace prismcanvas::text
+} // namespace wsc::text
