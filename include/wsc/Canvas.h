@@ -5,24 +5,16 @@
 #include <string>
 #include <vector>
 
+#include "Color.h"
 #include "Export.h"
-#include "Image.h"
-#include "Matrix.h"
-#include "Paint.h"
-#include "Path.h"
 #include "base.h"
 
-namespace wsc::text {
-class ITextBackend;
-}
-
-class IRenderer;
-class GraphicsStateStack;
-struct GraphicsState;
-struct ScissorState;
-struct ClipMaskState;
-
 namespace wsc {
+class Image;
+class Matrix4;
+class Paint;
+class Path;
+
 /// Main drawing surface exposed by WhatsCanvas.
 class WSC_API Canvas
 {
@@ -74,9 +66,9 @@ public:
 
 	// Canvas lifetime and state.
 	void setSize(int width, int height);
-	int getWidth() const { return width_; }
-	int getHeight() const { return height_; }
-	void setColor(Color color) { color_ = color; }
+	int getWidth() const;
+	int getHeight() const;
+	void setColor(Color color);
 	void drawColor(const Color &color);
 	void drawPaint(const Paint &paint);
 
@@ -184,31 +176,7 @@ public:
 	std::uint64_t computePixelsHashRGBA() const;
 
 private:
-	explicit Canvas(std::unique_ptr<::IRenderer> renderer);
-	Canvas(std::unique_ptr<::IRenderer> renderer, std::unique_ptr<wsc::text::ITextBackend> textBackend);
-	bool ensureRendererInitialized();
-	void finalizeRenderer();
-
-	struct LayerState {
-		int saveCount = 1;
-		std::size_t commandStart = 0;
-		RectF bounds;
-		Paint paint;
-	};
-
-	::ScissorState makeCurrentScissorState() const;
-	::ClipMaskState makeCurrentClipMaskState() const;
-	void restoreLayer(const LayerState &layer);
-	::GraphicsState &currentState();
-	const ::GraphicsState &currentState() const;
-
-	int width_ = 0;
-	int height_ = 0;
-	Color color_;
-	std::unique_ptr<::IRenderer> renderer_;
-	std::unique_ptr<wsc::text::ITextBackend> textBackend_;
-	std::unique_ptr<::GraphicsStateStack> graphicsStates_;
-	std::vector<LayerState> layerStack_;
-	bool rendererInitialized_ = false;
+	struct Impl;
+	std::unique_ptr<Impl> impl_;
 };
 } // namespace wsc

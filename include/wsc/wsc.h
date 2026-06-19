@@ -5,6 +5,7 @@
 #include "Export.h"
 #include "Version.h"
 #include "Canvas.h"
+#include "Color.h"
 #include "Image.h"
 #include "Matrix.h"
 #include "Paint.h"
