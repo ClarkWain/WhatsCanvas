@@ -66,6 +66,15 @@ public:
 	static bool loadOpenGL(OpenGLProcAddress loadProcAddress);
 	static std::string getOpenGLVersionString();
 
+	/// Enable or disable gamma-correct rendering.
+	/// When enabled, all color operations are performed in linear color space,
+	/// producing visually correct alpha blending. The GPU framebuffer uses
+	/// sRGB format for automatic linear→sRGB conversion on output.
+	static void setGammaCorrect(bool enabled);
+
+	/// Check whether gamma-correct rendering is currently enabled.
+	static bool isGammaCorrect();
+
 public:
 	Canvas();
 	~Canvas();

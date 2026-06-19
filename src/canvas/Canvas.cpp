@@ -27,6 +27,7 @@
 #include "text/TextUtils.h"
 #include "command/DrawData.h"
 #include "command/DrawCommand.h"
+#include "render/GammaCorrect.h"
 #include "Polyline2D.h"
 #include "Vec2.h"
 #include "stb_easy_font.h"
@@ -1608,6 +1609,21 @@ std::string Canvas::getOpenGLVersionString()
 {
     const auto *version = glGetString(GL_VERSION);
     return version == nullptr ? std::string() : reinterpret_cast<const char *>(version);
+}
+
+void Canvas::setGammaCorrect(bool enabled)
+{
+    GammaCorrect::enabled() = enabled;
+    if (enabled) {
+        glEnable(GL_FRAMEBUFFER_SRGB);
+    } else {
+        glDisable(GL_FRAMEBUFFER_SRGB);
+    }
+}
+
+bool Canvas::isGammaCorrect()
+{
+    return GammaCorrect::enabled();
 }
 
 GraphicsState &Canvas::Impl::currentState()

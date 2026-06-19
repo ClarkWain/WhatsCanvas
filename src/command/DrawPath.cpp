@@ -6,6 +6,7 @@
 #include <iostream>
 #include <glad/glad.h>
 #include "DrawValidation.h"
+#include "render/GammaCorrect.h"
 
 DrawPathProgram* DrawPathProgram::instance_ = nullptr;
 
@@ -115,7 +116,11 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
     program_->use();
     program_->setMat4("uProjection", projection);
     program_->setMat4("uTransform", data.transform);
-    program_->setVec4("uColor", glm::make_vec4(data.color));
+
+    // Apply gamma correction to uniform color if enabled.
+    float color[4] = {data.color[0], data.color[1], data.color[2], data.color[3]};
+    GammaCorrect::srgbToLinear4(color);
+    program_->setVec4("uColor", glm::make_vec4(color));
     program_->setInt("uUseVertexColor", data.hasVertexColors() ? 1 : 0);
 
     // Bind VAO and draw (StreamBuffer already bound the data via upload)
