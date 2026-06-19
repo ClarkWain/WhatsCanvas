@@ -8,7 +8,7 @@
 #include "render/RenderContext.h"
 
 DrawPointsCommand::DrawPointsCommand(const DrawPointsData &data)
-    : data_(data)
+    : Command(Type::Points), data_(data)
 {
 }
 
@@ -20,7 +20,7 @@ void DrawPointsCommand::execute(RenderContext &context)
 }
 
 DrawLinesCommand::DrawLinesCommand(const DrawLinesData &data)
-    : data_(data)
+    : Command(Type::Lines), data_(data)
 {
 }
 
@@ -32,7 +32,7 @@ void DrawLinesCommand::execute(RenderContext &context)
 }
 
 DrawPathCommand::DrawPathCommand(const DrawPathData &data)
-    : data_(data)
+    : Command(Type::Path), data_(data)
 {
 }
 
@@ -44,7 +44,7 @@ void DrawPathCommand::execute(RenderContext &context)
 }
 
 DrawImageCommand::DrawImageCommand(const DrawImageData &data)
-    : data_(data)
+    : Command(Type::Image), data_(data)
 {
 }
 
@@ -56,7 +56,7 @@ void DrawImageCommand::execute(RenderContext &context)
 }
 
 DrawTextCommand::DrawTextCommand(const DrawTextData &data)
-    : data_(data)
+    : Command(Type::Text), data_(data)
 {
 }
 

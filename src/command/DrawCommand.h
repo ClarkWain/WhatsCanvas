@@ -10,8 +10,18 @@ class RenderContext;
 class Command
 {
 public:
+    enum class Type : std::uint8_t { Points, Lines, Path, Image, Text };
+
     virtual ~Command() = default;
     virtual void execute(RenderContext &context) = 0;
+
+    Type type() const { return type_; }
+
+protected:
+    explicit Command(Type t) : type_(t) {}
+
+private:
+    Type type_;
 };
 
 // **********************************
@@ -54,6 +64,8 @@ public:
     ~DrawPathCommand() override = default;
 
     void execute(RenderContext &context) override;
+
+    const DrawPathData &data() const { return data_; }
 
 private:
     DrawPathData data_;

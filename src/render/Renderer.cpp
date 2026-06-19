@@ -4,6 +4,13 @@
 #include "command/DrawCommand.h"
 #include "OpenGLRenderDevice.h"
 
+#include <cmath>
+#include <glm/glm.hpp>
+
+namespace {
+constexpr float kMergeEpsilon = 0.001f;
+} // namespace
+
 Renderer::Renderer()
     : Renderer(std::make_unique<OpenGLRenderDevice>())
 {
@@ -130,7 +137,100 @@ void Renderer::clear()
 
 void Renderer::flush()
 {
-    for (const auto &command : commands_) {
-        command->execute(context_);
+    // Merge consecutive compatible DrawPathCommands to reduce draw calls.
+    // Two consecutive path commands are compatible when they share:
+    // - same draw mode (fill/stroke)
+    // - same transform matrix
+    // - same blend mode
+    // - same scissor state
+    // - same clip mask fingerprint
+    // - same cap style and stroke width (for strokes)
+    // - uniform color (no per-vertex colors)
+
+    std::size_t i = 0;
+    while (i < commands_.size()) {
+        if (commands_[i]->type() != Command::Type::Path) {
+            commands_[i]->execute(context_);
+            ++i;
+            continue;
+        }
+
+        auto *pathCmd = static_cast<DrawPathCommand *>(commands_[i].get());
+        if (pathCmd->data().hasVertexColors()) {
+            commands_[i]->execute(context_);
+            ++i;
+            continue;
+        }
+
+        // Try to merge consecutive compatible DrawPathCommands.
+        const auto &first = pathCmd->data();
+
+        std::size_t j = i + 1;
+        while (j < commands_.size()) {
+            if (commands_[j]->type() != Command::Type::Path) {
+                break;
+            }
+
+            auto *nextPathCmd = static_cast<DrawPathCommand *>(commands_[j].get());
+            const auto &next = nextPathCmd->data();
+            if (next.hasVertexColors()) {
+                break;
+            }
+            if (next.drawMode != first.drawMode) {
+                break;
+            }
+            if (next.capStyle != first.capStyle) {
+                break;
+            }
+            if (std::abs(next.width - first.width) > kMergeEpsilon) {
+                break;
+            }
+            if (next.blendMode != first.blendMode) {
+                break;
+            }
+            if (next.transform != first.transform) {
+                break;
+            }
+            if (next.scissor.enabled != first.scissor.enabled ||
+                next.scissor.x != first.scissor.x ||
+                next.scissor.y != first.scissor.y ||
+                next.scissor.width != first.scissor.width ||
+                next.scissor.height != first.scissor.height) {
+                break;
+            }
+            if (next.clipMask.fingerprint != first.clipMask.fingerprint) {
+                break;
+            }
+            if (std::abs(next.color[0] - first.color[0]) > kMergeEpsilon ||
+                std::abs(next.color[1] - first.color[1]) > kMergeEpsilon ||
+                std::abs(next.color[2] - first.color[2]) > kMergeEpsilon ||
+                std::abs(next.color[3] - first.color[3]) > kMergeEpsilon) {
+                break;
+            }
+            ++j;
+        }
+
+        if (j > i + 1) {
+            // Pre-scan total point count for efficient reservation.
+            std::size_t totalPoints = first.points.size();
+            for (std::size_t m = i + 1; m < j; ++m) {
+                totalPoints += static_cast<DrawPathCommand *>(commands_[m].get())->data().points.size();
+            }
+
+            DrawPathData merged = first;
+            merged.points.reserve(totalPoints);
+
+            for (std::size_t m = i + 1; m < j; ++m) {
+                const auto &next = static_cast<DrawPathCommand *>(commands_[m].get())->data();
+                merged.points.insert(merged.points.end(), next.points.begin(), next.points.end());
+            }
+
+            DrawPathCommand mergedCmd(merged);
+            mergedCmd.execute(context_);
+            i = j;
+        } else {
+            commands_[i]->execute(context_);
+            ++i;
+        }
     }
 }
