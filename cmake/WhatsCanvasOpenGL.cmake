@@ -76,6 +76,7 @@ function(whatscanvas_add_opengl_library target_name project_root)
         "${src_dir}/opengl/StreamBuffer.cpp"
         "${src_dir}/opengl/AsyncReadback.cpp"
         "${src_dir}/opengl/GlobalIndexBuffers.cpp"
+        "${src_dir}/opengl/TexelBuffer.cpp"
         "${src_dir}/command/DrawCommand.cpp"
         "${src_dir}/command/DrawPoints.cpp"
         "${src_dir}/command/DrawLines.cpp"
