@@ -1,9 +1,9 @@
 #pragma once
 
-#include <vector>
+#include <cstddef>
 #include <memory>
+#include <vector>
 
-#include "command/DrawCommand.h"
 #include "IRenderDevice.h"
 #include "IRenderer.h"
 #include "RenderContext.h"
@@ -22,42 +22,11 @@ public:
     void initializeBackend() override;
     void finalizeBackend() override;
 
-    void setViewport(int width, int height) override
-    {
-        context_.setSize(width, height);
-    }
-
-    void submit(std::unique_ptr<Command> &&command) override
-    {
-        commands_.push_back(std::move(command));
-    }
-
-    size_t commandCount() const override
-    {
-        return commands_.size();
-    }
-
-    std::vector<std::unique_ptr<Command>> takeCommandsFrom(size_t index) override
-    {
-        std::vector<std::unique_ptr<Command>> taken;
-        if (index >= commands_.size()) {
-            return taken;
-        }
-
-        taken.reserve(commands_.size() - index);
-        for (size_t i = index; i < commands_.size(); ++i) {
-            taken.push_back(std::move(commands_[i]));
-        }
-        commands_.erase(commands_.begin() + static_cast<std::ptrdiff_t>(index), commands_.end());
-        return taken;
-    }
-
-    void appendCommands(std::vector<std::unique_ptr<Command>> &&commands) override
-    {
-        for (auto &command : commands) {
-            commands_.push_back(std::move(command));
-        }
-    }
+    void setViewport(int width, int height) override;
+    void submit(std::unique_ptr<Command> &&command) override;
+    size_t commandCount() const override;
+    std::vector<std::unique_ptr<Command>> takeCommandsFrom(size_t index) override;
+    void appendCommands(std::vector<std::unique_ptr<Command>> &&commands) override;
 
     bool readPixelsRGBA(std::vector<unsigned char> &pixels) const override;
     SharedClipMaskResource createClipMaskResource(const ClipMaskPath &maskPath) const override;
@@ -67,17 +36,8 @@ public:
     SharedImageResource renderCommandsToImageResource(const std::vector<std::unique_ptr<Command>> &commands,
                                                       const OffscreenRenderRequest &request) const override;
     void resetRenderState() override;
-
-    void clear() override
-    {
-        commands_.clear();
-    }
-    
-    void flush() override
-    {
-        for (const auto &command : commands_)
-            command->execute(context_);
-    }
+    void clear() override;
+    void flush() override;
 
 private:
     std::vector<std::unique_ptr<Command>> commands_;

@@ -5,6 +5,11 @@
 #include <glad/glad.h>
 
 #include "command/DrawCommand.h"
+#include "command/DrawImage.h"
+#include "command/DrawLines.h"
+#include "command/DrawPath.h"
+#include "command/DrawPoints.h"
+#include "command/DrawText.h"
 #include "opengl/GLTextureUtils.h"
 #include "render/IRenderer.h"
 #include "render/IRenderTarget.h"

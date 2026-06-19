@@ -1,12 +1,8 @@
 #pragma once
 
-#include "render/RenderContext.h"
 #include "command/DrawData.h"
-#include "command/DrawPoints.h"
-#include "command/DrawLines.h"
-#include "command/DrawPath.h"
-#include "command/DrawImage.h"
-#include "command/DrawText.h"
+
+class RenderContext;
 
 // **********************************
 // ***** Command class *****
@@ -14,6 +10,7 @@
 class Command
 {
 public:
+    virtual ~Command() = default;
     virtual void execute(RenderContext &context) = 0;
 };
 
@@ -23,16 +20,10 @@ public:
 class DrawPointsCommand : public Command
 {
 public:
-    DrawPointsCommand(const DrawPointsData &data) : data_(data) {};
+    explicit DrawPointsCommand(const DrawPointsData &data);
+    ~DrawPointsCommand() override = default;
 
-    ~DrawPointsCommand() = default;
-
-    void execute(RenderContext &context) override
-    {
-        context.applyBlendMode(data_.blendMode);
-        context.applyClipState(data_.scissor, data_.clipMask);
-        DrawPointsProgram::getInstance()->draw(context, data_);
-    }
+    void execute(RenderContext &context) override;
 
 private:
     DrawPointsData data_;
@@ -44,16 +35,10 @@ private:
 class DrawLinesCommand : public Command
 {
 public:
-    DrawLinesCommand(const DrawLinesData &data) : data_(data) {};
+    explicit DrawLinesCommand(const DrawLinesData &data);
+    ~DrawLinesCommand() override = default;
 
-    ~DrawLinesCommand() = default;
-
-    void execute(RenderContext &context) override
-    {
-        context.applyBlendMode(data_.blendMode);
-        context.applyClipState(data_.scissor, data_.clipMask);
-        DrawLinesProgram::getInstance()->draw(context, data_);
-    }
+    void execute(RenderContext &context) override;
 
 private:
     DrawLinesData data_;
@@ -65,16 +50,10 @@ private:
 class DrawPathCommand : public Command
 {
 public:
-    DrawPathCommand(const DrawPathData &data) : data_(data) {};
+    explicit DrawPathCommand(const DrawPathData &data);
+    ~DrawPathCommand() override = default;
 
-    ~DrawPathCommand() = default;
-
-    void execute(RenderContext &context) override
-    {
-        context.applyBlendMode(data_.blendMode);
-        context.applyClipState(data_.scissor, data_.clipMask);
-        DrawPathProgram::getInstance()->draw(context, data_);
-    }
+    void execute(RenderContext &context) override;
 
 private:
     DrawPathData data_;
@@ -83,16 +62,10 @@ private:
 class DrawImageCommand : public Command
 {
 public:
-    DrawImageCommand(const DrawImageData &data) : data_(data) {};
+    explicit DrawImageCommand(const DrawImageData &data);
+    ~DrawImageCommand() override = default;
 
-    ~DrawImageCommand() = default;
-
-    void execute(RenderContext &context) override
-    {
-        context.applyBlendMode(data_.blendMode);
-        context.applyClipState(data_.scissor, data_.clipMask);
-        DrawImageProgram::getInstance()->draw(context, data_);
-    }
+    void execute(RenderContext &context) override;
 
 private:
     DrawImageData data_;
@@ -101,16 +74,10 @@ private:
 class DrawTextCommand : public Command
 {
 public:
-    DrawTextCommand(const DrawTextData &data) : data_(data) {};
+    explicit DrawTextCommand(const DrawTextData &data);
+    ~DrawTextCommand() override = default;
 
-    ~DrawTextCommand() = default;
-
-    void execute(RenderContext &context) override
-    {
-        context.applyBlendMode(data_.blendMode);
-        context.applyClipState(data_.scissor, data_.clipMask);
-        DrawTextProgram::getInstance()->draw(context, data_);
-    }
+    void execute(RenderContext &context) override;
 
 private:
     DrawTextData data_;

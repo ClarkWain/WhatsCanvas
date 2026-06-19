@@ -73,6 +73,7 @@ function(whatscanvas_add_opengl_library target_name project_root)
         "${src_dir}/opengl/GLTextureUtils.cpp"
         "${src_dir}/opengl/GLProgram.cpp"
         "${src_dir}/opengl/GLVertexArray.cpp"
+        "${src_dir}/command/DrawCommand.cpp"
         "${src_dir}/command/DrawPoints.cpp"
         "${src_dir}/command/DrawLines.cpp"
         "${src_dir}/command/DrawPath.cpp"
