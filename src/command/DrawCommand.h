@@ -34,6 +34,7 @@ public:
     ~DrawPointsCommand() override = default;
 
     void execute(RenderContext &context) override;
+    const DrawPointsData &data() const { return data_; }
 
 private:
     DrawPointsData data_;
@@ -49,6 +50,7 @@ public:
     ~DrawLinesCommand() override = default;
 
     void execute(RenderContext &context) override;
+    const DrawLinesData &data() const { return data_; }
 
 private:
     DrawLinesData data_;
@@ -78,6 +80,7 @@ public:
     ~DrawImageCommand() override = default;
 
     void execute(RenderContext &context) override;
+    const DrawImageData &data() const { return data_; }
 
 private:
     DrawImageData data_;
@@ -90,6 +93,7 @@ public:
     ~DrawTextCommand() override = default;
 
     void execute(RenderContext &context) override;
+    const DrawTextData &data() const { return data_; }
 
 private:
     DrawTextData data_;

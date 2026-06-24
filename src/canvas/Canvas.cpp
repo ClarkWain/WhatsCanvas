@@ -35,6 +35,19 @@
 
 namespace wsc {
 namespace {
+void applyGammaFramebufferState()
+{
+    if (glad_glEnable == nullptr || glad_glDisable == nullptr) {
+        return;
+    }
+
+    if (GammaCorrect::enabled()) {
+        glEnable(GL_FRAMEBUFFER_SRGB);
+    } else {
+        glDisable(GL_FRAMEBUFFER_SRGB);
+    }
+}
+
 std::vector<Canvas *> &registeredCanvases()
 {
     static std::vector<Canvas *> canvases;
@@ -1615,11 +1628,7 @@ std::string Canvas::getOpenGLVersionString()
 void Canvas::setGammaCorrect(bool enabled)
 {
     GammaCorrect::enabled() = enabled;
-    if (enabled) {
-        glEnable(GL_FRAMEBUFFER_SRGB);
-    } else {
-        glDisable(GL_FRAMEBUFFER_SRGB);
-    }
+    applyGammaFramebufferState();
 }
 
 bool Canvas::isGammaCorrect()
@@ -1698,13 +1707,10 @@ void Canvas::setColor(float r, float g, float b, float a)
 
 bool Canvas::isTextureValid() const
 {
-    if (!impl_->rendererInitialized || impl_->width <= 0 || impl_->height <= 0) {
+    if (!impl_->renderTargetMode || !impl_->rendererInitialized || impl_->width <= 0 || impl_->height <= 0) {
         return false;
     }
-    if (impl_->renderTargetMode) {
-        return impl_->renderTargetImageResource && impl_->renderTargetImageResource->isValid();
-    }
-    return true;
+    return impl_->renderTargetImageResource && impl_->renderTargetImageResource->isValid();
 }
 
 bool Canvas::isRenderTarget() const
@@ -2416,9 +2422,9 @@ void Canvas::drawImage(const ITextureSource &source, const RectF &dst, const Pai
     data.width = normalizedDst.getWidth();
     data.height = normalizedDst.getHeight();
     data.u0 = 0.0f;
-    data.v0 = 0.0f;
+    data.v0 = source.isRenderTarget() ? 1.0f : 0.0f;
     data.u1 = 1.0f;
-    data.v1 = 1.0f;
+    data.v1 = source.isRenderTarget() ? 0.0f : 1.0f;
     const Color tintColor = paint.getColor();
     data.tintColor[0] = tintColor.r();
     data.tintColor[1] = tintColor.g();

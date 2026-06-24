@@ -2,6 +2,45 @@
 
 #include <cstring>
 
+namespace {
+
+void clearGLErrors()
+{
+    while (glGetError() != GL_NO_ERROR) {
+    }
+}
+
+void textureProbeFormat(PixelFormatCaps::Format format, GLenum &externalFormat, GLenum &type)
+{
+    switch (format) {
+    case PixelFormatCaps::RGBA16F:
+    case PixelFormatCaps::RGBA32F:
+        externalFormat = GL_RGBA;
+        type = GL_FLOAT;
+        break;
+    case PixelFormatCaps::R32F:
+        externalFormat = GL_RED;
+        type = GL_FLOAT;
+        break;
+    case PixelFormatCaps::DEPTH24_STENCIL8:
+        externalFormat = GL_DEPTH_STENCIL;
+        type = GL_UNSIGNED_INT_24_8;
+        break;
+    case PixelFormatCaps::DEPTH32F:
+        externalFormat = GL_DEPTH_COMPONENT;
+        type = GL_FLOAT;
+        break;
+    case PixelFormatCaps::RGBA8:
+    case PixelFormatCaps::SRGB8_ALPHA8:
+    default:
+        externalFormat = GL_RGBA;
+        type = GL_UNSIGNED_BYTE;
+        break;
+    }
+}
+
+} // namespace
+
 bool PixelFormatCaps::initialized_ = false;
 bool PixelFormatCaps::caps_[7][4] = {};
 
@@ -32,17 +71,22 @@ void PixelFormatCaps::initialize()
     for (int f = 0; f < 7; ++f) {
         const GLint internalFormat = toGLInternalFormat(formats[f]);
         GLenum error;
+        GLenum externalFormat = GL_RGBA;
+        GLenum type = GL_UNSIGNED_BYTE;
+        textureProbeFormat(formats[f], externalFormat, type);
 
         // Test if the format can be used as a texture (sample).
         GLuint testTex = 0;
         glGenTextures(1, &testTex);
         glBindTexture(GL_TEXTURE_2D, testTex);
-        glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        clearGLErrors();
+        glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, 1, 1, 0, externalFormat, type, nullptr);
         error = glGetError();
         caps_[f][0] = (error == GL_NO_ERROR);  // SAMPLE
 
         if (caps_[f][0]) {
             // Test linear filtering.
+            clearGLErrors();
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
             error = glGetError();
             caps_[f][2] = (error == GL_NO_ERROR);  // LINEAR
@@ -54,6 +98,7 @@ void PixelFormatCaps::initialize()
         GLuint testRbo = 0;
         glGenRenderbuffers(1, &testRbo);
         glBindRenderbuffer(GL_RENDERBUFFER, testRbo);
+        clearGLErrors();
         glRenderbufferStorage(GL_RENDERBUFFER, internalFormat, 1, 1);
         error = glGetError();
         caps_[f][1] = (error == GL_NO_ERROR);  // RENDERTARGET

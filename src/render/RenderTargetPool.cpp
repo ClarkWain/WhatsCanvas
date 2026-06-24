@@ -22,20 +22,14 @@ std::unique_ptr<IRenderTarget> RenderTargetPool::acquire(int width, int height)
 
 void RenderTargetPool::release(std::unique_ptr<IRenderTarget> target)
 {
-    if (!target) {
+    if (!target || !target->isValid()) {
         return;
     }
 
-    // Find the dimensions from the target (we store them on acquire).
-    // For simplicity, we just push it back with 0,0 dimensions
-    // and rely on the caller providing dimensions via the overload.
-    // Actually, we need dimensions. Let's just store the target.
-    // The dimensions will be set by the caller.
-    // For now, this is a simplified implementation.
     PooledTarget pooled;
+    pooled.width = target->width();
+    pooled.height = target->height();
     pooled.target = std::move(target);
-    pooled.width = 0;
-    pooled.height = 0;
     pooled.idleFrames = 0;
     pool_.push_back(std::move(pooled));
 }

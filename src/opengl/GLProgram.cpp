@@ -1,9 +1,13 @@
 #include "GLProgram.h"
 #include <iostream>
+#include <utility>
 
 // Move constructor
 GLProgram::GLProgram(GLProgram &&other) noexcept
-    : program_(other.program_)
+    : program_(other.program_),
+      vertexSrc_(std::move(other.vertexSrc_)),
+      fragmentSrc_(std::move(other.fragmentSrc_)),
+      geometrySrc_(std::move(other.geometrySrc_))
 {
     other.program_ = 0;
 }
@@ -18,6 +22,9 @@ GLProgram &GLProgram::operator=(GLProgram &&other) noexcept
             glDeleteProgram(program_);
         }
         program_ = other.program_;
+        vertexSrc_ = std::move(other.vertexSrc_);
+        fragmentSrc_ = std::move(other.fragmentSrc_);
+        geometrySrc_ = std::move(other.geometrySrc_);
         other.program_ = 0;
     }
     return *this;

@@ -3,7 +3,7 @@
 #include <glad/glad.h>
 #include <glm/gtc/matrix_transform.hpp>
 
-#include "command/DrawImage.h"
+#include "opengl/GLProgram.h"
 #include "render/RenderContext.h"
 #include "render/RenderTypes.h"
 
@@ -13,14 +13,7 @@ SpriteBatch::SpriteBatch()
 
 SpriteBatch::~SpriteBatch()
 {
-    if (glInitialized_) {
-        if (VAO_ != static_cast<unsigned int>(-1)) {
-            glDeleteVertexArrays(1, &VAO_);
-        }
-        if (VBO_ != static_cast<unsigned int>(-1)) {
-            glDeleteBuffers(1, &VBO_);
-        }
-    }
+    releaseGLResources();
 }
 
 void SpriteBatch::setTexture(std::shared_ptr<ImageResource> texture)
@@ -58,12 +51,21 @@ void SpriteBatch::flush(RenderContext &context)
 
     ensureGLInitialized();
 
-    // Use DrawImageProgram for rendering.
-    DrawImageProgram *program = DrawImageProgram::getInstance();
-    // The SpriteBatch uses its own shader path — for now, we'll
-    // submit individual DrawImageCommands. A proper implementation
-    // would use a dedicated sprite shader. This is a simplified version
-    // that demonstrates the batch concept.
+    if (program_ == nullptr) {
+        return;
+    }
+
+    // SpriteBatch currently exposes fixed image-draw semantics: source-over
+    // blending with no clip. Apply them explicitly instead of inheriting GL
+    // state left by the previous command.
+    context.applyBlendMode(DrawBlendMode::SrcOver);
+    context.applyClipState(ScissorState{}, ClipMaskState{});
+
+    program_->use();
+    const glm::mat4 projection = glm::ortho(0.0f, static_cast<float>(context.getWidth()),
+                                            static_cast<float>(context.getHeight()), 0.0f);
+    program_->setMat4("uProjection", projection);
+    program_->setInt("uTexture", 0);
 
     // Upload vertex data.
     glBindVertexArray(VAO_);
@@ -93,6 +95,42 @@ void SpriteBatch::ensureGLInitialized()
         return;
     }
 
+    const std::string vertexSrc = R"(
+        #version 330 core
+        layout (location = 0) in vec2 aPos;
+        layout (location = 1) in vec2 aUv;
+        layout (location = 2) in vec4 aColor;
+
+        uniform mat4 uProjection;
+
+        out vec2 vUv;
+        out vec4 vColor;
+
+        void main()
+        {
+            gl_Position = uProjection * vec4(aPos, 0.0, 1.0);
+            vUv = aUv;
+            vColor = aColor;
+        }
+    )";
+
+    const std::string fragmentSrc = R"(
+        #version 330 core
+        in vec2 vUv;
+        in vec4 vColor;
+
+        uniform sampler2D uTexture;
+
+        out vec4 FragColor;
+
+        void main()
+        {
+            FragColor = texture(uTexture, vUv) * vColor;
+        }
+    )";
+
+    program_ = new GLProgram(vertexSrc, fragmentSrc);
+
     glGenVertexArrays(1, &VAO_);
     glGenBuffers(1, &VBO_);
 
@@ -113,4 +151,24 @@ void SpriteBatch::ensureGLInitialized()
 
     glBindVertexArray(0);
     glInitialized_ = true;
+}
+
+void SpriteBatch::releaseGLResources()
+{
+    if (program_ != nullptr) {
+        delete program_;
+        program_ = nullptr;
+    }
+
+    if (VAO_ != static_cast<unsigned int>(-1)) {
+        glDeleteVertexArrays(1, &VAO_);
+        VAO_ = static_cast<unsigned int>(-1);
+    }
+
+    if (VBO_ != static_cast<unsigned int>(-1)) {
+        glDeleteBuffers(1, &VBO_);
+        VBO_ = static_cast<unsigned int>(-1);
+    }
+
+    glInitialized_ = false;
 }

@@ -138,6 +138,10 @@ void Renderer::clear()
 void Renderer::flush()
 {
     stats_.commandCount += commands_.size();
+    auto executeCommand = [&](const std::unique_ptr<Command> &command) {
+        command->execute(context_);
+        ++stats_.drawCallCount;
+    };
 
     // Merge consecutive compatible DrawPathCommands to reduce draw calls.
     // Two consecutive path commands are compatible when they share:
@@ -152,14 +156,14 @@ void Renderer::flush()
     std::size_t i = 0;
     while (i < commands_.size()) {
         if (commands_[i]->type() != Command::Type::Path) {
-            commands_[i]->execute(context_);
+            executeCommand(commands_[i]);
             ++i;
             continue;
         }
 
         auto *pathCmd = static_cast<DrawPathCommand *>(commands_[i].get());
         if (pathCmd->data().hasVertexColors()) {
-            commands_[i]->execute(context_);
+            executeCommand(commands_[i]);
             ++i;
             continue;
         }
@@ -233,8 +237,7 @@ void Renderer::flush()
             ++stats_.mergedBatchCount;
             i = j;
         } else {
-            commands_[i]->execute(context_);
-            ++stats_.drawCallCount;
+            executeCommand(commands_[i]);
             ++i;
         }
     }

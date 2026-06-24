@@ -2,8 +2,8 @@
 set -eu
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-DEFAULT_HASH="${1:-2458027664413625913}"
-CLIP_HASH="${2:-12248791335057056593}"
+DEFAULT_HASH="${1:-2808591959994190122}"
+CLIP_HASH="${2:-7173893163224947210}"
 
 sh "$ROOT_DIR/scripts/smoke_test.sh" "$DEFAULT_HASH"
 sh "$ROOT_DIR/scripts/clip_path_smoke.sh" "$CLIP_HASH"

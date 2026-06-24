@@ -11,30 +11,10 @@ RenderBackendType g_activeBackend = RenderBackendType::OpenGL;
 
 std::unique_ptr<IRenderDevice> RenderDeviceFactory::createBestAvailable()
 {
-    // Try backends in platform-appropriate priority order.
-#if defined(__APPLE__)
-    // Apple: Metal > Vulkan > OpenGL
-    constexpr RenderBackendType order[] = {
-        RenderBackendType::Metal,
-        RenderBackendType::Vulkan,
-        RenderBackendType::OpenGL
-    };
-#else
-    // Windows/Linux: Vulkan > OpenGL
-    constexpr RenderBackendType order[] = {
-        RenderBackendType::Vulkan,
-        RenderBackendType::OpenGL
-    };
-#endif
-
-    for (auto type : order) {
-        auto device = create(type);
-        if (device) {
-            g_activeBackend = type;
-            std::cout << "[RenderDeviceFactory] Using backend: "
-                      << renderBackendTypeName(type) << std::endl;
-            return device;
-        }
+    auto device = create(RenderBackendType::OpenGL);
+    if (device) {
+        g_activeBackend = RenderBackendType::OpenGL;
+        return device;
     }
 
     std::cerr << "[RenderDeviceFactory] No render backend available!" << std::endl;
@@ -48,13 +28,9 @@ std::unique_ptr<IRenderDevice> RenderDeviceFactory::create(RenderBackendType typ
         return std::make_unique<OpenGLRenderDevice>();
 
     case RenderBackendType::Vulkan:
-        // TODO: Implement VulkanRenderDevice
-        std::cout << "[RenderDeviceFactory] Vulkan backend not yet implemented." << std::endl;
         return nullptr;
 
     case RenderBackendType::Metal:
-        // TODO: Implement MetalRenderDevice
-        std::cout << "[RenderDeviceFactory] Metal backend not yet implemented." << std::endl;
         return nullptr;
     }
 
@@ -73,16 +49,10 @@ bool RenderDeviceFactory::isBackendSupported(RenderBackendType type)
         return true;  // Always supported (GLAD loader handles the rest)
 
     case RenderBackendType::Vulkan:
-        // TODO: Check for Vulkan availability at runtime
         return false;
 
     case RenderBackendType::Metal:
-#if defined(__APPLE__)
-        // TODO: Check for Metal availability
         return false;
-#else
-        return false;
-#endif
     }
 
     return false;

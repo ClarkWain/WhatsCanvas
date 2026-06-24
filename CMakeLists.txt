@@ -14,8 +14,8 @@ option(WHATSCANVAS_ENABLE_SCRIPT_TESTS "Register existing smoke/example script g
 option(WHATSCANVAS_ENABLE_LOCAL_REGRESSION_TEST "Register the strict local pixel-hash regression gate with CTest." OFF)
 option(WHATSCANVAS_BUILD_DEMO "Build the root WhatsCanvas demo executable." ON)
 option(WHATSCANVAS_INSTALL "Enable install and package export rules." ON)
-set(WHATSCANVAS_DEFAULT_SMOKE_HASH "2458027664413625913" CACHE STRING "Default local smoke hash for regression ctest registration.")
-set(WHATSCANVAS_CLIP_SMOKE_HASH "12248791335057056593" CACHE STRING "Default local clip-path smoke hash for regression ctest registration.")
+set(WHATSCANVAS_DEFAULT_SMOKE_HASH "2808591959994190122" CACHE STRING "Default local smoke hash for regression ctest registration.")
+set(WHATSCANVAS_CLIP_SMOKE_HASH "7173893163224947210" CACHE STRING "Default local clip-path smoke hash for regression ctest registration.")
 
 if (MSVC)
     # Globally disable warning C4819
@@ -46,7 +46,10 @@ if (BUILD_TESTING)
         "${SRC_DIR}"
         "${SRC_DIR}/canvas"
     )
-    target_link_libraries(WhatsCanvasGraphicsStateStackTests PRIVATE WhatsCanvasGLM)
+    target_link_libraries(WhatsCanvasGraphicsStateStackTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
     add_test(NAME WhatsCanvasGraphicsStateStackTests
         COMMAND ${CMAKE_COMMAND}
             -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
