@@ -8,6 +8,7 @@
 
 class RenderContext;
 class ImageResource;
+class GLProgram;
 
 /// A batch renderer for drawing many sprites with the same texture
 /// in a single draw call. Instead of issuing one draw call per sprite,
@@ -61,7 +62,9 @@ private:
     // GL resources (lazily initialized).
     unsigned int VAO_ = static_cast<unsigned int>(-1);
     unsigned int VBO_ = static_cast<unsigned int>(-1);
+    GLProgram *program_ = nullptr;
     bool glInitialized_ = false;
 
     void ensureGLInitialized();
+    void releaseGLResources();
 };

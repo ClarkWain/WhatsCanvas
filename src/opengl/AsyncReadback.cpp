@@ -96,7 +96,6 @@ bool AsyncReadback::checkCompletion()
             callback_(std::move(pixels), width_, height_);
         }
     } else {
-        glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
         std::cerr << "[AsyncReadback] Failed to map PBO for readback." << std::endl;
     }
 

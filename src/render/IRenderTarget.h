@@ -10,6 +10,8 @@ public:
     virtual ~IRenderTarget() = default;
 
     virtual bool isValid() const = 0;
+    virtual int width() const = 0;
+    virtual int height() const = 0;
 
     /// Begin a render pass. In lazy mode, this only stores the request
     /// without binding the FBO. The actual GPU setup is deferred to activate().

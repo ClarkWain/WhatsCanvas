@@ -25,12 +25,13 @@ inline const char *renderBackendTypeName(RenderBackendType type)
 }
 
 /// Factory for creating render device backends.
-/// Tries backends in priority order and returns the first one that succeeds.
+/// Creates render device backends. Non-OpenGL backend enum values are reserved
+/// for future implementations and are never selected implicitly.
 class RenderDeviceFactory
 {
 public:
     /// Create the best available render device for the current platform.
-    /// Tries Metal → Vulkan → OpenGL on Apple, Vulkan → OpenGL on Windows/Linux.
+    /// Currently returns OpenGL, the only implemented backend.
     static std::unique_ptr<IRenderDevice> createBestAvailable();
 
     /// Create a specific render device by type.

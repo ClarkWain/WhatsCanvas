@@ -10,10 +10,13 @@
 #include "command/DrawPath.h"
 #include "command/DrawPoints.h"
 #include "command/DrawText.h"
+#include "opengl/GlobalIndexBuffers.h"
 #include "opengl/GLTextureUtils.h"
+#include "opengl/PixelFormatCaps.h"
 #include "render/IRenderer.h"
 #include "render/IRenderTarget.h"
 #include "render/RenderContext.h"
+#include "render/GammaCorrect.h"
 
 namespace {
 
@@ -118,6 +121,16 @@ public:
             && imageResource_ && imageResource_->isValid();
     }
 
+    int width() const override
+    {
+        return width_;
+    }
+
+    int height() const override
+    {
+        return height_;
+    }
+
     bool begin(const OffscreenRenderRequest &request) override
     {
         if (!isValid()) {
@@ -218,6 +231,13 @@ void initializeSharedRenderBackend()
 {
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    if (GammaCorrect::enabled()) {
+        glEnable(GL_FRAMEBUFFER_SRGB);
+    } else {
+        glDisable(GL_FRAMEBUFFER_SRGB);
+    }
+    PixelFormatCaps::initialize();
+    GlobalIndexBuffers::initialize();
 
     DrawPointsProgram::getInstance()->initialize();
     DrawLinesProgram::getInstance()->initialize();
@@ -233,6 +253,7 @@ void finalizeSharedRenderBackend()
     DrawPathProgram::getInstance()->release();
     DrawImageProgram::getInstance()->release();
     DrawTextProgram::getInstance()->release();
+    GlobalIndexBuffers::finalize();
 }
 
 void executeCommandList(const std::vector<std::unique_ptr<Command>> &commands, int width, int height,
