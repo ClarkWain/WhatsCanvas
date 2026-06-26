@@ -6,6 +6,7 @@
 #include "Version.h"
 #include "Canvas.h"
 #include "Color.h"
+#include "Font.h"
 #include "Image.h"
 #include "Matrix.h"
 #include "Paint.h"

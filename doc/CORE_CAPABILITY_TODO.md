@@ -30,7 +30,7 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
   - text metrics
   - line breaking
   - glyph-missing diagnostics
-- [ ] Add public font management types.
+- [x] Add public font management types.
   - `FontManager`
   - `FontCollection`
   - `FontFace`
@@ -235,7 +235,7 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
 ## First Execution Slice
 
 1. [x] Replace ASCII-only text handling with UTF-8 aware text plumbing.
-2. [ ] Add font registration and fallback design to the public text subsystem.
+2. [x] Add font registration and fallback design to the public text subsystem.
 3. [ ] Add image memory loading and external texture wrapping design.
 4. [ ] Clean up OpenGLES CMake assumptions so mobile builds do not inherit desktop-only requirements.
 5. [ ] Add a text-heavy and image-heavy validation scene.
