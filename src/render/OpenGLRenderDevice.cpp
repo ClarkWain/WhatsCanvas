@@ -48,6 +48,12 @@ public:
         context.bindImageHandle(handle_);
     }
 
+    bool updateRGBA(int x, int y, int width, int height, const unsigned char *pixels,
+                    bool regenerateMipmaps) override
+    {
+        return wsc::opengl::updateTextureRGBA(handle_, x, y, width, height, pixels, regenerateMipmaps);
+    }
+
 private:
     ImageResourceHandle handle_;
     bool ownsHandle_ = true;
@@ -380,6 +386,14 @@ SharedImageResource OpenGLRenderDevice::createImageResourceFromImageData(int wid
 {
     return createSharedOpenGLImageResource(
         wsc::opengl::createTextureFromImageData(width, height, channels, pixels, generateMipmaps));
+}
+
+bool OpenGLRenderDevice::updateImageResourceRGBA(const SharedImageResource &imageResource, int x, int y,
+                                                 int width, int height, const unsigned char *pixels,
+                                                 bool regenerateMipmaps) const
+{
+    return imageResource && imageResource->isValid()
+        && imageResource->updateRGBA(x, y, width, height, pixels, regenerateMipmaps);
 }
 
 SharedImageResource OpenGLRenderDevice::wrapExternalImageResource(ImageResourceHandle handle) const

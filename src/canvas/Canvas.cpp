@@ -2657,6 +2657,50 @@ bool Canvas::loadImageFromRGBA(Image &image, const std::vector<unsigned char> &p
     return loadImageFromRGBA(image, pixels.data(), width, height, generateMipmaps);
 }
 
+bool Canvas::replaceImageRGBA(Image &image, const unsigned char *pixels, int width, int height,
+                              bool generateMipmaps)
+{
+    if (pixels == nullptr || width <= 0 || height <= 0 || !impl_->ensureRendererInitialized()) {
+        return false;
+    }
+
+    return image.replaceRGBA(*impl_->renderer, pixels, width, height, generateMipmaps);
+}
+
+bool Canvas::replaceImageRGBA(Image &image, const std::vector<unsigned char> &pixels, int width, int height,
+                              bool generateMipmaps)
+{
+    const std::size_t requiredSize = static_cast<std::size_t>(std::max(0, width))
+        * static_cast<std::size_t>(std::max(0, height)) * 4;
+    if (pixels.size() < requiredSize) {
+        return false;
+    }
+
+    return replaceImageRGBA(image, pixels.data(), width, height, generateMipmaps);
+}
+
+bool Canvas::updateImageRGBA(Image &image, const unsigned char *pixels, int x, int y, int width, int height,
+                             bool regenerateMipmaps)
+{
+    if (pixels == nullptr || x < 0 || y < 0 || width <= 0 || height <= 0 || !impl_->ensureRendererInitialized()) {
+        return false;
+    }
+
+    return image.updateRGBA(*impl_->renderer, pixels, x, y, width, height, regenerateMipmaps);
+}
+
+bool Canvas::updateImageRGBA(Image &image, const std::vector<unsigned char> &pixels, int x, int y, int width,
+                             int height, bool regenerateMipmaps)
+{
+    const std::size_t requiredSize = static_cast<std::size_t>(std::max(0, width))
+        * static_cast<std::size_t>(std::max(0, height)) * 4;
+    if (pixels.size() < requiredSize) {
+        return false;
+    }
+
+    return updateImageRGBA(image, pixels.data(), x, y, width, height, regenerateMipmaps);
+}
+
 bool Canvas::wrapExternalTexture(Image &image, std::uint32_t textureId, int width, int height, bool mipmapsGenerated)
 {
     if (textureId == 0 || width <= 0 || height <= 0 || !impl_->ensureRendererInitialized()) {
