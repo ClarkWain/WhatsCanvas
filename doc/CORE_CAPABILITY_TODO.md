@@ -43,7 +43,7 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
   - line break query
   - glyph availability query
   - diagnostics hook
-- [ ] Replace ASCII-only sanitization with real UTF-8 processing.
+- [x] Replace ASCII-only sanitization with real UTF-8 processing.
 - [ ] Add a cross-platform font backend implementation path.
   - Prefer a backend that can run consistently on desktop and mobile.
   - Keep platform-native text as an optional acceleration or compatibility backend.
@@ -234,7 +234,7 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
 
 ## First Execution Slice
 
-1. [ ] Replace ASCII-only text handling with UTF-8 aware text plumbing.
+1. [x] Replace ASCII-only text handling with UTF-8 aware text plumbing.
 2. [ ] Add font registration and fallback design to the public text subsystem.
 3. [ ] Add image memory loading and external texture wrapping design.
 4. [ ] Clean up OpenGLES CMake assumptions so mobile builds do not inherit desktop-only requirements.

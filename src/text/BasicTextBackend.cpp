@@ -24,20 +24,21 @@ class BasicTextBackend final : public wsc::text::ITextBackend
 public:
     float measureTextWidth(const std::string &text, const Paint &paint) const override
     {
-        const std::string asciiText = wsc::text::sanitizeTextToAscii(text);
-        if (asciiText.empty() || paint.getTextSize() <= 0.0f) {
+        const std::string normalizedText = wsc::text::normalizeUtf8ForText(text);
+        if (normalizedText.empty() || paint.getTextSize() <= 0.0f) {
             return 0.0f;
         }
 
 #ifdef _WIN32
         if (paint.hasFontFamily()) {
-            const auto nativeMeasure = getNativeMeasure(asciiText, paint);
+            const auto nativeMeasure = getNativeMeasure(normalizedText, paint);
             if (nativeMeasure.valid) {
                 return nativeMeasure.width;
             }
         }
 #endif
 
+        const std::string asciiText = wsc::text::makeAsciiFallbackText(normalizedText);
         constexpr float kTextBaseSize = 8.0f;
         const float textScale = std::max(0.01f, paint.getTextSize() / kTextBaseSize);
         return wsc::text::measureAsciiTextWidth(asciiText, textScale, paint.getLetterSpacing());
@@ -45,14 +46,14 @@ public:
 
     RectF measureTextBounds(const std::string &text, const Paint &paint) const override
     {
-        const std::string asciiText = wsc::text::sanitizeTextToAscii(text);
-        if (asciiText.empty() || paint.getTextSize() <= 0.0f) {
+        const std::string normalizedText = wsc::text::normalizeUtf8ForText(text);
+        if (normalizedText.empty() || paint.getTextSize() <= 0.0f) {
             return RectF();
         }
 
 #ifdef _WIN32
         if (paint.hasFontFamily()) {
-            const auto nativeMeasure = getNativeMeasure(asciiText, paint);
+            const auto nativeMeasure = getNativeMeasure(normalizedText, paint);
             if (nativeMeasure.valid) {
                 float left = 0.0f;
                 if (paint.getTextAlign() == Paint::TextAlign::CENTER) {
@@ -68,6 +69,7 @@ public:
         }
 #endif
 
+        const std::string asciiText = wsc::text::makeAsciiFallbackText(normalizedText);
         constexpr float kTextBaseSize = 8.0f;
         const float textScale = std::max(0.01f, paint.getTextSize() / kTextBaseSize);
         const float width = measureTextWidth(asciiText, paint);
@@ -89,16 +91,16 @@ public:
     TextRenderResult renderText(const std::string &text, float x, float y, const Paint &paint) const override
     {
         TextRenderResult result;
-        const std::string asciiText = wsc::text::sanitizeTextToAscii(text);
-        if (asciiText.empty() || paint.getTextSize() <= 0.0f) {
+        const std::string normalizedText = wsc::text::normalizeUtf8ForText(text);
+        if (normalizedText.empty() || paint.getTextSize() <= 0.0f) {
             return result;
         }
 
 #ifdef _WIN32
         if (paint.hasFontFamily()) {
-            const auto nativeMeasure = getNativeMeasure(asciiText, paint);
+            const auto nativeMeasure = getNativeMeasure(normalizedText, paint);
             if (nativeMeasure.valid) {
-                const auto bitmap = getNativeBitmap(asciiText, paint, nativeMeasure);
+                const auto bitmap = getNativeBitmap(normalizedText, paint, nativeMeasure);
                 if (!bitmap.pixels.empty()) {
                     float alignedX = x;
                     if (paint.getTextAlign() == Paint::TextAlign::CENTER) {
@@ -121,6 +123,7 @@ public:
         }
 #endif
 
+        const std::string asciiText = wsc::text::makeAsciiFallbackText(normalizedText);
         constexpr float kTextBaseSize = 8.0f;
         const float textScale = std::max(0.01f, paint.getTextSize() / kTextBaseSize);
         const float textHeight = wsc::text::measureAsciiTextHeight(asciiText, textScale);
