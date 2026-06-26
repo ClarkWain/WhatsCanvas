@@ -2,12 +2,15 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 
 #include "stb_easy_font.h"
 
 namespace {
 
 constexpr float kPointEpsilon = 0.0001f;
+constexpr std::uint32_t kReplacementCodepoint = 0xFFFD;
+const char *kReplacementUtf8 = "\xEF\xBF\xBD";
 
 size_t estimateAsciiTextVertexBufferBytes(const std::string &asciiText)
 {
@@ -39,46 +42,150 @@ size_t estimateAsciiTextVertexBufferBytes(const std::string &asciiText)
 
 namespace wsc::text {
 
-std::string sanitizeTextToAscii(const std::string &text)
+std::vector<Utf8Codepoint> decodeUtf8(const std::string &text)
 {
-    std::string sanitized;
-    sanitized.reserve(text.size());
+    std::vector<Utf8Codepoint> codepoints;
+    codepoints.reserve(text.size());
 
-    size_t i = 0;
+    std::size_t i = 0;
     while (i < text.size()) {
         const unsigned char ch = static_cast<unsigned char>(text[i]);
+        Utf8Codepoint codepoint;
+        codepoint.offset = i;
+
         if (ch < 0x80) {
-            if (ch == '\n') {
-                sanitized.push_back('\n');
-            } else if (ch == '\t') {
-                sanitized.append("    ");
-            } else if (ch >= 32 && ch <= 126) {
-                sanitized.push_back(static_cast<char>(ch));
-            } else {
-                sanitized.push_back(' ');
-            }
+            codepoint.value = ch;
+            codepoint.length = 1;
+            codepoint.valid = true;
+            codepoints.push_back(codepoint);
             ++i;
             continue;
         }
 
-        size_t advance = 1;
+        std::size_t advance = 0;
+        std::uint32_t value = 0;
+        std::uint32_t minimumValue = 0;
         if ((ch & 0xE0) == 0xC0) {
             advance = 2;
+            value = ch & 0x1F;
+            minimumValue = 0x80;
         } else if ((ch & 0xF0) == 0xE0) {
             advance = 3;
+            value = ch & 0x0F;
+            minimumValue = 0x800;
         } else if ((ch & 0xF8) == 0xF0) {
             advance = 4;
+            value = ch & 0x07;
+            minimumValue = 0x10000;
         }
 
-        if (i + advance > text.size()) {
-            advance = 1;
+        bool valid = advance > 0 && i + advance <= text.size();
+        if (valid) {
+            for (std::size_t j = 1; j < advance; ++j) {
+                const unsigned char continuation = static_cast<unsigned char>(text[i + j]);
+                if ((continuation & 0xC0) != 0x80) {
+                    valid = false;
+                    break;
+                }
+                value = (value << 6) | (continuation & 0x3F);
+            }
         }
 
-        sanitized.push_back('?');
+        if (valid) {
+            valid = value >= minimumValue
+                && value <= 0x10FFFF
+                && !(value >= 0xD800 && value <= 0xDFFF);
+        }
+
+        if (!valid) {
+            codepoint.value = kReplacementCodepoint;
+            codepoint.length = 1;
+            codepoint.valid = false;
+            codepoints.push_back(codepoint);
+            ++i;
+            continue;
+        }
+
+        codepoint.value = value;
+        codepoint.length = advance;
+        codepoint.valid = true;
+        codepoints.push_back(codepoint);
         i += advance;
     }
 
-    return sanitized;
+    return codepoints;
+}
+
+bool isValidUtf8(const std::string &text)
+{
+    const auto codepoints = decodeUtf8(text);
+    return std::all_of(codepoints.begin(), codepoints.end(), [](const Utf8Codepoint &codepoint) {
+        return codepoint.valid;
+    });
+}
+
+std::string normalizeUtf8ForText(const std::string &text)
+{
+    std::string normalized;
+    normalized.reserve(text.size());
+
+    const auto codepoints = decodeUtf8(text);
+    for (const Utf8Codepoint &codepoint : codepoints) {
+        if (!codepoint.valid) {
+            normalized.append(kReplacementUtf8);
+            continue;
+        }
+
+        if (codepoint.value == '\n') {
+            normalized.push_back('\n');
+        } else if (codepoint.value == '\t') {
+            normalized.append("    ");
+        } else if (codepoint.value < 32) {
+            normalized.push_back(' ');
+        } else {
+            normalized.append(text, codepoint.offset, codepoint.length);
+        }
+    }
+
+    return normalized;
+}
+
+std::string makeAsciiFallbackText(const std::string &text, char replacement)
+{
+    std::string fallback;
+    fallback.reserve(text.size());
+
+    const auto codepoints = decodeUtf8(text);
+    for (const Utf8Codepoint &codepoint : codepoints) {
+        if (!codepoint.valid) {
+            fallback.push_back(replacement);
+            continue;
+        }
+
+        if (codepoint.value == '\n') {
+            fallback.push_back('\n');
+        } else if (codepoint.value == '\t') {
+            fallback.append("    ");
+        } else if (codepoint.value >= 32 && codepoint.value <= 126) {
+            fallback.push_back(static_cast<char>(codepoint.value));
+        } else if (codepoint.value < 32) {
+            fallback.push_back(' ');
+        } else {
+            fallback.push_back(replacement);
+        }
+    }
+
+    return fallback;
+}
+
+std::size_t countUtf8Codepoints(const std::string &text)
+{
+    return decodeUtf8(text).size();
+}
+
+std::string sanitizeTextToAscii(const std::string &text)
+{
+    return makeAsciiFallbackText(text);
 }
 
 float measureAsciiTextWidth(const std::string &asciiText, float scale, float letterSpacing)
@@ -89,7 +196,7 @@ float measureAsciiTextWidth(const std::string &asciiText, float scale, float let
 
     const float baseWidth = static_cast<float>(stb_easy_font_width(const_cast<char *>(asciiText.c_str()))) * scale;
     const float spacing = std::isfinite(letterSpacing) ? letterSpacing : 0.0f;
-    return std::max(0.0f, baseWidth + spacing * static_cast<float>(asciiText.size() - 1));
+    return std::max(0.0f, baseWidth + spacing * static_cast<float>(countUtf8Codepoints(asciiText) - 1));
 }
 
 float measureAsciiTextHeight(const std::string &asciiText, float scale)
