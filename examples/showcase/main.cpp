@@ -5,6 +5,7 @@
 #include <string>
 #include <array>
 #include <limits>
+#include <vector>
 #include <GLFW/glfw3.h>
 #include "wsc/wsc.h"
 
@@ -70,6 +71,198 @@ bool parseFloat(const std::string& text, float& value)
     return true;
 }
 
+std::vector<unsigned char> makeValidationTexture(int width, int height, int variant)
+{
+    std::vector<unsigned char> pixels(static_cast<size_t>(width) * static_cast<size_t>(height) * 4U);
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            const bool checker = ((x / 8) + (y / 8)) % 2 == 0;
+            const float fx = static_cast<float>(x) / static_cast<float>(width - 1);
+            const float fy = static_cast<float>(y) / static_cast<float>(height - 1);
+            const size_t offset = (static_cast<size_t>(y) * static_cast<size_t>(width) + static_cast<size_t>(x)) * 4U;
+            if (variant == 0) {
+                pixels[offset + 0] = static_cast<unsigned char>(checker ? 255 : 30 + fx * 150.0f);
+                pixels[offset + 1] = static_cast<unsigned char>(40 + fy * 190.0f);
+                pixels[offset + 2] = static_cast<unsigned char>(checker ? 90 + fy * 120.0f : 240);
+                pixels[offset + 3] = static_cast<unsigned char>(220 + checker * 35);
+            } else {
+                const bool stripe = ((x + y) / 6) % 3 == 0;
+                pixels[offset + 0] = static_cast<unsigned char>(30 + fx * 210.0f);
+                pixels[offset + 1] = static_cast<unsigned char>(stripe ? 245 : 80 + fy * 120.0f);
+                pixels[offset + 2] = static_cast<unsigned char>(170 + (1.0f - fx) * 70.0f);
+                pixels[offset + 3] = static_cast<unsigned char>(stripe ? 190 : 245);
+            }
+        }
+    }
+    return pixels;
+}
+
+std::string utf8ValidationText()
+{
+    return std::string("UTF-8 text validation: Latin, ") +
+        "\xE4\xB8\xAD\xE6\x96\x87, " +
+        "\xE6\xB7\xB7\xE6\x8E\x92 layout, emoji " +
+        "\xF0\x9F\x9A\x80 \xF0\x9F\x8C\x88, wrap and ellipsis behavior.";
+}
+
+struct ValidationImages
+{
+    Image checker;
+    Image bands;
+    bool checkerLoaded = false;
+    bool bandsLoaded = false;
+};
+
+void drawTextHeavyValidationScene(Canvas& canvas, float currentTime)
+{
+    Paint backdrop;
+    backdrop.setStyle(Paint::Style::FILL);
+    backdrop.setLinearGradient(0.0f, 0.0f, 800.0f, 600.0f,
+                               {
+                                   Paint::ColorStop(0.0f, Color(10, 18, 30)),
+                                   Paint::ColorStop(0.55f, Color(28, 34, 44)),
+                                   Paint::ColorStop(1.0f, Color(40, 36, 24))
+                               });
+    canvas.drawRect(RectF(0.0f, 0.0f, 800.0f, 600.0f), backdrop);
+
+    Paint card;
+    card.setStyle(Paint::Style::FILL_AND_STROKE);
+    card.setFillColor(Color(255, 255, 255, 18));
+    card.setStrokeColor(Color(255, 255, 255, 42));
+    card.setStrokeWidth(1.0f);
+
+    Paint title;
+    title.setStyle(Paint::Style::FILL);
+    title.setColor(Color(250, 250, 245, 235));
+    title.setTextSize(24.0f);
+    title.setFontFamily("Segoe UI");
+
+    Paint body;
+    body.setStyle(Paint::Style::FILL);
+    body.setColor(Color(226, 232, 240, 225));
+    body.setTextSize(15.0f);
+    body.setFontFamily("Segoe UI");
+
+    Paint small;
+    small.setStyle(Paint::Style::FILL);
+    small.setColor(Color(150, 210, 255, 215));
+    small.setTextSize(11.0f);
+    small.setFontFamily("Consolas");
+    small.setLetterSpacing(0.6f);
+
+    canvas.drawText("Text Validation", 32.0f, 36.0f, title);
+    const std::string sample = utf8ValidationText();
+    for (int row = 0; row < 6; ++row) {
+        const float y = 72.0f + row * 82.0f;
+        canvas.drawRoundRect(RectF(28.0f, y, 744.0f, 64.0f), 6.0f, card);
+        Paint rowPaint = body;
+        rowPaint.setTextSize(12.0f + static_cast<float>(row) * 1.6f);
+        rowPaint.setLetterSpacing((row % 3) * 0.55f);
+        if (row % 2 == 1) {
+            rowPaint.setTextAlign(Paint::TextAlign::CENTER);
+            canvas.drawTextBox(sample, RectF(52.0f, y + 9.0f, 696.0f, 42.0f), 18.0f, 2, true, rowPaint);
+        } else {
+            canvas.drawTextBox(sample, RectF(52.0f, y + 9.0f, 696.0f, 42.0f), 18.0f, 2, true, rowPaint);
+        }
+        const Canvas::TextMetrics metrics = canvas.measureTextMetrics(sample, rowPaint);
+        canvas.drawText("w=" + std::to_string(static_cast<int>(metrics.width)) +
+                        " h=" + std::to_string(static_cast<int>(metrics.height)),
+                        628.0f, y + 54.0f, small);
+    }
+
+    Path wave;
+    wave.moveTo(70.0f, 545.0f);
+    wave.cubicTo(210.0f, 486.0f, 310.0f, 592.0f, 448.0f, 528.0f);
+    wave.cubicTo(552.0f, 480.0f, 662.0f, 548.0f, 742.0f, 510.0f);
+
+    Paint wavePaint;
+    wavePaint.setStyle(Paint::Style::STROKE);
+    wavePaint.setStrokeColor(Color(120, 220, 255, 170));
+    wavePaint.setStrokeWidth(3.0f);
+    wavePaint.setStrokeCap(Paint::StrokeCap::ROUND);
+    canvas.drawPath(wave, wavePaint);
+
+    Paint pathText;
+    pathText.setStyle(Paint::Style::FILL);
+    pathText.setColor(Color(255, 225, 130, 225));
+    pathText.setTextSize(13.0f);
+    pathText.setFontFamily("Georgia");
+    pathText.setLetterSpacing(1.0f);
+    canvas.drawTextOnPath("path text metrics transform clip", wave, std::fmod(currentTime * 24.0f, 80.0f), -12.0f, pathText);
+}
+
+void drawImageHeavyValidationScene(Canvas& canvas, const ValidationImages& images, float currentTime)
+{
+    Paint background;
+    background.setStyle(Paint::Style::FILL);
+    background.setRadialGradient(400.0f, 300.0f, 520.0f,
+                                 {
+                                     Paint::ColorStop(0.0f, Color(28, 42, 44)),
+                                     Paint::ColorStop(0.62f, Color(18, 24, 32)),
+                                     Paint::ColorStop(1.0f, Color(8, 10, 16))
+                                 });
+    canvas.drawRect(RectF(0.0f, 0.0f, 800.0f, 600.0f), background);
+
+    if (!images.checkerLoaded || !images.bandsLoaded) {
+        Paint errorPaint;
+        errorPaint.setStyle(Paint::Style::FILL);
+        errorPaint.setColor(Color(255, 120, 120, 235));
+        errorPaint.setTextSize(18.0f);
+        errorPaint.setFontFamily("Consolas");
+        canvas.drawText("validation images failed to load", 40.0f, 48.0f, errorPaint);
+        return;
+    }
+
+    Paint base;
+    base.setColor(Color(255, 255, 255, 230));
+    base.setImageSampling(Paint::ImageSampling::NEAREST);
+
+    Paint filtered;
+    filtered.setColor(Color(255, 255, 255, 230));
+    filtered.setImageSampling(Paint::ImageSampling::MIPMAP_LINEAR);
+    filtered.setColorMatrix(std::array<float, 20>{
+        1.15f, 0.0f,  0.0f, 0.0f, 0.0f,
+        0.0f,  1.0f,  0.0f, 0.0f, 0.0f,
+        0.0f,  0.0f,  0.9f, 0.0f, 0.0f,
+        0.0f,  0.0f,  0.0f, 1.0f, 0.0f
+    });
+
+    Paint tiled = base;
+    tiled.setImageTileMode(Paint::ImageTileMode::MIRROR);
+
+    Paint decal = base;
+    decal.setImageTileMode(Paint::ImageTileMode::DECAL);
+    decal.setAlpha(0.72f);
+
+    canvas.drawImage(images.checker, RectF(36.0f, 40.0f, 160.0f, 120.0f), base);
+    canvas.drawImage(images.checker, RectF(8.0f, 8.0f, 40.0f, 40.0f), RectF(220.0f, 40.0f, 160.0f, 120.0f), filtered);
+    canvas.drawImageFit(images.bands, RectF(404.0f, 40.0f, 160.0f, 120.0f), Canvas::ImageFit::CONTAIN, Canvas::ImageAnchor::CENTER, base);
+    canvas.drawImageFit(images.bands, RectF(588.0f, 40.0f, 160.0f, 120.0f), Canvas::ImageFit::COVER, 0.2f, 0.8f, filtered);
+
+    canvas.drawImageNinePatch(images.checker, RectF(18.0f, 18.0f, 28.0f, 28.0f), RectF(36.0f, 192.0f, 248.0f, 92.0f), base);
+    canvas.drawImageTiled(images.bands, RectF(312.0f, 192.0f, 204.0f, 92.0f), 32.0f, 32.0f, tiled);
+    canvas.drawImageTiled(images.checker, RectF(544.0f, 192.0f, 204.0f, 92.0f), 28.0f, 28.0f, decal);
+
+    Paint border;
+    border.setStyle(Paint::Style::STROKE);
+    border.setStrokeColor(Color(255, 255, 255, 68));
+    border.setStrokeWidth(1.0f);
+    for (int y = 0; y < 3; ++y) {
+        for (int x = 0; x < 6; ++x) {
+            const float px = 44.0f + x * 118.0f;
+            const float py = 328.0f + y * 72.0f;
+            canvas.save();
+            canvas.translate(px + 48.0f, py + 26.0f);
+            canvas.rotate((currentTime * 0.18f) + static_cast<float>(x + y) * 0.14f);
+            canvas.drawImage((x + y) % 2 == 0 ? images.checker : images.bands,
+                             RectF(-44.0f, -24.0f, 88.0f, 48.0f),
+                             (x % 3 == 0) ? filtered : base);
+            canvas.restore();
+            canvas.drawRect(RectF(px, py, 96.0f, 52.0f), border);
+        }
+    }
+}
+
 // Callback: update the viewport when the framebuffer size changes
 void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
     glViewport(0, 0, width, height);
@@ -83,6 +276,12 @@ int main() {
     std::cout << "Starting application..." << std::endl;
     const bool disableMsaa = !getEnvironmentValue("WHATSCANVAS_DISABLE_MSAA").empty();
     const bool exerciseClipPath = !getEnvironmentValue("WHATSCANVAS_EXERCISE_CLIP_PATH").empty();
+    const std::string validationScene = getEnvironmentValue("WHATSCANVAS_VALIDATION_SCENE");
+    const bool runTextValidation = validationScene == "text-heavy";
+    const bool runImageValidation = validationScene == "image-heavy";
+    if (!validationScene.empty() && !runTextValidation && !runImageValidation) {
+        std::cerr << "Unknown validation scene: " << validationScene << std::endl;
+    }
 
     // Initialize GLFW
     if (!glfwInit()) {
@@ -383,6 +582,14 @@ int main() {
         imageLoaded = canvas.loadImage(demoImage, "images/draw_path.png");
     }
 
+    ValidationImages validationImages;
+    if (runImageValidation) {
+        const std::vector<unsigned char> checkerPixels = makeValidationTexture(64, 64, 0);
+        const std::vector<unsigned char> bandPixels = makeValidationTexture(96, 48, 1);
+        validationImages.checkerLoaded = canvas.loadImageFromRGBA(validationImages.checker, checkerPixels, 64, 64, true);
+        validationImages.bandsLoaded = canvas.loadImageFromRGBA(validationImages.bands, bandPixels, 96, 48, true);
+    }
+
     std::vector<PointF> demoPolylinePoints = {
         PointF(80.0f, 260.0f),
         PointF(130.0f, 230.0f),
@@ -541,6 +748,11 @@ int main() {
         canvas.beginFrame();
         canvas.drawColor(Color(6, 8, 14));
 
+        if (runTextValidation) {
+            drawTextHeavyValidationScene(canvas, currentTime);
+        } else if (runImageValidation) {
+            drawImageHeavyValidationScene(canvas, validationImages, currentTime);
+        } else {
         canvas.saveLayer(RectF(28.0f, 308.0f, 178.0f, 102.0f), saveLayerPaint);
         canvas.drawCircle(PointF(88.0f, 360.0f), 44.0f, layerCirclePaint);
         canvas.drawRoundRect(RectF(86.0f, 326.0f, 106.0f, 68.0f), 18.0f, 36.0f, 14.0f, 28.0f, layerRectPaint);
@@ -698,6 +910,7 @@ int main() {
                 paint1
             );
             canvas.drawPoint(points[i].first, points[i].second, paint1);
+        }
         }
         
         canvas.endFrame();
