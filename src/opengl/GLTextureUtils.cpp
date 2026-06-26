@@ -59,6 +59,31 @@ TextureHandle createTextureFromImageData(int width, int height, int channels, co
     return createTexture(width, height, format, format, pixels, generateMipmaps);
 }
 
+bool updateTextureRGBA(TextureHandle handle, int x, int y, int width, int height, const unsigned char *pixels,
+                       bool regenerateMipmaps)
+{
+    if (!handle.isValid() || pixels == nullptr || x < 0 || y < 0 || width <= 0 || height <= 0) {
+        return false;
+    }
+
+    GLint previousTexture = 0;
+    GLint previousUnpackAlignment = 4;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &previousTexture);
+    glGetIntegerv(GL_UNPACK_ALIGNMENT, &previousUnpackAlignment);
+
+    glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(handle.value));
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    if (regenerateMipmaps) {
+        glGenerateMipmap(GL_TEXTURE_2D);
+    }
+
+    const GLenum error = glGetError();
+    glPixelStorei(GL_UNPACK_ALIGNMENT, previousUnpackAlignment);
+    glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(previousTexture));
+    return error == GL_NO_ERROR;
+}
+
 bool createRenderTargetTexture(int width, int height, GLuint &framebuffer, GLuint &stencilRenderbuffer,
                                TextureHandle &texture)
 {

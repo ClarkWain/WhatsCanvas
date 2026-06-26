@@ -122,6 +122,30 @@ bool wsc::Image::loadFromRGBA(Canvas &canvas, const std::vector<unsigned char> &
     return canvas.loadImageFromRGBA(*this, pixels, width, height, generateMipmaps);
 }
 
+bool wsc::Image::replacePixelsRGBA(Canvas &canvas, const unsigned char *pixels, int width, int height,
+                                   bool generateMipmaps)
+{
+    return canvas.replaceImageRGBA(*this, pixels, width, height, generateMipmaps);
+}
+
+bool wsc::Image::replacePixelsRGBA(Canvas &canvas, const std::vector<unsigned char> &pixels, int width, int height,
+                                   bool generateMipmaps)
+{
+    return canvas.replaceImageRGBA(*this, pixels, width, height, generateMipmaps);
+}
+
+bool wsc::Image::updatePixelsRGBA(Canvas &canvas, const unsigned char *pixels, int x, int y, int width, int height,
+                                  bool regenerateMipmaps)
+{
+    return canvas.updateImageRGBA(*this, pixels, x, y, width, height, regenerateMipmaps);
+}
+
+bool wsc::Image::updatePixelsRGBA(Canvas &canvas, const std::vector<unsigned char> &pixels, int x, int y,
+                                  int width, int height, bool regenerateMipmaps)
+{
+    return canvas.updateImageRGBA(*this, pixels, x, y, width, height, regenerateMipmaps);
+}
+
 bool wsc::Image::loadEncodedMemory(IRenderer &renderer, const unsigned char *data, int size, bool generateMipmaps)
 {
     if (data == nullptr || size <= 0) {
@@ -178,6 +202,43 @@ bool wsc::Image::loadRGBA(IRenderer &renderer, const unsigned char *pixels, int 
     width_ = width;
     height_ = height;
     mipmapsGenerated_ = generateMipmaps;
+    return true;
+}
+
+bool wsc::Image::replaceRGBA(IRenderer &renderer, const unsigned char *pixels, int width, int height,
+                             bool generateMipmaps)
+{
+    if (pixels == nullptr || width <= 0 || height <= 0) {
+        return false;
+    }
+
+    if (!isTextureValid() || width != width_ || height != height_) {
+        return loadRGBA(renderer, pixels, width, height, generateMipmaps);
+    }
+
+    if (!updateRGBA(renderer, pixels, 0, 0, width, height, generateMipmaps || mipmapsGenerated_)) {
+        return false;
+    }
+
+    mipmapsGenerated_ = generateMipmaps || mipmapsGenerated_;
+    return true;
+}
+
+bool wsc::Image::updateRGBA(IRenderer &renderer, const unsigned char *pixels, int x, int y, int width, int height,
+                            bool regenerateMipmaps)
+{
+    if (pixels == nullptr || x < 0 || y < 0 || width <= 0 || height <= 0 || !isTextureValid()) {
+        return false;
+    }
+    if (x > width_ - width || y > height_ - height) {
+        return false;
+    }
+
+    if (!renderer.updateImageResourceRGBA(storage_->imageResource, x, y, width, height, pixels, regenerateMipmaps)) {
+        return false;
+    }
+
+    mipmapsGenerated_ = regenerateMipmaps || mipmapsGenerated_;
     return true;
 }
 

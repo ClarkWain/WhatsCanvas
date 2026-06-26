@@ -172,6 +172,14 @@ public:
 	                       bool generateMipmaps = false);
 	bool loadImageFromRGBA(Image &image, const std::vector<unsigned char> &pixels, int width, int height,
 	                       bool generateMipmaps = false);
+	bool replaceImageRGBA(Image &image, const unsigned char *pixels, int width, int height,
+	                      bool generateMipmaps = false);
+	bool replaceImageRGBA(Image &image, const std::vector<unsigned char> &pixels, int width, int height,
+	                      bool generateMipmaps = false);
+	bool updateImageRGBA(Image &image, const unsigned char *pixels, int x, int y, int width, int height,
+	                     bool regenerateMipmaps = true);
+	bool updateImageRGBA(Image &image, const std::vector<unsigned char> &pixels, int x, int y, int width,
+	                     int height, bool regenerateMipmaps = true);
 	bool wrapExternalTexture(Image &image, std::uint32_t textureId, int width, int height,
 	                         bool mipmapsGenerated = false);
 

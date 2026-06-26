@@ -33,6 +33,14 @@ public:
 	bool loadFromRGBA(Canvas &canvas, const unsigned char *pixels, int width, int height, bool generateMipmaps = false);
 	bool loadFromRGBA(Canvas &canvas, const std::vector<unsigned char> &pixels, int width, int height,
 	                  bool generateMipmaps = false);
+	bool replacePixelsRGBA(Canvas &canvas, const unsigned char *pixels, int width, int height,
+	                       bool generateMipmaps = false);
+	bool replacePixelsRGBA(Canvas &canvas, const std::vector<unsigned char> &pixels, int width, int height,
+	                       bool generateMipmaps = false);
+	bool updatePixelsRGBA(Canvas &canvas, const unsigned char *pixels, int x, int y, int width, int height,
+	                      bool regenerateMipmaps = true);
+	bool updatePixelsRGBA(Canvas &canvas, const std::vector<unsigned char> &pixels, int x, int y, int width,
+	                      int height, bool regenerateMipmaps = true);
 	bool wrapExternalTexture(Canvas &canvas, std::uint32_t textureId, int width, int height,
 	                         bool mipmapsGenerated = false);
 
@@ -54,6 +62,9 @@ private:
 	bool load(::IRenderer &renderer, const char *imagePath);
 	bool loadEncodedMemory(::IRenderer &renderer, const unsigned char *data, int size, bool generateMipmaps);
 	bool loadRGBA(::IRenderer &renderer, const unsigned char *pixels, int width, int height, bool generateMipmaps);
+	bool replaceRGBA(::IRenderer &renderer, const unsigned char *pixels, int width, int height, bool generateMipmaps);
+	bool updateRGBA(::IRenderer &renderer, const unsigned char *pixels, int x, int y, int width, int height,
+	                bool regenerateMipmaps);
 	bool wrapExternalTexture(::IRenderer &renderer, std::uint32_t textureId, int width, int height,
 	                         bool mipmapsGenerated);
 	std::shared_ptr<::ImageResource> getImageResource() const;

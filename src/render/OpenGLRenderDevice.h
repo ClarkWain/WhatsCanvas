@@ -18,6 +18,8 @@ public:
     SharedImageResource createImageResourceFromImageData(int width, int height, int channels,
                                                          const unsigned char *pixels,
                                                          bool generateMipmaps) const override;
+    bool updateImageResourceRGBA(const SharedImageResource &imageResource, int x, int y, int width, int height,
+                                 const unsigned char *pixels, bool regenerateMipmaps) const override;
     SharedImageResource wrapExternalImageResource(ImageResourceHandle handle) const override;
     SharedImageResource renderCommandsToImageResource(const std::vector<std::unique_ptr<Command>> &commands,
                                                       const OffscreenRenderRequest &request) const override;

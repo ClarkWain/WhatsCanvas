@@ -119,6 +119,13 @@ SharedImageResource Renderer::createImageResourceFromImageData(int width, int he
         : device_->createImageResourceFromImageData(width, height, channels, pixels, generateMipmaps);
 }
 
+bool Renderer::updateImageResourceRGBA(const SharedImageResource &imageResource, int x, int y, int width, int height,
+                                       const unsigned char *pixels, bool regenerateMipmaps) const
+{
+    return device_ != nullptr
+        && device_->updateImageResourceRGBA(imageResource, x, y, width, height, pixels, regenerateMipmaps);
+}
+
 SharedImageResource Renderer::wrapExternalImageResource(ImageResourceHandle handle) const
 {
     return device_ == nullptr ? SharedImageResource() : device_->wrapExternalImageResource(handle);

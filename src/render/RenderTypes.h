@@ -22,6 +22,8 @@ public:
 
     virtual bool isValid() const = 0;
     virtual void bind(const RenderContext &context) const = 0;
+    virtual bool updateRGBA(int x, int y, int width, int height, const unsigned char *pixels,
+                            bool regenerateMipmaps) = 0;
 };
 
 using SharedImageResource = std::shared_ptr<ImageResource>;

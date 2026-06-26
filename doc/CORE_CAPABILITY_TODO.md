@@ -92,10 +92,10 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
   - encoded bytes
   - raw RGBA bytes
   - optional mipmap generation
-- [ ] Add image replacement/update APIs.
-  - replace full pixels
-  - replace sub-rect pixels
-  - preserve dimensions where possible
+- [x] Add image replacement/update APIs.
+  - [x] replace full pixels
+  - [x] replace sub-rect pixels
+  - [x] preserve dimensions where possible
 - [ ] Improve image draw coverage.
   - source-rect drawing
   - destination-rect drawing
@@ -120,6 +120,7 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
   - memory decode
   - raw RGBA upload
   - external texture wrapping
+  - replacement/update smoke coverage
   - source-rect crop
   - tint and color matrix
   - tiled image rendering

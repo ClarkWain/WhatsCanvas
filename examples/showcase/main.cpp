@@ -588,6 +588,12 @@ int main() {
         const std::vector<unsigned char> bandPixels = makeValidationTexture(96, 48, 1);
         validationImages.checkerLoaded = canvas.loadImageFromRGBA(validationImages.checker, checkerPixels, 64, 64, true);
         validationImages.bandsLoaded = canvas.loadImageFromRGBA(validationImages.bands, bandPixels, 96, 48, true);
+        const std::vector<unsigned char> patchPixels = makeValidationTexture(16, 16, 1);
+        validationImages.checkerLoaded = validationImages.checkerLoaded
+            && canvas.updateImageRGBA(validationImages.checker, patchPixels, 24, 24, 16, 16, true);
+        const std::vector<unsigned char> replacementPixels = makeValidationTexture(96, 48, 0);
+        validationImages.bandsLoaded = validationImages.bandsLoaded
+            && canvas.replaceImageRGBA(validationImages.bands, replacementPixels, 96, 48, true);
     }
 
     std::vector<PointF> demoPolylinePoints = {
