@@ -25,14 +25,15 @@ int g_renderDeviceBackendRefCount = 0;
 class OpenGLImageResource final : public ImageResource
 {
 public:
-    explicit OpenGLImageResource(ImageResourceHandle handle)
-        : handle_(handle)
+    explicit OpenGLImageResource(ImageResourceHandle handle, bool ownsHandle)
+        : handle_(handle),
+          ownsHandle_(ownsHandle)
     {
     }
 
     ~OpenGLImageResource() override
     {
-        if (handle_.isValid()) {
+        if (ownsHandle_ && handle_.isValid()) {
             wsc::opengl::destroyTexture(handle_);
         }
     }
@@ -49,6 +50,7 @@ public:
 
 private:
     ImageResourceHandle handle_;
+    bool ownsHandle_ = true;
 };
 
 class OpenGLClipMaskResource final : public ClipMaskResource
@@ -218,13 +220,13 @@ private:
     GLfloat previousClearColor_[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 };
 
-SharedImageResource createSharedOpenGLImageResource(ImageResourceHandle handle)
+SharedImageResource createSharedOpenGLImageResource(ImageResourceHandle handle, bool ownsHandle = true)
 {
     if (!handle.isValid()) {
         return {};
     }
 
-    return std::make_shared<OpenGLImageResource>(handle);
+    return std::make_shared<OpenGLImageResource>(handle, ownsHandle);
 }
 
 void initializeSharedRenderBackend()
@@ -376,6 +378,11 @@ SharedImageResource OpenGLRenderDevice::createImageResourceFromImageData(int wid
 {
     return createSharedOpenGLImageResource(
         wsc::opengl::createTextureFromImageData(width, height, channels, pixels, generateMipmaps));
+}
+
+SharedImageResource OpenGLRenderDevice::wrapExternalImageResource(ImageResourceHandle handle) const
+{
+    return createSharedOpenGLImageResource(handle, false);
 }
 
 SharedImageResource OpenGLRenderDevice::renderCommandsToImageResource(const std::vector<std::unique_ptr<Command>> &commands,

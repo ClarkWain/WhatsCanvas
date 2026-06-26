@@ -76,19 +76,19 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
 
 ## Phase 2: Image And Texture Resources
 
-- [ ] Define a stable image resource model.
+- [x] Define a stable image resource model.
   - loaded image
   - render-target canvas
   - externally supplied texture
   - memory-backed RGBA image
   - decoded image data
-- [ ] Add public or semi-public external texture wrapping.
+- [x] Add public or semi-public external texture wrapping.
   - native texture id input
   - width and height
   - ownership policy
   - format metadata
   - lifecycle invalidation
-- [ ] Add image loading from memory.
+- [x] Add image loading from memory.
   - encoded bytes
   - raw RGBA bytes
   - optional mipmap generation
@@ -236,7 +236,7 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
 
 1. [x] Replace ASCII-only text handling with UTF-8 aware text plumbing.
 2. [x] Add font registration and fallback design to the public text subsystem.
-3. [ ] Add image memory loading and external texture wrapping design.
+3. [x] Add image memory loading and external texture wrapping design.
 4. [ ] Clean up OpenGLES CMake assumptions so mobile builds do not inherit desktop-only requirements.
 5. [ ] Add a text-heavy and image-heavy validation scene.
 

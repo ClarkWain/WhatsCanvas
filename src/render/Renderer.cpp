@@ -119,6 +119,11 @@ SharedImageResource Renderer::createImageResourceFromImageData(int width, int he
         : device_->createImageResourceFromImageData(width, height, channels, pixels, generateMipmaps);
 }
 
+SharedImageResource Renderer::wrapExternalImageResource(ImageResourceHandle handle) const
+{
+    return device_ == nullptr ? SharedImageResource() : device_->wrapExternalImageResource(handle);
+}
+
 SharedImageResource Renderer::renderCommandsToImageResource(const std::vector<std::unique_ptr<Command>> &commands,
                                                             const OffscreenRenderRequest &request) const
 {
