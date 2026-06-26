@@ -205,9 +205,9 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
 
 ## Phase 6: Validation And Public Examples
 
-- [ ] Create a core visual scene suite.
-  - text-heavy scene
-  - image-heavy scene
+- [~] Create a core visual scene suite.
+  - [x] text-heavy scene
+  - [x] image-heavy scene
   - gradient/effect scene
   - clipping scene
   - transform scene
@@ -238,7 +238,7 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
 2. [x] Add font registration and fallback design to the public text subsystem.
 3. [x] Add image memory loading and external texture wrapping design.
 4. [x] Clean up OpenGLES CMake assumptions so mobile builds do not inherit desktop-only requirements.
-5. [ ] Add a text-heavy and image-heavy validation scene.
+5. [x] Add a text-heavy and image-heavy validation scene.
 
 ## Definition Of Done
 
