@@ -14,6 +14,8 @@ option(WHATSCANVAS_ENABLE_SCRIPT_TESTS "Register existing smoke/example script g
 option(WHATSCANVAS_ENABLE_LOCAL_REGRESSION_TEST "Register the strict local pixel-hash regression gate with CTest." OFF)
 option(WHATSCANVAS_BUILD_DEMO "Build the root WhatsCanvas demo executable." ON)
 option(WHATSCANVAS_INSTALL "Enable install and package export rules." ON)
+option(WHATSCANVAS_BUILD_OPENGL "Build the desktop OpenGL renderer library target." ON)
+option(WHATSCANVAS_BUILD_OPENGLES "Build the OpenGL ES renderer library target." OFF)
 set(WHATSCANVAS_DEFAULT_SMOKE_HASH "2808591959994190122" CACHE STRING "Default local smoke hash for regression ctest registration.")
 set(WHATSCANVAS_CLIP_SMOKE_HASH "7173893163224947210" CACHE STRING "Default local clip-path smoke hash for regression ctest registration.")
 
@@ -30,15 +32,26 @@ set(WHATSCANVAS_CMAKE_DIR ${CMAKE_CURRENT_LIST_DIR}/cmake)
 include(${WHATSCANVAS_CMAKE_DIR}/WhatsCanvasOpenGL.cmake)
 
 whatscanvas_add_common_dependencies(${CMAKE_CURRENT_LIST_DIR})
-whatscanvas_add_opengl_library(WhatsCanvasOpenGL ${CMAKE_CURRENT_LIST_DIR})
 
-add_library(WhatsCanvas::OpenGL ALIAS WhatsCanvasOpenGL)
+if (WHATSCANVAS_BUILD_OPENGL)
+    whatscanvas_add_opengl_library(WhatsCanvasOpenGL ${CMAKE_CURRENT_LIST_DIR})
+    add_library(WhatsCanvas::OpenGL ALIAS WhatsCanvasOpenGL)
+endif()
 
-if (WHATSCANVAS_BUILD_DEMO)
+if (WHATSCANVAS_BUILD_OPENGLES)
+    whatscanvas_add_opengles_library(WhatsCanvasOpenGLES ${CMAKE_CURRENT_LIST_DIR})
+    add_library(WhatsCanvas::OpenGLES ALIAS WhatsCanvasOpenGLES)
+endif()
+
+if (NOT TARGET WhatsCanvasOpenGL AND NOT TARGET WhatsCanvasOpenGLES)
+    message(FATAL_ERROR "At least one renderer target must be enabled: WHATSCANVAS_BUILD_OPENGL or WHATSCANVAS_BUILD_OPENGLES.")
+endif()
+
+if (WHATSCANVAS_BUILD_DEMO AND TARGET WhatsCanvasOpenGL)
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/showcase")
 endif()
 
-if (BUILD_TESTING)
+if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     add_executable(WhatsCanvasGraphicsStateStackTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/GraphicsStateStackTests.cpp"
     )
@@ -145,28 +158,42 @@ if (BUILD_TESTING AND WHATSCANVAS_ENABLE_SCRIPT_TESTS)
 endif()
 
 if (WHATSCANVAS_INSTALL)
-    get_target_property(WHATSCANVAS_OPENGL_OUTPUT_NAME WhatsCanvasOpenGL OUTPUT_NAME)
-    if (NOT WHATSCANVAS_OPENGL_OUTPUT_NAME)
-        set(WHATSCANVAS_OPENGL_OUTPUT_NAME "WhatsCanvasOpenGL")
+    set(WHATSCANVAS_OPENGL_PACKAGE_IMPLIB "")
+    set(WHATSCANVAS_PACKAGE_REQUIRES_OPENGL OFF)
+
+    if (TARGET WhatsCanvasOpenGL)
+        get_target_property(WHATSCANVAS_OPENGL_OUTPUT_NAME WhatsCanvasOpenGL OUTPUT_NAME)
+        if (NOT WHATSCANVAS_OPENGL_OUTPUT_NAME)
+            set(WHATSCANVAS_OPENGL_OUTPUT_NAME "WhatsCanvasOpenGL")
+        endif()
+
+        set(WHATSCANVAS_OPENGL_IMPORTED_TYPE STATIC)
+        set(WHATSCANVAS_OPENGL_PACKAGE_LOCATION "${CMAKE_INSTALL_LIBDIR}/${CMAKE_STATIC_LIBRARY_PREFIX}${WHATSCANVAS_OPENGL_OUTPUT_NAME}${CMAKE_STATIC_LIBRARY_SUFFIX}")
+        set(WHATSCANVAS_PACKAGE_REQUIRES_OPENGL ON)
+
+        if (WIN32 AND BUILD_SHARED_LIBS)
+            set(WHATSCANVAS_OPENGL_IMPORTED_TYPE SHARED)
+            set(WHATSCANVAS_OPENGL_PACKAGE_LOCATION "${CMAKE_INSTALL_BINDIR}/${WHATSCANVAS_OPENGL_OUTPUT_NAME}${CMAKE_SHARED_LIBRARY_SUFFIX}")
+            set(WHATSCANVAS_OPENGL_PACKAGE_IMPLIB "${CMAKE_INSTALL_LIBDIR}/${CMAKE_IMPORT_LIBRARY_PREFIX}${WHATSCANVAS_OPENGL_OUTPUT_NAME}${CMAKE_IMPORT_LIBRARY_SUFFIX}")
+        endif()
     endif()
 
-    set(WHATSCANVAS_OPENGL_IMPORTED_TYPE STATIC)
-    set(WHATSCANVAS_OPENGL_PACKAGE_LOCATION "${CMAKE_INSTALL_LIBDIR}/${CMAKE_STATIC_LIBRARY_PREFIX}${WHATSCANVAS_OPENGL_OUTPUT_NAME}${CMAKE_STATIC_LIBRARY_SUFFIX}")
-
-    if (WIN32 AND BUILD_SHARED_LIBS)
-        set(WHATSCANVAS_OPENGL_IMPORTED_TYPE SHARED)
-        set(WHATSCANVAS_OPENGL_PACKAGE_LOCATION "${CMAKE_INSTALL_BINDIR}/${WHATSCANVAS_OPENGL_OUTPUT_NAME}${CMAKE_SHARED_LIBRARY_SUFFIX}")
-        set(WHATSCANVAS_OPENGL_PACKAGE_IMPLIB "${CMAKE_INSTALL_LIBDIR}/${CMAKE_IMPORT_LIBRARY_PREFIX}${WHATSCANVAS_OPENGL_OUTPUT_NAME}${CMAKE_IMPORT_LIBRARY_SUFFIX}")
-    else()
-        set(WHATSCANVAS_OPENGL_PACKAGE_IMPLIB "")
+    set(WHATSCANVAS_INSTALL_TARGETS)
+    if (TARGET WhatsCanvasOpenGL)
+        list(APPEND WHATSCANVAS_INSTALL_TARGETS WhatsCanvasOpenGL)
+    endif()
+    if (TARGET WhatsCanvasOpenGLES)
+        list(APPEND WHATSCANVAS_INSTALL_TARGETS WhatsCanvasOpenGLES)
     endif()
 
-    install(TARGETS WhatsCanvasOpenGL
-        EXPORT WhatsCanvasTargets
-        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    )
+    if (WHATSCANVAS_INSTALL_TARGETS)
+        install(TARGETS ${WHATSCANVAS_INSTALL_TARGETS}
+            EXPORT WhatsCanvasTargets
+            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+            LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+            ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        )
+    endif()
 
     install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include/wsc"
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
@@ -190,9 +217,11 @@ if (WHATSCANVAS_INSTALL)
         DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/WhatsCanvas"
     )
 
-    install(EXPORT WhatsCanvasTargets
-        FILE WhatsCanvasTargets.cmake
-        NAMESPACE WhatsCanvas::
-        DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/WhatsCanvas"
-    )
+    if (WHATSCANVAS_INSTALL_TARGETS)
+        install(EXPORT WhatsCanvasTargets
+            FILE WhatsCanvasTargets.cmake
+            NAMESPACE WhatsCanvas::
+            DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/WhatsCanvas"
+        )
+    endif()
 endif()

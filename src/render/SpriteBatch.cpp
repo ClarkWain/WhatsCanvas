@@ -4,6 +4,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include "opengl/GLProgram.h"
+#include "opengl/GLShaderSource.h"
 #include "render/RenderContext.h"
 #include "render/RenderTypes.h"
 
@@ -95,8 +96,7 @@ void SpriteBatch::ensureGLInitialized()
         return;
     }
 
-    const std::string vertexSrc = R"(
-        #version 330 core
+    const std::string vertexSrc = std::string(wsc::opengl::shaderVersionDirective()) + R"(
         layout (location = 0) in vec2 aPos;
         layout (location = 1) in vec2 aUv;
         layout (location = 2) in vec4 aColor;
@@ -114,8 +114,7 @@ void SpriteBatch::ensureGLInitialized()
         }
     )";
 
-    const std::string fragmentSrc = R"(
-        #version 330 core
+    const std::string fragmentSrc = std::string(wsc::opengl::shaderVersionDirective()) + R"(
         in vec2 vUv;
         in vec4 vColor;
 

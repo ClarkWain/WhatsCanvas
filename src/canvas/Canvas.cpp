@@ -41,11 +41,13 @@ void applyGammaFramebufferState()
         return;
     }
 
+#if !defined(WHATSCANVAS_OPENGL_ES)
     if (GammaCorrect::enabled()) {
         glEnable(GL_FRAMEBUFFER_SRGB);
     } else {
         glDisable(GL_FRAMEBUFFER_SRGB);
     }
+#endif
 }
 
 std::vector<Canvas *> &registeredCanvases()

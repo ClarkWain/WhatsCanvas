@@ -6,6 +6,7 @@
 #include <glad/glad.h>
 #include <string>
 #include "opengl/GLProgram.h"
+#include "opengl/GLShaderSource.h"
 #include "DrawValidation.h"
 
 DrawPointsProgram *DrawPointsProgram::instance_ = nullptr;
@@ -26,8 +27,7 @@ void DrawPointsProgram::initialize()
         return;
     }
 
-    std::string vertexSrc = R"(
-        #version 330 core
+    std::string vertexSrc = std::string(wsc::opengl::shaderVersionDirective()) + R"(
         layout (location = 0) in vec2 aPos;
         layout (location = 1) in vec4 aColor;
         uniform float uPointSize;
@@ -44,8 +44,7 @@ void DrawPointsProgram::initialize()
         }
     )";
 
-    std::string fragmentSrc = R"(
-        #version 330 core
+    std::string fragmentSrc = std::string(wsc::opengl::shaderVersionDirective()) + R"(
         out vec4 FragColor;
 
         in vec4 color;
@@ -138,7 +137,9 @@ void DrawPointsProgram::draw(const RenderContext &context, const DrawPointsData 
         vertexCache_.push_back(data.color[3]);
     }
 
+#if !defined(WHATSCANVAS_OPENGL_ES)
     glEnable(GL_PROGRAM_POINT_SIZE);
+#endif
     program_->use();
     program_->setFloat("uPointSize", data.size);
     glm::mat4 projection = glm::ortho(0.0f, static_cast<float>(context.getWidth()), static_cast<float>(context.getHeight()), 0.0f);

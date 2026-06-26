@@ -233,11 +233,13 @@ void initializeSharedRenderBackend()
 {
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+#if !defined(WHATSCANVAS_OPENGL_ES)
     if (GammaCorrect::enabled()) {
         glEnable(GL_FRAMEBUFFER_SRGB);
     } else {
         glDisable(GL_FRAMEBUFFER_SRGB);
     }
+#endif
     PixelFormatCaps::initialize();
     GlobalIndexBuffers::initialize();
 

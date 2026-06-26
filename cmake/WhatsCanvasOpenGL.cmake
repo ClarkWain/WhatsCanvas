@@ -13,8 +13,6 @@ function(whatscanvas_add_common_dependencies project_root)
         message(FATAL_ERROR "Missing third-party dependencies. Run: git submodule update --init --recursive")
     endif()
 
-    find_package(OpenGL REQUIRED)
-
     if (NOT TARGET WhatsCanvasGLAD)
         add_library(WhatsCanvasGLAD INTERFACE)
         target_include_directories(WhatsCanvasGLAD INTERFACE "${glad_path}/include")
@@ -55,9 +53,11 @@ function(whatscanvas_add_glfw_dependency project_root)
     endif()
 endfunction()
 
-function(whatscanvas_add_opengl_library target_name project_root)
+function(whatscanvas_add_gl_family_library target_name project_root)
     set(src_dir "${project_root}/src")
     set(glad_path "${project_root}/third_party/glad")
+    set(options OPENGLES)
+    cmake_parse_arguments(WSC_GL "${options}" "" "" ${ARGN})
 
     add_library(${target_name}
         "${glad_path}/src/glad.c"
@@ -92,6 +92,10 @@ function(whatscanvas_add_opengl_library target_name project_root)
         "${src_dir}/render/Renderer.cpp"
     )
 
+    if (WSC_GL_OPENGLES)
+        target_compile_definitions(${target_name} PRIVATE WHATSCANVAS_OPENGL_ES)
+    endif()
+
     target_include_directories(${target_name}
         PRIVATE
             "${src_dir}"
@@ -107,10 +111,19 @@ function(whatscanvas_add_opengl_library target_name project_root)
             "$<BUILD_INTERFACE:WhatsCanvasGLAD>"
             "$<BUILD_INTERFACE:WhatsCanvasSTB>"
             "$<BUILD_INTERFACE:WhatsCanvasPolyline2D>"
-            "$<BUILD_INTERFACE:OpenGL::GL>"
-        INTERFACE
-            "$<INSTALL_INTERFACE:OpenGL::GL>"
     )
+
+    if (NOT WSC_GL_OPENGLES)
+        find_package(OpenGL REQUIRED)
+        target_link_libraries(${target_name}
+            PRIVATE
+                "$<BUILD_INTERFACE:OpenGL::GL>"
+            INTERFACE
+                "$<INSTALL_INTERFACE:OpenGL::GL>"
+        )
+    elseif (WHATSCANVAS_OPENGLES_LIBRARIES)
+        target_link_libraries(${target_name} PRIVATE ${WHATSCANVAS_OPENGLES_LIBRARIES})
+    endif()
 
     if (BUILD_SHARED_LIBS)
         target_compile_definitions(${target_name} PRIVATE WSC_EXPORTS PUBLIC WSC_SHARED)
@@ -123,6 +136,14 @@ function(whatscanvas_add_opengl_library target_name project_root)
     if (WIN32)
         target_link_libraries(${target_name} PRIVATE gdi32)
     endif()
+endfunction()
+
+function(whatscanvas_add_opengl_library target_name project_root)
+    whatscanvas_add_gl_family_library(${target_name} "${project_root}")
+endfunction()
+
+function(whatscanvas_add_opengles_library target_name project_root)
+    whatscanvas_add_gl_family_library(${target_name} "${project_root}" OPENGLES)
 endfunction()
 
 function(whatscanvas_link_gl_app target_name project_root)

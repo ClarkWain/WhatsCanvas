@@ -6,14 +6,24 @@
 
 // Track the currently active backend type.
 namespace {
-RenderBackendType g_activeBackend = RenderBackendType::OpenGL;
+RenderBackendType defaultBackendType()
+{
+#if defined(WHATSCANVAS_OPENGL_ES)
+    return RenderBackendType::OpenGLES;
+#else
+    return RenderBackendType::OpenGL;
+#endif
+}
+
+RenderBackendType g_activeBackend = defaultBackendType();
 }
 
 std::unique_ptr<IRenderDevice> RenderDeviceFactory::createBestAvailable()
 {
-    auto device = create(RenderBackendType::OpenGL);
+    const RenderBackendType backend = defaultBackendType();
+    auto device = create(backend);
     if (device) {
-        g_activeBackend = RenderBackendType::OpenGL;
+        g_activeBackend = backend;
         return device;
     }
 
@@ -25,6 +35,8 @@ std::unique_ptr<IRenderDevice> RenderDeviceFactory::create(RenderBackendType typ
 {
     switch (type) {
     case RenderBackendType::OpenGL:
+    case RenderBackendType::OpenGLES:
+        g_activeBackend = type;
         return std::make_unique<OpenGLRenderDevice>();
 
     case RenderBackendType::Vulkan:
@@ -46,7 +58,8 @@ bool RenderDeviceFactory::isBackendSupported(RenderBackendType type)
 {
     switch (type) {
     case RenderBackendType::OpenGL:
-        return true;  // Always supported (GLAD loader handles the rest)
+    case RenderBackendType::OpenGLES:
+        return true;  // Supported by the GL-family device when the target is built for it.
 
     case RenderBackendType::Vulkan:
         return false;

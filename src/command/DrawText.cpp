@@ -7,6 +7,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include "DrawValidation.h"
+#include "opengl/GLShaderSource.h"
 
 DrawTextProgram *DrawTextProgram::instance_ = nullptr;
 
@@ -25,8 +26,7 @@ void DrawTextProgram::initialize()
         return;
     }
 
-    const std::string vertexSrc = R"(
-        #version 330 core
+    const std::string vertexSrc = std::string(wsc::opengl::shaderVersionDirective()) + R"(
         layout (location = 0) in vec2 aPos;
 
         uniform mat4 uProjection;
@@ -38,8 +38,7 @@ void DrawTextProgram::initialize()
         }
     )";
 
-    const std::string fragmentSrc = R"(
-        #version 330 core
+    const std::string fragmentSrc = std::string(wsc::opengl::shaderVersionDirective()) + R"(
         uniform vec4 uColor;
 
         out vec4 FragColor;

@@ -1,6 +1,8 @@
 include(CMakeFindDependencyMacro)
 
-find_dependency(OpenGL)
+if (@WHATSCANVAS_PACKAGE_REQUIRES_OPENGL@)
+    find_dependency(OpenGL)
+endif()
 
 get_filename_component(_WHATSCANVAS_PREFIX "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
 
@@ -12,6 +14,10 @@ include("${CMAKE_CURRENT_LIST_DIR}/WhatsCanvasTargets.cmake")
 
 if (TARGET WhatsCanvas::WhatsCanvasOpenGL AND NOT TARGET WhatsCanvas::OpenGL)
     add_library(WhatsCanvas::OpenGL ALIAS WhatsCanvas::WhatsCanvasOpenGL)
+endif()
+
+if (TARGET WhatsCanvas::WhatsCanvasOpenGLES AND NOT TARGET WhatsCanvas::OpenGLES)
+    add_library(WhatsCanvas::OpenGLES ALIAS WhatsCanvas::WhatsCanvasOpenGLES)
 endif()
 
 if (TARGET WhatsCanvas::WhatsCanvasOpenGL AND NOT "@WHATSCANVAS_OPENGL_PACKAGE_IMPLIB@" STREQUAL "")
