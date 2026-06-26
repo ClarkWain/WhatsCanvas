@@ -2572,6 +2572,52 @@ void Canvas::drawImageNinePatch(const Image &image, const RectF &centerSrc, cons
     }
 }
 
+void Canvas::drawImageRounded(const Image &image, const RectF &dst, float radius, const Paint &paint)
+{
+    if (radius <= 0.0f) {
+        drawImage(image, dst, paint);
+        return;
+    }
+
+    Path clip;
+    clip.addRoundRect(dst, radius);
+    save();
+    clipPath(clip);
+    drawImage(image, dst, paint);
+    restore();
+}
+
+void Canvas::drawImageRounded(const Image &image, const RectF &dst, float topLeftRadius, float topRightRadius,
+                              float bottomRightRadius, float bottomLeftRadius, const Paint &paint)
+{
+    if (topLeftRadius <= 0.0f && topRightRadius <= 0.0f && bottomRightRadius <= 0.0f && bottomLeftRadius <= 0.0f) {
+        drawImage(image, dst, paint);
+        return;
+    }
+
+    Path clip;
+    clip.addRoundRect(dst, topLeftRadius, topRightRadius, bottomRightRadius, bottomLeftRadius);
+    save();
+    clipPath(clip);
+    drawImage(image, dst, paint);
+    restore();
+}
+
+void Canvas::drawImageCircle(const Image &image, const PointF &center, float radius, const Paint &paint)
+{
+    if (radius <= 0.0f) {
+        return;
+    }
+
+    Path clip;
+    clip.addCircle(center.getX(), center.getY(), radius);
+    const RectF dst(center.getX() - radius, center.getY() - radius, radius * 2.0f, radius * 2.0f);
+    save();
+    clipPath(clip);
+    drawImageFit(image, dst, ImageFit::COVER, ImageAnchor::CENTER, paint);
+    restore();
+}
+
 void Canvas::drawImageTiled(const Image &image, const RectF &dst, const Paint &paint)
 {
     drawImageTiled(image, dst, static_cast<float>(image.getWidth()), static_cast<float>(image.getHeight()), paint);

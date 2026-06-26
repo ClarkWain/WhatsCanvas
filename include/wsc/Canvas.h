@@ -156,6 +156,10 @@ public:
 	void drawImageFit(const Image &image, const RectF &dst, ImageFit fit, ImageAnchor anchor, const Paint &paint);
 	void drawImageFit(const Image &image, const RectF &dst, ImageFit fit, float alignX, float alignY, const Paint &paint);
 	void drawImageNinePatch(const Image &image, const RectF &centerSrc, const RectF &dst, const Paint &paint);
+	void drawImageRounded(const Image &image, const RectF &dst, float radius, const Paint &paint);
+	void drawImageRounded(const Image &image, const RectF &dst, float topLeftRadius, float topRightRadius,
+	                      float bottomRightRadius, float bottomLeftRadius, const Paint &paint);
+	void drawImageCircle(const Image &image, const PointF &center, float radius, const Paint &paint);
 	void drawImageTiled(const Image &image, const RectF &dst, const Paint &paint);
 	void drawImageTiled(const Image &image, const RectF &dst, float tileWidth, float tileHeight, const Paint &paint);
 
