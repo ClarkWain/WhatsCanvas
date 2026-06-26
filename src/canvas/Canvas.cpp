@@ -2625,6 +2625,45 @@ bool Canvas::loadImage(Image &image, const char *imagePath)
     return image.load(*impl_->renderer, imagePath);
 }
 
+bool Canvas::loadImageFromEncodedMemory(Image &image, const unsigned char *data, int size, bool generateMipmaps)
+{
+    if (data == nullptr || size <= 0 || !impl_->ensureRendererInitialized()) {
+        return false;
+    }
+
+    return image.loadEncodedMemory(*impl_->renderer, data, size, generateMipmaps);
+}
+
+bool Canvas::loadImageFromRGBA(Image &image, const unsigned char *pixels, int width, int height, bool generateMipmaps)
+{
+    if (pixels == nullptr || width <= 0 || height <= 0 || !impl_->ensureRendererInitialized()) {
+        return false;
+    }
+
+    return image.loadRGBA(*impl_->renderer, pixels, width, height, generateMipmaps);
+}
+
+bool Canvas::loadImageFromRGBA(Image &image, const std::vector<unsigned char> &pixels, int width, int height,
+                               bool generateMipmaps)
+{
+    const std::size_t requiredSize = static_cast<std::size_t>(std::max(0, width))
+        * static_cast<std::size_t>(std::max(0, height)) * 4;
+    if (pixels.size() < requiredSize) {
+        return false;
+    }
+
+    return loadImageFromRGBA(image, pixels.data(), width, height, generateMipmaps);
+}
+
+bool Canvas::wrapExternalTexture(Image &image, std::uint32_t textureId, int width, int height, bool mipmapsGenerated)
+{
+    if (textureId == 0 || width <= 0 || height <= 0 || !impl_->ensureRendererInitialized()) {
+        return false;
+    }
+
+    return image.wrapExternalTexture(*impl_->renderer, textureId, width, height, mipmapsGenerated);
+}
+
 void Canvas::drawText(const std::string &text, float x, float y, const Paint &paint)
 {
     if (!impl_->textBackend) {

@@ -36,6 +36,7 @@ public:
     virtual SharedImageResource createImageResourceRGBA(int width, int height, const std::vector<unsigned char> &pixels) const = 0;
     virtual SharedImageResource createImageResourceFromImageData(int width, int height, int channels,
                                                                  const unsigned char *pixels, bool generateMipmaps) const = 0;
+    virtual SharedImageResource wrapExternalImageResource(ImageResourceHandle handle) const = 0;
     virtual SharedImageResource renderCommandsToImageResource(const std::vector<std::unique_ptr<Command>> &commands,
                                                               const OffscreenRenderRequest &request) const = 0;
     virtual void resetRenderState() = 0;

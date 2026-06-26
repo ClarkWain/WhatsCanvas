@@ -1,6 +1,8 @@
 #pragma once
 
 #include <memory>
+#include <cstdint>
+#include <vector>
 
 #include "Export.h"
 #include "TextureSource.h"
@@ -27,6 +29,13 @@ public:
 	int getHeight() const { return height_; }
 	bool hasMipmaps() const { return mipmapsGenerated_; }
 
+	bool loadFromEncodedMemory(Canvas &canvas, const unsigned char *data, int size, bool generateMipmaps = true);
+	bool loadFromRGBA(Canvas &canvas, const unsigned char *pixels, int width, int height, bool generateMipmaps = false);
+	bool loadFromRGBA(Canvas &canvas, const std::vector<unsigned char> &pixels, int width, int height,
+	                  bool generateMipmaps = false);
+	bool wrapExternalTexture(Canvas &canvas, std::uint32_t textureId, int width, int height,
+	                         bool mipmapsGenerated = false);
+
 	// ITextureSource interface
 	int getTextureWidth() const override { return width_; }
 	int getTextureHeight() const override { return height_; }
@@ -43,6 +52,10 @@ private:
 	friend class Canvas;
 
 	bool load(::IRenderer &renderer, const char *imagePath);
+	bool loadEncodedMemory(::IRenderer &renderer, const unsigned char *data, int size, bool generateMipmaps);
+	bool loadRGBA(::IRenderer &renderer, const unsigned char *pixels, int width, int height, bool generateMipmaps);
+	bool wrapExternalTexture(::IRenderer &renderer, std::uint32_t textureId, int width, int height,
+	                         bool mipmapsGenerated);
 	std::shared_ptr<::ImageResource> getImageResource() const;
 	void reset();
 

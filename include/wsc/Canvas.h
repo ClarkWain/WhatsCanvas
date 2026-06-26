@@ -167,6 +167,13 @@ public:
 	/// passing it to drawImage. Drawing an unflushed Canvas is a silent no-op.
 	void drawImage(const ITextureSource &source, const RectF &dst, const Paint &paint);
 	bool loadImage(Image &image, const char *imagePath);
+	bool loadImageFromEncodedMemory(Image &image, const unsigned char *data, int size, bool generateMipmaps = true);
+	bool loadImageFromRGBA(Image &image, const unsigned char *pixels, int width, int height,
+	                       bool generateMipmaps = false);
+	bool loadImageFromRGBA(Image &image, const std::vector<unsigned char> &pixels, int width, int height,
+	                       bool generateMipmaps = false);
+	bool wrapExternalTexture(Image &image, std::uint32_t textureId, int width, int height,
+	                         bool mipmapsGenerated = false);
 
 	// Text drawing and measurement.
 	void drawText(const std::string &text, float x, float y, const Paint &paint);

@@ -2,6 +2,7 @@
 #define STB_IMAGE_IMPLEMENTATION
 
 #include "Image.h"
+#include "../../include/wsc/Canvas.h"
 #include "render/IRenderer.h"
 #include "render/RenderTypes.h"
 #include "stb_image.h"
@@ -105,6 +106,112 @@ bool wsc::Image::load(IRenderer &renderer, const char *imagePath)
     }
 }
 
+bool wsc::Image::loadFromEncodedMemory(Canvas &canvas, const unsigned char *data, int size, bool generateMipmaps)
+{
+    return canvas.loadImageFromEncodedMemory(*this, data, size, generateMipmaps);
+}
+
+bool wsc::Image::loadFromRGBA(Canvas &canvas, const unsigned char *pixels, int width, int height, bool generateMipmaps)
+{
+    return canvas.loadImageFromRGBA(*this, pixels, width, height, generateMipmaps);
+}
+
+bool wsc::Image::loadFromRGBA(Canvas &canvas, const std::vector<unsigned char> &pixels, int width, int height,
+                              bool generateMipmaps)
+{
+    return canvas.loadImageFromRGBA(*this, pixels, width, height, generateMipmaps);
+}
+
+bool wsc::Image::loadEncodedMemory(IRenderer &renderer, const unsigned char *data, int size, bool generateMipmaps)
+{
+    if (data == nullptr || size <= 0) {
+        reset();
+        return false;
+    }
+
+    int width = 0;
+    int height = 0;
+    int channels = 0;
+    unsigned char *decoded = stbi_load_from_memory(data, size, &width, &height, &channels, 0);
+    if (decoded == nullptr) {
+        reset();
+        return false;
+    }
+
+    reset();
+    if (!storage_) {
+        storage_ = std::make_unique<Storage>();
+    }
+
+    storage_->imageResource = renderer.createImageResourceFromImageData(width, height, channels, decoded, generateMipmaps);
+    stbi_image_free(decoded);
+
+    if (!storage_->imageResource || !storage_->imageResource->isValid()) {
+        reset();
+        return false;
+    }
+
+    width_ = width;
+    height_ = height;
+    mipmapsGenerated_ = generateMipmaps;
+    return true;
+}
+
+bool wsc::Image::loadRGBA(IRenderer &renderer, const unsigned char *pixels, int width, int height, bool generateMipmaps)
+{
+    if (pixels == nullptr || width <= 0 || height <= 0) {
+        reset();
+        return false;
+    }
+
+    reset();
+    if (!storage_) {
+        storage_ = std::make_unique<Storage>();
+    }
+
+    storage_->imageResource = renderer.createImageResourceFromImageData(width, height, 4, pixels, generateMipmaps);
+    if (!storage_->imageResource || !storage_->imageResource->isValid()) {
+        reset();
+        return false;
+    }
+
+    width_ = width;
+    height_ = height;
+    mipmapsGenerated_ = generateMipmaps;
+    return true;
+}
+
+bool wsc::Image::wrapExternalTexture(Canvas &canvas, std::uint32_t textureId, int width, int height,
+                                     bool mipmapsGenerated)
+{
+    return canvas.wrapExternalTexture(*this, textureId, width, height, mipmapsGenerated);
+}
+
+bool wsc::Image::wrapExternalTexture(IRenderer &renderer, std::uint32_t textureId, int width, int height,
+                                     bool mipmapsGenerated)
+{
+    if (textureId == 0 || width <= 0 || height <= 0) {
+        reset();
+        return false;
+    }
+
+    reset();
+    if (!storage_) {
+        storage_ = std::make_unique<Storage>();
+    }
+
+    storage_->imageResource = renderer.wrapExternalImageResource(ImageResourceHandle{textureId});
+    if (!storage_->imageResource || !storage_->imageResource->isValid()) {
+        reset();
+        return false;
+    }
+
+    width_ = width;
+    height_ = height;
+    mipmapsGenerated_ = mipmapsGenerated;
+    return true;
+}
+
 bool wsc::Image::isTextureValid() const
 {
     if (!storage_ || !storage_->imageResource) {
@@ -117,4 +224,3 @@ void *wsc::Image::getTextureHandleOpaque() const
 {
     return storage_ ? static_cast<void *>(&storage_->imageResource) : nullptr;
 }
-

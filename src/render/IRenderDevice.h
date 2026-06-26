@@ -3,15 +3,12 @@
 #include <memory>
 #include <vector>
 
+#include "RenderTypes.h"
+
 class Command;
-class ImageResource;
 class IRenderTarget;
-class ClipMaskResource;
 struct OffscreenRenderRequest;
 struct ClipMaskPath;
-
-using SharedImageResource = std::shared_ptr<ImageResource>;
-using SharedClipMaskResource = std::shared_ptr<ClipMaskResource>;
 
 class IRenderDevice
 {
@@ -28,6 +25,7 @@ public:
     virtual SharedImageResource createImageResourceFromImageData(int width, int height, int channels,
                                                                  const unsigned char *pixels,
                                                                  bool generateMipmaps) const = 0;
+    virtual SharedImageResource wrapExternalImageResource(ImageResourceHandle handle) const = 0;
     virtual SharedImageResource renderCommandsToImageResource(const std::vector<std::unique_ptr<Command>> &commands,
                                                               const OffscreenRenderRequest &request) const = 0;
 };
