@@ -123,7 +123,7 @@ def main() -> None:
     centered_text(
         draw,
         (900, 92),
-        "当前事实：WhatsCanvasOpenGL 是库目标；对外暴露 include/wsc；内部包含 canvas / text / command / render / opengl",
+        "当前事实：WhatsCanvasOpenGL / WhatsCanvasOpenGLES 是 GL-family 库目标；对外暴露 include/wsc；内部包含 canvas / text / command / render / opengl",
         SUBTITLE,
         "#475569",
     )
@@ -139,7 +139,7 @@ def main() -> None:
     bx, by, bw, bh = boundary
     draw.rounded_rectangle((bx, by, bx + bw, by + bh), radius=24, fill="#ffffff", outline="#94a3b8", width=3)
     draw.rounded_rectangle((bx, by, bx + bw, by + bh), radius=24, outline="#94a3b8", width=1)
-    draw.text((125, 320), "WhatsCanvasOpenGL library", font=font(28), fill="#1e293b")
+    draw.text((125, 320), "WhatsCanvas GL-family library", font=font(28), fill="#1e293b")
     draw.text((125, 356), "编译边界来自 cmake/WhatsCanvasOpenGL.cmake", font=SMALL, fill="#475569")
 
     boxes = [
@@ -151,7 +151,7 @@ def main() -> None:
         Box("command", (310, 815, 1180, 124), "#ffedd5", "#f97316", "命令录制层", "src/command", ("DrawData + DrawCommand", "Points / Lines / Path / Image / Text")),
         Box("renderer", (310, 995, 570, 144), "#ede9fe", "#7c3aed", "Renderer", "src/render/Renderer.*", ("命令队列 / 路径合批 / flush", "readPixels / offscreen")),
         Box("device", (980, 995, 510, 144), "#ede9fe", "#7c3aed", "Render Device Boundary", "src/render", ("RenderContext / IRenderDevice", "IRenderTarget / 状态应用")),
-        Box("opengl", (310, 1185, 1180, 104), "#fee2e2", "#dc2626", "OpenGL Backend", "OpenGLRenderDevice + src/opengl", ("Draw*Program / GLProgram / textures / buffers / FBO / stencil / readback",)),
+        Box("opengl", (310, 1185, 1180, 104), "#fee2e2", "#dc2626", "OpenGL / OpenGLES Backend", "OpenGLRenderDevice + src/opengl", ("Draw*Program / GLProgram / textures / buffers / FBO / stencil / readback",)),
     ]
 
     all_boxes = external + boxes

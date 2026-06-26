@@ -157,7 +157,7 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
 
 ## Phase 4: OpenGLES And Mobile Readiness
 
-- [ ] Split desktop OpenGL and OpenGLES build assumptions.
+- [x] Split desktop OpenGL and OpenGLES build assumptions.
   - avoid desktop-only `OpenGL::GL` requirements in OpenGLES-only builds
   - make GLES include/link behavior explicit
   - document loader expectations
@@ -237,7 +237,7 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
 1. [x] Replace ASCII-only text handling with UTF-8 aware text plumbing.
 2. [x] Add font registration and fallback design to the public text subsystem.
 3. [x] Add image memory loading and external texture wrapping design.
-4. [ ] Clean up OpenGLES CMake assumptions so mobile builds do not inherit desktop-only requirements.
+4. [x] Clean up OpenGLES CMake assumptions so mobile builds do not inherit desktop-only requirements.
 5. [ ] Add a text-heavy and image-heavy validation scene.
 
 ## Definition Of Done

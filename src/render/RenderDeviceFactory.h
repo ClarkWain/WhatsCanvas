@@ -8,7 +8,8 @@ class IRenderDevice;
 /// Identifies the available rendering backends.
 enum class RenderBackendType
 {
-    OpenGL,  ///< Desktop/ES OpenGL (currently the only fully implemented backend).
+    OpenGL,   ///< Desktop OpenGL.
+    OpenGLES, ///< OpenGL ES.
     Vulkan,  ///< Vulkan (future)
     Metal    ///< Metal on Apple platforms (future)
 };
@@ -17,21 +18,22 @@ enum class RenderBackendType
 inline const char *renderBackendTypeName(RenderBackendType type)
 {
     switch (type) {
-    case RenderBackendType::OpenGL: return "OpenGL";
-    case RenderBackendType::Vulkan: return "Vulkan";
-    case RenderBackendType::Metal:  return "Metal";
+    case RenderBackendType::OpenGL:   return "OpenGL";
+    case RenderBackendType::OpenGLES: return "OpenGLES";
+    case RenderBackendType::Vulkan:   return "Vulkan";
+    case RenderBackendType::Metal:    return "Metal";
     }
     return "Unknown";
 }
 
 /// Factory for creating render device backends.
-/// Creates render device backends. Non-OpenGL backend enum values are reserved
-/// for future implementations and are never selected implicitly.
+/// Creates render device backends. OpenGL and OpenGLES share the current
+/// GL-family render device implementation; Vulkan and Metal are reserved.
 class RenderDeviceFactory
 {
 public:
     /// Create the best available render device for the current platform.
-    /// Currently returns OpenGL, the only implemented backend.
+    /// Returns OpenGLES for OpenGLES builds, otherwise desktop OpenGL.
     static std::unique_ptr<IRenderDevice> createBestAvailable();
 
     /// Create a specific render device by type.

@@ -2,15 +2,15 @@
 
 WhatsCanvas 是一个用 C++17 编写的轻量级二维渲染引擎项目，以 Canvas 的使用方式对外呈现。
 
-它不是要取代 Skia、Cocos2d 这类成熟的大型框架，也不是只停留在 NanoVG 式的轻量绘制层。它更像是介于两者之间的一种选择：比大型框架更轻、更容易接入和阅读，比极简绘图库更完整，既能拿来做 UI、工具界面和 2D 游戏项目，也适合作为学习 Canvas 渲染原理的工程样本。
+它不是要取代 Skia、Cocos2d 这类成熟的大型框架，也不是只停留在极简轻量绘制层。它更像是介于两者之间的一种选择：比大型框架更轻、更容易接入和阅读，比极简绘图库更完整，既能拿来做 UI、工具界面和 2D 游戏项目，也适合作为学习 Canvas 渲染原理的工程样本。
 本项目在设计时参考了 love2d 的 Canvas 风格和 Skia 的渲染抽象。
 
 ## 项目定位
 
-- 当前以 OpenGL 路线最完整，工程结构已经为 OpenGLES、Vulkan、Metal 等后端预留扩展空间，相关能力仍在持续完善中。
+- 当前以 OpenGL 路线最完整，并已提供 OpenGLES 编译目标；Vulkan、Metal 等后端仍保留扩展空间，相关能力持续完善中。
 - 对外提供的是 Canvas 风格 API，而不是底层图形接口的直接暴露。
 - 定位偏轻量，强调易接入、易阅读、易验证，适合中小型项目和教学场景。
-- 如果你需要的是一套更容易掌控、方便按需裁剪的 2D 渲染底座，WhatsCanvas 会比大型框架更灵活；如果你觉得 NanoVG 这一类库过于轻薄，它又能提供更多工程能力。
+- 如果你需要的是一套更容易掌控、方便按需裁剪的 2D 渲染底座，WhatsCanvas 会比大型框架更灵活；如果你觉得极简绘图库过于轻薄，它又能提供更多工程能力。
 
 ## 为什么值得用
 
@@ -28,27 +28,27 @@ WhatsCanvas 是一个用 C++17 编写的轻量级二维渲染引擎项目，以 
 
 ## 当前 Canvas 架构图
 
-下面的图基于当前源码和 CMake 目标整理，而不是仅基于 `doc/architecture` 中的阶段性说明。当前实际构建目标是 `WhatsCanvasOpenGL`，它把 `src/canvas`、`src/text`、`src/command`、`src/render` 和 `src/opengl` 编进同一个库；对外消费面主要是 `include/wsc/`。
+下面的图基于当前源码和 CMake 目标整理，而不是仅基于 `doc/architecture` 中的阶段性说明。当前实际 GL-family 构建目标是 `WhatsCanvasOpenGL`，可选目标是 `WhatsCanvasOpenGLES`，它们把 `src/canvas`、`src/text`、`src/command`、`src/render` 和 `src/opengl` 编进库；对外消费面主要是 `include/wsc/`。
 
 ![WhatsCanvas 当前 Canvas 架构图](images/canvas-architecture.png)
 
 架构图验收标准：
 
 - 必须基于当前源码和 CMake 事实，不能只按旧文档或目录名推断。
-- 必须清楚表达 `WhatsCanvasOpenGL` 库边界、公共 API、Canvas 模型、命令录制、渲染抽象和 OpenGL 后端层次。
+- 必须清楚表达 GL-family 库边界、公共 API、Canvas 模型、命令录制、渲染抽象和 OpenGL / OpenGLES 后端层次。
 - 文字不得被裁剪、遮挡、压线或用省略号吞掉关键信息。
 - 连线只保留主依赖方向，不允许穿过文字或把图变成流程图/调用链图。
 - 生成脚本必须通过本地校验，并人工查看渲染后的 PNG；未达标不得标记完成。
 
 代码事实依据：
 
-- `cmake/WhatsCanvasOpenGL.cmake` 中的 `whatscanvas_add_opengl_library()` 明确把 canvas、text、command、render、opengl 源文件加入 `WhatsCanvasOpenGL`。
+- `cmake/WhatsCanvasOpenGL.cmake` 中的 `whatscanvas_add_opengl_library()` 和 `whatscanvas_add_opengles_library()` 明确把 canvas、text、command、render、opengl 源文件加入 GL-family 库目标。
 - `include/wsc/Canvas.h` 是主要公共入口；`Canvas` 和 `Image` 都实现了 `ITextureSource`，所以普通图片和 render-target canvas 可以走同一套 `drawImage(const ITextureSource&)` 路径。
 - `src/canvas/Canvas.cpp` 的 `Canvas::Impl` 持有 `std::unique_ptr<IRenderer>`、`std::unique_ptr<ITextBackend>`、`GraphicsStateStack`、`layerStack` 和 render-target image resource。
 - `src/command/DrawCommand.*` 定义了 Points、Lines、Path、Image、Text 五类命令；命令执行时先通过 `RenderContext` 应用 blend、scissor、clip mask，再进入对应 `Draw*Program`。
 - `src/render/Renderer.*` 持有命令队列、`RenderContext` 和 `IRenderDevice`，并在 `flush()` 中执行命令，同时处理路径命令合批、像素回读、clip mask resource、image resource 和离屏渲染请求。
-- `src/render/RenderDeviceFactory.cpp` 当前只会创建 `OpenGLRenderDevice`；Vulkan 和 Metal 分支存在但返回 `nullptr`。
-- `src/render/OpenGLRenderDevice.cpp` 负责初始化 Draw*Program、GlobalIndexBuffers、PixelFormatCaps，并创建 texture、FBO/render target、clip mask resource 和 readback。
+- `src/render/RenderDeviceFactory.cpp` 当前会在桌面 OpenGL 构建中默认选择 `OpenGL`，在 OpenGLES 构建中默认选择 `OpenGLES`；二者复用 `OpenGLRenderDevice`，Vulkan 和 Metal 分支存在但返回 `nullptr`。
+- `src/render/OpenGLRenderDevice.cpp` 负责初始化 Draw*Program、GlobalIndexBuffers、PixelFormatCaps，并创建 texture、FBO/render target、clip mask resource 和 readback；OpenGLES 目标通过编译定义切换 shader 版本和桌面 GL-only 状态。
 
 ## 能力概览
 
@@ -213,13 +213,25 @@ target_link_libraries(MyApp PRIVATE WhatsCanvas::OpenGL)
 
 如果你只想按模块引入，也可以分别包含 `wsc/Canvas.h`、`wsc/Paint.h`、`wsc/Path.h`、`wsc/Image.h` 和 `wsc/base.h`。
 
-安装包的消费面只暴露 `WhatsCanvas::OpenGL` 和 `include/wsc/`。GLFW 只用于仓库内 examples 的窗口与事件循环，GLAD 被编进 OpenGL 后端，GLM 只作为内部数学实现依赖；普通消费者不需要 include 或链接这三者。
+安装包的消费面默认暴露 `WhatsCanvas::OpenGL` 和 `include/wsc/`。如果构建时打开 `WHATSCANVAS_BUILD_OPENGLES`，也会额外导出 `WhatsCanvas::OpenGLES`。GLFW 只用于仓库内 examples 的窗口与事件循环，GLAD 被编进 GL-family 后端，GLM 只作为内部数学实现依赖；普通消费者不需要 include 或链接这三者。
 
 如果你的应用自己创建 OpenGL 上下文，需要在使用 Canvas 前把平台的 proc-address 函数交给库：
 
 ```cpp
 Canvas::loadOpenGL(reinterpret_cast<Canvas::OpenGLProcAddress>(glfwGetProcAddress));
 ```
+
+OpenGLES 后端使用同一套 Canvas API 和 proc-address 加载入口，适合由宿主应用自行创建 EGL / 平台 OpenGLES 上下文后接入：
+
+```cmake
+cmake -S . -B build-gles -DWHATSCANVAS_BUILD_OPENGLES=ON
+```
+
+```cmake
+target_link_libraries(MyApp PRIVATE WhatsCanvas::OpenGLES)
+```
+
+当前 OpenGLES 目标复用 GL-family 渲染设备实现，会启用 GLES shader 版本并跳过桌面 OpenGL-only 状态，例如 `GL_FRAMEBUFFER_SRGB` 和 `GL_PROGRAM_POINT_SIZE`。
 
 如果你走 GitHub Release 方式分发，可以直接复用仓库里的 Actions 打包流程，让每次 tag 发布都产出对应的 package zip。
 
@@ -318,7 +330,7 @@ WHATSCANVAS_EXERCISE_CLIP_PATH=1 .\build\Debug\WhatsCanvasDemo.exe
 
 ## 依赖边界
 
-- 对外消费面：C++17、CMake package、`WhatsCanvas::OpenGL`、`include/wsc/`。
+- 对外消费面：C++17、CMake package、`WhatsCanvas::OpenGL`、可选 `WhatsCanvas::OpenGLES`、`include/wsc/`。
 - GLFW：只用于 examples 的窗口、OpenGL 上下文和事件循环，不随主库安装，也不是 `WhatsCanvas::OpenGL` 的传递依赖。
 - GLAD：作为 OpenGL loader 编进后端库，消费者通过 `Canvas::loadOpenGL` 传入 proc-address 函数，不直接 include 或链接 GLAD。
 - GLM：仅用于内部矩阵和向量实现，公共头使用 `wsc::Matrix4`。

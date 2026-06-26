@@ -6,6 +6,7 @@
 #include <glad/glad.h>
 #include <string>
 #include "DrawValidation.h"
+#include "opengl/GLShaderSource.h"
 
 DrawLinesProgram* DrawLinesProgram::instance_ = nullptr;
 
@@ -25,8 +26,7 @@ void DrawLinesProgram::initialize()
         return;
     }
 
-    std::string vertexSrc = R"(
-        #version 330 core
+    std::string vertexSrc = std::string(wsc::opengl::shaderVersionDirective()) + R"(
         layout (location = 0) in vec2 aPos;
         layout (location = 1) in vec4 aColor;
         uniform mat4 uProjection;
@@ -41,8 +41,7 @@ void DrawLinesProgram::initialize()
         }
     )";
 
-    std::string fragmentSrc = R"(
-        #version 330 core
+    std::string fragmentSrc = std::string(wsc::opengl::shaderVersionDirective()) + R"(
         out vec4 FragColor;
 
         in vec4 color;
@@ -169,4 +168,3 @@ void DrawLinesProgram::draw(const RenderContext &context, const DrawLinesData &d
     glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(vertexCache_.size() / 6));
     glBindVertexArray(0);
 }
-

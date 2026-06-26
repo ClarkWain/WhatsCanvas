@@ -7,6 +7,7 @@
 #include <glad/glad.h>
 #include "DrawValidation.h"
 #include "render/GammaCorrect.h"
+#include "opengl/GLShaderSource.h"
 
 DrawPathProgram* DrawPathProgram::instance_ = nullptr;
 
@@ -25,8 +26,7 @@ void DrawPathProgram::initialize()
         return;
 
     // Create the shader program
-    std::string vertexSrc = R"(
-        #version 330 core
+    std::string vertexSrc = std::string(wsc::opengl::shaderVersionDirective()) + R"(
         layout (location = 0) in vec2 aPos;
         layout (location = 1) in vec4 aColor;
         uniform mat4 uProjection;
@@ -39,8 +39,7 @@ void DrawPathProgram::initialize()
         }
     )";
 
-    std::string fragmentSrc = R"(
-        #version 330 core
+    std::string fragmentSrc = std::string(wsc::opengl::shaderVersionDirective()) + R"(
         out vec4 FragColor;
         uniform vec4 uColor;
         uniform int uUseVertexColor;

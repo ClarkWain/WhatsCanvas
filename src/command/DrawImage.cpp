@@ -7,6 +7,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include "DrawValidation.h"
+#include "opengl/GLShaderSource.h"
 
 DrawImageProgram *DrawImageProgram::instance_ = nullptr;
 
@@ -25,8 +26,7 @@ void DrawImageProgram::initialize()
         return;
     }
 
-    const std::string vertexSrc = R"(
-        #version 330 core
+    const std::string vertexSrc = std::string(wsc::opengl::shaderVersionDirective()) + R"(
         layout (location = 0) in vec2 aPos;
         layout (location = 1) in vec2 aUv;
 
@@ -42,8 +42,7 @@ void DrawImageProgram::initialize()
         }
     )";
 
-    const std::string fragmentSrc = R"(
-        #version 330 core
+    const std::string fragmentSrc = std::string(wsc::opengl::shaderVersionDirective()) + R"(
         in vec2 vUv;
 
         uniform sampler2D uTexture;
