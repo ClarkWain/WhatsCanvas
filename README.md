@@ -26,6 +26,30 @@ WhatsCanvas 是一个用 C++17 编写的轻量级二维渲染引擎项目，以 
 - [doc/architecture/README.md](doc/architecture/README.md) 里有分层设计和 ADR，[doc/CanvasEvaluation.md](doc/CanvasEvaluation.md) 里有功能演进和验证记录，[doc/polyline/polyline2d_interactive_tutorial.html](doc/polyline/polyline2d_interactive_tutorial.html) 和 [doc/Font Rendering Techniques/index.html](doc/Font%20Rendering%20Techniques/index.html) 则补充了偏原理和偏专题的学习内容。
 - Tetris、Racer、Bubble Shooter 三个示例不是单纯摆效果图，而是能帮助你理解这个引擎在真实场景里怎么组织绘制、状态和界面。
 
+## 当前 Canvas 架构图
+
+下面的图基于当前源码和 CMake 目标整理，而不是仅基于 `doc/architecture` 中的阶段性说明。当前实际构建目标是 `WhatsCanvasOpenGL`，它把 `src/canvas`、`src/text`、`src/command`、`src/render` 和 `src/opengl` 编进同一个库；对外消费面主要是 `include/wsc/`。
+
+![WhatsCanvas 当前 Canvas 架构图](images/canvas-architecture.png)
+
+架构图验收标准：
+
+- 必须基于当前源码和 CMake 事实，不能只按旧文档或目录名推断。
+- 必须清楚表达 `WhatsCanvasOpenGL` 库边界、公共 API、Canvas 模型、命令录制、渲染抽象和 OpenGL 后端层次。
+- 文字不得被裁剪、遮挡、压线或用省略号吞掉关键信息。
+- 连线只保留主依赖方向，不允许穿过文字或把图变成流程图/调用链图。
+- 生成脚本必须通过本地校验，并人工查看渲染后的 PNG；未达标不得标记完成。
+
+代码事实依据：
+
+- `cmake/WhatsCanvasOpenGL.cmake` 中的 `whatscanvas_add_opengl_library()` 明确把 canvas、text、command、render、opengl 源文件加入 `WhatsCanvasOpenGL`。
+- `include/wsc/Canvas.h` 是主要公共入口；`Canvas` 和 `Image` 都实现了 `ITextureSource`，所以普通图片和 render-target canvas 可以走同一套 `drawImage(const ITextureSource&)` 路径。
+- `src/canvas/Canvas.cpp` 的 `Canvas::Impl` 持有 `std::unique_ptr<IRenderer>`、`std::unique_ptr<ITextBackend>`、`GraphicsStateStack`、`layerStack` 和 render-target image resource。
+- `src/command/DrawCommand.*` 定义了 Points、Lines、Path、Image、Text 五类命令；命令执行时先通过 `RenderContext` 应用 blend、scissor、clip mask，再进入对应 `Draw*Program`。
+- `src/render/Renderer.*` 持有命令队列、`RenderContext` 和 `IRenderDevice`，并在 `flush()` 中执行命令，同时处理路径命令合批、像素回读、clip mask resource、image resource 和离屏渲染请求。
+- `src/render/RenderDeviceFactory.cpp` 当前只会创建 `OpenGLRenderDevice`；Vulkan 和 Metal 分支存在但返回 `nullptr`。
+- `src/render/OpenGLRenderDevice.cpp` 负责初始化 Draw*Program、GlobalIndexBuffers、PixelFormatCaps，并创建 texture、FBO/render target、clip mask resource 和 readback。
+
 ## 能力概览
 
 - 基础图元：点、线、折线、多边形、矩形、圆角矩形、圆、椭圆、圆弧、任意路径。
