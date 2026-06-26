@@ -96,20 +96,20 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
   - [x] replace full pixels
   - [x] replace sub-rect pixels
   - [x] preserve dimensions where possible
-- [ ] Improve image draw coverage.
-  - source-rect drawing
-  - destination-rect drawing
-  - tint color
-  - color matrix
-  - sampling mode
-  - tile mode
-  - contain/cover/fill fit
-  - anchors
-  - nine-patch
-- [ ] Add rounded image helpers.
-  - uniform corner radius
-  - per-corner radius
-  - circular crop helper
+- [x] Improve image draw coverage.
+  - [x] source-rect drawing
+  - [x] destination-rect drawing
+  - [x] tint color
+  - [x] color matrix
+  - [x] sampling mode
+  - [x] tile mode
+  - [x] contain/cover/fill fit
+  - [x] anchors
+  - [x] nine-patch
+- [x] Add rounded image helpers.
+  - [x] uniform corner radius
+  - [x] per-corner radius
+  - [x] circular crop helper
 - [ ] Add image pattern support or document the intended equivalent.
   - transform
   - repeat/mirror/clamp/decal
@@ -120,10 +120,10 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
   - memory decode
   - raw RGBA upload
   - external texture wrapping
-  - replacement/update smoke coverage
-  - source-rect crop
-  - tint and color matrix
-  - tiled image rendering
+  - [x] replacement/update smoke coverage
+  - [x] source-rect crop
+  - [x] tint and color matrix
+  - [x] tiled image rendering
 
 ## Phase 3: Paint, Effects, And Gradients
 

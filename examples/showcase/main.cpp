@@ -234,10 +234,10 @@ void drawImageHeavyValidationScene(Canvas& canvas, const ValidationImages& image
     decal.setImageTileMode(Paint::ImageTileMode::DECAL);
     decal.setAlpha(0.72f);
 
-    canvas.drawImage(images.checker, RectF(36.0f, 40.0f, 160.0f, 120.0f), base);
+    canvas.drawImageRounded(images.checker, RectF(36.0f, 40.0f, 160.0f, 120.0f), 18.0f, base);
     canvas.drawImage(images.checker, RectF(8.0f, 8.0f, 40.0f, 40.0f), RectF(220.0f, 40.0f, 160.0f, 120.0f), filtered);
     canvas.drawImageFit(images.bands, RectF(404.0f, 40.0f, 160.0f, 120.0f), Canvas::ImageFit::CONTAIN, Canvas::ImageAnchor::CENTER, base);
-    canvas.drawImageFit(images.bands, RectF(588.0f, 40.0f, 160.0f, 120.0f), Canvas::ImageFit::COVER, 0.2f, 0.8f, filtered);
+    canvas.drawImageCircle(images.bands, PointF(668.0f, 100.0f), 60.0f, filtered);
 
     canvas.drawImageNinePatch(images.checker, RectF(18.0f, 18.0f, 28.0f, 28.0f), RectF(36.0f, 192.0f, 248.0f, 92.0f), base);
     canvas.drawImageTiled(images.bands, RectF(312.0f, 192.0f, 204.0f, 92.0f), 32.0f, 32.0f, tiled);
