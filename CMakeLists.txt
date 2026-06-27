@@ -258,6 +258,10 @@ if (WHATSCANVAS_BUILD_BENCHMARKS AND TARGET WhatsCanvasOpenGL)
     add_executable(WhatsCanvasCoreBenchmarks
         "${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/CoreBenchmarks.cpp"
     )
+    target_include_directories(WhatsCanvasCoreBenchmarks PRIVATE
+        "${SRC_DIR}"
+        "${SRC_DIR}/canvas"
+    )
     target_link_libraries(WhatsCanvasCoreBenchmarks PRIVATE
         WhatsCanvasOpenGL
         WhatsCanvasGLM
