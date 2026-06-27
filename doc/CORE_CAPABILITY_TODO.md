@@ -115,11 +115,11 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
   - [x] repeat/mirror/clamp/decal
   - [x] alpha
   - [x] source image reference
-- [ ] Add image resource tests.
-  - file decode
-  - memory decode
-  - raw RGBA upload
-  - external texture wrapping
+- [x] Add image resource tests.
+  - [x] file decode
+  - [x] memory decode
+  - [x] raw RGBA upload
+  - [x] external texture wrapping
   - [x] replacement/update smoke coverage
   - [x] source-rect crop
   - [x] tint and color matrix
@@ -215,7 +215,7 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
   - [x] saveLayer scene
 - [x] Add pixel hash gates where stable enough.
 - [x] Add fuzzy visual comparison for driver-sensitive scenes.
-- [ ] Add API-level unit tests.
+- [x] Add API-level unit tests.
   - [x] text layout
   - [x] image resource lifecycle
   - [x] paint conversion
