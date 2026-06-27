@@ -206,13 +206,13 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
 
 ## Phase 6: Validation And Public Examples
 
-- [~] Create a core visual scene suite.
+- [x] Create a core visual scene suite.
   - [x] text-heavy scene
   - [x] image-heavy scene
-  - gradient/effect scene
-  - clipping scene
-  - transform scene
-  - saveLayer scene
+  - [x] gradient/effect scene
+  - [x] clipping scene
+  - [x] transform scene
+  - [x] saveLayer scene
 - [ ] Add pixel hash gates where stable enough.
 - [ ] Add fuzzy visual comparison for driver-sensitive scenes.
 - [ ] Add API-level unit tests.
