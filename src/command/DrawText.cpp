@@ -53,11 +53,10 @@ void DrawTextProgram::initialize()
     program_ = new GLProgram(vertexSrc, fragmentSrc);
 
     glGenVertexArrays(1, &VAO_);
-    glGenBuffers(1, &VBO_);
+    vertexBuffer_.initialize(4096);
 
     glBindVertexArray(VAO_);
-    glBindBuffer(GL_ARRAY_BUFFER, VBO_);
-    glBufferData(GL_ARRAY_BUFFER, 0, nullptr, GL_DYNAMIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer_.handle());
 
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void *)0);
     glEnableVertexAttribArray(0);
@@ -83,10 +82,7 @@ void DrawTextProgram::release()
         VAO_ = static_cast<unsigned int>(-1);
     }
 
-    if (VBO_ != static_cast<unsigned int>(-1)) {
-        glDeleteBuffers(1, &VBO_);
-        VBO_ = static_cast<unsigned int>(-1);
-    }
+    vertexBuffer_.release();
 
     initialized_ = false;
 }
@@ -112,11 +108,7 @@ void DrawTextProgram::draw(const RenderContext &context, const DrawTextData &dat
     program_->setVec4("uColor", glm::vec4(color[0], color[1], color[2], color[3]));
 
     glBindVertexArray(VAO_);
-    glBindBuffer(GL_ARRAY_BUFFER, VBO_);
-    glBufferData(GL_ARRAY_BUFFER,
-                 static_cast<GLsizeiptr>(data.vertices.size() * sizeof(float)),
-                 data.vertices.data(),
-                 GL_DYNAMIC_DRAW);
+    vertexBuffer_.upload(data.vertices.data(), data.vertices.size());
     glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(data.getVertexCount()));
     glBindVertexArray(0);
 }
