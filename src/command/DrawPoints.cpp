@@ -7,6 +7,7 @@
 #include <string>
 #include "opengl/GLProgram.h"
 #include "opengl/GLShaderSource.h"
+#include "render/GammaCorrect.h"
 #include "DrawValidation.h"
 
 DrawPointsProgram *DrawPointsProgram::instance_ = nullptr;
@@ -126,15 +127,17 @@ void DrawPointsProgram::draw(const RenderContext &context, const DrawPointsData 
     // Reuse vertexCache
     vertexCache_.clear();
     vertexCache_.reserve(requiredSize);
+    float color[4] = {data.color[0], data.color[1], data.color[2], data.color[3]};
+    GammaCorrect::srgbToLinear4(color);
 
     // Process vertex data in batches
     for (size_t i = 0; i < data.points.size(); i += 2) {
         vertexCache_.push_back(data.points[i]);
         vertexCache_.push_back(data.points[i + 1]);
-        vertexCache_.push_back(data.color[0]);
-        vertexCache_.push_back(data.color[1]);
-        vertexCache_.push_back(data.color[2]);
-        vertexCache_.push_back(data.color[3]);
+        vertexCache_.push_back(color[0]);
+        vertexCache_.push_back(color[1]);
+        vertexCache_.push_back(color[2]);
+        vertexCache_.push_back(color[3]);
     }
 
 #if !defined(WHATSCANVAS_OPENGL_ES)

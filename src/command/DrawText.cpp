@@ -8,6 +8,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include "DrawValidation.h"
 #include "opengl/GLShaderSource.h"
+#include "render/GammaCorrect.h"
 
 DrawTextProgram *DrawTextProgram::instance_ = nullptr;
 
@@ -106,7 +107,9 @@ void DrawTextProgram::draw(const RenderContext &context, const DrawTextData &dat
                                             static_cast<float>(context.getHeight()), 0.0f);
     program_->setMat4("uProjection", projection);
     program_->setMat4("uTransform", data.transform);
-    program_->setVec4("uColor", glm::vec4(data.color[0], data.color[1], data.color[2], data.color[3]));
+    float color[4] = {data.color[0], data.color[1], data.color[2], data.color[3]};
+    GammaCorrect::srgbToLinear4(color);
+    program_->setVec4("uColor", glm::vec4(color[0], color[1], color[2], color[3]));
 
     glBindVertexArray(VAO_);
     glBindBuffer(GL_ARRAY_BUFFER, VBO_);
