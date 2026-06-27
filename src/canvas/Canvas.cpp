@@ -2861,42 +2861,60 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
             return;
         }
 
-        DrawImageData data;
-        data.imageResource = imageResource;
-        data.x = renderedText.drawX;
-        data.y = renderedText.drawY;
-        data.width = renderedText.width;
-        data.height = renderedText.height;
-        data.u0 = 0.0f;
-        data.u1 = 1.0f;
-        data.v0 = 0.0f;
-        data.v1 = 1.0f;
-        data.tintColor[0] = color.r();
-        data.tintColor[1] = color.g();
-        data.tintColor[2] = color.b();
-        data.tintColor[3] = 1.0f;
-        data.alpha = color.a();
-        data.sampling = DrawImageSampling::Linear;
-        data.tileMode = DrawImageTileMode::Clamp;
-        data.transform = impl_->currentState().matrix;
-        data.scissor = impl_->makeCurrentScissorState();
-        data.blendMode = toDrawBlendMode(paint.getBlendMode());
-        data.clipMask = impl_->makeCurrentClipMaskState();
-        impl_->renderer->submit(std::make_unique<DrawImageCommand>(data));
+        const ScissorState scissor = impl_->makeCurrentScissorState();
+        const ClipMaskState clipMask = impl_->makeCurrentClipMaskState();
+        const auto submitBitmapText = [&](const Color &textColor, const glm::mat4 &transform) {
+            DrawImageData data;
+            data.imageResource = imageResource;
+            data.x = renderedText.drawX;
+            data.y = renderedText.drawY;
+            data.width = renderedText.width;
+            data.height = renderedText.height;
+            data.u0 = 0.0f;
+            data.u1 = 1.0f;
+            data.v0 = 0.0f;
+            data.v1 = 1.0f;
+            data.tintColor[0] = textColor.r();
+            data.tintColor[1] = textColor.g();
+            data.tintColor[2] = textColor.b();
+            data.tintColor[3] = 1.0f;
+            data.alpha = textColor.a();
+            data.sampling = DrawImageSampling::Linear;
+            data.tileMode = DrawImageTileMode::Clamp;
+            data.transform = transform;
+            data.scissor = scissor;
+            data.blendMode = toDrawBlendMode(paint.getBlendMode());
+            data.clipMask = clipMask;
+            impl_->renderer->submit(std::make_unique<DrawImageCommand>(data));
+        };
+
+        for (const auto &shadowPass : buildShadowPasses(paint, impl_->currentState().matrix)) {
+            submitBitmapText(shadowPass.color, shadowPass.transform);
+        }
+        submitBitmapText(color, impl_->currentState().matrix);
         return;
     }
 
-    DrawTextData data;
-    data.vertices = renderedText.vertices;
-    data.color[0] = color.r();
-    data.color[1] = color.g();
-    data.color[2] = color.b();
-    data.color[3] = color.a();
-    data.transform = impl_->currentState().matrix;
-    data.scissor = impl_->makeCurrentScissorState();
-    data.blendMode = toDrawBlendMode(paint.getBlendMode());
-    data.clipMask = impl_->makeCurrentClipMaskState();
-    impl_->renderer->submit(std::make_unique<DrawTextCommand>(data));
+    const ScissorState scissor = impl_->makeCurrentScissorState();
+    const ClipMaskState clipMask = impl_->makeCurrentClipMaskState();
+    const auto submitGeometryText = [&](const Color &textColor, const glm::mat4 &transform) {
+        DrawTextData data;
+        data.vertices = renderedText.vertices;
+        data.color[0] = textColor.r();
+        data.color[1] = textColor.g();
+        data.color[2] = textColor.b();
+        data.color[3] = textColor.a();
+        data.transform = transform;
+        data.scissor = scissor;
+        data.blendMode = toDrawBlendMode(paint.getBlendMode());
+        data.clipMask = clipMask;
+        impl_->renderer->submit(std::make_unique<DrawTextCommand>(data));
+    };
+
+    for (const auto &shadowPass : buildShadowPasses(paint, impl_->currentState().matrix)) {
+        submitGeometryText(shadowPass.color, shadowPass.transform);
+    }
+    submitGeometryText(color, impl_->currentState().matrix);
 }
 
 void Canvas::drawTextBox(const std::string &text, const RectF &bounds, const Paint &paint)
