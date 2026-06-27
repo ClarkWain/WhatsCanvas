@@ -1680,7 +1680,7 @@ void Canvas::setSize(int width, int height)
 {
     impl_->width = width;
     impl_->height = height;
-    if (impl_->ensureRendererInitialized()) {
+    if (impl_->renderer != nullptr && impl_->rendererInitialized) {
         impl_->renderer->setViewport(width, height);
     }
 

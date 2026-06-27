@@ -220,7 +220,7 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
   - image resource lifecycle
   - paint conversion
   - [x] diagnostics
-  - matrix and clipping
+  - [x] matrix and clipping
 - [ ] Add performance benchmarks.
   - text layout cost
   - glyph cache hit rate
