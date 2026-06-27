@@ -32,3 +32,5 @@ cmake --build build-gles-check --target WhatsCanvasOpenGLES --config Debug
 ## Remaining Runtime Validation
 
 The GLES build proves compile-time portability on the current host toolchain. Device-level runtime validation still belongs in Android/iOS smoke targets because shader compiler behavior can vary across mobile GPUs.
+
+For iOS host integration details, see [iOS Build Notes](IOS_BUILD_NOTES.md).
