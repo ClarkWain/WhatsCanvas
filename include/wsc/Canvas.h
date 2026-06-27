@@ -168,6 +168,11 @@ public:
 					   float bottomRightRadius, float bottomLeftRadius, const Paint &paint);
 	void drawRoundRect(const Rect &rect, float topLeftRadius, float topRightRadius,
 					   float bottomRightRadius, float bottomLeftRadius, const Paint &paint);
+	void drawBoxShadow(const RectF &rect, float radius, float spread, float blurRadius,
+	                   float dx, float dy, const Color &color);
+	void drawBoxShadow(const RectF &rect, float topLeftRadius, float topRightRadius,
+	                   float bottomRightRadius, float bottomLeftRadius, float spread,
+	                   float blurRadius, float dx, float dy, const Color &color);
 	void drawCircle(float centerX, float centerY, float radius, const Paint &paint);
 	void drawCircle(const PointF &center, float radius, const Paint &paint);
 	void drawCircle(const Point &center, float radius, const Paint &paint);

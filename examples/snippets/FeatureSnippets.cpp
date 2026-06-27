@@ -51,6 +51,12 @@ void imagePatternSnippet(wsc::Canvas &canvas, wsc::Image &image)
     canvas.restore();
 }
 
+void boxShadowSnippet(wsc::Canvas &canvas)
+{
+    canvas.drawBoxShadow(wsc::RectF(32.0f, 272.0f, 180.0f, 52.0f), 14.0f, 3.0f, 18.0f,
+                         8.0f, 10.0f, wsc::Color(0, 0, 0, 96));
+}
+
 bool externalTextureSnippet(wsc::Canvas &canvas, std::uint32_t nativeTextureId)
 {
     wsc::Image externalTexture;
@@ -77,6 +83,7 @@ int main()
 
     wsc::Image placeholderImage;
     imagePatternSnippet(canvas, placeholderImage);
+    boxShadowSnippet(canvas);
 
     const bool wrapped = externalTextureSnippet(canvas, 0);
     std::cout << "EXTERNAL_TEXTURE_WRAPPED=" << (wrapped ? 1 : 0) << std::endl;
