@@ -7,6 +7,7 @@
 #include <string>
 #include "DrawValidation.h"
 #include "opengl/GLShaderSource.h"
+#include "render/GammaCorrect.h"
 
 DrawLinesProgram* DrawLinesProgram::instance_ = nullptr;
 
@@ -118,6 +119,8 @@ void DrawLinesProgram::draw(const RenderContext &context, const DrawLinesData &d
     // Reuse vertexCache
     vertexCache_.clear();
     vertexCache_.reserve(requiredSize);
+    float color[4] = {data.color[0], data.color[1], data.color[2], data.color[3]};
+    GammaCorrect::srgbToLinear4(color);
 
     // Process vertex data in batches
     for (size_t i = 0; i < data.points.size(); i += 4) {
@@ -150,10 +153,10 @@ void DrawLinesProgram::draw(const RenderContext &context, const DrawLinesData &d
             vertexCache_.push_back(vertices[j]);
             vertexCache_.push_back(vertices[j + 1]);
             // Append color values
-            vertexCache_.push_back(data.color[0]);
-            vertexCache_.push_back(data.color[1]);
-            vertexCache_.push_back(data.color[2]);
-            vertexCache_.push_back(data.color[3]);
+            vertexCache_.push_back(color[0]);
+            vertexCache_.push_back(color[1]);
+            vertexCache_.push_back(color[2]);
+            vertexCache_.push_back(color[3]);
         }
     }
 

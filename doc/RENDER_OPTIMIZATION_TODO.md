@@ -13,7 +13,7 @@
 | 6 | Shader validateDrawState | 4 | S | ✅ 已审查通过：5 个绘制程序已接入 |
 | 7 | StreamBuffer 顶点流 | 5 | M | 🟠 DrawPath 已接入，其余 draw program 待迁移 |
 | 8 | Lazy Render Pass | 3 | S | ✅ 已审查通过：offscreen FBO 延迟到首次绘制激活 |
-| 9 | Gamma 校正管线 | 3 | M | 🟠 开关与 Path 已接入，其他 shader 待统一 |
+| 9 | Gamma 校正管线 | 3 | M | 🛠 已审查并修复：Path/Points/Lines/Text/Image tint 统一进入线性颜色 |
 | 10 | 帧边界 present/reset | 4 | S | 🛠 已审查并修复：统计覆盖所有 Command；精确 GPU draw 计数待完善 |
 | 11 | Volatile 资源生命周期 | 4 | M | 🛠 已审查并修复：GLProgram move 保留 shader 源码；其余 GPU 资源待覆盖 |
 | 12 | 临时资源池 | 3 | M | 🛠 已审查并修复尺寸复用；尚未接入 offscreen 主路径 |

@@ -8,6 +8,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include "DrawValidation.h"
 #include "opengl/GLShaderSource.h"
+#include "render/GammaCorrect.h"
 
 DrawImageProgram *DrawImageProgram::instance_ = nullptr;
 
@@ -147,7 +148,9 @@ void DrawImageProgram::draw(const RenderContext &context, const DrawImageData &d
                                             static_cast<float>(context.getHeight()), 0.0f);
     program_->setMat4("uProjection", projection);
     program_->setMat4("uTransform", data.transform);
-    program_->setVec4("uTintColor", glm::vec4(data.tintColor[0], data.tintColor[1], data.tintColor[2], data.tintColor[3]));
+    float tintColor[4] = {data.tintColor[0], data.tintColor[1], data.tintColor[2], data.tintColor[3]};
+    GammaCorrect::srgbToLinear4(tintColor);
+    program_->setVec4("uTintColor", glm::vec4(tintColor[0], tintColor[1], tintColor[2], tintColor[3]));
     program_->setFloat("uAlpha", data.alpha);
     const glm::mat4 colorMatrix(
         data.colorMatrix[0], data.colorMatrix[1], data.colorMatrix[2], data.colorMatrix[3],
