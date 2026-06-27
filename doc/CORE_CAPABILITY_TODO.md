@@ -162,11 +162,11 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
   - avoid desktop-only `OpenGL::GL` requirements in OpenGLES-only builds
   - make GLES include/link behavior explicit
   - document loader expectations
-- [ ] Validate shader portability.
-  - GLES 3.0 shader version
-  - precision qualifiers
-  - unavailable desktop-only states
-  - extension-sensitive paths
+- [x] Validate shader portability.
+  - [x] GLES 3.0 shader version
+  - [x] precision qualifiers
+  - [x] unavailable desktop-only states
+  - [x] extension-sensitive paths
 - [ ] Add Android-oriented build smoke target.
   - CMake configure
   - static library or shared library build
