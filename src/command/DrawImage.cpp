@@ -75,11 +75,10 @@ void DrawImageProgram::initialize()
     program_ = new GLProgram(vertexSrc, fragmentSrc);
 
     glGenVertexArrays(1, &VAO_);
-    glGenBuffers(1, &VBO_);
+    vertexBuffer_.initialize(24);
 
     glBindVertexArray(VAO_);
-    glBindBuffer(GL_ARRAY_BUFFER, VBO_);
-    glBufferData(GL_ARRAY_BUFFER, 6 * 4 * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer_.handle());
 
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *)0);
     glEnableVertexAttribArray(0);
@@ -107,10 +106,7 @@ void DrawImageProgram::release()
         VAO_ = static_cast<unsigned int>(-1);
     }
 
-    if (VBO_ != static_cast<unsigned int>(-1)) {
-        glDeleteBuffers(1, &VBO_);
-        VBO_ = static_cast<unsigned int>(-1);
-    }
+    vertexBuffer_.release();
 
     initialized_ = false;
 }
@@ -175,8 +171,7 @@ void DrawImageProgram::draw(const RenderContext &context, const DrawImageData &d
     context.bindImageResource(data.imageResource, data.sampling, data.tileMode, data.mipmapsReady);
 
     glBindVertexArray(VAO_);
-    glBindBuffer(GL_ARRAY_BUFFER, VBO_);
-    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
+    vertexBuffer_.upload(vertices, 24);
     glDrawArrays(GL_TRIANGLES, 0, 6);
     glBindVertexArray(0);
 }

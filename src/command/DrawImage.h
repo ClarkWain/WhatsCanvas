@@ -2,6 +2,7 @@
 
 #include "DrawData.h"
 #include "opengl/GLProgram.h"
+#include "opengl/StreamBuffer.h"
 #include "render/RenderContext.h"
 
 class DrawImageProgram
@@ -31,6 +32,6 @@ private:
 
     GLProgram *program_ = nullptr;
     unsigned int VAO_ = static_cast<unsigned int>(-1);
-    unsigned int VBO_ = static_cast<unsigned int>(-1);
+    StreamBuffer vertexBuffer_;
     bool initialized_ = false;
 };
