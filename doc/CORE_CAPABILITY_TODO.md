@@ -59,12 +59,12 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
   - [x] max-line clipping
   - [x] ellipsis
   - [x] alignment and baseline modes
-- [~] Add text rendering features.
+- [x] Add text rendering features.
   - [x] fill text
   - [x] letter spacing
   - [x] line height
   - [x] optional blur/shadow path
-  - optional stroke text path
+  - [x] optional stroke text path
 - [x] Add text regression tests.
   - [x] ASCII
   - [x] Chinese
