@@ -172,11 +172,11 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
   - [x] static library or shared library build
   - [x] minimal GLES link check
 - [ ] Add iOS-oriented build notes or smoke target.
-- [ ] Add context lifecycle APIs and tests.
-  - initialize
-  - finalize
-  - resource release before context destruction
-  - resource rebuild after context recreation
+- [x] Add context lifecycle APIs and tests.
+  - [x] initialize
+  - [x] finalize
+  - [x] resource release before context destruction
+  - [x] resource rebuild after context recreation
 - [x] Add mobile GPU resource diagnostics.
   - [x] texture count
   - [x] FBO count

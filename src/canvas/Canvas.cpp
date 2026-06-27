@@ -1561,6 +1561,7 @@ struct Canvas::Impl
     }
 
     bool ensureRendererInitialized();
+    void releaseResources();
     void finalizeRenderer();
     GraphicsState &currentState();
     const GraphicsState &currentState() const;
@@ -1584,7 +1585,12 @@ struct Canvas::Impl
 };
 
 Canvas::Canvas()
-    : impl_(std::make_unique<Impl>(std::make_unique<Renderer>(), wsc::text::createBasicTextBackend()))
+    : Canvas(std::make_unique<Renderer>())
+{
+}
+
+Canvas::Canvas(std::unique_ptr<IRenderer> renderer)
+    : impl_(std::make_unique<Impl>(std::move(renderer), wsc::text::createBasicTextBackend()))
 {
     registerCanvasInstance(this);
 }
@@ -1608,7 +1614,7 @@ void Canvas::finalize()
 {
     for (Canvas *canvas : registeredCanvases()) {
         if (canvas != nullptr) {
-            canvas->impl_->finalizeRenderer();
+            canvas->finalizeContext();
         }
     }
 }
@@ -1666,14 +1672,45 @@ bool Canvas::Impl::ensureRendererInitialized()
     return true;
 }
 
+void Canvas::Impl::releaseResources()
+{
+    layerStack.clear();
+    renderTargetImageResource.reset();
+    if (renderer != nullptr) {
+        renderer->clear();
+        renderer->resetFrameStats();
+    }
+}
+
 void Canvas::Impl::finalizeRenderer()
 {
     if (renderer == nullptr || !rendererInitialized) {
         return;
     }
 
+    releaseResources();
     renderer->finalizeBackend();
     rendererInitialized = false;
+}
+
+bool Canvas::initializeContext()
+{
+    return impl_->ensureRendererInitialized();
+}
+
+void Canvas::finalizeContext()
+{
+    impl_->finalizeRenderer();
+}
+
+bool Canvas::isContextInitialized() const
+{
+    return impl_->rendererInitialized;
+}
+
+void Canvas::releaseResources()
+{
+    impl_->releaseResources();
 }
 
 void Canvas::setSize(int width, int height)
