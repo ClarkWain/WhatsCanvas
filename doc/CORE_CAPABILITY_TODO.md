@@ -47,11 +47,11 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
 - [ ] Add a cross-platform font backend implementation path.
   - Prefer a backend that can run consistently on desktop and mobile.
   - Keep platform-native text as an optional acceleration or compatibility backend.
-- [ ] Add glyph atlas ownership.
-  - atlas allocation
-  - glyph upload
-  - cache eviction
-  - context-loss rebuild hooks
+- [x] Add glyph atlas ownership.
+  - [x] atlas allocation
+  - [x] glyph upload
+  - [x] cache eviction
+  - [x] context-loss rebuild hooks
 - [x] Add text layout helpers.
   - [x] single-line measurement
   - [x] bounded multiline measurement

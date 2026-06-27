@@ -68,6 +68,7 @@ function(whatscanvas_add_gl_family_library target_name project_root)
         "${src_dir}/canvas/Paint.cpp"
         "${src_dir}/canvas/Path.cpp"
         "${src_dir}/text/BasicTextBackend.cpp"
+        "${src_dir}/text/GlyphAtlas.cpp"
         "${src_dir}/text/NativeText.cpp"
         "${src_dir}/text/TextUtils.cpp"
         "${src_dir}/opengl/GLTextureUtils.cpp"
