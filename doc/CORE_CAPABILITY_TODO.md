@@ -36,13 +36,13 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
   - `FontFace`
   - `FontFallbackChain`
   - stable public handles or value objects
-- [ ] Extend `ITextBackend` beyond the current minimal measurement/render surface.
-  - font registration
-  - fallback resolution
-  - metrics query
-  - line break query
-  - glyph availability query
-  - diagnostics hook
+- [x] Extend `ITextBackend` beyond the current minimal measurement/render surface.
+  - [x] font registration
+  - [x] fallback resolution
+  - [x] metrics query
+  - [x] line break query
+  - [x] glyph availability query
+  - [x] diagnostics hook
 - [x] Replace ASCII-only sanitization with real UTF-8 processing.
 - [ ] Add a cross-platform font backend implementation path.
   - Prefer a backend that can run consistently on desktop and mobile.
@@ -70,9 +70,9 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
   - Chinese
   - mixed Latin/CJK
   - emoji fallback
-  - missing glyph reporting
-  - multiline wrapping
-  - alignment and baseline
+  - [x] missing glyph reporting
+  - [x] multiline wrapping
+  - [x] alignment and baseline
 
 ## Phase 2: Image And Texture Resources
 
