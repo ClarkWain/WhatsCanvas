@@ -52,13 +52,13 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
   - glyph upload
   - cache eviction
   - context-loss rebuild hooks
-- [ ] Add text layout helpers.
-  - single-line measurement
-  - bounded multiline measurement
-  - line rows with text ranges and widths
-  - max-line clipping
-  - ellipsis
-  - alignment and baseline modes
+- [x] Add text layout helpers.
+  - [x] single-line measurement
+  - [x] bounded multiline measurement
+  - [x] line rows with text ranges and widths
+  - [x] max-line clipping
+  - [x] ellipsis
+  - [x] alignment and baseline modes
 - [ ] Add text rendering features.
   - fill text
   - letter spacing
@@ -216,7 +216,7 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
 - [x] Add pixel hash gates where stable enough.
 - [ ] Add fuzzy visual comparison for driver-sensitive scenes.
 - [ ] Add API-level unit tests.
-  - text layout
+  - [x] text layout
   - image resource lifecycle
   - paint conversion
   - matrix and clipping
