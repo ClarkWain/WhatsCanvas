@@ -89,6 +89,27 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
     )
     set_tests_properties(WhatsCanvasTextLayoutTests PROPERTIES LABELS "unit;text")
+
+    add_executable(WhatsCanvasTextBackendContractTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/TextBackendContractTests.cpp"
+    )
+    target_include_directories(WhatsCanvasTextBackendContractTests PRIVATE
+        "${SRC_DIR}"
+        "${SRC_DIR}/canvas"
+    )
+    target_link_libraries(WhatsCanvasTextBackendContractTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasTextBackendContractTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasTextBackendContractTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/Debug/WhatsCanvasTextBackendContractTests.exe
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasTextBackendContractTests PROPERTIES LABELS "unit;text")
 endif()
 
 if (BUILD_TESTING AND WHATSCANVAS_ENABLE_SCRIPT_TESTS)

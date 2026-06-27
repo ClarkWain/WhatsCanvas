@@ -7,6 +7,7 @@
 #include <string>
 #include <unordered_map>
 
+#include "../../include/wsc/Font.h"
 #include "canvas/Paint.h"
 #include "text/ITextBackend.h"
 #include "text/NativeText.h"
@@ -22,6 +23,125 @@ constexpr size_t kMaxNativeTextCacheEntries = 128;
 class BasicTextBackend final : public wsc::text::ITextBackend
 {
 public:
+    bool registerFontFace(const wsc::FontFace &face) override
+    {
+        const bool registered = fontManager_.registerFace(face);
+        if (!registered) {
+            diagnostics_.push_back({wsc::text::TextBackendDiagnostic::Severity::Warning,
+                                    "Rejected invalid font face registration."});
+        }
+        return registered;
+    }
+
+    bool setFontFallbackChain(const wsc::FontFallbackChain &chain) override
+    {
+        if (chain.primaryFamily().empty() || !fontManager_.hasFamily(chain.primaryFamily())) {
+            diagnostics_.push_back({wsc::text::TextBackendDiagnostic::Severity::Warning,
+                                    "Rejected fallback chain for an unknown primary family."});
+            return false;
+        }
+
+        bool ok = true;
+        for (const std::string &family : chain.fallbackFamilies()) {
+            ok = fontManager_.addFallbackFamily(chain.primaryFamily(), family) && ok;
+        }
+        if (!ok) {
+            diagnostics_.push_back({wsc::text::TextBackendDiagnostic::Severity::Warning,
+                                    "Skipped one or more unknown fallback families."});
+        }
+        return ok;
+    }
+
+    std::vector<std::string> resolveFontFamilies(const std::string &preferredFamily) const override
+    {
+        if (fontManager_.hasFamily(preferredFamily)) {
+            return fontManager_.resolveFamilies(preferredFamily);
+        }
+        return preferredFamily.empty() ? std::vector<std::string>() : std::vector<std::string>{preferredFamily};
+    }
+
+    std::vector<wsc::text::TextLineBreak> breakLines(const std::string &text, float maxWidth,
+                                                     const Paint &paint) const override
+    {
+        std::vector<wsc::text::TextLineBreak> result;
+        const std::string normalizedText = wsc::text::normalizeUtf8ForText(text);
+        if (normalizedText.empty() || maxWidth <= 0.0f || paint.getTextSize() <= 0.0f) {
+            return result;
+        }
+
+        auto appendParagraph = [&](std::size_t paragraphStart, std::size_t paragraphEnd) {
+            if (paragraphEnd <= paragraphStart) {
+                result.push_back({paragraphStart, 0, 0.0f});
+                return;
+            }
+
+            std::string currentLine;
+            std::size_t currentStart = paragraphStart;
+            std::size_t currentEnd = paragraphStart;
+            std::size_t position = paragraphStart;
+            while (position < paragraphEnd) {
+                while (position < paragraphEnd && normalizedText[position] == ' ') {
+                    ++position;
+                }
+                if (position >= paragraphEnd) {
+                    break;
+                }
+
+                const std::size_t wordStart = position;
+                while (position < paragraphEnd && normalizedText[position] != ' ') {
+                    ++position;
+                }
+
+                const std::string word = normalizedText.substr(wordStart, position - wordStart);
+                const std::string candidate = currentLine.empty() ? word : currentLine + " " + word;
+                if (currentLine.empty() || measureTextWidth(candidate, paint) <= maxWidth) {
+                    if (currentLine.empty()) {
+                        currentStart = wordStart;
+                    }
+                    currentLine = candidate;
+                    currentEnd = position;
+                } else {
+                    result.push_back({currentStart, currentEnd - currentStart,
+                                      measureTextWidth(currentLine, paint)});
+                    currentLine = word;
+                    currentStart = wordStart;
+                    currentEnd = position;
+                }
+            }
+
+            if (!currentLine.empty()) {
+                result.push_back({currentStart, currentEnd - currentStart,
+                                  measureTextWidth(currentLine, paint)});
+            }
+        };
+
+        std::size_t paragraphStart = 0;
+        for (std::size_t i = 0; i <= normalizedText.size(); ++i) {
+            if (i == normalizedText.size() || normalizedText[i] == '\n') {
+                appendParagraph(paragraphStart, i);
+                paragraphStart = i + 1;
+            }
+        }
+        return result;
+    }
+
+    bool hasGlyphForCodepoint(std::uint32_t codepoint, const Paint &paint) const override
+    {
+#ifdef _WIN32
+        if (paint.hasFontFamily()) {
+            return true;
+        }
+#else
+        (void)paint;
+#endif
+        return codepoint == '\n' || codepoint == '\t' || (codepoint >= 32 && codepoint <= 126);
+    }
+
+    std::vector<wsc::text::TextBackendDiagnostic> diagnostics() const override
+    {
+        return diagnostics_;
+    }
+
     float measureTextWidth(const std::string &text, const Paint &paint) const override
     {
         const std::string normalizedText = wsc::text::normalizeUtf8ForText(text);
@@ -211,6 +331,8 @@ private:
     mutable std::deque<std::string> nativeMeasureCacheOrder_;
     mutable std::deque<std::string> nativeBitmapCacheOrder_;
 #endif
+    wsc::FontManager fontManager_;
+    std::vector<wsc::text::TextBackendDiagnostic> diagnostics_;
 };
 
 } // namespace
