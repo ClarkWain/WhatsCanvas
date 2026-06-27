@@ -263,6 +263,205 @@ void drawImageHeavyValidationScene(Canvas& canvas, const ValidationImages& image
     }
 }
 
+void drawGradientEffectValidationScene(Canvas& canvas, float currentTime)
+{
+    Paint background;
+    background.setStyle(Paint::Style::FILL);
+    background.setLinearGradient(0.0f, 0.0f, 800.0f, 600.0f,
+                                 {
+                                     Paint::ColorStop(0.0f, Color(14, 18, 28)),
+                                     Paint::ColorStop(0.48f, Color(28, 38, 40)),
+                                     Paint::ColorStop(1.0f, Color(42, 32, 20))
+                                 });
+    canvas.drawRect(RectF(0.0f, 0.0f, 800.0f, 600.0f), background);
+
+    Paint linear;
+    linear.setStyle(Paint::Style::FILL_AND_STROKE);
+    linear.setStrokeColor(Color(255, 255, 255, 80));
+    linear.setStrokeWidth(2.0f);
+    linear.setLinearGradient(60.0f, 80.0f, 330.0f, 240.0f,
+                             {
+                                 Paint::ColorStop(0.0f, Color(255, 96, 96, 230)),
+                                 Paint::ColorStop(0.45f, Color(96, 225, 170, 230)),
+                                 Paint::ColorStop(1.0f, Color(80, 160, 255, 230))
+                             });
+    linear.setShaderTileMode(Paint::ShaderTileMode::MIRROR);
+    linear.setShadowLayer(18.0f, 14.0f, 16.0f, Color(0, 0, 0, 120));
+    canvas.drawRoundRect(RectF(60.0f, 80.0f, 270.0f, 160.0f), 28.0f, linear);
+
+    Paint radial;
+    radial.setStyle(Paint::Style::FILL);
+    radial.setRadialGradient(560.0f, 170.0f, 130.0f,
+                             {
+                                 Paint::ColorStop(0.0f, Color(255, 245, 180, 245)),
+                                 Paint::ColorStop(0.42f, Color(255, 115, 165, 230)),
+                                 Paint::ColorStop(1.0f, Color(60, 80, 220, 215))
+                             });
+    canvas.drawCircle(PointF(560.0f, 170.0f), 112.0f, radial);
+
+    Paint multiply;
+    multiply.setStyle(Paint::Style::FILL);
+    multiply.setFillColor(Color(255, 190, 70, 200));
+    multiply.setBlendMode(Paint::BlendMode::MULTIPLY);
+    canvas.drawCircle(PointF(504.0f, 180.0f), 66.0f, multiply);
+
+    Paint screen;
+    screen.setStyle(Paint::Style::FILL);
+    screen.setFillColor(Color(80, 235, 255, 185));
+    screen.setBlendMode(Paint::BlendMode::SCREEN);
+    canvas.drawRoundRect(RectF(504.0f, 132.0f, 132.0f, 96.0f), 22.0f, screen);
+
+    Paint dashed;
+    dashed.setStyle(Paint::Style::STROKE);
+    dashed.setStrokeColor(Color(255, 255, 255, 210));
+    dashed.setStrokeWidth(7.0f);
+    dashed.setStrokeCap(Paint::StrokeCap::ROUND);
+    dashed.setDashPathEffect(std::vector<float>{24.0f, 14.0f, 7.0f, 14.0f}, currentTime * 24.0f);
+    Path wave;
+    wave.moveTo(70.0f, 370.0f);
+    wave.cubicTo(190.0f, 300.0f, 300.0f, 450.0f, 430.0f, 360.0f);
+    wave.cubicTo(535.0f, 285.0f, 620.0f, 438.0f, 738.0f, 342.0f);
+    canvas.drawPath(wave, dashed);
+
+    Paint shadow;
+    shadow.setStyle(Paint::Style::FILL);
+    shadow.setFillColor(Color(245, 250, 255, 225));
+    shadow.setShadowLayer(22.0f, 12.0f, 18.0f, Color(0, 0, 0, 150));
+    for (int i = 0; i < 6; ++i) {
+        canvas.drawRoundRect(RectF(80.0f + i * 108.0f, 450.0f, 74.0f, 58.0f), 12.0f + i * 2.0f, shadow);
+    }
+}
+
+void drawClippingValidationScene(Canvas& canvas, float currentTime)
+{
+    Paint fill;
+    fill.setStyle(Paint::Style::FILL);
+    fill.setLinearGradient(0.0f, 0.0f, 800.0f, 0.0f, Color(35, 120, 220), Color(255, 110, 95));
+    canvas.drawRect(RectF(0.0f, 0.0f, 800.0f, 600.0f), fill);
+
+    Path outer;
+    outer.addRoundRect(RectF(90.0f, 72.0f, 620.0f, 430.0f), 54.0f, 18.0f, 54.0f, 18.0f);
+    canvas.save();
+    canvas.clipPath(outer);
+    Paint tile;
+    tile.setStyle(Paint::Style::FILL);
+    for (int y = 0; y < 8; ++y) {
+        for (int x = 0; x < 10; ++x) {
+            tile.setFillColor(((x + y) % 2 == 0) ? Color(255, 255, 255, 62) : Color(0, 0, 0, 58));
+            canvas.drawRect(RectF(70.0f + x * 70.0f, 40.0f + y * 70.0f, 70.0f, 70.0f), tile);
+        }
+    }
+
+    Path inner;
+    inner.addCircle(400.0f + std::sin(currentTime) * 32.0f, 300.0f, 148.0f);
+    canvas.clipPath(inner);
+    Paint clipped;
+    clipped.setStyle(Paint::Style::FILL);
+    clipped.setRadialGradient(400.0f, 300.0f, 210.0f, Color(255, 245, 160, 245), Color(70, 240, 190, 180));
+    canvas.drawRect(RectF(160.0f, 130.0f, 480.0f, 340.0f), clipped);
+    canvas.restore();
+
+    Paint border;
+    border.setStyle(Paint::Style::STROKE);
+    border.setStrokeColor(Color(255, 255, 255, 220));
+    border.setStrokeWidth(3.0f);
+    canvas.drawPath(outer, border);
+    border.setStrokeColor(Color(255, 245, 120, 220));
+    canvas.drawPath(inner, border);
+}
+
+void drawTransformValidationScene(Canvas& canvas, float currentTime)
+{
+    canvas.drawColor(Color(10, 14, 22));
+    Paint axis;
+    axis.setStyle(Paint::Style::STROKE);
+    axis.setStrokeColor(Color(255, 255, 255, 42));
+    axis.setStrokeWidth(1.0f);
+    for (int x = 0; x <= 800; x += 50) {
+        canvas.drawLine(static_cast<float>(x), 0.0f, static_cast<float>(x), 600.0f, axis);
+    }
+    for (int y = 0; y <= 600; y += 50) {
+        canvas.drawLine(0.0f, static_cast<float>(y), 800.0f, static_cast<float>(y), axis);
+    }
+
+    Paint shape;
+    shape.setStyle(Paint::Style::FILL_AND_STROKE);
+    shape.setStrokeColor(Color(255, 255, 255, 170));
+    shape.setStrokeWidth(2.0f);
+    for (int row = 0; row < 4; ++row) {
+        for (int col = 0; col < 6; ++col) {
+            const float cx = 112.0f + col * 116.0f;
+            const float cy = 92.0f + row * 118.0f;
+            shape.setFillColor(Color(70 + col * 24, 210 - row * 22, 130 + row * 28, 210));
+            canvas.save();
+            canvas.translate(cx, cy);
+            canvas.rotate(currentTime * 0.35f + static_cast<float>(col - row) * 0.22f);
+            canvas.scale(0.72f + col * 0.055f, 0.72f + row * 0.085f);
+            canvas.drawRoundRect(RectF(-38.0f, -28.0f, 76.0f, 56.0f), 12.0f, shape);
+            canvas.restore();
+        }
+    }
+
+    Paint point;
+    point.setStyle(Paint::Style::STROKE);
+    point.setStrokeColor(Color(255, 235, 120, 230));
+    point.setStrokeWidth(8.0f);
+    Path hitPath;
+    hitPath.addRect(RectF(-42.0f, -30.0f, 84.0f, 60.0f));
+    canvas.save();
+    canvas.translate(400.0f, 520.0f);
+    canvas.rotate(currentTime * 0.5f);
+    canvas.scale(1.8f, 0.82f);
+    canvas.drawPath(hitPath, shape);
+    canvas.restore();
+    canvas.drawPoint(400.0f, 520.0f, point);
+}
+
+void drawSaveLayerValidationScene(Canvas& canvas, float currentTime)
+{
+    canvas.drawColor(Color(11, 14, 18));
+    Paint layerPaint;
+    layerPaint.setAlpha(0.86f);
+
+    Paint base;
+    base.setStyle(Paint::Style::FILL);
+    Paint overlay;
+    overlay.setStyle(Paint::Style::FILL);
+    overlay.setBlendMode(Paint::BlendMode::SCREEN);
+
+    for (int i = 0; i < 4; ++i) {
+        const float x = 74.0f + i * 178.0f;
+        const float y = 104.0f + (i % 2) * 78.0f;
+        canvas.saveLayer(RectF(x, y, 150.0f, 170.0f), layerPaint);
+        base.setFillColor(Color(80 + i * 35, 120, 245 - i * 32, 220));
+        overlay.setFillColor(Color(255, 190 - i * 24, 80 + i * 38, 205));
+        canvas.drawRoundRect(RectF(x + 8.0f, y + 18.0f, 102.0f, 118.0f), 22.0f, base);
+        canvas.drawCircle(PointF(x + 88.0f + std::sin(currentTime + i) * 8.0f, y + 88.0f), 58.0f, overlay);
+        Paint cutout;
+        cutout.setStyle(Paint::Style::FILL);
+        cutout.setFillColor(Color(255, 255, 255, 230));
+        cutout.setBlendMode(Paint::BlendMode::DST_OUT);
+        canvas.drawCircle(PointF(x + 102.0f, y + 106.0f), 22.0f, cutout);
+        canvas.restore();
+    }
+
+    Paint line;
+    line.setStyle(Paint::Style::STROKE);
+    line.setStrokeWidth(10.0f);
+    line.setStrokeCap(Paint::StrokeCap::ROUND);
+    line.setStrokeColor(Color(125, 230, 255, 220));
+    canvas.saveLayer(RectF(90.0f, 390.0f, 620.0f, 120.0f), layerPaint);
+    for (int i = 0; i < 7; ++i) {
+        canvas.drawLine(112.0f + i * 88.0f, 472.0f, 154.0f + i * 88.0f, 416.0f, line);
+    }
+    Paint add;
+    add.setStyle(Paint::Style::FILL);
+    add.setBlendMode(Paint::BlendMode::ADD);
+    add.setFillColor(Color(255, 185, 80, 150));
+    canvas.drawRoundRect(RectF(104.0f, 414.0f, 592.0f, 72.0f), 36.0f, add);
+    canvas.restore();
+}
+
 // Callback: update the viewport when the framebuffer size changes
 void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
     glViewport(0, 0, width, height);
@@ -279,7 +478,13 @@ int main() {
     const std::string validationScene = getEnvironmentValue("WHATSCANVAS_VALIDATION_SCENE");
     const bool runTextValidation = validationScene == "text-heavy";
     const bool runImageValidation = validationScene == "image-heavy";
-    if (!validationScene.empty() && !runTextValidation && !runImageValidation) {
+    const bool runGradientEffectValidation = validationScene == "gradient-effect";
+    const bool runClippingValidation = validationScene == "clipping";
+    const bool runTransformValidation = validationScene == "transform";
+    const bool runSaveLayerValidation = validationScene == "save-layer";
+    if (!validationScene.empty() && !runTextValidation && !runImageValidation
+        && !runGradientEffectValidation && !runClippingValidation
+        && !runTransformValidation && !runSaveLayerValidation) {
         std::cerr << "Unknown validation scene: " << validationScene << std::endl;
     }
 
@@ -758,6 +963,14 @@ int main() {
             drawTextHeavyValidationScene(canvas, currentTime);
         } else if (runImageValidation) {
             drawImageHeavyValidationScene(canvas, validationImages, currentTime);
+        } else if (runGradientEffectValidation) {
+            drawGradientEffectValidationScene(canvas, currentTime);
+        } else if (runClippingValidation) {
+            drawClippingValidationScene(canvas, currentTime);
+        } else if (runTransformValidation) {
+            drawTransformValidationScene(canvas, currentTime);
+        } else if (runSaveLayerValidation) {
+            drawSaveLayerValidationScene(canvas, currentTime);
         } else {
         canvas.saveLayer(RectF(28.0f, 308.0f, 178.0f, 102.0f), saveLayerPaint);
         canvas.drawCircle(PointF(88.0f, 360.0f), 44.0f, layerCirclePaint);
