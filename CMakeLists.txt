@@ -111,6 +111,27 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     )
     set_tests_properties(WhatsCanvasTextBackendContractTests PROPERTIES LABELS "unit;text")
 
+    add_executable(WhatsCanvasTextRegressionTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/TextRegressionTests.cpp"
+    )
+    target_include_directories(WhatsCanvasTextRegressionTests PRIVATE
+        "${SRC_DIR}"
+        "${SRC_DIR}/canvas"
+    )
+    target_link_libraries(WhatsCanvasTextRegressionTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasTextRegressionTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasTextRegressionTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/Debug/WhatsCanvasTextRegressionTests.exe
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasTextRegressionTests PROPERTIES LABELS "unit;text")
+
     add_executable(WhatsCanvasRenderStatsTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/RenderStatsTests.cpp"
     )

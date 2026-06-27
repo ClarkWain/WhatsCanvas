@@ -65,11 +65,11 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
   - line height
   - optional blur/shadow path
   - optional stroke text path
-- [ ] Add text regression tests.
-  - ASCII
-  - Chinese
-  - mixed Latin/CJK
-  - emoji fallback
+- [x] Add text regression tests.
+  - [x] ASCII
+  - [x] Chinese
+  - [x] mixed Latin/CJK
+  - [x] emoji fallback
   - [x] missing glyph reporting
   - [x] multiline wrapping
   - [x] alignment and baseline
