@@ -218,7 +218,7 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
 - [ ] Add API-level unit tests.
   - [x] text layout
   - image resource lifecycle
-  - paint conversion
+  - [x] paint conversion
   - [x] diagnostics
   - [x] matrix and clipping
 - [ ] Add performance benchmarks.
