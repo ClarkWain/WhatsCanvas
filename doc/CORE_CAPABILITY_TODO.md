@@ -186,23 +186,23 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
 
 ## Phase 5: Compatibility Adapters
 
-- [ ] Design a stateful canvas adapter layer.
-  - current fill paint
-  - current stroke paint
-  - current path
-  - current font state
-  - current alpha and blend state
-  - image handle table
-- [ ] Provide helper APIs for applications that prefer immediate-mode drawing.
-  - begin path
-  - fill current path
-  - stroke current path
-  - fill rect
-  - stroke rect
-  - draw image by handle
-  - draw text with current font state
-- [ ] Keep adapters separate from the core `wsc::Canvas` model.
-- [ ] Add adapter tests using public sample scenes only.
+- [x] Design a stateful canvas adapter layer.
+  - [x] current fill paint
+  - [x] current stroke paint
+  - [x] current path
+  - [x] current font state
+  - [x] current alpha and blend state
+  - [x] image handle table
+- [x] Provide helper APIs for applications that prefer immediate-mode drawing.
+  - [x] begin path
+  - [x] fill current path
+  - [x] stroke current path
+  - [x] fill rect
+  - [x] stroke rect
+  - [x] draw image by handle
+  - [x] draw text with current font state
+- [x] Keep adapters separate from the core `wsc::Canvas` model.
+- [x] Add adapter tests using public sample scenes only.
 
 ## Phase 6: Validation And Public Examples
 

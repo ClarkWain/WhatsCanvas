@@ -150,6 +150,8 @@ class Canvas {
 
 图片 pattern 目前使用 `drawImageTiled` 表达：`Image` 是 pattern 的源，`Paint::setImageTileMode` 控制 `CLAMP` / `REPEAT` / `MIRROR` / `DECAL`，`Paint` 的 alpha、tint、color matrix 和 sampling 继续生效；如果需要移动、缩放、旋转 pattern 区域，可以在调用前使用 `save()` + `translate()` / `scale()` / `rotate()`，绘制后 `restore()`。
 
+如果应用更偏好 immediate-mode 风格，可以使用 `wsc::CanvasAdapter`。它独立于核心 `Canvas` 模型，维护当前 fill/stroke paint、当前 path、字体状态、alpha/blend 状态和 image handle 表，并提供 `beginPath()`、`fill()`、`stroke()`、`fillRect()`、`strokeRect()`、`drawImage(handle, ...)`、`drawText()` 等便捷入口。
+
 ## 文档入口
 
 - [架构总览](doc/architecture/README.md)：适合先建立整体分层和模块边界认知。
