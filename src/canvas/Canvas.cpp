@@ -1218,7 +1218,8 @@ std::vector<crushedpixel::Vec2> buildStrokeMesh(const std::vector<crushedpixel::
         paint.getStrokeWidth(),
         toPolylineJointStyle(paint.getStrokeJoin()),
         capStyle,
-        false);
+        false,
+        paint.getStrokeMiterLimit());
 }
 
 std::vector<crushedpixel::Vec2> sanitizePolylinePoints(const std::vector<Point> &points)

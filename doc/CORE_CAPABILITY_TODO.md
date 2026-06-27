@@ -138,12 +138,12 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
   - [x] text shadow
   - [x] shape shadow
   - [x] blur radius behavior
-- [ ] Complete stroke style coverage.
-  - cap
-  - join
-  - miter limit
-  - dash
-  - path effects
+- [x] Complete stroke style coverage.
+  - [x] cap
+  - [x] join
+  - [x] miter limit
+  - [x] dash
+  - [x] path effects
 - [x] Audit blend mode behavior on GL-family backends.
   - [x] non-premultiplied output
   - [x] premultiplied option boundary

@@ -163,6 +163,8 @@ public:
     Color getColor() const;
     void setStrokeWidth(float width);
     float getStrokeWidth() const;
+    void setStrokeMiterLimit(float limit);
+    float getStrokeMiterLimit() const;
 
     void setTextSize(float size);
     float getTextSize() const;
@@ -237,6 +239,7 @@ private:
     Style style_ = Style::FILL;
     StrokeCap strokeCap_ = StrokeCap::BUTT;
     StrokeJoin strokeJoin_ = StrokeJoin::MITER;
+    float strokeMiterLimit_ = 5.75959f;
     ShaderType shaderType_ = ShaderType::SOLID;
     ShaderTileMode shaderTileMode_ = ShaderTileMode::CLAMP;
     float gradientStartX_ = 0.0f;
