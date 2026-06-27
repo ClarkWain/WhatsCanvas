@@ -16,6 +16,7 @@ option(WHATSCANVAS_BUILD_DEMO "Build the root WhatsCanvas demo executable." ON)
 option(WHATSCANVAS_INSTALL "Enable install and package export rules." ON)
 option(WHATSCANVAS_BUILD_OPENGL "Build the desktop OpenGL renderer library target." ON)
 option(WHATSCANVAS_BUILD_OPENGLES "Build the OpenGL ES renderer library target." OFF)
+option(WHATSCANVAS_BUILD_BENCHMARKS "Build lightweight benchmark executables." ON)
 set(WHATSCANVAS_DEFAULT_SMOKE_HASH "2808591959994190122" CACHE STRING "Default local smoke hash for regression ctest registration.")
 set(WHATSCANVAS_CLIP_SMOKE_HASH "7173893163224947210" CACHE STRING "Default local clip-path smoke hash for regression ctest registration.")
 
@@ -241,6 +242,16 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
     )
     set_tests_properties(WhatsCanvasContextLifecycleTests PROPERTIES LABELS "unit;context")
+endif()
+
+if (WHATSCANVAS_BUILD_BENCHMARKS AND TARGET WhatsCanvasOpenGL)
+    add_executable(WhatsCanvasCoreBenchmarks
+        "${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/CoreBenchmarks.cpp"
+    )
+    target_link_libraries(WhatsCanvasCoreBenchmarks PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
 endif()
 
 if (BUILD_TESTING AND WHATSCANVAS_ENABLE_SCRIPT_TESTS)

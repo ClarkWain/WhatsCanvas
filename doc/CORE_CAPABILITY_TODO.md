@@ -221,11 +221,11 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
   - [x] paint conversion
   - [x] diagnostics
   - [x] matrix and clipping
-- [ ] Add performance benchmarks.
-  - text layout cost
+- [~] Add performance benchmarks.
+  - [x] text layout cost
   - glyph cache hit rate
   - image upload cost
-  - draw call count
+  - [x] command recording cost
   - frame flush cost
 - [ ] Update public examples as features land.
   - font fallback demo
