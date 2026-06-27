@@ -253,6 +253,7 @@ cmd /c scripts\clip_path_smoke.bat
 cmd /c scripts\regression_smoke.bat
 cmd /c scripts\examples_smoke.bat
 cmd /c scripts\validation_scene_smoke.bat
+cmd /c scripts\opengles_build_smoke.bat
 ctest -C Debug -L smoke --output-on-failure
 ```
 

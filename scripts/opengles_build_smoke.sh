@@ -1,0 +1,18 @@
+#!/usr/bin/env sh
+set -eu
+
+ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+BUILD_DIR="$ROOT_DIR/build-gles-check"
+
+cmake -S "$ROOT_DIR" -B "$BUILD_DIR" \
+    -DWHATSCANVAS_BUILD_OPENGL=OFF \
+    -DWHATSCANVAS_BUILD_OPENGLES=ON \
+    -DWHATSCANVAS_BUILD_DEMO=OFF \
+    -DBUILD_TESTING=OFF \
+    -DWHATSCANVAS_INSTALL=OFF
+
+cmake --build "$BUILD_DIR" --target WhatsCanvasOpenGLES --config Debug
+
+echo "OPENGLES_BUILD_SMOKE_TEST=PASS"
+echo "OPENGLES_BUILD_SMOKE_RESULT=PASS"
+exit 0

@@ -1,0 +1,30 @@
+@echo off
+setlocal EnableExtensions EnableDelayedExpansion
+
+set "SCRIPT_DIR=%~dp0"
+if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
+for %%I in ("%SCRIPT_DIR%\..") do set "ROOT_DIR=%%~fI"
+set "BUILD_DIR=%ROOT_DIR%\build-gles-check"
+
+cmake -S "%ROOT_DIR%" -B "%BUILD_DIR%" ^
+    -DWHATSCANVAS_BUILD_OPENGL=OFF ^
+    -DWHATSCANVAS_BUILD_OPENGLES=ON ^
+    -DWHATSCANVAS_BUILD_DEMO=OFF ^
+    -DBUILD_TESTING=OFF ^
+    -DWHATSCANVAS_INSTALL=OFF
+if not "%ERRORLEVEL%"=="0" (
+    echo OPENGLES_BUILD_SMOKE_RESULT=FAIL
+    echo OPENGLES_BUILD_SMOKE_FAILED_STAGE=CONFIGURE
+    exit /b 1
+)
+
+cmake --build "%BUILD_DIR%" --target WhatsCanvasOpenGLES --config Debug
+if not "%ERRORLEVEL%"=="0" (
+    echo OPENGLES_BUILD_SMOKE_RESULT=FAIL
+    echo OPENGLES_BUILD_SMOKE_FAILED_STAGE=BUILD
+    exit /b 1
+)
+
+echo OPENGLES_BUILD_SMOKE_TEST=PASS
+echo OPENGLES_BUILD_SMOKE_RESULT=PASS
+exit /b 0

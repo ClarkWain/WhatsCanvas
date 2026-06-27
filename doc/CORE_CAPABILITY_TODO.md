@@ -167,10 +167,10 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
   - [x] precision qualifiers
   - [x] unavailable desktop-only states
   - [x] extension-sensitive paths
-- [ ] Add Android-oriented build smoke target.
-  - CMake configure
-  - static library or shared library build
-  - minimal GLES link check
+- [x] Add Android-oriented build smoke target.
+  - [x] CMake configure
+  - [x] static library or shared library build
+  - [x] minimal GLES link check
 - [ ] Add iOS-oriented build notes or smoke target.
 - [ ] Add context lifecycle APIs and tests.
   - initialize
@@ -232,7 +232,7 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
   - multiline text demo
   - external texture demo
   - image pattern demo
-  - mobile GLES smoke demo
+  - [x] mobile GLES smoke demo
 
 ## First Execution Slice
 

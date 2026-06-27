@@ -173,6 +173,12 @@ if (BUILD_TESTING AND WHATSCANVAS_ENABLE_SCRIPT_TESTS)
                 -DWHATSCANVAS_GATE_WORKDIR=${CMAKE_CURRENT_SOURCE_DIR}
                 -P ${WHATSCANVAS_TEST_WRAPPER}
         )
+        add_test(NAME WhatsCanvasOpenGLESSmoke
+            COMMAND ${CMAKE_COMMAND}
+                -DWHATSCANVAS_GATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/opengles_build_smoke.bat
+                -DWHATSCANVAS_GATE_WORKDIR=${CMAKE_CURRENT_SOURCE_DIR}
+                -P ${WHATSCANVAS_TEST_WRAPPER}
+        )
 
         if (WHATSCANVAS_ENABLE_LOCAL_REGRESSION_TEST)
             add_test(NAME WhatsCanvasRegressionSmoke
@@ -214,6 +220,13 @@ if (BUILD_TESTING AND WHATSCANVAS_ENABLE_SCRIPT_TESTS)
                 -DWHATSCANVAS_GATE_LAUNCHER=sh
                 -P ${WHATSCANVAS_TEST_WRAPPER}
         )
+        add_test(NAME WhatsCanvasOpenGLESSmoke
+            COMMAND ${CMAKE_COMMAND}
+                -DWHATSCANVAS_GATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/opengles_build_smoke.sh
+                -DWHATSCANVAS_GATE_WORKDIR=${CMAKE_CURRENT_SOURCE_DIR}
+                -DWHATSCANVAS_GATE_LAUNCHER=sh
+                -P ${WHATSCANVAS_TEST_WRAPPER}
+        )
 
         if (WHATSCANVAS_ENABLE_LOCAL_REGRESSION_TEST)
             add_test(NAME WhatsCanvasRegressionSmoke
@@ -234,6 +247,7 @@ if (BUILD_TESTING AND WHATSCANVAS_ENABLE_SCRIPT_TESTS)
         WhatsCanvasClipPathSmoke
         WhatsCanvasExamplesSmoke
         WhatsCanvasValidationSceneSmoke
+        WhatsCanvasOpenGLESSmoke
         PROPERTIES
             WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
             TIMEOUT 1800
@@ -242,6 +256,7 @@ if (BUILD_TESTING AND WHATSCANVAS_ENABLE_SCRIPT_TESTS)
     set_tests_properties(WhatsCanvasClipPathSmoke PROPERTIES LABELS "smoke;clip")
     set_tests_properties(WhatsCanvasExamplesSmoke PROPERTIES LABELS "smoke;examples")
     set_tests_properties(WhatsCanvasValidationSceneSmoke PROPERTIES LABELS "smoke;validation")
+    set_tests_properties(WhatsCanvasOpenGLESSmoke PROPERTIES LABELS "smoke;opengles")
 endif()
 
 if (WHATSCANVAS_INSTALL)
