@@ -11,8 +11,11 @@
 #include "TextureSource.h"
 #include "base.h"
 
+class IRenderer;
+
 namespace wsc {
 class Image;
+class CanvasLifecycleTestAccess;
 class Matrix4;
 class Paint;
 class Path;
@@ -120,6 +123,10 @@ public:
 	/// Check whether render-target mode is currently active.
 	bool isRenderTargetMode() const;
 	RenderStats getRenderStats() const;
+	bool initializeContext();
+	void finalizeContext();
+	bool isContextInitialized() const;
+	void releaseResources();
 
 protected:
 	void *getTextureHandleOpaque() const override;
@@ -272,6 +279,9 @@ public:
 	std::uint64_t computePixelsHashRGBA() const;
 
 private:
+	friend class CanvasLifecycleTestAccess;
+	explicit Canvas(std::unique_ptr<::IRenderer> renderer);
+
 	struct Impl;
 	std::unique_ptr<Impl> impl_;
 };
