@@ -1,0 +1,74 @@
+# WhatsCanvas iOS Build Notes
+
+This note records the current iOS-oriented integration path for the GL-family backend. It is a build and host-app contract, not a claim that the repository currently ships a full Xcode sample.
+
+## Current Support Boundary
+
+- Use the OpenGLES library target: `WhatsCanvasOpenGLES`.
+- Disable the desktop demo target for iOS builds because the in-repo demo uses GLFW.
+- The host application owns the native iOS view, context creation, swapchain presentation, and frame loop.
+- The host application must make an OpenGLES context current before calling `Canvas::loadOpenGL`, `Canvas::initializeContext`, or any draw path that initializes the renderer.
+- The current GL-family backend expects an OpenGLES 3.0-compatible context.
+- Runtime validation on a physical iOS device or simulator remains separate from the desktop GLES compile smoke gate.
+
+## CMake Shape
+
+A minimal iOS configure should keep only the GLES library target enabled:
+
+```sh
+cmake -S . -B build-ios \
+  -DCMAKE_SYSTEM_NAME=iOS \
+  -DWHATSCANVAS_BUILD_OPENGL=OFF \
+  -DWHATSCANVAS_BUILD_OPENGLES=ON \
+  -DWHATSCANVAS_BUILD_DEMO=OFF \
+  -DBUILD_TESTING=OFF \
+  -DWHATSCANVAS_INSTALL=ON
+cmake --build build-ios --target WhatsCanvasOpenGLES --config Release
+```
+
+If the selected iOS toolchain requires explicit GLES framework linkage, provide it through `WHATSCANVAS_OPENGLES_LIBRARIES`, for example:
+
+```sh
+cmake -S . -B build-ios \
+  -DCMAKE_SYSTEM_NAME=iOS \
+  -DWHATSCANVAS_BUILD_OPENGL=OFF \
+  -DWHATSCANVAS_BUILD_OPENGLES=ON \
+  -DWHATSCANVAS_BUILD_DEMO=OFF \
+  -DWHATSCANVAS_OPENGLES_LIBRARIES="-framework OpenGLES"
+```
+
+## Host App Responsibilities
+
+The host should follow this order:
+
+1. Create an `EAGLContext` or other platform-provided OpenGLES context.
+2. Make the context current on the render thread.
+3. Call `wsc::Canvas::loadOpenGL` with the platform proc-address loader used by the app.
+4. Create `wsc::Canvas`, call `setSize`, and call `initializeContext`.
+5. Render frames through `beginFrame`, draw calls, and `endFrame` or `flush`.
+6. Call `releaseResources` before context loss, background teardown, or view destruction.
+7. Call `finalizeContext` after resource release and before destroying the native GL context.
+8. Recreate or reinitialize the native GL context, call `loadOpenGL` if required by the loader, then call `initializeContext` again before drawing.
+
+The public context lifecycle methods added for this flow are:
+
+- `Canvas::initializeContext()`
+- `Canvas::finalizeContext()`
+- `Canvas::isContextInitialized()`
+- `Canvas::releaseResources()`
+
+## Validation Checklist
+
+- Configure/build `WhatsCanvasOpenGLES` with desktop OpenGL disabled.
+- Confirm `WHATSCANVAS_OPENGL_ES` is defined for the target.
+- Confirm shaders use `#version 300 es` and precision qualifiers.
+- Confirm desktop-only states remain guarded away from GLES builds.
+- Run at least one host-app frame that clears, draws paths/images/text, flushes, and presents.
+- Exercise background/foreground or view recreation by calling `releaseResources`, `finalizeContext`, then `initializeContext` again after a fresh current context is available.
+
+## Known Gaps
+
+- No in-repository Xcode/iOS sample app is currently checked in.
+- No automated iOS simulator/device smoke target is currently registered in CTest.
+- Text and font backend parity across iOS and desktop is still tracked separately in the text feature matrix.
+- A future Metal backend would be a separate render-device implementation, not a change to this GLES integration contract.

@@ -171,7 +171,7 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
   - [x] CMake configure
   - [x] static library or shared library build
   - [x] minimal GLES link check
-- [ ] Add iOS-oriented build notes or smoke target.
+- [x] Add iOS-oriented build notes or smoke target.
 - [x] Add context lifecycle APIs and tests.
   - [x] initialize
   - [x] finalize
