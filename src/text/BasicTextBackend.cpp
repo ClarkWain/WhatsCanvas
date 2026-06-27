@@ -23,6 +23,11 @@ constexpr size_t kMaxNativeTextCacheEntries = 128;
 class BasicTextBackend final : public wsc::text::ITextBackend
 {
 public:
+    explicit BasicTextBackend(wsc::text::BasicTextBackendOptions options)
+        : options_(options)
+    {
+    }
+
     bool registerFontFace(const wsc::FontFace &face) override
     {
         const bool registered = fontManager_.registerFace(face);
@@ -128,7 +133,7 @@ public:
     bool hasGlyphForCodepoint(std::uint32_t codepoint, const Paint &paint) const override
     {
 #ifdef _WIN32
-        if (paint.hasFontFamily()) {
+        if (options_.enableNativeText && paint.hasFontFamily()) {
             return true;
         }
 #else
@@ -150,7 +155,7 @@ public:
         }
 
 #ifdef _WIN32
-        if (paint.hasFontFamily()) {
+        if (options_.enableNativeText && paint.hasFontFamily()) {
             const auto nativeMeasure = getNativeMeasure(normalizedText, paint);
             if (nativeMeasure.valid) {
                 return nativeMeasure.width;
@@ -172,7 +177,7 @@ public:
         }
 
 #ifdef _WIN32
-        if (paint.hasFontFamily()) {
+        if (options_.enableNativeText && paint.hasFontFamily()) {
             const auto nativeMeasure = getNativeMeasure(normalizedText, paint);
             if (nativeMeasure.valid) {
                 float left = 0.0f;
@@ -217,7 +222,7 @@ public:
         }
 
 #ifdef _WIN32
-        if (paint.hasFontFamily()) {
+        if (options_.enableNativeText && paint.hasFontFamily()) {
             const auto nativeMeasure = getNativeMeasure(normalizedText, paint);
             if (nativeMeasure.valid) {
                 const auto bitmap = getNativeBitmap(normalizedText, paint, nativeMeasure);
@@ -269,6 +274,8 @@ public:
     }
 
 private:
+    wsc::text::BasicTextBackendOptions options_;
+
 #ifdef _WIN32
     template <typename TValue>
     static void touchCacheEntry(const std::string &cacheKey,
@@ -341,7 +348,19 @@ namespace wsc::text {
 
 std::unique_ptr<ITextBackend> createBasicTextBackend()
 {
-    return std::make_unique<BasicTextBackend>();
+    return createBasicTextBackend(BasicTextBackendOptions{});
+}
+
+std::unique_ptr<ITextBackend> createBasicTextBackend(const BasicTextBackendOptions &options)
+{
+    return std::make_unique<BasicTextBackend>(options);
+}
+
+std::unique_ptr<ITextBackend> createPortableTextBackend()
+{
+    BasicTextBackendOptions options;
+    options.enableNativeText = false;
+    return createBasicTextBackend(options);
 }
 
 } // namespace wsc::text
