@@ -278,6 +278,23 @@ void applyImageColorMatrix(const Paint &paint, DrawImageData &data)
     }
 }
 
+DrawGradientTileMode toDrawGradientTileMode(Paint::ShaderTileMode tileMode)
+{
+    switch (tileMode) {
+    case Paint::ShaderTileMode::CLAMP:
+        return DrawGradientTileMode::Clamp;
+    case Paint::ShaderTileMode::REPEAT:
+        return DrawGradientTileMode::Repeat;
+    case Paint::ShaderTileMode::MIRROR:
+        return DrawGradientTileMode::Mirror;
+    case Paint::ShaderTileMode::DECAL:
+        return DrawGradientTileMode::Decal;
+    }
+    return DrawGradientTileMode::Clamp;
+}
+
+Color applyPaintAlpha(const Paint &paint, const Color &color);
+
 DrawPathData makeDrawPathData(const std::vector<float> &points, float width, const Color &color,
                               PathDrawMode mode, const glm::mat4 &transform, const ScissorState &scissor,
                               DrawBlendMode blendMode, const ClipMaskState &clipMask = {})
@@ -295,6 +312,35 @@ DrawPathData makeDrawPathData(const std::vector<float> &points, float width, con
     };
     data.clipMask = clipMask;
     return data;
+}
+
+void applyPathGradient(const Paint &paint, DrawPathData &data)
+{
+    if (!paint.hasLinearGradient() && !paint.hasRadialGradient()) {
+        return;
+    }
+
+    data.gradientType = paint.hasLinearGradient() ? DrawGradientType::Linear : DrawGradientType::Radial;
+    data.gradientTileMode = toDrawGradientTileMode(paint.getShaderTileMode());
+    data.gradientStart[0] = paint.getGradientStartX();
+    data.gradientStart[1] = paint.getGradientStartY();
+    data.gradientEnd[0] = paint.getGradientEndX();
+    data.gradientEnd[1] = paint.getGradientEndY();
+    data.radialCenter[0] = paint.getRadialCenterX();
+    data.radialCenter[1] = paint.getRadialCenterY();
+    data.radialRadius = std::max(0.0001f, paint.getRadialRadius());
+
+    const auto &stops = paint.getGradientStops();
+    const int stopCount = static_cast<int>(std::min<std::size_t>(stops.size(), DrawPathData::kMaxGradientStops));
+    data.gradientStopCount = stopCount;
+    for (int i = 0; i < stopCount; ++i) {
+        const Color color = applyPaintAlpha(paint, stops[static_cast<std::size_t>(i)].color);
+        data.gradientStopPositions[i] = stops[static_cast<std::size_t>(i)].position;
+        data.gradientStopColors[i * 4 + 0] = color.r();
+        data.gradientStopColors[i * 4 + 1] = color.g();
+        data.gradientStopColors[i * 4 + 2] = color.b();
+        data.gradientStopColors[i * 4 + 3] = color.a();
+    }
 }
 
 bool isFinitePoint(float x, float y)
@@ -661,145 +707,6 @@ Color scaleAlpha(const Color &color, float factor)
 Color applyPaintAlpha(const Paint &paint, const Color &color)
 {
     return scaleAlpha(color, paint.getAlphaF());
-}
-
-Color sampleGradientStopColor(const Paint &paint, float progress, Color fallbackStart, Color fallbackEnd)
-{
-    const auto &stops = paint.getGradientStops();
-    bool visible = true;
-    switch (paint.getShaderTileMode()) {
-    case Paint::ShaderTileMode::CLAMP:
-        progress = std::clamp(progress, 0.0f, 1.0f);
-        break;
-    case Paint::ShaderTileMode::REPEAT:
-        progress = progress - std::floor(progress);
-        break;
-    case Paint::ShaderTileMode::MIRROR: {
-        const float period = std::floor(progress);
-        progress = progress - period;
-        if (static_cast<int>(std::abs(period)) % 2 != 0) {
-            progress = 1.0f - progress;
-        }
-        break;
-    }
-    case Paint::ShaderTileMode::DECAL:
-        visible = progress >= 0.0f && progress <= 1.0f;
-        progress = std::clamp(progress, 0.0f, 1.0f);
-        break;
-    }
-
-    if (!visible) {
-        return Color(0, 0, 0, 0);
-    }
-
-    if (stops.empty()) {
-        return Color(static_cast<int>(std::round(lerp(fallbackStart.r(), fallbackEnd.r(), progress) * 255.0f)),
-                     static_cast<int>(std::round(lerp(fallbackStart.g(), fallbackEnd.g(), progress) * 255.0f)),
-                     static_cast<int>(std::round(lerp(fallbackStart.b(), fallbackEnd.b(), progress) * 255.0f)),
-                     static_cast<int>(std::round(lerp(fallbackStart.a(), fallbackEnd.a(), progress) * 255.0f)));
-    }
-
-    if (progress <= stops.front().position || stops.size() == 1) {
-        return stops.front().color;
-    }
-    if (progress >= stops.back().position) {
-        return stops.back().color;
-    }
-
-    for (size_t i = 1; i < stops.size(); ++i) {
-        if (progress <= stops[i].position) {
-            const auto &start = stops[i - 1];
-            const auto &end = stops[i];
-            const float span = std::max(kPointEpsilon, end.position - start.position);
-            const float localProgress = std::clamp((progress - start.position) / span, 0.0f, 1.0f);
-            return Color(static_cast<int>(std::round(lerp(start.color.r(), end.color.r(), localProgress) * 255.0f)),
-                         static_cast<int>(std::round(lerp(start.color.g(), end.color.g(), localProgress) * 255.0f)),
-                         static_cast<int>(std::round(lerp(start.color.b(), end.color.b(), localProgress) * 255.0f)),
-                         static_cast<int>(std::round(lerp(start.color.a(), end.color.a(), localProgress) * 255.0f)));
-        }
-    }
-
-    return stops.back().color;
-}
-
-std::vector<float> buildLinearGradientColors(const std::vector<crushedpixel::Vec2> &vertices, const Paint &paint)
-{
-    std::vector<float> colors;
-    if (!paint.hasLinearGradient()) {
-        return colors;
-    }
-
-    colors.reserve(vertices.size() * 4);
-    const float startX = paint.getGradientStartX();
-    const float startY = paint.getGradientStartY();
-    const float dx = paint.getGradientEndX() - startX;
-    const float dy = paint.getGradientEndY() - startY;
-    const float lengthSq = dx * dx + dy * dy;
-
-    const Color startColor = paint.getGradientStartColor();
-    const Color endColor = paint.getGradientEndColor();
-    const float alphaScale = paint.getAlphaF();
-
-    for (const auto &vertex : vertices) {
-        float progress = 0.0f;
-        if (lengthSq > kPointEpsilon) {
-            progress = ((vertex.x - startX) * dx + (vertex.y - startY) * dy) / lengthSq;
-        }
-
-        const Color color = sampleGradientStopColor(paint, progress, startColor, endColor);
-        colors.push_back(color.r());
-        colors.push_back(color.g());
-        colors.push_back(color.b());
-        colors.push_back(color.a() * alphaScale);
-    }
-
-    return colors;
-}
-
-std::vector<float> buildRadialGradientColors(const std::vector<crushedpixel::Vec2> &vertices, const Paint &paint)
-{
-    std::vector<float> colors;
-    if (!paint.hasRadialGradient()) {
-        return colors;
-    }
-
-    colors.reserve(vertices.size() * 4);
-    const float centerX = paint.getRadialCenterX();
-    const float centerY = paint.getRadialCenterY();
-    const float radius = paint.getRadialRadius();
-    const Color startColor = paint.getRadialStartColor();
-    const Color endColor = paint.getRadialEndColor();
-    const float alphaScale = paint.getAlphaF();
-
-    for (const auto &vertex : vertices) {
-        float progress = 0.0f;
-        if (radius > kPointEpsilon) {
-            const float dx = vertex.x - centerX;
-            const float dy = vertex.y - centerY;
-            progress = std::sqrt(dx * dx + dy * dy) / radius;
-        }
-
-        const Color color = sampleGradientStopColor(paint, progress, startColor, endColor);
-        colors.push_back(color.r());
-        colors.push_back(color.g());
-        colors.push_back(color.b());
-        colors.push_back(color.a() * alphaScale);
-    }
-
-    return colors;
-}
-
-std::vector<float> buildFillVertexColors(const std::vector<crushedpixel::Vec2> &vertices, const Paint &paint)
-{
-    if (paint.hasLinearGradient()) {
-        return buildLinearGradientColors(vertices, paint);
-    }
-
-    if (paint.hasRadialGradient()) {
-        return buildRadialGradientColors(vertices, paint);
-    }
-
-    return {};
 }
 
 glm::mat4 makeOffsetTransform(const glm::mat4 &transform, float dx, float dy)
@@ -2349,7 +2256,7 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
                                                  applyPaintAlpha(paint, paint.getFillColor()), PathDrawMode::Fill,
                                                  impl_->currentState().matrix, scissor,
                                                  toDrawBlendMode(paint.getBlendMode()), clipMask);
-        fillData.colors = buildFillVertexColors(fillTriangles, paint);
+        applyPathGradient(paint, fillData);
         impl_->renderer->submit(std::make_unique<DrawPathCommand>(fillData));
     }
 
