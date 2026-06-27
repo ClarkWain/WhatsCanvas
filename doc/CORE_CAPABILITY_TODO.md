@@ -144,11 +144,11 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
   - miter limit
   - dash
   - path effects
-- [ ] Audit blend mode behavior on GL-family backends.
-  - non-premultiplied output
-  - premultiplied option
-  - Porter-Duff modes
-  - additive/multiply/screen
+- [x] Audit blend mode behavior on GL-family backends.
+  - [x] non-premultiplied output
+  - [x] premultiplied option boundary
+  - [x] Porter-Duff modes
+  - [x] additive/multiply/screen
 - [ ] Add effect regression tests.
   - gradients
   - shadows
