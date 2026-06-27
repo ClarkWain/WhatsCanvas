@@ -21,6 +21,7 @@ public:
     bool updateImageResourceRGBA(const SharedImageResource &imageResource, int x, int y, int width, int height,
                                  const unsigned char *pixels, bool regenerateMipmaps) const override;
     SharedImageResource wrapExternalImageResource(ImageResourceHandle handle) const override;
+    RenderResourceStats resourceStats() const override;
     SharedImageResource renderCommandsToImageResource(const std::vector<std::unique_ptr<Command>> &commands,
                                                       const OffscreenRenderRequest &request) const override;
 

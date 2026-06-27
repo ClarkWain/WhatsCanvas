@@ -131,10 +131,23 @@ SharedImageResource Renderer::wrapExternalImageResource(ImageResourceHandle hand
     return device_ == nullptr ? SharedImageResource() : device_->wrapExternalImageResource(handle);
 }
 
+RenderResourceStats Renderer::resourceStats() const
+{
+    return device_ == nullptr ? RenderResourceStats() : device_->resourceStats();
+}
+
 SharedImageResource Renderer::renderCommandsToImageResource(const std::vector<std::unique_ptr<Command>> &commands,
                                                             const OffscreenRenderRequest &request) const
 {
-    return device_ == nullptr ? SharedImageResource() : device_->renderCommandsToImageResource(commands, request);
+    if (device_ == nullptr) {
+        return {};
+    }
+
+    SharedImageResource resource = device_->renderCommandsToImageResource(commands, request);
+    if (resource && resource->isValid()) {
+        ++stats_.renderTargetSwitches;
+    }
+    return resource;
 }
 
 void Renderer::resetRenderState()

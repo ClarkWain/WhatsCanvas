@@ -41,6 +41,11 @@ public:
 
 using SharedClipMaskResource = std::shared_ptr<ClipMaskResource>;
 
+struct RenderResourceStats {
+    std::size_t imageTextureCount = 0;
+    std::size_t renderTargetCount = 0;
+};
+
 struct ScissorState {
     bool enabled = false;
     int x = 0;

@@ -40,22 +40,19 @@ public:
     bool updateImageResourceRGBA(const SharedImageResource &imageResource, int x, int y, int width, int height,
                                  const unsigned char *pixels, bool regenerateMipmaps) const override;
     SharedImageResource wrapExternalImageResource(ImageResourceHandle handle) const override;
+    const FrameStats &frameStats() const override { return stats_; }
+    void resetFrameStats() override { stats_.reset(); }
+    RenderResourceStats resourceStats() const override;
     SharedImageResource renderCommandsToImageResource(const std::vector<std::unique_ptr<Command>> &commands,
                                                       const OffscreenRenderRequest &request) const override;
     void resetRenderState() override;
     void clear() override;
     void flush() override;
 
-    /// Get per-frame rendering statistics.
-    const FrameStats &frameStats() const { return stats_; }
-
-    /// Reset per-frame statistics (called at frame boundaries).
-    void resetFrameStats() { stats_.reset(); }
-
 private:
     std::vector<std::unique_ptr<Command>> commands_;
     std::unique_ptr<IRenderDevice> device_;
     RenderContext context_;
     bool backendInitialized_ = false;
-    FrameStats stats_;
+    mutable FrameStats stats_;
 };

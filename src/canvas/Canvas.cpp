@@ -1735,6 +1735,24 @@ bool Canvas::isRenderTargetMode() const
     return impl_->renderTargetMode;
 }
 
+Canvas::RenderStats Canvas::getRenderStats() const
+{
+    RenderStats stats;
+    if (!impl_->renderer) {
+        return stats;
+    }
+
+    const FrameStats &frameStats = impl_->renderer->frameStats();
+    const RenderResourceStats resourceStats = impl_->renderer->resourceStats();
+    stats.commandCount = frameStats.commandCount;
+    stats.drawCallCount = frameStats.drawCallCount;
+    stats.mergedBatchCount = frameStats.mergedBatchCount;
+    stats.renderTargetSwitches = frameStats.renderTargetSwitches;
+    stats.imageTextureCount = resourceStats.imageTextureCount;
+    stats.renderTargetCount = resourceStats.renderTargetCount;
+    return stats;
+}
+
 void *Canvas::getTextureHandleOpaque() const
 {
     if (impl_->renderTargetMode && impl_->renderTargetImageResource &&
@@ -3602,6 +3620,7 @@ void Canvas::beginFrame()
     }
 
     impl_->renderer->resetRenderState();
+    impl_->renderer->resetFrameStats();
     impl_->layerStack.clear();
     impl_->renderer->clear();
 }

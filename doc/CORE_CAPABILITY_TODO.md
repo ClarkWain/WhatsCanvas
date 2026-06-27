@@ -177,12 +177,12 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
   - finalize
   - resource release before context destruction
   - resource rebuild after context recreation
-- [ ] Add mobile GPU resource diagnostics.
-  - texture count
-  - FBO count
-  - atlas usage
-  - command count
-  - draw call count
+- [x] Add mobile GPU resource diagnostics.
+  - [x] texture count
+  - [x] FBO count
+  - [x] atlas usage
+  - [x] command count
+  - [x] draw call count
 
 ## Phase 5: Compatibility Adapters
 
@@ -219,6 +219,7 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
   - [x] text layout
   - image resource lifecycle
   - paint conversion
+  - [x] diagnostics
   - matrix and clipping
 - [ ] Add performance benchmarks.
   - text layout cost

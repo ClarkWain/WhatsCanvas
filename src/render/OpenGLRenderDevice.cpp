@@ -21,6 +21,8 @@
 namespace {
 
 int g_renderDeviceBackendRefCount = 0;
+std::size_t g_activeImageTextureResourceCount = 0;
+std::size_t g_activeRenderTargetResourceCount = 0;
 
 class OpenGLImageResource final : public ImageResource
 {
@@ -29,10 +31,16 @@ public:
         : handle_(handle),
           ownsHandle_(ownsHandle)
     {
+        if (handle_.isValid()) {
+            ++g_activeImageTextureResourceCount;
+        }
     }
 
     ~OpenGLImageResource() override
     {
+        if (handle_.isValid() && g_activeImageTextureResourceCount > 0) {
+            --g_activeImageTextureResourceCount;
+        }
         if (ownsHandle_ && handle_.isValid()) {
             wsc::opengl::destroyTexture(handle_);
         }
@@ -111,10 +119,16 @@ public:
           framebuffer_(framebuffer),
           stencilRenderbuffer_(stencilRenderbuffer)
     {
+        if (framebuffer_ != 0) {
+            ++g_activeRenderTargetResourceCount;
+        }
     }
 
     ~OpenGLRenderTarget() override
     {
+        if (framebuffer_ != 0 && g_activeRenderTargetResourceCount > 0) {
+            --g_activeRenderTargetResourceCount;
+        }
         if (stencilRenderbuffer_ != 0) {
             glDeleteRenderbuffers(1, &stencilRenderbuffer_);
         }
@@ -399,6 +413,14 @@ bool OpenGLRenderDevice::updateImageResourceRGBA(const SharedImageResource &imag
 SharedImageResource OpenGLRenderDevice::wrapExternalImageResource(ImageResourceHandle handle) const
 {
     return createSharedOpenGLImageResource(handle, false);
+}
+
+RenderResourceStats OpenGLRenderDevice::resourceStats() const
+{
+    RenderResourceStats stats;
+    stats.imageTextureCount = g_activeImageTextureResourceCount;
+    stats.renderTargetCount = g_activeRenderTargetResourceCount;
+    return stats;
 }
 
 SharedImageResource OpenGLRenderDevice::renderCommandsToImageResource(const std::vector<std::unique_ptr<Command>> &commands,

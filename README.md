@@ -139,6 +139,7 @@ class Canvas {
 	void beginFrame();
 	void flush();
 	void endFrame();
+	RenderStats getRenderStats() const;
 	bool readPixelsRGBA(...);
 	std::vector<unsigned char> readPixelsRGBA() const;
 	bool savePixelsPPM(const std::string& path) const;
