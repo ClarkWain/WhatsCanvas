@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -30,6 +31,18 @@ public:
 		float ascent = 0.0f;
 		float descent = 0.0f;
 		RectF bounds;
+	};
+
+	struct TextLine
+	{
+		std::string text;
+		std::size_t sourceStart = 0;
+		std::size_t sourceLength = 0;
+		float x = 0.0f;
+		float y = 0.0f;
+		float width = 0.0f;
+		float lineHeight = 0.0f;
+		bool ellipsized = false;
 	};
 
 	enum class ImageFit
@@ -192,6 +205,10 @@ public:
 	void drawTextBox(const std::string &text, const RectF &bounds, const Paint &paint);
 	void drawTextBox(const std::string &text, const RectF &bounds, float lineHeight, const Paint &paint);
 	void drawTextBox(const std::string &text, const RectF &bounds, float lineHeight, int maxLines, bool ellipsize, const Paint &paint);
+	std::vector<TextLine> layoutTextBox(const std::string &text, const RectF &bounds, const Paint &paint) const;
+	std::vector<TextLine> layoutTextBox(const std::string &text, const RectF &bounds, float lineHeight, const Paint &paint) const;
+	std::vector<TextLine> layoutTextBox(const std::string &text, const RectF &bounds, float lineHeight,
+	                                    int maxLines, bool ellipsize, const Paint &paint) const;
 	void drawTextOnPath(const std::string &text, const Path &path, const Paint &paint);
 	void drawTextOnPath(const std::string &text, const Path &path, float hOffset, float vOffset, const Paint &paint);
 	float measureText(const std::string &text, const Paint &paint) const;

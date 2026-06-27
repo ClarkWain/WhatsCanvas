@@ -9,6 +9,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include "../../include/wsc/Canvas.h"
@@ -2826,28 +2827,67 @@ void Canvas::drawTextBox(const std::string &text, const RectF &bounds, float lin
 
 void Canvas::drawTextBox(const std::string &text, const RectF &bounds, float lineHeight, int maxLines, bool ellipsize, const Paint &paint)
 {
+    const std::vector<TextLine> lines = layoutTextBox(text, bounds, lineHeight, maxLines, ellipsize, paint);
+    if (lines.empty()) {
+        return;
+    }
+
+    RectF normalizedBounds = normalizeRect(bounds);
+    const int saveCount = save();
+    clipRect(normalizedBounds);
+    for (const TextLine &line : lines) {
+        if (!line.text.empty()) {
+            drawText(line.text, line.x, line.y, paint);
+        }
+    }
+    restoreToCount(saveCount);
+}
+
+std::vector<Canvas::TextLine> Canvas::layoutTextBox(const std::string &text, const RectF &bounds, const Paint &paint) const
+{
+    return layoutTextBox(text, bounds, paint.getTextSize() * 1.25f, paint);
+}
+
+std::vector<Canvas::TextLine> Canvas::layoutTextBox(const std::string &text, const RectF &bounds, float lineHeight,
+                                                    const Paint &paint) const
+{
+    return layoutTextBox(text, bounds, lineHeight, 0, false, paint);
+}
+
+std::vector<Canvas::TextLine> Canvas::layoutTextBox(const std::string &text, const RectF &bounds, float lineHeight,
+                                                    int maxLines, bool ellipsize, const Paint &paint) const
+{
+    std::vector<TextLine> result;
     RectF normalizedBounds = normalizeRect(bounds);
     if (text.empty() || normalizedBounds.getWidth() <= 0.0f || normalizedBounds.getHeight() <= 0.0f
         || paint.getTextSize() <= 0.0f) {
-        return;
+        return result;
     }
 
     const float effectiveLineHeight = std::isfinite(lineHeight) && lineHeight > 0.0f
         ? lineHeight
         : paint.getTextSize() * 1.25f;
     if (effectiveLineHeight <= 0.0f) {
-        return;
+        return result;
     }
 
-    std::vector<std::string> lines;
-    auto appendParagraph = [&](const std::string &paragraph) {
+    struct CandidateLine {
+        std::string text;
+        std::size_t sourceStart = 0;
+        std::size_t sourceLength = 0;
+    };
+
+    std::vector<CandidateLine> lines;
+    auto appendParagraph = [&](const std::string &paragraph, std::size_t paragraphOffset) {
         if (paragraph.empty()) {
-            lines.emplace_back();
+            lines.push_back(CandidateLine{"", paragraphOffset, 0});
             return;
         }
 
         std::string currentLine;
-        size_t position = 0;
+        std::size_t currentStart = 0;
+        std::size_t currentEnd = 0;
+        std::size_t position = 0;
         while (position < paragraph.size()) {
             while (position < paragraph.size() && paragraph[position] == ' ') {
                 ++position;
@@ -2856,7 +2896,7 @@ void Canvas::drawTextBox(const std::string &text, const RectF &bounds, float lin
                 break;
             }
 
-            const size_t wordStart = position;
+            const std::size_t wordStart = position;
             while (position < paragraph.size() && paragraph[position] != ' ') {
                 ++position;
             }
@@ -2864,31 +2904,37 @@ void Canvas::drawTextBox(const std::string &text, const RectF &bounds, float lin
             const std::string word = paragraph.substr(wordStart, position - wordStart);
             const std::string candidate = currentLine.empty() ? word : currentLine + " " + word;
             if (currentLine.empty() || measureText(candidate, paint) <= normalizedBounds.getWidth()) {
+                if (currentLine.empty()) {
+                    currentStart = wordStart;
+                }
                 currentLine = candidate;
+                currentEnd = position;
             } else {
-                lines.push_back(currentLine);
+                lines.push_back(CandidateLine{currentLine, paragraphOffset + currentStart, currentEnd - currentStart});
                 currentLine = word;
+                currentStart = wordStart;
+                currentEnd = position;
             }
         }
 
         if (!currentLine.empty()) {
-            lines.push_back(currentLine);
+            lines.push_back(CandidateLine{currentLine, paragraphOffset + currentStart, currentEnd - currentStart});
         }
     };
 
-    size_t paragraphStart = 0;
-    for (size_t i = 0; i <= text.size(); ++i) {
+    std::size_t paragraphStart = 0;
+    for (std::size_t i = 0; i <= text.size(); ++i) {
         if (i == text.size() || text[i] == '\n') {
-            appendParagraph(text.substr(paragraphStart, i - paragraphStart));
+            appendParagraph(text.substr(paragraphStart, i - paragraphStart), paragraphStart);
             paragraphStart = i + 1;
         }
     }
 
     if (lines.empty()) {
-        return;
+        return result;
     }
 
-    auto ellipsizeLine = [&](std::string line) {
+    auto ellipsizeLine = [&](std::string line) -> std::pair<std::string, bool> {
         const std::string marker = "...";
         const float maxWidth = normalizedBounds.getWidth();
         if (measureText(line, paint) <= maxWidth) {
@@ -2897,7 +2943,7 @@ void Canvas::drawTextBox(const std::string &text, const RectF &bounds, float lin
                 candidate.pop_back();
             }
             if (measureText(candidate + marker, paint) <= maxWidth) {
-                return candidate + marker;
+                return {candidate + marker, true};
             }
         }
 
@@ -2914,7 +2960,7 @@ void Canvas::drawTextBox(const std::string &text, const RectF &bounds, float lin
                 }
                 dots = candidate;
             }
-            return dots;
+            return {dots, true};
         }
 
         while (!line.empty() && measureText(line + marker, paint) > maxWidth) {
@@ -2924,7 +2970,7 @@ void Canvas::drawTextBox(const std::string &text, const RectF &bounds, float lin
             }
         }
 
-        return line.empty() ? marker : line + marker;
+        return {line.empty() ? marker : line + marker, true};
     };
 
     float x = normalizedBounds.getX();
@@ -2934,12 +2980,10 @@ void Canvas::drawTextBox(const std::string &text, const RectF &bounds, float lin
         x += normalizedBounds.getWidth();
     }
 
-    const int saveCount = save();
-    clipRect(normalizedBounds);
     float y = normalizedBounds.getY();
     const float bottom = normalizedBounds.getY() + normalizedBounds.getHeight();
     int drawnLines = 0;
-    for (size_t lineIndex = 0; lineIndex < lines.size(); ++lineIndex) {
+    for (std::size_t lineIndex = 0; lineIndex < lines.size(); ++lineIndex) {
         if (y >= bottom) {
             break;
         }
@@ -2947,22 +2991,29 @@ void Canvas::drawTextBox(const std::string &text, const RectF &bounds, float lin
             break;
         }
 
-        std::string line = lines[lineIndex];
+        TextLine line;
+        line.text = lines[lineIndex].text;
+        line.sourceStart = lines[lineIndex].sourceStart;
+        line.sourceLength = lines[lineIndex].sourceLength;
+        line.x = x;
+        line.y = y;
+        line.lineHeight = effectiveLineHeight;
         const bool hasMoreLines = lineIndex + 1 < lines.size();
         const bool lastByMaxLines = maxLines > 0 && drawnLines + 1 >= maxLines;
         const bool lastByBounds = y + effectiveLineHeight >= bottom;
-        if (ellipsize && (hasMoreLines || measureText(line, paint) > normalizedBounds.getWidth())
+        if (ellipsize && (hasMoreLines || measureText(line.text, paint) > normalizedBounds.getWidth())
             && (lastByMaxLines || lastByBounds)) {
-            line = ellipsizeLine(line);
+            auto ellipsized = ellipsizeLine(line.text);
+            line.text = std::move(ellipsized.first);
+            line.ellipsized = ellipsized.second;
         }
 
-        if (!line.empty()) {
-            drawText(line, x, y, paint);
-        }
+        line.width = measureText(line.text, paint);
+        result.push_back(std::move(line));
         y += effectiveLineHeight;
         ++drawnLines;
     }
-    restoreToCount(saveCount);
+    return result;
 }
 
 void Canvas::drawTextOnPath(const std::string &text, const Path &path, const Paint &paint)

@@ -103,6 +103,7 @@ class Canvas {
 
 	void drawText(...);
 	void drawTextBox(...);
+	std::vector<TextLine> layoutTextBox(...);
 	void drawTextOnPath(...);
 	float measureText(...);
 	RectF measureTextBounds(...);
