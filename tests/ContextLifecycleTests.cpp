@@ -250,6 +250,41 @@ bool testTextShadowQueuesWork()
     return ok;
 }
 
+bool testTextStrokeQueuesWork()
+{
+    auto renderer = std::make_unique<FakeRenderer>();
+    FakeRenderer *rawRenderer = renderer.get();
+    std::unique_ptr<wsc::Canvas> canvas = wsc::CanvasLifecycleTestAccess::create(std::move(renderer));
+
+    bool ok = expect(canvas->initializeContext(), "initializeContext should succeed");
+    canvas->setSize(200, 100);
+
+    wsc::Paint textPaint;
+    textPaint.setTextSize(16.0f);
+    textPaint.setColor(wsc::Color::WHITE);
+    textPaint.setStrokeColor(wsc::Color(20, 30, 40, 255));
+    textPaint.setStrokeWidth(4.0f);
+
+    textPaint.setStyle(wsc::Paint::Style::STROKE);
+    canvas->drawText("stroke", 20.0f, 24.0f, textPaint);
+    const std::size_t strokeCommands = rawRenderer->commandCount();
+    ok = expect(strokeCommands > 1, "stroke text should queue multiple offset commands") && ok;
+
+    rawRenderer->clear();
+    textPaint.setStyle(wsc::Paint::Style::FILL_AND_STROKE);
+    canvas->drawText("stroke", 20.0f, 24.0f, textPaint);
+    ok = expect(rawRenderer->commandCount() == strokeCommands + 1,
+                "fill-and-stroke text should queue stroke commands plus fill") && ok;
+
+    rawRenderer->clear();
+    textPaint.setStyle(wsc::Paint::Style::STROKE);
+    textPaint.setStrokeColor(wsc::Color(20, 30, 40, 0));
+    canvas->drawText("stroke", 20.0f, 24.0f, textPaint);
+    ok = expect(rawRenderer->commandCount() == 0, "transparent stroke-only text should not queue commands") && ok;
+
+    return ok;
+}
+
 bool testContextRecreation()
 {
     auto renderer = std::make_unique<FakeRenderer>();
@@ -277,6 +312,7 @@ int main()
     ok = testReleaseResourcesClearsQueuedWork() && ok;
     ok = testBoxShadowQueuesWork() && ok;
     ok = testTextShadowQueuesWork() && ok;
+    ok = testTextStrokeQueuesWork() && ok;
     ok = testContextRecreation() && ok;
     return ok ? 0 : 1;
 }

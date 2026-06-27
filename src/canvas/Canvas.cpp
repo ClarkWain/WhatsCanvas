@@ -839,6 +839,29 @@ std::vector<ShadowPass> buildShadowPasses(const Paint &paint, const glm::mat4 &t
     return passes;
 }
 
+std::vector<ShadowPass> buildTextStrokePasses(const Paint &paint, const glm::mat4 &transform)
+{
+    const bool drawStroke = paint.getStyle() == Paint::Style::STROKE
+        || paint.getStyle() == Paint::Style::FILL_AND_STROKE;
+    const Color strokeColor = applyPaintAlpha(paint, paint.getStrokeColor());
+    if (!drawStroke || paint.getStrokeWidth() <= 0.0f || strokeColor.getA() <= 0) {
+        return {};
+    }
+
+    std::vector<ShadowPass> passes;
+    constexpr float kPi = 3.14159265358979323846f;
+    constexpr int kSamples = 8;
+    const float radius = std::max(0.5f, paint.getStrokeWidth() * 0.5f);
+    passes.reserve(kSamples);
+    for (int i = 0; i < kSamples; ++i) {
+        const float angle = 2.0f * kPi * static_cast<float>(i) / static_cast<float>(kSamples);
+        const float dx = std::cos(angle) * radius;
+        const float dy = std::sin(angle) * radius;
+        passes.push_back({makeOffsetTransform(transform, dx, dy), strokeColor});
+    }
+    return passes;
+}
+
 float cross(const crushedpixel::Vec2 &a, const crushedpixel::Vec2 &b, const crushedpixel::Vec2 &c)
 {
     return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
@@ -1376,14 +1399,6 @@ void submitStrokeMesh(IRenderer &renderer, const std::vector<crushedpixel::Vec2>
                                                applyPaintAlpha(paint, paint.getStrokeColor()), PathDrawMode::Stroke,
                                                transform, scissor, toDrawBlendMode(paint.getBlendMode()), clipMask);
     renderer.submit(std::make_unique<DrawPathCommand>(strokeData));
-}
-
-Color resolveTextColor(const Paint &paint)
-{
-    if (paint.getStyle() == Paint::Style::STROKE) {
-        return applyPaintAlpha(paint, paint.getStrokeColor());
-    }
-    return applyPaintAlpha(paint, paint.getColor());
 }
 
 std::string sanitizeTextToAscii(const std::string &text)
@@ -2853,7 +2868,10 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
         return;
     }
 
-    const Color color = resolveTextColor(paint);
+    const bool drawFill = paint.getStyle() == Paint::Style::FILL
+        || paint.getStyle() == Paint::Style::FILL_AND_STROKE;
+    const Color fillColor = applyPaintAlpha(paint, paint.getColor());
+    const auto strokePasses = buildTextStrokePasses(paint, impl_->currentState().matrix);
     if (renderedText.kind == wsc::text::TextRenderKind::Bitmap) {
         const SharedImageResource imageResource = impl_->renderer->createImageResourceRGBA(renderedText.bitmapWidth,
                                                  renderedText.bitmapHeight,
@@ -2892,7 +2910,12 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
         for (const auto &shadowPass : buildShadowPasses(paint, impl_->currentState().matrix)) {
             submitBitmapText(shadowPass.color, shadowPass.transform);
         }
-        submitBitmapText(color, impl_->currentState().matrix);
+        for (const auto &strokePass : strokePasses) {
+            submitBitmapText(strokePass.color, strokePass.transform);
+        }
+        if (drawFill) {
+            submitBitmapText(fillColor, impl_->currentState().matrix);
+        }
         return;
     }
 
@@ -2915,7 +2938,12 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
     for (const auto &shadowPass : buildShadowPasses(paint, impl_->currentState().matrix)) {
         submitGeometryText(shadowPass.color, shadowPass.transform);
     }
-    submitGeometryText(color, impl_->currentState().matrix);
+    for (const auto &strokePass : strokePasses) {
+        submitGeometryText(strokePass.color, strokePass.transform);
+    }
+    if (drawFill) {
+        submitGeometryText(fillColor, impl_->currentState().matrix);
+    }
 }
 
 void Canvas::drawTextBox(const std::string &text, const RectF &bounds, const Paint &paint)
