@@ -20,6 +20,7 @@ This directory is the top-level home for WhatsCanvas validation beyond ad-hoc lo
 - `scripts/validation_scene_smoke.bat` / `scripts/validation_scene_smoke.sh`: six-scene render smoke gate covering text, images, gradients/effects, clipping, transforms, and saveLayer.
 - `scripts/opengles_build_smoke.bat` / `scripts/opengles_build_smoke.sh`: OpenGLES-only configure/build smoke gate.
 - `scripts/regression_smoke.bat` / `scripts/regression_smoke.sh`: strict local pixel-baseline gate.
+- `scripts/compare_ppm_fuzzy.py`: binary P6 PPM comparison helper for driver-sensitive visual baselines.
 
 ## Intended Growth
 
