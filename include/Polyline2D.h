@@ -1,6 +1,8 @@
 #pragma once
 
 #include "LineSegment.h"
+#include <algorithm>
+#include <cmath>
 #include <vector>
 #include <iterator>
 #include <cassert>
@@ -75,9 +77,10 @@ public:
 	static std::vector<Vec2> create(const InputCollection &points, float thickness,
 	                                JointStyle jointStyle = JointStyle::MITER,
 	                                EndCapStyle endCapStyle = EndCapStyle::BUTT,
-	                                bool allowOverlap = false) {
+	                                bool allowOverlap = false,
+	                                float miterLimit = defaultMiterLimit) {
 		std::vector<Vec2> vertices;
-		create(vertices, points, thickness, jointStyle, endCapStyle, allowOverlap);
+		create(vertices, points, thickness, jointStyle, endCapStyle, allowOverlap, miterLimit);
 		return vertices;
 	}
 
@@ -85,9 +88,10 @@ public:
 	static std::vector<Vec2> create(const std::vector<Vec2> &points, float thickness,
 	                                JointStyle jointStyle = JointStyle::MITER,
 	                                EndCapStyle endCapStyle = EndCapStyle::BUTT,
-	                                bool allowOverlap = false) {
+	                                bool allowOverlap = false,
+	                                float miterLimit = defaultMiterLimit) {
 		std::vector<Vec2> vertices;
-		create<Vec2, std::vector<Vec2>>(vertices, points, thickness, jointStyle, endCapStyle, allowOverlap);
+		create<Vec2, std::vector<Vec2>>(vertices, points, thickness, jointStyle, endCapStyle, allowOverlap, miterLimit);
 		return vertices;
 	}
 
@@ -95,11 +99,12 @@ public:
 	static size_t create(std::vector<Vec2> &vertices, const InputCollection &points, float thickness,
 	                     JointStyle jointStyle = JointStyle::MITER,
 	                     EndCapStyle endCapStyle = EndCapStyle::BUTT,
-	                     bool allowOverlap = false) {
+	                     bool allowOverlap = false,
+	                     float miterLimit = defaultMiterLimit) {
 		auto numVerticesBefore = vertices.size();
 
 		create<Vec2, InputCollection>(std::back_inserter(vertices), points, thickness,
-		                              jointStyle, endCapStyle, allowOverlap);
+		                              jointStyle, endCapStyle, allowOverlap, miterLimit);
 
 		return vertices.size() - numVerticesBefore;
 	}
@@ -108,7 +113,8 @@ public:
 	static OutputIterator create(OutputIterator vertices, const InputCollection &points, float thickness,
 	                             JointStyle jointStyle = JointStyle::MITER,
 	                             EndCapStyle endCapStyle = EndCapStyle::BUTT,
-	                             bool allowOverlap = false) {
+	                             bool allowOverlap = false,
+	                             float miterLimit = defaultMiterLimit) {
 		// operate on half the thickness to make our lives easier
 		thickness /= 2;
 
@@ -177,7 +183,7 @@ public:
 		} else if (endCapStyle == EndCapStyle::JOINT) {
 			// join the last (connecting) segment and the first segment
 			createJoint(vertices, lastSegment, firstSegment, jointStyle,
-			            pathEnd1, pathEnd2, pathStart1, pathStart2, allowOverlap);
+			            pathEnd1, pathEnd2, pathStart1, pathStart2, allowOverlap, miterLimit);
 		}
 
 		// generate mesh data for path segments
@@ -198,7 +204,7 @@ public:
 
 			} else {
 				createJoint(vertices, segment, segments[i + 1], jointStyle,
-				            end1, end2, nextStart1, nextStart2, allowOverlap);
+				            end1, end2, nextStart1, nextStart2, allowOverlap, miterLimit);
 			}
 
 			// emit vertices
@@ -226,11 +232,17 @@ private:
 	 * the joint will be drawn beveled instead.
 	 */
 	static constexpr float miterMinAngle = 0.349066f; // ~20 degrees
+	static constexpr float defaultMiterLimit = 5.75959f;
 
 	/**
 	 * The minimum angle of a round joint's triangles.
 	 */
 	static constexpr float roundMinAngle = 0.174533f; // ~10 degrees
+
+	static float miterLimitToMinAngle(float miterLimit) {
+		const float safeLimit = std::max(1.0f, miterLimit);
+		return 2.0f * std::asin(std::min(1.0f, 1.0f / safeLimit));
+	}
 
 	template<typename Vec2>
 	struct PolySegment {
@@ -252,7 +264,7 @@ private:
 	                                  const PolySegment<Vec2> &segment1, const PolySegment<Vec2> &segment2,
 	                                  JointStyle jointStyle, Vec2 &end1, Vec2 &end2,
 	                                  Vec2 &nextStart1, Vec2 &nextStart2,
-	                                  bool allowOverlap) {
+	                                  bool allowOverlap, float miterLimit) {
 		// calculate the angle between the two line segments
 		auto dir1 = segment1.center.direction();
 		auto dir2 = segment2.center.direction();
@@ -266,7 +278,7 @@ private:
 			wrappedAngle = pi - wrappedAngle;
 		}
 
-		if (jointStyle == JointStyle::MITER && wrappedAngle < miterMinAngle) {
+		if (jointStyle == JointStyle::MITER && wrappedAngle < miterLimitToMinAngle(miterLimit)) {
 			// the minimum angle for mitered joints wasn't exceeded.
 			// to avoid the intersection point being extremely far out,
 			// thus producing an enormous joint like a rasta on 4/20,

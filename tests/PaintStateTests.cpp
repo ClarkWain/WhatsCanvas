@@ -1,5 +1,7 @@
 #include "wsc/wsc.h"
 
+#include "../third_party/polyline2d/include/Polyline2D.h"
+
 #include <array>
 #include <cmath>
 #include <iostream>
@@ -178,11 +180,17 @@ bool testTextAndStrokeState()
     paint.setStyle(wsc::Paint::Style::FILL_AND_STROKE);
     paint.setStrokeCap(wsc::Paint::StrokeCap::ROUND);
     paint.setStrokeJoin(wsc::Paint::StrokeJoin::BEVEL);
+    paint.setStrokeMiterLimit(std::numeric_limits<float>::quiet_NaN());
+    ok = expect(near(paint.getStrokeMiterLimit(), 1.0f), "non-finite miter limit should clamp to one") && ok;
+    paint.setStrokeMiterLimit(0.25f);
+    ok = expect(near(paint.getStrokeMiterLimit(), 1.0f), "small miter limit should clamp to one") && ok;
+    paint.setStrokeMiterLimit(6.0f);
     ok = expect(paint.getTextAlign() == wsc::Paint::TextAlign::RIGHT, "text align should round trip") && ok;
     ok = expect(paint.getTextBaseline() == wsc::Paint::TextBaseline::BOTTOM, "text baseline should round trip") && ok;
     ok = expect(paint.getStyle() == wsc::Paint::Style::FILL_AND_STROKE, "paint style should round trip") && ok;
     ok = expect(paint.getStrokeCap() == wsc::Paint::StrokeCap::ROUND, "stroke cap should round trip") && ok;
     ok = expect(paint.getStrokeJoin() == wsc::Paint::StrokeJoin::BEVEL, "stroke join should round trip") && ok;
+    ok = expect(near(paint.getStrokeMiterLimit(), 6.0f), "stroke miter limit should round trip") && ok;
 
     paint.setColor(wsc::Color::CYAN);
     ok = expect(paint.getColor().getG() == 255 && paint.getStrokeColor().getG() == 255,
@@ -192,6 +200,34 @@ bool testTextAndStrokeState()
     ok = expect(paint.getShaderType() == wsc::Paint::ShaderType::SOLID, "setFillColor should clear shader") && ok;
 
     return ok;
+}
+
+bool testMiterLimitAffectsStrokeMesh()
+{
+    const std::vector<crushedpixel::Vec2> points = {
+        {0.0f, 0.0f},
+        {50.0f, 0.0f},
+        {52.0f, 100.0f},
+    };
+
+    const auto mitered = crushedpixel::Polyline2D::create<crushedpixel::Vec2>(
+        points,
+        10.0f,
+        crushedpixel::Polyline2D::JointStyle::MITER,
+        crushedpixel::Polyline2D::EndCapStyle::BUTT,
+        false,
+        64.0f);
+
+    const auto beveled = crushedpixel::Polyline2D::create<crushedpixel::Vec2>(
+        points,
+        10.0f,
+        crushedpixel::Polyline2D::JointStyle::MITER,
+        crushedpixel::Polyline2D::EndCapStyle::BUTT,
+        false,
+        1.0f);
+
+    return expect(mitered.size() == 12, "high miter limit should keep the miter joint")
+        && expect(beveled.size() > mitered.size(), "low miter limit should bevel sharp joints");
 }
 
 } // namespace
@@ -204,5 +240,6 @@ int main()
     ok = testPathEffectsNormalize() && ok;
     ok = testColorMatrixAndShadow() && ok;
     ok = testTextAndStrokeState() && ok;
+    ok = testMiterLimitAffectsStrokeMesh() && ok;
     return ok ? 0 : 1;
 }

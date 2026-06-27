@@ -230,6 +230,12 @@ Color Paint::getShadowColor() const { return shadowColor_; }
 Color Paint::getColor() const { return color_; }
 void Paint::setStrokeWidth(float width) { strokeWidth_ = width; }
 float Paint::getStrokeWidth() const { return strokeWidth_; }
+void Paint::setStrokeMiterLimit(float limit)
+{
+    strokeMiterLimit_ = std::isfinite(limit) ? std::max(1.0f, limit) : 1.0f;
+}
+
+float Paint::getStrokeMiterLimit() const { return strokeMiterLimit_; }
 void Paint::setTextSize(float size) { textSize_ = size; }
 float Paint::getTextSize() const { return textSize_; }
 void Paint::setFontFamily(const std::string &family) { fontFamily_ = family; }
