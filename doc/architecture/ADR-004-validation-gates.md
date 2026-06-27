@@ -79,6 +79,7 @@ WhatsCanvas will adopt a layered verification model.
 - `scripts/clip_path_smoke.bat` / `scripts/clip_path_smoke.sh`: fixed-time first-frame render gate for the root demo with stacked non-rect `clipPath` explicitly enabled.
 - `scripts/regression_smoke.bat` / `scripts/regression_smoke.sh`: strict local pixel-baseline gate that runs both the default smoke scene and the stacked non-rect `clipPath` smoke scene with expected hashes.
 - `scripts/examples_smoke.bat` / `scripts/examples_smoke.sh`: aggregated independent example build gate for Tetris, Racer, and Bubble Shooter.
+- `scripts/validation_scene_smoke.bat` / `scripts/validation_scene_smoke.sh`: fixed-time non-MSAA scene suite gate that runs text-heavy, image-heavy, gradient/effect, clipping, transform, and saveLayer scenes and requires pixel-hash output for each.
 - `WhatsCanvasGraphicsStateStackTests`: lightweight unit-test executable, registered through `ctest`, that currently covers `GraphicsStateStack` save/restore semantics plus header-only `Path` behaviors such as even-odd contains, strokeContains, trim, and reversed traversal.
 - `ctest` registration: when `WHATSCANVAS_ENABLE_SCRIPT_TESTS=ON`, the root CMake project now exposes the existing smoke/example script gates through standard `ctest` entry points; the strict local regression gate is opt-in through `WHATSCANVAS_ENABLE_LOCAL_REGRESSION_TEST=ON`.
 - `tests/README.md` / `benchmarks/README.md`: top-level documentation and growth points for validation and benchmark work.
