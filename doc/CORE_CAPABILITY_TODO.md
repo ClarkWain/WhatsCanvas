@@ -133,11 +133,11 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
   - multi-stop gradients
   - tile modes
 - [ ] Add box gradient or equivalent shadow-oriented primitive.
-- [ ] Clarify shadow model.
-  - paint-level shadow
-  - text shadow
-  - shape shadow
-  - blur radius behavior
+- [x] Clarify shadow model.
+  - [x] paint-level shadow
+  - [x] text shadow
+  - [x] shape shadow
+  - [x] blur radius behavior
 - [ ] Complete stroke style coverage.
   - cap
   - join
