@@ -11,7 +11,7 @@
 | 4 | 统一 DrawCommand 结构 | 5 | M | 🛠 已审查并修复：所有具体 Command 补齐只读 `data()` |
 | 5 | GraphicsState 栈扩展 | 4 | S | 🟠 已审查：状态字段已加入，Canvas 全局状态 API 待接入 |
 | 6 | Shader validateDrawState | 4 | S | ✅ 已审查通过：5 个绘制程序已接入 |
-| 7 | StreamBuffer 顶点流 | 5 | M | 🟠 DrawPath/DrawText 已接入，Points/Lines/Image 待迁移 |
+| 7 | StreamBuffer 顶点流 | 5 | M | 🟠 DrawPath/DrawText/DrawImage 已接入，Points/Lines 待迁移 |
 | 8 | Lazy Render Pass | 3 | S | ✅ 已审查通过：offscreen FBO 延迟到首次绘制激活 |
 | 9 | Gamma 校正管线 | 3 | M | 🛠 已审查并修复：Path/Points/Lines/Text/Image tint 统一进入线性颜色 |
 | 10 | 帧边界 present/reset | 4 | S | 🛠 已审查并修复：统计覆盖所有 Command；精确 GPU draw 计数待完善 |
