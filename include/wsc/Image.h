@@ -12,6 +12,7 @@ class ImageResource;
 
 namespace wsc {
 class Canvas;
+class ImageLifecycleTestAccess;
 
 /// GPU-backed image resource managed by the canvas runtime.
 class WSC_API Image : public ITextureSource
@@ -58,6 +59,7 @@ private:
 	struct Storage;
 
 	friend class Canvas;
+	friend class ImageLifecycleTestAccess;
 
 	bool load(::IRenderer &renderer, const char *imagePath);
 	bool loadEncodedMemory(::IRenderer &renderer, const unsigned char *data, int size, bool generateMipmaps);

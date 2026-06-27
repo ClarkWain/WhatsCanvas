@@ -217,7 +217,7 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
 - [ ] Add fuzzy visual comparison for driver-sensitive scenes.
 - [ ] Add API-level unit tests.
   - [x] text layout
-  - image resource lifecycle
+  - [x] image resource lifecycle
   - [x] paint conversion
   - [x] diagnostics
   - [x] matrix and clipping
