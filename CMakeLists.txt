@@ -161,6 +161,23 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
     )
     set_tests_properties(WhatsCanvasMatrixClipTests PROPERTIES LABELS "unit;matrix;clip")
+
+    add_executable(WhatsCanvasPaintStateTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/PaintStateTests.cpp"
+    )
+    target_link_libraries(WhatsCanvasPaintStateTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasPaintStateTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasPaintStateTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/Debug/WhatsCanvasPaintStateTests.exe
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasPaintStateTests PROPERTIES LABELS "unit;paint")
 endif()
 
 if (BUILD_TESTING AND WHATSCANVAS_ENABLE_SCRIPT_TESTS)
