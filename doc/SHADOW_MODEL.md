@@ -48,9 +48,9 @@ Text shadow is not a separate text-specific API today.
 
 ## Box Shadow Or Box Gradient
 
-There is no dedicated box-shadow or box-gradient primitive yet.
+`Canvas::drawBoxShadow` provides the current shadow-oriented box primitive. It expands or shrinks the rounded rectangle by `spread`, applies `blurRadius`, `dx`, `dy`, and `color`, then routes the draw through the existing paint shadow pipeline.
 
-The preferred future shape is a backend-neutral primitive that can render rounded-rect shadows without tessellating repeated offset copies. It should support:
+The current primitive supports:
 
 - rounded rectangle bounds
 - per-corner radius
@@ -59,6 +59,8 @@ The preferred future shape is a backend-neutral primitive that can render rounde
 - offset
 - color
 - clip behavior matching normal draw calls
+
+A future optimized implementation can render rounded-rect shadows without tessellating repeated offset copies.
 
 ## Regression Coverage
 

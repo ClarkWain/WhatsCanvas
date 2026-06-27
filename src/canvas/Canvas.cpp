@@ -2140,6 +2140,35 @@ void Canvas::drawRoundRect(const Rect &rect, float topLeftRadius, float topRight
                   topLeftRadius, topRightRadius, bottomRightRadius, bottomLeftRadius, paint);
 }
 
+void Canvas::drawBoxShadow(const RectF &rect, float radius, float spread, float blurRadius,
+                           float dx, float dy, const Color &color)
+{
+    drawBoxShadow(rect, radius, radius, radius, radius, spread, blurRadius, dx, dy, color);
+}
+
+void Canvas::drawBoxShadow(const RectF &rect, float topLeftRadius, float topRightRadius,
+                           float bottomRightRadius, float bottomLeftRadius, float spread,
+                           float blurRadius, float dx, float dy, const Color &color)
+{
+    RectF normalized = normalizeRect(rect);
+    normalized = RectF(normalized.getX() - spread, normalized.getY() - spread,
+                       normalized.getWidth() + spread * 2.0f, normalized.getHeight() + spread * 2.0f);
+    if (normalized.getWidth() <= 0.0f || normalized.getHeight() <= 0.0f || color.getA() <= 0) {
+        return;
+    }
+
+    Paint shadowPaint;
+    shadowPaint.setStyle(Paint::Style::FILL);
+    shadowPaint.setFillColor(Color(0, 0, 0, 0));
+    shadowPaint.setShadowLayer(std::max(0.0f, blurRadius), dx, dy, color);
+    drawRoundRect(normalized,
+                  std::max(0.0f, topLeftRadius + spread),
+                  std::max(0.0f, topRightRadius + spread),
+                  std::max(0.0f, bottomRightRadius + spread),
+                  std::max(0.0f, bottomLeftRadius + spread),
+                  shadowPaint);
+}
+
 void Canvas::drawCircle(float centerX, float centerY, float radius, const Paint &paint)
 {
     if (radius <= 0.0f || !isFinitePoint(centerX, centerY)) {

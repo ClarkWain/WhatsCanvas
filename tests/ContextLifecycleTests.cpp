@@ -202,6 +202,26 @@ bool testReleaseResourcesClearsQueuedWork()
     return ok;
 }
 
+bool testBoxShadowQueuesWork()
+{
+    auto renderer = std::make_unique<FakeRenderer>();
+    FakeRenderer *rawRenderer = renderer.get();
+    std::unique_ptr<wsc::Canvas> canvas = wsc::CanvasLifecycleTestAccess::create(std::move(renderer));
+
+    bool ok = expect(canvas->initializeContext(), "initializeContext should succeed");
+    canvas->setSize(200, 100);
+    canvas->drawBoxShadow(wsc::RectF(20.0f, 20.0f, 80.0f, 40.0f), 10.0f, 4.0f, 12.0f,
+                          3.0f, 5.0f, wsc::Color(0, 0, 0, 128));
+    ok = expect(rawRenderer->commandCount() > 0, "drawBoxShadow should queue shadow commands") && ok;
+
+    const std::size_t queued = rawRenderer->commandCount();
+    canvas->drawBoxShadow(wsc::RectF(20.0f, 20.0f, 80.0f, 40.0f), 10.0f, 4.0f, 12.0f,
+                          3.0f, 5.0f, wsc::Color(0, 0, 0, 0));
+    ok = expect(rawRenderer->commandCount() == queued, "transparent drawBoxShadow should be a no-op") && ok;
+
+    return ok;
+}
+
 bool testContextRecreation()
 {
     auto renderer = std::make_unique<FakeRenderer>();
@@ -227,6 +247,7 @@ int main()
     bool ok = true;
     ok = testExplicitInitializeAndFinalize() && ok;
     ok = testReleaseResourcesClearsQueuedWork() && ok;
+    ok = testBoxShadowQueuesWork() && ok;
     ok = testContextRecreation() && ok;
     return ok ? 0 : 1;
 }
