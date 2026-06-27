@@ -213,7 +213,7 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
   - [x] clipping scene
   - [x] transform scene
   - [x] saveLayer scene
-- [ ] Add pixel hash gates where stable enough.
+- [x] Add pixel hash gates where stable enough.
 - [ ] Add fuzzy visual comparison for driver-sensitive scenes.
 - [ ] Add API-level unit tests.
   - text layout

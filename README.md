@@ -242,6 +242,7 @@ cmd /c scripts\smoke_test.bat
 cmd /c scripts\clip_path_smoke.bat
 cmd /c scripts\regression_smoke.bat
 cmd /c scripts\examples_smoke.bat
+cmd /c scripts\validation_scene_smoke.bat
 ctest -C Debug -L smoke --output-on-failure
 ```
 
@@ -320,6 +321,7 @@ WHATSCANVAS_EXIT_AFTER_FIRST_FRAME=1 .\build\Debug\WhatsCanvasDemo.exe
 WHATSCANVAS_FIXED_TIME_SECONDS=1.25 .\build\Debug\WhatsCanvasDemo.exe
 WHATSCANVAS_DISABLE_MSAA=1 .\build\Debug\WhatsCanvasDemo.exe
 WHATSCANVAS_EXERCISE_CLIP_PATH=1 .\build\Debug\WhatsCanvasDemo.exe
+WHATSCANVAS_VALIDATION_SCENE=text-heavy .\build\Debug\WhatsCanvasDemo.exe
 ```
 
 这些钩子非常适合做三类事情：
