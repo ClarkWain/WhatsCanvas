@@ -285,6 +285,51 @@ bool testTextStrokeQueuesWork()
     return ok;
 }
 
+bool testGradientQueuesShaderDescriptor()
+{
+    auto renderer = std::make_unique<FakeRenderer>();
+    FakeRenderer *rawRenderer = renderer.get();
+    std::unique_ptr<wsc::Canvas> canvas = wsc::CanvasLifecycleTestAccess::create(std::move(renderer));
+
+    bool ok = expect(canvas->initializeContext(), "initializeContext should succeed");
+    canvas->setSize(200, 100);
+
+    wsc::Paint linear;
+    linear.setLinearGradient(0.0f, 0.0f, 100.0f, 0.0f,
+                             {
+                                 wsc::Paint::ColorStop(0.0f, wsc::Color::RED),
+                                 wsc::Paint::ColorStop(0.5f, wsc::Color::GREEN),
+                                 wsc::Paint::ColorStop(1.0f, wsc::Color::BLUE),
+                             });
+    linear.setShaderTileMode(wsc::Paint::ShaderTileMode::MIRROR);
+    canvas->drawRect(wsc::RectF(0.0f, 0.0f, 80.0f, 40.0f), linear);
+    ok = expect(rawRenderer->commandCount() == 1, "linear gradient rect should queue one path command") && ok;
+    const auto *linearCommand = dynamic_cast<DrawPathCommand *>(rawRenderer->commands.front().get());
+    ok = expect(linearCommand != nullptr, "linear gradient should queue DrawPathCommand") && ok;
+    if (linearCommand != nullptr) {
+        const DrawPathData &data = linearCommand->data();
+        ok = expect(data.gradientType == DrawGradientType::Linear, "linear gradient should use shader descriptor") && ok;
+        ok = expect(data.gradientTileMode == DrawGradientTileMode::Mirror, "gradient tile mode should be forwarded") && ok;
+        ok = expect(data.gradientStopCount == 3, "gradient stops should be forwarded") && ok;
+        ok = expect(data.colors.empty(), "shader gradient should not require per-vertex colors") && ok;
+    }
+
+    rawRenderer->clear();
+    wsc::Paint radial;
+    radial.setRadialGradient(40.0f, 30.0f, 24.0f, wsc::Color::WHITE, wsc::Color::BLACK);
+    canvas->drawCircle(40.0f, 30.0f, 24.0f, radial);
+    ok = expect(rawRenderer->commandCount() == 1, "radial gradient circle should queue one path command") && ok;
+    const auto *radialCommand = dynamic_cast<DrawPathCommand *>(rawRenderer->commands.front().get());
+    ok = expect(radialCommand != nullptr, "radial gradient should queue DrawPathCommand") && ok;
+    if (radialCommand != nullptr) {
+        const DrawPathData &data = radialCommand->data();
+        ok = expect(data.gradientType == DrawGradientType::Radial, "radial gradient should use shader descriptor") && ok;
+        ok = expect(data.gradientStopCount == 2, "radial gradient stops should be forwarded") && ok;
+    }
+
+    return ok;
+}
+
 bool testContextRecreation()
 {
     auto renderer = std::make_unique<FakeRenderer>();
@@ -313,6 +358,7 @@ int main()
     ok = testBoxShadowQueuesWork() && ok;
     ok = testTextShadowQueuesWork() && ok;
     ok = testTextStrokeQueuesWork() && ok;
+    ok = testGradientQueuesShaderDescriptor() && ok;
     ok = testContextRecreation() && ok;
     return ok ? 0 : 1;
 }

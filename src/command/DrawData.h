@@ -38,7 +38,22 @@ enum class PathCapStyle {
     Bevel
 };
 
+enum class DrawGradientType {
+    None,
+    Linear,
+    Radial
+};
+
+enum class DrawGradientTileMode {
+    Clamp,
+    Repeat,
+    Mirror,
+    Decal
+};
+
 struct DrawPathData {
+    static constexpr std::size_t kMaxGradientStops = 8;
+
     std::vector<float> points;    // Path points, each storing x/y coordinates
     std::vector<float> colors;    // Optional per-vertex colors, each storing r/g/b/a
     float width = 1.0f;           // Stroke width
@@ -49,8 +64,18 @@ struct DrawPathData {
     ScissorState scissor;
     DrawBlendMode blendMode = DrawBlendMode::SrcOver;
     ClipMaskState clipMask;
+    DrawGradientType gradientType = DrawGradientType::None;
+    DrawGradientTileMode gradientTileMode = DrawGradientTileMode::Clamp;
+    float gradientStart[2] = {0.0f, 0.0f};
+    float gradientEnd[2] = {1.0f, 0.0f};
+    float radialCenter[2] = {0.0f, 0.0f};
+    float radialRadius = 1.0f;
+    int gradientStopCount = 0;
+    float gradientStopPositions[kMaxGradientStops] = {};
+    float gradientStopColors[kMaxGradientStops * 4] = {};
     size_t getPointCount() const { return points.size() / 2; }
     bool hasVertexColors() const { return colors.size() == getPointCount() * 4; }
+    bool hasShaderGradient() const { return gradientType != DrawGradientType::None && gradientStopCount > 0; }
 };
 
 struct DrawImageData {

@@ -32,9 +32,11 @@ void DrawPathProgram::initialize()
         uniform mat4 uProjection;
         uniform mat4 uTransform;
         out vec4 vColor;
+        out vec2 vLocalPos;
         void main()
         {
             vColor = aColor;
+            vLocalPos = aPos;
             gl_Position = uProjection * uTransform * vec4(aPos, 0.0, 1.0);
         }
     )";
@@ -43,9 +45,78 @@ void DrawPathProgram::initialize()
         out vec4 FragColor;
         uniform vec4 uColor;
         uniform int uUseVertexColor;
+        uniform int uGradientType;
+        uniform int uGradientTileMode;
+        uniform vec2 uLinearStart;
+        uniform vec2 uLinearEnd;
+        uniform vec2 uRadialCenter;
+        uniform float uRadialRadius;
+        uniform int uGradientStopCount;
+        uniform float uGradientStopPositions[8];
+        uniform vec4 uGradientStopColors[8];
         in vec4 vColor;
+        in vec2 vLocalPos;
+
+        float applyGradientTile(float t, out float visibility)
+        {
+            visibility = 1.0;
+            if (uGradientTileMode == 1) {
+                return fract(t);
+            }
+            if (uGradientTileMode == 2) {
+                float period = floor(t);
+                float localT = t - period;
+                if (mod(abs(period), 2.0) > 0.5) {
+                    localT = 1.0 - localT;
+                }
+                return localT;
+            }
+            if (uGradientTileMode == 3) {
+                visibility = (t >= 0.0 && t <= 1.0) ? 1.0 : 0.0;
+                return clamp(t, 0.0, 1.0);
+            }
+            return clamp(t, 0.0, 1.0);
+        }
+
+        vec4 sampleGradient(float t)
+        {
+            float visibility = 1.0;
+            t = applyGradientTile(t, visibility);
+            if (visibility <= 0.0 || uGradientStopCount <= 0) {
+                return vec4(0.0);
+            }
+            if (uGradientStopCount == 1 || t <= uGradientStopPositions[0]) {
+                return uGradientStopColors[0] * visibility;
+            }
+            for (int i = 1; i < 8; ++i) {
+                if (i >= uGradientStopCount) {
+                    break;
+                }
+                if (t <= uGradientStopPositions[i]) {
+                    float startPos = uGradientStopPositions[i - 1];
+                    float endPos = uGradientStopPositions[i];
+                    float span = max(endPos - startPos, 0.0001);
+                    float localT = clamp((t - startPos) / span, 0.0, 1.0);
+                    return mix(uGradientStopColors[i - 1], uGradientStopColors[i], localT) * visibility;
+                }
+            }
+            return uGradientStopColors[uGradientStopCount - 1] * visibility;
+        }
+
         void main()
         {
+            if (uGradientType == 1) {
+                vec2 direction = uLinearEnd - uLinearStart;
+                float lengthSq = max(dot(direction, direction), 0.0001);
+                float t = dot(vLocalPos - uLinearStart, direction) / lengthSq;
+                FragColor = sampleGradient(t);
+                return;
+            }
+            if (uGradientType == 2) {
+                float t = length(vLocalPos - uRadialCenter) / max(uRadialRadius, 0.0001);
+                FragColor = sampleGradient(t);
+                return;
+            }
             FragColor = uUseVertexColor != 0 ? vColor : uColor;
         }
     )";
@@ -121,6 +192,24 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
     GammaCorrect::srgbToLinear4(color);
     program_->setVec4("uColor", glm::make_vec4(color));
     program_->setInt("uUseVertexColor", data.hasVertexColors() ? 1 : 0);
+    program_->setInt("uGradientType", static_cast<int>(data.gradientType));
+    program_->setInt("uGradientTileMode", static_cast<int>(data.gradientTileMode));
+    program_->setVec2("uLinearStart", glm::vec2(data.gradientStart[0], data.gradientStart[1]));
+    program_->setVec2("uLinearEnd", glm::vec2(data.gradientEnd[0], data.gradientEnd[1]));
+    program_->setVec2("uRadialCenter", glm::vec2(data.radialCenter[0], data.radialCenter[1]));
+    program_->setFloat("uRadialRadius", data.radialRadius);
+    program_->setInt("uGradientStopCount", data.gradientStopCount);
+    for (std::size_t i = 0; i < DrawPathData::kMaxGradientStops; ++i) {
+        program_->setFloat("uGradientStopPositions[" + std::to_string(i) + "]", data.gradientStopPositions[i]);
+        float stopColor[4] = {
+            data.gradientStopColors[i * 4 + 0],
+            data.gradientStopColors[i * 4 + 1],
+            data.gradientStopColors[i * 4 + 2],
+            data.gradientStopColors[i * 4 + 3]
+        };
+        GammaCorrect::srgbToLinear4(stopColor);
+        program_->setVec4("uGradientStopColors[" + std::to_string(i) + "]", glm::make_vec4(stopColor));
+    }
 
     // Bind VAO and draw (StreamBuffer already bound the data via upload)
     glBindVertexArray(VAO_);

@@ -127,11 +127,11 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
 
 ## Phase 3: Paint, Effects, And Gradients
 
-- [ ] Move gradient execution closer to shader-level evaluation where needed.
-  - linear gradients
-  - radial gradients
-  - multi-stop gradients
-  - tile modes
+- [x] Move gradient execution closer to shader-level evaluation where needed.
+  - [x] linear gradients
+  - [x] radial gradients
+  - [x] multi-stop gradients
+  - [x] tile modes
 - [x] Add box gradient or equivalent shadow-oriented primitive.
 - [x] Clarify shadow model.
   - [x] paint-level shadow
