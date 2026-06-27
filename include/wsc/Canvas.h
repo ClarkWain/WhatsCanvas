@@ -45,6 +45,17 @@ public:
 		bool ellipsized = false;
 	};
 
+	struct RenderStats
+	{
+		std::size_t commandCount = 0;
+		std::size_t drawCallCount = 0;
+		std::size_t mergedBatchCount = 0;
+		std::size_t renderTargetSwitches = 0;
+		std::size_t imageTextureCount = 0;
+		std::size_t glyphAtlasTextureCount = 0;
+		std::size_t renderTargetCount = 0;
+	};
+
 	enum class ImageFit
 	{
 		FILL,
@@ -108,6 +119,7 @@ public:
 
 	/// Check whether render-target mode is currently active.
 	bool isRenderTargetMode() const;
+	RenderStats getRenderStats() const;
 
 protected:
 	void *getTextureHandleOpaque() const override;
