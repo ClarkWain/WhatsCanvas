@@ -76,12 +76,29 @@ bool testDiagnosticsForRejectedFallback()
         && expect(!diagnostics.empty(), "rejected fallback chain should add diagnostics");
 }
 
+bool testPortableBackendUsesGeometryPath()
+{
+    std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createPortableTextBackend();
+    Paint paint = makeTextPaint();
+    paint.setFontFamily("Arial");
+
+    const wsc::text::TextRenderResult rendered = backend->renderText("Portable text", 4.0f, 8.0f, paint);
+
+    return expect(rendered.kind == wsc::text::TextRenderKind::Geometry,
+                  "portable backend should use geometry text even when a font family is set")
+        && expect(!rendered.vertices.empty(), "portable geometry text should produce vertices")
+        && expect(backend->hasGlyphForCodepoint('A', paint), "portable backend should expose ASCII glyphs")
+        && expect(!backend->hasGlyphForCodepoint(0x4F60, paint),
+                  "portable backend should not claim native CJK glyph coverage");
+}
+
 } // namespace
 
 int main()
 {
     const bool ok = testFontRegistrationAndFallback()
         && testLineBreakAndGlyphQuery()
-        && testDiagnosticsForRejectedFallback();
+        && testDiagnosticsForRejectedFallback()
+        && testPortableBackendUsesGeometryPath();
     return ok ? 0 : 1;
 }

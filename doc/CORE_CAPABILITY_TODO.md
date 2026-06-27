@@ -44,7 +44,7 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
   - [x] glyph availability query
   - [x] diagnostics hook
 - [x] Replace ASCII-only sanitization with real UTF-8 processing.
-- [ ] Add a cross-platform font backend implementation path.
+- [x] Add a cross-platform font backend implementation path.
   - Prefer a backend that can run consistently on desktop and mobile.
   - Keep platform-native text as an optional acceleration or compatibility backend.
 - [x] Add glyph atlas ownership.
