@@ -97,6 +97,8 @@ class Canvas {
 	void drawImage(...);
 	void drawImageFit(...);
 	void drawImageNinePatch(...);
+	void drawImageRounded(...);
+	void drawImageCircle(...);
 	void drawImageTiled(...);
 
 	void drawText(...);
@@ -143,6 +145,8 @@ class Canvas {
 	std::uint64_t computePixelsHashRGBA() const;
 };
 ```
+
+图片 pattern 目前使用 `drawImageTiled` 表达：`Image` 是 pattern 的源，`Paint::setImageTileMode` 控制 `CLAMP` / `REPEAT` / `MIRROR` / `DECAL`，`Paint` 的 alpha、tint、color matrix 和 sampling 继续生效；如果需要移动、缩放、旋转 pattern 区域，可以在调用前使用 `save()` + `translate()` / `scale()` / `rotate()`，绘制后 `restore()`。
 
 ## 文档入口
 
