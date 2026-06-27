@@ -149,12 +149,12 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
   - [x] premultiplied option boundary
   - [x] Porter-Duff modes
   - [x] additive/multiply/screen
-- [ ] Add effect regression tests.
-  - gradients
-  - shadows
-  - blend modes
-  - strokes
-  - dashes
+- [x] Add effect regression tests.
+  - [x] gradients
+  - [x] shadows
+  - [x] blend modes
+  - [x] strokes
+  - [x] dashes
 
 ## Phase 4: OpenGLES And Mobile Readiness
 
