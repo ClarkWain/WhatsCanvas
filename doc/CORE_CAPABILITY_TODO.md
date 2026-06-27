@@ -19,17 +19,17 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
 
 ## Phase 1: Text And Font Foundation
 
-- [ ] Define the production text feature matrix.
-  - Unicode input coverage
-  - UTF-8 validation behavior
-  - font file loading
-  - font memory loading
-  - font family lookup
-  - fallback chains
-  - emoji fallback
-  - text metrics
-  - line breaking
-  - glyph-missing diagnostics
+- [x] Define the production text feature matrix.
+  - [x] Unicode input coverage
+  - [x] UTF-8 validation behavior
+  - [x] font file loading
+  - [x] font memory loading
+  - [x] font family lookup
+  - [x] fallback chains
+  - [x] emoji fallback
+  - [x] text metrics
+  - [x] line breaking
+  - [x] glyph-missing diagnostics
 - [x] Add public font management types.
   - `FontManager`
   - `FontCollection`
