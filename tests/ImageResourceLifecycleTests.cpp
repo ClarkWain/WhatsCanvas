@@ -4,6 +4,7 @@
 #include "render/IRenderer.h"
 
 #include <cstdint>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -153,6 +154,15 @@ std::vector<unsigned char> rgbaPixels(int width, int height, unsigned char seed)
     return pixels;
 }
 
+const unsigned char kOneByOnePng[] = {
+    0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D,
+    0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+    0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4, 0x89, 0x00, 0x00, 0x00,
+    0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0xF8, 0xCF, 0xC0, 0xF0,
+    0x1F, 0x00, 0x05, 0x00, 0x01, 0xFF, 0x89, 0x99, 0x3D, 0x1D, 0x00, 0x00,
+    0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82
+};
+
 } // namespace
 
 namespace wsc {
@@ -164,6 +174,17 @@ public:
                          bool generateMipmaps)
     {
         return image.loadRGBA(renderer, pixels, width, height, generateMipmaps);
+    }
+
+    static bool loadEncodedMemory(Image &image, IRenderer &renderer, const unsigned char *data, int size,
+                                  bool generateMipmaps)
+    {
+        return image.loadEncodedMemory(renderer, data, size, generateMipmaps);
+    }
+
+    static bool loadFile(Image &image, IRenderer &renderer, const char *path)
+    {
+        return image.load(renderer, path);
     }
 
     static bool replaceRGBA(Image &image, IRenderer &renderer, const unsigned char *pixels, int width, int height,
@@ -245,6 +266,41 @@ bool testLoadRejectsInvalidInputs()
     return ok;
 }
 
+bool testEncodedAndFileDecodeLifecycle()
+{
+    FakeRenderer renderer;
+    wsc::Image image;
+    bool ok = expect(wsc::ImageLifecycleTestAccess::loadEncodedMemory(
+                         image, renderer, kOneByOnePng, static_cast<int>(sizeof(kOneByOnePng)), true),
+                     "loadEncodedMemory should decode a valid PNG");
+    ok = expect(image.isTextureValid(), "decoded memory image should be texture-valid") && ok;
+    ok = expect(image.getWidth() == 1 && image.getHeight() == 1, "decoded memory image should store dimensions") && ok;
+    ok = expect(image.hasMipmaps(), "decoded memory image should store mipmap state") && ok;
+    ok = expect(renderer.lastCreatedWidth == 1 && renderer.lastCreatedHeight == 1,
+                "decoded memory image should create a 1x1 resource") && ok;
+    ok = expect(renderer.lastCreatedChannels == 4, "decoded PNG should report RGBA channels") && ok;
+
+    const std::string filePath = "wsc_image_lifecycle_test_1x1.png";
+    {
+        std::ofstream file(filePath, std::ios::binary);
+        file.write(reinterpret_cast<const char *>(kOneByOnePng), static_cast<std::streamsize>(sizeof(kOneByOnePng)));
+    }
+
+    wsc::Image fileImage;
+    ok = expect(wsc::ImageLifecycleTestAccess::loadFile(fileImage, renderer, filePath.c_str()),
+                "loadImage file path should decode a valid PNG") && ok;
+    ok = expect(fileImage.isTextureValid(), "decoded file image should be texture-valid") && ok;
+    ok = expect(fileImage.getWidth() == 1 && fileImage.getHeight() == 1, "decoded file image should store dimensions") && ok;
+    ok = expect(fileImage.hasMipmaps(), "file decode should generate mipmaps") && ok;
+
+    std::remove(filePath.c_str());
+
+    ok = expect(!wsc::ImageLifecycleTestAccess::loadEncodedMemory(image, renderer, nullptr, 0, false),
+                "loadEncodedMemory should reject empty data") && ok;
+    ok = expect(!image.isTextureValid(), "failed encoded-memory decode should reset image") && ok;
+    return ok;
+}
+
 bool testReplaceAndUpdateLifecycle()
 {
     FakeRenderer renderer;
@@ -320,6 +376,7 @@ int main()
     bool ok = true;
     ok = testDefaultResetAndMove() && ok;
     ok = testLoadRejectsInvalidInputs() && ok;
+    ok = testEncodedAndFileDecodeLifecycle() && ok;
     ok = testReplaceAndUpdateLifecycle() && ok;
     ok = testExternalTextureLifecycle() && ok;
     return ok ? 0 : 1;
