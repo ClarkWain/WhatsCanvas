@@ -40,11 +40,13 @@ This model favors simple portability and predictable command submission over hig
 
 ## Text Shadows
 
-Text shadow is not a separate text-specific API today.
+Text shadow is not a separate text-specific API today. `drawText` and `drawTextBox` consume the same
+paint-level shadow layer used by shape drawing.
 
-- Paint-level shadow is not currently applied inside the text rendering path.
-- Future text shadow should be atlas-aware or routed through a general offscreen effect pass.
-- CPU text bitmap shadowing should remain optional because it can diverge from GPU text rendering.
+- Geometry text submits shadow passes before the normal text command.
+- Bitmap text submits tinted shadow image passes before the normal tinted text image.
+- The current matrix, rectangular clips, clip masks, alpha, and blend mode are preserved for shadow passes.
+- A future atlas-aware implementation can route text shadows through a general offscreen effect pass for higher quality.
 
 ## Box Shadow Or Box Gradient
 
@@ -67,7 +69,7 @@ A future optimized implementation can render rounded-rect shadows without tessel
 Current coverage:
 
 - `PaintStateTests` validates shadow state and transparent-color behavior.
+- `ContextLifecycleTests` validates command submission for box shadows and text shadows.
 - The validation scene suite includes a gradient/effect scene using paint-level shadows.
 - `quickReject(path, paint)` expands path bounds for shadow offset and radius.
-
-Future coverage should add fuzzy visual comparison for shadow scenes because exact pixel hashes can be driver-sensitive.
+- Future coverage should add fuzzy visual comparison for shadow scenes because exact pixel hashes can be driver-sensitive.

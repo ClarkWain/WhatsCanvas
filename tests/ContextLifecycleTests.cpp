@@ -222,6 +222,34 @@ bool testBoxShadowQueuesWork()
     return ok;
 }
 
+bool testTextShadowQueuesWork()
+{
+    auto renderer = std::make_unique<FakeRenderer>();
+    FakeRenderer *rawRenderer = renderer.get();
+    std::unique_ptr<wsc::Canvas> canvas = wsc::CanvasLifecycleTestAccess::create(std::move(renderer));
+
+    bool ok = expect(canvas->initializeContext(), "initializeContext should succeed");
+    canvas->setSize(200, 100);
+
+    wsc::Paint textPaint;
+    textPaint.setTextSize(16.0f);
+    textPaint.setColor(wsc::Color::WHITE);
+    canvas->drawText("shadow", 20.0f, 24.0f, textPaint);
+    ok = expect(rawRenderer->commandCount() == 1, "plain geometry text should queue one command") && ok;
+
+    rawRenderer->clear();
+    textPaint.setShadowLayer(8.0f, 2.0f, 3.0f, wsc::Color(0, 0, 0, 128));
+    canvas->drawText("shadow", 20.0f, 24.0f, textPaint);
+    ok = expect(rawRenderer->commandCount() > 1, "shadowed text should queue shadow and text commands") && ok;
+
+    rawRenderer->clear();
+    textPaint.setShadowLayer(8.0f, 2.0f, 3.0f, wsc::Color(0, 0, 0, 0));
+    canvas->drawText("shadow", 20.0f, 24.0f, textPaint);
+    ok = expect(rawRenderer->commandCount() == 1, "transparent text shadow should not add commands") && ok;
+
+    return ok;
+}
+
 bool testContextRecreation()
 {
     auto renderer = std::make_unique<FakeRenderer>();
@@ -248,6 +276,7 @@ int main()
     ok = testExplicitInitializeAndFinalize() && ok;
     ok = testReleaseResourcesClearsQueuedWork() && ok;
     ok = testBoxShadowQueuesWork() && ok;
+    ok = testTextShadowQueuesWork() && ok;
     ok = testContextRecreation() && ok;
     return ok ? 0 : 1;
 }
