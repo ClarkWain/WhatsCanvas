@@ -227,11 +227,11 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
   - image upload cost
   - [x] command recording cost
   - frame flush cost
-- [ ] Update public examples as features land.
-  - font fallback demo
-  - multiline text demo
-  - external texture demo
-  - image pattern demo
+- [x] Update public examples as features land.
+  - [x] font fallback demo
+  - [x] multiline text demo
+  - [x] external texture demo
+  - [x] image pattern demo
   - [x] mobile GLES smoke demo
 
 ## First Execution Slice

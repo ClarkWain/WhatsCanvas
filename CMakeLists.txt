@@ -52,6 +52,16 @@ if (WHATSCANVAS_BUILD_DEMO AND TARGET WhatsCanvasOpenGL)
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/showcase")
 endif()
 
+if (TARGET WhatsCanvasOpenGL)
+    add_executable(WhatsCanvasFeatureSnippets
+        "${CMAKE_CURRENT_SOURCE_DIR}/examples/snippets/FeatureSnippets.cpp"
+    )
+    target_link_libraries(WhatsCanvasFeatureSnippets PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+endif()
+
 if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     add_executable(WhatsCanvasGraphicsStateStackTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/GraphicsStateStackTests.cpp"

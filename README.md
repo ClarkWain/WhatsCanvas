@@ -317,6 +317,7 @@ build.bat --no-run
 - `src/`: 核心实现，包含 Canvas、命令、渲染器、OpenGL 后端和文本模块。
 - `examples/game/`: 三个完整示例工程。
 - `examples/showcase/`: 根演示程序，适合快速浏览公共 Canvas API 的综合使用方式。
+- `examples/snippets/`: 可复制的功能片段，覆盖 font fallback、multiline text、external texture 和 image pattern。
 - `tests/`: 单元测试入口与测试说明。
 - `scripts/`: 冒烟、clip-path、回归、示例构建四类验证脚本。
 - `doc/polyline/`: 偏原理和互动演示导向的教学材料。
