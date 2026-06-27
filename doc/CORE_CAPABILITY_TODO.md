@@ -110,11 +110,11 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
   - [x] uniform corner radius
   - [x] per-corner radius
   - [x] circular crop helper
-- [ ] Add image pattern support or document the intended equivalent.
-  - transform
-  - repeat/mirror/clamp/decal
-  - alpha
-  - source image reference
+- [x] Add image pattern support or document the intended equivalent.
+  - [x] transform
+  - [x] repeat/mirror/clamp/decal
+  - [x] alpha
+  - [x] source image reference
 - [ ] Add image resource tests.
   - file decode
   - memory decode
