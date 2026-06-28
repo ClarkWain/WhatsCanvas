@@ -56,12 +56,10 @@ void DrawLinesProgram::initialize()
     program_ = new GLProgram(vertexSrc, fragmentSrc);
 
     glGenVertexArrays(1, &VAO_);
-    glGenBuffers(1, &VBO_);
+    vertexBuffer_.initialize(7200);
 
     glBindVertexArray(VAO_);
-    glBindBuffer(GL_ARRAY_BUFFER, VBO_);
-
-    glBufferData(GL_ARRAY_BUFFER, maxLines_ * 6 * 6 * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer_.handle());
 
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
     glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(2 * sizeof(float)));
@@ -71,8 +69,7 @@ void DrawLinesProgram::initialize()
 
     glBindVertexArray(0);
 
-    // Preallocate vertexCache
-    vertexCache_.reserve(maxLines_ * 12);
+    vertexCache_.reserve(7200);
 
     initialized_ = true;
 }
@@ -90,8 +87,7 @@ void DrawLinesProgram::release()
     if (VAO_ != -1)
         glDeleteVertexArrays(1, &VAO_);
 
-    if (VBO_ != -1)
-        glDeleteBuffers(1, &VBO_);
+    vertexBuffer_.release();
 
     initialized_ = false;
 }
@@ -107,14 +103,6 @@ void DrawLinesProgram::draw(const RenderContext &context, const DrawLinesData &d
     }
 
     const size_t requiredSize = data.getLineCount() * 6 * 6;
-    
-    // Reallocate the buffer only when required
-    if (requiredSize > maxLines_ * 6 * 6) {
-        maxLines_ = static_cast<int>(requiredSize * BUFFER_GROW_FACTOR);  // geometric growth policy
-        glBindBuffer(GL_ARRAY_BUFFER, VBO_);
-        glBufferData(GL_ARRAY_BUFFER, maxLines_ * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
-        vertexCache_.reserve(maxLines_);
-    }
 
     // Reuse vertexCache
     vertexCache_.clear();
@@ -166,8 +154,7 @@ void DrawLinesProgram::draw(const RenderContext &context, const DrawLinesData &d
     program_->setMat4("uTransform", data.transform);
 
     glBindVertexArray(VAO_);
-    glBindBuffer(GL_ARRAY_BUFFER, VBO_);
-    glBufferSubData(GL_ARRAY_BUFFER, 0, vertexCache_.size() * sizeof(float), vertexCache_.data());
+    vertexBuffer_.upload(vertexCache_.data(), vertexCache_.size());
     glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(vertexCache_.size() / 6));
     glBindVertexArray(0);
 }

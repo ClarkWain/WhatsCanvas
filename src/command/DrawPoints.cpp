@@ -58,16 +58,11 @@ void DrawPointsProgram::initialize()
 
     program_ = new GLProgram(vertexSrc, fragmentSrc);
 
-    // Create the VAO and VBO
     glGenVertexArrays(1, &VAO_);
-    glGenBuffers(1, &VBO_);
+    vertexBuffer_.initialize(1200);
 
-    // Bind the VAO and VBO
     glBindVertexArray(VAO_);
-    glBindBuffer(GL_ARRAY_BUFFER, VBO_);
-
-    // Preallocate a larger buffer
-    glBufferData(GL_ARRAY_BUFFER, maxPoints_ * 6 * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer_.handle());
 
     // Configure vertex attributes (position and color)
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *)0);
@@ -79,8 +74,7 @@ void DrawPointsProgram::initialize()
     // Unbind the current objects
     glBindVertexArray(0);
 
-    // Preallocate vertexCache
-    vertexCache_.reserve(maxPoints_ * 6);
+    vertexCache_.reserve(1200);
 
     initialized_ = true;
 }
@@ -98,8 +92,7 @@ void DrawPointsProgram::release()
     if (VAO_ != -1)
         glDeleteVertexArrays(1, &VAO_);
 
-    if (VBO_ != -1)
-        glDeleteBuffers(1, &VBO_);
+    vertexBuffer_.release();
 
     initialized_ = false;
 }
@@ -115,14 +108,6 @@ void DrawPointsProgram::draw(const RenderContext &context, const DrawPointsData 
     }
 
     const size_t requiredSize = data.getPointCount() * 6;
-    
-    // Reallocate the buffer only when required
-    if (requiredSize > maxPoints_ * 6) {
-        maxPoints_ = static_cast<int>(requiredSize * BUFFER_GROW_FACTOR);  // geometric growth policy
-        glBindBuffer(GL_ARRAY_BUFFER, VBO_);
-        glBufferData(GL_ARRAY_BUFFER, maxPoints_ * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
-        vertexCache_.reserve(maxPoints_);
-    }
 
     // Reuse vertexCache
     vertexCache_.clear();
@@ -150,8 +135,7 @@ void DrawPointsProgram::draw(const RenderContext &context, const DrawPointsData 
     program_->setMat4("uTransform", data.transform);
 
     glBindVertexArray(VAO_);
-    glBindBuffer(GL_ARRAY_BUFFER, VBO_);
-    glBufferSubData(GL_ARRAY_BUFFER, 0, vertexCache_.size() * sizeof(float), vertexCache_.data());
+    vertexBuffer_.upload(vertexCache_.data(), vertexCache_.size());
     glDrawArrays(GL_POINTS, 0, static_cast<GLsizei>(data.getPointCount()));
     glBindVertexArray(0);
 }
