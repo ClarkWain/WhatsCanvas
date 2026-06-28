@@ -21,7 +21,7 @@
 | 14 | 全局 Quad/Fan Index Buffer | 4 | S | 🛠 已审查并接入后端生命周期；draw program 尚未使用 |
 | 15 | Texel Buffer 抽象 | 2 | M | 🟡 已审查：组件可用，尚无渲染路径使用 |
 | 16 | DrawMode/ArcMode 组合枚举 | 3 | S | ✅ 已审查通过：OPEN/CHORD/PIE 已实现 |
-| 17 | Deprecation Warning 系统 | 2 | S | 🟡 已审查：Tracker 可用，尚未标记具体弃用 API |
+| 17 | Deprecation Warning 系统 | 2 | S | 🛠 已审查并修复：`drawArc(..., bool useCenter, ...)` 接入一次性弃用提示 |
 | 18 | isPixelFormatSupported 能力查询 | 4 | S | 🛠 已审查并修复格式探测参数，并接入后端初始化 |
 | 19 | SpriteBatch 批量绘制 | 3 | L | 🛠 已审查并修复 shader/固定 GL 状态；尚未接入 Renderer/公共 API |
 | 20 | 窗口 resize 无痛重建 | 4 | M | 🟠 已审查：ResizeHandler 已接入通知，资源重建监听待覆盖 |

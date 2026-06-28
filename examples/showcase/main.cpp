@@ -1054,7 +1054,7 @@ int main() {
         canvas.drawRoundRect(RectF(575.0f, 335.0f, 165.0f, 72.0f), 8.0f, 36.0f, 18.0f, 48.0f, asymmetricRoundRectPaint);
         canvas.drawCircle(PointF(610.0f, 505.0f), 62.0f, circlePaint);
         canvas.drawOval(RectF(80.0f, 440.0f, 220.0f, 110.0f), ovalPaint);
-        canvas.drawArc(RectF(680.0f, 455.0f, 90.0f, 100.0f), -0.8f * PI, 1.45f * PI, false, arcPaint);
+        canvas.drawArc(RectF(680.0f, 455.0f, 90.0f, 100.0f), -0.8f * PI, 1.45f * PI, Canvas::ArcMode::OPEN, arcPaint);
         canvas.drawLine(518.0f, 252.0f, 760.0f, 252.0f, dashedPaint);
         canvas.drawPolyline(demoPolylinePoints, pathPaint);
         canvas.drawPolygon(demoPolygonPoints, rectPaint);
