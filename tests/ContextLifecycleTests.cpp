@@ -26,6 +26,14 @@ bool near(float lhs, float rhs, float epsilon = 0.0001f)
     return std::abs(lhs - rhs) <= epsilon;
 }
 
+class FakeImageResource final : public ImageResource
+{
+public:
+    bool isValid() const override { return true; }
+    void bind(const RenderContext &) const override {}
+    bool updateRGBA(int, int, int, int, const unsigned char *, bool) override { return true; }
+};
+
 class FakeRenderer final : public IRenderer
 {
 public:
@@ -99,7 +107,7 @@ public:
     {
         ++renderTargetRequests;
         stats.renderTargetSwitches += 1;
-        return {};
+        return returnRenderTargetImage ? std::make_shared<FakeImageResource>() : SharedImageResource();
     }
     void resetRenderState() override {}
 
@@ -124,6 +132,7 @@ public:
     int viewportHeight = 0;
     int clearCount = 0;
     mutable int renderTargetRequests = 0;
+    bool returnRenderTargetImage = false;
     std::vector<std::unique_ptr<Command>> commands;
     mutable FrameStats stats;
 };
@@ -243,6 +252,31 @@ bool testCanvasGraphicsStateColorAndBlendAffectPathCommands()
     canvas->restoreToCount(saved);
     ok = expect(canvas->getBlendMode() == wsc::Paint::BlendMode::ADD, "restore should recover blend mode") && ok;
     ok = expect(canvas->getColor().getR() == 128, "restore should recover color") && ok;
+
+    return ok;
+}
+
+bool testResizeInvalidatesRenderTargetTexture()
+{
+    auto renderer = std::make_unique<FakeRenderer>();
+    FakeRenderer *rawRenderer = renderer.get();
+    rawRenderer->returnRenderTargetImage = true;
+    std::unique_ptr<wsc::Canvas> canvas = wsc::CanvasLifecycleTestAccess::create(std::move(renderer));
+
+    bool ok = expect(canvas->initializeContext(), "initializeContext should succeed");
+    canvas->setSize(128, 64);
+    canvas->setRenderTargetMode(true);
+
+    wsc::Paint paint;
+    paint.setColor(wsc::Color::WHITE);
+    canvas->drawRect(wsc::RectF(0.0f, 0.0f, 32.0f, 24.0f), paint);
+    canvas->flush();
+
+    ok = expect(canvas->isTextureValid(), "render target should be valid after offscreen flush") && ok;
+    canvas->setSize(256, 128);
+    ok = expect(!canvas->isTextureValid(), "resize should invalidate the old render target texture") && ok;
+    ok = expect(rawRenderer->viewportWidth == 256 && rawRenderer->viewportHeight == 128,
+                "resize should still update renderer viewport") && ok;
 
     return ok;
 }
@@ -415,6 +449,7 @@ int main()
     ok = testExplicitInitializeAndFinalize() && ok;
     ok = testReleaseResourcesClearsQueuedWork() && ok;
     ok = testCanvasGraphicsStateColorAndBlendAffectPathCommands() && ok;
+    ok = testResizeInvalidatesRenderTargetTexture() && ok;
     ok = testBoxShadowQueuesWork() && ok;
     ok = testTextShadowQueuesWork() && ok;
     ok = testTextStrokeQueuesWork() && ok;
