@@ -5,12 +5,14 @@
 
 #include <glad/glad.h>
 
+#include "render/IVolatile.h"
+
 /// A GPU-backed buffer that can be sampled as a texture via samplerBuffer
 /// in shaders. Useful for storing glyph atlas indices, lookup tables,
 /// or any data that needs random access from a shader.
 ///
 /// Note: Requires GL 3.0+ (texture buffer objects).
-class TexelBuffer
+class TexelBuffer : public IVolatile
 {
 public:
     TexelBuffer() = default;
@@ -28,6 +30,9 @@ public:
     /// Release GPU resources.
     void release();
 
+    bool loadVolatile() override;
+    void unloadVolatile() override;
+
     /// Get the texture unit handle for binding in shaders.
     GLuint textureHandle() const { return texture_; }
 
@@ -41,4 +46,9 @@ private:
     GLuint buffer_ = 0;
     GLuint texture_ = 0;
     std::size_t count_ = 0;
+    std::size_t capacity_ = 0;
+    std::vector<float> cachedData_;
+
+    bool uploadGpuData(const float *data, std::size_t count);
+    void releaseGpuResources();
 };
