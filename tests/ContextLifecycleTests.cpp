@@ -3,6 +3,7 @@
 #include "command/DrawCommand.h"
 #include "render/IRenderer.h"
 
+#include <cmath>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -18,6 +19,11 @@ bool expect(bool condition, const std::string &message)
         return false;
     }
     return true;
+}
+
+bool near(float lhs, float rhs, float epsilon = 0.0001f)
+{
+    return std::abs(lhs - rhs) <= epsilon;
 }
 
 class FakeRenderer final : public IRenderer
@@ -202,6 +208,45 @@ bool testReleaseResourcesClearsQueuedWork()
     return ok;
 }
 
+bool testCanvasGraphicsStateColorAndBlendAffectPathCommands()
+{
+    auto renderer = std::make_unique<FakeRenderer>();
+    FakeRenderer *rawRenderer = renderer.get();
+    std::unique_ptr<wsc::Canvas> canvas = wsc::CanvasLifecycleTestAccess::create(std::move(renderer));
+
+    bool ok = expect(canvas->initializeContext(), "initializeContext should succeed");
+    canvas->setSize(200, 100);
+
+    canvas->setColor(wsc::Color(128, 255, 255, 128));
+    canvas->setBlendMode(wsc::Paint::BlendMode::ADD);
+    const int saved = canvas->save();
+
+    canvas->setColor(wsc::Color(255, 128, 255, 64));
+    canvas->setBlendMode(wsc::Paint::BlendMode::MULTIPLY);
+
+    wsc::Paint paint;
+    paint.setColor(wsc::Color(100, 200, 50, 255));
+    canvas->drawRect(wsc::RectF(0.0f, 0.0f, 40.0f, 30.0f), paint);
+
+    ok = expect(rawRenderer->commandCount() == 1, "stateful drawRect should queue one path command") && ok;
+    const auto *command = dynamic_cast<DrawPathCommand *>(rawRenderer->commands.front().get());
+    ok = expect(command != nullptr, "stateful drawRect should queue DrawPathCommand") && ok;
+    if (command != nullptr) {
+        const DrawPathData &data = command->data();
+        ok = expect(near(data.color[0], 100.0f / 255.0f), "state color should preserve red channel") && ok;
+        ok = expect(near(data.color[1], 100.0f / 255.0f), "state color should tint green channel") && ok;
+        ok = expect(near(data.color[2], 50.0f / 255.0f), "state color should preserve blue channel") && ok;
+        ok = expect(near(data.color[3], 64.0f / 255.0f), "state color should multiply alpha") && ok;
+        ok = expect(data.blendMode == DrawBlendMode::Multiply, "state blend mode should affect path command") && ok;
+    }
+
+    canvas->restoreToCount(saved);
+    ok = expect(canvas->getBlendMode() == wsc::Paint::BlendMode::ADD, "restore should recover blend mode") && ok;
+    ok = expect(canvas->getColor().getR() == 128, "restore should recover color") && ok;
+
+    return ok;
+}
+
 bool testBoxShadowQueuesWork()
 {
     auto renderer = std::make_unique<FakeRenderer>();
@@ -369,6 +414,7 @@ int main()
     bool ok = true;
     ok = testExplicitInitializeAndFinalize() && ok;
     ok = testReleaseResourcesClearsQueuedWork() && ok;
+    ok = testCanvasGraphicsStateColorAndBlendAffectPathCommands() && ok;
     ok = testBoxShadowQueuesWork() && ok;
     ok = testTextShadowQueuesWork() && ok;
     ok = testTextStrokeQueuesWork() && ok;

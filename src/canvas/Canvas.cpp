@@ -194,6 +194,55 @@ DrawBlendMode toDrawBlendMode(Paint::BlendMode blendMode)
     return DrawBlendMode::SrcOver;
 }
 
+Paint::BlendMode toPaintBlendMode(DrawBlendMode blendMode)
+{
+    switch (blendMode) {
+    case DrawBlendMode::SrcOver:
+        return Paint::BlendMode::SRC_OVER;
+    case DrawBlendMode::Src:
+        return Paint::BlendMode::SRC;
+    case DrawBlendMode::Dst:
+        return Paint::BlendMode::DST;
+    case DrawBlendMode::Clear:
+        return Paint::BlendMode::CLEAR;
+    case DrawBlendMode::SrcIn:
+        return Paint::BlendMode::SRC_IN;
+    case DrawBlendMode::DstIn:
+        return Paint::BlendMode::DST_IN;
+    case DrawBlendMode::SrcOut:
+        return Paint::BlendMode::SRC_OUT;
+    case DrawBlendMode::DstOut:
+        return Paint::BlendMode::DST_OUT;
+    case DrawBlendMode::SrcAtop:
+        return Paint::BlendMode::SRC_ATOP;
+    case DrawBlendMode::DstAtop:
+        return Paint::BlendMode::DST_ATOP;
+    case DrawBlendMode::Xor:
+        return Paint::BlendMode::XOR;
+    case DrawBlendMode::Add:
+        return Paint::BlendMode::ADD;
+    case DrawBlendMode::Multiply:
+        return Paint::BlendMode::MULTIPLY;
+    case DrawBlendMode::Screen:
+        return Paint::BlendMode::SCREEN;
+    }
+
+    return Paint::BlendMode::SRC_OVER;
+}
+
+int multiplyColorChannel(int channel, float factor)
+{
+    return std::clamp(static_cast<int>(std::round(static_cast<float>(channel) * factor)), 0, 255);
+}
+
+Color modulateColor(const Color &color, const float stateColor[4])
+{
+    return Color(multiplyColorChannel(color.getR(), stateColor[0]),
+                 multiplyColorChannel(color.getG(), stateColor[1]),
+                 multiplyColorChannel(color.getB(), stateColor[2]),
+                 multiplyColorChannel(color.getA(), stateColor[3]));
+}
+
 DrawImageSampling toDrawImageSampling(Paint::ImageSampling sampling)
 {
     switch (sampling) {
@@ -1490,6 +1539,7 @@ struct Canvas::Impl
     void finalizeRenderer();
     GraphicsState &currentState();
     const GraphicsState &currentState() const;
+    Paint applyStateToPaint(const Paint &paint) const;
     bool getClipBounds(RectF &bounds) const;
     ScissorState makeCurrentScissorState() const;
     ClipMaskState makeCurrentClipMaskState() const;
@@ -1581,6 +1631,29 @@ const GraphicsState &Canvas::Impl::currentState() const
     return graphicsStates->current();
 }
 
+Paint Canvas::Impl::applyStateToPaint(const Paint &paint) const
+{
+    const GraphicsState &state = currentState();
+    Paint effectivePaint = paint;
+    if (paint.getShaderType() == Paint::ShaderType::SOLID) {
+        effectivePaint.setColor(modulateColor(paint.getColor(), state.color));
+    } else {
+        effectivePaint.setAlpha(paint.getAlphaF() * state.color[3]);
+    }
+    effectivePaint.setStrokeColor(modulateColor(paint.getStrokeColor(), state.color));
+
+    if (state.blendMode != DrawBlendMode::SrcOver) {
+        effectivePaint.setBlendMode(toPaintBlendMode(state.blendMode));
+    }
+
+    if (paint.hasShadowLayer()) {
+        effectivePaint.setShadowLayer(paint.getShadowRadius(), paint.getShadowDx(), paint.getShadowDy(),
+                                      modulateColor(paint.getShadowColor(), state.color));
+    }
+
+    return effectivePaint;
+}
+
 bool Canvas::Impl::ensureRendererInitialized()
 {
     if (renderer == nullptr) {
@@ -1664,11 +1737,28 @@ int Canvas::getHeight() const
 void Canvas::setColor(Color color)
 {
     impl_->color = color;
+    color.getNormalized(impl_->currentState().color);
 }
 
 void Canvas::setColor(float r, float g, float b, float a)
 {
-    impl_->color = Color(r, g, b, a);
+    setColor(Color(r, g, b, a));
+}
+
+Color Canvas::getColor() const
+{
+    const float *color = impl_->currentState().color;
+    return Color::fromFloat(color[0], color[1], color[2], color[3]);
+}
+
+void Canvas::setBlendMode(Paint::BlendMode blendMode)
+{
+    impl_->currentState().blendMode = toDrawBlendMode(blendMode);
+}
+
+Paint::BlendMode Canvas::getBlendMode() const
+{
+    return toPaintBlendMode(impl_->currentState().blendMode);
 }
 
 bool Canvas::isTextureValid() const
@@ -2212,10 +2302,11 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
         return;
     }
 
+    const Paint effectivePaint = impl_->applyStateToPaint(paint);
     Path effectedPath;
     const Path *sourcePath = &path;
-    if (paint.hasCornerPathEffect()) {
-        effectedPath = path.roundedCorners(paint.getCornerPathEffectRadius());
+    if (effectivePaint.hasCornerPathEffect()) {
+        effectedPath = path.roundedCorners(effectivePaint.getCornerPathEffectRadius());
         sourcePath = &effectedPath;
     }
 
@@ -2224,8 +2315,10 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
         return;
     }
 
-    const bool drawFill = paint.getStyle() == Paint::Style::FILL || paint.getStyle() == Paint::Style::FILL_AND_STROKE;
-    const bool drawStroke = paint.getStyle() == Paint::Style::STROKE || paint.getStyle() == Paint::Style::FILL_AND_STROKE;
+    const bool drawFill = effectivePaint.getStyle() == Paint::Style::FILL
+        || effectivePaint.getStyle() == Paint::Style::FILL_AND_STROKE;
+    const bool drawStroke = effectivePaint.getStyle() == Paint::Style::STROKE
+        || effectivePaint.getStyle() == Paint::Style::FILL_AND_STROKE;
     const ScissorState scissor = impl_->makeCurrentScissorState();
     const ClipMaskState clipMask = impl_->makeCurrentClipMaskState();
 
@@ -2234,19 +2327,19 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
         fillTriangles = triangulateContours(contours, sourcePath->getFillType());
     }
 
-    if (paint.hasShadowLayer()) {
-        const auto shadowPasses = buildShadowPasses(paint, impl_->currentState().matrix);
+    if (effectivePaint.hasShadowLayer()) {
+        const auto shadowPasses = buildShadowPasses(effectivePaint, impl_->currentState().matrix);
         for (const auto &shadowPass : shadowPasses) {
             if (drawFill && !fillTriangles.empty()) {
-                DrawPathData shadowFillData = makeDrawPathData(flattenPoints(fillTriangles), paint.getStrokeWidth(),
+                DrawPathData shadowFillData = makeDrawPathData(flattenPoints(fillTriangles), effectivePaint.getStrokeWidth(),
                                                                shadowPass.color, PathDrawMode::Fill,
                                                                shadowPass.transform, scissor,
-                                                               toDrawBlendMode(paint.getBlendMode()), clipMask);
+                                                               toDrawBlendMode(effectivePaint.getBlendMode()), clipMask);
                 impl_->renderer->submit(std::make_unique<DrawPathCommand>(shadowFillData));
             }
 
             if (drawStroke) {
-                Paint shadowPaint = paint;
+                Paint shadowPaint = effectivePaint;
                 shadowPaint.clearShader();
                 shadowPaint.clearShadowLayer();
                 shadowPaint.setColor(shadowPass.color);
@@ -2260,17 +2353,17 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
     }
 
     if (drawFill && !fillTriangles.empty()) {
-        DrawPathData fillData = makeDrawPathData(flattenPoints(fillTriangles), paint.getStrokeWidth(),
-                                                 applyPaintAlpha(paint, paint.getFillColor()), PathDrawMode::Fill,
+        DrawPathData fillData = makeDrawPathData(flattenPoints(fillTriangles), effectivePaint.getStrokeWidth(),
+                                                 applyPaintAlpha(effectivePaint, effectivePaint.getFillColor()), PathDrawMode::Fill,
                                                  impl_->currentState().matrix, scissor,
-                                                 toDrawBlendMode(paint.getBlendMode()), clipMask);
-        applyPathGradient(paint, fillData);
+                                                 toDrawBlendMode(effectivePaint.getBlendMode()), clipMask);
+        applyPathGradient(effectivePaint, fillData);
         impl_->renderer->submit(std::make_unique<DrawPathCommand>(fillData));
     }
 
     if (drawStroke) {
         for (const auto &contour : contours) {
-            submitStrokeMesh(*impl_->renderer, contour.points, contour.closed, paint,
+            submitStrokeMesh(*impl_->renderer, contour.points, contour.closed, effectivePaint,
                              impl_->currentState().matrix, scissor, clipMask);
         }
     }

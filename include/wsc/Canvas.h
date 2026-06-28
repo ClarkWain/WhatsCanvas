@@ -9,6 +9,7 @@
 
 #include "Color.h"
 #include "Export.h"
+#include "Paint.h"
 #include "TextureSource.h"
 #include "base.h"
 
@@ -141,6 +142,9 @@ public:
 	int getHeight() const;
 	void setColor(Color color);
 	void setColor(float r, float g, float b, float a = 1.0f);
+	Color getColor() const;
+	void setBlendMode(Paint::BlendMode blendMode);
+	Paint::BlendMode getBlendMode() const;
 	void drawColor(const Color &color);
 	void drawColor(float r, float g, float b, float a = 1.0f);
 	void drawPaint(const Paint &paint);

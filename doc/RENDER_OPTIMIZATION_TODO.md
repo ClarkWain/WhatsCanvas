@@ -9,7 +9,7 @@
 | 2 | 流式批处理 (Batched Draw) | 5 | L | 🛠 已审查并修复：补齐批后 draw 统计 |
 | 3 | 多后端渲染抽象 | 4 | XL | 🛠 已审查并修复：仅自动选择已实现的 OpenGL 后端 |
 | 4 | 统一 DrawCommand 结构 | 5 | M | 🛠 已审查并修复：所有具体 Command 补齐只读 `data()` |
-| 5 | GraphicsState 栈扩展 | 4 | S | 🟠 已审查：状态字段已加入，Canvas 全局状态 API 待接入 |
+| 5 | GraphicsState 栈扩展 | 4 | S | 🛠 已审查并修复：Canvas color/blend 全局状态接入 save/restore 与路径绘制 |
 | 6 | Shader validateDrawState | 4 | S | ✅ 已审查通过：5 个绘制程序已接入 |
 | 7 | StreamBuffer 顶点流 | 5 | M | 🛠 已审查并修复：Path/Points/Lines/Image/Text 绘制程序统一使用 StreamBuffer |
 | 8 | Lazy Render Pass | 3 | S | ✅ 已审查通过：offscreen FBO 延迟到首次绘制激活 |
