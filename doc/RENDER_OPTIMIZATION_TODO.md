@@ -17,7 +17,7 @@
 | 10 | 帧边界 present/reset | 4 | S | 🛠 已审查并修复：统计覆盖所有 Command；精确 GPU draw 计数待完善 |
 | 11 | Volatile 资源生命周期 | 4 | M | 🛠 已审查并修复：GLProgram move 保留 shader 源码；其余 GPU 资源待覆盖 |
 | 12 | 临时资源池 | 3 | M | 🛠 已审查并修复尺寸复用；尚未接入 offscreen 主路径 |
-| 13 | 异步 Readback + Fence Sync | 3 | M | 🛠 已审查并修复 map 失败路径；尚未接入 Canvas 公共 API |
+| 13 | 异步 Readback + Fence Sync | 3 | M | 🛠 已审查并修复：PBO/Fence readback 接入 Canvas async/poll 公共 API |
 | 14 | 全局 Quad/Fan Index Buffer | 4 | S | 🛠 已审查并接入后端生命周期；draw program 尚未使用 |
 | 15 | Texel Buffer 抽象 | 2 | M | 🟡 已审查：组件可用，尚无渲染路径使用 |
 | 16 | DrawMode/ArcMode 组合枚举 | 3 | S | ✅ 已审查通过：OPEN/CHORD/PIE 已实现 |

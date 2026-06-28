@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -58,6 +59,8 @@ public:
 		std::size_t glyphAtlasTextureCount = 0;
 		std::size_t renderTargetCount = 0;
 	};
+
+	using ReadPixelsCallback = std::function<void(std::vector<unsigned char> pixels, int width, int height)>;
 
 	enum class ImageFit
 	{
@@ -279,6 +282,9 @@ public:
 	void shutdown();
 	bool readPixelsRGBA(std::vector<unsigned char> &pixels) const;
 	std::vector<unsigned char> readPixelsRGBA() const;
+	bool readPixelsRGBAAsync(ReadPixelsCallback callback);
+	bool pollReadPixelsRGBAAsync();
+	bool hasPendingReadPixelsRGBAAsync() const;
 	bool savePixelsPPM(const std::string &path) const;
 	static std::uint64_t hashPixelsRGBA(const std::vector<unsigned char> &pixels);
 	std::uint64_t computePixelsHashRGBA() const;
