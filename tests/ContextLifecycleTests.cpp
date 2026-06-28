@@ -330,6 +330,20 @@ bool testGradientQueuesShaderDescriptor()
     return ok;
 }
 
+bool testAsyncReadbackRejectsInvalidState()
+{
+    auto renderer = std::make_unique<FakeRenderer>();
+    std::unique_ptr<wsc::Canvas> canvas = wsc::CanvasLifecycleTestAccess::create(std::move(renderer));
+
+    bool ok = expect(!canvas->readPixelsRGBAAsync({}), "async readback should reject empty callbacks");
+    canvas->setSize(16, 16);
+    ok = expect(!canvas->readPixelsRGBAAsync([](std::vector<unsigned char>, int, int) {}),
+                "async readback should require initialized context") && ok;
+    ok = expect(!canvas->hasPendingReadPixelsRGBAAsync(), "failed async readback should not be pending") && ok;
+    ok = expect(canvas->pollReadPixelsRGBAAsync(), "poll without pending readback should complete") && ok;
+    return ok;
+}
+
 bool testContextRecreation()
 {
     auto renderer = std::make_unique<FakeRenderer>();
@@ -359,6 +373,7 @@ int main()
     ok = testTextShadowQueuesWork() && ok;
     ok = testTextStrokeQueuesWork() && ok;
     ok = testGradientQueuesShaderDescriptor() && ok;
+    ok = testAsyncReadbackRejectsInvalidState() && ok;
     ok = testContextRecreation() && ok;
     return ok ? 0 : 1;
 }

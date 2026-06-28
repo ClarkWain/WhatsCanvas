@@ -28,6 +28,7 @@
 #include "text/TextUtils.h"
 #include "command/DrawData.h"
 #include "command/DrawCommand.h"
+#include "opengl/AsyncReadback.h"
 #include "render/GammaCorrect.h"
 #include "render/DeprecationTracker.h"
 #include "render/ResizeHandler.h"
@@ -1500,6 +1501,7 @@ struct Canvas::Impl
     std::unique_ptr<IRenderer> renderer;
     std::unique_ptr<wsc::text::ITextBackend> textBackend;
     std::unique_ptr<GraphicsStateStack> graphicsStates;
+    AsyncReadback asyncReadback;
     std::vector<LayerState> layerStack;
     bool rendererInitialized = false;
 
@@ -3713,6 +3715,24 @@ std::vector<unsigned char> Canvas::readPixelsRGBA() const
     std::vector<unsigned char> pixels;
     readPixelsRGBA(pixels);
     return pixels;
+}
+
+bool Canvas::readPixelsRGBAAsync(ReadPixelsCallback callback)
+{
+    if (!callback || impl_->width <= 0 || impl_->height <= 0 || !impl_->rendererInitialized) {
+        return false;
+    }
+    return impl_->asyncReadback.submit(0, 0, impl_->width, impl_->height, std::move(callback));
+}
+
+bool Canvas::pollReadPixelsRGBAAsync()
+{
+    return impl_->asyncReadback.checkCompletion();
+}
+
+bool Canvas::hasPendingReadPixelsRGBAAsync() const
+{
+    return impl_->asyncReadback.isPending();
 }
 
 bool Canvas::savePixelsPPM(const std::string &path) const
