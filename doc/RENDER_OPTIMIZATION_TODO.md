@@ -18,7 +18,7 @@
 | 11 | Volatile 资源生命周期 | 4 | M | 🛠 已审查并修复：GLProgram move 保留 shader 源码；其余 GPU 资源待覆盖 |
 | 12 | 临时资源池 | 3 | M | 🛠 已审查并修复：RenderTargetPool 接入 offscreen 主路径，并补充复用/过期测试 |
 | 13 | 异步 Readback + Fence Sync | 3 | M | 🛠 已审查并修复：PBO/Fence readback 接入 Canvas async/poll 公共 API |
-| 14 | 全局 Quad/Fan Index Buffer | 4 | S | 🛠 已审查并接入后端生命周期；draw program 尚未使用 |
+| 14 | 全局 Quad/Fan Index Buffer | 4 | S | 🛠 已审查并修复：DrawImage 使用全局 quad index buffer 提交四顶点图片 |
 | 15 | Texel Buffer 抽象 | 2 | M | 🟡 已审查：组件可用，尚无渲染路径使用 |
 | 16 | DrawMode/ArcMode 组合枚举 | 3 | S | ✅ 已审查通过：OPEN/CHORD/PIE 已实现 |
 | 17 | Deprecation Warning 系统 | 2 | S | 🛠 已审查并修复：`drawArc(..., bool useCenter, ...)` 接入一次性弃用提示 |
