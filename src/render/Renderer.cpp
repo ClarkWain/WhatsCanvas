@@ -143,8 +143,10 @@ SharedImageResource Renderer::renderCommandsToImageResource(const std::vector<st
         return {};
     }
 
+    stats_.commandCount += commands.size();
     SharedImageResource resource = device_->renderCommandsToImageResource(commands, request);
     if (resource && resource->isValid()) {
+        stats_.drawCallCount += commands.size();
         ++stats_.renderTargetSwitches;
     }
     return resource;

@@ -14,7 +14,7 @@
 | 7 | StreamBuffer 顶点流 | 5 | M | 🛠 已审查并修复：Path/Points/Lines/Image/Text 绘制程序统一使用 StreamBuffer |
 | 8 | Lazy Render Pass | 3 | S | ✅ 已审查通过：offscreen FBO 延迟到首次绘制激活 |
 | 9 | Gamma 校正管线 | 3 | M | 🛠 已审查并修复：Path/Points/Lines/Text/Image tint 统一进入线性颜色 |
-| 10 | 帧边界 present/reset | 4 | S | 🛠 已审查并修复：统计覆盖所有 Command；精确 GPU draw 计数待完善 |
+| 10 | 帧边界 present/reset | 4 | S | 🛠 已审查并修复：屏幕与离屏路径均计入帧统计，并补充诊断测试 |
 | 11 | Volatile 资源生命周期 | 4 | M | 🛠 已审查并修复：GLProgram move 保留 shader 源码；其余 GPU 资源待覆盖 |
 | 12 | 临时资源池 | 3 | M | 🛠 已审查并修复尺寸复用；尚未接入 offscreen 主路径 |
 | 13 | 异步 Readback + Fence Sync | 3 | M | 🛠 已审查并修复：PBO/Fence readback 接入 Canvas async/poll 公共 API |
