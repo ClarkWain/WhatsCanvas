@@ -3,12 +3,41 @@
 
 #include "command/DrawCommand.h"
 #include "RenderDeviceFactory.h"
+#include "SpriteBatch.h"
 
 #include <cmath>
 #include <glm/glm.hpp>
 
 namespace {
 constexpr float kMergeEpsilon = 0.001f;
+
+bool nearlyEqual(float lhs, float rhs)
+{
+    return std::abs(lhs - rhs) <= kMergeEpsilon;
+}
+
+bool isDefaultSpriteTint(const DrawImageData &data)
+{
+    return nearlyEqual(data.tintColor[0], 1.0f)
+        && nearlyEqual(data.tintColor[1], 1.0f)
+        && nearlyEqual(data.tintColor[2], 1.0f)
+        && nearlyEqual(data.tintColor[3], 1.0f)
+        && nearlyEqual(data.alpha, 1.0f);
+}
+
+bool isSpriteBatchCompatible(const DrawImageData &data, const SharedImageResource &texture)
+{
+    return data.imageResource == texture
+        && data.imageResource
+        && data.imageResource->isValid()
+        && !data.hasColorMatrix
+        && data.sampling == DrawImageSampling::Linear
+        && data.tileMode == DrawImageTileMode::Clamp
+        && !data.scissor.enabled
+        && !data.clipMask.hasPaths()
+        && data.blendMode == DrawBlendMode::SrcOver
+        && isDefaultSpriteTint(data);
+}
 } // namespace
 
 Renderer::Renderer()
@@ -182,6 +211,38 @@ void Renderer::flush()
 
     std::size_t i = 0;
     while (i < commands_.size()) {
+        if (commands_[i]->type() == Command::Type::Image) {
+            auto *imageCmd = static_cast<DrawImageCommand *>(commands_[i].get());
+            const auto &first = imageCmd->data();
+            if (isSpriteBatchCompatible(first, first.imageResource)) {
+                std::size_t j = i + 1;
+                while (j < commands_.size() && commands_[j]->type() == Command::Type::Image) {
+                    const auto &next = static_cast<DrawImageCommand *>(commands_[j].get())->data();
+                    if (!isSpriteBatchCompatible(next, first.imageResource)) {
+                        break;
+                    }
+                    ++j;
+                }
+
+                if (j > i + 1) {
+                    SpriteBatch batch;
+                    batch.setTexture(first.imageResource);
+                    for (std::size_t m = i; m < j; ++m) {
+                        const auto &data = static_cast<DrawImageCommand *>(commands_[m].get())->data();
+                        batch.add(data.x, data.y, data.width, data.height,
+                                  data.u0, data.v0, data.u1, data.v1,
+                                  1.0f, 1.0f, 1.0f, 1.0f,
+                                  data.transform);
+                    }
+                    batch.flush(context_);
+                    ++stats_.drawCallCount;
+                    ++stats_.mergedBatchCount;
+                    i = j;
+                    continue;
+                }
+            }
+        }
+
         if (commands_[i]->type() != Command::Type::Path) {
             executeCommand(commands_[i]);
             ++i;
