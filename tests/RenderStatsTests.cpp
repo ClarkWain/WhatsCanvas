@@ -1,6 +1,12 @@
 #include <iostream>
+#include <memory>
 #include <string>
+#include <vector>
 
+#include "command/DrawCommand.h"
+#include "render/IRenderDevice.h"
+#include "render/IRenderTarget.h"
+#include "render/Renderer.h"
 #include "wsc/wsc.h"
 
 namespace {
@@ -15,6 +21,52 @@ bool expect(bool condition, const std::string &message)
     return false;
 }
 
+class NoopCommand final : public Command
+{
+public:
+    NoopCommand() : Command(Type::Text) {}
+
+    void execute(RenderContext &) override {}
+};
+
+class FakeImageResource final : public ImageResource
+{
+public:
+    bool isValid() const override { return true; }
+    void bind(const RenderContext &) const override {}
+    bool updateRGBA(int, int, int, int, const unsigned char *, bool) override { return true; }
+};
+
+class FakeRenderDevice final : public IRenderDevice
+{
+public:
+    void initializeBackend() override {}
+    void finalizeBackend() override {}
+    bool readPixelsRGBA(int, int, std::vector<unsigned char> &pixels) const override
+    {
+        pixels.clear();
+        return false;
+    }
+    std::unique_ptr<IRenderTarget> createRenderTarget(int, int) const override { return {}; }
+    SharedClipMaskResource createClipMaskResource(const ClipMaskPath &) const override { return {}; }
+    SharedImageResource createImageResourceRGBA(int, int, const std::vector<unsigned char> &) const override { return {}; }
+    SharedImageResource createImageResourceFromImageData(int, int, int, const unsigned char *, bool) const override
+    {
+        return {};
+    }
+    bool updateImageResourceRGBA(const SharedImageResource &, int, int, int, int, const unsigned char *, bool) const override
+    {
+        return false;
+    }
+    SharedImageResource wrapExternalImageResource(ImageResourceHandle) const override { return {}; }
+    RenderResourceStats resourceStats() const override { return {}; }
+    SharedImageResource renderCommandsToImageResource(const std::vector<std::unique_ptr<Command>> &,
+                                                      const OffscreenRenderRequest &) const override
+    {
+        return std::make_shared<FakeImageResource>();
+    }
+};
+
 bool testDefaultStatsAreReadable()
 {
     wsc::Canvas canvas;
@@ -28,9 +80,35 @@ bool testDefaultStatsAreReadable()
         && expect(stats.renderTargetCount == 0, "default render target count should be zero");
 }
 
+bool testOffscreenStatsCountCommandsAndDraws()
+{
+    Renderer renderer(std::make_unique<FakeRenderDevice>());
+
+    std::vector<std::unique_ptr<Command>> commands;
+    commands.push_back(std::make_unique<NoopCommand>());
+    commands.push_back(std::make_unique<NoopCommand>());
+
+    OffscreenRenderRequest request;
+    request.canvasWidth = 64;
+    request.canvasHeight = 64;
+    request.targetWidth = 32;
+    request.targetHeight = 32;
+
+    const SharedImageResource image = renderer.renderCommandsToImageResource(commands, request);
+    const FrameStats &stats = renderer.frameStats();
+    return expect(image && image->isValid(), "fake offscreen render should return a valid image")
+        && expect(stats.commandCount == 2, "offscreen command count should include rendered commands")
+        && expect(stats.drawCallCount == 2, "offscreen draw call count should include rendered commands")
+        && expect(stats.mergedBatchCount == 0, "offscreen render should not report renderer-side merges")
+        && expect(stats.renderTargetSwitches == 1, "offscreen render should count render target switch");
+}
+
 } // namespace
 
 int main()
 {
-    return testDefaultStatsAreReadable() ? 0 : 1;
+    bool ok = true;
+    ok = testDefaultStatsAreReadable() && ok;
+    ok = testOffscreenStatsCountCommandsAndDraws() && ok;
+    return ok ? 0 : 1;
 }

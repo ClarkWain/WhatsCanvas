@@ -146,6 +146,9 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     add_executable(WhatsCanvasRenderStatsTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/RenderStatsTests.cpp"
     )
+    target_include_directories(WhatsCanvasRenderStatsTests PRIVATE
+        "${SRC_DIR}"
+    )
     target_link_libraries(WhatsCanvasRenderStatsTests PRIVATE
         WhatsCanvasOpenGL
         WhatsCanvasGLM
