@@ -41,7 +41,9 @@ void DrawPathProgram::initialize()
         }
     )";
 
-    std::string fragmentSrc = std::string(wsc::opengl::shaderVersionDirective()) + R"(
+    std::string fragmentSrc = std::string(wsc::opengl::shaderVersionDirective()) +
+#if defined(WHATSCANVAS_OPENGL_ES)
+    R"(
         out vec4 FragColor;
         uniform vec4 uColor;
         uniform int uUseVertexColor;
@@ -120,6 +122,109 @@ void DrawPathProgram::initialize()
             FragColor = uUseVertexColor != 0 ? vColor : uColor;
         }
     )";
+#else
+    R"(
+        out vec4 FragColor;
+        uniform vec4 uColor;
+        uniform int uUseVertexColor;
+        uniform int uGradientType;
+        uniform int uGradientTileMode;
+        uniform vec2 uLinearStart;
+        uniform vec2 uLinearEnd;
+        uniform vec2 uRadialCenter;
+        uniform float uRadialRadius;
+        uniform int uGradientStopCount;
+        uniform int uUseGradientTexelBuffer;
+        uniform samplerBuffer uGradientStops;
+        uniform float uGradientStopPositions[8];
+        uniform vec4 uGradientStopColors[8];
+        in vec4 vColor;
+        in vec2 vLocalPos;
+
+        float gradientStopPosition(int index)
+        {
+            if (uUseGradientTexelBuffer != 0) {
+                return texelFetch(uGradientStops, index * 5).r;
+            }
+            return uGradientStopPositions[index];
+        }
+
+        vec4 gradientStopColor(int index)
+        {
+            if (uUseGradientTexelBuffer != 0) {
+                return vec4(
+                    texelFetch(uGradientStops, index * 5 + 1).r,
+                    texelFetch(uGradientStops, index * 5 + 2).r,
+                    texelFetch(uGradientStops, index * 5 + 3).r,
+                    texelFetch(uGradientStops, index * 5 + 4).r);
+            }
+            return uGradientStopColors[index];
+        }
+
+        float applyGradientTile(float t, out float visibility)
+        {
+            visibility = 1.0;
+            if (uGradientTileMode == 1) {
+                return fract(t);
+            }
+            if (uGradientTileMode == 2) {
+                float period = floor(t);
+                float localT = t - period;
+                if (mod(abs(period), 2.0) > 0.5) {
+                    localT = 1.0 - localT;
+                }
+                return localT;
+            }
+            if (uGradientTileMode == 3) {
+                visibility = (t >= 0.0 && t <= 1.0) ? 1.0 : 0.0;
+                return clamp(t, 0.0, 1.0);
+            }
+            return clamp(t, 0.0, 1.0);
+        }
+
+        vec4 sampleGradient(float t)
+        {
+            float visibility = 1.0;
+            t = applyGradientTile(t, visibility);
+            if (visibility <= 0.0 || uGradientStopCount <= 0) {
+                return vec4(0.0);
+            }
+            if (uGradientStopCount == 1 || t <= gradientStopPosition(0)) {
+                return gradientStopColor(0) * visibility;
+            }
+            for (int i = 1; i < 8; ++i) {
+                if (i >= uGradientStopCount) {
+                    break;
+                }
+                if (t <= gradientStopPosition(i)) {
+                    float startPos = gradientStopPosition(i - 1);
+                    float endPos = gradientStopPosition(i);
+                    float span = max(endPos - startPos, 0.0001);
+                    float localT = clamp((t - startPos) / span, 0.0, 1.0);
+                    return mix(gradientStopColor(i - 1), gradientStopColor(i), localT) * visibility;
+                }
+            }
+            return gradientStopColor(uGradientStopCount - 1) * visibility;
+        }
+
+        void main()
+        {
+            if (uGradientType == 1) {
+                vec2 direction = uLinearEnd - uLinearStart;
+                float lengthSq = max(dot(direction, direction), 0.0001);
+                float t = dot(vLocalPos - uLinearStart, direction) / lengthSq;
+                FragColor = sampleGradient(t);
+                return;
+            }
+            if (uGradientType == 2) {
+                float t = length(vLocalPos - uRadialCenter) / max(uRadialRadius, 0.0001);
+                FragColor = sampleGradient(t);
+                return;
+            }
+            FragColor = uUseVertexColor != 0 ? vColor : uColor;
+        }
+    )";
+#endif
 
     program_ = new GLProgram(vertexSrc, fragmentSrc);
 
@@ -160,6 +265,7 @@ void DrawPathProgram::release()
 
     positionBuffer_.release();
     colorBuffer_.release();
+    gradientStopBuffer_.release();
 
     initialized_ = false;
 }
@@ -199,6 +305,35 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
     program_->setVec2("uRadialCenter", glm::vec2(data.radialCenter[0], data.radialCenter[1]));
     program_->setFloat("uRadialRadius", data.radialRadius);
     program_->setInt("uGradientStopCount", data.gradientStopCount);
+#if !defined(WHATSCANVAS_OPENGL_ES)
+    bool usingGradientTexelBuffer = false;
+    if (data.hasShaderGradient()) {
+        std::vector<float> gradientStops;
+        gradientStops.reserve(static_cast<std::size_t>(data.gradientStopCount) * 5);
+        for (int i = 0; i < data.gradientStopCount; ++i) {
+            float stopColor[4] = {
+                data.gradientStopColors[i * 4 + 0],
+                data.gradientStopColors[i * 4 + 1],
+                data.gradientStopColors[i * 4 + 2],
+                data.gradientStopColors[i * 4 + 3]
+            };
+            GammaCorrect::srgbToLinear4(stopColor);
+            gradientStops.push_back(data.gradientStopPositions[i]);
+            gradientStops.push_back(stopColor[0]);
+            gradientStops.push_back(stopColor[1]);
+            gradientStops.push_back(stopColor[2]);
+            gradientStops.push_back(stopColor[3]);
+        }
+
+        usingGradientTexelBuffer = gradientStopBuffer_.update(gradientStops.data(), gradientStops.size());
+        if (usingGradientTexelBuffer) {
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_BUFFER, gradientStopBuffer_.textureHandle());
+            program_->setInt("uGradientStops", 1);
+        }
+    }
+    program_->setInt("uUseGradientTexelBuffer", usingGradientTexelBuffer ? 1 : 0);
+#endif
     for (std::size_t i = 0; i < DrawPathData::kMaxGradientStops; ++i) {
         program_->setFloat("uGradientStopPositions[" + std::to_string(i) + "]", data.gradientStopPositions[i]);
         float stopColor[4] = {
@@ -228,4 +363,11 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
     }
 
     glBindVertexArray(0);
+#if !defined(WHATSCANVAS_OPENGL_ES)
+    if (data.hasShaderGradient()) {
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_BUFFER, 0);
+        glActiveTexture(GL_TEXTURE0);
+    }
+#endif
 }
