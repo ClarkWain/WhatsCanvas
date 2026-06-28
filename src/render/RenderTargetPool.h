@@ -4,6 +4,8 @@
 #include <vector>
 #include <algorithm>
 
+#include "IRenderTarget.h"
+
 class IRenderTarget;
 class IRenderDevice;
 

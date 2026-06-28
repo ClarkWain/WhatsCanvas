@@ -1,6 +1,9 @@
 #pragma once
 
+#include <memory>
+
 #include "IRenderDevice.h"
+#include "RenderTargetPool.h"
 
 class OpenGLRenderDevice : public IRenderDevice
 {
@@ -27,4 +30,5 @@ public:
 
 private:
     bool backendInitialized_ = false;
+    mutable std::unique_ptr<RenderTargetPool> renderTargetPool_;
 };

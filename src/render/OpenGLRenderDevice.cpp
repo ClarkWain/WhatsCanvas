@@ -17,6 +17,7 @@
 #include "render/IRenderTarget.h"
 #include "render/RenderContext.h"
 #include "render/GammaCorrect.h"
+#include "render/RenderTargetPool.h"
 
 namespace {
 
@@ -318,6 +319,10 @@ void OpenGLRenderDevice::finalizeBackend()
         return;
     }
 
+    if (renderTargetPool_) {
+        renderTargetPool_->clear();
+    }
+
     if (g_renderDeviceBackendRefCount > 0) {
         --g_renderDeviceBackendRefCount;
         if (g_renderDeviceBackendRefCount == 0) {
@@ -431,7 +436,11 @@ SharedImageResource OpenGLRenderDevice::renderCommandsToImageResource(const std:
         return {};
     }
 
-    std::unique_ptr<IRenderTarget> renderTarget = createRenderTarget(request.targetWidth, request.targetHeight);
+    if (!renderTargetPool_) {
+        renderTargetPool_ = std::make_unique<RenderTargetPool>(this);
+    }
+
+    std::unique_ptr<IRenderTarget> renderTarget = renderTargetPool_->acquire(request.targetWidth, request.targetHeight);
     if (!renderTarget || !renderTarget->begin(request)) {
         return {};
     }
@@ -441,5 +450,8 @@ SharedImageResource OpenGLRenderDevice::renderCommandsToImageResource(const std:
     executeCommandList(commands, request.canvasWidth, request.canvasHeight,
                        request.scissorOffsetX, request.scissorOffsetY);
     renderTarget->end();
-    return renderTarget->getImageResource();
+    SharedImageResource imageResource = renderTarget->getImageResource();
+    renderTargetPool_->release(std::move(renderTarget));
+    renderTargetPool_->expire();
+    return imageResource;
 }
