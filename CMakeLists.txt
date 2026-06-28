@@ -163,6 +163,26 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     )
     set_tests_properties(WhatsCanvasRenderStatsTests PROPERTIES LABELS "unit;diagnostics")
 
+    add_executable(WhatsCanvasRenderTargetPoolTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/RenderTargetPoolTests.cpp"
+    )
+    target_include_directories(WhatsCanvasRenderTargetPoolTests PRIVATE
+        "${SRC_DIR}"
+    )
+    target_link_libraries(WhatsCanvasRenderTargetPoolTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasRenderTargetPoolTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasRenderTargetPoolTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/Debug/WhatsCanvasRenderTargetPoolTests.exe
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasRenderTargetPoolTests PROPERTIES LABELS "unit;render-target")
+
     add_executable(WhatsCanvasCanvasAdapterTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/CanvasAdapterTests.cpp"
     )
