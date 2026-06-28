@@ -7,6 +7,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include "DrawValidation.h"
+#include "opengl/GlobalIndexBuffers.h"
 #include "opengl/GLShaderSource.h"
 #include "render/GammaCorrect.h"
 
@@ -75,7 +76,7 @@ void DrawImageProgram::initialize()
     program_ = new GLProgram(vertexSrc, fragmentSrc);
 
     glGenVertexArrays(1, &VAO_);
-    vertexBuffer_.initialize(24);
+    vertexBuffer_.initialize(16);
 
     glBindVertexArray(VAO_);
     glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer_.handle());
@@ -134,8 +135,6 @@ void DrawImageProgram::draw(const RenderContext &context, const DrawImageData &d
         left,  top,    data.u0, data.v0,
         right, top,    data.u1, data.v0,
         right, bottom, data.u1, data.v1,
-        left,  top,    data.u0, data.v0,
-        right, bottom, data.u1, data.v1,
         left,  bottom, data.u0, data.v1
     };
 
@@ -171,7 +170,8 @@ void DrawImageProgram::draw(const RenderContext &context, const DrawImageData &d
     context.bindImageResource(data.imageResource, data.sampling, data.tileMode, data.mipmapsReady);
 
     glBindVertexArray(VAO_);
-    vertexBuffer_.upload(vertices, 24);
-    glDrawArrays(GL_TRIANGLES, 0, 6);
+    vertexBuffer_.upload(vertices, 16);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, GlobalIndexBuffers::quadBuffer());
+    glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr);
     glBindVertexArray(0);
 }
