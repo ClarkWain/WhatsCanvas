@@ -11,9 +11,12 @@ bool TexelBuffer::initialize(const float *data, std::size_t count)
         return false;
     }
 
-    release();
+    cachedData_.assign(data, data + count);
+    return loadVolatile();
+}
 
-    // Create the buffer object.
+bool TexelBuffer::uploadGpuData(const float *data, std::size_t count)
+{
     glGenBuffers(1, &buffer_);
     glBindBuffer(GL_TEXTURE_BUFFER, buffer_);
     glBufferData(GL_TEXTURE_BUFFER,
@@ -30,6 +33,7 @@ bool TexelBuffer::initialize(const float *data, std::size_t count)
     glBindTexture(GL_TEXTURE_BUFFER, 0);
 
     count_ = count;
+    capacity_ = count;
     return true;
 }
 
@@ -39,19 +43,21 @@ bool TexelBuffer::update(const float *data, std::size_t count)
         return false;
     }
 
+    cachedData_.assign(data, data + count);
+
     if (buffer_ == 0) {
-        return initialize(data, count);
+        return loadVolatile();
     }
 
     glBindBuffer(GL_TEXTURE_BUFFER, buffer_);
 
-    if (count > count_) {
+    if (count > capacity_) {
         // Need to reallocate.
         glBufferData(GL_TEXTURE_BUFFER,
                      static_cast<GLsizeiptr>(count * sizeof(float)),
                      data,
                      GL_STATIC_DRAW);
-        count_ = count;
+        capacity_ = count;
     } else {
         // Update in-place.
         glBufferSubData(GL_TEXTURE_BUFFER, 0,
@@ -60,10 +66,33 @@ bool TexelBuffer::update(const float *data, std::size_t count)
     }
 
     glBindBuffer(GL_TEXTURE_BUFFER, 0);
+    count_ = count;
     return true;
 }
 
 void TexelBuffer::release()
+{
+    releaseGpuResources();
+    cachedData_.clear();
+    count_ = 0;
+}
+
+bool TexelBuffer::loadVolatile()
+{
+    if (cachedData_.empty()) {
+        return false;
+    }
+
+    releaseGpuResources();
+    return uploadGpuData(cachedData_.data(), cachedData_.size());
+}
+
+void TexelBuffer::unloadVolatile()
+{
+    releaseGpuResources();
+}
+
+void TexelBuffer::releaseGpuResources()
 {
     if (texture_ != 0) {
         glDeleteTextures(1, &texture_);
@@ -73,5 +102,5 @@ void TexelBuffer::release()
         glDeleteBuffers(1, &buffer_);
         buffer_ = 0;
     }
-    count_ = 0;
+    capacity_ = 0;
 }
