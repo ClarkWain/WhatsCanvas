@@ -272,6 +272,26 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
     )
     set_tests_properties(WhatsCanvasGlyphAtlasTests PROPERTIES LABELS "unit;text;glyph-atlas")
+
+    add_executable(WhatsCanvasDeprecationTrackerTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/DeprecationTrackerTests.cpp"
+    )
+    target_include_directories(WhatsCanvasDeprecationTrackerTests PRIVATE
+        "${SRC_DIR}"
+    )
+    target_link_libraries(WhatsCanvasDeprecationTrackerTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasDeprecationTrackerTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasDeprecationTrackerTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/Debug/WhatsCanvasDeprecationTrackerTests.exe
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasDeprecationTrackerTests PROPERTIES LABELS "unit;api")
 endif()
 
 if (WHATSCANVAS_BUILD_BENCHMARKS AND TARGET WhatsCanvasOpenGL)

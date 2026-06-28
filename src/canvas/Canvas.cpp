@@ -29,6 +29,7 @@
 #include "command/DrawData.h"
 #include "command/DrawCommand.h"
 #include "render/GammaCorrect.h"
+#include "render/DeprecationTracker.h"
 #include "render/ResizeHandler.h"
 #include "Polyline2D.h"
 #include "Vec2.h"
@@ -2148,17 +2149,28 @@ void Canvas::drawOval(const Rect &bounds, const Paint &paint)
              paint);
 }
 
-void Canvas::drawArc(const RectF &bounds, float startRadians, float sweepRadians, bool useCenter, const Paint &paint)
+namespace {
+
+void drawArcPath(Canvas &canvas, const RectF &bounds, float startRadians, float sweepRadians,
+                 bool useCenter, bool closeArc, const Paint &paint)
 {
     RectF normalized = normalizeRect(bounds);
     if (normalized.getWidth() <= 0.0f || normalized.getHeight() <= 0.0f || std::abs(sweepRadians) <= kPointEpsilon) {
         return;
     }
 
-    const bool closeArc = useCenter || paint.getStyle() != Paint::Style::STROKE;
     Path path;
     addArc(path, normalized, startRadians, sweepRadians, useCenter, closeArc);
-    drawPath(path, paint);
+    canvas.drawPath(path, paint);
+}
+
+} // namespace
+
+void Canvas::drawArc(const RectF &bounds, float startRadians, float sweepRadians, bool useCenter, const Paint &paint)
+{
+    WCS_DEPRECATED("Canvas::drawArc(..., bool useCenter, ...)", "Canvas::drawArc(..., Canvas::ArcMode, ...)");
+    drawArcPath(*this, bounds, startRadians, sweepRadians, useCenter,
+                useCenter || paint.getStyle() != Paint::Style::STROKE, paint);
 }
 
 void Canvas::drawArc(const Rect &bounds, float startRadians, float sweepRadians, bool useCenter, const Paint &paint)
@@ -2172,21 +2184,15 @@ void Canvas::drawArc(const RectF &bounds, float startRadians, float sweepRadians
 {
     switch (mode) {
     case ArcMode::OPEN:
-        drawArc(bounds, startRadians, sweepRadians, false, paint);
+        drawArcPath(*this, bounds, startRadians, sweepRadians, false,
+                    paint.getStyle() != Paint::Style::STROKE, paint);
         break;
     case ArcMode::CHORD: {
-        // Chord: arc + straight line between endpoints, no center lines.
-        RectF normalized = normalizeRect(bounds);
-        if (normalized.getWidth() <= 0.0f || normalized.getHeight() <= 0.0f || std::abs(sweepRadians) <= kPointEpsilon) {
-            return;
-        }
-        Path path;
-        addArc(path, normalized, startRadians, sweepRadians, false, true);
-        drawPath(path, paint);
+        drawArcPath(*this, bounds, startRadians, sweepRadians, false, true, paint);
         break;
     }
     case ArcMode::PIE:
-        drawArc(bounds, startRadians, sweepRadians, true, paint);
+        drawArcPath(*this, bounds, startRadians, sweepRadians, true, true, paint);
         break;
     }
 }
