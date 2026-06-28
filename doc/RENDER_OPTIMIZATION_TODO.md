@@ -24,6 +24,6 @@
 | 17 | Deprecation Warning 系统 | 2 | S | 🛠 已审查并修复：`drawArc(..., bool useCenter, ...)` 接入一次性弃用提示 |
 | 18 | isPixelFormatSupported 能力查询 | 4 | S | 🛠 已审查并修复格式探测参数，并接入后端初始化 |
 | 19 | SpriteBatch 批量绘制 | 3 | L | 🛠 已审查并修复 shader/固定 GL 状态；尚未接入 Renderer/公共 API |
-| 20 | 窗口 resize 无痛重建 | 4 | M | 🟠 已审查：ResizeHandler 已接入通知，资源重建监听待覆盖 |
+| 20 | 窗口 resize 无痛重建 | 4 | M | 🛠 已审查并修复：resize 失效旧 render-target 与 clip mask 资源，并补充生命周期测试 |
 
 状态含义：`✅` 表示主路径已使用且审查通过；`🛠` 表示本轮已修复；`🟠` 表示部分主路径已接入；`🟡` 表示基础组件存在但尚未产生默认性能收益。

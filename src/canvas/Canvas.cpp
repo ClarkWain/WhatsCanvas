@@ -1540,6 +1540,7 @@ struct Canvas::Impl
     GraphicsState &currentState();
     const GraphicsState &currentState() const;
     Paint applyStateToPaint(const Paint &paint) const;
+    void releaseSizeDependentResources();
     bool getClipBounds(RectF &bounds) const;
     ScissorState makeCurrentScissorState() const;
     ClipMaskState makeCurrentClipMaskState() const;
@@ -1674,10 +1675,18 @@ bool Canvas::Impl::ensureRendererInitialized()
 void Canvas::Impl::releaseResources()
 {
     layerStack.clear();
-    renderTargetImageResource.reset();
+    releaseSizeDependentResources();
     if (renderer != nullptr) {
         renderer->clear();
         renderer->resetFrameStats();
+    }
+}
+
+void Canvas::Impl::releaseSizeDependentResources()
+{
+    renderTargetImageResource.reset();
+    if (graphicsStates) {
+        graphicsStates->invalidateClipResources();
     }
 }
 
@@ -1714,8 +1723,12 @@ void Canvas::releaseResources()
 
 void Canvas::setSize(int width, int height)
 {
+    const bool sizeChanged = impl_->width != width || impl_->height != height;
     impl_->width = width;
     impl_->height = height;
+    if (sizeChanged) {
+        impl_->releaseSizeDependentResources();
+    }
     if (impl_->renderer != nullptr && impl_->rendererInitialized) {
         impl_->renderer->setViewport(width, height);
     }

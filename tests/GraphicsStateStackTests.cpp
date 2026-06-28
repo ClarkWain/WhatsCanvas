@@ -125,6 +125,26 @@ bool testSavedClipResourcesDoNotBleedAcrossStates()
                   "restore should recover original clip bounds");
 }
 
+bool testInvalidateClipResourcesCoversSavedStates()
+{
+    GraphicsStateStack stack;
+
+    ClipPathState currentPath;
+    currentPath.resource = std::make_shared<FakeClipMaskResource>(1);
+    stack.current().clip.paths.push_back(currentPath);
+    stack.save();
+
+    stack.current().clip.paths.front().resource = std::make_shared<FakeClipMaskResource>(2);
+    stack.invalidateClipResources();
+
+    bool ok = expect(stack.current().clip.paths.front().resource == nullptr,
+                     "invalidateClipResources should clear the current clip resource");
+    ok = expect(stack.restore(), "restore should recover the saved clip state after invalidation") && ok;
+    ok = expect(stack.current().clip.paths.front().resource == nullptr,
+                "invalidateClipResources should clear saved clip resources") && ok;
+    return ok;
+}
+
 bool testPathEvenOddContainsRespectsHole()
 {
     Path path;
@@ -180,6 +200,7 @@ int main()
     const bool ok = testSaveRestoreKeepsMatrixAndClipState()
         && testRestoreToCountClampsAtBaseState()
         && testSavedClipResourcesDoNotBleedAcrossStates()
+        && testInvalidateClipResourcesCoversSavedStates()
         && testPathEvenOddContainsRespectsHole()
         && testPathStrokeContainsFindsSegments()
         && testPathTrimAndReverseKeepExpectedGeometry();

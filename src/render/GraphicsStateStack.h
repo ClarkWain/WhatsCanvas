@@ -59,7 +59,22 @@ public:
         stack_.clear();
     }
 
+    void invalidateClipResources()
+    {
+        invalidateClipResources(current_);
+        for (GraphicsState &state : stack_) {
+            invalidateClipResources(state);
+        }
+    }
+
 private:
+    static void invalidateClipResources(GraphicsState &state)
+    {
+        for (ClipPathState &path : state.clip.paths) {
+            path.resource.reset();
+        }
+    }
+
     GraphicsState current_;
     std::vector<GraphicsState> stack_;
 };
