@@ -4,6 +4,7 @@
 #include "DrawData.h"
 #include "opengl/GLProgram.h"
 #include "opengl/StreamBuffer.h"
+#include "opengl/TexelBuffer.h"
 #include "render/RenderContext.h"
 
 class DrawPathProgram
@@ -40,4 +41,5 @@ private:
 
     StreamBuffer positionBuffer_;
     StreamBuffer colorBuffer_;
+    TexelBuffer gradientStopBuffer_;
 };
