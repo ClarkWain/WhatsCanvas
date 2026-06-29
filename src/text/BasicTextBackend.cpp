@@ -6,6 +6,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "../../include/wsc/Font.h"
 #include "canvas/Paint.h"
@@ -152,8 +153,7 @@ public:
             return true;
         }
 #endif
-        diagnostics_.push_back({wsc::text::TextBackendDiagnostic::Severity::Warning,
-                                "Missing glyph for requested codepoint."});
+        addMissingGlyphDiagnostic(codepoint, paint.hasFontFamily() ? paint.getFontFamily() : std::string());
         return false;
     }
 
@@ -289,6 +289,21 @@ public:
     }
 
 private:
+    void addMissingGlyphDiagnostic(std::uint32_t codepoint, const std::string &family) const
+    {
+        const std::string key = family + '#' + std::to_string(codepoint);
+        if (!missingGlyphDiagnosticKeys_.insert(key).second) {
+            return;
+        }
+
+        wsc::text::TextBackendDiagnostic diagnostic;
+        diagnostic.severity = wsc::text::TextBackendDiagnostic::Severity::Warning;
+        diagnostic.message = "Missing glyph for requested codepoint.";
+        diagnostic.codepoint = codepoint;
+        diagnostic.fontFamily = family;
+        diagnostics_.push_back(std::move(diagnostic));
+    }
+
     wsc::text::BasicTextBackendOptions options_;
 
 #ifdef _WIN32
@@ -355,6 +370,7 @@ private:
 #endif
     wsc::FontManager fontManager_;
     mutable std::vector<wsc::text::TextBackendDiagnostic> diagnostics_;
+    mutable std::unordered_set<std::string> missingGlyphDiagnosticKeys_;
 };
 
 } // namespace
