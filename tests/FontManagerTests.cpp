@@ -44,6 +44,18 @@ bool testRegisterFontMemory()
         && expect(face->bytes() != nullptr && face->bytes()->size() == 4, "memory font should keep bytes");
 }
 
+bool testFontFaceCodepointRanges()
+{
+    wsc::FontFace face = wsc::FontFace::fromFile(wsc::FontDescriptor("Emoji"), "emoji.ttf");
+    face.addCodepointRange(0x1F300, 0x1FAFF);
+    face.addCodepointRange(126, 32);
+
+    return expect(face.hasCodepointRanges(), "font face should report declared ranges")
+        && expect(face.codepointRanges().size() == 1, "invalid codepoint ranges should be ignored")
+        && expect(face.supportsCodepoint(0x1F600), "font face should match codepoints inside a range")
+        && expect(!face.supportsCodepoint('A'), "font face should reject codepoints outside declared ranges");
+}
+
 bool testFallbackResolutionOrder()
 {
     wsc::FontManager manager;
@@ -70,6 +82,7 @@ int main()
 {
     const bool ok = testRegisterFontFile()
         && testRegisterFontMemory()
+        && testFontFaceCodepointRanges()
         && testFallbackResolutionOrder();
     return ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }

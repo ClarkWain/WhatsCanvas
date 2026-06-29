@@ -42,6 +42,24 @@ struct FontDescriptor
     }
 };
 
+struct FontCodepointRange
+{
+    std::uint32_t first = 0;
+    std::uint32_t last = 0;
+
+    FontCodepointRange() = default;
+    FontCodepointRange(std::uint32_t firstCodepoint, std::uint32_t lastCodepoint)
+        : first(firstCodepoint),
+          last(lastCodepoint)
+    {
+    }
+
+    bool contains(std::uint32_t codepoint) const
+    {
+        return first <= last && codepoint >= first && codepoint <= last;
+    }
+};
+
 class FontFace
 {
 public:
@@ -70,6 +88,21 @@ public:
     FontSourceType sourceType() const { return sourceType_; }
     const std::string &path() const { return path_; }
     const std::vector<std::uint8_t> *bytes() const { return bytes_ ? bytes_.get() : nullptr; }
+    void addCodepointRange(std::uint32_t firstCodepoint, std::uint32_t lastCodepoint)
+    {
+        if (firstCodepoint <= lastCodepoint) {
+            codepointRanges_.emplace_back(firstCodepoint, lastCodepoint);
+        }
+    }
+    const std::vector<FontCodepointRange> &codepointRanges() const { return codepointRanges_; }
+    bool hasCodepointRanges() const { return !codepointRanges_.empty(); }
+    bool supportsCodepoint(std::uint32_t codepoint) const
+    {
+        return std::any_of(codepointRanges_.begin(), codepointRanges_.end(),
+                           [codepoint](const FontCodepointRange &range) {
+                               return range.contains(codepoint);
+                           });
+    }
     bool isValid() const
     {
         return !descriptor_.family.empty()
@@ -82,6 +115,7 @@ private:
     FontSourceType sourceType_ = FontSourceType::FILE;
     std::string path_;
     std::shared_ptr<std::vector<std::uint8_t>> bytes_;
+    std::vector<FontCodepointRange> codepointRanges_;
 };
 
 class FontFallbackChain
