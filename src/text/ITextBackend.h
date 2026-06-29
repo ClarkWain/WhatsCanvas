@@ -23,6 +23,13 @@ enum class TextRenderKind {
 
 struct TextRenderResult
 {
+    struct MissingGlyph
+    {
+        std::uint32_t codepoint = 0;
+        std::size_t sourceStart = 0;
+        std::size_t sourceLength = 0;
+    };
+
     TextRenderKind kind = TextRenderKind::None;
     float drawX = 0.0f;
     float drawY = 0.0f;
@@ -32,6 +39,7 @@ struct TextRenderResult
     int bitmapHeight = 0;
     std::vector<float> vertices;
     std::vector<unsigned char> bitmapPixels;
+    std::vector<MissingGlyph> missingGlyphs;
 };
 
 struct TextLineBreak

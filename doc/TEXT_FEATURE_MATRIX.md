@@ -26,6 +26,7 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 | Diagnostics hook | Contract supported | Backend diagnostics report rejected font/fallback registration events. |
 | Emoji fallback query | Contract supported | Font faces can declare codepoint ranges; glyph availability resolves primary and fallback families. |
 | Missing glyph diagnostics | Contract supported | Missing non-ASCII glyph queries add coalesced diagnostics with codepoint and requested family. |
+| Missing glyph render hooks | Contract supported | Geometry fallback render results expose missing glyph codepoints and source ranges. |
 
 ## Planned Backend Work
 
@@ -33,7 +34,6 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 | --- | --- | --- |
 | Cross-platform font rasterization | Planned | Add a backend that works consistently on desktop and mobile. |
 | Emoji fallback rendering | Planned | Render color emoji once the cross-platform rasterization path can provide glyph bitmaps. |
-| Missing glyph render hooks | Planned | Surface per-glyph fallback markers once the cross-platform backend owns glyph selection. |
 | Atlas-backed glyph rendering | Planned | Connect rasterized glyph bitmaps to the atlas texture path for cross-platform text rendering. |
 | Atlas-aware text blur | Planned | Prefer atlas-aware blur once rasterized glyph rendering is available. |
 

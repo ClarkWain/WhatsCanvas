@@ -282,6 +282,19 @@ public:
         result.height = textHeight;
         result.vertices = wsc::text::buildTextVertices(asciiText, alignedX, result.drawY,
                                                                textScale, paint.getLetterSpacing());
+        for (const wsc::text::Utf8Codepoint &codepoint : wsc::text::decodeUtf8(normalizedText)) {
+            if (codepoint.value == '\n' || codepoint.value == '\t' || codepoint.value < 32
+                || (codepoint.value >= 32 && codepoint.value <= 126)) {
+                continue;
+            }
+            if (!hasGlyphForCodepoint(codepoint.value, paint)) {
+                TextRenderResult::MissingGlyph missing;
+                missing.codepoint = codepoint.value;
+                missing.sourceStart = codepoint.offset;
+                missing.sourceLength = codepoint.length;
+                result.missingGlyphs.push_back(missing);
+            }
+        }
         if (result.vertices.empty()) {
             result.kind = TextRenderKind::None;
         }
