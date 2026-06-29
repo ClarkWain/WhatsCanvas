@@ -53,12 +53,20 @@ bool testDuplicateUploadHitsCache()
 {
     wsc::text::GlyphAtlas atlas(32, 16, 1);
     const auto first = atlas.uploadGlyph(makeKey('A'), makeBitmap(4, 6, 90));
+    const auto dirtyAfterFirst = atlas.consumeDirtyRects();
     const auto second = atlas.uploadGlyph(makeKey('A'), makeBitmap(4, 6, 220));
+    const auto dirtyAfterSecond = atlas.consumeDirtyRects();
 
     bool ok = expect(first.has_value() && second.has_value(), "duplicate glyph uploads should return entries");
     ok = expect(first->x == second->x && first->y == second->y, "duplicate upload should reuse entry") && ok;
     ok = expect(atlas.stats().glyphCount == 1, "duplicate upload should not add glyph") && ok;
     ok = expect(atlas.stats().uploadCount == 1, "duplicate upload should not count as upload") && ok;
+    ok = expect(dirtyAfterFirst.size() == 1, "first upload should dirty one glyph rectangle") && ok;
+    ok = expect(dirtyAfterFirst[0].x == first->x && dirtyAfterFirst[0].y == first->y,
+                "dirty rectangle should match uploaded glyph position") && ok;
+    ok = expect(dirtyAfterFirst[0].width == first->width && dirtyAfterFirst[0].height == first->height,
+                "dirty rectangle should match uploaded glyph size") && ok;
+    ok = expect(dirtyAfterSecond.empty(), "duplicate upload should not dirty atlas pixels") && ok;
     return ok;
 }
 
@@ -71,6 +79,11 @@ bool testEvictionAndOversizedGlyph()
                 "third glyph should evict and fit") && ok;
     ok = expect(atlas.stats().evictionCount == 1, "atlas should count eviction") && ok;
     ok = expect(atlas.pendingRebuildKeys().size() == 2, "eviction should remember replaced glyphs") && ok;
+    const auto dirtyRects = atlas.consumeDirtyRects();
+    ok = expect(!dirtyRects.empty(), "eviction should mark atlas dirty") && ok;
+    ok = expect(dirtyRects.front().x == 0 && dirtyRects.front().y == 0
+                    && dirtyRects.front().width == 12 && dirtyRects.front().height == 8,
+                "eviction should dirty the full atlas because old glyph pixels were cleared") && ok;
     ok = expect(!atlas.uploadGlyph(makeKey('Z'), makeBitmap(16, 16, 255)).has_value(),
                 "oversized glyph should be rejected") && ok;
     return ok;

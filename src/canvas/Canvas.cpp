@@ -785,6 +785,39 @@ std::vector<unsigned char> makeGlyphAtlasRgba(const wsc::text::TextRenderResult 
     return atlasPixels;
 }
 
+std::vector<unsigned char> makeGlyphAtlasRgbaRect(const wsc::text::TextRenderResult &renderedText,
+                                                  const wsc::text::TextRenderResult::GlyphAtlasDirtyRect &rect)
+{
+    std::vector<unsigned char> pixels(static_cast<std::size_t>(rect.width)
+                                      * static_cast<std::size_t>(rect.height) * 4u,
+                                      255);
+    for (int row = 0; row < rect.height; ++row) {
+        for (int col = 0; col < rect.width; ++col) {
+            const std::size_t src = static_cast<std::size_t>(rect.y + row)
+                * static_cast<std::size_t>(renderedText.atlasWidth)
+                + static_cast<std::size_t>(rect.x + col);
+            const std::size_t dst = (static_cast<std::size_t>(row) * static_cast<std::size_t>(rect.width)
+                + static_cast<std::size_t>(col)) * 4u;
+            pixels[dst + 0] = 255;
+            pixels[dst + 1] = 255;
+            pixels[dst + 2] = 255;
+            pixels[dst + 3] = renderedText.atlasAlphaPixels[src];
+        }
+    }
+    return pixels;
+}
+
+bool isValidGlyphAtlasDirtyRect(const wsc::text::TextRenderResult &renderedText,
+                                const wsc::text::TextRenderResult::GlyphAtlasDirtyRect &rect)
+{
+    return rect.x >= 0
+        && rect.y >= 0
+        && rect.width > 0
+        && rect.height > 0
+        && rect.x + rect.width <= renderedText.atlasWidth
+        && rect.y + rect.height <= renderedText.atlasHeight;
+}
+
 glm::mat4 makeOffsetTransform(const glm::mat4 &transform, float dx, float dy)
 {
     return glm::translate(transform, glm::vec3(dx, dy, 0.0f));
@@ -1786,22 +1819,47 @@ SharedImageResource Canvas::Impl::getOrUpdateGlyphAtlasResource(const wsc::text:
         return glyphAtlasImageResource;
     }
 
-    const std::vector<unsigned char> atlasPixels = makeGlyphAtlasRgba(renderedText);
     if (!glyphAtlasImageResource || !glyphAtlasImageResource->isValid()
         || glyphAtlasWidth != renderedText.atlasWidth
         || glyphAtlasHeight != renderedText.atlasHeight) {
+        const std::vector<unsigned char> atlasPixels = makeGlyphAtlasRgba(renderedText);
         glyphAtlasImageResource = renderer->createImageResourceRGBA(renderedText.atlasWidth,
                                                                     renderedText.atlasHeight,
                                                                     atlasPixels);
     } else {
-        const bool updated = renderer->updateImageResourceRGBA(glyphAtlasImageResource,
-                                                              0,
-                                                              0,
-                                                              renderedText.atlasWidth,
-                                                              renderedText.atlasHeight,
-                                                              atlasPixels.data(),
-                                                              false);
+        bool updated = true;
+        if (!renderedText.atlasDirtyRects.empty()) {
+            for (const auto &dirtyRect : renderedText.atlasDirtyRects) {
+                if (!isValidGlyphAtlasDirtyRect(renderedText, dirtyRect)) {
+                    updated = false;
+                    break;
+                }
+
+                const std::vector<unsigned char> rectPixels = makeGlyphAtlasRgbaRect(renderedText, dirtyRect);
+                updated = renderer->updateImageResourceRGBA(glyphAtlasImageResource,
+                                                            dirtyRect.x,
+                                                            dirtyRect.y,
+                                                            dirtyRect.width,
+                                                            dirtyRect.height,
+                                                            rectPixels.data(),
+                                                            false);
+                if (!updated) {
+                    break;
+                }
+            }
+        } else if (glyphAtlasContentHash != contentHash) {
+            const std::vector<unsigned char> atlasPixels = makeGlyphAtlasRgba(renderedText);
+            updated = renderer->updateImageResourceRGBA(glyphAtlasImageResource,
+                                                        0,
+                                                        0,
+                                                        renderedText.atlasWidth,
+                                                        renderedText.atlasHeight,
+                                                        atlasPixels.data(),
+                                                        false);
+        }
+
         if (!updated) {
+            const std::vector<unsigned char> atlasPixels = makeGlyphAtlasRgba(renderedText);
             glyphAtlasImageResource = renderer->createImageResourceRGBA(renderedText.atlasWidth,
                                                                         renderedText.atlasHeight,
                                                                         atlasPixels);

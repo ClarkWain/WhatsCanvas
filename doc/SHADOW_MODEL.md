@@ -45,8 +45,9 @@ paint-level shadow layer used by shape drawing.
 
 - Geometry text submits shadow passes before the normal text command.
 - Bitmap text submits tinted shadow image passes before the normal tinted text image.
+- Atlas text submits dedicated multi-sample shadow image passes tuned for glyph texture quads.
 - The current matrix, rectangular clips, clip masks, alpha, and blend mode are preserved for shadow passes.
-- A future atlas-aware implementation can route text shadows through a general offscreen effect pass for higher quality.
+- A future high-quality implementation can route text shadows through a general offscreen effect pass.
 
 ## Box Shadow Or Box Gradient
 

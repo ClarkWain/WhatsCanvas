@@ -76,6 +76,7 @@ void GlyphAtlas::clear()
     entries_.clear();
     std::fill(pixels_.begin(), pixels_.end(), 0);
     resetPacking();
+    markFullDirty();
 }
 
 void GlyphAtlas::onContextLost()
@@ -102,6 +103,13 @@ GlyphAtlasStats GlyphAtlas::stats() const
     result.evictionCount = evictionCount_;
     result.generation = generation_;
     result.textureValid = textureValid_;
+    return result;
+}
+
+std::vector<GlyphAtlasDirtyRect> GlyphAtlas::consumeDirtyRects()
+{
+    std::vector<GlyphAtlasDirtyRect> result = std::move(dirtyRects_);
+    dirtyRects_.clear();
     return result;
 }
 
@@ -153,6 +161,33 @@ void GlyphAtlas::rememberRebuildKeys()
     }
 }
 
+void GlyphAtlas::markDirtyRect(int x, int y, int width, int height)
+{
+    if (width <= 0 || height <= 0) {
+        return;
+    }
+
+    const int left = std::clamp(x, 0, width_);
+    const int top = std::clamp(y, 0, height_);
+    const int right = std::clamp(x + width, 0, width_);
+    const int bottom = std::clamp(y + height, 0, height_);
+    if (right <= left || bottom <= top) {
+        return;
+    }
+
+    dirtyRects_.push_back({left, top, right - left, bottom - top});
+}
+
+void GlyphAtlas::markFullDirty()
+{
+    if (width_ <= 0 || height_ <= 0) {
+        return;
+    }
+
+    dirtyRects_.clear();
+    dirtyRects_.push_back({0, 0, width_, height_});
+}
+
 void GlyphAtlas::writeGlyphPixels(const GlyphAtlasEntry &entry, const GlyphBitmap &bitmap)
 {
     for (int row = 0; row < bitmap.height; ++row) {
@@ -163,6 +198,7 @@ void GlyphAtlas::writeGlyphPixels(const GlyphAtlasEntry &entry, const GlyphBitma
                   bitmap.alphaPixels.begin() + static_cast<std::ptrdiff_t>(src + bitmap.width),
                   pixels_.begin() + static_cast<std::ptrdiff_t>(dst));
     }
+    markDirtyRect(entry.x, entry.y, entry.width, entry.height);
 }
 
 } // namespace wsc::text

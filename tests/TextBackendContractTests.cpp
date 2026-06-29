@@ -138,6 +138,14 @@ bool testPortableBackendUsesGlyphAtlasForRegisteredFont()
                 "glyph atlas render should expose atlas alpha pixels") && ok;
     ok = expect(!rendered.glyphAtlasQuads.empty(),
                 "glyph atlas render should emit glyph quads") && ok;
+    ok = expect(!rendered.atlasDirtyRects.empty(),
+                "first glyph atlas render should expose dirty atlas rectangles") && ok;
+
+    const wsc::text::TextRenderResult cached = backend->renderText("Atlas", 4.0f, 8.0f, paint);
+    ok = expect(cached.kind == wsc::text::TextRenderKind::GlyphAtlas,
+                "cached registered font render should still use glyph atlas") && ok;
+    ok = expect(cached.atlasDirtyRects.empty(),
+                "cached glyph atlas render should not dirty atlas rectangles") && ok;
     return ok;
 }
 

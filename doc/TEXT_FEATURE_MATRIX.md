@@ -12,6 +12,7 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 | Cross-platform font rasterization | Supported | Registered file-backed or memory-backed TrueType faces can be rasterized through the portable font rasterizer. |
 | Atlas-backed glyph rendering | Supported | Rasterized glyphs are packed into `GlyphAtlas`; Canvas submits atlas quads through the image path. |
 | Persistent GPU atlas resource | Supported | Canvas owns a reusable GPU atlas image resource and updates it when the CPU atlas content changes. |
+| Dirty-rect atlas updates | Supported | Glyph uploads expose dirty rectangles; Canvas updates matching GPU atlas subregions when possible. |
 | Shaped glyph run abstraction | Supported | Portable raster text uses shaped runs with source byte mapping, glyph advances, and letter spacing before atlas upload. |
 | Public font face model | Supported | `FontFace`, `FontDescriptor`, `FontFallbackChain`, and `FontManager` are public value/model types. |
 | Font file registration contract | Supported | `ITextBackend::registerFontFace` accepts file-backed faces. |
@@ -37,7 +38,6 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 
 | Capability | Status | Intended Direction |
 | --- | --- | --- |
-| Dirty-rect atlas updates | Planned | Update only changed atlas rectangles instead of the full atlas texture. |
 | Complex script shaping backend | Planned | Add glyph substitution, reordering, bidirectional text, and font feature handling behind the shaped-run abstraction. |
 | Color glyph rendering | Planned | Add color glyph formats once font fallback and atlas ownership are stable. |
 
