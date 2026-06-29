@@ -761,6 +761,30 @@ Color applyPaintAlpha(const Paint &paint, const Color &color)
     return scaleAlpha(color, paint.getAlphaF());
 }
 
+std::uint64_t hashBytes(const std::vector<unsigned char> &bytes)
+{
+    std::uint64_t hash = kFnvOffsetBasis;
+    for (unsigned char value : bytes) {
+        hash ^= value;
+        hash *= kFnvPrime;
+    }
+    return hash;
+}
+
+std::vector<unsigned char> makeGlyphAtlasRgba(const wsc::text::TextRenderResult &renderedText)
+{
+    const std::size_t expectedAtlasSize = static_cast<std::size_t>(std::max(0, renderedText.atlasWidth))
+        * static_cast<std::size_t>(std::max(0, renderedText.atlasHeight));
+    std::vector<unsigned char> atlasPixels(expectedAtlasSize * 4, 255);
+    for (std::size_t i = 0; i < expectedAtlasSize; ++i) {
+        atlasPixels[i * 4 + 0] = 255;
+        atlasPixels[i * 4 + 1] = 255;
+        atlasPixels[i * 4 + 2] = 255;
+        atlasPixels[i * 4 + 3] = renderedText.atlasAlphaPixels[i];
+    }
+    return atlasPixels;
+}
+
 glm::mat4 makeOffsetTransform(const glm::mat4 &transform, float dx, float dy)
 {
     return glm::translate(transform, glm::vec3(dx, dy, 0.0f));
@@ -793,6 +817,48 @@ std::vector<ShadowPass> buildShadowPasses(const Paint &paint, const glm::mat4 &t
         const float sampleDx = dx + std::cos(angle) * ringRadius;
         const float sampleDy = dy + std::sin(angle) * ringRadius;
         passes.push_back({makeOffsetTransform(transform, sampleDx, sampleDy), scaleAlpha(color, 0.08f)});
+    }
+
+    return passes;
+}
+
+std::vector<ShadowPass> buildAtlasTextShadowPasses(const Paint &paint, const glm::mat4 &transform)
+{
+    std::vector<ShadowPass> passes;
+    if (!paint.hasShadowLayer()) {
+        return passes;
+    }
+
+    const float dx = paint.getShadowDx();
+    const float dy = paint.getShadowDy();
+    const float radius = std::max(0.0f, paint.getShadowRadius());
+    const Color color = applyPaintAlpha(paint, paint.getShadowColor());
+
+    if (radius <= kPointEpsilon) {
+        passes.push_back({makeOffsetTransform(transform, dx, dy), color});
+        return passes;
+    }
+
+    passes.push_back({makeOffsetTransform(transform, dx, dy), scaleAlpha(color, 0.24f)});
+
+    constexpr float kPi = 3.14159265358979323846f;
+    constexpr int kInnerSamples = 6;
+    constexpr int kOuterSamples = 12;
+    const float innerRadius = radius * 0.28f;
+    const float outerRadius = radius * 0.55f;
+    for (int i = 0; i < kInnerSamples; ++i) {
+        const float angle = 2.0f * kPi * static_cast<float>(i) / static_cast<float>(kInnerSamples);
+        passes.push_back({makeOffsetTransform(transform,
+                                              dx + std::cos(angle) * innerRadius,
+                                              dy + std::sin(angle) * innerRadius),
+                          scaleAlpha(color, 0.075f)});
+    }
+    for (int i = 0; i < kOuterSamples; ++i) {
+        const float angle = 2.0f * kPi * static_cast<float>(i) / static_cast<float>(kOuterSamples);
+        passes.push_back({makeOffsetTransform(transform,
+                                              dx + std::cos(angle) * outerRadius,
+                                              dy + std::sin(angle) * outerRadius),
+                          scaleAlpha(color, 0.026f)});
     }
 
     return passes;
@@ -1542,6 +1608,7 @@ struct Canvas::Impl
     const GraphicsState &currentState() const;
     Paint applyStateToPaint(const Paint &paint) const;
     void releaseSizeDependentResources();
+    SharedImageResource getOrUpdateGlyphAtlasResource(const wsc::text::TextRenderResult &renderedText);
     bool getClipBounds(RectF &bounds) const;
     ScissorState makeCurrentScissorState() const;
     ClipMaskState makeCurrentClipMaskState() const;
@@ -1556,6 +1623,10 @@ struct Canvas::Impl
     AsyncReadback asyncReadback;
     std::vector<LayerState> layerStack;
     bool rendererInitialized = false;
+    SharedImageResource glyphAtlasImageResource;
+    int glyphAtlasWidth = 0;
+    int glyphAtlasHeight = 0;
+    std::uint64_t glyphAtlasContentHash = 0;
 
     // Render-target mode support
     bool renderTargetMode = false;
@@ -1676,6 +1747,10 @@ bool Canvas::Impl::ensureRendererInitialized()
 void Canvas::Impl::releaseResources()
 {
     layerStack.clear();
+    glyphAtlasImageResource.reset();
+    glyphAtlasWidth = 0;
+    glyphAtlasHeight = 0;
+    glyphAtlasContentHash = 0;
     releaseSizeDependentResources();
     if (renderer != nullptr) {
         renderer->clear();
@@ -1689,6 +1764,61 @@ void Canvas::Impl::releaseSizeDependentResources()
     if (graphicsStates) {
         graphicsStates->invalidateClipResources();
     }
+}
+
+SharedImageResource Canvas::Impl::getOrUpdateGlyphAtlasResource(const wsc::text::TextRenderResult &renderedText)
+{
+    if (renderer == nullptr || renderedText.atlasWidth <= 0 || renderedText.atlasHeight <= 0) {
+        return {};
+    }
+
+    const std::size_t expectedAtlasSize = static_cast<std::size_t>(renderedText.atlasWidth)
+        * static_cast<std::size_t>(renderedText.atlasHeight);
+    if (renderedText.atlasAlphaPixels.size() < expectedAtlasSize) {
+        return {};
+    }
+
+    const std::uint64_t contentHash = hashBytes(renderedText.atlasAlphaPixels);
+    if (glyphAtlasImageResource && glyphAtlasImageResource->isValid()
+        && glyphAtlasWidth == renderedText.atlasWidth
+        && glyphAtlasHeight == renderedText.atlasHeight
+        && glyphAtlasContentHash == contentHash) {
+        return glyphAtlasImageResource;
+    }
+
+    const std::vector<unsigned char> atlasPixels = makeGlyphAtlasRgba(renderedText);
+    if (!glyphAtlasImageResource || !glyphAtlasImageResource->isValid()
+        || glyphAtlasWidth != renderedText.atlasWidth
+        || glyphAtlasHeight != renderedText.atlasHeight) {
+        glyphAtlasImageResource = renderer->createImageResourceRGBA(renderedText.atlasWidth,
+                                                                    renderedText.atlasHeight,
+                                                                    atlasPixels);
+    } else {
+        const bool updated = renderer->updateImageResourceRGBA(glyphAtlasImageResource,
+                                                              0,
+                                                              0,
+                                                              renderedText.atlasWidth,
+                                                              renderedText.atlasHeight,
+                                                              atlasPixels.data(),
+                                                              false);
+        if (!updated) {
+            glyphAtlasImageResource = renderer->createImageResourceRGBA(renderedText.atlasWidth,
+                                                                        renderedText.atlasHeight,
+                                                                        atlasPixels);
+        }
+    }
+
+    if (!glyphAtlasImageResource || !glyphAtlasImageResource->isValid()) {
+        glyphAtlasWidth = 0;
+        glyphAtlasHeight = 0;
+        glyphAtlasContentHash = 0;
+        return {};
+    }
+
+    glyphAtlasWidth = renderedText.atlasWidth;
+    glyphAtlasHeight = renderedText.atlasHeight;
+    glyphAtlasContentHash = contentHash;
+    return glyphAtlasImageResource;
 }
 
 void Canvas::Impl::finalizeRenderer()
@@ -2903,17 +3033,7 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
             return;
         }
 
-        std::vector<unsigned char> atlasPixels(expectedAtlasSize * 4, 255);
-        for (std::size_t i = 0; i < expectedAtlasSize; ++i) {
-            atlasPixels[i * 4 + 0] = 255;
-            atlasPixels[i * 4 + 1] = 255;
-            atlasPixels[i * 4 + 2] = 255;
-            atlasPixels[i * 4 + 3] = renderedText.atlasAlphaPixels[i];
-        }
-
-        const SharedImageResource imageResource = impl_->renderer->createImageResourceRGBA(renderedText.atlasWidth,
-                                                 renderedText.atlasHeight,
-                                                 atlasPixels);
+        const SharedImageResource imageResource = impl_->getOrUpdateGlyphAtlasResource(renderedText);
         if (!imageResource || !imageResource->isValid()) {
             return;
         }
@@ -2947,7 +3067,7 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
             }
         };
 
-        for (const auto &shadowPass : buildShadowPasses(paint, impl_->currentState().matrix)) {
+        for (const auto &shadowPass : buildAtlasTextShadowPasses(paint, impl_->currentState().matrix)) {
             submitAtlasText(shadowPass.color, shadowPass.transform);
         }
         for (const auto &strokePass : strokePasses) {

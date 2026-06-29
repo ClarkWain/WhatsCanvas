@@ -11,6 +11,8 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 | Native Windows text bitmap path | Supported | Used when a font family is supplied and native measurement/render succeeds. |
 | Cross-platform font rasterization | Supported | Registered file-backed or memory-backed TrueType faces can be rasterized through the portable font rasterizer. |
 | Atlas-backed glyph rendering | Supported | Rasterized glyphs are packed into `GlyphAtlas`; Canvas submits atlas quads through the image path. |
+| Persistent GPU atlas resource | Supported | Canvas owns a reusable GPU atlas image resource and updates it when the CPU atlas content changes. |
+| Shaped glyph run abstraction | Supported | Portable raster text uses shaped runs with source byte mapping, glyph advances, and letter spacing before atlas upload. |
 | Public font face model | Supported | `FontFace`, `FontDescriptor`, `FontFallbackChain`, and `FontManager` are public value/model types. |
 | Font file registration contract | Supported | `ITextBackend::registerFontFace` accepts file-backed faces. |
 | Font memory registration contract | Supported | `ITextBackend::registerFontFace` accepts memory-backed faces. |
@@ -23,7 +25,8 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 | Text on path | Supported | Current implementation uses ASCII fallback glyph placement. |
 | Glyph atlas ownership | Contract supported | `GlyphAtlas` owns atlas allocation, glyph upload, eviction, pending rebuild keys, and context rebuild hooks. |
 | Stroke text | Supported | Paint stroke/fill-and-stroke text queues stroked text geometry before fill text. |
-| Text shadow | Supported | Paint shadow layer queues text shadow passes for geometry text. |
+| Text shadow | Supported | Paint shadow layer queues text shadow passes for geometry, bitmap, and atlas text. |
+| Atlas-aware text blur | Supported | Atlas text uses a dedicated multi-sample shadow path tuned for glyph texture quads. |
 | Glyph availability query | Contract supported | Basic backend reports ASCII availability, registered font ranges, native font-family paths, and rasterizer-backed glyph coverage. |
 | Diagnostics hook | Contract supported | Backend diagnostics report rejected font/fallback registration events. |
 | Fallback range query | Contract supported | Font faces can declare codepoint ranges; glyph availability resolves primary and fallback families. |
@@ -34,9 +37,9 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 
 | Capability | Status | Intended Direction |
 | --- | --- | --- |
-| Persistent GPU atlas resource | Planned | Keep the atlas texture on the renderer side and update dirty rects instead of uploading an RGBA atlas snapshot per text draw. |
-| Complex shaping backend | Planned | Add shaping for scripts and font features that need glyph substitution or reordering before rasterization. |
-| Atlas-aware text blur | Planned | Prefer atlas-aware blur once persistent atlas rendering owns glyph texture updates. |
+| Dirty-rect atlas updates | Planned | Update only changed atlas rectangles instead of the full atlas texture. |
+| Complex script shaping backend | Planned | Add glyph substitution, reordering, bidirectional text, and font feature handling behind the shaped-run abstraction. |
+| Color glyph rendering | Planned | Add color glyph formats once font fallback and atlas ownership are stable. |
 
 ## Acceptance Targets
 

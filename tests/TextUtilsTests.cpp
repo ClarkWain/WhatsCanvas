@@ -1,7 +1,9 @@
 #include <cstdlib>
 #include <iostream>
+#include <optional>
 #include <string>
 
+#include "text/TextShaper.h"
 #include "text/TextUtils.h"
 
 namespace {
@@ -50,12 +52,57 @@ bool testAsciiFallbackKeepsShape()
                   "codepoint count should count Unicode scalar positions, not bytes");
 }
 
+bool testSimpleShaperBuildsGlyphRun()
+{
+    const std::string text = "A\xe4\xb8\xad";
+    const auto run = wsc::text::shapeTextSimple(text,
+                                                1.5f,
+                                                [](std::uint32_t codepoint) -> std::optional<float> {
+        if (codepoint == 'A') {
+            return 7.0f;
+        }
+        if (codepoint == 0x4E2D) {
+            return 11.0f;
+        }
+        return std::nullopt;
+    });
+
+    return expect(run.has_value(), "simple shaper should resolve known codepoints")
+        && expect(run->glyphs.size() == 2, "simple shaper should emit one glyph per decoded scalar")
+        && expect(run->glyphs[0].sourceStart == 0 && run->glyphs[0].sourceLength == 1,
+                  "ASCII glyph should retain source byte mapping")
+        && expect(run->glyphs[1].sourceStart == 1 && run->glyphs[1].sourceLength == 3,
+                  "multi-byte glyph should retain source byte mapping")
+        && expect(run->width == 19.5f, "simple shaper should include letter spacing between glyphs");
+}
+
+bool testSimpleShaperStopsAtFirstLineAndFailsMissingGlyphs()
+{
+    const auto singleLine = wsc::text::shapeTextSimple("AB\nC",
+                                                       2.0f,
+                                                       [](std::uint32_t) -> std::optional<float> {
+        return 5.0f;
+    });
+    const auto missing = wsc::text::shapeTextSimple("A?",
+                                                    0.0f,
+                                                    [](std::uint32_t codepoint) -> std::optional<float> {
+        return codepoint == 'A' ? std::optional<float>(5.0f) : std::nullopt;
+    });
+
+    return expect(singleLine.has_value(), "simple shaper should shape the first line")
+        && expect(singleLine->glyphs.size() == 2, "simple shaper should stop at newline")
+        && expect(singleLine->width == 12.0f, "simple shaper should space first-line glyphs")
+        && expect(!missing.has_value(), "simple shaper should fail when a glyph cannot be resolved");
+}
+
 } // namespace
 
 int main()
 {
     const bool ok = testDecodeValidUtf8()
         && testInvalidUtf8Replacement()
-        && testAsciiFallbackKeepsShape();
+        && testAsciiFallbackKeepsShape()
+        && testSimpleShaperBuildsGlyphRun()
+        && testSimpleShaperStopsAtFirstLineAndFailsMissingGlyphs();
     return ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }
