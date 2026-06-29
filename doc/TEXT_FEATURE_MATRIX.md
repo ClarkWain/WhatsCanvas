@@ -19,6 +19,9 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 | Letter spacing | Supported | Basic geometry and native bitmap paths apply letter spacing. |
 | Alignment and baseline | Supported | Left/center/right and top/middle/bottom modes are exposed through `Paint`. |
 | Text on path | Supported | Current implementation uses ASCII fallback glyph placement. |
+| Glyph atlas ownership | Contract supported | `GlyphAtlas` owns atlas allocation, glyph upload, eviction, pending rebuild keys, and context rebuild hooks. |
+| Stroke text | Supported | Paint stroke/fill-and-stroke text queues stroked text geometry before fill text. |
+| Text shadow | Supported | Paint shadow layer queues text shadow passes for geometry text. |
 | Glyph availability query | Contract supported | Basic backend reports ASCII availability and treats native font-family paths as renderable. |
 | Diagnostics hook | Contract supported | Backend diagnostics report rejected font/fallback registration events. |
 | Emoji fallback query | Contract supported | Font faces can declare codepoint ranges; glyph availability resolves primary and fallback families. |
@@ -29,11 +32,10 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 | Capability | Status | Intended Direction |
 | --- | --- | --- |
 | Cross-platform font rasterization | Planned | Add a backend that works consistently on desktop and mobile. |
-| Glyph atlas ownership | Planned | Own atlas allocation, glyph upload, eviction, and rebuild hooks inside the text subsystem. |
 | Emoji fallback rendering | Planned | Render color emoji once the cross-platform rasterization path can provide glyph bitmaps. |
 | Missing glyph render hooks | Planned | Surface per-glyph fallback markers once the cross-platform backend owns glyph selection. |
-| Stroke text | Planned | Prefer glyph outline or distance-field path once atlas backend exists. |
-| Text blur/shadow | Planned | Prefer paint-level effect pass or atlas-aware blur, avoiding special-case CPU bitmaps. |
+| Atlas-backed glyph rendering | Planned | Connect rasterized glyph bitmaps to the atlas texture path for cross-platform text rendering. |
+| Atlas-aware text blur | Planned | Prefer atlas-aware blur once rasterized glyph rendering is available. |
 
 ## Acceptance Targets
 
