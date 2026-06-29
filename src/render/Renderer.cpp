@@ -8,6 +8,8 @@
 #include <cmath>
 #include <glm/glm.hpp>
 
+#include "render/GammaCorrect.h"
+
 namespace {
 constexpr float kMergeEpsilon = 0.001f;
 
@@ -16,16 +18,7 @@ bool nearlyEqual(float lhs, float rhs)
     return std::abs(lhs - rhs) <= kMergeEpsilon;
 }
 
-bool isDefaultSpriteTint(const DrawImageData &data)
-{
-    return nearlyEqual(data.tintColor[0], 1.0f)
-        && nearlyEqual(data.tintColor[1], 1.0f)
-        && nearlyEqual(data.tintColor[2], 1.0f)
-        && nearlyEqual(data.tintColor[3], 1.0f)
-        && nearlyEqual(data.alpha, 1.0f);
-}
-
-bool isSpriteBatchCompatible(const DrawImageData &data, const SharedImageResource &texture)
+bool isSpriteBatchCompatible(const DrawImageData &data, const SharedImageResource &texture, DrawBlendMode blendMode)
 {
     return data.imageResource == texture
         && data.imageResource
@@ -35,8 +28,7 @@ bool isSpriteBatchCompatible(const DrawImageData &data, const SharedImageResourc
         && data.tileMode == DrawImageTileMode::Clamp
         && !data.scissor.enabled
         && !data.clipMask.hasPaths()
-        && data.blendMode == DrawBlendMode::SrcOver
-        && isDefaultSpriteTint(data);
+        && data.blendMode == blendMode;
 }
 } // namespace
 
@@ -214,11 +206,11 @@ void Renderer::flush()
         if (commands_[i]->type() == Command::Type::Image) {
             auto *imageCmd = static_cast<DrawImageCommand *>(commands_[i].get());
             const auto &first = imageCmd->data();
-            if (isSpriteBatchCompatible(first, first.imageResource)) {
+            if (isSpriteBatchCompatible(first, first.imageResource, first.blendMode)) {
                 std::size_t j = i + 1;
                 while (j < commands_.size() && commands_[j]->type() == Command::Type::Image) {
                     const auto &next = static_cast<DrawImageCommand *>(commands_[j].get())->data();
-                    if (!isSpriteBatchCompatible(next, first.imageResource)) {
+                    if (!isSpriteBatchCompatible(next, first.imageResource, first.blendMode)) {
                         break;
                     }
                     ++j;
@@ -229,12 +221,19 @@ void Renderer::flush()
                     batch.setTexture(first.imageResource);
                     for (std::size_t m = i; m < j; ++m) {
                         const auto &data = static_cast<DrawImageCommand *>(commands_[m].get())->data();
+                        float tintColor[4] = {
+                            data.tintColor[0],
+                            data.tintColor[1],
+                            data.tintColor[2],
+                            data.tintColor[3] * data.alpha
+                        };
+                        GammaCorrect::srgbToLinear4(tintColor);
                         batch.add(data.x, data.y, data.width, data.height,
                                   data.u0, data.v0, data.u1, data.v1,
-                                  1.0f, 1.0f, 1.0f, 1.0f,
+                                  tintColor[0], tintColor[1], tintColor[2], tintColor[3],
                                   data.transform);
                     }
-                    batch.flush(context_);
+                    batch.flush(context_, first.blendMode);
                     ++stats_.drawCallCount;
                     ++stats_.mergedBatchCount;
                     i = j;

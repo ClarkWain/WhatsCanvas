@@ -9,6 +9,7 @@
 class RenderContext;
 class ImageResource;
 class GLProgram;
+enum class DrawBlendMode;
 
 /// A batch renderer for drawing many sprites with the same texture
 /// in a single draw call. Instead of issuing one draw call per sprite,
@@ -44,7 +45,7 @@ public:
              const glm::mat4 &transform = glm::mat4(1.0f));
 
     /// Submit all accumulated sprites as a single draw call.
-    void flush(RenderContext &context);
+    void flush(RenderContext &context, DrawBlendMode blendMode);
 
     /// Clear the accumulated vertex data without drawing.
     void clear();

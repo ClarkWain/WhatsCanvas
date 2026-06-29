@@ -8,7 +8,7 @@ This audit records how public `Paint::BlendMode` values map to the current GL-fa
 - `RenderContext::applyBlendMode` enables `GL_BLEND` and uses `glBlendEquation(GL_FUNC_ADD)`.
 - Blend state is applied per command before draw execution.
 - Points, lines, paths, images, text, and saveLayer restore commands all snapshot a `DrawBlendMode`.
-- `SpriteBatch` currently applies `SrcOver`.
+- `SpriteBatch` batches compatible image commands with the command blend mode preserved.
 - There is no public premultiplied-alpha output option today.
 
 ## Public To Renderer Mapping

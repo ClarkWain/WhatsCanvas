@@ -44,7 +44,7 @@ void SpriteBatch::add(float x, float y, float width, float height,
     vertexData_.insert(vertexData_.end(), {bl.x, bl.y, u0, v1, r, g, b, a});
 }
 
-void SpriteBatch::flush(RenderContext &context)
+void SpriteBatch::flush(RenderContext &context, DrawBlendMode blendMode)
 {
     if (vertexData_.empty() || !texture_ || !texture_->isValid()) {
         return;
@@ -56,10 +56,9 @@ void SpriteBatch::flush(RenderContext &context)
         return;
     }
 
-    // SpriteBatch currently exposes fixed image-draw semantics: source-over
-    // blending with no clip. Apply them explicitly instead of inheriting GL
-    // state left by the previous command.
-    context.applyBlendMode(DrawBlendMode::SrcOver);
+    // SpriteBatch currently batches only unclipped images. Apply state
+    // explicitly instead of inheriting GL state left by the previous command.
+    context.applyBlendMode(blendMode);
     context.applyClipState(ScissorState{}, ClipMaskState{});
 
     program_->use();
