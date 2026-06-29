@@ -21,6 +21,8 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 | Text on path | Supported | Current implementation uses ASCII fallback glyph placement. |
 | Glyph availability query | Contract supported | Basic backend reports ASCII availability and treats native font-family paths as renderable. |
 | Diagnostics hook | Contract supported | Backend diagnostics report rejected font/fallback registration events. |
+| Emoji fallback query | Contract supported | Font faces can declare codepoint ranges; glyph availability resolves primary and fallback families. |
+| Missing glyph diagnostics | Contract supported | Missing non-ASCII glyph queries add backend diagnostics. |
 
 ## Planned Backend Work
 
@@ -28,8 +30,8 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 | --- | --- | --- |
 | Cross-platform font rasterization | Planned | Add a backend that works consistently on desktop and mobile. |
 | Glyph atlas ownership | Planned | Own atlas allocation, glyph upload, eviction, and rebuild hooks inside the text subsystem. |
-| Emoji fallback | Planned | Resolve emoji families through fallback chain and report missing glyphs. |
-| Missing glyph diagnostics | Partial | Contract exists; richer per-codepoint diagnostics belong in the cross-platform backend. |
+| Emoji fallback rendering | Planned | Render color emoji once the cross-platform rasterization path can provide glyph bitmaps. |
+| Rich missing glyph diagnostics | Partial | Contract exists; richer per-codepoint metadata belongs in the cross-platform backend. |
 | Stroke text | Planned | Prefer glyph outline or distance-field path once atlas backend exists. |
 | Text blur/shadow | Planned | Prefer paint-level effect pass or atlas-aware blur, avoiding special-case CPU bitmaps. |
 

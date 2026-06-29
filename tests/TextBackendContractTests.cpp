@@ -92,6 +92,31 @@ bool testPortableBackendUsesGeometryPath()
                   "portable backend should not claim native CJK glyph coverage");
 }
 
+bool testPortableBackendResolvesEmojiFallbackGlyphRange()
+{
+    std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createPortableTextBackend();
+
+    wsc::FontFace primary = wsc::FontFace::fromFile(wsc::FontDescriptor("Primary"), "primary.ttf");
+    primary.addCodepointRange(32, 126);
+    wsc::FontFace emoji = wsc::FontFace::fromFile(wsc::FontDescriptor("Emoji"), "emoji.ttf");
+    emoji.addCodepointRange(0x1F300, 0x1FAFF);
+
+    bool ok = expect(backend->registerFontFace(primary), "primary face with ASCII range should register");
+    ok = expect(backend->registerFontFace(emoji), "emoji face with emoji range should register") && ok;
+
+    wsc::FontFallbackChain chain("Primary");
+    chain.addFallbackFamily("Emoji");
+    ok = expect(backend->setFontFallbackChain(chain), "emoji fallback chain should register") && ok;
+
+    Paint paint = makeTextPaint();
+    ok = expect(backend->hasGlyphForCodepoint(0x1F600, paint),
+                "emoji glyph should resolve through fallback range") && ok;
+    ok = expect(!backend->hasGlyphForCodepoint(0x4E2D, paint),
+                "uncovered codepoint should report missing glyph") && ok;
+    ok = expect(!backend->diagnostics().empty(), "missing glyph query should add diagnostics") && ok;
+    return ok;
+}
+
 } // namespace
 
 int main()
@@ -99,6 +124,7 @@ int main()
     const bool ok = testFontRegistrationAndFallback()
         && testLineBreakAndGlyphQuery()
         && testDiagnosticsForRejectedFallback()
-        && testPortableBackendUsesGeometryPath();
+        && testPortableBackendUsesGeometryPath()
+        && testPortableBackendResolvesEmojiFallbackGlyphRange();
     return ok ? 0 : 1;
 }

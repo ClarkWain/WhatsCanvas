@@ -132,14 +132,29 @@ public:
 
     bool hasGlyphForCodepoint(std::uint32_t codepoint, const Paint &paint) const override
     {
+        if (codepoint == '\n' || codepoint == '\t' || (codepoint >= 32 && codepoint <= 126)) {
+            return true;
+        }
+
+        if (paint.hasFontFamily()) {
+            const std::vector<std::string> families = resolveFontFamilies(paint.getFontFamily());
+            for (const std::string &family : families) {
+                for (const wsc::FontFace *face : fontManager_.findFaces(family)) {
+                    if (face != nullptr && face->supportsCodepoint(codepoint)) {
+                        return true;
+                    }
+                }
+            }
+        }
+
 #ifdef _WIN32
         if (options_.enableNativeText && paint.hasFontFamily()) {
             return true;
         }
-#else
-        (void)paint;
 #endif
-        return codepoint == '\n' || codepoint == '\t' || (codepoint >= 32 && codepoint <= 126);
+        diagnostics_.push_back({wsc::text::TextBackendDiagnostic::Severity::Warning,
+                                "Missing glyph for requested codepoint."});
+        return false;
     }
 
     std::vector<wsc::text::TextBackendDiagnostic> diagnostics() const override
@@ -339,7 +354,7 @@ private:
     mutable std::deque<std::string> nativeBitmapCacheOrder_;
 #endif
     wsc::FontManager fontManager_;
-    std::vector<wsc::text::TextBackendDiagnostic> diagnostics_;
+    mutable std::vector<wsc::text::TextBackendDiagnostic> diagnostics_;
 };
 
 } // namespace
