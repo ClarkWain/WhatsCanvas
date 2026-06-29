@@ -52,6 +52,8 @@ struct TextBackendDiagnostic
 
     Severity severity = Severity::Info;
     std::string message;
+    std::uint32_t codepoint = 0;
+    std::string fontFamily;
 };
 
 class ITextBackend

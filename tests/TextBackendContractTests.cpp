@@ -113,7 +113,13 @@ bool testPortableBackendResolvesEmojiFallbackGlyphRange()
                 "emoji glyph should resolve through fallback range") && ok;
     ok = expect(!backend->hasGlyphForCodepoint(0x4E2D, paint),
                 "uncovered codepoint should report missing glyph") && ok;
-    ok = expect(!backend->diagnostics().empty(), "missing glyph query should add diagnostics") && ok;
+    ok = expect(!backend->hasGlyphForCodepoint(0x4E2D, paint),
+                "duplicate missing glyph query should remain missing") && ok;
+    const std::vector<wsc::text::TextBackendDiagnostic> diagnostics = backend->diagnostics();
+    ok = expect(!diagnostics.empty(), "missing glyph query should add diagnostics") && ok;
+    ok = expect(diagnostics.back().codepoint == 0x4E2D, "missing glyph diagnostic should include codepoint") && ok;
+    ok = expect(diagnostics.back().fontFamily == "Primary", "missing glyph diagnostic should include requested family") && ok;
+    ok = expect(diagnostics.size() == 1, "duplicate missing glyph diagnostics should be coalesced") && ok;
     return ok;
 }
 
