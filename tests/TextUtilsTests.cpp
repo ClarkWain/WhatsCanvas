@@ -57,12 +57,12 @@ bool testSimpleShaperBuildsGlyphRun()
     const std::string text = "A\xe4\xb8\xad";
     const auto run = wsc::text::shapeTextSimple(text,
                                                 1.5f,
-                                                [](std::uint32_t codepoint) -> std::optional<float> {
+                                                [](std::uint32_t codepoint) -> std::optional<wsc::text::ResolvedGlyph> {
         if (codepoint == 'A') {
-            return 7.0f;
+            return wsc::text::ResolvedGlyph{3, 7.0f};
         }
         if (codepoint == 0x4E2D) {
-            return 11.0f;
+            return wsc::text::ResolvedGlyph{9, 11.0f};
         }
         return std::nullopt;
     });
@@ -71,6 +71,7 @@ bool testSimpleShaperBuildsGlyphRun()
         && expect(run->glyphs.size() == 2, "simple shaper should emit one glyph per decoded scalar")
         && expect(run->glyphs[0].sourceStart == 0 && run->glyphs[0].sourceLength == 1,
                   "ASCII glyph should retain source byte mapping")
+        && expect(run->glyphs[0].glyphIndex == 3, "simple shaper should retain resolved glyph index")
         && expect(run->glyphs[1].sourceStart == 1 && run->glyphs[1].sourceLength == 3,
                   "multi-byte glyph should retain source byte mapping")
         && expect(run->width == 19.5f, "simple shaper should include letter spacing between glyphs");
@@ -80,19 +81,37 @@ bool testSimpleShaperStopsAtFirstLineAndFailsMissingGlyphs()
 {
     const auto singleLine = wsc::text::shapeTextSimple("AB\nC",
                                                        2.0f,
-                                                       [](std::uint32_t) -> std::optional<float> {
-        return 5.0f;
+                                                       [](std::uint32_t codepoint) -> std::optional<wsc::text::ResolvedGlyph> {
+        return wsc::text::ResolvedGlyph{static_cast<int>(codepoint), 5.0f};
     });
     const auto missing = wsc::text::shapeTextSimple("A?",
                                                     0.0f,
-                                                    [](std::uint32_t codepoint) -> std::optional<float> {
-        return codepoint == 'A' ? std::optional<float>(5.0f) : std::nullopt;
+                                                    [](std::uint32_t codepoint) -> std::optional<wsc::text::ResolvedGlyph> {
+        return codepoint == 'A'
+            ? std::optional<wsc::text::ResolvedGlyph>(wsc::text::ResolvedGlyph{1, 5.0f})
+            : std::nullopt;
     });
 
     return expect(singleLine.has_value(), "simple shaper should shape the first line")
         && expect(singleLine->glyphs.size() == 2, "simple shaper should stop at newline")
         && expect(singleLine->width == 12.0f, "simple shaper should space first-line glyphs")
         && expect(!missing.has_value(), "simple shaper should fail when a glyph cannot be resolved");
+}
+
+bool testSimpleShaperOrdersRightToLeftRuns()
+{
+    const std::string hebrew = "\xd7\x90\xd7\x91";
+    const auto run = wsc::text::shapeTextSimple(hebrew,
+                                                0.0f,
+                                                [](std::uint32_t codepoint) -> std::optional<wsc::text::ResolvedGlyph> {
+        return wsc::text::ResolvedGlyph{static_cast<int>(codepoint), 6.0f};
+    });
+
+    return expect(run.has_value(), "simple shaper should shape RTL codepoints")
+        && expect(run->rightToLeft, "simple shaper should detect RTL runs")
+        && expect(run->glyphs.size() == 2, "RTL run should keep glyph count")
+        && expect(run->glyphs[0].sourceStart == 2, "RTL visual order should place second source glyph first")
+        && expect(run->glyphs[1].sourceStart == 0, "RTL visual order should place first source glyph second");
 }
 
 } // namespace
@@ -103,6 +122,7 @@ int main()
         && testInvalidUtf8Replacement()
         && testAsciiFallbackKeepsShape()
         && testSimpleShaperBuildsGlyphRun()
-        && testSimpleShaperStopsAtFirstLineAndFailsMissingGlyphs();
+        && testSimpleShaperStopsAtFirstLineAndFailsMissingGlyphs()
+        && testSimpleShaperOrdersRightToLeftRuns();
     return ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }

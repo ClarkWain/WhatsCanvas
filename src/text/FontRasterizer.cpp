@@ -90,8 +90,26 @@ bool FontRasterizer::hasGlyph(const FontFace &face, std::uint32_t codepoint) con
     return loaded != nullptr && stbtt_FindGlyphIndex(&loaded->info, static_cast<int>(codepoint)) != 0;
 }
 
+std::optional<int> FontRasterizer::glyphIndex(const FontFace &face, std::uint32_t codepoint) const
+{
+    const LoadedFace *loaded = loadFace(face);
+    if (loaded == nullptr) {
+        return std::nullopt;
+    }
+
+    const int index = stbtt_FindGlyphIndex(&loaded->info, static_cast<int>(codepoint));
+    return index == 0 ? std::nullopt : std::optional<int>(index);
+}
+
 std::optional<float> FontRasterizer::glyphAdvance(const FontFace &face, std::uint32_t codepoint,
                                                   float pixelSize) const
+{
+    const auto metrics = glyphMetrics(face, codepoint, pixelSize);
+    return metrics ? std::optional<float>(metrics->advanceX) : std::nullopt;
+}
+
+std::optional<GlyphMetrics> FontRasterizer::glyphMetrics(const FontFace &face, std::uint32_t codepoint,
+                                                         float pixelSize) const
 {
     const LoadedFace *loaded = loadFace(face);
     if (loaded == nullptr || pixelSize <= 0.0f) {
@@ -106,19 +124,29 @@ std::optional<float> FontRasterizer::glyphAdvance(const FontFace &face, std::uin
     int advance = 0;
     int leftBearing = 0;
     stbtt_GetGlyphHMetrics(&loaded->info, glyphIndex, &advance, &leftBearing);
-    return static_cast<float>(advance) * stbtt_ScaleForPixelHeight(&loaded->info, pixelSize);
+    GlyphMetrics metrics;
+    metrics.glyphIndex = glyphIndex;
+    metrics.advanceX = static_cast<float>(advance) * stbtt_ScaleForPixelHeight(&loaded->info, pixelSize);
+    return metrics;
 }
 
 std::optional<RasterizedGlyph> FontRasterizer::rasterizeGlyph(const FontFace &face, std::uint32_t codepoint,
                                                               float pixelSize) const
 {
-    const LoadedFace *loaded = loadFace(face);
-    if (loaded == nullptr || pixelSize <= 0.0f) {
+    const auto index = glyphIndex(face, codepoint);
+    if (!index) {
         return std::nullopt;
     }
 
-    const int glyphIndex = stbtt_FindGlyphIndex(&loaded->info, static_cast<int>(codepoint));
-    if (glyphIndex == 0) {
+    return rasterizeGlyphIndex(face, *index, codepoint, pixelSize);
+}
+
+std::optional<RasterizedGlyph> FontRasterizer::rasterizeGlyphIndex(const FontFace &face, int glyphIndex,
+                                                                   std::uint32_t sourceCodepoint,
+                                                                   float pixelSize) const
+{
+    const LoadedFace *loaded = loadFace(face);
+    if (loaded == nullptr || pixelSize <= 0.0f || glyphIndex <= 0) {
         return std::nullopt;
     }
 
@@ -148,7 +176,8 @@ std::optional<RasterizedGlyph> FontRasterizer::rasterizeGlyph(const FontFace &fa
 
     RasterizedGlyph glyph;
     glyph.key.fontFamily = face.family();
-    glyph.key.codepoint = codepoint;
+    glyph.key.codepoint = sourceCodepoint;
+    glyph.key.glyphIndex = glyphIndex;
     glyph.key.pixelSize = pixelSize;
     glyph.bitmap = std::move(bitmap);
     return glyph;

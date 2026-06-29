@@ -13,7 +13,9 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 | Atlas-backed glyph rendering | Supported | Rasterized glyphs are packed into `GlyphAtlas`; Canvas submits atlas quads through the image path. |
 | Persistent GPU atlas resource | Supported | Canvas owns a reusable GPU atlas image resource and updates it when the CPU atlas content changes. |
 | Dirty-rect atlas updates | Supported | Glyph uploads expose dirty rectangles; Canvas updates matching GPU atlas subregions when possible. |
-| Shaped glyph run abstraction | Supported | Portable raster text uses shaped runs with source byte mapping, glyph advances, and letter spacing before atlas upload. |
+| Shaped glyph run abstraction | Supported | Portable raster text uses shaped runs with source byte mapping, glyph indices, glyph advances, offsets, and letter spacing before atlas upload. |
+| Glyph-index rasterization path | Supported | Font rasterization can render by glyph index, which is required by real shaping outputs. |
+| Basic RTL run ordering | Supported | The built-in shaper detects RTL-first runs and emits glyphs in visual order while preserving source byte mapping. |
 | Public font face model | Supported | `FontFace`, `FontDescriptor`, `FontFallbackChain`, and `FontManager` are public value/model types. |
 | Font file registration contract | Supported | `ITextBackend::registerFontFace` accepts file-backed faces. |
 | Font memory registration contract | Supported | `ITextBackend::registerFontFace` accepts memory-backed faces. |
@@ -38,7 +40,7 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 
 | Capability | Status | Intended Direction |
 | --- | --- | --- |
-| Complex script shaping backend | Planned | Add glyph substitution, reordering, bidirectional text, and font feature handling behind the shaped-run abstraction. |
+| OpenType shaping adapter | Planned | Add HarfBuzz-style glyph substitution, mark positioning, bidi segmentation, language tags, and font feature handling behind the shaped-run abstraction. |
 | Color glyph rendering | Planned | Add color glyph formats once font fallback and atlas ownership are stable. |
 
 ## Acceptance Targets

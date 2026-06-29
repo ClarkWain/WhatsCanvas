@@ -11,6 +11,7 @@ struct GlyphKey
 {
     std::string fontFamily;
     std::uint32_t codepoint = 0;
+    int glyphIndex = 0;
     float pixelSize = 0.0f;
 
     bool operator==(const GlyphKey &other) const;
