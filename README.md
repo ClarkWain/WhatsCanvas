@@ -53,11 +53,13 @@ WhatsCanvas 是一个用 C++17 编写的轻量级二维渲染引擎项目，以 
 ## 能力概览
 
 - 基础图元：点、线、折线、多边形、矩形、圆角矩形、圆、椭圆、圆弧、任意路径。
-- 绘制样式：填充、描边、透明度、渐变、混合模式、虚线、圆角路径效果、图像采样与贴图模式。
-- 画布状态：`save` / `restore`、矩阵变换、矩形裁剪、`clipPath`、`saveLayer`、命中测试。
-- 图像能力：普通绘制、contain / cover / fill 布局、九宫格、平铺绘制。
-- 文本能力：`drawText`、`drawTextBox`、`drawTextOnPath`、测量与基础布局。
-- 验证能力：PPM 截图、像素哈希、固定时间首帧冒烟测试、严格本地回归检查。
+- 绘制样式：填充、描边、透明度、线性 / 径向 / 多 stop 渐变、混合模式、阴影、虚线、圆角路径效果、图像采样与贴图模式。
+- 画布状态：`save` / `restore`、矩阵变换、矩形裁剪、`clipPath`、`saveLayer`、render-target canvas、命中测试和快速剔除。
+- 图像能力：文件解码、encoded memory、raw RGBA、外部纹理包装、整图替换、局部更新、contain / cover / fill 布局、锚点、九宫格、圆角裁剪、圆形裁剪和平铺绘制。
+- 文本能力：UTF-8 输入处理、字体描述与 fallback 契约、`drawText`、`drawTextBox`、`drawTextOnPath`、测量、文本框布局、行高、最大行、ellipsis、对齐、baseline、letter spacing、描边文本、文本阴影和缺字诊断。
+- 渲染后端：桌面 OpenGL 为主路径，OpenGLES 目标共享同一套 Canvas API 和 GL-family 后端实现；shader portability、上下文生命周期和资源重建已有对应验证。
+- 性能与资源：路径 / 点线 / 图像 / 文本绘制程序统一走流式顶点缓冲，图片命令支持同纹理合批，图片绘制使用全局 quad index buffer，离屏 render target 有复用池，桌面 GL 渐变 stop 支持 texel buffer，OpenGLES 保留兼容 fallback。
+- 诊断与验证：`RenderStats`、同步 / 异步像素回读、PPM 截图、像素哈希、fuzzy PPM 对比、固定时间首帧冒烟、OpenGLES 构建冒烟、示例构建冒烟和本地严格回归检查。
 
 ## Canvas API
 
@@ -71,12 +73,19 @@ class Canvas {
 
 	static void initialize();
 	static void finalize();
+	static bool loadOpenGL(...);
+	static void setGammaCorrect(bool enabled);
 
 	void shutdown();
+	bool initializeContext();
+	void finalizeContext();
+	void releaseResources();
 	void setSize(int width, int height);
 	int getWidth() const;
 	int getHeight() const;
 	void setColor(Color color);
+	void setBlendMode(Paint::BlendMode blendMode);
+	void setRenderTargetMode(bool enabled);
 
 	void drawColor(const Color& color);
 	void drawPaint(const Paint& paint);
@@ -100,6 +109,12 @@ class Canvas {
 	void drawImageRounded(...);
 	void drawImageCircle(...);
 	void drawImageTiled(...);
+	void drawImage(const ITextureSource& source, ...);
+	bool loadImageFromEncodedMemory(...);
+	bool loadImageFromRGBA(...);
+	bool replaceImageRGBA(...);
+	bool updateImageRGBA(...);
+	bool wrapExternalTexture(...);
 
 	void drawText(...);
 	void drawTextBox(...);
@@ -141,6 +156,9 @@ class Canvas {
 	void endFrame();
 	RenderStats getRenderStats() const;
 	bool readPixelsRGBA(...);
+	bool readPixelsRGBAAsync(...);
+	bool pollReadPixelsRGBAAsync();
+	bool hasPendingReadPixelsRGBAAsync() const;
 	std::vector<unsigned char> readPixelsRGBA() const;
 	bool savePixelsPPM(const std::string& path) const;
 	static std::uint64_t hashPixelsRGBA(...);
@@ -227,7 +245,7 @@ target_link_libraries(MyApp PRIVATE WhatsCanvas::OpenGL)
 #include <wsc/wsc.h>
 ```
 
-如果你只想按模块引入，也可以分别包含 `wsc/Canvas.h`、`wsc/Paint.h`、`wsc/Path.h`、`wsc/Image.h` 和 `wsc/base.h`。
+如果你只想按模块引入，也可以分别包含 `wsc/Canvas.h`、`wsc/Paint.h`、`wsc/Path.h`、`wsc/Image.h`、`wsc/Font.h` 和 `wsc/base.h`。
 
 安装包的消费面默认暴露 `WhatsCanvas::OpenGL` 和 `include/wsc/`。如果构建时打开 `WHATSCANVAS_BUILD_OPENGLES`，也会额外导出 `WhatsCanvas::OpenGLES`。GLFW 只用于仓库内 examples 的窗口与事件循环，GLAD 被编进 GL-family 后端，GLM 只作为内部数学实现依赖；普通消费者不需要 include 或链接这三者。
 
@@ -254,6 +272,7 @@ target_link_libraries(MyApp PRIVATE WhatsCanvas::OpenGLES)
 常用验证入口：
 
 ```bat
+ctest -C Debug -L unit --output-on-failure
 cmd /c scripts\smoke_test.bat
 cmd /c scripts\clip_path_smoke.bat
 cmd /c scripts\regression_smoke.bat
@@ -262,6 +281,8 @@ cmd /c scripts\validation_scene_smoke.bat
 cmd /c scripts\opengles_build_smoke.bat
 ctest -C Debug -L smoke --output-on-failure
 ```
+
+如果只想跑核心单元测试，优先使用 `ctest -C Debug -L unit --output-on-failure`。当前单元测试覆盖 GraphicsState / Path、文本布局、UTF-8 工具、FontManager、文本后端契约、文本回归、RenderStats、RenderTargetPool、CanvasAdapter、矩阵与裁剪、Paint 状态、Image 生命周期、Canvas 上下文生命周期、GlyphAtlas 和弃用提示。渲染链路或平台相关改动再补跑 `ctest -C Debug -L smoke --output-on-failure`。
 
 ## 示例展示
 
@@ -320,7 +341,8 @@ build.bat --no-run
 - `examples/showcase/`: 根演示程序，适合快速浏览公共 Canvas API 的综合使用方式。
 - `examples/snippets/`: 可复制的功能片段，覆盖 font fallback、multiline text、external texture 和 image pattern。
 - `tests/`: 单元测试入口与测试说明。
-- `scripts/`: 冒烟、clip-path、回归、示例构建四类验证脚本。
+- `benchmarks/`: core benchmark 入口，覆盖文本、图片、命令录制和 flush 等成本观察点。
+- `scripts/`: 冒烟、clip-path、回归、示例构建、validation scene 和 OpenGLES 构建验证脚本。
 - `doc/polyline/`: 偏原理和互动演示导向的教学材料。
 - `doc/Font Rendering Techniques/`: 字体渲染与文本专题材料。
 - `doc/architecture/`: ADR 和架构文档，适合系统性阅读。
@@ -366,6 +388,6 @@ python scripts\compare_ppm_fuzzy.py baseline.ppm candidate.ppm --max-channel-del
 
 - 持续完善文档、ADR 和学习路径。
 - 继续把 Canvas 核心抽成更清晰的可复用库目标。
-- 逐步增强文本、字体度量、字形整形和 Glyph Atlas。
+- 继续推进跨平台字体栅格化、atlas-backed 文本渲染、emoji 彩色字形和更完整的 shaping/layout 后端。
 - 增强自动化验证、渲染回归和性能基准能力。
 - 为更多图形后端保留清晰的扩展边界。
