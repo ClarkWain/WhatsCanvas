@@ -15,6 +15,7 @@
 #include "text/GlyphAtlas.h"
 #include "text/ITextBackend.h"
 #include "text/NativeText.h"
+#include "text/TextShaper.h"
 #include "text/TextUtils.h"
 
 namespace {
@@ -348,81 +349,43 @@ private:
 
     std::optional<float> measureRasterizedTextWidth(const std::string &normalizedText, const Paint &paint) const
     {
-        if (!paint.hasFontFamily()) {
-            return std::nullopt;
-        }
-
-        float width = 0.0f;
-        bool usedRasterGlyph = false;
-        const float spacing = std::isfinite(paint.getLetterSpacing()) ? paint.getLetterSpacing() : 0.0f;
-        for (const wsc::text::Utf8Codepoint &codepoint : wsc::text::decodeUtf8(normalizedText)) {
-            if (codepoint.value == '\n') {
-                break;
-            }
-            if (codepoint.value < 32) {
-                continue;
-            }
-
-            const wsc::FontFace *face = findRasterFaceForCodepoint(codepoint.value, paint);
-            if (face == nullptr) {
-                return std::nullopt;
-            }
-
-            const auto advance = rasterizer_.glyphAdvance(*face, codepoint.value, paint.getTextSize());
-            if (!advance) {
-                return std::nullopt;
-            }
-
-            if (usedRasterGlyph) {
-                width += spacing;
-            }
-            width += *advance;
-            usedRasterGlyph = true;
-        }
-
-        return usedRasterGlyph ? std::optional<float>(std::max(0.0f, width)) : std::nullopt;
+        const auto run = shapeRasterizedText(normalizedText, paint);
+        return run ? std::optional<float>(run->width) : std::nullopt;
     }
 
     std::optional<TextRenderResult> renderRasterizedText(const std::string &normalizedText, float x, float y,
                                                          const Paint &paint) const
     {
-        const auto measuredWidth = measureRasterizedTextWidth(normalizedText, paint);
-        if (!measuredWidth) {
+        const auto shapedRun = shapeRasterizedText(normalizedText, paint);
+        if (!shapedRun) {
             return std::nullopt;
         }
 
         float alignedX = x;
         if (paint.getTextAlign() == Paint::TextAlign::CENTER) {
-            alignedX -= *measuredWidth * 0.5f;
+            alignedX -= shapedRun->width * 0.5f;
         } else if (paint.getTextAlign() == Paint::TextAlign::RIGHT) {
-            alignedX -= *measuredWidth;
+            alignedX -= shapedRun->width;
         }
 
         TextRenderResult result;
         result.kind = TextRenderKind::GlyphAtlas;
         result.drawX = alignedX;
         result.drawY = y + wsc::text::textBaselineOffset(paint.getTextBaseline(), paint.getTextSize());
-        result.width = *measuredWidth;
+        result.width = shapedRun->width;
         result.height = paint.getTextSize();
 
         float penX = alignedX;
         const float baselineY = result.drawY + paint.getTextSize();
         const float spacing = std::isfinite(paint.getLetterSpacing()) ? paint.getLetterSpacing() : 0.0f;
         bool usedRasterGlyph = false;
-        for (const wsc::text::Utf8Codepoint &codepoint : wsc::text::decodeUtf8(normalizedText)) {
-            if (codepoint.value == '\n') {
-                break;
-            }
-            if (codepoint.value < 32) {
-                continue;
-            }
-
-            const wsc::FontFace *face = findRasterFaceForCodepoint(codepoint.value, paint);
+        for (const wsc::text::ShapedGlyph &glyph : shapedRun->glyphs) {
+            const wsc::FontFace *face = findRasterFaceForCodepoint(glyph.codepoint, paint);
             if (face == nullptr) {
                 return std::nullopt;
             }
 
-            const auto rasterized = rasterizer_.rasterizeGlyph(*face, codepoint.value, paint.getTextSize());
+            const auto rasterized = rasterizer_.rasterizeGlyph(*face, glyph.codepoint, paint.getTextSize());
             if (!rasterized) {
                 return std::nullopt;
             }
@@ -449,7 +412,7 @@ private:
                 result.glyphAtlasQuads.push_back(quad);
             }
 
-            penX += rasterized->bitmap.advanceX;
+            penX += glyph.advanceX;
             usedRasterGlyph = true;
         }
 
@@ -461,6 +424,24 @@ private:
         result.atlasHeight = glyphAtlas_.stats().height;
         result.atlasAlphaPixels = glyphAtlas_.pixels();
         return result;
+    }
+
+    std::optional<wsc::text::ShapedTextRun> shapeRasterizedText(const std::string &normalizedText,
+                                                                const Paint &paint) const
+    {
+        if (!paint.hasFontFamily()) {
+            return std::nullopt;
+        }
+
+        return wsc::text::shapeTextSimple(normalizedText,
+                                          paint.getLetterSpacing(),
+                                          [&](std::uint32_t codepoint) -> std::optional<float> {
+            const wsc::FontFace *face = findRasterFaceForCodepoint(codepoint, paint);
+            if (face == nullptr) {
+                return std::nullopt;
+            }
+            return rasterizer_.glyphAdvance(*face, codepoint, paint.getTextSize());
+        });
     }
 
     void addMissingGlyphDiagnostic(std::uint32_t codepoint, const std::string &family) const
