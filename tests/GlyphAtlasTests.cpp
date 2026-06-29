@@ -17,7 +17,7 @@ bool expect(bool condition, const std::string &message)
 
 wsc::text::GlyphKey makeKey(std::uint32_t codepoint, float size = 16.0f)
 {
-    return {"Inter", codepoint, size};
+    return {"Inter", codepoint, static_cast<int>(codepoint), size};
 }
 
 wsc::text::GlyphBitmap makeBitmap(int width, int height, unsigned char value)

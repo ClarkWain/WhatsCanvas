@@ -19,14 +19,26 @@ struct RasterizedGlyph
     GlyphBitmap bitmap;
 };
 
+struct GlyphMetrics
+{
+    int glyphIndex = 0;
+    float advanceX = 0.0f;
+};
+
 class FontRasterizer
 {
 public:
     bool hasGlyph(const FontFace &face, std::uint32_t codepoint) const;
+    std::optional<int> glyphIndex(const FontFace &face, std::uint32_t codepoint) const;
     std::optional<float> glyphAdvance(const FontFace &face, std::uint32_t codepoint,
                                       float pixelSize) const;
+    std::optional<GlyphMetrics> glyphMetrics(const FontFace &face, std::uint32_t codepoint,
+                                             float pixelSize) const;
     std::optional<RasterizedGlyph> rasterizeGlyph(const FontFace &face, std::uint32_t codepoint,
                                                   float pixelSize) const;
+    std::optional<RasterizedGlyph> rasterizeGlyphIndex(const FontFace &face, int glyphIndex,
+                                                       std::uint32_t sourceCodepoint,
+                                                       float pixelSize) const;
 
 private:
     struct LoadedFace;

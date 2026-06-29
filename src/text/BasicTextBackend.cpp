@@ -385,7 +385,9 @@ private:
                 return std::nullopt;
             }
 
-            const auto rasterized = rasterizer_.rasterizeGlyph(*face, glyph.codepoint, paint.getTextSize());
+            const auto rasterized = glyph.glyphIndex > 0
+                ? rasterizer_.rasterizeGlyphIndex(*face, glyph.glyphIndex, glyph.codepoint, paint.getTextSize())
+                : rasterizer_.rasterizeGlyph(*face, glyph.codepoint, paint.getTextSize());
             if (!rasterized) {
                 return std::nullopt;
             }
@@ -401,8 +403,8 @@ private:
                 }
 
                 TextRenderResult::GlyphAtlasQuad quad;
-                quad.x = penX + entry->bearingX;
-                quad.y = baselineY + entry->bearingY;
+                quad.x = penX + glyph.offsetX + entry->bearingX;
+                quad.y = baselineY + glyph.offsetY + entry->bearingY;
                 quad.width = static_cast<float>(entry->width);
                 quad.height = static_cast<float>(entry->height);
                 quad.u0 = entry->u0;
@@ -445,12 +447,16 @@ private:
 
         return wsc::text::shapeTextSimple(normalizedText,
                                           paint.getLetterSpacing(),
-                                          [&](std::uint32_t codepoint) -> std::optional<float> {
+                                          [&](std::uint32_t codepoint) -> std::optional<wsc::text::ResolvedGlyph> {
             const wsc::FontFace *face = findRasterFaceForCodepoint(codepoint, paint);
             if (face == nullptr) {
                 return std::nullopt;
             }
-            return rasterizer_.glyphAdvance(*face, codepoint, paint.getTextSize());
+            const auto metrics = rasterizer_.glyphMetrics(*face, codepoint, paint.getTextSize());
+            if (!metrics) {
+                return std::nullopt;
+            }
+            return wsc::text::ResolvedGlyph{metrics->glyphIndex, metrics->advanceX};
         });
     }
 

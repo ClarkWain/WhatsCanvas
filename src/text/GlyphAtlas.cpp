@@ -8,6 +8,7 @@ bool GlyphKey::operator==(const GlyphKey &other) const
 {
     return fontFamily == other.fontFamily
         && codepoint == other.codepoint
+        && glyphIndex == other.glyphIndex
         && pixelSize == other.pixelSize;
 }
 
