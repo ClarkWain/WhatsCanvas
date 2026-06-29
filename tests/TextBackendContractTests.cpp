@@ -1,4 +1,5 @@
 #include <iostream>
+#include <fstream>
 #include <memory>
 #include <string>
 #include <vector>
@@ -92,25 +93,73 @@ bool testPortableBackendUsesGeometryPath()
                   "portable backend should not claim native CJK glyph coverage");
 }
 
-bool testPortableBackendResolvesEmojiFallbackGlyphRange()
+std::string findSystemFontPath()
+{
+    const std::vector<std::string> candidates = {
+        "C:/Windows/Fonts/arial.ttf",
+        "C:/Windows/Fonts/segoeui.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/System/Library/Fonts/Supplemental/Arial.ttf",
+        "/System/Library/Fonts/SFNS.ttf"
+    };
+
+    for (const std::string &path : candidates) {
+        std::ifstream input(path, std::ios::binary);
+        if (input.good()) {
+            return path;
+        }
+    }
+    return {};
+}
+
+bool testPortableBackendUsesGlyphAtlasForRegisteredFont()
+{
+    const std::string fontPath = findSystemFontPath();
+    if (fontPath.empty()) {
+        std::cout << "Skipping glyph atlas registered-font test; no known system font path found." << std::endl;
+        return true;
+    }
+
+    std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createPortableTextBackend();
+    bool ok = expect(backend->registerFontFace(wsc::FontFace::fromFile(wsc::FontDescriptor("AtlasPrimary"),
+                                                                       fontPath)),
+                     "registered system font should be accepted") && true;
+
+    Paint paint;
+    paint.setTextSize(24.0f);
+    paint.setFontFamily("AtlasPrimary");
+    const wsc::text::TextRenderResult rendered = backend->renderText("Atlas", 4.0f, 8.0f, paint);
+
+    ok = expect(rendered.kind == wsc::text::TextRenderKind::GlyphAtlas,
+                "registered portable font should render through glyph atlas") && ok;
+    ok = expect(rendered.atlasWidth > 0 && rendered.atlasHeight > 0,
+                "glyph atlas render should expose atlas dimensions") && ok;
+    ok = expect(!rendered.atlasAlphaPixels.empty(),
+                "glyph atlas render should expose atlas alpha pixels") && ok;
+    ok = expect(!rendered.glyphAtlasQuads.empty(),
+                "glyph atlas render should emit glyph quads") && ok;
+    return ok;
+}
+
+bool testPortableBackendResolvesFallbackGlyphRange()
 {
     std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createPortableTextBackend();
 
     wsc::FontFace primary = wsc::FontFace::fromFile(wsc::FontDescriptor("Primary"), "primary.ttf");
     primary.addCodepointRange(32, 126);
-    wsc::FontFace emoji = wsc::FontFace::fromFile(wsc::FontDescriptor("Emoji"), "emoji.ttf");
-    emoji.addCodepointRange(0x1F300, 0x1FAFF);
+    wsc::FontFace fallback = wsc::FontFace::fromFile(wsc::FontDescriptor("Fallback"), "fallback.ttf");
+    fallback.addCodepointRange(0x1F300, 0x1FAFF);
 
     bool ok = expect(backend->registerFontFace(primary), "primary face with ASCII range should register");
-    ok = expect(backend->registerFontFace(emoji), "emoji face with emoji range should register") && ok;
+    ok = expect(backend->registerFontFace(fallback), "fallback face with declared range should register") && ok;
 
     wsc::FontFallbackChain chain("Primary");
-    chain.addFallbackFamily("Emoji");
-    ok = expect(backend->setFontFallbackChain(chain), "emoji fallback chain should register") && ok;
+    chain.addFallbackFamily("Fallback");
+    ok = expect(backend->setFontFallbackChain(chain), "fallback chain should register") && ok;
 
     Paint paint = makeTextPaint();
     ok = expect(backend->hasGlyphForCodepoint(0x1F600, paint),
-                "emoji glyph should resolve through fallback range") && ok;
+                "covered codepoint should resolve through fallback range") && ok;
     ok = expect(!backend->hasGlyphForCodepoint(0x4E2D, paint),
                 "uncovered codepoint should report missing glyph") && ok;
     ok = expect(!backend->hasGlyphForCodepoint(0x4E2D, paint),
@@ -131,6 +180,7 @@ int main()
         && testLineBreakAndGlyphQuery()
         && testDiagnosticsForRejectedFallback()
         && testPortableBackendUsesGeometryPath()
-        && testPortableBackendResolvesEmojiFallbackGlyphRange();
+        && testPortableBackendUsesGlyphAtlasForRegisteredFont()
+        && testPortableBackendResolvesFallbackGlyphRange();
     return ok ? 0 : 1;
 }

@@ -4,12 +4,15 @@
 #include <cmath>
 #include <deque>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
 
 #include "../../include/wsc/Font.h"
 #include "canvas/Paint.h"
+#include "text/FontRasterizer.h"
+#include "text/GlyphAtlas.h"
 #include "text/ITextBackend.h"
 #include "text/NativeText.h"
 #include "text/TextUtils.h"
@@ -20,6 +23,7 @@ using wsc::text::TextRenderKind;
 using wsc::text::TextRenderResult;
 
 constexpr size_t kMaxNativeTextCacheEntries = 128;
+constexpr int kDefaultGlyphAtlasSize = 1024;
 
 class BasicTextBackend final : public wsc::text::ITextBackend
 {
@@ -141,7 +145,9 @@ public:
             const std::vector<std::string> families = resolveFontFamilies(paint.getFontFamily());
             for (const std::string &family : families) {
                 for (const wsc::FontFace *face : fontManager_.findFaces(family)) {
-                    if (face != nullptr && face->supportsCodepoint(codepoint)) {
+                    if (face != nullptr
+                        && ((face->hasCodepointRanges() && face->supportsCodepoint(codepoint))
+                            || rasterizer_.hasGlyph(*face, codepoint))) {
                         return true;
                     }
                 }
@@ -169,6 +175,10 @@ public:
             return 0.0f;
         }
 
+        if (const auto rasterWidth = measureRasterizedTextWidth(normalizedText, paint)) {
+            return *rasterWidth;
+        }
+
 #ifdef _WIN32
         if (options_.enableNativeText && paint.hasFontFamily()) {
             const auto nativeMeasure = getNativeMeasure(normalizedText, paint);
@@ -189,6 +199,20 @@ public:
         const std::string normalizedText = wsc::text::normalizeUtf8ForText(text);
         if (normalizedText.empty() || paint.getTextSize() <= 0.0f) {
             return RectF();
+        }
+
+        if (const auto rasterWidth = measureRasterizedTextWidth(normalizedText, paint)) {
+            const float height = paint.getTextSize();
+            float left = 0.0f;
+            if (paint.getTextAlign() == Paint::TextAlign::CENTER) {
+                left = -*rasterWidth * 0.5f;
+            } else if (paint.getTextAlign() == Paint::TextAlign::RIGHT) {
+                left = -*rasterWidth;
+            }
+            return RectF(left,
+                         wsc::text::textBaselineOffset(paint.getTextBaseline(), height),
+                         *rasterWidth,
+                         height);
         }
 
 #ifdef _WIN32
@@ -234,6 +258,10 @@ public:
         const std::string normalizedText = wsc::text::normalizeUtf8ForText(text);
         if (normalizedText.empty() || paint.getTextSize() <= 0.0f) {
             return result;
+        }
+
+        if (auto atlasResult = renderRasterizedText(normalizedText, x, y, paint)) {
+            return *atlasResult;
         }
 
 #ifdef _WIN32
@@ -302,6 +330,139 @@ public:
     }
 
 private:
+    const wsc::FontFace *findRasterFaceForCodepoint(std::uint32_t codepoint, const Paint &paint) const
+    {
+        if (!paint.hasFontFamily()) {
+            return nullptr;
+        }
+
+        for (const std::string &family : resolveFontFamilies(paint.getFontFamily())) {
+            for (const wsc::FontFace *face : fontManager_.findFaces(family)) {
+                if (face != nullptr && rasterizer_.hasGlyph(*face, codepoint)) {
+                    return face;
+                }
+            }
+        }
+        return nullptr;
+    }
+
+    std::optional<float> measureRasterizedTextWidth(const std::string &normalizedText, const Paint &paint) const
+    {
+        if (!paint.hasFontFamily()) {
+            return std::nullopt;
+        }
+
+        float width = 0.0f;
+        bool usedRasterGlyph = false;
+        const float spacing = std::isfinite(paint.getLetterSpacing()) ? paint.getLetterSpacing() : 0.0f;
+        for (const wsc::text::Utf8Codepoint &codepoint : wsc::text::decodeUtf8(normalizedText)) {
+            if (codepoint.value == '\n') {
+                break;
+            }
+            if (codepoint.value < 32) {
+                continue;
+            }
+
+            const wsc::FontFace *face = findRasterFaceForCodepoint(codepoint.value, paint);
+            if (face == nullptr) {
+                return std::nullopt;
+            }
+
+            const auto advance = rasterizer_.glyphAdvance(*face, codepoint.value, paint.getTextSize());
+            if (!advance) {
+                return std::nullopt;
+            }
+
+            if (usedRasterGlyph) {
+                width += spacing;
+            }
+            width += *advance;
+            usedRasterGlyph = true;
+        }
+
+        return usedRasterGlyph ? std::optional<float>(std::max(0.0f, width)) : std::nullopt;
+    }
+
+    std::optional<TextRenderResult> renderRasterizedText(const std::string &normalizedText, float x, float y,
+                                                         const Paint &paint) const
+    {
+        const auto measuredWidth = measureRasterizedTextWidth(normalizedText, paint);
+        if (!measuredWidth) {
+            return std::nullopt;
+        }
+
+        float alignedX = x;
+        if (paint.getTextAlign() == Paint::TextAlign::CENTER) {
+            alignedX -= *measuredWidth * 0.5f;
+        } else if (paint.getTextAlign() == Paint::TextAlign::RIGHT) {
+            alignedX -= *measuredWidth;
+        }
+
+        TextRenderResult result;
+        result.kind = TextRenderKind::GlyphAtlas;
+        result.drawX = alignedX;
+        result.drawY = y + wsc::text::textBaselineOffset(paint.getTextBaseline(), paint.getTextSize());
+        result.width = *measuredWidth;
+        result.height = paint.getTextSize();
+
+        float penX = alignedX;
+        const float baselineY = result.drawY + paint.getTextSize();
+        const float spacing = std::isfinite(paint.getLetterSpacing()) ? paint.getLetterSpacing() : 0.0f;
+        bool usedRasterGlyph = false;
+        for (const wsc::text::Utf8Codepoint &codepoint : wsc::text::decodeUtf8(normalizedText)) {
+            if (codepoint.value == '\n') {
+                break;
+            }
+            if (codepoint.value < 32) {
+                continue;
+            }
+
+            const wsc::FontFace *face = findRasterFaceForCodepoint(codepoint.value, paint);
+            if (face == nullptr) {
+                return std::nullopt;
+            }
+
+            const auto rasterized = rasterizer_.rasterizeGlyph(*face, codepoint.value, paint.getTextSize());
+            if (!rasterized) {
+                return std::nullopt;
+            }
+
+            if (usedRasterGlyph) {
+                penX += spacing;
+            }
+
+            if (rasterized->bitmap.width > 0 && rasterized->bitmap.height > 0) {
+                const auto entry = glyphAtlas_.uploadGlyph(rasterized->key, rasterized->bitmap);
+                if (!entry) {
+                    return std::nullopt;
+                }
+
+                TextRenderResult::GlyphAtlasQuad quad;
+                quad.x = penX + entry->bearingX;
+                quad.y = baselineY + entry->bearingY;
+                quad.width = static_cast<float>(entry->width);
+                quad.height = static_cast<float>(entry->height);
+                quad.u0 = entry->u0;
+                quad.v0 = entry->v0;
+                quad.u1 = entry->u1;
+                quad.v1 = entry->v1;
+                result.glyphAtlasQuads.push_back(quad);
+            }
+
+            penX += rasterized->bitmap.advanceX;
+            usedRasterGlyph = true;
+        }
+
+        if (result.glyphAtlasQuads.empty()) {
+            return std::nullopt;
+        }
+
+        result.atlasWidth = glyphAtlas_.stats().width;
+        result.atlasHeight = glyphAtlas_.stats().height;
+        result.atlasAlphaPixels = glyphAtlas_.pixels();
+        return result;
+    }
+
     void addMissingGlyphDiagnostic(std::uint32_t codepoint, const std::string &family) const
     {
         const std::string key = family + '#' + std::to_string(codepoint);
@@ -382,6 +543,8 @@ private:
     mutable std::deque<std::string> nativeBitmapCacheOrder_;
 #endif
     wsc::FontManager fontManager_;
+    mutable wsc::text::FontRasterizer rasterizer_;
+    mutable wsc::text::GlyphAtlas glyphAtlas_{kDefaultGlyphAtlasSize, kDefaultGlyphAtlasSize, 1};
     mutable std::vector<wsc::text::TextBackendDiagnostic> diagnostics_;
     mutable std::unordered_set<std::string> missingGlyphDiagnosticKeys_;
 };

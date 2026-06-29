@@ -26,7 +26,7 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
   - [x] font memory loading
   - [x] font family lookup
   - [x] fallback chains
-  - [x] emoji fallback
+  - [x] fallback codepoint ranges
   - [x] text metrics
   - [x] line breaking
   - [x] glyph-missing diagnostics
@@ -69,7 +69,7 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
   - [x] ASCII
   - [x] Chinese
   - [x] mixed Latin/CJK
-  - [x] emoji fallback
+  - [x] fallback codepoint ranges
   - [x] missing glyph reporting
   - [x] multiline wrapping
   - [x] alignment and baseline

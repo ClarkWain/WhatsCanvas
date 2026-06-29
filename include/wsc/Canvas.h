@@ -16,6 +16,8 @@
 class IRenderer;
 
 namespace wsc {
+class FontFace;
+class FontFallbackChain;
 class Image;
 class CanvasLifecycleTestAccess;
 class Matrix4;
@@ -245,6 +247,8 @@ public:
 	float measureText(const std::string &text, const Paint &paint) const;
 	RectF measureTextBounds(const std::string &text, const Paint &paint) const;
 	TextMetrics measureTextMetrics(const std::string &text, const Paint &paint) const;
+	bool registerFontFace(const FontFace &face);
+	bool setFontFallbackChain(const FontFallbackChain &chain);
 
 	// Save stack and offscreen layering.
 	int save();

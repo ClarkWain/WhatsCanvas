@@ -18,7 +18,8 @@ namespace wsc::text {
 enum class TextRenderKind {
     None,
     Geometry,
-    Bitmap
+    Bitmap,
+    GlyphAtlas
 };
 
 struct TextRenderResult
@@ -30,6 +31,18 @@ struct TextRenderResult
         std::size_t sourceLength = 0;
     };
 
+    struct GlyphAtlasQuad
+    {
+        float x = 0.0f;
+        float y = 0.0f;
+        float width = 0.0f;
+        float height = 0.0f;
+        float u0 = 0.0f;
+        float v0 = 0.0f;
+        float u1 = 0.0f;
+        float v1 = 0.0f;
+    };
+
     TextRenderKind kind = TextRenderKind::None;
     float drawX = 0.0f;
     float drawY = 0.0f;
@@ -39,6 +52,10 @@ struct TextRenderResult
     int bitmapHeight = 0;
     std::vector<float> vertices;
     std::vector<unsigned char> bitmapPixels;
+    int atlasWidth = 0;
+    int atlasHeight = 0;
+    std::vector<unsigned char> atlasAlphaPixels;
+    std::vector<GlyphAtlasQuad> glyphAtlasQuads;
     std::vector<MissingGlyph> missingGlyphs;
 };
 
