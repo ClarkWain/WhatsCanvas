@@ -43,6 +43,14 @@ struct TextRenderResult
         float v1 = 0.0f;
     };
 
+    struct GlyphAtlasDirtyRect
+    {
+        int x = 0;
+        int y = 0;
+        int width = 0;
+        int height = 0;
+    };
+
     TextRenderKind kind = TextRenderKind::None;
     float drawX = 0.0f;
     float drawY = 0.0f;
@@ -55,6 +63,7 @@ struct TextRenderResult
     int atlasWidth = 0;
     int atlasHeight = 0;
     std::vector<unsigned char> atlasAlphaPixels;
+    std::vector<GlyphAtlasDirtyRect> atlasDirtyRects;
     std::vector<GlyphAtlasQuad> glyphAtlasQuads;
     std::vector<MissingGlyph> missingGlyphs;
 };

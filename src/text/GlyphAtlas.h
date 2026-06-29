@@ -55,6 +55,14 @@ struct GlyphAtlasStats
     bool textureValid = false;
 };
 
+struct GlyphAtlasDirtyRect
+{
+    int x = 0;
+    int y = 0;
+    int width = 0;
+    int height = 0;
+};
+
 class GlyphAtlas
 {
 public:
@@ -67,6 +75,8 @@ public:
     void onContextRestored();
 
     const std::vector<GlyphKey> &pendingRebuildKeys() const { return pendingRebuildKeys_; }
+    const std::vector<GlyphAtlasDirtyRect> &dirtyRects() const { return dirtyRects_; }
+    std::vector<GlyphAtlasDirtyRect> consumeDirtyRects();
     const std::vector<unsigned char> &pixels() const { return pixels_; }
     GlyphAtlasStats stats() const;
 
@@ -75,6 +85,8 @@ private:
     bool allocateRect(int width, int height, int &x, int &y);
     void resetPacking();
     void rememberRebuildKeys();
+    void markDirtyRect(int x, int y, int width, int height);
+    void markFullDirty();
     void writeGlyphPixels(const GlyphAtlasEntry &entry, const GlyphBitmap &bitmap);
 
     int width_ = 0;
@@ -85,6 +97,7 @@ private:
     int rowHeight_ = 0;
     std::vector<GlyphAtlasEntry> entries_;
     std::vector<GlyphKey> pendingRebuildKeys_;
+    std::vector<GlyphAtlasDirtyRect> dirtyRects_;
     std::vector<unsigned char> pixels_;
     std::size_t uploadCount_ = 0;
     std::size_t evictionCount_ = 0;
