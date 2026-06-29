@@ -75,46 +75,46 @@ bool testMixedLatinCjkRegression()
         && expect(narrowLines.size() >= 2, "narrow mixed text should wrap into multiple lines");
 }
 
-bool testEmojiFallbackRegression()
+bool testUncoveredFallbackRegression()
 {
     std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createBasicTextBackend();
     Paint paint = makeFallbackPaint();
-    const std::string text = std::string("emoji ") + "\xF0\x9F\x98\x80" + " fallback";
+    const std::string text = std::string("range ") + "\xF0\x9F\x98\x80" + " fallback";
     const float width = backend->measureTextWidth(text, paint);
     const wsc::text::TextRenderResult render = backend->renderText(text, 0.0f, 0.0f, paint);
 
-    return expect(width > 0.0f, "emoji fallback text should measure to a positive width")
-        && expect(render.kind == wsc::text::TextRenderKind::Geometry, "emoji fallback should render geometry")
-        && expect(!render.vertices.empty(), "emoji fallback should emit replacement glyph geometry")
-        && expect(render.missingGlyphs.size() == 1, "emoji fallback should report one missing glyph hook")
-        && expect(render.missingGlyphs.front().codepoint == 0x1F600, "missing glyph hook should report emoji codepoint")
-        && expect(!backend->hasGlyphForCodepoint(0x1F600, paint), "emoji glyph should report missing without a font family");
+    return expect(width > 0.0f, "uncovered fallback text should measure to a positive width")
+        && expect(render.kind == wsc::text::TextRenderKind::Geometry, "uncovered fallback should render geometry")
+        && expect(!render.vertices.empty(), "uncovered fallback should emit replacement glyph geometry")
+        && expect(render.missingGlyphs.size() == 1, "uncovered fallback should report one missing glyph hook")
+        && expect(render.missingGlyphs.front().codepoint == 0x1F600, "missing glyph hook should report codepoint")
+        && expect(!backend->hasGlyphForCodepoint(0x1F600, paint), "codepoint should report missing without a font family");
 }
 
-bool testEmojiFallbackRangeSuppressesMissingGlyphHook()
+bool testFallbackRangeSuppressesMissingGlyphHook()
 {
     std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createPortableTextBackend();
 
     wsc::FontFace primary = wsc::FontFace::fromFile(wsc::FontDescriptor("Primary"), "primary.ttf");
     primary.addCodepointRange(32, 126);
-    wsc::FontFace emoji = wsc::FontFace::fromFile(wsc::FontDescriptor("Emoji"), "emoji.ttf");
-    emoji.addCodepointRange(0x1F300, 0x1FAFF);
+    wsc::FontFace fallback = wsc::FontFace::fromFile(wsc::FontDescriptor("Fallback"), "fallback.ttf");
+    fallback.addCodepointRange(0x1F300, 0x1FAFF);
     backend->registerFontFace(primary);
-    backend->registerFontFace(emoji);
+    backend->registerFontFace(fallback);
 
     wsc::FontFallbackChain chain("Primary");
-    chain.addFallbackFamily("Emoji");
+    chain.addFallbackFamily("Fallback");
     backend->setFontFallbackChain(chain);
 
     Paint paint = makeFallbackPaint();
     paint.setFontFamily("Primary");
     const wsc::text::TextRenderResult render =
-        backend->renderText(std::string("emoji ") + "\xF0\x9F\x98\x80", 0.0f, 0.0f, paint);
+        backend->renderText(std::string("range ") + "\xF0\x9F\x98\x80", 0.0f, 0.0f, paint);
 
     return expect(render.kind == wsc::text::TextRenderKind::Geometry,
-                  "portable fallback range text should still render geometry")
+                  "declared fallback range text should still render geometry when font data is unavailable")
         && expect(render.missingGlyphs.empty(),
-                  "covered emoji fallback range should suppress missing glyph hooks");
+                  "covered fallback range should suppress missing glyph hooks");
 }
 
 } // namespace
@@ -125,7 +125,7 @@ int main()
     ok = testAsciiRegression() && ok;
     ok = testChineseFallbackRegression() && ok;
     ok = testMixedLatinCjkRegression() && ok;
-    ok = testEmojiFallbackRegression() && ok;
-    ok = testEmojiFallbackRangeSuppressesMissingGlyphHook() && ok;
+    ok = testUncoveredFallbackRegression() && ok;
+    ok = testFallbackRangeSuppressesMissingGlyphHook() && ok;
     return ok ? 0 : 1;
 }

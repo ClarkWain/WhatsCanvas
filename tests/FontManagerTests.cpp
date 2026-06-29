@@ -46,7 +46,7 @@ bool testRegisterFontMemory()
 
 bool testFontFaceCodepointRanges()
 {
-    wsc::FontFace face = wsc::FontFace::fromFile(wsc::FontDescriptor("Emoji"), "emoji.ttf");
+    wsc::FontFace face = wsc::FontFace::fromFile(wsc::FontDescriptor("Fallback"), "fallback.ttf");
     face.addCodepointRange(0x1F300, 0x1FAFF);
     face.addCodepointRange(126, 32);
 
@@ -61,10 +61,10 @@ bool testFallbackResolutionOrder()
     wsc::FontManager manager;
     manager.registerFontFile(wsc::FontDescriptor("Primary"), "primary.ttf");
     manager.registerFontFile(wsc::FontDescriptor("CJK"), "cjk.otf");
-    manager.registerFontFile(wsc::FontDescriptor("Emoji"), "emoji.ttf");
+    manager.registerFontFile(wsc::FontDescriptor("Fallback"), "fallback.ttf");
 
     const bool firstFallback = manager.addFallbackFamily("Primary", "CJK");
-    const bool secondFallback = manager.addFallbackFamily("Primary", "Emoji");
+    const bool secondFallback = manager.addFallbackFamily("Primary", "Fallback");
     manager.addFallbackFamily("Primary", "CJK");
     const auto families = manager.resolveFamilies("Primary");
 
@@ -72,7 +72,7 @@ bool testFallbackResolutionOrder()
         && expect(families.size() == 3, "fallback chain should include primary and unique fallbacks")
         && expect(families[0] == "Primary", "primary family should resolve first")
         && expect(families[1] == "CJK", "first fallback should resolve second")
-        && expect(families[2] == "Emoji", "second fallback should resolve third")
+        && expect(families[2] == "Fallback", "second fallback should resolve third")
         && expect(!manager.addFallbackFamily("Primary", "Missing"), "missing fallback should be rejected");
 }
 

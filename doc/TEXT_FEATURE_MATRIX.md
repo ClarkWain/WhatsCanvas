@@ -9,6 +9,8 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 | UTF-8 input validation | Supported | Invalid byte sequences are normalized before measurement/render paths. |
 | ASCII fallback geometry | Supported | Basic backend can render normalized text through ASCII fallback geometry. |
 | Native Windows text bitmap path | Supported | Used when a font family is supplied and native measurement/render succeeds. |
+| Cross-platform font rasterization | Supported | Registered file-backed or memory-backed TrueType faces can be rasterized through the portable font rasterizer. |
+| Atlas-backed glyph rendering | Supported | Rasterized glyphs are packed into `GlyphAtlas`; Canvas submits atlas quads through the image path. |
 | Public font face model | Supported | `FontFace`, `FontDescriptor`, `FontFallbackChain`, and `FontManager` are public value/model types. |
 | Font file registration contract | Supported | `ITextBackend::registerFontFace` accepts file-backed faces. |
 | Font memory registration contract | Supported | `ITextBackend::registerFontFace` accepts memory-backed faces. |
@@ -22,9 +24,9 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 | Glyph atlas ownership | Contract supported | `GlyphAtlas` owns atlas allocation, glyph upload, eviction, pending rebuild keys, and context rebuild hooks. |
 | Stroke text | Supported | Paint stroke/fill-and-stroke text queues stroked text geometry before fill text. |
 | Text shadow | Supported | Paint shadow layer queues text shadow passes for geometry text. |
-| Glyph availability query | Contract supported | Basic backend reports ASCII availability and treats native font-family paths as renderable. |
+| Glyph availability query | Contract supported | Basic backend reports ASCII availability, registered font ranges, native font-family paths, and rasterizer-backed glyph coverage. |
 | Diagnostics hook | Contract supported | Backend diagnostics report rejected font/fallback registration events. |
-| Emoji fallback query | Contract supported | Font faces can declare codepoint ranges; glyph availability resolves primary and fallback families. |
+| Fallback range query | Contract supported | Font faces can declare codepoint ranges; glyph availability resolves primary and fallback families. |
 | Missing glyph diagnostics | Contract supported | Missing non-ASCII glyph queries add coalesced diagnostics with codepoint and requested family. |
 | Missing glyph render hooks | Contract supported | Geometry fallback render results expose missing glyph codepoints and source ranges. |
 
@@ -32,10 +34,9 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 
 | Capability | Status | Intended Direction |
 | --- | --- | --- |
-| Cross-platform font rasterization | Planned | Add a backend that works consistently on desktop and mobile. |
-| Emoji fallback rendering | Planned | Render color emoji once the cross-platform rasterization path can provide glyph bitmaps. |
-| Atlas-backed glyph rendering | Planned | Connect rasterized glyph bitmaps to the atlas texture path for cross-platform text rendering. |
-| Atlas-aware text blur | Planned | Prefer atlas-aware blur once rasterized glyph rendering is available. |
+| Persistent GPU atlas resource | Planned | Keep the atlas texture on the renderer side and update dirty rects instead of uploading an RGBA atlas snapshot per text draw. |
+| Complex shaping backend | Planned | Add shaping for scripts and font features that need glyph substitution or reordering before rasterization. |
+| Atlas-aware text blur | Planned | Prefer atlas-aware blur once persistent atlas rendering owns glyph texture updates. |
 
 ## Acceptance Targets
 

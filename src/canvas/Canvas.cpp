@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "../../include/wsc/Canvas.h"
+#include "../../include/wsc/Font.h"
 #include "Image.h"
 #include "Matrix.h"
 #include "Paint.h"
@@ -2893,6 +2894,71 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
         || paint.getStyle() == Paint::Style::FILL_AND_STROKE;
     const Color fillColor = applyPaintAlpha(paint, paint.getColor());
     const auto strokePasses = buildTextStrokePasses(paint, impl_->currentState().matrix);
+    if (renderedText.kind == wsc::text::TextRenderKind::GlyphAtlas) {
+        const std::size_t expectedAtlasSize = static_cast<std::size_t>(std::max(0, renderedText.atlasWidth))
+            * static_cast<std::size_t>(std::max(0, renderedText.atlasHeight));
+        if (renderedText.atlasWidth <= 0 || renderedText.atlasHeight <= 0
+            || renderedText.atlasAlphaPixels.size() < expectedAtlasSize
+            || renderedText.glyphAtlasQuads.empty()) {
+            return;
+        }
+
+        std::vector<unsigned char> atlasPixels(expectedAtlasSize * 4, 255);
+        for (std::size_t i = 0; i < expectedAtlasSize; ++i) {
+            atlasPixels[i * 4 + 0] = 255;
+            atlasPixels[i * 4 + 1] = 255;
+            atlasPixels[i * 4 + 2] = 255;
+            atlasPixels[i * 4 + 3] = renderedText.atlasAlphaPixels[i];
+        }
+
+        const SharedImageResource imageResource = impl_->renderer->createImageResourceRGBA(renderedText.atlasWidth,
+                                                 renderedText.atlasHeight,
+                                                 atlasPixels);
+        if (!imageResource || !imageResource->isValid()) {
+            return;
+        }
+
+        const ScissorState scissor = impl_->makeCurrentScissorState();
+        const ClipMaskState clipMask = impl_->makeCurrentClipMaskState();
+        const auto submitAtlasText = [&](const Color &textColor, const glm::mat4 &transform) {
+            for (const auto &quad : renderedText.glyphAtlasQuads) {
+                DrawImageData data;
+                data.imageResource = imageResource;
+                data.x = quad.x;
+                data.y = quad.y;
+                data.width = quad.width;
+                data.height = quad.height;
+                data.u0 = quad.u0;
+                data.u1 = quad.u1;
+                data.v0 = quad.v0;
+                data.v1 = quad.v1;
+                data.tintColor[0] = textColor.r();
+                data.tintColor[1] = textColor.g();
+                data.tintColor[2] = textColor.b();
+                data.tintColor[3] = 1.0f;
+                data.alpha = textColor.a();
+                data.sampling = DrawImageSampling::Linear;
+                data.tileMode = DrawImageTileMode::Clamp;
+                data.transform = transform;
+                data.scissor = scissor;
+                data.blendMode = toDrawBlendMode(paint.getBlendMode());
+                data.clipMask = clipMask;
+                impl_->renderer->submit(std::make_unique<DrawImageCommand>(data));
+            }
+        };
+
+        for (const auto &shadowPass : buildShadowPasses(paint, impl_->currentState().matrix)) {
+            submitAtlasText(shadowPass.color, shadowPass.transform);
+        }
+        for (const auto &strokePass : strokePasses) {
+            submitAtlasText(strokePass.color, strokePass.transform);
+        }
+        if (drawFill) {
+            submitAtlasText(fillColor, impl_->currentState().matrix);
+        }
+        return;
+    }
+
     if (renderedText.kind == wsc::text::TextRenderKind::Bitmap) {
         const SharedImageResource imageResource = impl_->renderer->createImageResourceRGBA(renderedText.bitmapWidth,
                                                  renderedText.bitmapHeight,
@@ -3245,6 +3311,16 @@ Canvas::TextMetrics Canvas::measureTextMetrics(const std::string &text, const Pa
     metrics.ascent = std::min(0.0f, metrics.top);
     metrics.descent = std::max(0.0f, metrics.bottom);
     return metrics;
+}
+
+bool Canvas::registerFontFace(const FontFace &face)
+{
+    return impl_->textBackend != nullptr && impl_->textBackend->registerFontFace(face);
+}
+
+bool Canvas::setFontFallbackChain(const FontFallbackChain &chain)
+{
+    return impl_->textBackend != nullptr && impl_->textBackend->setFontFallbackChain(chain);
 }
 
 int Canvas::save()
