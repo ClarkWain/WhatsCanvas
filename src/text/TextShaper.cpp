@@ -139,11 +139,13 @@ std::vector<BidiRun> segmentBidiRuns(const std::string &normalizedText)
     std::vector<BidiRun> runs;
     const std::vector<Utf8Codepoint> codepoints = decodeUtf8(normalizedText);
     std::optional<bool> currentDirection;
-    std::size_t currentStart = 0;
+    std::size_t currentStart = std::string::npos;
     std::size_t currentEnd = 0;
+    std::size_t visibleStart = std::string::npos;
+    std::size_t visibleEnd = 0;
 
     const auto finishCurrent = [&]() {
-        if (currentDirection && currentEnd > currentStart) {
+        if (currentDirection && currentStart != std::string::npos && currentEnd > currentStart) {
             runs.push_back({currentStart, currentEnd, *currentDirection});
         }
     };
@@ -156,17 +158,26 @@ std::vector<BidiRun> segmentBidiRuns(const std::string &normalizedText)
             continue;
         }
 
+        if (visibleStart == std::string::npos) {
+            visibleStart = codepoint.offset;
+        }
+        visibleEnd = codepoint.offset + codepoint.length;
+
         const std::optional<bool> direction = strongDirectionForCodepoint(codepoint.value);
         if (!direction) {
             if (currentDirection) {
                 currentEnd = codepoint.offset + codepoint.length;
+            } else if (currentStart == std::string::npos) {
+                currentStart = codepoint.offset;
             }
             continue;
         }
 
         if (!currentDirection) {
             currentDirection = direction;
-            currentStart = codepoint.offset;
+            if (currentStart == std::string::npos) {
+                currentStart = visibleStart;
+            }
         } else if (*direction != *currentDirection) {
             finishCurrent();
             currentDirection = direction;
@@ -176,6 +187,9 @@ std::vector<BidiRun> segmentBidiRuns(const std::string &normalizedText)
     }
 
     finishCurrent();
+    if (runs.empty() && visibleStart != std::string::npos && visibleEnd > visibleStart) {
+        runs.push_back({visibleStart, visibleEnd, false});
+    }
     return runs;
 }
 

@@ -154,6 +154,28 @@ bool testBidiRunSegmentation()
     return ok;
 }
 
+bool testBidiRunSegmentationKeepsLeadingNeutrals()
+{
+    const std::string text = "  \xd7\x90\xd7\x91";
+    const std::vector<wsc::text::BidiRun> runs = wsc::text::segmentBidiRuns(text);
+
+    return expect(runs.size() == 1, "leading neutral RTL text should stay in one run")
+        && expect(runs[0].rightToLeft, "first strong RTL direction should set the run direction")
+        && expect(runs[0].sourceStart == 0, "leading neutral bytes should be kept in the run")
+        && expect(runs[0].sourceEnd == text.size(), "RTL run should include the full visible text");
+}
+
+bool testBidiRunSegmentationKeepsWeakOnlyText()
+{
+    const std::string text = "123 !?";
+    const std::vector<wsc::text::BidiRun> runs = wsc::text::segmentBidiRuns(text);
+
+    return expect(runs.size() == 1, "weak-only text should still produce a renderable run")
+        && expect(!runs[0].rightToLeft, "weak-only text should default to LTR direction")
+        && expect(runs[0].sourceStart == 0 && runs[0].sourceEnd == text.size(),
+                  "weak-only run should cover the full visible text");
+}
+
 } // namespace
 
 int main()
@@ -165,6 +187,8 @@ int main()
         && testSimpleShaperStopsAtFirstLineAndFailsMissingGlyphs()
         && testSimpleShaperOrdersRightToLeftRuns()
         && testTextShapingEngineFactoryFallsBackToSimple()
-        && testBidiRunSegmentation();
+        && testBidiRunSegmentation()
+        && testBidiRunSegmentationKeepsLeadingNeutrals()
+        && testBidiRunSegmentationKeepsWeakOnlyText();
     return ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }
