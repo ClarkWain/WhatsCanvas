@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -36,8 +37,32 @@ struct ResolvedGlyph
 
 using GlyphResolver = std::function<std::optional<ResolvedGlyph>(std::uint32_t codepoint)>;
 
+enum class TextShapingBackend
+{
+    Simple,
+    OpenType
+};
+
+class ITextShapingEngine
+{
+public:
+    virtual ~ITextShapingEngine() = default;
+
+    virtual TextShapingBackend backend() const = 0;
+    virtual const char *name() const = 0;
+    virtual bool supportsOpenTypeFeatures() const = 0;
+    virtual std::optional<ShapedTextRun> shape(const std::string &normalizedText,
+                                               float letterSpacing,
+                                               const GlyphResolver &glyphResolver) const = 0;
+};
+
 std::optional<ShapedTextRun> shapeTextSimple(const std::string &normalizedText,
                                              float letterSpacing,
                                              const GlyphResolver &glyphResolver);
+
+bool isOpenTypeShapingAvailable();
+std::unique_ptr<ITextShapingEngine> createSimpleTextShapingEngine();
+std::unique_ptr<ITextShapingEngine> createOpenTypeTextShapingEngine();
+std::unique_ptr<ITextShapingEngine> createTextShapingEngine(TextShapingBackend backend);
 
 } // namespace wsc::text

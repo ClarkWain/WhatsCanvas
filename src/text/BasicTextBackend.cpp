@@ -30,8 +30,17 @@ class BasicTextBackend final : public wsc::text::ITextBackend
 {
 public:
     explicit BasicTextBackend(wsc::text::BasicTextBackendOptions options)
-        : options_(options)
+        : options_(options),
+          shaper_(wsc::text::createTextShapingEngine(options_.shapingBackend))
     {
+        if (options_.shapingBackend == wsc::text::TextShapingBackend::OpenType
+            && (shaper_ == nullptr || !shaper_->supportsOpenTypeFeatures())) {
+            diagnostics_.push_back({wsc::text::TextBackendDiagnostic::Severity::Warning,
+                                    "OpenType shaping backend is unavailable; using simple shaping."});
+        }
+        if (shaper_ == nullptr) {
+            shaper_ = wsc::text::createSimpleTextShapingEngine();
+        }
     }
 
     bool registerFontFace(const wsc::FontFace &face) override
@@ -445,9 +454,13 @@ private:
             return std::nullopt;
         }
 
-        return wsc::text::shapeTextSimple(normalizedText,
-                                          paint.getLetterSpacing(),
-                                          [&](std::uint32_t codepoint) -> std::optional<wsc::text::ResolvedGlyph> {
+        if (!shaper_) {
+            return std::nullopt;
+        }
+
+        return shaper_->shape(normalizedText,
+                              paint.getLetterSpacing(),
+                              [&](std::uint32_t codepoint) -> std::optional<wsc::text::ResolvedGlyph> {
             const wsc::FontFace *face = findRasterFaceForCodepoint(codepoint, paint);
             if (face == nullptr) {
                 return std::nullopt;
@@ -476,6 +489,7 @@ private:
     }
 
     wsc::text::BasicTextBackendOptions options_;
+    std::unique_ptr<wsc::text::ITextShapingEngine> shaper_;
 
 #ifdef _WIN32
     template <typename TValue>

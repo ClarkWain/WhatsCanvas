@@ -180,6 +180,23 @@ bool testPortableBackendResolvesFallbackGlyphRange()
     return ok;
 }
 
+bool testOpenTypeShapingRequestFallsBackWithDiagnostic()
+{
+    wsc::text::BasicTextBackendOptions options;
+    options.enableNativeText = false;
+    options.shapingBackend = wsc::text::TextShapingBackend::OpenType;
+    std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createBasicTextBackend(options);
+    const std::vector<wsc::text::TextBackendDiagnostic> diagnostics = backend->diagnostics();
+
+    bool ok = expect(!diagnostics.empty(),
+                     "unavailable OpenType shaping request should add a diagnostic");
+    ok = expect(diagnostics.front().severity == wsc::text::TextBackendDiagnostic::Severity::Warning,
+                "unavailable OpenType shaping diagnostic should be a warning") && ok;
+    ok = expect(diagnostics.front().message.find("OpenType shaping backend is unavailable") != std::string::npos,
+                "unavailable OpenType shaping diagnostic should name the fallback") && ok;
+    return ok;
+}
+
 } // namespace
 
 int main()
@@ -189,6 +206,7 @@ int main()
         && testDiagnosticsForRejectedFallback()
         && testPortableBackendUsesGeometryPath()
         && testPortableBackendUsesGlyphAtlasForRegisteredFont()
-        && testPortableBackendResolvesFallbackGlyphRange();
+        && testPortableBackendResolvesFallbackGlyphRange()
+        && testOpenTypeShapingRequestFallsBackWithDiagnostic();
     return ok ? 0 : 1;
 }

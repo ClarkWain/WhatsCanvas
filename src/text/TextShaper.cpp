@@ -9,6 +9,32 @@ namespace wsc::text {
 
 namespace {
 
+class SimpleTextShapingEngine final : public ITextShapingEngine
+{
+public:
+    TextShapingBackend backend() const override
+    {
+        return TextShapingBackend::Simple;
+    }
+
+    const char *name() const override
+    {
+        return "simple";
+    }
+
+    bool supportsOpenTypeFeatures() const override
+    {
+        return false;
+    }
+
+    std::optional<ShapedTextRun> shape(const std::string &normalizedText,
+                                       float letterSpacing,
+                                       const GlyphResolver &glyphResolver) const override
+    {
+        return shapeTextSimple(normalizedText, letterSpacing, glyphResolver);
+    }
+};
+
 bool isRightToLeftCodepoint(std::uint32_t codepoint)
 {
     return (codepoint >= 0x0590 && codepoint <= 0x08FF)
@@ -92,6 +118,31 @@ std::optional<ShapedTextRun> shapeTextSimple(const std::string &normalizedText,
         std::reverse(run.glyphs.begin(), run.glyphs.end());
     }
     return run;
+}
+
+bool isOpenTypeShapingAvailable()
+{
+    return false;
+}
+
+std::unique_ptr<ITextShapingEngine> createSimpleTextShapingEngine()
+{
+    return std::make_unique<SimpleTextShapingEngine>();
+}
+
+std::unique_ptr<ITextShapingEngine> createOpenTypeTextShapingEngine()
+{
+    return nullptr;
+}
+
+std::unique_ptr<ITextShapingEngine> createTextShapingEngine(TextShapingBackend backend)
+{
+    if (backend == TextShapingBackend::OpenType) {
+        if (auto shaper = createOpenTypeTextShapingEngine()) {
+            return shaper;
+        }
+    }
+    return createSimpleTextShapingEngine();
 }
 
 } // namespace wsc::text

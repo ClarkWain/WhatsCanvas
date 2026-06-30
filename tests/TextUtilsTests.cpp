@@ -114,6 +114,24 @@ bool testSimpleShaperOrdersRightToLeftRuns()
         && expect(run->glyphs[1].sourceStart == 0, "RTL visual order should place first source glyph second");
 }
 
+bool testTextShapingEngineFactoryFallsBackToSimple()
+{
+    const auto simple = wsc::text::createTextShapingEngine(wsc::text::TextShapingBackend::Simple);
+    const auto requestedOpenType = wsc::text::createTextShapingEngine(wsc::text::TextShapingBackend::OpenType);
+
+    return expect(simple != nullptr, "simple shaping engine should be constructible")
+        && expect(simple->backend() == wsc::text::TextShapingBackend::Simple,
+                  "simple shaping engine should report simple backend")
+        && expect(!simple->supportsOpenTypeFeatures(),
+                  "simple shaping engine should not claim OpenType support")
+        && expect(!wsc::text::isOpenTypeShapingAvailable(),
+                  "OpenType shaping implementation should report unavailable until an adapter is compiled in")
+        && expect(requestedOpenType != nullptr,
+                  "OpenType shaping request should fall back to a usable engine when unavailable")
+        && expect(requestedOpenType->backend() == wsc::text::TextShapingBackend::Simple,
+                  "unavailable OpenType shaping request should fall back to simple backend");
+}
+
 } // namespace
 
 int main()
@@ -123,6 +141,7 @@ int main()
         && testAsciiFallbackKeepsShape()
         && testSimpleShaperBuildsGlyphRun()
         && testSimpleShaperStopsAtFirstLineAndFailsMissingGlyphs()
-        && testSimpleShaperOrdersRightToLeftRuns();
+        && testSimpleShaperOrdersRightToLeftRuns()
+        && testTextShapingEngineFactoryFallsBackToSimple();
     return ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }

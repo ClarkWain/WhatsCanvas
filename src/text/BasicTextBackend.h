@@ -2,6 +2,8 @@
 
 #include <memory>
 
+#include "text/TextShaper.h"
+
 namespace wsc::text {
 
 class ITextBackend;
@@ -9,6 +11,7 @@ class ITextBackend;
 struct BasicTextBackendOptions
 {
     bool enableNativeText = true;
+    TextShapingBackend shapingBackend = TextShapingBackend::Simple;
 };
 
 std::unique_ptr<ITextBackend> createBasicTextBackend();
