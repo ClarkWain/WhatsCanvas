@@ -17,7 +17,12 @@ bool expect(bool condition, const std::string &message)
 
 wsc::text::GlyphKey makeKey(std::uint32_t codepoint, float size = 16.0f)
 {
-    return {"Inter", codepoint, static_cast<int>(codepoint), size};
+    return {"Inter", codepoint, static_cast<int>(codepoint), size, wsc::text::GlyphBitmapFormat::Alpha};
+}
+
+wsc::text::GlyphKey makeColorKey(std::uint32_t codepoint, float size = 16.0f)
+{
+    return {"InterColor", codepoint, static_cast<int>(codepoint), size, wsc::text::GlyphBitmapFormat::RGBA};
 }
 
 wsc::text::GlyphBitmap makeBitmap(int width, int height, unsigned char value)
@@ -29,6 +34,26 @@ wsc::text::GlyphBitmap makeBitmap(int width, int height, unsigned char value)
     bitmap.bearingY = 2.0f;
     bitmap.advanceX = static_cast<float>(width + 1);
     bitmap.alphaPixels.assign(static_cast<std::size_t>(width) * static_cast<std::size_t>(height), value);
+    return bitmap;
+}
+
+wsc::text::GlyphBitmap makeColorBitmap(int width, int height, unsigned char r, unsigned char g,
+                                       unsigned char b, unsigned char a)
+{
+    wsc::text::GlyphBitmap bitmap;
+    bitmap.format = wsc::text::GlyphBitmapFormat::RGBA;
+    bitmap.width = width;
+    bitmap.height = height;
+    bitmap.bearingX = 1.0f;
+    bitmap.bearingY = 2.0f;
+    bitmap.advanceX = static_cast<float>(width + 1);
+    bitmap.rgbaPixels.resize(static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4u);
+    for (std::size_t i = 0; i < static_cast<std::size_t>(width) * static_cast<std::size_t>(height); ++i) {
+        bitmap.rgbaPixels[i * 4u + 0] = r;
+        bitmap.rgbaPixels[i * 4u + 1] = g;
+        bitmap.rgbaPixels[i * 4u + 2] = b;
+        bitmap.rgbaPixels[i * 4u + 3] = a;
+    }
     return bitmap;
 }
 
@@ -109,6 +134,22 @@ bool testContextLossRebuildHooks()
     return ok;
 }
 
+bool testColorGlyphUploadKeepsRgbaPixels()
+{
+    wsc::text::GlyphAtlas atlas(32, 16, 1);
+    const auto entry = atlas.uploadGlyph(makeColorKey(0x2605), makeColorBitmap(3, 4, 12, 34, 56, 210));
+
+    bool ok = expect(entry.has_value(), "valid color glyph should upload");
+    ok = expect(atlas.hasColorPixels(), "atlas should report color glyph pixels") && ok;
+    const std::size_t pixel = static_cast<std::size_t>(entry->y) * 32u + static_cast<std::size_t>(entry->x);
+    ok = expect(atlas.pixels()[pixel] == 210, "alpha view should mirror color glyph alpha") && ok;
+    ok = expect(atlas.rgbaPixels()[pixel * 4u + 0] == 12, "RGBA view should preserve red") && ok;
+    ok = expect(atlas.rgbaPixels()[pixel * 4u + 1] == 34, "RGBA view should preserve green") && ok;
+    ok = expect(atlas.rgbaPixels()[pixel * 4u + 2] == 56, "RGBA view should preserve blue") && ok;
+    ok = expect(atlas.rgbaPixels()[pixel * 4u + 3] == 210, "RGBA view should preserve alpha") && ok;
+    return ok;
+}
+
 } // namespace
 
 int main()
@@ -118,5 +159,6 @@ int main()
     ok = testDuplicateUploadHitsCache() && ok;
     ok = testEvictionAndOversizedGlyph() && ok;
     ok = testContextLossRebuildHooks() && ok;
+    ok = testColorGlyphUploadKeepsRgbaPixels() && ok;
     return ok ? 0 : 1;
 }

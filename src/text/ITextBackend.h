@@ -22,6 +22,11 @@ enum class TextRenderKind {
     GlyphAtlas
 };
 
+enum class GlyphAtlasPixelFormat {
+    Alpha,
+    RGBA
+};
+
 struct TextRenderResult
 {
     struct MissingGlyph
@@ -62,7 +67,9 @@ struct TextRenderResult
     std::vector<unsigned char> bitmapPixels;
     int atlasWidth = 0;
     int atlasHeight = 0;
+    GlyphAtlasPixelFormat atlasPixelFormat = GlyphAtlasPixelFormat::Alpha;
     std::vector<unsigned char> atlasAlphaPixels;
+    std::vector<unsigned char> atlasRgbaPixels;
     std::vector<GlyphAtlasDirtyRect> atlasDirtyRects;
     std::vector<GlyphAtlasQuad> glyphAtlasQuads;
     std::vector<MissingGlyph> missingGlyphs;

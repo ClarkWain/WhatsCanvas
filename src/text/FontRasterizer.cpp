@@ -162,6 +162,7 @@ std::optional<RasterizedGlyph> FontRasterizer::rasterizeGlyphIndex(const FontFac
     stbtt_GetGlyphBitmapBox(&loaded->info, glyphIndex, scale, scale, &x0, &y0, &x1, &y1);
 
     GlyphBitmap bitmap;
+    bitmap.format = GlyphBitmapFormat::Alpha;
     bitmap.width = std::max(0, x1 - x0);
     bitmap.height = std::max(0, y1 - y0);
     bitmap.bearingX = static_cast<float>(x0);
@@ -179,6 +180,7 @@ std::optional<RasterizedGlyph> FontRasterizer::rasterizeGlyphIndex(const FontFac
     glyph.key.codepoint = sourceCodepoint;
     glyph.key.glyphIndex = glyphIndex;
     glyph.key.pixelSize = pixelSize;
+    glyph.key.format = GlyphBitmapFormat::Alpha;
     glyph.bitmap = std::move(bitmap);
     return glyph;
 }
