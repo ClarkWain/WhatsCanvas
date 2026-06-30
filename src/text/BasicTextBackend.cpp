@@ -491,6 +491,10 @@ private:
         result.atlasWidth = glyphAtlas_.stats().width;
         result.atlasHeight = glyphAtlas_.stats().height;
         result.atlasAlphaPixels = glyphAtlas_.pixels();
+        if (glyphAtlas_.hasColorPixels()) {
+            result.atlasPixelFormat = wsc::text::GlyphAtlasPixelFormat::RGBA;
+            result.atlasRgbaPixels = glyphAtlas_.rgbaPixels();
+        }
         const std::vector<wsc::text::GlyphAtlasDirtyRect> dirtyRects = glyphAtlas_.consumeDirtyRects();
         result.atlasDirtyRects.reserve(dirtyRects.size());
         for (const wsc::text::GlyphAtlasDirtyRect &dirtyRect : dirtyRects) {

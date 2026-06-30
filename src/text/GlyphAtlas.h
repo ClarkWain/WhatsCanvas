@@ -7,24 +7,33 @@
 
 namespace wsc::text {
 
+enum class GlyphBitmapFormat
+{
+    Alpha,
+    RGBA
+};
+
 struct GlyphKey
 {
     std::string fontFamily;
     std::uint32_t codepoint = 0;
     int glyphIndex = 0;
     float pixelSize = 0.0f;
+    GlyphBitmapFormat format = GlyphBitmapFormat::Alpha;
 
     bool operator==(const GlyphKey &other) const;
 };
 
 struct GlyphBitmap
 {
+    GlyphBitmapFormat format = GlyphBitmapFormat::Alpha;
     int width = 0;
     int height = 0;
     float bearingX = 0.0f;
     float bearingY = 0.0f;
     float advanceX = 0.0f;
     std::vector<unsigned char> alphaPixels;
+    std::vector<unsigned char> rgbaPixels;
 };
 
 struct GlyphAtlasEntry
@@ -79,6 +88,8 @@ public:
     const std::vector<GlyphAtlasDirtyRect> &dirtyRects() const { return dirtyRects_; }
     std::vector<GlyphAtlasDirtyRect> consumeDirtyRects();
     const std::vector<unsigned char> &pixels() const { return pixels_; }
+    const std::vector<unsigned char> &rgbaPixels() const { return rgbaPixels_; }
+    bool hasColorPixels() const { return hasColorPixels_; }
     GlyphAtlasStats stats() const;
 
 private:
@@ -100,10 +111,12 @@ private:
     std::vector<GlyphKey> pendingRebuildKeys_;
     std::vector<GlyphAtlasDirtyRect> dirtyRects_;
     std::vector<unsigned char> pixels_;
+    std::vector<unsigned char> rgbaPixels_;
     std::size_t uploadCount_ = 0;
     std::size_t evictionCount_ = 0;
     std::uint64_t generation_ = 1;
     bool textureValid_ = true;
+    bool hasColorPixels_ = false;
 };
 
 } // namespace wsc::text

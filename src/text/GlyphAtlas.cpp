@@ -9,14 +9,16 @@ bool GlyphKey::operator==(const GlyphKey &other) const
     return fontFamily == other.fontFamily
         && codepoint == other.codepoint
         && glyphIndex == other.glyphIndex
-        && pixelSize == other.pixelSize;
+        && pixelSize == other.pixelSize
+        && format == other.format;
 }
 
 GlyphAtlas::GlyphAtlas(int width, int height, int padding)
     : width_(std::max(0, width)),
       height_(std::max(0, height)),
       padding_(std::max(0, padding)),
-      pixels_(static_cast<std::size_t>(std::max(0, width)) * static_cast<std::size_t>(std::max(0, height)), 0)
+      pixels_(static_cast<std::size_t>(std::max(0, width)) * static_cast<std::size_t>(std::max(0, height)), 0),
+      rgbaPixels_(static_cast<std::size_t>(std::max(0, width)) * static_cast<std::size_t>(std::max(0, height)) * 4u, 0)
 {
     resetPacking();
 }
@@ -76,6 +78,8 @@ void GlyphAtlas::clear()
 {
     entries_.clear();
     std::fill(pixels_.begin(), pixels_.end(), 0);
+    std::fill(rgbaPixels_.begin(), rgbaPixels_.end(), 0);
+    hasColorPixels_ = false;
     resetPacking();
     markFullDirty();
 }
@@ -118,11 +122,14 @@ bool GlyphAtlas::canStore(const GlyphBitmap &bitmap) const
 {
     const std::size_t expectedSize = static_cast<std::size_t>(std::max(0, bitmap.width))
         * static_cast<std::size_t>(std::max(0, bitmap.height));
+    const bool hasAlphaPixels = bitmap.alphaPixels.size() >= expectedSize;
+    const bool hasRgbaPixels = bitmap.rgbaPixels.size() >= expectedSize * 4u;
     return width_ > 0 && height_ > 0
         && bitmap.width > 0 && bitmap.height > 0
         && bitmap.width + padding_ * 2 <= width_
         && bitmap.height + padding_ * 2 <= height_
-        && bitmap.alphaPixels.size() >= expectedSize;
+        && ((bitmap.format == GlyphBitmapFormat::Alpha && hasAlphaPixels)
+            || (bitmap.format == GlyphBitmapFormat::RGBA && hasRgbaPixels));
 }
 
 bool GlyphAtlas::allocateRect(int width, int height, int &x, int &y)
@@ -191,13 +198,38 @@ void GlyphAtlas::markFullDirty()
 
 void GlyphAtlas::writeGlyphPixels(const GlyphAtlasEntry &entry, const GlyphBitmap &bitmap)
 {
+    if (bitmap.format == GlyphBitmapFormat::RGBA) {
+        hasColorPixels_ = true;
+    }
+
     for (int row = 0; row < bitmap.height; ++row) {
         const std::size_t src = static_cast<std::size_t>(row) * static_cast<std::size_t>(bitmap.width);
         const std::size_t dst = static_cast<std::size_t>(entry.y + row) * static_cast<std::size_t>(width_)
             + static_cast<std::size_t>(entry.x);
-        std::copy(bitmap.alphaPixels.begin() + static_cast<std::ptrdiff_t>(src),
-                  bitmap.alphaPixels.begin() + static_cast<std::ptrdiff_t>(src + bitmap.width),
-                  pixels_.begin() + static_cast<std::ptrdiff_t>(dst));
+        if (bitmap.format == GlyphBitmapFormat::RGBA) {
+            for (int col = 0; col < bitmap.width; ++col) {
+                const std::size_t srcPixel = (src + static_cast<std::size_t>(col)) * 4u;
+                const std::size_t dstPixel = dst + static_cast<std::size_t>(col);
+                const std::size_t dstRgba = dstPixel * 4u;
+                rgbaPixels_[dstRgba + 0] = bitmap.rgbaPixels[srcPixel + 0];
+                rgbaPixels_[dstRgba + 1] = bitmap.rgbaPixels[srcPixel + 1];
+                rgbaPixels_[dstRgba + 2] = bitmap.rgbaPixels[srcPixel + 2];
+                rgbaPixels_[dstRgba + 3] = bitmap.rgbaPixels[srcPixel + 3];
+                pixels_[dstPixel] = bitmap.rgbaPixels[srcPixel + 3];
+            }
+        } else {
+            std::copy(bitmap.alphaPixels.begin() + static_cast<std::ptrdiff_t>(src),
+                      bitmap.alphaPixels.begin() + static_cast<std::ptrdiff_t>(src + bitmap.width),
+                      pixels_.begin() + static_cast<std::ptrdiff_t>(dst));
+            for (int col = 0; col < bitmap.width; ++col) {
+                const std::size_t dstPixel = dst + static_cast<std::size_t>(col);
+                const std::size_t dstRgba = dstPixel * 4u;
+                rgbaPixels_[dstRgba + 0] = 255;
+                rgbaPixels_[dstRgba + 1] = 255;
+                rgbaPixels_[dstRgba + 2] = 255;
+                rgbaPixels_[dstRgba + 3] = bitmap.alphaPixels[src + static_cast<std::size_t>(col)];
+            }
+        }
     }
     markDirtyRect(entry.x, entry.y, entry.width, entry.height);
 }
