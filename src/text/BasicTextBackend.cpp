@@ -356,25 +356,27 @@ private:
         return nullptr;
     }
 
-    const wsc::FontFace *findFirstRasterFaceForText(const std::string &normalizedText, const Paint &paint) const
+    struct RasterTextSegment
     {
-        for (const wsc::text::Utf8Codepoint &codepoint : wsc::text::decodeUtf8(normalizedText)) {
-            if (codepoint.value == '\n') {
-                break;
-            }
-            if (codepoint.value < 32) {
-                continue;
-            }
-            if (const wsc::FontFace *face = findRasterFaceForCodepoint(codepoint.value, paint)) {
-                return face;
-            }
-        }
-        return nullptr;
-    }
+        const wsc::FontFace *face = nullptr;
+        std::size_t sourceStart = 0;
+        std::size_t sourceEnd = 0;
+    };
 
-    bool textUsesOnlyRasterFace(const std::string &normalizedText, const Paint &paint,
-                                const wsc::FontFace &expectedFace) const
+    std::optional<std::vector<RasterTextSegment>> buildRasterTextSegments(const std::string &normalizedText,
+                                                                          const Paint &paint) const
     {
+        std::vector<RasterTextSegment> segments;
+        const wsc::FontFace *currentFace = nullptr;
+        std::size_t currentStart = 0;
+        std::size_t currentEnd = 0;
+
+        const auto finishCurrent = [&]() {
+            if (currentFace != nullptr && currentEnd > currentStart) {
+                segments.push_back({currentFace, currentStart, currentEnd});
+            }
+        };
+
         for (const wsc::text::Utf8Codepoint &codepoint : wsc::text::decodeUtf8(normalizedText)) {
             if (codepoint.value == '\n') {
                 break;
@@ -382,12 +384,25 @@ private:
             if (codepoint.value < 32) {
                 continue;
             }
+
             const wsc::FontFace *face = findRasterFaceForCodepoint(codepoint.value, paint);
-            if (face != &expectedFace) {
-                return false;
+            if (face == nullptr) {
+                return std::nullopt;
             }
+
+            if (face != currentFace) {
+                finishCurrent();
+                currentFace = face;
+                currentStart = codepoint.offset;
+            }
+            currentEnd = codepoint.offset + codepoint.length;
         }
-        return true;
+
+        finishCurrent();
+        if (segments.empty()) {
+            return std::nullopt;
+        }
+        return segments;
     }
 
     std::optional<float> measureRasterizedTextWidth(const std::string &normalizedText, const Paint &paint) const
@@ -492,32 +507,62 @@ private:
             return std::nullopt;
         }
 
-        wsc::text::TextShapeInput input;
-        input.normalizedText = normalizedText;
-        input.letterSpacing = paint.getLetterSpacing();
-        input.pixelSize = paint.getTextSize();
-        if (const wsc::FontFace *face = findFirstRasterFaceForText(normalizedText, paint);
-            face != nullptr && textUsesOnlyRasterFace(normalizedText, paint, *face)) {
-            input.fontData = rasterizer_.fontData(*face);
+        const auto segments = buildRasterTextSegments(normalizedText, paint);
+        if (!segments) {
+            return std::nullopt;
         }
 
-        const auto resolver = [&](std::uint32_t codepoint) -> std::optional<wsc::text::ResolvedGlyph> {
-            const wsc::FontFace *face = findRasterFaceForCodepoint(codepoint, paint);
-            if (face == nullptr) {
-                return std::nullopt;
-            }
-            const auto metrics = rasterizer_.glyphMetrics(*face, codepoint, paint.getTextSize());
-            if (!metrics) {
-                return std::nullopt;
-            }
-            return wsc::text::ResolvedGlyph{metrics->glyphIndex, metrics->advanceX};
-        };
+        wsc::text::ShapedTextRun combined;
+        bool hasGlyph = false;
+        const float spacing = std::isfinite(paint.getLetterSpacing()) ? paint.getLetterSpacing() : 0.0f;
 
-        auto shaped = shaper_->shape(input, resolver);
-        if (!shaped && shaper_->supportsOpenTypeFeatures()) {
-            shaped = wsc::text::shapeTextSimple(normalizedText, paint.getLetterSpacing(), resolver);
+        for (const RasterTextSegment &segment : *segments) {
+            if (segment.face == nullptr || segment.sourceEnd <= segment.sourceStart
+                || segment.sourceEnd > normalizedText.size()) {
+                return std::nullopt;
+            }
+
+            const std::string segmentText = normalizedText.substr(segment.sourceStart,
+                                                                  segment.sourceEnd - segment.sourceStart);
+            wsc::text::TextShapeInput input;
+            input.normalizedText = segmentText;
+            input.letterSpacing = paint.getLetterSpacing();
+            input.pixelSize = paint.getTextSize();
+            input.fontData = rasterizer_.fontData(*segment.face);
+
+            const auto resolver = [&](std::uint32_t codepoint) -> std::optional<wsc::text::ResolvedGlyph> {
+                const auto metrics = rasterizer_.glyphMetrics(*segment.face, codepoint, paint.getTextSize());
+                if (!metrics) {
+                    return std::nullopt;
+                }
+                return wsc::text::ResolvedGlyph{metrics->glyphIndex, metrics->advanceX};
+            };
+
+            auto shaped = shaper_->shape(input, resolver);
+            if (!shaped && shaper_->supportsOpenTypeFeatures()) {
+                shaped = wsc::text::shapeTextSimple(segmentText, paint.getLetterSpacing(), resolver);
+            }
+            if (!shaped) {
+                return std::nullopt;
+            }
+
+            combined.rightToLeft = combined.rightToLeft || shaped->rightToLeft;
+            for (wsc::text::ShapedGlyph glyph : shaped->glyphs) {
+                glyph.sourceStart += segment.sourceStart;
+                if (hasGlyph) {
+                    combined.width += spacing;
+                }
+                combined.width += glyph.advanceX;
+                combined.glyphs.push_back(glyph);
+                hasGlyph = true;
+            }
         }
-        return shaped;
+
+        if (!hasGlyph) {
+            return std::nullopt;
+        }
+        combined.width = std::max(0.0f, combined.width);
+        return combined;
     }
 
     void addMissingGlyphDiagnostic(std::uint32_t codepoint, const std::string &family) const
