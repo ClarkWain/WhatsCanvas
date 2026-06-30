@@ -180,6 +180,41 @@ bool testPortableBackendResolvesFallbackGlyphRange()
     return ok;
 }
 
+bool testPortableBackendShapesFallbackFontSegments()
+{
+    const std::string fontPath = findSystemFontPath();
+    if (fontPath.empty()) {
+        std::cout << "Skipping fallback font segment shaping test; no known system font path found." << std::endl;
+        return true;
+    }
+
+    std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createPortableTextBackend();
+
+    wsc::FontFace primary = wsc::FontFace::fromFile(wsc::FontDescriptor("SegmentPrimary"), fontPath);
+    primary.addCodepointRange('A', 'A');
+    wsc::FontFace fallback = wsc::FontFace::fromFile(wsc::FontDescriptor("SegmentFallback"), fontPath);
+    fallback.addCodepointRange('B', 'B');
+
+    bool ok = expect(backend->registerFontFace(primary), "segment primary font should register");
+    ok = expect(backend->registerFontFace(fallback), "segment fallback font should register") && ok;
+
+    wsc::FontFallbackChain chain("SegmentPrimary");
+    chain.addFallbackFamily("SegmentFallback");
+    ok = expect(backend->setFontFallbackChain(chain), "segment fallback chain should register") && ok;
+
+    Paint paint;
+    paint.setTextSize(24.0f);
+    paint.setFontFamily("SegmentPrimary");
+    const wsc::text::TextRenderResult rendered = backend->renderText("AB", 0.0f, 0.0f, paint);
+
+    ok = expect(rendered.kind == wsc::text::TextRenderKind::GlyphAtlas,
+                "segmented fallback text should render through glyph atlas") && ok;
+    ok = expect(rendered.glyphAtlasQuads.size() == 2,
+                "segmented fallback text should emit both glyph quads") && ok;
+    ok = expect(rendered.width > 0.0f, "segmented fallback text should measure positive width") && ok;
+    return ok;
+}
+
 bool testOpenTypeShapingRequestFallsBackWithDiagnostic()
 {
     wsc::text::BasicTextBackendOptions options;
@@ -220,6 +255,7 @@ int main()
         && testPortableBackendUsesGeometryPath()
         && testPortableBackendUsesGlyphAtlasForRegisteredFont()
         && testPortableBackendResolvesFallbackGlyphRange()
+        && testPortableBackendShapesFallbackFontSegments()
         && testOpenTypeShapingRequestFallsBackWithDiagnostic();
     return ok ? 0 : 1;
 }
