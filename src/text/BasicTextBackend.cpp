@@ -364,7 +364,9 @@ private:
     };
 
     std::optional<std::vector<RasterTextSegment>> buildRasterTextSegments(const std::string &normalizedText,
-                                                                          const Paint &paint) const
+                                                                          const Paint &paint,
+                                                                          std::size_t sourceStart,
+                                                                          std::size_t sourceEnd) const
     {
         std::vector<RasterTextSegment> segments;
         const wsc::FontFace *currentFace = nullptr;
@@ -378,6 +380,12 @@ private:
         };
 
         for (const wsc::text::Utf8Codepoint &codepoint : wsc::text::decodeUtf8(normalizedText)) {
+            if (codepoint.offset < sourceStart) {
+                continue;
+            }
+            if (codepoint.offset >= sourceEnd) {
+                break;
+            }
             if (codepoint.value == '\n') {
                 break;
             }
@@ -507,54 +515,64 @@ private:
             return std::nullopt;
         }
 
-        const auto segments = buildRasterTextSegments(normalizedText, paint);
-        if (!segments) {
+        std::vector<wsc::text::BidiRun> bidiRuns = wsc::text::segmentBidiRuns(normalizedText);
+        if (bidiRuns.empty()) {
             return std::nullopt;
+        }
+        if (bidiRuns.front().rightToLeft) {
+            std::reverse(bidiRuns.begin(), bidiRuns.end());
         }
 
         wsc::text::ShapedTextRun combined;
         bool hasGlyph = false;
         const float spacing = std::isfinite(paint.getLetterSpacing()) ? paint.getLetterSpacing() : 0.0f;
 
-        for (const RasterTextSegment &segment : *segments) {
-            if (segment.face == nullptr || segment.sourceEnd <= segment.sourceStart
-                || segment.sourceEnd > normalizedText.size()) {
+        for (const wsc::text::BidiRun &bidiRun : bidiRuns) {
+            const auto segments = buildRasterTextSegments(normalizedText, paint, bidiRun.sourceStart, bidiRun.sourceEnd);
+            if (!segments) {
                 return std::nullopt;
             }
 
-            const std::string segmentText = normalizedText.substr(segment.sourceStart,
-                                                                  segment.sourceEnd - segment.sourceStart);
-            wsc::text::TextShapeInput input;
-            input.normalizedText = segmentText;
-            input.letterSpacing = paint.getLetterSpacing();
-            input.pixelSize = paint.getTextSize();
-            input.fontData = rasterizer_.fontData(*segment.face);
-
-            const auto resolver = [&](std::uint32_t codepoint) -> std::optional<wsc::text::ResolvedGlyph> {
-                const auto metrics = rasterizer_.glyphMetrics(*segment.face, codepoint, paint.getTextSize());
-                if (!metrics) {
+            for (const RasterTextSegment &segment : *segments) {
+                if (segment.face == nullptr || segment.sourceEnd <= segment.sourceStart
+                    || segment.sourceEnd > normalizedText.size()) {
                     return std::nullopt;
                 }
-                return wsc::text::ResolvedGlyph{metrics->glyphIndex, metrics->advanceX};
-            };
 
-            auto shaped = shaper_->shape(input, resolver);
-            if (!shaped && shaper_->supportsOpenTypeFeatures()) {
-                shaped = wsc::text::shapeTextSimple(segmentText, paint.getLetterSpacing(), resolver);
-            }
-            if (!shaped) {
-                return std::nullopt;
-            }
+                const std::string segmentText = normalizedText.substr(segment.sourceStart,
+                                                                      segment.sourceEnd - segment.sourceStart);
+                wsc::text::TextShapeInput input;
+                input.normalizedText = segmentText;
+                input.letterSpacing = paint.getLetterSpacing();
+                input.pixelSize = paint.getTextSize();
+                input.fontData = rasterizer_.fontData(*segment.face);
 
-            combined.rightToLeft = combined.rightToLeft || shaped->rightToLeft;
-            for (wsc::text::ShapedGlyph glyph : shaped->glyphs) {
-                glyph.sourceStart += segment.sourceStart;
-                if (hasGlyph) {
-                    combined.width += spacing;
+                const auto resolver = [&](std::uint32_t codepoint) -> std::optional<wsc::text::ResolvedGlyph> {
+                    const auto metrics = rasterizer_.glyphMetrics(*segment.face, codepoint, paint.getTextSize());
+                    if (!metrics) {
+                        return std::nullopt;
+                    }
+                    return wsc::text::ResolvedGlyph{metrics->glyphIndex, metrics->advanceX};
+                };
+
+                auto shaped = shaper_->shape(input, resolver);
+                if (!shaped && shaper_->supportsOpenTypeFeatures()) {
+                    shaped = wsc::text::shapeTextSimple(segmentText, paint.getLetterSpacing(), resolver);
                 }
-                combined.width += glyph.advanceX;
-                combined.glyphs.push_back(glyph);
-                hasGlyph = true;
+                if (!shaped) {
+                    return std::nullopt;
+                }
+
+                combined.rightToLeft = combined.rightToLeft || bidiRun.rightToLeft || shaped->rightToLeft;
+                for (wsc::text::ShapedGlyph glyph : shaped->glyphs) {
+                    glyph.sourceStart += segment.sourceStart;
+                    if (hasGlyph) {
+                        combined.width += spacing;
+                    }
+                    combined.width += glyph.advanceX;
+                    combined.glyphs.push_back(glyph);
+                    hasGlyph = true;
+                }
             }
         }
 

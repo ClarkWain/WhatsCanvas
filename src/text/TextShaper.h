@@ -31,6 +31,13 @@ struct ShapedTextRun
     bool rightToLeft = false;
 };
 
+struct BidiRun
+{
+    std::size_t sourceStart = 0;
+    std::size_t sourceEnd = 0;
+    bool rightToLeft = false;
+};
+
 struct ResolvedGlyph
 {
     int glyphIndex = 0;
@@ -68,6 +75,8 @@ public:
 std::optional<ShapedTextRun> shapeTextSimple(const std::string &normalizedText,
                                              float letterSpacing,
                                              const GlyphResolver &glyphResolver);
+
+std::vector<BidiRun> segmentBidiRuns(const std::string &normalizedText);
 
 bool isOpenTypeShapingAvailable();
 std::unique_ptr<ITextShapingEngine> createSimpleTextShapingEngine();
