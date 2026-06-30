@@ -99,6 +99,10 @@ function(whatscanvas_add_gl_family_library target_name project_root)
         target_compile_definitions(${target_name} PRIVATE WHATSCANVAS_OPENGL_ES)
     endif()
 
+    if (WHATSCANVAS_ENABLE_OPENTYPE_SHAPING)
+        target_compile_definitions(${target_name} PRIVATE WHATSCANVAS_ENABLE_OPENTYPE_SHAPING)
+    endif()
+
     target_include_directories(${target_name}
         PRIVATE
             "${src_dir}"

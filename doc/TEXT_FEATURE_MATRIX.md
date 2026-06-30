@@ -16,6 +16,7 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 | Shaped glyph run abstraction | Supported | Portable raster text uses shaped runs with source byte mapping, glyph indices, glyph advances, offsets, and letter spacing before atlas upload. |
 | Glyph-index rasterization path | Supported | Font rasterization can render by glyph index, which is required by real shaping outputs. |
 | Basic RTL run ordering | Supported | The built-in shaper detects RTL-first runs and emits glyphs in visual order while preserving source byte mapping. |
+| OpenType shaping adapter boundary | Supported | `BasicTextBackendOptions` can request an OpenType shaping backend; unavailable adapters fall back to simple shaping with diagnostics. |
 | Public font face model | Supported | `FontFace`, `FontDescriptor`, `FontFallbackChain`, and `FontManager` are public value/model types. |
 | Font file registration contract | Supported | `ITextBackend::registerFontFace` accepts file-backed faces. |
 | Font memory registration contract | Supported | `ITextBackend::registerFontFace` accepts memory-backed faces. |
@@ -40,7 +41,7 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 
 | Capability | Status | Intended Direction |
 | --- | --- | --- |
-| OpenType shaping adapter | Planned | Add HarfBuzz-style glyph substitution, mark positioning, bidi segmentation, language tags, and font feature handling behind the shaped-run abstraction. |
+| OpenType shaping implementation | Planned | Add HarfBuzz-style glyph substitution, mark positioning, bidi segmentation, language tags, and font feature handling behind the shaped-run abstraction. |
 | Color glyph rendering | Planned | Add color glyph formats once font fallback and atlas ownership are stable. |
 
 ## Acceptance Targets
