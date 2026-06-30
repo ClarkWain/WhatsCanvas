@@ -139,6 +139,21 @@ bool testTextShapingEngineFactoryFallsBackToSimple()
     return ok;
 }
 
+bool testBidiRunSegmentation()
+{
+    const std::string mixed = "abc \xd7\x90\xd7\x91 def";
+    const std::vector<wsc::text::BidiRun> runs = wsc::text::segmentBidiRuns(mixed);
+
+    bool ok = expect(runs.size() == 3, "mixed LTR/RTL text should split into three bidi runs");
+    ok = expect(!runs[0].rightToLeft && runs[0].sourceStart == 0 && runs[0].sourceEnd == 4,
+                "first bidi run should be LTR and include trailing neutral space") && ok;
+    ok = expect(runs[1].rightToLeft && runs[1].sourceStart == 4 && runs[1].sourceEnd == 9,
+                "second bidi run should be RTL and include trailing neutral space") && ok;
+    ok = expect(!runs[2].rightToLeft && runs[2].sourceStart == 9 && runs[2].sourceEnd == mixed.size(),
+                "third bidi run should return to LTR") && ok;
+    return ok;
+}
+
 } // namespace
 
 int main()
@@ -149,6 +164,7 @@ int main()
         && testSimpleShaperBuildsGlyphRun()
         && testSimpleShaperStopsAtFirstLineAndFailsMissingGlyphs()
         && testSimpleShaperOrdersRightToLeftRuns()
-        && testTextShapingEngineFactoryFallsBackToSimple();
+        && testTextShapingEngineFactoryFallsBackToSimple()
+        && testBidiRunSegmentation();
     return ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }

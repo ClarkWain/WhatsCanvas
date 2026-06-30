@@ -67,6 +67,17 @@ bool firstStrongDirectionIsRightToLeft(const std::vector<Utf8Codepoint> &codepoi
     return false;
 }
 
+std::optional<bool> strongDirectionForCodepoint(std::uint32_t codepoint)
+{
+    if (isRightToLeftCodepoint(codepoint)) {
+        return true;
+    }
+    if (isStrongLeftToRightCodepoint(codepoint)) {
+        return false;
+    }
+    return std::nullopt;
+}
+
 } // namespace
 
 std::optional<ShapedTextRun> shapeTextSimple(const std::string &normalizedText,
@@ -121,6 +132,51 @@ std::optional<ShapedTextRun> shapeTextSimple(const std::string &normalizedText,
         std::reverse(run.glyphs.begin(), run.glyphs.end());
     }
     return run;
+}
+
+std::vector<BidiRun> segmentBidiRuns(const std::string &normalizedText)
+{
+    std::vector<BidiRun> runs;
+    const std::vector<Utf8Codepoint> codepoints = decodeUtf8(normalizedText);
+    std::optional<bool> currentDirection;
+    std::size_t currentStart = 0;
+    std::size_t currentEnd = 0;
+
+    const auto finishCurrent = [&]() {
+        if (currentDirection && currentEnd > currentStart) {
+            runs.push_back({currentStart, currentEnd, *currentDirection});
+        }
+    };
+
+    for (const Utf8Codepoint &codepoint : codepoints) {
+        if (codepoint.value == '\n') {
+            break;
+        }
+        if (codepoint.value < 32) {
+            continue;
+        }
+
+        const std::optional<bool> direction = strongDirectionForCodepoint(codepoint.value);
+        if (!direction) {
+            if (currentDirection) {
+                currentEnd = codepoint.offset + codepoint.length;
+            }
+            continue;
+        }
+
+        if (!currentDirection) {
+            currentDirection = direction;
+            currentStart = codepoint.offset;
+        } else if (*direction != *currentDirection) {
+            finishCurrent();
+            currentDirection = direction;
+            currentStart = codepoint.offset;
+        }
+        currentEnd = codepoint.offset + codepoint.length;
+    }
+
+    finishCurrent();
+    return runs;
 }
 
 bool isOpenTypeShapingAvailable()
