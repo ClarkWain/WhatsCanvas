@@ -78,6 +78,49 @@ std::optional<bool> strongDirectionForCodepoint(std::uint32_t codepoint)
     return std::nullopt;
 }
 
+std::uint32_t mirroredCodepointForRightToLeftRun(std::uint32_t codepoint)
+{
+    switch (codepoint) {
+    case '(': return ')';
+    case ')': return '(';
+    case '<': return '>';
+    case '>': return '<';
+    case '[': return ']';
+    case ']': return '[';
+    case '{': return '}';
+    case '}': return '{';
+    case 0x00AB: return 0x00BB;
+    case 0x00BB: return 0x00AB;
+    case 0x2039: return 0x203A;
+    case 0x203A: return 0x2039;
+    case 0x2045: return 0x2046;
+    case 0x2046: return 0x2045;
+    case 0x207D: return 0x207E;
+    case 0x207E: return 0x207D;
+    case 0x208D: return 0x208E;
+    case 0x208E: return 0x208D;
+    case 0x3008: return 0x3009;
+    case 0x3009: return 0x3008;
+    case 0x300A: return 0x300B;
+    case 0x300B: return 0x300A;
+    case 0x300C: return 0x300D;
+    case 0x300D: return 0x300C;
+    case 0x300E: return 0x300F;
+    case 0x300F: return 0x300E;
+    case 0x3010: return 0x3011;
+    case 0x3011: return 0x3010;
+    case 0x3014: return 0x3015;
+    case 0x3015: return 0x3014;
+    case 0x3016: return 0x3017;
+    case 0x3017: return 0x3016;
+    case 0x3018: return 0x3019;
+    case 0x3019: return 0x3018;
+    case 0x301A: return 0x301B;
+    case 0x301B: return 0x301A;
+    default: return codepoint;
+    }
+}
+
 } // namespace
 
 std::optional<ShapedTextRun> shapeTextSimple(const std::string &normalizedText,
@@ -102,7 +145,9 @@ std::optional<ShapedTextRun> shapeTextSimple(const std::string &normalizedText,
             continue;
         }
 
-        const std::optional<ResolvedGlyph> resolved = glyphResolver(codepoint.value);
+        const std::uint32_t shapedCodepoint =
+            run.rightToLeft ? mirroredCodepointForRightToLeftRun(codepoint.value) : codepoint.value;
+        const std::optional<ResolvedGlyph> resolved = glyphResolver(shapedCodepoint);
         if (!resolved) {
             return std::nullopt;
         }
@@ -112,7 +157,7 @@ std::optional<ShapedTextRun> shapeTextSimple(const std::string &normalizedText,
         }
 
         ShapedGlyph glyph;
-        glyph.codepoint = codepoint.value;
+        glyph.codepoint = shapedCodepoint;
         glyph.glyphIndex = resolved->glyphIndex;
         glyph.sourceStart = codepoint.offset;
         glyph.sourceLength = codepoint.length;

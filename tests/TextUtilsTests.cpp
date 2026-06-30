@@ -114,6 +114,24 @@ bool testSimpleShaperOrdersRightToLeftRuns()
         && expect(run->glyphs[1].sourceStart == 0, "RTL visual order should place first source glyph second");
 }
 
+bool testSimpleShaperMirrorsRightToLeftPunctuation()
+{
+    const std::string text = "\xd7\x90(";
+    const auto run = wsc::text::shapeTextSimple(text,
+                                                0.0f,
+                                                [](std::uint32_t codepoint) -> std::optional<wsc::text::ResolvedGlyph> {
+        return wsc::text::ResolvedGlyph{static_cast<int>(codepoint), 6.0f};
+    });
+
+    return expect(run.has_value(), "simple shaper should shape RTL punctuation")
+        && expect(run->rightToLeft, "RTL punctuation run should use RTL visual ordering")
+        && expect(run->glyphs.size() == 2, "RTL punctuation run should keep glyph count")
+        && expect(run->glyphs[0].codepoint == ')', "RTL opening parenthesis should be mirrored for rendering")
+        && expect(run->glyphs[0].sourceStart == 2 && run->glyphs[0].sourceLength == 1,
+                  "mirrored punctuation should retain the original source range")
+        && expect(run->glyphs[1].codepoint == 0x05D0, "strong RTL glyph should remain unchanged");
+}
+
 bool testTextShapingEngineFactoryFallsBackToSimple()
 {
     const auto simple = wsc::text::createTextShapingEngine(wsc::text::TextShapingBackend::Simple);
@@ -186,6 +204,7 @@ int main()
         && testSimpleShaperBuildsGlyphRun()
         && testSimpleShaperStopsAtFirstLineAndFailsMissingGlyphs()
         && testSimpleShaperOrdersRightToLeftRuns()
+        && testSimpleShaperMirrorsRightToLeftPunctuation()
         && testTextShapingEngineFactoryFallsBackToSimple()
         && testBidiRunSegmentation()
         && testBidiRunSegmentationKeepsLeadingNeutrals()
