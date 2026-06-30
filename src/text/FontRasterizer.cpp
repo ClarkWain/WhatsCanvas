@@ -183,4 +183,14 @@ std::optional<RasterizedGlyph> FontRasterizer::rasterizeGlyphIndex(const FontFac
     return glyph;
 }
 
+std::optional<FontDataView> FontRasterizer::fontData(const FontFace &face) const
+{
+    const LoadedFace *loaded = loadFace(face);
+    if (loaded == nullptr || loaded->bytes.empty()) {
+        return std::nullopt;
+    }
+
+    return FontDataView{loaded->bytes.data(), loaded->bytes.size()};
+}
+
 } // namespace wsc::text

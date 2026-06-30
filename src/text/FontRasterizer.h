@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -25,6 +26,12 @@ struct GlyphMetrics
     float advanceX = 0.0f;
 };
 
+struct FontDataView
+{
+    const unsigned char *data = nullptr;
+    std::size_t size = 0;
+};
+
 class FontRasterizer
 {
 public:
@@ -39,6 +46,7 @@ public:
     std::optional<RasterizedGlyph> rasterizeGlyphIndex(const FontFace &face, int glyphIndex,
                                                        std::uint32_t sourceCodepoint,
                                                        float pixelSize) const;
+    std::optional<FontDataView> fontData(const FontFace &face) const;
 
 private:
     struct LoadedFace;

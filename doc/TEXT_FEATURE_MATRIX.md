@@ -17,6 +17,7 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 | Glyph-index rasterization path | Supported | Font rasterization can render by glyph index, which is required by real shaping outputs. |
 | Basic RTL run ordering | Supported | The built-in shaper detects RTL-first runs and emits glyphs in visual order while preserving source byte mapping. |
 | OpenType shaping adapter boundary | Supported | `BasicTextBackendOptions` can request an OpenType shaping backend; unavailable adapters fall back to simple shaping with diagnostics. |
+| Optional OpenType shaping implementation | Build-time supported | When HarfBuzz is found and `WHATSCANVAS_ENABLE_OPENTYPE_SHAPING=ON`, the OpenType backend emits glyph-index shaped runs from HarfBuzz output. |
 | Public font face model | Supported | `FontFace`, `FontDescriptor`, `FontFallbackChain`, and `FontManager` are public value/model types. |
 | Font file registration contract | Supported | `ITextBackend::registerFontFace` accepts file-backed faces. |
 | Font memory registration contract | Supported | `ITextBackend::registerFontFace` accepts memory-backed faces. |
@@ -41,7 +42,8 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 
 | Capability | Status | Intended Direction |
 | --- | --- | --- |
-| OpenType shaping implementation | Planned | Add HarfBuzz-style glyph substitution, mark positioning, bidi segmentation, language tags, and font feature handling behind the shaped-run abstraction. |
+| Multi-font shaping segmentation | Planned | Split mixed-font fallback text into shaped runs so OpenType shaping and fallback selection cooperate across families. |
+| Full bidirectional layout | Planned | Add paragraph-level Unicode bidi segmentation instead of only single-run direction handling. |
 | Color glyph rendering | Planned | Add color glyph formats once font fallback and atlas ownership are stable. |
 
 ## Acceptance Targets

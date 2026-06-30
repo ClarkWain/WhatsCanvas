@@ -118,18 +118,25 @@ bool testTextShapingEngineFactoryFallsBackToSimple()
 {
     const auto simple = wsc::text::createTextShapingEngine(wsc::text::TextShapingBackend::Simple);
     const auto requestedOpenType = wsc::text::createTextShapingEngine(wsc::text::TextShapingBackend::OpenType);
+    const bool openTypeAvailable = wsc::text::isOpenTypeShapingAvailable();
 
-    return expect(simple != nullptr, "simple shaping engine should be constructible")
-        && expect(simple->backend() == wsc::text::TextShapingBackend::Simple,
-                  "simple shaping engine should report simple backend")
-        && expect(!simple->supportsOpenTypeFeatures(),
-                  "simple shaping engine should not claim OpenType support")
-        && expect(!wsc::text::isOpenTypeShapingAvailable(),
-                  "OpenType shaping implementation should report unavailable until an adapter is compiled in")
-        && expect(requestedOpenType != nullptr,
-                  "OpenType shaping request should fall back to a usable engine when unavailable")
-        && expect(requestedOpenType->backend() == wsc::text::TextShapingBackend::Simple,
-                  "unavailable OpenType shaping request should fall back to simple backend");
+    bool ok = expect(simple != nullptr, "simple shaping engine should be constructible");
+    ok = expect(simple->backend() == wsc::text::TextShapingBackend::Simple,
+                "simple shaping engine should report simple backend") && ok;
+    ok = expect(!simple->supportsOpenTypeFeatures(),
+                "simple shaping engine should not claim OpenType support") && ok;
+    ok = expect(requestedOpenType != nullptr,
+                "OpenType shaping request should return a usable engine") && ok;
+    if (openTypeAvailable) {
+        ok = expect(requestedOpenType->backend() == wsc::text::TextShapingBackend::OpenType,
+                    "available OpenType shaping request should return OpenType backend") && ok;
+        ok = expect(requestedOpenType->supportsOpenTypeFeatures(),
+                    "available OpenType shaping engine should report feature support") && ok;
+    } else {
+        ok = expect(requestedOpenType->backend() == wsc::text::TextShapingBackend::Simple,
+                    "unavailable OpenType shaping request should fall back to simple backend") && ok;
+    }
+    return ok;
 }
 
 } // namespace

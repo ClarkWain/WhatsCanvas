@@ -187,13 +187,26 @@ bool testOpenTypeShapingRequestFallsBackWithDiagnostic()
     options.shapingBackend = wsc::text::TextShapingBackend::OpenType;
     std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createBasicTextBackend(options);
     const std::vector<wsc::text::TextBackendDiagnostic> diagnostics = backend->diagnostics();
+    const bool openTypeAvailable = wsc::text::isOpenTypeShapingAvailable();
 
-    bool ok = expect(!diagnostics.empty(),
-                     "unavailable OpenType shaping request should add a diagnostic");
-    ok = expect(diagnostics.front().severity == wsc::text::TextBackendDiagnostic::Severity::Warning,
-                "unavailable OpenType shaping diagnostic should be a warning") && ok;
-    ok = expect(diagnostics.front().message.find("OpenType shaping backend is unavailable") != std::string::npos,
-                "unavailable OpenType shaping diagnostic should name the fallback") && ok;
+    bool hasUnavailableDiagnostic = false;
+    for (const auto &diagnostic : diagnostics) {
+        hasUnavailableDiagnostic = hasUnavailableDiagnostic
+            || diagnostic.message.find("OpenType shaping backend is unavailable") != std::string::npos;
+    }
+
+    bool ok = true;
+    if (openTypeAvailable) {
+        ok = expect(!hasUnavailableDiagnostic,
+                    "available OpenType shaping request should not report unavailable fallback") && ok;
+    } else {
+        ok = expect(!diagnostics.empty(),
+                    "unavailable OpenType shaping request should add a diagnostic") && ok;
+        ok = expect(diagnostics.front().severity == wsc::text::TextBackendDiagnostic::Severity::Warning,
+                    "unavailable OpenType shaping diagnostic should be a warning") && ok;
+        ok = expect(hasUnavailableDiagnostic,
+                    "unavailable OpenType shaping diagnostic should name the fallback") && ok;
+    }
     return ok;
 }
 
