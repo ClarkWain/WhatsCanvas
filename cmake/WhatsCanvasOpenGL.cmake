@@ -59,6 +59,46 @@ function(whatscanvas_add_gl_family_library target_name project_root)
     set(options OPENGLES)
     cmake_parse_arguments(WSC_GL "${options}" "" "" ${ARGN})
 
+    set(text_shaping_sources)
+    set(text_shaping_libraries)
+    if (WHATSCANVAS_ENABLE_OPENTYPE_SHAPING)
+        find_package(HarfBuzz CONFIG QUIET)
+        if (NOT TARGET harfbuzz::harfbuzz AND NOT TARGET HarfBuzz::HarfBuzz)
+            find_package(HarfBuzz QUIET)
+        endif()
+
+        if (TARGET harfbuzz::harfbuzz)
+            set(WHATSCANVAS_HARFBUZZ_TARGET harfbuzz::harfbuzz)
+        elseif (TARGET HarfBuzz::HarfBuzz)
+            set(WHATSCANVAS_HARFBUZZ_TARGET HarfBuzz::HarfBuzz)
+        else()
+            find_path(WHATSCANVAS_HARFBUZZ_INCLUDE_DIR
+                NAMES hb.h
+                PATH_SUFFIXES harfbuzz
+            )
+            find_library(WHATSCANVAS_HARFBUZZ_LIBRARY
+                NAMES harfbuzz
+            )
+            if (WHATSCANVAS_HARFBUZZ_INCLUDE_DIR AND WHATSCANVAS_HARFBUZZ_LIBRARY)
+                if (NOT TARGET WhatsCanvasHarfBuzz)
+                    add_library(WhatsCanvasHarfBuzz UNKNOWN IMPORTED)
+                    set_target_properties(WhatsCanvasHarfBuzz PROPERTIES
+                        IMPORTED_LOCATION "${WHATSCANVAS_HARFBUZZ_LIBRARY}"
+                        INTERFACE_INCLUDE_DIRECTORIES "${WHATSCANVAS_HARFBUZZ_INCLUDE_DIR}"
+                    )
+                endif()
+                set(WHATSCANVAS_HARFBUZZ_TARGET WhatsCanvasHarfBuzz)
+            endif()
+        endif()
+
+        if (WHATSCANVAS_HARFBUZZ_TARGET)
+            list(APPEND text_shaping_sources "${src_dir}/text/HarfBuzzTextShaper.cpp")
+            list(APPEND text_shaping_libraries "${WHATSCANVAS_HARFBUZZ_TARGET}")
+        else()
+            message(STATUS "WHATSCANVAS_ENABLE_OPENTYPE_SHAPING is ON, but HarfBuzz was not found. Falling back to simple text shaping.")
+        endif()
+    endif()
+
     add_library(${target_name}
         "${glad_path}/src/glad.c"
         "${src_dir}/canvas/base.cpp"
@@ -73,6 +113,7 @@ function(whatscanvas_add_gl_family_library target_name project_root)
         "${src_dir}/text/NativeText.cpp"
         "${src_dir}/text/TextShaper.cpp"
         "${src_dir}/text/TextUtils.cpp"
+        ${text_shaping_sources}
         "${src_dir}/opengl/GLTextureUtils.cpp"
         "${src_dir}/opengl/GLProgram.cpp"
         "${src_dir}/opengl/GLVertexArray.cpp"
@@ -103,6 +144,10 @@ function(whatscanvas_add_gl_family_library target_name project_root)
         target_compile_definitions(${target_name} PRIVATE WHATSCANVAS_ENABLE_OPENTYPE_SHAPING)
     endif()
 
+    if (WHATSCANVAS_HARFBUZZ_TARGET)
+        target_compile_definitions(${target_name} PRIVATE WHATSCANVAS_HAS_HARFBUZZ)
+    endif()
+
     target_include_directories(${target_name}
         PRIVATE
             "${src_dir}"
@@ -118,6 +163,7 @@ function(whatscanvas_add_gl_family_library target_name project_root)
             "$<BUILD_INTERFACE:WhatsCanvasGLAD>"
             "$<BUILD_INTERFACE:WhatsCanvasSTB>"
             "$<BUILD_INTERFACE:WhatsCanvasPolyline2D>"
+            ${text_shaping_libraries}
     )
 
     if (NOT WSC_GL_OPENGLES)

@@ -8,6 +8,8 @@
 #include <string>
 #include <vector>
 
+#include "text/FontRasterizer.h"
+
 namespace wsc::text {
 
 struct ShapedGlyph
@@ -37,6 +39,14 @@ struct ResolvedGlyph
 
 using GlyphResolver = std::function<std::optional<ResolvedGlyph>(std::uint32_t codepoint)>;
 
+struct TextShapeInput
+{
+    std::string normalizedText;
+    float letterSpacing = 0.0f;
+    float pixelSize = 0.0f;
+    std::optional<FontDataView> fontData;
+};
+
 enum class TextShapingBackend
 {
     Simple,
@@ -51,8 +61,7 @@ public:
     virtual TextShapingBackend backend() const = 0;
     virtual const char *name() const = 0;
     virtual bool supportsOpenTypeFeatures() const = 0;
-    virtual std::optional<ShapedTextRun> shape(const std::string &normalizedText,
-                                               float letterSpacing,
+    virtual std::optional<ShapedTextRun> shape(const TextShapeInput &input,
                                                const GlyphResolver &glyphResolver) const = 0;
 };
 

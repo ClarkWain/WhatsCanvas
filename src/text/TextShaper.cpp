@@ -7,6 +7,10 @@
 
 namespace wsc::text {
 
+#if defined(WHATSCANVAS_HAS_HARFBUZZ)
+std::unique_ptr<ITextShapingEngine> createHarfBuzzTextShapingEngine();
+#endif
+
 namespace {
 
 class SimpleTextShapingEngine final : public ITextShapingEngine
@@ -27,11 +31,10 @@ public:
         return false;
     }
 
-    std::optional<ShapedTextRun> shape(const std::string &normalizedText,
-                                       float letterSpacing,
+    std::optional<ShapedTextRun> shape(const TextShapeInput &input,
                                        const GlyphResolver &glyphResolver) const override
     {
-        return shapeTextSimple(normalizedText, letterSpacing, glyphResolver);
+        return shapeTextSimple(input.normalizedText, input.letterSpacing, glyphResolver);
     }
 };
 
@@ -122,7 +125,11 @@ std::optional<ShapedTextRun> shapeTextSimple(const std::string &normalizedText,
 
 bool isOpenTypeShapingAvailable()
 {
+#if defined(WHATSCANVAS_HAS_HARFBUZZ)
+    return true;
+#else
     return false;
+#endif
 }
 
 std::unique_ptr<ITextShapingEngine> createSimpleTextShapingEngine()
@@ -132,7 +139,11 @@ std::unique_ptr<ITextShapingEngine> createSimpleTextShapingEngine()
 
 std::unique_ptr<ITextShapingEngine> createOpenTypeTextShapingEngine()
 {
+#if defined(WHATSCANVAS_HAS_HARFBUZZ)
+    return createHarfBuzzTextShapingEngine();
+#else
     return nullptr;
+#endif
 }
 
 std::unique_ptr<ITextShapingEngine> createTextShapingEngine(TextShapingBackend backend)

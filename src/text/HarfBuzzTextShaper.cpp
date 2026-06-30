@@ -1,0 +1,196 @@
+#include "text/TextShaper.h"
+
+#include <algorithm>
+#include <cmath>
+#include <cstddef>
+#include <memory>
+#include <vector>
+
+#if __has_include(<hb.h>)
+#include <hb.h>
+#include <hb-ot.h>
+#elif __has_include(<harfbuzz/hb.h>)
+#include <harfbuzz/hb.h>
+#include <harfbuzz/hb-ot.h>
+#else
+#error "HarfBuzz headers are required when compiling HarfBuzzTextShaper.cpp"
+#endif
+
+#include "text/TextUtils.h"
+
+namespace wsc::text {
+
+namespace {
+
+struct HbBlobDeleter
+{
+    void operator()(hb_blob_t *blob) const
+    {
+        hb_blob_destroy(blob);
+    }
+};
+
+struct HbFaceDeleter
+{
+    void operator()(hb_face_t *face) const
+    {
+        hb_face_destroy(face);
+    }
+};
+
+struct HbFontDeleter
+{
+    void operator()(hb_font_t *font) const
+    {
+        hb_font_destroy(font);
+    }
+};
+
+struct HbBufferDeleter
+{
+    void operator()(hb_buffer_t *buffer) const
+    {
+        hb_buffer_destroy(buffer);
+    }
+};
+
+using HbBlobPtr = std::unique_ptr<hb_blob_t, HbBlobDeleter>;
+using HbFacePtr = std::unique_ptr<hb_face_t, HbFaceDeleter>;
+using HbFontPtr = std::unique_ptr<hb_font_t, HbFontDeleter>;
+using HbBufferPtr = std::unique_ptr<hb_buffer_t, HbBufferDeleter>;
+
+const Utf8Codepoint *codepointForCluster(const std::vector<Utf8Codepoint> &codepoints, std::size_t cluster)
+{
+    const Utf8Codepoint *best = nullptr;
+    for (const Utf8Codepoint &codepoint : codepoints) {
+        if (codepoint.offset > cluster) {
+            break;
+        }
+        best = &codepoint;
+    }
+    return best;
+}
+
+class HarfBuzzTextShapingEngine final : public ITextShapingEngine
+{
+public:
+    TextShapingBackend backend() const override
+    {
+        return TextShapingBackend::OpenType;
+    }
+
+    const char *name() const override
+    {
+        return "harfbuzz";
+    }
+
+    bool supportsOpenTypeFeatures() const override
+    {
+        return true;
+    }
+
+    std::optional<ShapedTextRun> shape(const TextShapeInput &input,
+                                       const GlyphResolver &glyphResolver) const override
+    {
+        if (!glyphResolver || input.normalizedText.empty() || input.pixelSize <= 0.0f
+            || !input.fontData || input.fontData->data == nullptr || input.fontData->size == 0) {
+            return std::nullopt;
+        }
+
+        const auto codepoints = decodeUtf8(input.normalizedText);
+        if (codepoints.empty()) {
+            return std::nullopt;
+        }
+
+        HbBlobPtr blob(hb_blob_create(reinterpret_cast<const char *>(input.fontData->data),
+                                      static_cast<unsigned int>(input.fontData->size),
+                                      HB_MEMORY_MODE_READONLY,
+                                      nullptr,
+                                      nullptr));
+        if (!blob) {
+            return std::nullopt;
+        }
+
+        HbFacePtr face(hb_face_create(blob.get(), 0));
+        if (!face) {
+            return std::nullopt;
+        }
+
+        HbFontPtr font(hb_font_create(face.get()));
+        if (!font) {
+            return std::nullopt;
+        }
+        hb_ot_font_set_funcs(font.get());
+        const int scale = std::max(1, static_cast<int>(std::round(input.pixelSize * 64.0f)));
+        hb_font_set_scale(font.get(), scale, scale);
+
+        HbBufferPtr buffer(hb_buffer_create());
+        if (!buffer) {
+            return std::nullopt;
+        }
+        hb_buffer_add_utf8(buffer.get(),
+                           input.normalizedText.c_str(),
+                           static_cast<int>(input.normalizedText.size()),
+                           0,
+                           static_cast<int>(input.normalizedText.size()));
+        hb_buffer_guess_segment_properties(buffer.get());
+        hb_shape(font.get(), buffer.get(), nullptr, 0);
+
+        unsigned int glyphCount = 0;
+        hb_glyph_info_t *glyphInfos = hb_buffer_get_glyph_infos(buffer.get(), &glyphCount);
+        hb_glyph_position_t *glyphPositions = hb_buffer_get_glyph_positions(buffer.get(), &glyphCount);
+        if (glyphInfos == nullptr || glyphPositions == nullptr || glyphCount == 0) {
+            return std::nullopt;
+        }
+
+        ShapedTextRun run;
+        run.rightToLeft = HB_DIRECTION_IS_BACKWARD(hb_buffer_get_direction(buffer.get()));
+        const float spacing = std::isfinite(input.letterSpacing) ? input.letterSpacing : 0.0f;
+        bool hasVisibleGlyph = false;
+
+        for (unsigned int i = 0; i < glyphCount; ++i) {
+            const auto *source = codepointForCluster(codepoints, glyphInfos[i].cluster);
+            if (source == nullptr || source->value < 32) {
+                continue;
+            }
+
+            const int glyphIndex = static_cast<int>(glyphInfos[i].codepoint);
+            if (glyphIndex <= 0) {
+                continue;
+            }
+
+            if (hasVisibleGlyph) {
+                run.width += spacing;
+            }
+
+            ShapedGlyph glyph;
+            glyph.codepoint = source->value;
+            glyph.glyphIndex = glyphIndex;
+            glyph.sourceStart = source->offset;
+            glyph.sourceLength = source->length;
+            glyph.advanceX = static_cast<float>(glyphPositions[i].x_advance) / 64.0f;
+            glyph.offsetX = static_cast<float>(glyphPositions[i].x_offset) / 64.0f;
+            glyph.offsetY = -static_cast<float>(glyphPositions[i].y_offset) / 64.0f;
+            glyph.visible = true;
+            run.width += glyph.advanceX;
+            run.glyphs.push_back(glyph);
+            hasVisibleGlyph = true;
+        }
+
+        if (!hasVisibleGlyph || run.glyphs.empty()) {
+            return std::nullopt;
+        }
+
+        run.width = std::max(0.0f, run.width);
+        return run;
+    }
+};
+
+} // namespace
+
+std::unique_ptr<ITextShapingEngine> createHarfBuzzTextShapingEngine()
+{
+    return std::make_unique<HarfBuzzTextShapingEngine>();
+}
+
+} // namespace wsc::text
