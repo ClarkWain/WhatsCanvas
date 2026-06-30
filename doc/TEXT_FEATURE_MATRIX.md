@@ -16,7 +16,7 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 | RGBA glyph atlas path | Contract supported | `GlyphAtlas`, text render results, and Canvas atlas upload can carry RGBA glyph pixels; concrete color font format decoding is future backend work. |
 | Shaped glyph run abstraction | Supported | Portable raster text uses shaped runs with source byte mapping, glyph indices, glyph advances, offsets, and letter spacing before atlas upload. |
 | Glyph-index rasterization path | Supported | Font rasterization can render by glyph index, which is required by real shaping outputs. |
-| Basic RTL run ordering | Supported | The built-in shaper detects RTL-first runs and emits glyphs in visual order while preserving source byte mapping. |
+| Basic RTL run ordering | Supported | The built-in shaper detects RTL-first runs, mirrors common paired punctuation, and emits glyphs in visual order while preserving source byte mapping. |
 | Bidi run segmentation | Supported | Mixed-direction text is split into directional byte ranges before font segmentation and shaping; leading neutral text is retained, weak-only text defaults to LTR, and RTL-base paragraphs reverse visual run order. |
 | OpenType shaping adapter boundary | Supported | `BasicTextBackendOptions` can request an OpenType shaping backend; unavailable adapters fall back to simple shaping with diagnostics. |
 | Optional OpenType shaping implementation | Build-time supported | When HarfBuzz is found and `WHATSCANVAS_ENABLE_OPENTYPE_SHAPING=ON`, the OpenType backend emits glyph-index shaped runs from HarfBuzz output. |
