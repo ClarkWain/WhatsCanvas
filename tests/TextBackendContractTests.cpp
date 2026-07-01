@@ -62,7 +62,8 @@ bool testLineBreakAndGlyphQuery()
         && expect(lines.front().sourceStart == 0, "first line should start at source zero")
         && expect(lines.front().sourceLength > 0, "first line should map to source text")
         && expect(lines.front().width > 0.0f, "line break should report measured width")
-        && expect(backend->hasGlyphForCodepoint('A', paint), "ASCII glyph should be available");
+        && expect(backend->hasGlyphForCodepoint('A', paint), "ASCII glyph should be available")
+        && expect(backend->hasGlyphForCodepoint(0x200F, paint), "bidi controls should not require font glyphs");
 }
 
 bool testDiagnosticsForRejectedFallback()

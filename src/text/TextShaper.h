@@ -76,6 +76,7 @@ std::optional<ShapedTextRun> shapeTextSimple(const std::string &normalizedText,
                                              float letterSpacing,
                                              const GlyphResolver &glyphResolver);
 
+bool isBidiControlCodepoint(std::uint32_t codepoint);
 std::vector<BidiRun> segmentBidiRuns(const std::string &normalizedText);
 
 bool isOpenTypeShapingAvailable();
