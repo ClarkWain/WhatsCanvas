@@ -57,6 +57,12 @@ bool isStrongLeftToRightCodepoint(std::uint32_t codepoint)
 bool firstStrongDirectionIsRightToLeft(const std::vector<Utf8Codepoint> &codepoints)
 {
     for (const Utf8Codepoint &codepoint : codepoints) {
+        if (codepoint.value == 0x061C || codepoint.value == 0x200F) {
+            return true;
+        }
+        if (codepoint.value == 0x200E) {
+            return false;
+        }
         if (isRightToLeftCodepoint(codepoint.value)) {
             return true;
         }
@@ -69,6 +75,12 @@ bool firstStrongDirectionIsRightToLeft(const std::vector<Utf8Codepoint> &codepoi
 
 std::optional<bool> strongDirectionForCodepoint(std::uint32_t codepoint)
 {
+    if (codepoint == 0x061C || codepoint == 0x200F) {
+        return true;
+    }
+    if (codepoint == 0x200E) {
+        return false;
+    }
     if (isRightToLeftCodepoint(codepoint)) {
         return true;
     }
@@ -149,7 +161,10 @@ std::optional<ShapedTextRun> shapeTextSimple(const std::string &normalizedText,
         if (codepoint.value == '\n') {
             break;
         }
-        if (codepoint.value < 32 || isBidiControlCodepoint(codepoint.value)) {
+        if (codepoint.value < 32) {
+            continue;
+        }
+        if (isBidiControlCodepoint(codepoint.value)) {
             continue;
         }
 
@@ -207,7 +222,15 @@ std::vector<BidiRun> segmentBidiRuns(const std::string &normalizedText)
         if (codepoint.value == '\n') {
             break;
         }
-        if (codepoint.value < 32 || isBidiControlCodepoint(codepoint.value)) {
+        if (codepoint.value < 32) {
+            continue;
+        }
+        if (isBidiControlCodepoint(codepoint.value)) {
+            if (const std::optional<bool> direction = strongDirectionForCodepoint(codepoint.value)) {
+                if (!currentDirection) {
+                    currentDirection = direction;
+                }
+            }
             continue;
         }
 
@@ -219,6 +242,9 @@ std::vector<BidiRun> segmentBidiRuns(const std::string &normalizedText)
         const std::optional<bool> direction = strongDirectionForCodepoint(codepoint.value);
         if (!direction) {
             if (currentDirection) {
+                if (currentStart == std::string::npos) {
+                    currentStart = codepoint.offset;
+                }
                 currentEnd = codepoint.offset + codepoint.length;
             } else if (currentStart == std::string::npos) {
                 currentStart = codepoint.offset;
