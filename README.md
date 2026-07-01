@@ -56,7 +56,7 @@ WhatsCanvas 是一个用 C++17 编写的轻量级二维渲染引擎项目，以 
 - 绘制样式：填充、描边、透明度、线性 / 径向 / 多 stop 渐变、混合模式、阴影、虚线、圆角路径效果、图像采样与贴图模式。
 - 画布状态：`save` / `restore`、矩阵变换、矩形裁剪、`clipPath`、`saveLayer`、render-target canvas、命中测试和快速剔除。
 - 图像能力：文件解码、encoded memory、raw RGBA、外部纹理包装、整图替换、局部更新、contain / cover / fill 布局、锚点、九宫格、圆角裁剪、圆形裁剪和平铺绘制。
-- 文本能力：UTF-8 输入处理、字体描述与 fallback 契约、注册 TrueType 字体栅格化、真实字体 ascent/descent/line-gap metrics、glyph-index shaped run、可选 OpenType shaping implementation、multi-font shaping segmentation、bidi run segmentation、基础 RTL run 排序、持久 GPU glyph atlas、RGBA glyph atlas 管线、color font table detection、dirty-rect atlas 更新、atlas 文本阴影采样、`drawText`、`drawTextBox`、`drawTextOnPath`、测量、文本框布局、基础 CJK no-space wrapping、行高、最大行、ellipsis、对齐、baseline、letter spacing、描边文本和缺字诊断。
+- 文本能力：UTF-8 输入处理、字体描述与 fallback 契约、注册 TrueType 字体栅格化、真实字体 ascent/descent/line-gap metrics、glyph-index shaped run、可选 OpenType shaping implementation、multi-font shaping segmentation、bidi run segmentation、基础 RTL run 排序、持久 GPU glyph atlas、RGBA glyph atlas 管线、color font table detection、dirty-rect atlas 更新、atlas 文本阴影采样、`drawText`、`drawTextBox`、`drawTextOnPath`、测量、文本框布局、基础 CJK no-space wrapping、长无空格 token hard wrap、行高、最大行、ellipsis、对齐、baseline、letter spacing、描边文本和缺字诊断。
 - 渲染后端：桌面 OpenGL 为主路径，OpenGLES 目标共享同一套 Canvas API 和 GL-family 后端实现；shader portability、上下文生命周期和资源重建已有对应验证。
 - 性能与资源：路径 / 点线 / 图像 / 文本绘制程序统一走流式顶点缓冲，图片命令支持同纹理合批，图片绘制使用全局 quad index buffer，离屏 render target 有复用池，桌面 GL 渐变 stop 支持 texel buffer，OpenGLES 保留兼容 fallback。
 - 诊断与验证：`RenderStats`、同步 / 异步像素回读、PPM 截图、像素哈希、fuzzy PPM 对比、固定时间首帧冒烟、OpenGLES 构建冒烟、示例构建冒烟和本地严格回归检查。

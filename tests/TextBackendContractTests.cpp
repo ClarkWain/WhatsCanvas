@@ -80,6 +80,20 @@ bool testCjkLineBreakQuery()
                   "first CJK line should expose a partial UTF-8 span");
 }
 
+bool testLongWordLineBreakQuery()
+{
+    std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createPortableTextBackend();
+    Paint paint;
+    paint.setTextSize(12.0f);
+    const std::string text = "supercalifragilistic";
+    const std::vector<wsc::text::TextLineBreak> lines = backend->breakLines(text, 18.0f, paint);
+
+    return expect(lines.size() >= 2, "long unspaced words should wrap across lines")
+        && expect(lines[0].sourceStart == 0, "first long-word line should start at source zero")
+        && expect(lines[0].sourceLength > 0 && lines[0].sourceLength < text.size(),
+                  "first long-word line should expose a partial source span");
+}
+
 bool testDiagnosticsForRejectedFallback()
 {
     std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createBasicTextBackend();
@@ -273,6 +287,7 @@ int main()
     const bool ok = testFontRegistrationAndFallback()
         && testLineBreakAndGlyphQuery()
         && testCjkLineBreakQuery()
+        && testLongWordLineBreakQuery()
         && testDiagnosticsForRejectedFallback()
         && testPortableBackendUsesGeometryPath()
         && testPortableBackendUsesGlyphAtlasForRegisteredFont()
