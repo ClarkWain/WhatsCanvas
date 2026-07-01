@@ -3394,7 +3394,13 @@ std::vector<Canvas::TextLine> Canvas::layoutTextBox(const std::string &text, con
         return result;
     }
 
-    auto ellipsizeLine = [&](std::string line) -> std::pair<std::string, bool> {
+    struct EllipsizedLine {
+        std::string text;
+        bool ellipsized = false;
+        std::size_t visibleSourceLength = 0;
+    };
+
+    auto ellipsizeLine = [&](std::string line) -> EllipsizedLine {
         const std::string marker = "...";
         const float maxWidth = normalizedBounds.getWidth();
         if (measureText(line, paint) <= maxWidth) {
@@ -3403,7 +3409,7 @@ std::vector<Canvas::TextLine> Canvas::layoutTextBox(const std::string &text, con
                 candidate.pop_back();
             }
             if (measureText(candidate + marker, paint) <= maxWidth) {
-                return {candidate + marker, true};
+                return {candidate + marker, true, candidate.size()};
             }
         }
 
@@ -3420,7 +3426,7 @@ std::vector<Canvas::TextLine> Canvas::layoutTextBox(const std::string &text, con
                 }
                 dots = candidate;
             }
-            return {dots, true};
+            return {dots, true, 0};
         }
 
         while (!line.empty() && measureText(line + marker, paint) > maxWidth) {
@@ -3430,7 +3436,7 @@ std::vector<Canvas::TextLine> Canvas::layoutTextBox(const std::string &text, con
             }
         }
 
-        return {line.empty() ? marker : line + marker, true};
+        return {line.empty() ? marker : line + marker, true, line.size()};
     };
 
     float x = normalizedBounds.getX();
@@ -3463,9 +3469,10 @@ std::vector<Canvas::TextLine> Canvas::layoutTextBox(const std::string &text, con
         const bool lastByBounds = y + effectiveLineHeight >= bottom;
         if (ellipsize && (hasMoreLines || measureText(line.text, paint) > normalizedBounds.getWidth())
             && (lastByMaxLines || lastByBounds)) {
-            auto ellipsized = ellipsizeLine(line.text);
-            line.text = std::move(ellipsized.first);
-            line.ellipsized = ellipsized.second;
+            const EllipsizedLine ellipsized = ellipsizeLine(line.text);
+            line.text = ellipsized.text;
+            line.ellipsized = ellipsized.ellipsized;
+            line.sourceLength = std::min(line.sourceLength, ellipsized.visibleSourceLength);
         }
 
         line.width = measureText(line.text, paint);
