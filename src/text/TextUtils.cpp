@@ -38,6 +38,49 @@ size_t estimateAsciiTextVertexBufferBytes(const std::string &asciiText)
     return std::max(kBytesPerQuad, quadCount * kBytesPerQuad);
 }
 
+bool isAsciiSpace(std::uint32_t codepoint)
+{
+    return codepoint == ' ';
+}
+
+bool isCjkCodepoint(std::uint32_t codepoint)
+{
+    return (codepoint >= 0x2E80 && codepoint <= 0x9FFF)
+        || (codepoint >= 0xF900 && codepoint <= 0xFAFF)
+        || (codepoint >= 0x20000 && codepoint <= 0x2FA1F)
+        || (codepoint >= 0x3000 && codepoint <= 0x303F)
+        || (codepoint >= 0xFF00 && codepoint <= 0xFFEF);
+}
+
+bool isClosingCjkPunctuation(std::uint32_t codepoint)
+{
+    switch (codepoint) {
+    case 0x3001:
+    case 0x3002:
+    case 0x3009:
+    case 0x300B:
+    case 0x300D:
+    case 0x300F:
+    case 0x3011:
+    case 0x3015:
+    case 0x3017:
+    case 0x3019:
+    case 0x301B:
+    case 0xFF01:
+    case 0xFF09:
+    case 0xFF0C:
+    case 0xFF0E:
+    case 0xFF1A:
+    case 0xFF1B:
+    case 0xFF1F:
+    case 0xFF3D:
+    case 0xFF5D:
+        return true;
+    default:
+        return false;
+    }
+}
+
 } // namespace
 
 namespace wsc::text {
@@ -181,6 +224,65 @@ std::string makeAsciiFallbackText(const std::string &text, char replacement)
 std::size_t countUtf8Codepoints(const std::string &text)
 {
     return decodeUtf8(text).size();
+}
+
+std::vector<TextBreakToken> buildTextBreakTokens(const std::string &text, std::size_t sourceStart,
+                                                 std::size_t sourceEnd)
+{
+    std::vector<TextBreakToken> tokens;
+    const std::size_t clampedEnd = std::min(sourceEnd, text.size());
+    if (sourceStart >= clampedEnd) {
+        return tokens;
+    }
+
+    const std::vector<Utf8Codepoint> codepoints = decodeUtf8(text);
+    bool pendingSpace = false;
+    std::size_t index = 0;
+    while (index < codepoints.size()) {
+        const Utf8Codepoint &codepoint = codepoints[index];
+        if (codepoint.offset < sourceStart) {
+            ++index;
+            continue;
+        }
+        if (codepoint.offset >= clampedEnd || codepoint.value == '\n') {
+            break;
+        }
+        if (isAsciiSpace(codepoint.value)) {
+            pendingSpace = !tokens.empty();
+            ++index;
+            continue;
+        }
+
+        TextBreakToken token;
+        token.sourceStart = codepoint.offset;
+        token.sourceEnd = std::min(codepoint.offset + codepoint.length, clampedEnd);
+        token.prefixSpace = pendingSpace;
+        pendingSpace = false;
+
+        if (isCjkCodepoint(codepoint.value)) {
+            if (isClosingCjkPunctuation(codepoint.value) && !tokens.empty()) {
+                tokens.back().sourceEnd = token.sourceEnd;
+            } else {
+                tokens.push_back(token);
+            }
+            ++index;
+            continue;
+        }
+
+        ++index;
+        while (index < codepoints.size()) {
+            const Utf8Codepoint &next = codepoints[index];
+            if (next.offset >= clampedEnd || next.value == '\n' || isAsciiSpace(next.value)
+                || isCjkCodepoint(next.value)) {
+                break;
+            }
+            token.sourceEnd = std::min(next.offset + next.length, clampedEnd);
+            ++index;
+        }
+        tokens.push_back(token);
+    }
+
+    return tokens;
 }
 
 std::string sanitizeTextToAscii(const std::string &text)

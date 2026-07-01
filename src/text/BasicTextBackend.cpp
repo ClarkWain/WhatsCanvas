@@ -98,34 +98,24 @@ public:
             std::string currentLine;
             std::size_t currentStart = paragraphStart;
             std::size_t currentEnd = paragraphStart;
-            std::size_t position = paragraphStart;
-            while (position < paragraphEnd) {
-                while (position < paragraphEnd && normalizedText[position] == ' ') {
-                    ++position;
-                }
-                if (position >= paragraphEnd) {
-                    break;
-                }
-
-                const std::size_t wordStart = position;
-                while (position < paragraphEnd && normalizedText[position] != ' ') {
-                    ++position;
-                }
-
-                const std::string word = normalizedText.substr(wordStart, position - wordStart);
-                const std::string candidate = currentLine.empty() ? word : currentLine + " " + word;
+            const std::vector<wsc::text::TextBreakToken> tokens =
+                wsc::text::buildTextBreakTokens(normalizedText, paragraphStart, paragraphEnd);
+            for (const wsc::text::TextBreakToken &token : tokens) {
+                const std::string tokenText = normalizedText.substr(token.sourceStart, token.sourceEnd - token.sourceStart);
+                const std::string candidate =
+                    currentLine.empty() ? tokenText : currentLine + (token.prefixSpace ? " " : "") + tokenText;
                 if (currentLine.empty() || measureTextWidth(candidate, paint) <= maxWidth) {
                     if (currentLine.empty()) {
-                        currentStart = wordStart;
+                        currentStart = token.sourceStart;
                     }
                     currentLine = candidate;
-                    currentEnd = position;
+                    currentEnd = token.sourceEnd;
                 } else {
                     result.push_back({currentStart, currentEnd - currentStart,
                                       measureTextWidth(currentLine, paint)});
-                    currentLine = word;
-                    currentStart = wordStart;
-                    currentEnd = position;
+                    currentLine = tokenText;
+                    currentStart = token.sourceStart;
+                    currentEnd = token.sourceEnd;
                 }
             }
 

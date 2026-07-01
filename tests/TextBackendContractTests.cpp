@@ -66,6 +66,20 @@ bool testLineBreakAndGlyphQuery()
         && expect(backend->hasGlyphForCodepoint(0x200F, paint), "bidi controls should not require font glyphs");
 }
 
+bool testCjkLineBreakQuery()
+{
+    std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createPortableTextBackend();
+    Paint paint;
+    paint.setTextSize(12.0f);
+    const std::vector<wsc::text::TextLineBreak> lines =
+        backend->breakLines("\xe4\xbd\xa0\xe5\xa5\xbd\xe4\xb8\x96\xe7\x95\x8c", 12.0f, paint);
+
+    return expect(lines.size() >= 2, "CJK line break query should wrap text without spaces")
+        && expect(lines[0].sourceStart == 0, "first CJK line should start at source zero")
+        && expect(lines[0].sourceLength > 0 && lines[0].sourceLength < 12,
+                  "first CJK line should expose a partial UTF-8 span");
+}
+
 bool testDiagnosticsForRejectedFallback()
 {
     std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createBasicTextBackend();
@@ -258,6 +272,7 @@ int main()
 {
     const bool ok = testFontRegistrationAndFallback()
         && testLineBreakAndGlyphQuery()
+        && testCjkLineBreakQuery()
         && testDiagnosticsForRejectedFallback()
         && testPortableBackendUsesGeometryPath()
         && testPortableBackendUsesGlyphAtlasForRegisteredFont()

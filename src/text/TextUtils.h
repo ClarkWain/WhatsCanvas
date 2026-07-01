@@ -17,11 +17,20 @@ struct Utf8Codepoint
     bool valid = false;
 };
 
+struct TextBreakToken
+{
+    std::size_t sourceStart = 0;
+    std::size_t sourceEnd = 0;
+    bool prefixSpace = false;
+};
+
 std::vector<Utf8Codepoint> decodeUtf8(const std::string &text);
 bool isValidUtf8(const std::string &text);
 std::string normalizeUtf8ForText(const std::string &text);
 std::string makeAsciiFallbackText(const std::string &text, char replacement = '?');
 std::size_t countUtf8Codepoints(const std::string &text);
+std::vector<TextBreakToken> buildTextBreakTokens(const std::string &text, std::size_t sourceStart,
+                                                 std::size_t sourceEnd);
 std::string sanitizeTextToAscii(const std::string &text);
 float measureAsciiTextWidth(const std::string &asciiText, float scale, float letterSpacing);
 float measureAsciiTextHeight(const std::string &asciiText, float scale);
