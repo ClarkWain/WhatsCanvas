@@ -123,6 +123,14 @@ std::uint32_t mirroredCodepointForRightToLeftRun(std::uint32_t codepoint)
 
 } // namespace
 
+bool isBidiControlCodepoint(std::uint32_t codepoint)
+{
+    return codepoint == 0x061C
+        || (codepoint >= 0x200E && codepoint <= 0x200F)
+        || (codepoint >= 0x202A && codepoint <= 0x202E)
+        || (codepoint >= 0x2066 && codepoint <= 0x2069);
+}
+
 std::optional<ShapedTextRun> shapeTextSimple(const std::string &normalizedText,
                                              float letterSpacing,
                                              const GlyphResolver &glyphResolver)
@@ -141,7 +149,7 @@ std::optional<ShapedTextRun> shapeTextSimple(const std::string &normalizedText,
         if (codepoint.value == '\n') {
             break;
         }
-        if (codepoint.value < 32) {
+        if (codepoint.value < 32 || isBidiControlCodepoint(codepoint.value)) {
             continue;
         }
 
@@ -199,7 +207,7 @@ std::vector<BidiRun> segmentBidiRuns(const std::string &normalizedText)
         if (codepoint.value == '\n') {
             break;
         }
-        if (codepoint.value < 32) {
+        if (codepoint.value < 32 || isBidiControlCodepoint(codepoint.value)) {
             continue;
         }
 

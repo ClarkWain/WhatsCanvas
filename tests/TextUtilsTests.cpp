@@ -132,6 +132,22 @@ bool testSimpleShaperMirrorsRightToLeftPunctuation()
         && expect(run->glyphs[1].codepoint == 0x05D0, "strong RTL glyph should remain unchanged");
 }
 
+bool testSimpleShaperSkipsBidiControls()
+{
+    const std::string text = std::string("A") + "\xE2\x80\x8F" + "B";
+    const auto run = wsc::text::shapeTextSimple(text,
+                                                1.0f,
+                                                [](std::uint32_t codepoint) -> std::optional<wsc::text::ResolvedGlyph> {
+        return wsc::text::ResolvedGlyph{static_cast<int>(codepoint), 5.0f};
+    });
+
+    return expect(run.has_value(), "simple shaper should ignore bidi controls while shaping")
+        && expect(run->glyphs.size() == 2, "bidi controls should not emit visible glyphs")
+        && expect(run->glyphs[0].codepoint == 'A' && run->glyphs[1].codepoint == 'B',
+                  "visible glyph order should ignore RLM")
+        && expect(run->width == 11.0f, "letter spacing should only apply between visible glyphs");
+}
+
 bool testTextShapingEngineFactoryFallsBackToSimple()
 {
     const auto simple = wsc::text::createTextShapingEngine(wsc::text::TextShapingBackend::Simple);
@@ -194,6 +210,14 @@ bool testBidiRunSegmentationKeepsWeakOnlyText()
                   "weak-only run should cover the full visible text");
 }
 
+bool testBidiRunSegmentationSkipsControlOnlyText()
+{
+    const std::string text = "\xE2\x80\x8E\xE2\x80\x8F";
+    const std::vector<wsc::text::BidiRun> runs = wsc::text::segmentBidiRuns(text);
+
+    return expect(runs.empty(), "bidi control-only text should not produce visible runs");
+}
+
 } // namespace
 
 int main()
@@ -205,9 +229,11 @@ int main()
         && testSimpleShaperStopsAtFirstLineAndFailsMissingGlyphs()
         && testSimpleShaperOrdersRightToLeftRuns()
         && testSimpleShaperMirrorsRightToLeftPunctuation()
+        && testSimpleShaperSkipsBidiControls()
         && testTextShapingEngineFactoryFallsBackToSimple()
         && testBidiRunSegmentation()
         && testBidiRunSegmentationKeepsLeadingNeutrals()
-        && testBidiRunSegmentationKeepsWeakOnlyText();
+        && testBidiRunSegmentationKeepsWeakOnlyText()
+        && testBidiRunSegmentationSkipsControlOnlyText();
     return ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }
