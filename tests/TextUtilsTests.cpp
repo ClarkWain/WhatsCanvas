@@ -154,6 +154,17 @@ bool testUnicodeBreakTokensTreatWhitespaceAsBreaks()
                   "ideographic-space-separated token should request a collapsed prefix space");
 }
 
+bool testUnicodeBreakTokensStopAtCarriageReturn()
+{
+    const std::string text = "alpha\rbeta";
+    const std::vector<wsc::text::TextBreakToken> tokens =
+        wsc::text::buildTextBreakTokens(text, 0, text.size());
+
+    return expect(tokens.size() == 1, "carriage return should stop the current break-token row")
+        && expect(tokens[0].sourceStart == 0 && tokens[0].sourceEnd == 5,
+                  "carriage return should not be included in break-token source spans");
+}
+
 bool testSimpleShaperBuildsGlyphRun()
 {
     const std::string text = "A\xe4\xb8\xad";
@@ -381,6 +392,7 @@ int main()
         && testUnicodeBreakTokensAttachClosingPunctuation()
         && testUnicodeBreakTokensAttachOpeningPunctuation()
         && testUnicodeBreakTokensTreatWhitespaceAsBreaks()
+        && testUnicodeBreakTokensStopAtCarriageReturn()
         && testSimpleShaperBuildsGlyphRun()
         && testSimpleShaperStopsAtFirstLineAndFailsMissingGlyphs()
         && testSimpleShaperOrdersRightToLeftRuns()

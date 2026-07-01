@@ -66,6 +66,20 @@ bool testLineBreakAndGlyphQuery()
         && expect(backend->hasGlyphForCodepoint(0x200F, paint), "bidi controls should not require font glyphs");
 }
 
+bool testCrLfLineBreakQuery()
+{
+    std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createBasicTextBackend();
+    Paint paint = makeTextPaint();
+    const std::vector<wsc::text::TextLineBreak> lines =
+        backend->breakLines("alpha\r\nbeta", 200.0f, paint);
+
+    return expect(lines.size() == 2, "CRLF line break query should return two rows")
+        && expect(lines[0].sourceStart == 0 && lines[0].sourceLength == 5,
+                  "first CRLF backend row should map to alpha only")
+        && expect(lines[1].sourceStart == 7 && lines[1].sourceLength == 4,
+                  "second CRLF backend row should skip both CR and LF");
+}
+
 bool testCjkLineBreakQuery()
 {
     std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createPortableTextBackend();
@@ -286,6 +300,7 @@ int main()
 {
     const bool ok = testFontRegistrationAndFallback()
         && testLineBreakAndGlyphQuery()
+        && testCrLfLineBreakQuery()
         && testCjkLineBreakQuery()
         && testLongWordLineBreakQuery()
         && testDiagnosticsForRejectedFallback()

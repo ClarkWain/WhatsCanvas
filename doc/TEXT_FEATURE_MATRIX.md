@@ -6,7 +6,7 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 
 | Capability | Status | Notes |
 | --- | --- | --- |
-| UTF-8 input validation | Supported | Invalid byte sequences are normalized before measurement/render paths. |
+| UTF-8 input validation | Supported | Invalid byte sequences are normalized before measurement/render paths; multiline layout accepts LF and CRLF row separators. |
 | ASCII fallback geometry | Supported | Basic backend can render normalized text through ASCII fallback geometry. |
 | Native Windows text bitmap path | Supported | Used when a font family is supplied and native measurement/render succeeds. |
 | Cross-platform font rasterization | Supported | Registered file-backed or memory-backed TrueType faces can be rasterized through the portable font rasterizer. |
