@@ -307,6 +307,29 @@ bool testBidiRunSegmentationSkipsControlOnlyText()
     return expect(runs.empty(), "bidi control-only text should not produce visible runs");
 }
 
+bool testBidiRunSegmentationUsesDirectionalMarks()
+{
+    const std::string rlmText = "\xE2\x80\x8F" "123";
+    const std::string lrmText = "\xE2\x80\x8E" "123";
+    const std::string almText = "\xD8\x9C" "123";
+    const std::vector<wsc::text::BidiRun> rlmRuns = wsc::text::segmentBidiRuns(rlmText);
+    const std::vector<wsc::text::BidiRun> lrmRuns = wsc::text::segmentBidiRuns(lrmText);
+    const std::vector<wsc::text::BidiRun> almRuns = wsc::text::segmentBidiRuns(almText);
+
+    return expect(rlmRuns.size() == 1 && rlmRuns[0].rightToLeft,
+                  "RLM should set weak-only text to RTL")
+        && expect(rlmRuns[0].sourceStart == 3 && rlmRuns[0].sourceEnd == rlmText.size(),
+                  "RLM should not be included in the visible source range")
+        && expect(lrmRuns.size() == 1 && !lrmRuns[0].rightToLeft,
+                  "LRM should set weak-only text to LTR")
+        && expect(lrmRuns[0].sourceStart == 3 && lrmRuns[0].sourceEnd == lrmText.size(),
+                  "LRM should not be included in the visible source range")
+        && expect(almRuns.size() == 1 && almRuns[0].rightToLeft,
+                  "ALM should set weak-only text to RTL")
+        && expect(almRuns[0].sourceStart == 2 && almRuns[0].sourceEnd == almText.size(),
+                  "ALM should not be included in the visible source range");
+}
+
 bool testColorFontTableDetection()
 {
     const std::vector<std::uint8_t> sfnt =
@@ -354,6 +377,7 @@ int main()
         && testBidiRunSegmentationKeepsLeadingNeutrals()
         && testBidiRunSegmentationKeepsWeakOnlyText()
         && testBidiRunSegmentationSkipsControlOnlyText()
+        && testBidiRunSegmentationUsesDirectionalMarks()
         && testColorFontTableDetection()
         && testColorFontTableDetectionHandlesTtcAndMalformedData();
     return ok ? EXIT_SUCCESS : EXIT_FAILURE;
