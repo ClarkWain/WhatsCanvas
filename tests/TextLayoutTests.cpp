@@ -156,7 +156,8 @@ bool testCjkEllipsisKeepsValidUtf8()
     return expect(lines.size() == 1, "CJK ellipsis layout should keep one visible line")
         && expect(lines[0].ellipsized, "CJK constrained layout should ellipsize")
         && expect(isValidUtf8(lines[0].text), "CJK ellipsis should not split UTF-8 scalars")
-        && expect(lines[0].text.find("...") != std::string::npos, "CJK ellipsis should include marker");
+        && expect(lines[0].text.find("...") != std::string::npos, "CJK ellipsis should include marker")
+        && expect(lines[0].sourceLength < 12, "CJK ellipsis should shrink the visible source span");
 }
 
 bool testInvalidInputs()
