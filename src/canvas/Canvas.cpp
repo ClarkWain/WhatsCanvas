@@ -3309,23 +3309,55 @@ std::vector<Canvas::TextLine> Canvas::layoutTextBox(const std::string &text, con
         std::string currentLine;
         std::size_t currentStart = 0;
         std::size_t currentEnd = 0;
+        auto pushCurrentLine = [&]() {
+            if (!currentLine.empty()) {
+                lines.push_back(CandidateLine{currentLine, paragraphOffset + currentStart, currentEnd - currentStart});
+                currentLine.clear();
+            }
+        };
+        auto appendScalarToken = [&](const std::string &tokenText,
+                                     std::size_t tokenStart,
+                                     std::size_t tokenEnd) {
+            const std::vector<wsc::text::Utf8Codepoint> codepoints = wsc::text::decodeUtf8(tokenText);
+            for (const wsc::text::Utf8Codepoint &codepoint : codepoints) {
+                const std::string scalarText = tokenText.substr(codepoint.offset, codepoint.length);
+                const std::size_t scalarStart = tokenStart + codepoint.offset;
+                const std::size_t scalarEnd = std::min(tokenStart + codepoint.offset + codepoint.length,
+                                                       tokenEnd);
+                const std::string candidate = currentLine.empty() ? scalarText : currentLine + scalarText;
+                if (!currentLine.empty() && measureText(candidate, paint) > normalizedBounds.getWidth()) {
+                    pushCurrentLine();
+                }
+                if (currentLine.empty()) {
+                    currentStart = scalarStart;
+                }
+                currentLine += scalarText;
+                currentEnd = scalarEnd;
+            }
+        };
         const std::vector<wsc::text::TextBreakToken> tokens =
             wsc::text::buildTextBreakTokens(paragraph, 0, paragraph.size());
         for (const wsc::text::TextBreakToken &token : tokens) {
             const std::string tokenText = paragraph.substr(token.sourceStart, token.sourceEnd - token.sourceStart);
             const std::string candidate =
                 currentLine.empty() ? tokenText : currentLine + (token.prefixSpace ? " " : "") + tokenText;
-            if (currentLine.empty() || measureText(candidate, paint) <= normalizedBounds.getWidth()) {
+            if (currentLine.empty() && measureText(tokenText, paint) > normalizedBounds.getWidth()) {
+                appendScalarToken(tokenText, token.sourceStart, token.sourceEnd);
+            } else if (currentLine.empty() || measureText(candidate, paint) <= normalizedBounds.getWidth()) {
                 if (currentLine.empty()) {
                     currentStart = token.sourceStart;
                 }
                 currentLine = candidate;
                 currentEnd = token.sourceEnd;
             } else {
-                lines.push_back(CandidateLine{currentLine, paragraphOffset + currentStart, currentEnd - currentStart});
-                currentLine = tokenText;
-                currentStart = token.sourceStart;
-                currentEnd = token.sourceEnd;
+                pushCurrentLine();
+                if (measureText(tokenText, paint) > normalizedBounds.getWidth()) {
+                    appendScalarToken(tokenText, token.sourceStart, token.sourceEnd);
+                } else {
+                    currentLine = tokenText;
+                    currentStart = token.sourceStart;
+                    currentEnd = token.sourceEnd;
+                }
             }
         }
 

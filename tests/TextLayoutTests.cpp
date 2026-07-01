@@ -75,6 +75,24 @@ bool testCjkWrappingWithoutSpaces()
                   "first CJK line should contain a partial UTF-8 source span");
 }
 
+bool testLongWordWrappingWithoutSpaces()
+{
+    wsc::Canvas canvas;
+    wsc::Paint paint;
+    paint.setTextSize(12.0f);
+    const std::string text = "supercalifragilistic";
+    const std::vector<wsc::Canvas::TextLine> lines =
+        canvas.layoutTextBox(text,
+                             wsc::RectF(0.0f, 0.0f, 18.0f, 100.0f),
+                             14.0f,
+                             paint);
+
+    return expect(lines.size() >= 2, "long unspaced words should wrap across lines")
+        && expect(lines[0].sourceStart == 0, "first long-word line should map to source start")
+        && expect(lines[0].sourceLength > 0 && lines[0].sourceLength < text.size(),
+                  "first long-word line should contain a partial source span");
+}
+
 bool testInvalidInputs()
 {
     wsc::Canvas canvas;
@@ -92,6 +110,7 @@ int main()
     const bool ok = testParagraphRanges()
         && testAlignAndEllipsis()
         && testCjkWrappingWithoutSpaces()
+        && testLongWordWrappingWithoutSpaces()
         && testInvalidInputs();
     return ok ? 0 : 1;
 }
