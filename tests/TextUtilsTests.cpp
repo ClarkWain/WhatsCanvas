@@ -126,6 +126,21 @@ bool testUnicodeBreakTokensAttachClosingPunctuation()
                   "following CJK character should remain independently breakable");
 }
 
+bool testUnicodeBreakTokensTreatWhitespaceAsBreaks()
+{
+    const std::string text = "alpha\tbeta\xe3\x80\x80gamma";
+    const std::vector<wsc::text::TextBreakToken> tokens =
+        wsc::text::buildTextBreakTokens(text, 0, text.size());
+
+    return expect(tokens.size() == 3, "tab and Unicode spaces should split break tokens")
+        && expect(tokens[0].sourceStart == 0 && tokens[0].sourceEnd == 5 && !tokens[0].prefixSpace,
+                  "first whitespace token should retain alpha source range")
+        && expect(tokens[1].sourceStart == 6 && tokens[1].sourceEnd == 10 && tokens[1].prefixSpace,
+                  "tab-separated token should request a collapsed prefix space")
+        && expect(tokens[2].sourceStart == 13 && tokens[2].sourceEnd == text.size() && tokens[2].prefixSpace,
+                  "ideographic-space-separated token should request a collapsed prefix space");
+}
+
 bool testSimpleShaperBuildsGlyphRun()
 {
     const std::string text = "A\xe4\xb8\xad";
@@ -328,6 +343,7 @@ int main()
         && testAsciiFallbackKeepsShape()
         && testUnicodeBreakTokensSplitCjkText()
         && testUnicodeBreakTokensAttachClosingPunctuation()
+        && testUnicodeBreakTokensTreatWhitespaceAsBreaks()
         && testSimpleShaperBuildsGlyphRun()
         && testSimpleShaperStopsAtFirstLineAndFailsMissingGlyphs()
         && testSimpleShaperOrdersRightToLeftRuns()

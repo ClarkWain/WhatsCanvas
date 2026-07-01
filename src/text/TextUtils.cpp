@@ -38,9 +38,16 @@ size_t estimateAsciiTextVertexBufferBytes(const std::string &asciiText)
     return std::max(kBytesPerQuad, quadCount * kBytesPerQuad);
 }
 
-bool isAsciiSpace(std::uint32_t codepoint)
+bool isBreakWhitespace(std::uint32_t codepoint)
 {
-    return codepoint == ' ';
+    return codepoint == ' '
+        || codepoint == '\t'
+        || codepoint == 0x1680
+        || (codepoint >= 0x2000 && codepoint <= 0x200A)
+        || codepoint == 0x2028
+        || codepoint == 0x2029
+        || codepoint == 0x205F
+        || codepoint == 0x3000;
 }
 
 bool isCjkCodepoint(std::uint32_t codepoint)
@@ -247,7 +254,7 @@ std::vector<TextBreakToken> buildTextBreakTokens(const std::string &text, std::s
         if (codepoint.offset >= clampedEnd || codepoint.value == '\n') {
             break;
         }
-        if (isAsciiSpace(codepoint.value)) {
+        if (isBreakWhitespace(codepoint.value)) {
             pendingSpace = !tokens.empty();
             ++index;
             continue;
@@ -272,7 +279,7 @@ std::vector<TextBreakToken> buildTextBreakTokens(const std::string &text, std::s
         ++index;
         while (index < codepoints.size()) {
             const Utf8Codepoint &next = codepoints[index];
-            if (next.offset >= clampedEnd || next.value == '\n' || isAsciiSpace(next.value)
+            if (next.offset >= clampedEnd || next.value == '\n' || isBreakWhitespace(next.value)
                 || isCjkCodepoint(next.value)) {
                 break;
             }
