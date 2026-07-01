@@ -50,6 +50,11 @@ bool isBreakWhitespace(std::uint32_t codepoint)
         || codepoint == 0x3000;
 }
 
+bool isLineBreak(std::uint32_t codepoint)
+{
+    return codepoint == '\n' || codepoint == '\r';
+}
+
 bool isCjkCodepoint(std::uint32_t codepoint)
 {
     return (codepoint >= 0x2E80 && codepoint <= 0x9FFF)
@@ -272,7 +277,7 @@ std::vector<TextBreakToken> buildTextBreakTokens(const std::string &text, std::s
             ++index;
             continue;
         }
-        if (codepoint.offset >= clampedEnd || codepoint.value == '\n') {
+        if (codepoint.offset >= clampedEnd || isLineBreak(codepoint.value)) {
             break;
         }
         if (isBreakWhitespace(codepoint.value)) {
@@ -292,7 +297,7 @@ std::vector<TextBreakToken> buildTextBreakTokens(const std::string &text, std::s
                 tokens.back().sourceEnd = token.sourceEnd;
             } else if (isOpeningCjkPunctuation(codepoint.value) && index + 1 < codepoints.size()) {
                 const Utf8Codepoint &next = codepoints[index + 1];
-                if (next.offset < clampedEnd && next.value != '\n' && !isBreakWhitespace(next.value)) {
+                if (next.offset < clampedEnd && !isLineBreak(next.value) && !isBreakWhitespace(next.value)) {
                     token.sourceEnd = std::min(next.offset + next.length, clampedEnd);
                     tokens.push_back(token);
                     index += 2;
@@ -309,7 +314,7 @@ std::vector<TextBreakToken> buildTextBreakTokens(const std::string &text, std::s
         ++index;
         while (index < codepoints.size()) {
             const Utf8Codepoint &next = codepoints[index];
-            if (next.offset >= clampedEnd || next.value == '\n' || isBreakWhitespace(next.value)
+            if (next.offset >= clampedEnd || isLineBreak(next.value) || isBreakWhitespace(next.value)
                 || isCjkCodepoint(next.value)) {
                 break;
             }

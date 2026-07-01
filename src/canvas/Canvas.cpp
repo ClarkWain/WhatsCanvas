@@ -3384,8 +3384,11 @@ std::vector<Canvas::TextLine> Canvas::layoutTextBox(const std::string &text, con
 
     std::size_t paragraphStart = 0;
     for (std::size_t i = 0; i <= text.size(); ++i) {
-        if (i == text.size() || text[i] == '\n') {
+        if (i == text.size() || text[i] == '\n' || text[i] == '\r') {
             appendParagraph(text.substr(paragraphStart, i - paragraphStart), paragraphStart);
+            if (i < text.size() && text[i] == '\r' && i + 1 < text.size() && text[i + 1] == '\n') {
+                ++i;
+            }
             paragraphStart = i + 1;
         }
     }

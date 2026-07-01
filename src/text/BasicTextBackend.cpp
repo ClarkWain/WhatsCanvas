@@ -159,8 +159,12 @@ public:
 
         std::size_t paragraphStart = 0;
         for (std::size_t i = 0; i <= normalizedText.size(); ++i) {
-            if (i == normalizedText.size() || normalizedText[i] == '\n') {
+            if (i == normalizedText.size() || normalizedText[i] == '\n' || normalizedText[i] == '\r') {
                 appendParagraph(paragraphStart, i);
+                if (i < normalizedText.size() && normalizedText[i] == '\r'
+                    && i + 1 < normalizedText.size() && normalizedText[i + 1] == '\n') {
+                    ++i;
+                }
                 paragraphStart = i + 1;
             }
         }

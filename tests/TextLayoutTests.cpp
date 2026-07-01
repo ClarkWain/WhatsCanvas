@@ -90,6 +90,22 @@ bool testParagraphRanges()
         && expect(lines[1].y == 38.0f, "line height should advance y");
 }
 
+bool testCrLfParagraphRanges()
+{
+    wsc::Canvas canvas;
+    wsc::Paint paint = makeTextPaint();
+    const std::vector<wsc::Canvas::TextLine> lines =
+        canvas.layoutTextBox("alpha\r\nbeta", wsc::RectF(10.0f, 20.0f, 400.0f, 120.0f), 18.0f, paint);
+
+    return expect(lines.size() == 2, "CRLF layout should preserve two paragraph rows")
+        && expect(lines[0].text == "alpha", "first CRLF line should exclude carriage return")
+        && expect(lines[0].sourceStart == 0 && lines[0].sourceLength == 5,
+                  "first CRLF line should map to alpha only")
+        && expect(lines[1].text == "beta", "second CRLF line should skip both CR and LF")
+        && expect(lines[1].sourceStart == 7 && lines[1].sourceLength == 4,
+                  "second CRLF line source start should skip the two-byte newline");
+}
+
 bool testAlignAndEllipsis()
 {
     wsc::Canvas canvas;
@@ -175,6 +191,7 @@ bool testInvalidInputs()
 int main()
 {
     const bool ok = testParagraphRanges()
+        && testCrLfParagraphRanges()
         && testAlignAndEllipsis()
         && testCjkWrappingWithoutSpaces()
         && testLongWordWrappingWithoutSpaces()
