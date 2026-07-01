@@ -100,6 +100,32 @@ bool testAsciiFallbackKeepsShape()
                   "codepoint count should count Unicode scalar positions, not bytes");
 }
 
+bool testUnicodeBreakTokensSplitCjkText()
+{
+    const std::string text = "\xe4\xbd\xa0\xe5\xa5\xbd\xe4\xb8\x96\xe7\x95\x8c";
+    const std::vector<wsc::text::TextBreakToken> tokens =
+        wsc::text::buildTextBreakTokens(text, 0, text.size());
+
+    return expect(tokens.size() == 4, "CJK text should expose per-codepoint break tokens")
+        && expect(tokens[0].sourceStart == 0 && tokens[0].sourceEnd == 3,
+                  "first CJK token should map the first UTF-8 scalar")
+        && expect(tokens[3].sourceStart == 9 && tokens[3].sourceEnd == text.size(),
+                  "last CJK token should map the final UTF-8 scalar");
+}
+
+bool testUnicodeBreakTokensAttachClosingPunctuation()
+{
+    const std::string text = "\xe4\xbd\xa0\xef\xbc\x8c\xe5\xa5\xbd";
+    const std::vector<wsc::text::TextBreakToken> tokens =
+        wsc::text::buildTextBreakTokens(text, 0, text.size());
+
+    return expect(tokens.size() == 2, "closing CJK punctuation should attach to the previous token")
+        && expect(tokens[0].sourceStart == 0 && tokens[0].sourceEnd == 6,
+                  "attached punctuation should stay in the previous source span")
+        && expect(tokens[1].sourceStart == 6 && tokens[1].sourceEnd == text.size(),
+                  "following CJK character should remain independently breakable");
+}
+
 bool testSimpleShaperBuildsGlyphRun()
 {
     const std::string text = "A\xe4\xb8\xad";
@@ -300,6 +326,8 @@ int main()
     const bool ok = testDecodeValidUtf8()
         && testInvalidUtf8Replacement()
         && testAsciiFallbackKeepsShape()
+        && testUnicodeBreakTokensSplitCjkText()
+        && testUnicodeBreakTokensAttachClosingPunctuation()
         && testSimpleShaperBuildsGlyphRun()
         && testSimpleShaperStopsAtFirstLineAndFailsMissingGlyphs()
         && testSimpleShaperOrdersRightToLeftRuns()

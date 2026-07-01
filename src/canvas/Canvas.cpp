@@ -3308,33 +3308,23 @@ std::vector<Canvas::TextLine> Canvas::layoutTextBox(const std::string &text, con
         std::string currentLine;
         std::size_t currentStart = 0;
         std::size_t currentEnd = 0;
-        std::size_t position = 0;
-        while (position < paragraph.size()) {
-            while (position < paragraph.size() && paragraph[position] == ' ') {
-                ++position;
-            }
-            if (position >= paragraph.size()) {
-                break;
-            }
-
-            const std::size_t wordStart = position;
-            while (position < paragraph.size() && paragraph[position] != ' ') {
-                ++position;
-            }
-
-            const std::string word = paragraph.substr(wordStart, position - wordStart);
-            const std::string candidate = currentLine.empty() ? word : currentLine + " " + word;
+        const std::vector<wsc::text::TextBreakToken> tokens =
+            wsc::text::buildTextBreakTokens(paragraph, 0, paragraph.size());
+        for (const wsc::text::TextBreakToken &token : tokens) {
+            const std::string tokenText = paragraph.substr(token.sourceStart, token.sourceEnd - token.sourceStart);
+            const std::string candidate =
+                currentLine.empty() ? tokenText : currentLine + (token.prefixSpace ? " " : "") + tokenText;
             if (currentLine.empty() || measureText(candidate, paint) <= normalizedBounds.getWidth()) {
                 if (currentLine.empty()) {
-                    currentStart = wordStart;
+                    currentStart = token.sourceStart;
                 }
                 currentLine = candidate;
-                currentEnd = position;
+                currentEnd = token.sourceEnd;
             } else {
                 lines.push_back(CandidateLine{currentLine, paragraphOffset + currentStart, currentEnd - currentStart});
-                currentLine = word;
-                currentStart = wordStart;
-                currentEnd = position;
+                currentLine = tokenText;
+                currentStart = token.sourceStart;
+                currentEnd = token.sourceEnd;
             }
         }
 

@@ -27,7 +27,7 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 | Font memory registration contract | Supported | `ITextBackend::registerFontFace` accepts memory-backed faces. |
 | Fallback chain contract | Supported | `ITextBackend::setFontFallbackChain` and `resolveFontFamilies` define resolution order. |
 | Text metrics | Supported | `measureText`, `measureTextBounds`, `measureTextMetrics`, and backend metrics are available; registered font metrics use real ascent/descent/line-gap data. |
-| Bounded multiline layout | Supported | `Canvas::layoutTextBox` returns line rows, source ranges, widths, line height, and ellipsis state. |
+| Bounded multiline layout | Supported | `Canvas::layoutTextBox` returns line rows, source ranges, widths, line height, and ellipsis state; line breaking supports ASCII words and basic CJK no-space wrapping. |
 | Text box rendering | Supported | `drawTextBox` uses the same layout path as `layoutTextBox`. |
 | Letter spacing | Supported | Basic geometry and native bitmap paths apply letter spacing. |
 | Alignment and baseline | Supported | Left/center/right and top/middle/bottom modes are exposed through `Paint`. |

@@ -58,6 +58,23 @@ bool testAlignAndEllipsis()
         && expect(centered[0].text.find("...") != std::string::npos, "ellipsized text should include marker");
 }
 
+bool testCjkWrappingWithoutSpaces()
+{
+    wsc::Canvas canvas;
+    wsc::Paint paint;
+    paint.setTextSize(12.0f);
+    const std::vector<wsc::Canvas::TextLine> lines =
+        canvas.layoutTextBox("\xe4\xbd\xa0\xe5\xa5\xbd\xe4\xb8\x96\xe7\x95\x8c",
+                             wsc::RectF(0.0f, 0.0f, 12.0f, 100.0f),
+                             14.0f,
+                             paint);
+
+    return expect(lines.size() >= 2, "CJK text without spaces should wrap across lines")
+        && expect(lines[0].sourceStart == 0, "first CJK line should map to source start")
+        && expect(lines[0].sourceLength > 0 && lines[0].sourceLength < 12,
+                  "first CJK line should contain a partial UTF-8 source span");
+}
+
 bool testInvalidInputs()
 {
     wsc::Canvas canvas;
@@ -74,6 +91,7 @@ int main()
 {
     const bool ok = testParagraphRanges()
         && testAlignAndEllipsis()
+        && testCjkWrappingWithoutSpaces()
         && testInvalidInputs();
     return ok ? 0 : 1;
 }
