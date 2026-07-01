@@ -26,6 +26,7 @@
 #include "text/BasicTextBackend.h"
 #include "text/ITextBackend.h"
 #include "text/NativeText.h"
+#include "text/TextShaper.h"
 #include "text/TextUtils.h"
 #include "command/DrawData.h"
 #include "command/DrawCommand.h"
@@ -3434,9 +3435,9 @@ void Canvas::drawTextOnPath(const std::string &text, const Path &path, const Pai
 
 void Canvas::drawTextOnPath(const std::string &text, const Path &path, float hOffset, float vOffset, const Paint &paint)
 {
-    const std::string asciiText = wsc::text::sanitizeTextToAscii(text);
+    const std::string normalizedText = wsc::text::normalizeUtf8ForText(text);
     const float pathLength = path.length();
-    if (asciiText.empty() || pathLength <= 0.0f || paint.getTextSize() <= 0.0f || !std::isfinite(hOffset) || !std::isfinite(vOffset)) {
+    if (normalizedText.empty() || pathLength <= 0.0f || paint.getTextSize() <= 0.0f || !std::isfinite(hOffset) || !std::isfinite(vOffset)) {
         return;
     }
 
@@ -3445,8 +3446,15 @@ void Canvas::drawTextOnPath(const std::string &text, const Path &path, float hOf
 
     const float letterSpacing = paint.getLetterSpacing();
     float cursor = hOffset;
-    for (char character : asciiText) {
-        const std::string glyph(1, character);
+    for (const wsc::text::Utf8Codepoint &codepoint : wsc::text::decodeUtf8(normalizedText)) {
+        if (codepoint.value == '\n') {
+            break;
+        }
+        if (codepoint.value < 32 || wsc::text::isBidiControlCodepoint(codepoint.value)) {
+            continue;
+        }
+
+        const std::string glyph = normalizedText.substr(codepoint.offset, codepoint.length);
         const float glyphWidth = std::max(1.0f, measureText(glyph, glyphPaint));
         const float centerDistance = cursor + glyphWidth * 0.5f;
         cursor += glyphWidth + letterSpacing;

@@ -31,7 +31,7 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 | Text box rendering | Supported | `drawTextBox` uses the same layout path as `layoutTextBox`. |
 | Letter spacing | Supported | Basic geometry and native bitmap paths apply letter spacing. |
 | Alignment and baseline | Supported | Left/center/right and top/middle/bottom modes are exposed through `Paint`. |
-| Text on path | Supported | Current implementation uses ASCII fallback glyph placement. |
+| Text on path | Supported | Path placement iterates normalized UTF-8 glyph tokens and reuses the text backend for measurement and rendering, so registered-font atlas text can participate. |
 | Glyph atlas ownership | Contract supported | `GlyphAtlas` owns atlas allocation, glyph upload, eviction, pending rebuild keys, and context rebuild hooks. |
 | Stroke text | Supported | Paint stroke/fill-and-stroke text queues stroked text geometry before fill text. |
 | Text shadow | Supported | Paint shadow layer queues text shadow passes for geometry, bitmap, and atlas text. |
