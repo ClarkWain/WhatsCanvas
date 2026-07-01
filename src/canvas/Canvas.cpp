@@ -495,6 +495,22 @@ bool transformPoint(const glm::mat4 &matrix, const PointF &point, PointF &mapped
     return true;
 }
 
+void removeLastUtf8Codepoint(std::string &text)
+{
+    if (text.empty()) {
+        return;
+    }
+
+    const std::vector<wsc::text::Utf8Codepoint> codepoints = wsc::text::decodeUtf8(text);
+    if (codepoints.empty()) {
+        text.clear();
+        return;
+    }
+
+    const wsc::text::Utf8Codepoint &last = codepoints.back();
+    text.erase(last.offset);
+}
+
 bool pointInClipPath(const ClipPathState &clipPath, const PointF &devicePoint)
 {
     const float determinant = glm::determinant(clipPath.transform);
@@ -3408,7 +3424,7 @@ std::vector<Canvas::TextLine> Canvas::layoutTextBox(const std::string &text, con
         }
 
         while (!line.empty() && measureText(line + marker, paint) > maxWidth) {
-            line.pop_back();
+            removeLastUtf8Codepoint(line);
             while (!line.empty() && line.back() == ' ') {
                 line.pop_back();
             }

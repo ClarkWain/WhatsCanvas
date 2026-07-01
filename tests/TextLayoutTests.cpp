@@ -16,6 +16,53 @@ bool expect(bool condition, const std::string &message)
     return false;
 }
 
+bool isValidUtf8(const std::string &text)
+{
+    std::size_t i = 0;
+    while (i < text.size()) {
+        const unsigned char ch = static_cast<unsigned char>(text[i]);
+        if (ch < 0x80) {
+            ++i;
+            continue;
+        }
+
+        std::size_t length = 0;
+        std::uint32_t value = 0;
+        std::uint32_t minimum = 0;
+        if ((ch & 0xE0) == 0xC0) {
+            length = 2;
+            value = ch & 0x1F;
+            minimum = 0x80;
+        } else if ((ch & 0xF0) == 0xE0) {
+            length = 3;
+            value = ch & 0x0F;
+            minimum = 0x800;
+        } else if ((ch & 0xF8) == 0xF0) {
+            length = 4;
+            value = ch & 0x07;
+            minimum = 0x10000;
+        } else {
+            return false;
+        }
+
+        if (i + length > text.size()) {
+            return false;
+        }
+        for (std::size_t j = 1; j < length; ++j) {
+            const unsigned char continuation = static_cast<unsigned char>(text[i + j]);
+            if ((continuation & 0xC0) != 0x80) {
+                return false;
+            }
+            value = (value << 6) | (continuation & 0x3F);
+        }
+        if (value < minimum || value > 0x10FFFF || (value >= 0xD800 && value <= 0xDFFF)) {
+            return false;
+        }
+        i += length;
+    }
+    return true;
+}
+
 wsc::Paint makeTextPaint()
 {
     wsc::Paint paint;
@@ -93,6 +140,25 @@ bool testLongWordWrappingWithoutSpaces()
                   "first long-word line should contain a partial source span");
 }
 
+bool testCjkEllipsisKeepsValidUtf8()
+{
+    wsc::Canvas canvas;
+    wsc::Paint paint;
+    paint.setTextSize(12.0f);
+    const std::vector<wsc::Canvas::TextLine> lines =
+        canvas.layoutTextBox("\xe4\xbd\xa0\xe5\xa5\xbd\xe4\xb8\x96\xe7\x95\x8c",
+                             wsc::RectF(0.0f, 0.0f, 24.0f, 14.0f),
+                             14.0f,
+                             1,
+                             true,
+                             paint);
+
+    return expect(lines.size() == 1, "CJK ellipsis layout should keep one visible line")
+        && expect(lines[0].ellipsized, "CJK constrained layout should ellipsize")
+        && expect(isValidUtf8(lines[0].text), "CJK ellipsis should not split UTF-8 scalars")
+        && expect(lines[0].text.find("...") != std::string::npos, "CJK ellipsis should include marker");
+}
+
 bool testInvalidInputs()
 {
     wsc::Canvas canvas;
@@ -111,6 +177,7 @@ int main()
         && testAlignAndEllipsis()
         && testCjkWrappingWithoutSpaces()
         && testLongWordWrappingWithoutSpaces()
+        && testCjkEllipsisKeepsValidUtf8()
         && testInvalidInputs();
     return ok ? 0 : 1;
 }
