@@ -14,6 +14,28 @@
 
 namespace {
 
+std::uint32_t readU32BE(const unsigned char *data)
+{
+    return (static_cast<std::uint32_t>(data[0]) << 24u)
+        | (static_cast<std::uint32_t>(data[1]) << 16u)
+        | (static_cast<std::uint32_t>(data[2]) << 8u)
+        | static_cast<std::uint32_t>(data[3]);
+}
+
+std::uint16_t readU16BE(const unsigned char *data)
+{
+    return static_cast<std::uint16_t>((static_cast<std::uint16_t>(data[0]) << 8u)
+                                      | static_cast<std::uint16_t>(data[1]));
+}
+
+bool tagEquals(const unsigned char *data, const char tag[4])
+{
+    return data[0] == static_cast<unsigned char>(tag[0])
+        && data[1] == static_cast<unsigned char>(tag[1])
+        && data[2] == static_cast<unsigned char>(tag[2])
+        && data[3] == static_cast<unsigned char>(tag[3]);
+}
+
 std::string makeFaceKey(const wsc::FontFace &face)
 {
     if (face.sourceType() == wsc::FontSourceType::FILE) {
@@ -44,6 +66,43 @@ std::vector<unsigned char> readFileBytes(const std::string &path)
 } // namespace
 
 namespace wsc::text {
+
+ColorFontTables detectColorFontTables(FontDataView fontData)
+{
+    ColorFontTables result;
+    if (fontData.data == nullptr || fontData.size < 12u) {
+        return result;
+    }
+
+    std::size_t fontOffset = 0;
+    if (tagEquals(fontData.data, "ttcf")) {
+        if (fontData.size < 16u || readU32BE(fontData.data + 8u) == 0u) {
+            return result;
+        }
+        fontOffset = static_cast<std::size_t>(readU32BE(fontData.data + 12u));
+        if (fontOffset > fontData.size || fontData.size - fontOffset < 12u) {
+            return result;
+        }
+    }
+
+    const unsigned char *sfnt = fontData.data + fontOffset;
+    const std::size_t sfntSize = fontData.size - fontOffset;
+    const std::uint16_t tableCount = readU16BE(sfnt + 4u);
+    if (tableCount == 0u || tableCount > (sfntSize - 12u) / 16u) {
+        return result;
+    }
+
+    for (std::uint16_t i = 0; i < tableCount; ++i) {
+        const unsigned char *record = sfnt + 12u + static_cast<std::size_t>(i) * 16u;
+        result.colr = result.colr || tagEquals(record, "COLR");
+        result.cpal = result.cpal || tagEquals(record, "CPAL");
+        result.cbdt = result.cbdt || tagEquals(record, "CBDT");
+        result.cblc = result.cblc || tagEquals(record, "CBLC");
+        result.sbix = result.sbix || tagEquals(record, "sbix");
+        result.svg = result.svg || tagEquals(record, "SVG ");
+    }
+    return result;
+}
 
 struct FontRasterizer::LoadedFace
 {
@@ -193,6 +252,15 @@ std::optional<FontDataView> FontRasterizer::fontData(const FontFace &face) const
     }
 
     return FontDataView{loaded->bytes.data(), loaded->bytes.size()};
+}
+
+std::optional<ColorFontTables> FontRasterizer::colorFontTables(const FontFace &face) const
+{
+    const auto data = fontData(face);
+    if (!data) {
+        return std::nullopt;
+    }
+    return detectColorFontTables(*data);
 }
 
 } // namespace wsc::text

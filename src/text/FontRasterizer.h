@@ -32,6 +32,23 @@ struct FontDataView
     std::size_t size = 0;
 };
 
+struct ColorFontTables
+{
+    bool colr = false;
+    bool cpal = false;
+    bool cbdt = false;
+    bool cblc = false;
+    bool sbix = false;
+    bool svg = false;
+
+    bool hasAny() const
+    {
+        return colr || cpal || cbdt || cblc || sbix || svg;
+    }
+};
+
+ColorFontTables detectColorFontTables(FontDataView fontData);
+
 class FontRasterizer
 {
 public:
@@ -47,6 +64,7 @@ public:
                                                        std::uint32_t sourceCodepoint,
                                                        float pixelSize) const;
     std::optional<FontDataView> fontData(const FontFace &face) const;
+    std::optional<ColorFontTables> colorFontTables(const FontFace &face) const;
 
 private:
     struct LoadedFace;

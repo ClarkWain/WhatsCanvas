@@ -1,8 +1,11 @@
 #include <cstdlib>
+#include <cstdint>
 #include <iostream>
 #include <optional>
 #include <string>
+#include <vector>
 
+#include "text/FontRasterizer.h"
 #include "text/TextShaper.h"
 #include "text/TextUtils.h"
 
@@ -16,6 +19,51 @@ bool expect(bool condition, const std::string &message)
 
     std::cerr << "EXPECTATION FAILED: " << message << std::endl;
     return false;
+}
+
+void appendU16BE(std::vector<std::uint8_t> &bytes, std::uint16_t value)
+{
+    bytes.push_back(static_cast<std::uint8_t>((value >> 8u) & 0xFFu));
+    bytes.push_back(static_cast<std::uint8_t>(value & 0xFFu));
+}
+
+void appendU32BE(std::vector<std::uint8_t> &bytes, std::uint32_t value)
+{
+    bytes.push_back(static_cast<std::uint8_t>((value >> 24u) & 0xFFu));
+    bytes.push_back(static_cast<std::uint8_t>((value >> 16u) & 0xFFu));
+    bytes.push_back(static_cast<std::uint8_t>((value >> 8u) & 0xFFu));
+    bytes.push_back(static_cast<std::uint8_t>(value & 0xFFu));
+}
+
+std::vector<std::uint8_t> makeSfntWithTables(const std::vector<std::string> &tags)
+{
+    std::vector<std::uint8_t> bytes;
+    appendU32BE(bytes, 0x00010000u);
+    appendU16BE(bytes, static_cast<std::uint16_t>(tags.size()));
+    appendU16BE(bytes, 0);
+    appendU16BE(bytes, 0);
+    appendU16BE(bytes, 0);
+    for (const std::string &tag : tags) {
+        for (std::size_t i = 0; i < 4u; ++i) {
+            bytes.push_back(i < tag.size() ? static_cast<std::uint8_t>(tag[i]) : static_cast<std::uint8_t>(' '));
+        }
+        appendU32BE(bytes, 0);
+        appendU32BE(bytes, 0);
+        appendU32BE(bytes, 0);
+    }
+    return bytes;
+}
+
+std::vector<std::uint8_t> makeTtcWithFirstFontTables(const std::vector<std::string> &tags)
+{
+    std::vector<std::uint8_t> bytes;
+    appendU32BE(bytes, 0x74746366u);
+    appendU32BE(bytes, 0x00010000u);
+    appendU32BE(bytes, 1u);
+    appendU32BE(bytes, 16u);
+    const std::vector<std::uint8_t> sfnt = makeSfntWithTables(tags);
+    bytes.insert(bytes.end(), sfnt.begin(), sfnt.end());
+    return bytes;
 }
 
 bool testDecodeValidUtf8()
@@ -218,6 +266,33 @@ bool testBidiRunSegmentationSkipsControlOnlyText()
     return expect(runs.empty(), "bidi control-only text should not produce visible runs");
 }
 
+bool testColorFontTableDetection()
+{
+    const std::vector<std::uint8_t> sfnt =
+        makeSfntWithTables({"COLR", "CPAL", "CBDT", "CBLC", "sbix", "SVG "});
+    const wsc::text::ColorFontTables tables =
+        wsc::text::detectColorFontTables({sfnt.data(), sfnt.size()});
+
+    return expect(tables.hasAny(), "color table detection should report color font data")
+        && expect(tables.colr && tables.cpal, "COLR/CPAL tables should be detected")
+        && expect(tables.cbdt && tables.cblc, "CBDT/CBLC bitmap color tables should be detected")
+        && expect(tables.sbix, "sbix table should be detected")
+        && expect(tables.svg, "SVG table should be detected");
+}
+
+bool testColorFontTableDetectionHandlesTtcAndMalformedData()
+{
+    const std::vector<std::uint8_t> ttc = makeTtcWithFirstFontTables({"COLR", "CPAL"});
+    const wsc::text::ColorFontTables ttcTables =
+        wsc::text::detectColorFontTables({ttc.data(), ttc.size()});
+    const std::vector<std::uint8_t> malformed = {0, 1, 2, 3, 4};
+    const wsc::text::ColorFontTables malformedTables =
+        wsc::text::detectColorFontTables({malformed.data(), malformed.size()});
+
+    return expect(ttcTables.colr && ttcTables.cpal, "TTC first-font color tables should be detected")
+        && expect(!malformedTables.hasAny(), "malformed font data should not report color tables");
+}
+
 } // namespace
 
 int main()
@@ -234,6 +309,8 @@ int main()
         && testBidiRunSegmentation()
         && testBidiRunSegmentationKeepsLeadingNeutrals()
         && testBidiRunSegmentationKeepsWeakOnlyText()
-        && testBidiRunSegmentationSkipsControlOnlyText();
+        && testBidiRunSegmentationSkipsControlOnlyText()
+        && testColorFontTableDetection()
+        && testColorFontTableDetectionHandlesTtcAndMalformedData();
     return ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }
