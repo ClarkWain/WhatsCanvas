@@ -126,6 +126,19 @@ bool testUnicodeBreakTokensAttachClosingPunctuation()
                   "following CJK character should remain independently breakable");
 }
 
+bool testUnicodeBreakTokensAttachOpeningPunctuation()
+{
+    const std::string text = "\xe4\xbd\xa0\xef\xbc\x88\xe5\xa5\xbd";
+    const std::vector<wsc::text::TextBreakToken> tokens =
+        wsc::text::buildTextBreakTokens(text, 0, text.size());
+
+    return expect(tokens.size() == 2, "opening CJK punctuation should attach to the next token")
+        && expect(tokens[0].sourceStart == 0 && tokens[0].sourceEnd == 3,
+                  "previous CJK character should remain independently breakable")
+        && expect(tokens[1].sourceStart == 3 && tokens[1].sourceEnd == text.size(),
+                  "opening punctuation and following CJK character should share a source span");
+}
+
 bool testUnicodeBreakTokensTreatWhitespaceAsBreaks()
 {
     const std::string text = "alpha\tbeta\xe3\x80\x80gamma";
@@ -366,6 +379,7 @@ int main()
         && testAsciiFallbackKeepsShape()
         && testUnicodeBreakTokensSplitCjkText()
         && testUnicodeBreakTokensAttachClosingPunctuation()
+        && testUnicodeBreakTokensAttachOpeningPunctuation()
         && testUnicodeBreakTokensTreatWhitespaceAsBreaks()
         && testSimpleShaperBuildsGlyphRun()
         && testSimpleShaperStopsAtFirstLineAndFailsMissingGlyphs()

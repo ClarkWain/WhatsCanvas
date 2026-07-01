@@ -88,6 +88,27 @@ bool isClosingCjkPunctuation(std::uint32_t codepoint)
     }
 }
 
+bool isOpeningCjkPunctuation(std::uint32_t codepoint)
+{
+    switch (codepoint) {
+    case 0x3008:
+    case 0x300A:
+    case 0x300C:
+    case 0x300E:
+    case 0x3010:
+    case 0x3014:
+    case 0x3016:
+    case 0x3018:
+    case 0x301A:
+    case 0xFF08:
+    case 0xFF3B:
+    case 0xFF5B:
+        return true;
+    default:
+        return false;
+    }
+}
+
 } // namespace
 
 namespace wsc::text {
@@ -269,6 +290,15 @@ std::vector<TextBreakToken> buildTextBreakTokens(const std::string &text, std::s
         if (isCjkCodepoint(codepoint.value)) {
             if (isClosingCjkPunctuation(codepoint.value) && !tokens.empty()) {
                 tokens.back().sourceEnd = token.sourceEnd;
+            } else if (isOpeningCjkPunctuation(codepoint.value) && index + 1 < codepoints.size()) {
+                const Utf8Codepoint &next = codepoints[index + 1];
+                if (next.offset < clampedEnd && next.value != '\n' && !isBreakWhitespace(next.value)) {
+                    token.sourceEnd = std::min(next.offset + next.length, clampedEnd);
+                    tokens.push_back(token);
+                    index += 2;
+                    continue;
+                }
+                tokens.push_back(token);
             } else {
                 tokens.push_back(token);
             }
