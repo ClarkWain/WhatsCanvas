@@ -263,6 +263,52 @@ public:
                      height);
     }
 
+    wsc::text::TextMetrics measureTextMetrics(const std::string &text, const Paint &paint) const override
+    {
+        wsc::text::TextMetrics metrics;
+        metrics.bounds = measureTextBounds(text, paint);
+        metrics.width = metrics.bounds.getWidth();
+        metrics.height = metrics.bounds.getHeight();
+        metrics.top = metrics.bounds.getY();
+        metrics.bottom = metrics.bounds.getY() + metrics.bounds.getHeight();
+        metrics.ascent = std::min(0.0f, metrics.top);
+        metrics.descent = std::max(0.0f, metrics.bottom);
+        metrics.lineHeight = metrics.height;
+
+        const std::string normalizedText = wsc::text::normalizeUtf8ForText(text);
+        if (normalizedText.empty() || paint.getTextSize() <= 0.0f || !paint.hasFontFamily()) {
+            return metrics;
+        }
+
+        for (const wsc::text::BidiRun &bidiRun : wsc::text::segmentBidiRuns(normalizedText)) {
+            const auto segments = buildRasterTextSegments(normalizedText, paint, bidiRun.sourceStart, bidiRun.sourceEnd);
+            if (!segments) {
+                continue;
+            }
+            for (const RasterTextSegment &segment : *segments) {
+                if (segment.face == nullptr) {
+                    continue;
+                }
+                const auto vertical = rasterizer_.verticalMetrics(*segment.face, paint.getTextSize());
+                if (!vertical) {
+                    continue;
+                }
+                metrics.ascent = -std::max(0.0f, vertical->ascent);
+                metrics.descent = std::max(0.0f, -vertical->descent);
+                metrics.lineGap = std::max(0.0f, vertical->lineGap);
+                metrics.lineHeight = std::max(0.0f, vertical->lineHeight);
+                const float left = metrics.bounds.getX();
+                metrics.top = metrics.ascent;
+                metrics.bottom = metrics.descent;
+                metrics.height = metrics.bottom - metrics.top;
+                metrics.bounds = RectF(left, metrics.top, metrics.width, metrics.height);
+                return metrics;
+            }
+        }
+
+        return metrics;
+    }
+
     TextRenderResult renderText(const std::string &text, float x, float y, const Paint &paint) const override
     {
         TextRenderResult result;

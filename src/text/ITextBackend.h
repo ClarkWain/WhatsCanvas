@@ -82,6 +82,19 @@ struct TextLineBreak
     float width = 0.0f;
 };
 
+struct TextMetrics
+{
+    float width = 0.0f;
+    float height = 0.0f;
+    float top = 0.0f;
+    float bottom = 0.0f;
+    float ascent = 0.0f;
+    float descent = 0.0f;
+    float lineGap = 0.0f;
+    float lineHeight = 0.0f;
+    RectF bounds;
+};
+
 struct TextBackendDiagnostic
 {
     enum class Severity
@@ -110,6 +123,7 @@ public:
     virtual std::vector<TextBackendDiagnostic> diagnostics() const = 0;
     virtual float measureTextWidth(const std::string &text, const Paint &paint) const = 0;
     virtual RectF measureTextBounds(const std::string &text, const Paint &paint) const = 0;
+    virtual TextMetrics measureTextMetrics(const std::string &text, const Paint &paint) const = 0;
     virtual TextRenderResult renderText(const std::string &text, float x, float y, const Paint &paint) const = 0;
 };
 

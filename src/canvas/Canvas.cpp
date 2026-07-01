@@ -3506,13 +3506,20 @@ RectF Canvas::measureTextBounds(const std::string &text, const Paint &paint) con
 Canvas::TextMetrics Canvas::measureTextMetrics(const std::string &text, const Paint &paint) const
 {
     TextMetrics metrics;
-    metrics.bounds = measureTextBounds(text, paint);
-    metrics.width = metrics.bounds.getWidth();
-    metrics.height = metrics.bounds.getHeight();
-    metrics.top = metrics.bounds.getY();
-    metrics.bottom = metrics.bounds.getY() + metrics.bounds.getHeight();
-    metrics.ascent = std::min(0.0f, metrics.top);
-    metrics.descent = std::max(0.0f, metrics.bottom);
+    if (!impl_->textBackend) {
+        return metrics;
+    }
+
+    const wsc::text::TextMetrics backendMetrics = impl_->textBackend->measureTextMetrics(text, paint);
+    metrics.width = backendMetrics.width;
+    metrics.height = backendMetrics.height;
+    metrics.top = backendMetrics.top;
+    metrics.bottom = backendMetrics.bottom;
+    metrics.ascent = backendMetrics.ascent;
+    metrics.descent = backendMetrics.descent;
+    metrics.lineGap = backendMetrics.lineGap;
+    metrics.lineHeight = backendMetrics.lineHeight;
+    metrics.bounds = backendMetrics.bounds;
     return metrics;
 }
 

@@ -167,6 +167,27 @@ std::optional<float> FontRasterizer::glyphAdvance(const FontFace &face, std::uin
     return metrics ? std::optional<float>(metrics->advanceX) : std::nullopt;
 }
 
+std::optional<FontVerticalMetrics> FontRasterizer::verticalMetrics(const FontFace &face, float pixelSize) const
+{
+    const LoadedFace *loaded = loadFace(face);
+    if (loaded == nullptr || pixelSize <= 0.0f) {
+        return std::nullopt;
+    }
+
+    int ascent = 0;
+    int descent = 0;
+    int lineGap = 0;
+    stbtt_GetFontVMetrics(&loaded->info, &ascent, &descent, &lineGap);
+    const float scale = stbtt_ScaleForPixelHeight(&loaded->info, pixelSize);
+
+    FontVerticalMetrics metrics;
+    metrics.ascent = static_cast<float>(ascent) * scale;
+    metrics.descent = static_cast<float>(descent) * scale;
+    metrics.lineGap = static_cast<float>(lineGap) * scale;
+    metrics.lineHeight = metrics.ascent - metrics.descent + metrics.lineGap;
+    return metrics;
+}
+
 std::optional<GlyphMetrics> FontRasterizer::glyphMetrics(const FontFace &face, std::uint32_t codepoint,
                                                          float pixelSize) const
 {

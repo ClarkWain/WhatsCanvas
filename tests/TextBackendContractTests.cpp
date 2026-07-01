@@ -130,6 +130,7 @@ bool testPortableBackendUsesGlyphAtlasForRegisteredFont()
     paint.setTextSize(24.0f);
     paint.setFontFamily("AtlasPrimary");
     const wsc::text::TextRenderResult rendered = backend->renderText("Atlas", 4.0f, 8.0f, paint);
+    const wsc::text::TextMetrics metrics = backend->measureTextMetrics("Atlas", paint);
 
     ok = expect(rendered.kind == wsc::text::TextRenderKind::GlyphAtlas,
                 "registered portable font should render through glyph atlas") && ok;
@@ -141,6 +142,11 @@ bool testPortableBackendUsesGlyphAtlasForRegisteredFont()
                 "glyph atlas render should emit glyph quads") && ok;
     ok = expect(!rendered.atlasDirtyRects.empty(),
                 "first glyph atlas render should expose dirty atlas rectangles") && ok;
+    ok = expect(metrics.width > 0.0f, "registered font metrics should report positive width") && ok;
+    ok = expect(metrics.ascent < 0.0f, "registered font metrics should expose real negative ascent") && ok;
+    ok = expect(metrics.descent > 0.0f, "registered font metrics should expose real positive descent") && ok;
+    ok = expect(metrics.lineHeight >= metrics.descent - metrics.ascent,
+                "registered font metrics should expose a usable line height") && ok;
 
     const wsc::text::TextRenderResult cached = backend->renderText("Atlas", 4.0f, 8.0f, paint);
     ok = expect(cached.kind == wsc::text::TextRenderKind::GlyphAtlas,
