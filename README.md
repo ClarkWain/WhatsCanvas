@@ -294,6 +294,12 @@ OpenType shaping implementation 可以通过 CMake option 打开。CMake 找到 
 cmake -S . -B build -DWHATSCANVAS_ENABLE_OPENTYPE_SHAPING=ON
 ```
 
+字体栅格化默认会尝试启用 FreeType。CMake 找到 FreeType 时，注册字体的 glyph index、metrics、kerning 和 alpha glyph rasterization 会优先走 FreeType；找不到时自动回退到内置 `stb_truetype` 路径：
+
+```cmake
+cmake -S . -B build -DWHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=ON
+```
+
 如果你走 GitHub Release 方式分发，可以直接复用仓库里的 Actions 打包流程，让每次 tag 发布都产出对应的 package zip。
 
 常用验证入口：
