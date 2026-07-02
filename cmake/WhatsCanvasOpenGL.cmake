@@ -3,13 +3,11 @@ function(whatscanvas_add_common_dependencies project_root)
     set(glad_path "${third_party_dir}/glad")
     set(stb_path "${third_party_dir}/stb")
     set(glm_path "${third_party_dir}/glm")
-    set(polyline2d_path "${third_party_dir}/polyline2d")
 
     if (NOT EXISTS "${glad_path}/src/glad.c" OR
         NOT EXISTS "${glad_path}/include/glad/glad.h" OR
         NOT EXISTS "${glm_path}/glm/glm.hpp" OR
-        NOT EXISTS "${stb_path}/stb_image.h" OR
-        NOT EXISTS "${polyline2d_path}/include/Polyline2D.h")
+        NOT EXISTS "${stb_path}/stb_image.h")
         message(FATAL_ERROR "Missing third-party dependencies. Run: git submodule update --init --recursive")
     endif()
 
@@ -33,7 +31,7 @@ function(whatscanvas_add_common_dependencies project_root)
 
     if (NOT TARGET WhatsCanvasPolyline2D)
         add_library(WhatsCanvasPolyline2D INTERFACE)
-        target_include_directories(WhatsCanvasPolyline2D SYSTEM INTERFACE "${polyline2d_path}/include")
+        target_include_directories(WhatsCanvasPolyline2D SYSTEM INTERFACE "${project_root}/include")
     endif()
 endfunction()
 

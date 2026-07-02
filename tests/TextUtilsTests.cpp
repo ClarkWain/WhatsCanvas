@@ -211,6 +211,20 @@ bool testSimpleShaperStopsAtFirstLineAndFailsMissingGlyphs()
         && expect(!missing.has_value(), "simple shaper should fail when a glyph cannot be resolved");
 }
 
+bool testSimpleShaperStopsAtCarriageReturn()
+{
+    const auto run = wsc::text::shapeTextSimple("AB\rC",
+                                                1.0f,
+                                                [](std::uint32_t codepoint) -> std::optional<wsc::text::ResolvedGlyph> {
+        return wsc::text::ResolvedGlyph{static_cast<int>(codepoint), 5.0f};
+    });
+
+    return expect(run.has_value(), "simple shaper should shape text before carriage return")
+        && expect(run->glyphs.size() == 2, "simple shaper should stop at carriage return")
+        && expect(run->glyphs[0].codepoint == 'A' && run->glyphs[1].codepoint == 'B',
+                  "simple shaper should not render text after carriage return");
+}
+
 bool testSimpleShaperOrdersRightToLeftRuns()
 {
     const std::string hebrew = "\xd7\x90\xd7\x91";
@@ -331,6 +345,17 @@ bool testBidiRunSegmentationSkipsControlOnlyText()
     return expect(runs.empty(), "bidi control-only text should not produce visible runs");
 }
 
+bool testBidiRunSegmentationStopsAtCarriageReturn()
+{
+    const std::string text = "abc\r\xd7\x90\xd7\x91";
+    const std::vector<wsc::text::BidiRun> runs = wsc::text::segmentBidiRuns(text);
+
+    return expect(runs.size() == 1, "bidi segmentation should stop at carriage return")
+        && expect(!runs[0].rightToLeft, "pre-carriage-return run should stay LTR")
+        && expect(runs[0].sourceStart == 0 && runs[0].sourceEnd == 3,
+                  "bidi segmentation should exclude carriage return and following text");
+}
+
 bool testBidiRunSegmentationUsesDirectionalMarks()
 {
     const std::string rlmText = "\xE2\x80\x8F" "123";
@@ -395,6 +420,7 @@ int main()
         && testUnicodeBreakTokensStopAtCarriageReturn()
         && testSimpleShaperBuildsGlyphRun()
         && testSimpleShaperStopsAtFirstLineAndFailsMissingGlyphs()
+        && testSimpleShaperStopsAtCarriageReturn()
         && testSimpleShaperOrdersRightToLeftRuns()
         && testSimpleShaperMirrorsRightToLeftPunctuation()
         && testSimpleShaperSkipsBidiControls()
@@ -403,6 +429,7 @@ int main()
         && testBidiRunSegmentationKeepsLeadingNeutrals()
         && testBidiRunSegmentationKeepsWeakOnlyText()
         && testBidiRunSegmentationSkipsControlOnlyText()
+        && testBidiRunSegmentationStopsAtCarriageReturn()
         && testBidiRunSegmentationUsesDirectionalMarks()
         && testColorFontTableDetection()
         && testColorFontTableDetectionHandlesTtcAndMalformedData();

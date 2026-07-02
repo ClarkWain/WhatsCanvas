@@ -71,6 +71,11 @@ const Utf8Codepoint *codepointForCluster(const std::vector<Utf8Codepoint> &codep
     return best;
 }
 
+bool isLineBreakCodepoint(std::uint32_t codepoint)
+{
+    return codepoint == '\n' || codepoint == '\r';
+}
+
 class HarfBuzzTextShapingEngine final : public ITextShapingEngine
 {
 public:
@@ -150,7 +155,10 @@ public:
 
         for (unsigned int i = 0; i < glyphCount; ++i) {
             const auto *source = codepointForCluster(codepoints, glyphInfos[i].cluster);
-            if (source == nullptr || source->value < 32) {
+            if (source == nullptr || isLineBreakCodepoint(source->value)) {
+                break;
+            }
+            if (source->value < 32 || isBidiControlCodepoint(source->value)) {
                 continue;
             }
 

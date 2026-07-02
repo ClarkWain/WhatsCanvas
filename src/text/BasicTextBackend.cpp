@@ -641,6 +641,21 @@ private:
                     return std::nullopt;
                 }
 
+                if (!shaper_->supportsOpenTypeFeatures()) {
+                    for (std::size_t index = 0; index + 1 < shaped->glyphs.size(); ++index) {
+                        const auto kerning = rasterizer_.glyphKerning(*segment.face,
+                                                                       shaped->glyphs[index].glyphIndex,
+                                                                       shaped->glyphs[index + 1].glyphIndex,
+                                                                       paint.getTextSize());
+                        if (!kerning || *kerning == 0.0f) {
+                            continue;
+                        }
+                        const float adjustedAdvance = std::max(0.0f, shaped->glyphs[index].advanceX + *kerning);
+                        shaped->width += adjustedAdvance - shaped->glyphs[index].advanceX;
+                        shaped->glyphs[index].advanceX = adjustedAdvance;
+                    }
+                }
+
                 combined.rightToLeft = combined.rightToLeft || bidiRun.rightToLeft || shaped->rightToLeft;
                 for (wsc::text::ShapedGlyph glyph : shaped->glyphs) {
                     glyph.sourceStart += segment.sourceStart;

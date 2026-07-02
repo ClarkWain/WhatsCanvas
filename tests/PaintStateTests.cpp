@@ -1,6 +1,6 @@
 #include "wsc/wsc.h"
 
-#include "../third_party/polyline2d/include/Polyline2D.h"
+#include "../include/Polyline2D.h"
 
 #include <array>
 #include <cmath>
