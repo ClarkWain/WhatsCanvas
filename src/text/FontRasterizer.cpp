@@ -1,6 +1,7 @@
 #include "text/FontRasterizer.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <fstream>
 #include <memory>
@@ -11,6 +12,12 @@
 
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb_truetype.h"
+
+#if defined(WHATSCANVAS_HAS_FREETYPE)
+#include <ft2build.h>
+#include FT_FREETYPE_H
+#include FT_GLYPH_H
+#endif
 
 #include "../../include/wsc/Font.h"
 
@@ -216,6 +223,47 @@ void compositePixel(unsigned char *dst, RgbaColor color, unsigned char coverage)
     dst[3] = static_cast<unsigned char>(outA);
 }
 
+#if defined(WHATSCANVAS_HAS_FREETYPE)
+struct FreeTypeLibrary
+{
+    FT_Library library = nullptr;
+
+    FreeTypeLibrary()
+    {
+        if (FT_Init_FreeType(&library) != 0) {
+            library = nullptr;
+        }
+    }
+
+    ~FreeTypeLibrary()
+    {
+        if (library != nullptr) {
+            FT_Done_FreeType(library);
+        }
+    }
+
+    bool valid() const
+    {
+        return library != nullptr;
+    }
+};
+
+FreeTypeLibrary &freeTypeLibrary()
+{
+    static FreeTypeLibrary *library = new FreeTypeLibrary();
+    return *library;
+}
+
+bool setFreeTypePixelSize(FT_Face face, float pixelSize)
+{
+    if (face == nullptr || pixelSize <= 0.0f) {
+        return false;
+    }
+    const auto roundedSize = static_cast<FT_UInt>(std::max(1.0f, std::round(pixelSize)));
+    return FT_Set_Pixel_Sizes(face, 0, roundedSize) == 0;
+}
+#endif
+
 } // namespace
 
 namespace wsc::text {
@@ -259,9 +307,22 @@ ColorFontTables detectColorFontTables(FontDataView fontData)
 
 struct FontRasterizer::LoadedFace
 {
+    ~LoadedFace()
+    {
+#if defined(WHATSCANVAS_HAS_FREETYPE)
+        if (ftFace != nullptr) {
+            FT_Done_Face(ftFace);
+        }
+#endif
+    }
+
     std::vector<unsigned char> bytes;
     stbtt_fontinfo info = {};
     std::size_t fontOffset = 0;
+    bool stbValid = false;
+#if defined(WHATSCANVAS_HAS_FREETYPE)
+    FT_Face ftFace = nullptr;
+#endif
     bool valid = false;
 };
 
@@ -285,8 +346,22 @@ const FontRasterizer::LoadedFace *FontRasterizer::loadFace(const FontFace &face)
     if (!loaded->bytes.empty()) {
         const int fontOffset = stbtt_GetFontOffsetForIndex(loaded->bytes.data(), 0);
         loaded->fontOffset = fontOffset >= 0 ? static_cast<std::size_t>(fontOffset) : 0u;
-        loaded->valid = fontOffset >= 0
+        loaded->stbValid = fontOffset >= 0
             && stbtt_InitFont(&loaded->info, loaded->bytes.data(), fontOffset) != 0;
+        loaded->valid = loaded->stbValid;
+#if defined(WHATSCANVAS_HAS_FREETYPE)
+        if (freeTypeLibrary().valid()) {
+            FT_Face ftFace = nullptr;
+            if (FT_New_Memory_Face(freeTypeLibrary().library,
+                                   loaded->bytes.data(),
+                                   static_cast<FT_Long>(loaded->bytes.size()),
+                                   0,
+                                   &ftFace) == 0) {
+                loaded->ftFace = ftFace;
+                loaded->valid = true;
+            }
+        }
+#endif
     }
 
     LoadedFace *result = loaded.get();
@@ -301,13 +376,30 @@ bool FontRasterizer::hasGlyph(const FontFace &face, std::uint32_t codepoint) con
     }
 
     const LoadedFace *loaded = loadFace(face);
-    return loaded != nullptr && stbtt_FindGlyphIndex(&loaded->info, static_cast<int>(codepoint)) != 0;
+#if defined(WHATSCANVAS_HAS_FREETYPE)
+    if (loaded != nullptr && loaded->ftFace != nullptr) {
+        return FT_Get_Char_Index(loaded->ftFace, static_cast<FT_ULong>(codepoint)) != 0;
+    }
+#endif
+    return loaded != nullptr && loaded->stbValid
+        && stbtt_FindGlyphIndex(&loaded->info, static_cast<int>(codepoint)) != 0;
 }
 
 std::optional<int> FontRasterizer::glyphIndex(const FontFace &face, std::uint32_t codepoint) const
 {
     const LoadedFace *loaded = loadFace(face);
     if (loaded == nullptr) {
+        return std::nullopt;
+    }
+
+#if defined(WHATSCANVAS_HAS_FREETYPE)
+    if (loaded->ftFace != nullptr) {
+        const FT_UInt index = FT_Get_Char_Index(loaded->ftFace, static_cast<FT_ULong>(codepoint));
+        return index == 0 ? std::nullopt : std::optional<int>(static_cast<int>(index));
+    }
+#endif
+
+    if (!loaded->stbValid) {
         return std::nullopt;
     }
 
@@ -330,6 +422,24 @@ std::optional<float> FontRasterizer::glyphKerning(const FontFace &face, int left
         return std::nullopt;
     }
 
+#if defined(WHATSCANVAS_HAS_FREETYPE)
+    if (loaded->ftFace != nullptr && FT_HAS_KERNING(loaded->ftFace)
+        && setFreeTypePixelSize(loaded->ftFace, pixelSize)) {
+        FT_Vector kerning = {};
+        if (FT_Get_Kerning(loaded->ftFace,
+                           static_cast<FT_UInt>(leftGlyphIndex),
+                           static_cast<FT_UInt>(rightGlyphIndex),
+                           FT_KERNING_DEFAULT,
+                           &kerning) == 0) {
+            return static_cast<float>(kerning.x) / 64.0f;
+        }
+    }
+#endif
+
+    if (!loaded->stbValid) {
+        return std::nullopt;
+    }
+
     const int advance = stbtt_GetGlyphKernAdvance(&loaded->info, leftGlyphIndex, rightGlyphIndex);
     return static_cast<float>(advance) * stbtt_ScaleForPixelHeight(&loaded->info, pixelSize);
 }
@@ -338,6 +448,23 @@ std::optional<FontVerticalMetrics> FontRasterizer::verticalMetrics(const FontFac
 {
     const LoadedFace *loaded = loadFace(face);
     if (loaded == nullptr || pixelSize <= 0.0f) {
+        return std::nullopt;
+    }
+
+#if defined(WHATSCANVAS_HAS_FREETYPE)
+    if (loaded->ftFace != nullptr && setFreeTypePixelSize(loaded->ftFace, pixelSize)) {
+        const FT_Size_Metrics &ftMetrics = loaded->ftFace->size->metrics;
+        FontVerticalMetrics metrics;
+        metrics.ascent = static_cast<float>(ftMetrics.ascender) / 64.0f;
+        metrics.descent = static_cast<float>(ftMetrics.descender) / 64.0f;
+        metrics.lineHeight = std::max(metrics.ascent - metrics.descent,
+                                      static_cast<float>(ftMetrics.height) / 64.0f);
+        metrics.lineGap = metrics.lineHeight - (metrics.ascent - metrics.descent);
+        return metrics;
+    }
+#endif
+
+    if (!loaded->stbValid) {
         return std::nullopt;
     }
 
@@ -360,6 +487,24 @@ std::optional<GlyphMetrics> FontRasterizer::glyphMetrics(const FontFace &face, s
 {
     const LoadedFace *loaded = loadFace(face);
     if (loaded == nullptr || pixelSize <= 0.0f) {
+        return std::nullopt;
+    }
+
+#if defined(WHATSCANVAS_HAS_FREETYPE)
+    if (loaded->ftFace != nullptr && setFreeTypePixelSize(loaded->ftFace, pixelSize)) {
+        const FT_UInt index = FT_Get_Char_Index(loaded->ftFace, static_cast<FT_ULong>(codepoint));
+        if (index == 0 || FT_Load_Glyph(loaded->ftFace, index, FT_LOAD_DEFAULT) != 0) {
+            return std::nullopt;
+        }
+
+        GlyphMetrics metrics;
+        metrics.glyphIndex = static_cast<int>(index);
+        metrics.advanceX = static_cast<float>(loaded->ftFace->glyph->advance.x) / 64.0f;
+        return metrics;
+    }
+#endif
+
+    if (!loaded->stbValid) {
         return std::nullopt;
     }
 
@@ -397,8 +542,55 @@ std::optional<RasterizedGlyph> FontRasterizer::rasterizeGlyphIndex(const FontFac
         return std::nullopt;
     }
 
-    if (auto colorGlyph = rasterizeColorGlyph(face, *loaded, glyphIndex, sourceCodepoint, pixelSize)) {
-        return colorGlyph;
+    if (loaded->stbValid) {
+        if (auto colorGlyph = rasterizeColorGlyph(face, *loaded, glyphIndex, sourceCodepoint, pixelSize)) {
+            return colorGlyph;
+        }
+    }
+
+#if defined(WHATSCANVAS_HAS_FREETYPE)
+    if (loaded->ftFace != nullptr && setFreeTypePixelSize(loaded->ftFace, pixelSize)
+        && FT_Load_Glyph(loaded->ftFace, static_cast<FT_UInt>(glyphIndex), FT_LOAD_DEFAULT) == 0
+        && FT_Render_Glyph(loaded->ftFace->glyph, FT_RENDER_MODE_NORMAL) == 0) {
+        const FT_GlyphSlot slot = loaded->ftFace->glyph;
+        const FT_Bitmap &ftBitmap = slot->bitmap;
+
+        GlyphBitmap bitmap;
+        bitmap.format = GlyphBitmapFormat::Alpha;
+        bitmap.width = static_cast<int>(ftBitmap.width);
+        bitmap.height = static_cast<int>(ftBitmap.rows);
+        bitmap.bearingX = static_cast<float>(slot->bitmap_left);
+        bitmap.bearingY = -static_cast<float>(slot->bitmap_top);
+        bitmap.advanceX = static_cast<float>(slot->advance.x) / 64.0f;
+        bitmap.alphaPixels.resize(static_cast<std::size_t>(std::max(0, bitmap.width))
+                                  * static_cast<std::size_t>(std::max(0, bitmap.height)));
+
+        if (bitmap.width > 0 && bitmap.height > 0) {
+            for (int row = 0; row < bitmap.height; ++row) {
+                for (int col = 0; col < bitmap.width; ++col) {
+                    const std::size_t dst = static_cast<std::size_t>(row) * static_cast<std::size_t>(bitmap.width)
+                        + static_cast<std::size_t>(col);
+                    const unsigned char *src = ftBitmap.buffer
+                        + static_cast<std::ptrdiff_t>(row) * ftBitmap.pitch
+                        + static_cast<std::ptrdiff_t>(col);
+                    bitmap.alphaPixels[dst] = ftBitmap.pixel_mode == FT_PIXEL_MODE_GRAY ? *src : (*src != 0 ? 255 : 0);
+                }
+            }
+        }
+
+        RasterizedGlyph glyph;
+        glyph.key.fontFamily = face.family();
+        glyph.key.codepoint = sourceCodepoint;
+        glyph.key.glyphIndex = glyphIndex;
+        glyph.key.pixelSize = pixelSize;
+        glyph.key.format = GlyphBitmapFormat::Alpha;
+        glyph.bitmap = std::move(bitmap);
+        return glyph;
+    }
+#endif
+
+    if (!loaded->stbValid) {
+        return std::nullopt;
     }
 
     const float scale = stbtt_ScaleForPixelHeight(&loaded->info, pixelSize);

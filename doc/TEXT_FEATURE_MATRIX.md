@@ -9,7 +9,8 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 | UTF-8 input validation | Supported | Invalid byte sequences are normalized before measurement/render paths; multiline layout accepts LF and CRLF row separators. |
 | ASCII fallback geometry | Supported | Basic backend can render normalized text through ASCII fallback geometry. |
 | Native Windows text bitmap path | Supported | Used when a font family is supplied and native measurement/render succeeds. |
-| Cross-platform font rasterization | Supported | Registered file-backed or memory-backed TrueType faces can be rasterized through the portable font rasterizer. |
+| Cross-platform font rasterization | Supported | Registered file-backed or memory-backed TrueType faces can be rasterized through the portable font rasterizer; FreeType is used when available and `stb_truetype` remains the dependency-free fallback. |
+| Optional FreeType rasterizer | Build-time supported | When FreeType is found and `WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=ON`, glyph lookup, metrics, kerning, and alpha glyph rasterization use FreeType. |
 | Atlas-backed glyph rendering | Supported | Rasterized glyphs are packed into `GlyphAtlas`; Canvas submits atlas quads through the image path. |
 | Persistent GPU atlas resource | Supported | Canvas owns a reusable GPU atlas image resource and updates it when the CPU atlas content changes. |
 | Dirty-rect atlas updates | Supported | Glyph uploads expose dirty rectangles; Canvas updates matching GPU atlas subregions when possible. |

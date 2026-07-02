@@ -18,6 +18,7 @@ option(WHATSCANVAS_BUILD_OPENGL "Build the desktop OpenGL renderer library targe
 option(WHATSCANVAS_BUILD_OPENGLES "Build the OpenGL ES renderer library target." OFF)
 option(WHATSCANVAS_BUILD_BENCHMARKS "Build lightweight benchmark executables." ON)
 option(WHATSCANVAS_ENABLE_OPENTYPE_SHAPING "Enable optional OpenType text shaping adapter hooks when a supported shaper is available." OFF)
+option(WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER "Enable optional FreeType glyph rasterizer when FreeType is available." ON)
 set(WHATSCANVAS_DEFAULT_SMOKE_HASH "2808591959994190122" CACHE STRING "Default local smoke hash for regression ctest registration.")
 set(WHATSCANVAS_CLIP_SMOKE_HASH "7173893163224947210" CACHE STRING "Default local clip-path smoke hash for regression ctest registration.")
 

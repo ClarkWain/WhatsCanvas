@@ -63,6 +63,7 @@ function(whatscanvas_add_gl_family_library target_name project_root)
 
     set(text_shaping_sources)
     set(text_shaping_libraries)
+    set(text_rasterizer_libraries)
     if (WHATSCANVAS_ENABLE_OPENTYPE_SHAPING)
         find_package(HarfBuzz CONFIG QUIET)
         if (NOT TARGET harfbuzz::harfbuzz AND NOT TARGET HarfBuzz::HarfBuzz)
@@ -98,6 +99,37 @@ function(whatscanvas_add_gl_family_library target_name project_root)
             list(APPEND text_shaping_libraries "${WHATSCANVAS_HARFBUZZ_TARGET}")
         else()
             message(STATUS "WHATSCANVAS_ENABLE_OPENTYPE_SHAPING is ON, but HarfBuzz was not found. Falling back to simple text shaping.")
+        endif()
+    endif()
+
+    if (WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER)
+        find_package(Freetype QUIET)
+        if (TARGET Freetype::Freetype)
+            set(WHATSCANVAS_FREETYPE_TARGET Freetype::Freetype)
+        else()
+            find_path(WHATSCANVAS_FREETYPE_INCLUDE_DIR
+                NAMES ft2build.h
+                PATH_SUFFIXES freetype2
+            )
+            find_library(WHATSCANVAS_FREETYPE_LIBRARY
+                NAMES freetype freetype6
+            )
+            if (WHATSCANVAS_FREETYPE_INCLUDE_DIR AND WHATSCANVAS_FREETYPE_LIBRARY)
+                if (NOT TARGET WhatsCanvasFreeType)
+                    add_library(WhatsCanvasFreeType UNKNOWN IMPORTED)
+                    set_target_properties(WhatsCanvasFreeType PROPERTIES
+                        IMPORTED_LOCATION "${WHATSCANVAS_FREETYPE_LIBRARY}"
+                        INTERFACE_INCLUDE_DIRECTORIES "${WHATSCANVAS_FREETYPE_INCLUDE_DIR}"
+                    )
+                endif()
+                set(WHATSCANVAS_FREETYPE_TARGET WhatsCanvasFreeType)
+            endif()
+        endif()
+
+        if (WHATSCANVAS_FREETYPE_TARGET)
+            list(APPEND text_rasterizer_libraries "${WHATSCANVAS_FREETYPE_TARGET}")
+        else()
+            message(STATUS "WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER is ON, but FreeType was not found. Falling back to stb_truetype rasterization.")
         endif()
     endif()
 
@@ -151,6 +183,10 @@ function(whatscanvas_add_gl_family_library target_name project_root)
         target_compile_definitions(${target_name} PRIVATE WHATSCANVAS_HAS_HARFBUZZ)
     endif()
 
+    if (WHATSCANVAS_FREETYPE_TARGET)
+        target_compile_definitions(${target_name} PRIVATE WHATSCANVAS_HAS_FREETYPE)
+    endif()
+
     target_include_directories(${target_name}
         PRIVATE
             "${src_dir}"
@@ -167,6 +203,7 @@ function(whatscanvas_add_gl_family_library target_name project_root)
             "$<BUILD_INTERFACE:WhatsCanvasSTB>"
             "$<BUILD_INTERFACE:WhatsCanvasPolyline2D>"
             ${text_shaping_libraries}
+            ${text_rasterizer_libraries}
     )
 
     if (NOT WSC_GL_OPENGLES)
