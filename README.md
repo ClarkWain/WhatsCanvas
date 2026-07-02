@@ -378,6 +378,12 @@ Driver-sensitive 场景可以用 PPM 容差比较：
 python scripts\compare_ppm_fuzzy.py baseline.ppm candidate.ppm --max-channel-delta 3 --max-mean-delta 0.75 --max-changed-percent 5
 ```
 
+Windows 主机也可以通过 WSL2 跑 Linux 验证：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\wsl_linux_validation.ps1 -EnableOpenTypeShaping
+```
+
 这些钩子非常适合做三类事情：
 
 - 本地快速回归，确认渲染改动没有明显破坏。

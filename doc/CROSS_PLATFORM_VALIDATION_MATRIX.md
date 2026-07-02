@@ -8,6 +8,7 @@ This matrix defines the validation surface for keeping the renderer portable acr
 | --- | --- | --- | --- | --- |
 | Windows desktop OpenGL | `cmake -S . -B build-win -DCMAKE_BUILD_TYPE=Debug` | `cmake --build build-win --config Debug` | `ctest --test-dir build-win -C Debug -L unit --output-on-failure` | Primary MSVC path and native bitmap compatibility path. |
 | Linux desktop OpenGL | `cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Debug` | `cmake --build build-linux --config Debug` | `ctest --test-dir build-linux -C Debug -L unit --output-on-failure` | Requires Mesa/OpenGL and X11 development packages for GLFW examples. |
+| Linux via WSL2 | `scripts/wsl_linux_validation.ps1` | Script-owned | Script-owned | Windows-hosted Linux gate for GCC/CMake/unit coverage before CI runs. |
 | macOS desktop OpenGL | `cmake -S . -B build-macos -DCMAKE_BUILD_TYPE=Debug` | `cmake --build build-macos --config Debug` | `ctest --test-dir build-macos -C Debug -L unit --output-on-failure` | Keeps Apple compiler and package layout green. |
 | OpenGLES configure smoke | `scripts/opengles_build_smoke.*` | Script-owned | Script-owned | Confirms GLES-specific compile definitions and link assumptions do not depend on desktop OpenGL. |
 | Portable text backend | Default build | Default build | `WhatsCanvasTextBackendContractTests` | Covers font registration, fallback, atlas text, COLR/CPAL v0, backend diagnostics, and adapter fallback. |
@@ -35,6 +36,12 @@ On Unix-like shells:
 
 ```bash
 ./scripts/cross_platform_validation.sh
+```
+
+From Windows with WSL2 installed:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\wsl_linux_validation.ps1 -EnableOpenTypeShaping
 ```
 
 These scripts intentionally run the portable checks that can execute on the current host. CI fans the same gates out to Windows, Linux, and macOS runners.
