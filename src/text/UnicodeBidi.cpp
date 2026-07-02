@@ -423,6 +423,10 @@ void resolvePairedBrackets(std::vector<BidiItem> &items, wsc::text::BidiClass st
         }
     }
 
+    std::sort(pairs.begin(), pairs.end(), [](const BracketPair &lhs, const BracketPair &rhs) {
+        return lhs.openingIndex < rhs.openingIndex;
+    });
+
     for (const BracketPair &pair : pairs) {
         const wsc::text::BidiClass embeddingClass =
             (items[pair.openingIndex].level % 2) == 0 ? wsc::text::BidiClass::L : wsc::text::BidiClass::R;
