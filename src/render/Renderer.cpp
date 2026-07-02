@@ -9,6 +9,7 @@
 #include <glm/glm.hpp>
 
 #include "render/GammaCorrect.h"
+#include "render/PathMerge.h"
 
 namespace {
 constexpr float kMergeEpsilon = 0.001f;
@@ -268,48 +269,7 @@ void Renderer::flush()
 
             auto *nextPathCmd = static_cast<DrawPathCommand *>(commands_[j].get());
             const auto &next = nextPathCmd->data();
-            if (next.hasVertexColors()) {
-                break;
-            }
-            if (next.hasShaderGradient()) {
-                // A gradient fill has its own shader state; never fold it into
-                // this batch (and never let a following solid draw inherit it).
-                break;
-            }
-            if (next.hasCoverage() != first.hasCoverage()) {
-                // Analytic-AA coverage must be present (or absent) uniformly so
-                // the concatenated coverage attribute stays aligned with points.
-                break;
-            }
-            if (next.drawMode != first.drawMode) {
-                break;
-            }
-            if (next.capStyle != first.capStyle) {
-                break;
-            }
-            if (std::abs(next.width - first.width) > kMergeEpsilon) {
-                break;
-            }
-            if (next.blendMode != first.blendMode) {
-                break;
-            }
-            if (next.transform != first.transform) {
-                break;
-            }
-            if (next.scissor.enabled != first.scissor.enabled ||
-                next.scissor.x != first.scissor.x ||
-                next.scissor.y != first.scissor.y ||
-                next.scissor.width != first.scissor.width ||
-                next.scissor.height != first.scissor.height) {
-                break;
-            }
-            if (next.clipMask.fingerprint != first.clipMask.fingerprint) {
-                break;
-            }
-            if (std::abs(next.color[0] - first.color[0]) > kMergeEpsilon ||
-                std::abs(next.color[1] - first.color[1]) > kMergeEpsilon ||
-                std::abs(next.color[2] - first.color[2]) > kMergeEpsilon ||
-                std::abs(next.color[3] - first.color[3]) > kMergeEpsilon) {
+            if (!wsc::render::canMergePathData(first, next)) {
                 break;
             }
             ++j;
