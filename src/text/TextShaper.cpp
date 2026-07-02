@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include "text/TextUtils.h"
+#include "text/UnicodeBidi.h"
 
 namespace wsc::text {
 
@@ -263,110 +264,7 @@ std::optional<ShapedTextRun> shapeTextSimple(const std::string &normalizedText,
 
 std::vector<BidiRun> segmentBidiRuns(const std::string &normalizedText)
 {
-    std::vector<BidiRun> runs;
-    const std::vector<Utf8Codepoint> codepoints = decodeUtf8(normalizedText);
-    std::optional<bool> currentDirection;
-    std::size_t currentStart = std::string::npos;
-    std::size_t currentEnd = 0;
-    std::size_t visibleStart = std::string::npos;
-    std::size_t visibleEnd = 0;
-    std::vector<std::optional<bool>> directionalStack;
-
-    const auto finishCurrent = [&]() {
-        if (currentDirection && currentStart != std::string::npos && currentEnd > currentStart) {
-            runs.push_back({currentStart, currentEnd, *currentDirection});
-        }
-    };
-    const auto resetCurrentRange = [&]() {
-        currentStart = std::string::npos;
-        currentEnd = 0;
-    };
-    const auto setExplicitDirection = [&](std::optional<bool> direction) {
-        if (currentDirection != direction && currentStart != std::string::npos && currentEnd > currentStart) {
-            finishCurrent();
-            resetCurrentRange();
-        }
-        currentDirection = direction;
-    };
-
-    for (std::size_t index = 0; index < codepoints.size(); ++index) {
-        const Utf8Codepoint &codepoint = codepoints[index];
-        if (isLineBreakCodepoint(codepoint.value)) {
-            break;
-        }
-        if (codepoint.value < 32) {
-            continue;
-        }
-        if (isZeroWidthBreakCodepoint(codepoint.value)) {
-            continue;
-        }
-        if (isBidiControlCodepoint(codepoint.value)) {
-            std::optional<bool> explicitDirection = explicitDirectionForControl(codepoint.value);
-            if (codepoint.value == 0x2068) {
-                explicitDirection = firstStrongDirectionInIsolate(codepoints, index).value_or(false);
-            }
-            if (explicitDirection) {
-                directionalStack.push_back(currentDirection);
-                setExplicitDirection(explicitDirection);
-                continue;
-            }
-            if (isDirectionalPopControl(codepoint.value)) {
-                const std::optional<bool> restoredDirection =
-                    directionalStack.empty() ? std::nullopt : directionalStack.back();
-                if (!directionalStack.empty()) {
-                    directionalStack.pop_back();
-                }
-                setExplicitDirection(restoredDirection);
-                continue;
-            }
-            if (const std::optional<bool> markDirection = strongDirectionForCodepoint(codepoint.value)) {
-                if (!currentDirection) {
-                    currentDirection = markDirection;
-                }
-            }
-            continue;
-        }
-
-        if (visibleStart == std::string::npos) {
-            visibleStart = codepoint.offset;
-        }
-        visibleEnd = codepoint.offset + codepoint.length;
-
-        const std::optional<bool> direction = strongDirectionForCodepoint(codepoint.value);
-        if (!direction) {
-            if (currentDirection) {
-                if (currentStart == std::string::npos) {
-                    currentStart = codepoint.offset;
-                }
-                currentEnd = codepoint.offset + codepoint.length;
-            } else if (currentStart == std::string::npos) {
-                currentStart = codepoint.offset;
-            }
-            continue;
-        }
-
-        if (!currentDirection) {
-            currentDirection = direction;
-            if (currentStart == std::string::npos) {
-                currentStart = visibleStart;
-            }
-        } else if (*direction == *currentDirection) {
-            if (currentStart == std::string::npos) {
-                currentStart = visibleStart;
-            }
-        } else if (*direction != *currentDirection) {
-            finishCurrent();
-            currentDirection = direction;
-            currentStart = codepoint.offset;
-        }
-        currentEnd = codepoint.offset + codepoint.length;
-    }
-
-    finishCurrent();
-    if (runs.empty() && visibleStart != std::string::npos && visibleEnd > visibleStart) {
-        runs.push_back({visibleStart, visibleEnd, false});
-    }
-    return runs;
+    return resolveUnicodeBidiRuns(normalizedText);
 }
 
 bool isOpenTypeShapingAvailable()

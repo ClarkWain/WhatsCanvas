@@ -20,7 +20,7 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 | Glyph-index rasterization path | Supported | Font rasterization can render by glyph index, which is required by real shaping outputs. |
 | Simple kerning | Supported | The portable simple shaping path applies registered-font glyph kerning pairs when OpenType shaping is not active. |
 | Basic RTL run ordering | Supported | The built-in shaper detects RTL-first runs, mirrors common paired punctuation, and emits glyphs in visual order while preserving source byte mapping. |
-| Bidi run segmentation | Supported | Mixed-direction text is split into directional byte ranges before font segmentation and shaping; bidi formatting controls are invisible, LRM/RLM/ALM and explicit embedding/isolate controls can steer weak-only text direction, leading neutral text is retained, weak-only text defaults to LTR, and RTL-base paragraphs reverse visual run order. |
+| Unicode UAX #9 bidi resolution | Supported | Mixed-direction text is resolved through a dedicated bidi pass with paragraph direction, explicit embedding/override/isolate controls, weak type resolution, neutral resolution, implicit levels, invisible formatting controls, and visual run ordering. |
 | OpenType shaping adapter boundary | Supported | `BasicTextBackendOptions` can request an OpenType shaping backend; unavailable adapters fall back to simple shaping with diagnostics. |
 | Optional OpenType shaping implementation | Build-time supported | When HarfBuzz is found and `WHATSCANVAS_ENABLE_OPENTYPE_SHAPING=ON`, the OpenType backend emits glyph-index shaped runs from HarfBuzz output. |
 | Multi-font shaping segmentation | Supported | Portable raster text is split by resolved font face before shaping, so fallback families can shape/render as independent runs. |
@@ -48,7 +48,6 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 
 | Capability | Status | Intended Direction |
 | --- | --- | --- |
-| Full Unicode bidi algorithm | Planned | Expand directional handling to the full UAX #9 rule set, including embedding levels, isolates, mirroring, and neutral resolution. |
 | Additional color font formats | Planned | Add CBDT/CBLC, SBIX, SVG, and newer COLR paint graph extraction on top of the table detection and RGBA glyph atlas path. |
 
 ## Acceptance Targets

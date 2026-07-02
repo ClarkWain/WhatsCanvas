@@ -403,6 +403,52 @@ bool testOpenTypeShapingRequestFallsBackWithDiagnostic()
     return ok;
 }
 
+bool testTextBackendCapabilityMatrix()
+{
+    const std::vector<wsc::text::TextBackendCapability> capabilities =
+        wsc::text::queryTextBackendCapabilities();
+
+    bool sawPortable = false;
+    bool sawDirectWrite = false;
+    bool sawCoreText = false;
+    for (const wsc::text::TextBackendCapability &capability : capabilities) {
+        if (capability.kind == wsc::text::TextBackendKind::Portable) {
+            sawPortable = capability.available
+                && capability.supportsFontRegistration
+                && capability.supportsGlyphAtlas
+                && capability.supportsColorGlyphAtlas;
+        } else if (capability.kind == wsc::text::TextBackendKind::DirectWrite) {
+            sawDirectWrite = capability.nativePlatformAdapter && !capability.available;
+        } else if (capability.kind == wsc::text::TextBackendKind::CoreText) {
+            sawCoreText = capability.nativePlatformAdapter && !capability.available;
+        }
+    }
+
+    return expect(sawPortable, "portable text backend capability should be advertised")
+        && expect(sawDirectWrite, "DirectWrite adapter slot should be advertised as unavailable")
+        && expect(sawCoreText, "CoreText adapter slot should be advertised as unavailable");
+}
+
+bool testUnavailableNativeTextAdaptersFallback()
+{
+    std::unique_ptr<wsc::text::ITextBackend> directWrite =
+        wsc::text::createTextBackend(wsc::text::TextBackendKind::DirectWrite);
+    std::unique_ptr<wsc::text::ITextBackend> coreText =
+        wsc::text::createTextBackend(wsc::text::TextBackendKind::CoreText);
+
+    const std::vector<wsc::text::TextBackendDiagnostic> directWriteDiagnostics = directWrite->diagnostics();
+    const std::vector<wsc::text::TextBackendDiagnostic> coreTextDiagnostics = coreText->diagnostics();
+
+    return expect(!directWriteDiagnostics.empty(),
+                  "DirectWrite backend request should add an unavailable-adapter diagnostic")
+        && expect(directWriteDiagnostics.front().message.find("directwrite") != std::string::npos,
+                  "DirectWrite diagnostic should name the adapter")
+        && expect(!coreTextDiagnostics.empty(),
+                  "CoreText backend request should add an unavailable-adapter diagnostic")
+        && expect(coreTextDiagnostics.front().message.find("coretext") != std::string::npos,
+                  "CoreText diagnostic should name the adapter");
+}
+
 } // namespace
 
 int main()
@@ -420,6 +466,8 @@ int main()
         && testPortableBackendAppliesSimpleKerning()
         && testPortableBackendResolvesFallbackGlyphRange()
         && testPortableBackendShapesFallbackFontSegments()
-        && testOpenTypeShapingRequestFallsBackWithDiagnostic();
+        && testOpenTypeShapingRequestFallsBackWithDiagnostic()
+        && testTextBackendCapabilityMatrix()
+        && testUnavailableNativeTextAdaptersFallback();
     return ok ? 0 : 1;
 }
