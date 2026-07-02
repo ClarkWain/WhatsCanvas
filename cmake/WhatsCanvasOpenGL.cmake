@@ -47,6 +47,9 @@ function(whatscanvas_add_glfw_dependency project_root)
         set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
         set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
         set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
+        # Build only the X11 backend on Linux so the configure step does not
+        # require the Wayland toolchain (wayland-scanner) on CI runners.
+        set(GLFW_BUILD_WAYLAND OFF CACHE BOOL "" FORCE)
         add_subdirectory("${glfw_path}" "${CMAKE_CURRENT_BINARY_DIR}/third_party/glfw" EXCLUDE_FROM_ALL)
     endif()
 endfunction()
