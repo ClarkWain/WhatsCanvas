@@ -100,6 +100,13 @@ bool testAsciiFallbackKeepsShape()
                   "codepoint count should count Unicode scalar positions, not bytes");
 }
 
+bool testAsciiFallbackSkipsZeroWidthBreak()
+{
+    const std::string text = "A\xE2\x80\x8B" "B";
+    return expect(wsc::text::makeAsciiFallbackText(text) == "AB",
+                  "ASCII fallback should skip zero-width break without replacement");
+}
+
 bool testUnicodeBreakTokensSplitCjkText()
 {
     const std::string text = "\xe4\xbd\xa0\xe5\xa5\xbd\xe4\xb8\x96\xe7\x95\x8c";
@@ -327,6 +334,22 @@ bool testSimpleShaperSkipsBidiControls()
         && expect(run->width == 11.0f, "letter spacing should only apply between visible glyphs");
 }
 
+bool testSimpleShaperSkipsZeroWidthBreak()
+{
+    const std::string text = "A\xE2\x80\x8B" "B";
+    const auto run = wsc::text::shapeTextSimple(text,
+                                                1.0f,
+                                                [](std::uint32_t codepoint) -> std::optional<wsc::text::ResolvedGlyph> {
+        return wsc::text::ResolvedGlyph{static_cast<int>(codepoint), 5.0f};
+    });
+
+    return expect(run.has_value(), "simple shaper should shape around zero-width break")
+        && expect(run->glyphs.size() == 2, "zero-width break should not emit a glyph")
+        && expect(run->glyphs[0].codepoint == 'A' && run->glyphs[1].codepoint == 'B',
+                  "visible glyph order should skip zero-width break")
+        && expect(run->width == 11.0f, "letter spacing should only apply between visible glyphs");
+}
+
 bool testTextShapingEngineFactoryFallsBackToSimple()
 {
     const auto simple = wsc::text::createTextShapingEngine(wsc::text::TextShapingBackend::Simple);
@@ -465,6 +488,7 @@ int main()
     const bool ok = testDecodeValidUtf8()
         && testInvalidUtf8Replacement()
         && testAsciiFallbackKeepsShape()
+        && testAsciiFallbackSkipsZeroWidthBreak()
         && testUnicodeBreakTokensSplitCjkText()
         && testUnicodeBreakTokensAttachClosingPunctuation()
         && testUnicodeBreakTokensAttachOpeningPunctuation()
@@ -479,6 +503,7 @@ int main()
         && testSimpleShaperOrdersRightToLeftRuns()
         && testSimpleShaperMirrorsRightToLeftPunctuation()
         && testSimpleShaperSkipsBidiControls()
+        && testSimpleShaperSkipsZeroWidthBreak()
         && testTextShapingEngineFactoryFallsBackToSimple()
         && testBidiRunSegmentation()
         && testBidiRunSegmentationKeepsLeadingNeutrals()

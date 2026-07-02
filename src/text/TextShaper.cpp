@@ -172,7 +172,7 @@ std::optional<ShapedTextRun> shapeTextSimple(const std::string &normalizedText,
         if (codepoint.value < 32) {
             continue;
         }
-        if (isBidiControlCodepoint(codepoint.value)) {
+        if (isBidiControlCodepoint(codepoint.value) || isZeroWidthBreakCodepoint(codepoint.value)) {
             continue;
         }
 
@@ -231,6 +231,9 @@ std::vector<BidiRun> segmentBidiRuns(const std::string &normalizedText)
             break;
         }
         if (codepoint.value < 32) {
+            continue;
+        }
+        if (isZeroWidthBreakCodepoint(codepoint.value)) {
             continue;
         }
         if (isBidiControlCodepoint(codepoint.value)) {

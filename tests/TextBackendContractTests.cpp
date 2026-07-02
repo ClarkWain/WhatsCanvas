@@ -138,6 +138,23 @@ bool testPortableBackendUsesGeometryPath()
                   "portable backend should not claim native CJK glyph coverage");
 }
 
+bool testPortableBackendSkipsZeroWidthBreak()
+{
+    std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createPortableTextBackend();
+    Paint paint;
+    paint.setTextSize(12.0f);
+    const float withBreak = backend->measureTextWidth("A\xE2\x80\x8B" "B", paint);
+    const float withoutBreak = backend->measureTextWidth("AB", paint);
+    const wsc::text::TextRenderResult rendered =
+        backend->renderText("A\xE2\x80\x8B" "B", 0.0f, 0.0f, paint);
+
+    return expect(withBreak == withoutBreak, "zero-width break should not affect text measurement")
+        && expect(backend->hasGlyphForCodepoint(0x200B, paint),
+                  "zero-width break should not require a font glyph")
+        && expect(rendered.missingGlyphs.empty(),
+                  "zero-width break should not report missing glyphs");
+}
+
 std::string findSystemFontPath()
 {
     const std::vector<std::string> candidates = {
@@ -344,6 +361,7 @@ int main()
         && testLongWordLineBreakQuery()
         && testDiagnosticsForRejectedFallback()
         && testPortableBackendUsesGeometryPath()
+        && testPortableBackendSkipsZeroWidthBreak()
         && testPortableBackendUsesGlyphAtlasForRegisteredFont()
         && testPortableBackendAppliesSimpleKerning()
         && testPortableBackendResolvesFallbackGlyphRange()
