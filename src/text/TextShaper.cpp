@@ -54,9 +54,17 @@ bool isStrongLeftToRightCodepoint(std::uint32_t codepoint)
         || (codepoint >= 0x1E00 && codepoint <= 0x1EFF);
 }
 
+bool isLineBreakCodepoint(std::uint32_t codepoint)
+{
+    return codepoint == '\n' || codepoint == '\r';
+}
+
 bool firstStrongDirectionIsRightToLeft(const std::vector<Utf8Codepoint> &codepoints)
 {
     for (const Utf8Codepoint &codepoint : codepoints) {
+        if (isLineBreakCodepoint(codepoint.value)) {
+            break;
+        }
         if (codepoint.value == 0x061C || codepoint.value == 0x200F) {
             return true;
         }
@@ -131,11 +139,6 @@ std::uint32_t mirroredCodepointForRightToLeftRun(std::uint32_t codepoint)
     case 0x301B: return 0x301A;
     default: return codepoint;
     }
-}
-
-bool isLineBreakCodepoint(std::uint32_t codepoint)
-{
-    return codepoint == '\n' || codepoint == '\r';
 }
 
 } // namespace
