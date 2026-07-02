@@ -125,6 +125,29 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     )
     set_tests_properties(WhatsCanvasTextUtilsTests PROPERTIES LABELS "unit;text")
 
+    add_executable(WhatsCanvasUnicodeBidiConformanceTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/UnicodeBidiConformanceTests.cpp"
+    )
+    target_include_directories(WhatsCanvasUnicodeBidiConformanceTests PRIVATE
+        "${SRC_DIR}"
+    )
+    target_link_libraries(WhatsCanvasUnicodeBidiConformanceTests PRIVATE
+        WhatsCanvasOpenGL
+    )
+    add_test(NAME WhatsCanvasUnicodeBidiConformanceTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasUnicodeBidiConformanceTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasUnicodeBidiConformanceTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -DWHATSCANVAS_TEST_ARGS=${CMAKE_CURRENT_SOURCE_DIR}/tests/unicode
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasUnicodeBidiConformanceTests PROPERTIES
+        LABELS "unit;text;unicode"
+        TIMEOUT 120
+    )
+
     add_executable(WhatsCanvasFontManagerTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/FontManagerTests.cpp"
     )

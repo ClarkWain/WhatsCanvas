@@ -12,6 +12,7 @@ namespace {
 struct BidiItem
 {
     wsc::text::Utf8Codepoint codepoint;
+    std::size_t sourceIndex = 0;
     wsc::text::BidiClass originalClass = wsc::text::BidiClass::ON;
     wsc::text::BidiClass resolvedClass = wsc::text::BidiClass::ON;
     int level = 0;
@@ -24,6 +25,23 @@ struct DirectionState
     std::optional<wsc::text::BidiClass> overrideClass;
     bool isolate = false;
 };
+
+#include "text/UnicodeBidiData.inc"
+
+std::optional<wsc::text::BidiClass> lookupDerivedBidiClass(std::uint32_t codepoint)
+{
+    for (const BidiClassRange &range : kDerivedBidiClassRanges) {
+        if (codepoint >= range.first && codepoint <= range.last) {
+            return range.bidiClass;
+        }
+    }
+    for (const BidiClassRange &range : kDerivedBidiClassMissingRanges) {
+        if (codepoint >= range.first && codepoint <= range.last) {
+            return range.bidiClass;
+        }
+    }
+    return wsc::text::BidiClass::L;
+}
 
 bool isStrongClass(wsc::text::BidiClass bidiClass)
 {
@@ -59,6 +77,20 @@ bool isRemovedByX9(wsc::text::BidiClass bidiClass)
         || bidiClass == wsc::text::BidiClass::RLO
         || bidiClass == wsc::text::BidiClass::PDF
         || bidiClass == wsc::text::BidiClass::BN;
+}
+
+bool isDirectionalIsolate(wsc::text::BidiClass bidiClass)
+{
+    return bidiClass == wsc::text::BidiClass::LRI
+        || bidiClass == wsc::text::BidiClass::RLI
+        || bidiClass == wsc::text::BidiClass::FSI
+        || bidiClass == wsc::text::BidiClass::PDI;
+}
+
+bool isInvisibleFormatting(wsc::text::BidiClass bidiClass, std::uint32_t codepoint)
+{
+    (void)codepoint;
+    return isRemovedByX9(bidiClass);
 }
 
 int nextEvenLevel(int level)
@@ -104,10 +136,71 @@ std::optional<bool> firstStrongDirectionInIsolate(const std::vector<wsc::text::U
     return std::nullopt;
 }
 
-int paragraphLevel(const std::vector<wsc::text::Utf8Codepoint> &codepoints)
+std::optional<bool> firstStrongDirectionInIsolate(const std::vector<wsc::text::BidiClass> &classes,
+                                                  std::size_t startIndex)
 {
+    int isolateDepth = 0;
+    for (std::size_t index = startIndex + 1; index < classes.size(); ++index) {
+        const wsc::text::BidiClass bidiClass = classes[index];
+        if (bidiClass == wsc::text::BidiClass::B) {
+            break;
+        }
+        if (bidiClass == wsc::text::BidiClass::LRI || bidiClass == wsc::text::BidiClass::RLI
+            || bidiClass == wsc::text::BidiClass::FSI) {
+            ++isolateDepth;
+            continue;
+        }
+        if (bidiClass == wsc::text::BidiClass::PDI) {
+            if (isolateDepth == 0) {
+                break;
+            }
+            --isolateDepth;
+            continue;
+        }
+        if (bidiClass == wsc::text::BidiClass::L) {
+            return false;
+        }
+        if (bidiClass == wsc::text::BidiClass::R || bidiClass == wsc::text::BidiClass::AL) {
+            return true;
+        }
+    }
+    return std::nullopt;
+}
+
+int paragraphLevel(const std::vector<wsc::text::Utf8Codepoint> &codepoints,
+                   wsc::text::BidiParagraphDirection direction)
+{
+    if (direction == wsc::text::BidiParagraphDirection::LeftToRight) {
+        return 0;
+    }
+    if (direction == wsc::text::BidiParagraphDirection::RightToLeft) {
+        return 1;
+    }
     for (const wsc::text::Utf8Codepoint &codepoint : codepoints) {
         const wsc::text::BidiClass bidiClass = wsc::text::bidiClassForCodepoint(codepoint.value);
+        if (bidiClass == wsc::text::BidiClass::B) {
+            break;
+        }
+        if (bidiClass == wsc::text::BidiClass::L) {
+            return 0;
+        }
+        if (bidiClass == wsc::text::BidiClass::R || bidiClass == wsc::text::BidiClass::AL) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int paragraphLevel(const std::vector<wsc::text::BidiClass> &classes,
+                   wsc::text::BidiParagraphDirection direction)
+{
+    if (direction == wsc::text::BidiParagraphDirection::LeftToRight) {
+        return 0;
+    }
+    if (direction == wsc::text::BidiParagraphDirection::RightToLeft) {
+        return 1;
+    }
+    for (const wsc::text::BidiClass bidiClass : classes) {
         if (bidiClass == wsc::text::BidiClass::B) {
             break;
         }
@@ -159,6 +252,38 @@ wsc::text::BidiClass nextStrongClass(const std::vector<BidiItem> &items, std::si
 {
     for (std::size_t cursor = index + 1; cursor < items.size(); ++cursor) {
         const wsc::text::BidiClass bidiClass = items[cursor].resolvedClass;
+        if (bidiClass == wsc::text::BidiClass::L || bidiClass == wsc::text::BidiClass::R) {
+            return bidiClass;
+        }
+    }
+    return paragraphLevelValue % 2 == 0 ? wsc::text::BidiClass::L : wsc::text::BidiClass::R;
+}
+
+wsc::text::BidiClass neutralBoundaryClass(wsc::text::BidiClass bidiClass)
+{
+    if (bidiClass == wsc::text::BidiClass::AN || bidiClass == wsc::text::BidiClass::EN) {
+        return wsc::text::BidiClass::R;
+    }
+    return bidiClass;
+}
+
+wsc::text::BidiClass previousNeutralBoundaryClass(const std::vector<BidiItem> &items, std::size_t index,
+                                                  int paragraphLevelValue)
+{
+    for (std::size_t cursor = index; cursor > 0; --cursor) {
+        const wsc::text::BidiClass bidiClass = neutralBoundaryClass(items[cursor - 1].resolvedClass);
+        if (bidiClass == wsc::text::BidiClass::L || bidiClass == wsc::text::BidiClass::R) {
+            return bidiClass;
+        }
+    }
+    return paragraphLevelValue % 2 == 0 ? wsc::text::BidiClass::L : wsc::text::BidiClass::R;
+}
+
+wsc::text::BidiClass nextNeutralBoundaryClass(const std::vector<BidiItem> &items, std::size_t index,
+                                              int paragraphLevelValue)
+{
+    for (std::size_t cursor = index + 1; cursor < items.size(); ++cursor) {
+        const wsc::text::BidiClass bidiClass = neutralBoundaryClass(items[cursor].resolvedClass);
         if (bidiClass == wsc::text::BidiClass::L || bidiClass == wsc::text::BidiClass::R) {
             return bidiClass;
         }
@@ -251,8 +376,8 @@ void resolveNeutralTypes(std::vector<BidiItem> &items, int paragraphLevelValue)
             ++end;
         }
 
-        const wsc::text::BidiClass before = previousStrongClass(items, start, paragraphLevelValue);
-        const wsc::text::BidiClass after = nextStrongClass(items, end, paragraphLevelValue);
+        const wsc::text::BidiClass before = previousNeutralBoundaryClass(items, start, paragraphLevelValue);
+        const wsc::text::BidiClass after = nextNeutralBoundaryClass(items, end, paragraphLevelValue);
         const wsc::text::BidiClass resolved = before == after
             ? before
             : (items[start].level % 2 == 0 ? wsc::text::BidiClass::L : wsc::text::BidiClass::R);
@@ -285,129 +410,84 @@ void resolveImplicitLevels(std::vector<BidiItem> &items)
     }
 }
 
-} // namespace
-
-namespace wsc::text {
-
-BidiClass bidiClassForCodepoint(std::uint32_t codepoint)
+void resolveLineBreakLevels(std::vector<BidiItem> &items, int paragraphLevelValue)
 {
-    if (codepoint == '\n' || codepoint == '\r' || codepoint == 0x2029) {
-        return BidiClass::B;
+    for (BidiItem &item : items) {
+        if (item.originalClass == wsc::text::BidiClass::B
+            || item.originalClass == wsc::text::BidiClass::S) {
+            item.level = paragraphLevelValue;
+        }
     }
-    if (codepoint == '\t' || codepoint == 0x000B) {
-        return BidiClass::S;
-    }
-    if (codepoint == ' ' || codepoint == 0x00A0 || codepoint == 0x1680
-        || (codepoint >= 0x2000 && codepoint <= 0x200A)
-        || codepoint == 0x2028 || codepoint == 0x205F || codepoint == 0x3000) {
-        return BidiClass::WS;
-    }
-    switch (codepoint) {
-    case 0x061C: return BidiClass::AL;
-    case 0x200E: return BidiClass::L;
-    case 0x200F: return BidiClass::R;
-    case 0x202A: return BidiClass::LRE;
-    case 0x202B: return BidiClass::RLE;
-    case 0x202C: return BidiClass::PDF;
-    case 0x202D: return BidiClass::LRO;
-    case 0x202E: return BidiClass::RLO;
-    case 0x2066: return BidiClass::LRI;
-    case 0x2067: return BidiClass::RLI;
-    case 0x2068: return BidiClass::FSI;
-    case 0x2069: return BidiClass::PDI;
-    default: break;
-    }
-    if (codepoint < 0x20 || codepoint == 0x00AD || codepoint == 0x034F
-        || (codepoint >= 0x200B && codepoint <= 0x200D)
-        || (codepoint >= 0x2060 && codepoint <= 0x2064)
-        || (codepoint >= 0xFE00 && codepoint <= 0xFE0F)) {
-        return BidiClass::BN;
-    }
-    if ((codepoint >= 0x0300 && codepoint <= 0x036F)
-        || (codepoint >= 0x1AB0 && codepoint <= 0x1AFF)
-        || (codepoint >= 0x1DC0 && codepoint <= 0x1DFF)
-        || (codepoint >= 0x20D0 && codepoint <= 0x20FF)
-        || (codepoint >= 0xFE20 && codepoint <= 0xFE2F)) {
-        return BidiClass::NSM;
-    }
-    if (codepoint >= '0' && codepoint <= '9') {
-        return BidiClass::EN;
-    }
-    if (codepoint >= 0x0660 && codepoint <= 0x0669) {
-        return BidiClass::AN;
-    }
-    if (codepoint == '+' || codepoint == '-') {
-        return BidiClass::ES;
-    }
-    if (codepoint == ',' || codepoint == '.' || codepoint == '/' || codepoint == ':'
-        || codepoint == 0x066B || codepoint == 0x066C) {
-        return BidiClass::CS;
-    }
-    if (codepoint == '$' || codepoint == '#' || codepoint == '%' || codepoint == 0x00A2
-        || codepoint == 0x00A3 || codepoint == 0x00A5 || codepoint == 0x20AC) {
-        return BidiClass::ET;
-    }
-    if ((codepoint >= 0x0600 && codepoint <= 0x07BF)
-        || (codepoint >= 0x08A0 && codepoint <= 0x08FF)
-        || (codepoint >= 0xFB50 && codepoint <= 0xFDFF)
-        || (codepoint >= 0xFE70 && codepoint <= 0xFEFF)) {
-        return BidiClass::AL;
-    }
-    if ((codepoint >= 0x0590 && codepoint <= 0x05FF)
-        || (codepoint >= 0x07C0 && codepoint <= 0x089F)) {
-        return BidiClass::R;
-    }
-    if ((codepoint >= 'A' && codepoint <= 'Z')
-        || (codepoint >= 'a' && codepoint <= 'z')
-        || (codepoint >= 0x00C0 && codepoint <= 0x02AF)
-        || (codepoint >= 0x0370 && codepoint <= 0x058F)
-        || (codepoint >= 0x0900 && codepoint <= 0x1FFF)
-        || (codepoint >= 0x2C00 && codepoint <= 0xD7FF)) {
-        return BidiClass::L;
-    }
-    return BidiClass::ON;
-}
 
-std::vector<BidiRun> resolveUnicodeBidiRuns(const std::string &normalizedText)
-{
-    const std::vector<Utf8Codepoint> codepoints = decodeUtf8(normalizedText);
-    const int baseLevel = paragraphLevel(codepoints);
-    std::vector<DirectionState> stack = {{baseLevel, std::nullopt, false}};
-    std::vector<BidiItem> items;
+    for (std::size_t cursor = items.size(); cursor > 0; --cursor) {
+        BidiItem &item = items[cursor - 1];
+        if (item.originalClass == wsc::text::BidiClass::WS
+            || item.originalClass == wsc::text::BidiClass::BN) {
+            item.level = paragraphLevelValue;
+            continue;
+        }
+        break;
+    }
 
-    for (std::size_t index = 0; index < codepoints.size(); ++index) {
-        const Utf8Codepoint &codepoint = codepoints[index];
-        BidiClass bidiClass = bidiClassForCodepoint(codepoint.value);
-        if (bidiClass == BidiClass::B) {
+    for (std::size_t i = 0; i < items.size(); ++i) {
+        if (items[i].originalClass != wsc::text::BidiClass::B
+            && items[i].originalClass != wsc::text::BidiClass::S) {
+            continue;
+        }
+        for (std::size_t cursor = i; cursor > 0; --cursor) {
+            BidiItem &item = items[cursor - 1];
+            if (item.originalClass == wsc::text::BidiClass::WS
+                || item.originalClass == wsc::text::BidiClass::BN) {
+                item.level = paragraphLevelValue;
+                continue;
+            }
             break;
         }
+    }
+}
+
+std::vector<BidiItem> resolveItemsFromClasses(const std::vector<wsc::text::BidiClass> &classes,
+                                              const std::vector<wsc::text::Utf8Codepoint> &codepoints,
+                                              wsc::text::BidiParagraphDirection direction)
+{
+    const int baseLevel = paragraphLevel(classes, direction);
+    std::vector<DirectionState> stack = {{baseLevel, std::nullopt, false}};
+    std::vector<BidiItem> allItems;
+
+    for (std::size_t index = 0; index < classes.size(); ++index) {
+        const wsc::text::BidiClass bidiClass = classes[index];
 
         DirectionState current = stack.back();
-        auto pushState = [&](int level, std::optional<BidiClass> overrideClass, bool isolate) {
+        int itemLevel = current.level;
+        std::optional<wsc::text::BidiClass> itemOverride = current.overrideClass;
+        auto pushState = [&](int level, std::optional<wsc::text::BidiClass> overrideClass, bool isolate) {
             if (level <= 125) {
                 stack.push_back({level, overrideClass, isolate});
             }
         };
 
-        if (bidiClass == BidiClass::LRE) {
+        if (bidiClass == wsc::text::BidiClass::LRE) {
             pushState(nextEvenLevel(current.level), std::nullopt, false);
-        } else if (bidiClass == BidiClass::RLE) {
+        } else if (bidiClass == wsc::text::BidiClass::RLE) {
             pushState(nextOddLevel(current.level), std::nullopt, false);
-        } else if (bidiClass == BidiClass::LRO) {
-            pushState(nextEvenLevel(current.level), BidiClass::L, false);
-        } else if (bidiClass == BidiClass::RLO) {
-            pushState(nextOddLevel(current.level), BidiClass::R, false);
-        } else if (bidiClass == BidiClass::LRI || bidiClass == BidiClass::RLI || bidiClass == BidiClass::FSI) {
-            bool rtl = bidiClass == BidiClass::RLI;
-            if (bidiClass == BidiClass::FSI) {
-                rtl = firstStrongDirectionInIsolate(codepoints, index).value_or(false);
+        } else if (bidiClass == wsc::text::BidiClass::LRO) {
+            pushState(nextEvenLevel(current.level), wsc::text::BidiClass::L, false);
+        } else if (bidiClass == wsc::text::BidiClass::RLO) {
+            pushState(nextOddLevel(current.level), wsc::text::BidiClass::R, false);
+        } else if (bidiClass == wsc::text::BidiClass::LRI
+                   || bidiClass == wsc::text::BidiClass::RLI
+                   || bidiClass == wsc::text::BidiClass::FSI) {
+            bool rtl = bidiClass == wsc::text::BidiClass::RLI;
+            if (bidiClass == wsc::text::BidiClass::FSI) {
+                rtl = firstStrongDirectionInIsolate(classes, index).value_or(false);
             }
             pushState(rtl ? nextOddLevel(current.level) : nextEvenLevel(current.level), std::nullopt, true);
-        } else if (bidiClass == BidiClass::PDF) {
+            itemOverride = std::nullopt;
+        } else if (bidiClass == wsc::text::BidiClass::PDF) {
             if (stack.size() > 1 && !stack.back().isolate) {
                 stack.pop_back();
             }
-        } else if (bidiClass == BidiClass::PDI) {
+        } else if (bidiClass == wsc::text::BidiClass::PDI) {
             while (stack.size() > 1) {
                 const bool wasIsolate = stack.back().isolate;
                 stack.pop_back();
@@ -415,38 +495,123 @@ std::vector<BidiRun> resolveUnicodeBidiRuns(const std::string &normalizedText)
                     break;
                 }
             }
+            itemLevel = stack.back().level;
+            itemOverride = std::nullopt;
+        } else {
+            current = stack.back();
+            itemLevel = current.level;
+            itemOverride = current.overrideClass;
         }
 
-        current = stack.back();
         BidiItem item;
-        item.codepoint = codepoint;
+        item.sourceIndex = index;
+        item.codepoint = codepoints.empty()
+            ? wsc::text::Utf8Codepoint{static_cast<std::uint32_t>(index), index, 1, true}
+            : codepoints[index];
         item.originalClass = bidiClass;
-        item.resolvedClass = current.overrideClass.value_or(bidiClass);
-        item.level = current.level;
-        item.visible = !isRemovedByX9(bidiClass)
-            && codepoint.value != 0x061C
-            && codepoint.value != 0x200E
-            && codepoint.value != 0x200F
-            && bidiClass != BidiClass::LRI
-            && bidiClass != BidiClass::RLI
-            && bidiClass != BidiClass::FSI
-            && bidiClass != BidiClass::PDI;
+        item.resolvedClass = itemOverride.value_or(bidiClass);
+        item.level = itemLevel;
+        item.visible = !isInvisibleFormatting(bidiClass, item.codepoint.value);
+        allItems.push_back(item);
+        if (bidiClass == wsc::text::BidiClass::B) {
+            break;
+        }
+    }
+
+    std::vector<BidiItem> visibleItems;
+    visibleItems.reserve(allItems.size());
+    for (const BidiItem &item : allItems) {
         if (item.visible) {
+            visibleItems.push_back(item);
+        }
+    }
+
+    if (!visibleItems.empty()) {
+        resolveWeakTypes(visibleItems, baseLevel);
+        resolveNeutralTypes(visibleItems, baseLevel);
+        resolveImplicitLevels(visibleItems);
+        resolveLineBreakLevels(visibleItems, baseLevel);
+    }
+
+    for (const BidiItem &visibleItem : visibleItems) {
+        for (BidiItem &item : allItems) {
+            if (item.sourceIndex == visibleItem.sourceIndex) {
+                item.resolvedClass = visibleItem.resolvedClass;
+                item.level = visibleItem.level;
+                break;
+            }
+        }
+    }
+    return allItems;
+}
+
+} // namespace
+
+namespace wsc::text {
+
+BidiClass bidiClassForCodepoint(std::uint32_t codepoint)
+{
+    return lookupDerivedBidiClass(codepoint).value_or(BidiClass::L);
+}
+
+std::vector<std::optional<int>> resolveUnicodeBidiLevelsForClasses(const std::vector<BidiClass> &classes,
+                                                                   BidiParagraphDirection direction)
+{
+    const std::vector<BidiItem> items = resolveItemsFromClasses(classes, {}, direction);
+    std::vector<std::optional<int>> levels(classes.size(), std::nullopt);
+    for (const BidiItem &item : items) {
+        if (item.visible) {
+            levels[item.sourceIndex] = item.level;
+        }
+    }
+    return levels;
+}
+
+std::vector<std::optional<int>> resolveUnicodeBidiLevelsForCodepoints(const std::vector<std::uint32_t> &codepoints,
+                                                                      BidiParagraphDirection direction)
+{
+    std::vector<Utf8Codepoint> decoded;
+    decoded.reserve(codepoints.size());
+    std::vector<BidiClass> classes;
+    classes.reserve(codepoints.size());
+    for (std::size_t i = 0; i < codepoints.size(); ++i) {
+        decoded.push_back({codepoints[i], i, 1, true});
+        classes.push_back(bidiClassForCodepoint(codepoints[i]));
+    }
+
+    const std::vector<BidiItem> items = resolveItemsFromClasses(classes, decoded, direction);
+    std::vector<std::optional<int>> levels(codepoints.size(), std::nullopt);
+    for (const BidiItem &item : items) {
+        if (item.visible) {
+            levels[item.sourceIndex] = item.level;
+        }
+    }
+    return levels;
+}
+
+std::vector<BidiRun> resolveUnicodeBidiRuns(const std::string &normalizedText)
+{
+    const std::vector<Utf8Codepoint> codepoints = decodeUtf8(normalizedText);
+    std::vector<BidiClass> classes;
+    classes.reserve(codepoints.size());
+    for (const Utf8Codepoint &codepoint : codepoints) {
+        classes.push_back(bidiClassForCodepoint(codepoint.value));
+    }
+    std::vector<BidiItem> allItems = resolveItemsFromClasses(classes, codepoints, BidiParagraphDirection::Auto);
+    std::vector<BidiItem> items;
+    items.reserve(allItems.size());
+    for (const BidiItem &item : allItems) {
+        if (item.visible
+            && item.originalClass != BidiClass::B
+            && item.originalClass != BidiClass::S
+            && !isBidiControlCodepoint(item.codepoint.value)) {
             items.push_back(item);
         }
     }
 
-    items.erase(std::remove_if(items.begin(), items.end(), [](const BidiItem &item) {
-        return item.codepoint.value < 32 || item.originalClass == BidiClass::BN;
-    }), items.end());
-
     if (items.empty()) {
         return {};
     }
-
-    resolveWeakTypes(items, baseLevel);
-    resolveNeutralTypes(items, baseLevel);
-    resolveImplicitLevels(items);
 
     std::vector<BidiRun> logicalRuns;
     std::size_t runStart = 0;
@@ -460,7 +625,7 @@ std::vector<BidiRun> resolveUnicodeBidiRuns(const std::string &normalizedText)
         runStart = i;
     }
 
-    if (baseLevel % 2 == 1) {
+    if (paragraphLevel(classes, BidiParagraphDirection::Auto) % 2 == 1) {
         std::reverse(logicalRuns.begin(), logicalRuns.end());
     }
     return logicalRuns;
