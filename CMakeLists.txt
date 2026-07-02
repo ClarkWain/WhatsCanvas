@@ -51,6 +51,7 @@ endif()
 
 if (WHATSCANVAS_BUILD_DEMO AND TARGET WhatsCanvasOpenGL)
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/showcase")
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/aa_showcase")
 endif()
 
 if (TARGET WhatsCanvasOpenGL)
@@ -367,6 +368,13 @@ if (WHATSCANVAS_BUILD_BENCHMARKS AND TARGET WhatsCanvasOpenGL)
         WhatsCanvasOpenGL
         WhatsCanvasGLM
     )
+endif()
+
+if (BUILD_TESTING AND TARGET WhatsCanvasAAShowcase)
+    add_test(NAME WhatsCanvasAAShowcaseSmoke
+        COMMAND WhatsCanvasAAShowcase "${CMAKE_CURRENT_BINARY_DIR}/aa_showcase_smoke.png"
+    )
+    set_tests_properties(WhatsCanvasAAShowcaseSmoke PROPERTIES LABELS "smoke;aa;examples" TIMEOUT 120)
 endif()
 
 if (BUILD_TESTING AND WHATSCANVAS_ENABLE_SCRIPT_TESTS)

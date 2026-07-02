@@ -56,6 +56,7 @@ struct DrawPathData {
 
     std::vector<float> points;    // Path points, each storing x/y coordinates
     std::vector<float> colors;    // Optional per-vertex colors, each storing r/g/b/a
+    std::vector<float> coverage;  // Optional per-vertex analytic-AA coverage in [0,1]
     float width = 1.0f;           // Stroke width
     float color[4];               // RGBA color
     PathDrawMode drawMode;        // Draw mode
@@ -75,6 +76,7 @@ struct DrawPathData {
     float gradientStopColors[kMaxGradientStops * 4] = {};
     size_t getPointCount() const { return points.size() / 2; }
     bool hasVertexColors() const { return colors.size() == getPointCount() * 4; }
+    bool hasCoverage() const { return coverage.size() == getPointCount(); }
     bool hasShaderGradient() const { return gradientType != DrawGradientType::None && gradientStopCount > 0; }
 };
 
