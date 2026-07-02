@@ -19,6 +19,18 @@ WhatsCanvas 是一个用 C++17 编写的轻量级二维渲染引擎项目，以 
 - 它不只提供基础图元，还覆盖路径、变换、裁剪、`saveLayer`、图像布局、文本绘制、像素回读和本地回归这些真正会落到项目里的能力。
 - 它自带根工程演示和三个游戏示例，既能快速试用，也能拿来验证改动是否可靠。
 
+## 字体与文本亮点
+
+文本系统已经从早期演示型文字绘制推进到一个可持续扩展的字体子系统：
+
+- 跨平台字体路径：支持注册文件或内存中的 TrueType 字体，FreeType 可用时优先用于 glyph lookup、metrics、kerning 和 alpha glyph rasterization，没有 FreeType 时自动回退到内置 `stb_truetype` 路径。
+- OpenType shaping：HarfBuzz 作为可选 shaping implementation 接入，能输出 glyph-index shaped run；未启用时保留 simple shaping 和 kerning fallback，构建不会被可选依赖卡死。
+- 字体 fallback 与多字体分段：`FontFace`、`FontDescriptor`、`FontFallbackChain`、`FontManager` 和后端契约已经成型，文本会按 resolved font face 分段后再 shaping/raster/render。
+- GPU glyph atlas：`GlyphAtlas` 管理 glyph allocation、dirty rect、context rebuild keys 和 atlas stats，Canvas 侧拥有持久 GPU atlas resource，并支持局部更新和 atlas 文本阴影采样。
+- 彩色字形基础：已支持 color font table detection，COLR/CPAL v0 layered glyph 可以解码、合成到 RGBA glyph bitmap，并通过 RGBA atlas 管线绘制。
+- Unicode 文本处理：UTF-8-safe layout、CJK no-space wrapping、Unicode spaces、zero-width break、ellipsis、baseline、line height、text box layout、text-on-path 和缺字诊断已经纳入统一文本路径。
+- Bidi 验证闭环：内置 Unicode 17.0.0 `BidiTest.txt` / `BidiCharacterTest.txt` 数据和 conformance target；默认 gate 通过当前稳定 profile，exhaustive diagnostic 已经把完整 UAX #9 剩余差距收敛到少量 isolating run / nested bracket 边界 case。
+
 ## 为什么值得学
 
 - 项目规模拿捏得比较合适，足够覆盖真实工程问题，又没有大到让人无从下手。
