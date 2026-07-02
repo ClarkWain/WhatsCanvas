@@ -174,6 +174,7 @@ public:
     bool hasGlyphForCodepoint(std::uint32_t codepoint, const Paint &paint) const override
     {
         if (codepoint == '\n' || codepoint == '\t' || wsc::text::isBidiControlCodepoint(codepoint)
+            || wsc::text::isZeroWidthBreakCodepoint(codepoint)
             || (codepoint >= 32 && codepoint <= 126)) {
             return true;
         }
@@ -396,6 +397,7 @@ public:
         for (const wsc::text::Utf8Codepoint &codepoint : wsc::text::decodeUtf8(normalizedText)) {
             if (codepoint.value == '\n' || codepoint.value == '\t' || codepoint.value < 32
                 || wsc::text::isBidiControlCodepoint(codepoint.value)
+                || wsc::text::isZeroWidthBreakCodepoint(codepoint.value)
                 || (codepoint.value >= 32 && codepoint.value <= 126)) {
                 continue;
             }
@@ -463,7 +465,8 @@ private:
             if (codepoint.value == '\n') {
                 break;
             }
-            if (codepoint.value < 32 || wsc::text::isBidiControlCodepoint(codepoint.value)) {
+            if (codepoint.value < 32 || wsc::text::isBidiControlCodepoint(codepoint.value)
+                || wsc::text::isZeroWidthBreakCodepoint(codepoint.value)) {
                 continue;
             }
 

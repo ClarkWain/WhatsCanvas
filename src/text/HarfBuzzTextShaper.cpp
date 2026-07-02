@@ -158,7 +158,8 @@ public:
             if (source == nullptr || isLineBreakCodepoint(source->value)) {
                 break;
             }
-            if (source->value < 32 || isBidiControlCodepoint(source->value)) {
+            if (source->value < 32 || isBidiControlCodepoint(source->value)
+                || isZeroWidthBreakCodepoint(source->value)) {
                 continue;
             }
 
