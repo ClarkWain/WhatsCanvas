@@ -12,7 +12,8 @@ This matrix defines the validation surface for keeping the renderer portable acr
 | macOS desktop OpenGL | `cmake -S . -B build-macos -DCMAKE_BUILD_TYPE=Debug` | `cmake --build build-macos --config Debug` | `ctest --test-dir build-macos -C Debug -L unit --output-on-failure` | Keeps Apple compiler and package layout green. |
 | OpenGLES configure smoke | `scripts/opengles_build_smoke.*` | Script-owned | Script-owned | Confirms GLES-specific compile definitions and link assumptions do not depend on desktop OpenGL. |
 | Portable text backend | Default build | Default build | `WhatsCanvasTextBackendContractTests` | Covers font registration, fallback, atlas text, COLR/CPAL v0, backend diagnostics, and adapter fallback. |
-| Optional OpenType shaping | `-DWHATSCANVAS_ENABLE_OPENTYPE_SHAPING=ON` | Build if HarfBuzz is present | Unit tests | HarfBuzz absence must degrade to simple shaping with a diagnostic, not fail the build. |
+| Optional OpenType shaping | `-DWHATSCANVAS_ENABLE_OPENTYPE_SHAPING=ON` | Build with vendored or system HarfBuzz | Unit tests | `third_party/harfbuzz` is preferred; absence must degrade to simple shaping with a diagnostic, not fail the build. |
+| Optional FreeType rasterizer | `-DWHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=ON` | Build with vendored or system FreeType | Text contract tests | `third_party/freetype` is preferred; absence must degrade to `stb_truetype`, not fail the build. |
 
 ## Text Backend Matrix
 
@@ -22,7 +23,8 @@ This matrix defines the validation surface for keeping the renderer portable acr
 | Windows native compatibility path | Platform optional | Enabled on Windows by `createBasicTextBackend` when native text is allowed. |
 | DirectWrite adapter | Adapter slot reserved | Capability query and unavailable-adapter diagnostic are tested until implementation lands. |
 | CoreText adapter | Adapter slot reserved | Capability query and unavailable-adapter diagnostic are tested until implementation lands. |
-| HarfBuzz shaping adapter | Build-time optional | Factory and fallback diagnostics are tested with and without the library. |
+| HarfBuzz shaping adapter | Build-time optional | Factory and fallback diagnostics are tested with and without the library; vendored HarfBuzz is used when initialized. |
+| FreeType rasterizer | Build-time optional | Glyph lookup, metrics, kerning, and alpha atlas rasterization are tested through the text backend contract tests. |
 
 ## Local Command
 

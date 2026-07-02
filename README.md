@@ -288,13 +288,13 @@ target_link_libraries(MyApp PRIVATE WhatsCanvas::OpenGLES)
 
 当前 OpenGLES 目标复用 GL-family 渲染设备实现，会启用 GLES shader 版本并跳过桌面 OpenGL-only 状态，例如 `GL_FRAMEBUFFER_SRGB` 和 `GL_PROGRAM_POINT_SIZE`。
 
-OpenType shaping implementation 可以通过 CMake option 打开。CMake 找到 HarfBuzz 时会编译 HarfBuzz adapter；如果没有可用 adapter，会自动回退到 simple shaping，并在文本后端 diagnostics 中报告：
+OpenType shaping implementation 可以通过 CMake option 打开。CMake 会优先使用 `third_party/harfbuzz`，如果子模块未初始化再查找系统 HarfBuzz；如果没有可用 adapter，会自动回退到 simple shaping，并在文本后端 diagnostics 中报告：
 
 ```cmake
 cmake -S . -B build -DWHATSCANVAS_ENABLE_OPENTYPE_SHAPING=ON
 ```
 
-字体栅格化默认会尝试启用 FreeType。CMake 找到 FreeType 时，注册字体的 glyph index、metrics、kerning 和 alpha glyph rasterization 会优先走 FreeType；找不到时自动回退到内置 `stb_truetype` 路径：
+字体栅格化默认会尝试启用 FreeType。CMake 会优先使用 `third_party/freetype`，如果子模块未初始化再查找系统 FreeType；找到 FreeType 时，注册字体的 glyph index、metrics、kerning 和 alpha glyph rasterization 会优先走 FreeType；找不到时自动回退到内置 `stb_truetype` 路径：
 
 ```cmake
 cmake -S . -B build -DWHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=ON
