@@ -6,9 +6,8 @@
 
 #include "canvas/base.h"
 
-class Paint;
-
 namespace wsc {
+class Paint;
 class FontFace;
 class FontFallbackChain;
 }

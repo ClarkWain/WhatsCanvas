@@ -4,7 +4,7 @@
 
 #include <glm/glm.hpp>
 
-#include "base.h"
+#include "canvas/base.h"
 #include "canvas/Path.h"
 #include "render/RenderTypes.h"
 
