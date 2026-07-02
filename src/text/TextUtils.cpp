@@ -43,7 +43,7 @@ bool isBreakWhitespace(std::uint32_t codepoint)
     return codepoint == ' '
         || codepoint == '\t'
         || codepoint == 0x1680
-        || (codepoint >= 0x2000 && codepoint <= 0x200A)
+        || ((codepoint >= 0x2000 && codepoint <= 0x200A) && codepoint != 0x2007)
         || codepoint == 0x2028
         || codepoint == 0x2029
         || codepoint == 0x205F
@@ -200,6 +200,11 @@ bool isValidUtf8(const std::string &text)
     });
 }
 
+bool isZeroWidthBreakCodepoint(std::uint32_t codepoint)
+{
+    return codepoint == 0x200B;
+}
+
 std::string normalizeUtf8ForText(const std::string &text)
 {
     std::string normalized;
@@ -235,6 +240,10 @@ std::string makeAsciiFallbackText(const std::string &text, char replacement)
     for (const Utf8Codepoint &codepoint : codepoints) {
         if (!codepoint.valid) {
             fallback.push_back(replacement);
+            continue;
+        }
+
+        if (isZeroWidthBreakCodepoint(codepoint.value)) {
             continue;
         }
 
@@ -285,6 +294,11 @@ std::vector<TextBreakToken> buildTextBreakTokens(const std::string &text, std::s
             ++index;
             continue;
         }
+        if (isZeroWidthBreakCodepoint(codepoint.value)) {
+            pendingSpace = false;
+            ++index;
+            continue;
+        }
 
         TextBreakToken token;
         token.sourceStart = codepoint.offset;
@@ -297,7 +311,8 @@ std::vector<TextBreakToken> buildTextBreakTokens(const std::string &text, std::s
                 tokens.back().sourceEnd = token.sourceEnd;
             } else if (isOpeningCjkPunctuation(codepoint.value) && index + 1 < codepoints.size()) {
                 const Utf8Codepoint &next = codepoints[index + 1];
-                if (next.offset < clampedEnd && !isLineBreak(next.value) && !isBreakWhitespace(next.value)) {
+                if (next.offset < clampedEnd && !isLineBreak(next.value) && !isBreakWhitespace(next.value)
+                    && !isZeroWidthBreakCodepoint(next.value)) {
                     token.sourceEnd = std::min(next.offset + next.length, clampedEnd);
                     tokens.push_back(token);
                     index += 2;
@@ -315,7 +330,7 @@ std::vector<TextBreakToken> buildTextBreakTokens(const std::string &text, std::s
         while (index < codepoints.size()) {
             const Utf8Codepoint &next = codepoints[index];
             if (next.offset >= clampedEnd || isLineBreak(next.value) || isBreakWhitespace(next.value)
-                || isCjkCodepoint(next.value)) {
+                || isZeroWidthBreakCodepoint(next.value) || isCjkCodepoint(next.value)) {
                 break;
             }
             token.sourceEnd = std::min(next.offset + next.length, clampedEnd);

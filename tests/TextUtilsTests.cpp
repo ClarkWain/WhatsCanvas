@@ -100,6 +100,13 @@ bool testAsciiFallbackKeepsShape()
                   "codepoint count should count Unicode scalar positions, not bytes");
 }
 
+bool testAsciiFallbackSkipsZeroWidthBreak()
+{
+    const std::string text = "A\xE2\x80\x8B" "B";
+    return expect(wsc::text::makeAsciiFallbackText(text) == "AB",
+                  "ASCII fallback should skip zero-width break without replacement");
+}
+
 bool testUnicodeBreakTokensSplitCjkText()
 {
     const std::string text = "\xe4\xbd\xa0\xe5\xa5\xbd\xe4\xb8\x96\xe7\x95\x8c";
@@ -154,6 +161,23 @@ bool testUnicodeBreakTokensTreatWhitespaceAsBreaks()
                   "ideographic-space-separated token should request a collapsed prefix space");
 }
 
+bool testUnicodeBreakTokensPreserveNoBreakSpaces()
+{
+    const std::string figureSpace = "12\xE2\x80\x87" "34";
+    const std::string narrowNoBreakSpace = "12\xE2\x80\xAF" "34";
+    const std::vector<wsc::text::TextBreakToken> figureTokens =
+        wsc::text::buildTextBreakTokens(figureSpace, 0, figureSpace.size());
+    const std::vector<wsc::text::TextBreakToken> narrowTokens =
+        wsc::text::buildTextBreakTokens(narrowNoBreakSpace, 0, narrowNoBreakSpace.size());
+
+    return expect(figureTokens.size() == 1, "figure space should not split break tokens")
+        && expect(figureTokens[0].sourceStart == 0 && figureTokens[0].sourceEnd == figureSpace.size(),
+                  "figure space should remain inside the token source span")
+        && expect(narrowTokens.size() == 1, "narrow no-break space should not split break tokens")
+        && expect(narrowTokens[0].sourceStart == 0 && narrowTokens[0].sourceEnd == narrowNoBreakSpace.size(),
+                  "narrow no-break space should remain inside the token source span");
+}
+
 bool testUnicodeBreakTokensStopAtCarriageReturn()
 {
     const std::string text = "alpha\rbeta";
@@ -163,6 +187,20 @@ bool testUnicodeBreakTokensStopAtCarriageReturn()
     return expect(tokens.size() == 1, "carriage return should stop the current break-token row")
         && expect(tokens[0].sourceStart == 0 && tokens[0].sourceEnd == 5,
                   "carriage return should not be included in break-token source spans");
+}
+
+bool testUnicodeBreakTokensSplitZeroWidthSpace()
+{
+    const std::string text = "alpha\xE2\x80\x8B" "beta";
+    const std::vector<wsc::text::TextBreakToken> tokens =
+        wsc::text::buildTextBreakTokens(text, 0, text.size());
+
+    return expect(tokens.size() == 2, "zero-width space should split break tokens")
+        && expect(tokens[0].sourceStart == 0 && tokens[0].sourceEnd == 5,
+                  "zero-width break should keep first source span visible")
+        && expect(tokens[1].sourceStart == 8 && tokens[1].sourceEnd == text.size(),
+                  "zero-width break should skip its UTF-8 bytes in the next source span")
+        && expect(!tokens[1].prefixSpace, "zero-width break should not request a visible prefix space");
 }
 
 bool testSimpleShaperBuildsGlyphRun()
@@ -225,6 +263,27 @@ bool testSimpleShaperStopsAtCarriageReturn()
                   "simple shaper should not render text after carriage return");
 }
 
+bool testSimpleShaperDirectionStopsAtLineBreak()
+{
+    const auto lfRun = wsc::text::shapeTextSimple("123\n\xd7\x90",
+                                                  0.0f,
+                                                  [](std::uint32_t codepoint) -> std::optional<wsc::text::ResolvedGlyph> {
+        return wsc::text::ResolvedGlyph{static_cast<int>(codepoint), 5.0f};
+    });
+    const auto crRun = wsc::text::shapeTextSimple("123\r\xd7\x90",
+                                                  0.0f,
+                                                  [](std::uint32_t codepoint) -> std::optional<wsc::text::ResolvedGlyph> {
+        return wsc::text::ResolvedGlyph{static_cast<int>(codepoint), 5.0f};
+    });
+
+    return expect(lfRun.has_value() && !lfRun->rightToLeft,
+                  "simple shaper direction should ignore strong text after LF")
+        && expect(crRun.has_value() && !crRun->rightToLeft,
+                  "simple shaper direction should ignore strong text after CR")
+        && expect(lfRun->glyphs.size() == 3 && crRun->glyphs.size() == 3,
+                  "line-break direction test should only shape first-line glyphs");
+}
+
 bool testSimpleShaperOrdersRightToLeftRuns()
 {
     const std::string hebrew = "\xd7\x90\xd7\x91";
@@ -275,6 +334,22 @@ bool testSimpleShaperSkipsBidiControls()
         && expect(run->width == 11.0f, "letter spacing should only apply between visible glyphs");
 }
 
+bool testSimpleShaperSkipsZeroWidthBreak()
+{
+    const std::string text = "A\xE2\x80\x8B" "B";
+    const auto run = wsc::text::shapeTextSimple(text,
+                                                1.0f,
+                                                [](std::uint32_t codepoint) -> std::optional<wsc::text::ResolvedGlyph> {
+        return wsc::text::ResolvedGlyph{static_cast<int>(codepoint), 5.0f};
+    });
+
+    return expect(run.has_value(), "simple shaper should shape around zero-width break")
+        && expect(run->glyphs.size() == 2, "zero-width break should not emit a glyph")
+        && expect(run->glyphs[0].codepoint == 'A' && run->glyphs[1].codepoint == 'B',
+                  "visible glyph order should skip zero-width break")
+        && expect(run->width == 11.0f, "letter spacing should only apply between visible glyphs");
+}
+
 bool testTextShapingEngineFactoryFallsBackToSimple()
 {
     const auto simple = wsc::text::createTextShapingEngine(wsc::text::TextShapingBackend::Simple);
@@ -308,9 +383,9 @@ bool testBidiRunSegmentation()
     bool ok = expect(runs.size() == 3, "mixed LTR/RTL text should split into three bidi runs");
     ok = expect(!runs[0].rightToLeft && runs[0].sourceStart == 0 && runs[0].sourceEnd == 4,
                 "first bidi run should be LTR and include trailing neutral space") && ok;
-    ok = expect(runs[1].rightToLeft && runs[1].sourceStart == 4 && runs[1].sourceEnd == 9,
-                "second bidi run should be RTL and include trailing neutral space") && ok;
-    ok = expect(!runs[2].rightToLeft && runs[2].sourceStart == 9 && runs[2].sourceEnd == mixed.size(),
+    ok = expect(runs[1].rightToLeft && runs[1].sourceStart == 4 && runs[1].sourceEnd == 8,
+                "second bidi run should be RTL and contain the Hebrew span") && ok;
+    ok = expect(!runs[2].rightToLeft && runs[2].sourceStart == 8 && runs[2].sourceEnd == mixed.size(),
                 "third bidi run should return to LTR") && ok;
     return ok;
 }
@@ -365,18 +440,95 @@ bool testBidiRunSegmentationUsesDirectionalMarks()
     const std::vector<wsc::text::BidiRun> lrmRuns = wsc::text::segmentBidiRuns(lrmText);
     const std::vector<wsc::text::BidiRun> almRuns = wsc::text::segmentBidiRuns(almText);
 
-    return expect(rlmRuns.size() == 1 && rlmRuns[0].rightToLeft,
-                  "RLM should set weak-only text to RTL")
+    return expect(rlmRuns.size() == 1 && !rlmRuns[0].rightToLeft,
+                  "RLM should set RTL paragraph context while European digits remain an LTR number run")
         && expect(rlmRuns[0].sourceStart == 3 && rlmRuns[0].sourceEnd == rlmText.size(),
                   "RLM should not be included in the visible source range")
         && expect(lrmRuns.size() == 1 && !lrmRuns[0].rightToLeft,
                   "LRM should set weak-only text to LTR")
         && expect(lrmRuns[0].sourceStart == 3 && lrmRuns[0].sourceEnd == lrmText.size(),
                   "LRM should not be included in the visible source range")
-        && expect(almRuns.size() == 1 && almRuns[0].rightToLeft,
-                  "ALM should set weak-only text to RTL")
+        && expect(almRuns.size() == 1 && !almRuns[0].rightToLeft,
+                  "ALM should set RTL paragraph context while European digits remain an LTR number run")
         && expect(almRuns[0].sourceStart == 2 && almRuns[0].sourceEnd == almText.size(),
                   "ALM should not be included in the visible source range");
+}
+
+bool testBidiRunSegmentationUsesExplicitControls()
+{
+    const std::string rleText = "\xE2\x80\xAB" "123" "\xE2\x80\xAC";
+    const std::string lreText = "\xE2\x80\xAA" "123" "\xE2\x80\xAC";
+    const std::string rliText = "\xE2\x81\xA7" "123" "\xE2\x81\xA9";
+    const std::string fsiText = "\xE2\x81\xA8" "\xD7\x90" "12" "\xE2\x81\xA9";
+    const std::string restoredText = "a " "\xE2\x80\xAB" "123" "\xE2\x80\xAC" " b";
+
+    const std::vector<wsc::text::BidiRun> rleRuns = wsc::text::segmentBidiRuns(rleText);
+    const std::vector<wsc::text::BidiRun> lreRuns = wsc::text::segmentBidiRuns(lreText);
+    const std::vector<wsc::text::BidiRun> rliRuns = wsc::text::segmentBidiRuns(rliText);
+    const std::vector<wsc::text::BidiRun> fsiRuns = wsc::text::segmentBidiRuns(fsiText);
+    const std::vector<wsc::text::BidiRun> restoredRuns = wsc::text::segmentBidiRuns(restoredText);
+
+    return expect(rleRuns.size() == 1 && !rleRuns[0].rightToLeft,
+                  "RLE should embed European digits as an LTR number run inside RTL context")
+        && expect(rleRuns[0].sourceStart == 3 && rleRuns[0].sourceEnd == 6,
+                  "RLE/PDF controls should stay outside visible source ranges")
+        && expect(lreRuns.size() == 1 && !lreRuns[0].rightToLeft,
+                  "LRE should keep weak-only text LTR")
+        && expect(lreRuns[0].sourceStart == 3 && lreRuns[0].sourceEnd == 6,
+                  "LRE/PDF controls should stay outside visible source ranges")
+        && expect(rliRuns.size() == 1 && !rliRuns[0].rightToLeft,
+                  "RLI should isolate European digits as an LTR number run inside RTL context")
+        && expect(rliRuns[0].sourceStart == 3 && rliRuns[0].sourceEnd == 6,
+                  "RLI/PDI controls should stay outside visible source ranges")
+        && expect(fsiRuns.size() == 2 && !fsiRuns[0].rightToLeft && fsiRuns[1].rightToLeft,
+                  "FSI should infer RTL isolate direction and return visual level-run order")
+        && expect(fsiRuns[0].sourceStart == 5 && fsiRuns[0].sourceEnd == 7
+                      && fsiRuns[1].sourceStart == 3 && fsiRuns[1].sourceEnd == 5,
+                  "FSI/PDI controls should stay outside visible source ranges")
+        && expect(restoredRuns.size() == 3, "PDF should restore the previous direction")
+        && expect(!restoredRuns[0].rightToLeft && restoredRuns[0].sourceStart == 0 && restoredRuns[0].sourceEnd == 2,
+                  "text before RLE should remain LTR")
+        && expect(!restoredRuns[1].rightToLeft && restoredRuns[1].sourceStart == 5 && restoredRuns[1].sourceEnd == 8,
+                  "European digits inside RLE should remain an LTR number run")
+        && expect(!restoredRuns[2].rightToLeft && restoredRuns[2].sourceStart == 11
+                      && restoredRuns[2].sourceEnd == restoredText.size(),
+                  "text after PDF should restore LTR");
+}
+
+bool testUnicodeBidiResolvesWeakAndNeutralTypes()
+{
+    const std::string arabicNumber = "\xD8\xA7" " 12,34";
+    const std::string mixedNeutral = "abc \xD7\x90\xD7\x91 def";
+    const std::vector<wsc::text::BidiRun> arabicRuns = wsc::text::segmentBidiRuns(arabicNumber);
+    const std::vector<wsc::text::BidiRun> neutralRuns = wsc::text::segmentBidiRuns(mixedNeutral);
+
+    bool ok = expect(!arabicRuns.empty(), "Arabic-number bidi text should produce runs");
+    ok = expect(arabicRuns.size() >= 2,
+                "Arabic paragraph with European digits should split strong text and number runs") && ok;
+    ok = expect(arabicRuns.front().sourceStart >= 3 || !arabicRuns.front().rightToLeft,
+                "Arabic paragraph should preserve a renderable number run") && ok;
+    ok = expect(neutralRuns.size() == 3,
+                "mixed strong text with neutral separator should split into three resolved runs") && ok;
+    ok = expect(!neutralRuns[2].rightToLeft && neutralRuns[2].sourceStart == 8,
+                "neutral space between RTL and LTR should resolve with the following LTR run") && ok;
+    return ok;
+}
+
+bool testUnicodeBidiOverrideControls()
+{
+    const std::string rloText = "\xE2\x80\xAE" "abc" "\xE2\x80\xAC";
+    const std::string lroText = "\xE2\x80\xAD" "\xD7\x90\xD7\x91" "\xE2\x80\xAC";
+    const std::vector<wsc::text::BidiRun> rloRuns = wsc::text::segmentBidiRuns(rloText);
+    const std::vector<wsc::text::BidiRun> lroRuns = wsc::text::segmentBidiRuns(lroText);
+
+    return expect(rloRuns.size() == 1 && rloRuns[0].rightToLeft,
+                  "RLO should force enclosed LTR letters into an RTL run")
+        && expect(rloRuns[0].sourceStart == 3 && rloRuns[0].sourceEnd == 6,
+                  "RLO/PDF controls should stay outside the visible source range")
+        && expect(lroRuns.size() == 1 && !lroRuns[0].rightToLeft,
+                  "LRO should force enclosed RTL letters into an LTR run")
+        && expect(lroRuns[0].sourceStart == 3 && lroRuns[0].sourceEnd == 7,
+                  "LRO/PDF controls should stay outside the visible source range");
 }
 
 bool testColorFontTableDetection()
@@ -413,17 +565,22 @@ int main()
     const bool ok = testDecodeValidUtf8()
         && testInvalidUtf8Replacement()
         && testAsciiFallbackKeepsShape()
+        && testAsciiFallbackSkipsZeroWidthBreak()
         && testUnicodeBreakTokensSplitCjkText()
         && testUnicodeBreakTokensAttachClosingPunctuation()
         && testUnicodeBreakTokensAttachOpeningPunctuation()
         && testUnicodeBreakTokensTreatWhitespaceAsBreaks()
+        && testUnicodeBreakTokensPreserveNoBreakSpaces()
         && testUnicodeBreakTokensStopAtCarriageReturn()
+        && testUnicodeBreakTokensSplitZeroWidthSpace()
         && testSimpleShaperBuildsGlyphRun()
         && testSimpleShaperStopsAtFirstLineAndFailsMissingGlyphs()
         && testSimpleShaperStopsAtCarriageReturn()
+        && testSimpleShaperDirectionStopsAtLineBreak()
         && testSimpleShaperOrdersRightToLeftRuns()
         && testSimpleShaperMirrorsRightToLeftPunctuation()
         && testSimpleShaperSkipsBidiControls()
+        && testSimpleShaperSkipsZeroWidthBreak()
         && testTextShapingEngineFactoryFallsBackToSimple()
         && testBidiRunSegmentation()
         && testBidiRunSegmentationKeepsLeadingNeutrals()
@@ -431,6 +588,9 @@ int main()
         && testBidiRunSegmentationSkipsControlOnlyText()
         && testBidiRunSegmentationStopsAtCarriageReturn()
         && testBidiRunSegmentationUsesDirectionalMarks()
+        && testBidiRunSegmentationUsesExplicitControls()
+        && testUnicodeBidiResolvesWeakAndNeutralTypes()
+        && testUnicodeBidiOverrideControls()
         && testColorFontTableDetection()
         && testColorFontTableDetectionHandlesTtcAndMalformedData();
     return ok ? EXIT_SUCCESS : EXIT_FAILURE;

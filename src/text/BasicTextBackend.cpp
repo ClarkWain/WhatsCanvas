@@ -26,6 +26,18 @@ using wsc::text::TextRenderResult;
 constexpr size_t kMaxNativeTextCacheEntries = 128;
 constexpr int kDefaultGlyphAtlasSize = 1024;
 
+const char *backendName(wsc::text::TextBackendKind kind)
+{
+    switch (kind) {
+    case wsc::text::TextBackendKind::Auto: return "auto";
+    case wsc::text::TextBackendKind::Portable: return "portable";
+    case wsc::text::TextBackendKind::WindowsNative: return "windows-native";
+    case wsc::text::TextBackendKind::DirectWrite: return "directwrite";
+    case wsc::text::TextBackendKind::CoreText: return "coretext";
+    }
+    return "unknown";
+}
+
 class BasicTextBackend final : public wsc::text::ITextBackend
 {
 public:
@@ -33,6 +45,13 @@ public:
         : options_(options),
           shaper_(wsc::text::createTextShapingEngine(options_.shapingBackend))
     {
+        if (options_.backendKind == wsc::text::TextBackendKind::DirectWrite
+            || options_.backendKind == wsc::text::TextBackendKind::CoreText) {
+            diagnostics_.push_back({wsc::text::TextBackendDiagnostic::Severity::Warning,
+                                    std::string(backendName(options_.backendKind))
+                                        + " text adapter is not available yet; using portable glyph-atlas backend."});
+            options_.enableNativeText = false;
+        }
         if (options_.shapingBackend == wsc::text::TextShapingBackend::OpenType
             && (shaper_ == nullptr || !shaper_->supportsOpenTypeFeatures())) {
             diagnostics_.push_back({wsc::text::TextBackendDiagnostic::Severity::Warning,
@@ -174,6 +193,7 @@ public:
     bool hasGlyphForCodepoint(std::uint32_t codepoint, const Paint &paint) const override
     {
         if (codepoint == '\n' || codepoint == '\t' || wsc::text::isBidiControlCodepoint(codepoint)
+            || wsc::text::isZeroWidthBreakCodepoint(codepoint)
             || (codepoint >= 32 && codepoint <= 126)) {
             return true;
         }
@@ -396,6 +416,7 @@ public:
         for (const wsc::text::Utf8Codepoint &codepoint : wsc::text::decodeUtf8(normalizedText)) {
             if (codepoint.value == '\n' || codepoint.value == '\t' || codepoint.value < 32
                 || wsc::text::isBidiControlCodepoint(codepoint.value)
+                || wsc::text::isZeroWidthBreakCodepoint(codepoint.value)
                 || (codepoint.value >= 32 && codepoint.value <= 126)) {
                 continue;
             }
@@ -463,7 +484,8 @@ private:
             if (codepoint.value == '\n') {
                 break;
             }
-            if (codepoint.value < 32 || wsc::text::isBidiControlCodepoint(codepoint.value)) {
+            if (codepoint.value < 32 || wsc::text::isBidiControlCodepoint(codepoint.value)
+                || wsc::text::isZeroWidthBreakCodepoint(codepoint.value)) {
                 continue;
             }
 
@@ -596,9 +618,6 @@ private:
         std::vector<wsc::text::BidiRun> bidiRuns = wsc::text::segmentBidiRuns(normalizedText);
         if (bidiRuns.empty()) {
             return std::nullopt;
-        }
-        if (bidiRuns.front().rightToLeft) {
-            std::reverse(bidiRuns.begin(), bidiRuns.end());
         }
 
         wsc::text::ShapedTextRun combined;
@@ -772,6 +791,48 @@ std::unique_ptr<ITextBackend> createBasicTextBackend()
     return createBasicTextBackend(BasicTextBackendOptions{});
 }
 
+std::vector<TextBackendCapability> queryTextBackendCapabilities()
+{
+    std::vector<TextBackendCapability> capabilities;
+    capabilities.push_back({TextBackendKind::Portable,
+                            "portable",
+                            true,
+                            false,
+                            true,
+                            true,
+                            true,
+                            isOpenTypeShapingAvailable()});
+    capabilities.push_back({TextBackendKind::WindowsNative,
+                            "windows-native",
+#if defined(_WIN32)
+                            true,
+#else
+                            false,
+#endif
+                            true,
+                            false,
+                            false,
+                            false,
+                            false});
+    capabilities.push_back({TextBackendKind::DirectWrite,
+                            "directwrite",
+                            false,
+                            true,
+                            false,
+                            false,
+                            false,
+                            false});
+    capabilities.push_back({TextBackendKind::CoreText,
+                            "coretext",
+                            false,
+                            true,
+                            false,
+                            false,
+                            false,
+                            false});
+    return capabilities;
+}
+
 std::unique_ptr<ITextBackend> createBasicTextBackend(const BasicTextBackendOptions &options)
 {
     return std::make_unique<BasicTextBackend>(options);
@@ -780,7 +841,32 @@ std::unique_ptr<ITextBackend> createBasicTextBackend(const BasicTextBackendOptio
 std::unique_ptr<ITextBackend> createPortableTextBackend()
 {
     BasicTextBackendOptions options;
+    options.backendKind = TextBackendKind::Portable;
     options.enableNativeText = false;
+    return createBasicTextBackend(options);
+}
+
+std::unique_ptr<ITextBackend> createTextBackend(TextBackendKind kind)
+{
+    BasicTextBackendOptions options;
+    options.backendKind = kind;
+    switch (kind) {
+    case TextBackendKind::Portable:
+    case TextBackendKind::DirectWrite:
+    case TextBackendKind::CoreText:
+        options.enableNativeText = false;
+        break;
+    case TextBackendKind::WindowsNative:
+#if defined(_WIN32)
+        options.enableNativeText = true;
+#else
+        options.enableNativeText = false;
+#endif
+        break;
+    case TextBackendKind::Auto:
+        options.enableNativeText = true;
+        break;
+    }
     return createBasicTextBackend(options);
 }
 

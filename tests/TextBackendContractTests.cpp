@@ -138,6 +138,23 @@ bool testPortableBackendUsesGeometryPath()
                   "portable backend should not claim native CJK glyph coverage");
 }
 
+bool testPortableBackendSkipsZeroWidthBreak()
+{
+    std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createPortableTextBackend();
+    Paint paint;
+    paint.setTextSize(12.0f);
+    const float withBreak = backend->measureTextWidth("A\xE2\x80\x8B" "B", paint);
+    const float withoutBreak = backend->measureTextWidth("AB", paint);
+    const wsc::text::TextRenderResult rendered =
+        backend->renderText("A\xE2\x80\x8B" "B", 0.0f, 0.0f, paint);
+
+    return expect(withBreak == withoutBreak, "zero-width break should not affect text measurement")
+        && expect(backend->hasGlyphForCodepoint(0x200B, paint),
+                  "zero-width break should not require a font glyph")
+        && expect(rendered.missingGlyphs.empty(),
+                  "zero-width break should not report missing glyphs");
+}
+
 std::string findSystemFontPath()
 {
     const std::vector<std::string> candidates = {
@@ -146,6 +163,24 @@ std::string findSystemFontPath()
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "/System/Library/Fonts/Supplemental/Arial.ttf",
         "/System/Library/Fonts/SFNS.ttf"
+    };
+
+    for (const std::string &path : candidates) {
+        std::ifstream input(path, std::ios::binary);
+        if (input.good()) {
+            return path;
+        }
+    }
+    return {};
+}
+
+std::string findColorSystemFontPath()
+{
+    const std::vector<std::string> candidates = {
+        "C:/Windows/Fonts/seguiemj.ttf",
+        "/System/Library/Fonts/Apple Color Emoji.ttc",
+        "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",
+        "/usr/share/fonts/google-noto-color-emoji/NotoColorEmoji.ttf"
     };
 
     for (const std::string &path : candidates) {
@@ -197,6 +232,41 @@ bool testPortableBackendUsesGlyphAtlasForRegisteredFont()
                 "cached registered font render should still use glyph atlas") && ok;
     ok = expect(cached.atlasDirtyRects.empty(),
                 "cached glyph atlas render should not dirty atlas rectangles") && ok;
+    return ok;
+}
+
+bool testPortableBackendUsesRgbaAtlasForColorGlyphs()
+{
+    const std::string fontPath = findColorSystemFontPath();
+    if (fontPath.empty()) {
+        std::cout << "Skipping color glyph atlas test; no known color system font path found." << std::endl;
+        return true;
+    }
+
+    wsc::FontFace face = wsc::FontFace::fromFile(wsc::FontDescriptor("ColorPrimary"), fontPath);
+    wsc::text::FontRasterizer rasterizer;
+    const auto tables = rasterizer.colorFontTables(face);
+    if (!tables || !tables->colr || !tables->cpal || !rasterizer.hasGlyph(face, 0x1F600u)) {
+        std::cout << "Skipping color glyph atlas test; color font does not expose COLR/CPAL grinning face." << std::endl;
+        return true;
+    }
+
+    std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createPortableTextBackend();
+    bool ok = expect(backend->registerFontFace(face), "color system font should register");
+
+    Paint paint;
+    paint.setTextSize(40.0f);
+    paint.setFontFamily("ColorPrimary");
+    const wsc::text::TextRenderResult rendered = backend->renderText("\xF0\x9F\x98\x80", 0.0f, 0.0f, paint);
+
+    ok = expect(rendered.kind == wsc::text::TextRenderKind::GlyphAtlas,
+                "color glyph text should render through glyph atlas") && ok;
+    ok = expect(rendered.atlasPixelFormat == wsc::text::GlyphAtlasPixelFormat::RGBA,
+                "color glyph text should expose an RGBA atlas") && ok;
+    ok = expect(!rendered.atlasRgbaPixels.empty(),
+                "color glyph text should expose atlas RGBA pixels") && ok;
+    ok = expect(!rendered.glyphAtlasQuads.empty(),
+                "color glyph text should emit atlas quads") && ok;
     return ok;
 }
 
@@ -333,6 +403,52 @@ bool testOpenTypeShapingRequestFallsBackWithDiagnostic()
     return ok;
 }
 
+bool testTextBackendCapabilityMatrix()
+{
+    const std::vector<wsc::text::TextBackendCapability> capabilities =
+        wsc::text::queryTextBackendCapabilities();
+
+    bool sawPortable = false;
+    bool sawDirectWrite = false;
+    bool sawCoreText = false;
+    for (const wsc::text::TextBackendCapability &capability : capabilities) {
+        if (capability.kind == wsc::text::TextBackendKind::Portable) {
+            sawPortable = capability.available
+                && capability.supportsFontRegistration
+                && capability.supportsGlyphAtlas
+                && capability.supportsColorGlyphAtlas;
+        } else if (capability.kind == wsc::text::TextBackendKind::DirectWrite) {
+            sawDirectWrite = capability.nativePlatformAdapter && !capability.available;
+        } else if (capability.kind == wsc::text::TextBackendKind::CoreText) {
+            sawCoreText = capability.nativePlatformAdapter && !capability.available;
+        }
+    }
+
+    return expect(sawPortable, "portable text backend capability should be advertised")
+        && expect(sawDirectWrite, "DirectWrite adapter slot should be advertised as unavailable")
+        && expect(sawCoreText, "CoreText adapter slot should be advertised as unavailable");
+}
+
+bool testUnavailableNativeTextAdaptersFallback()
+{
+    std::unique_ptr<wsc::text::ITextBackend> directWrite =
+        wsc::text::createTextBackend(wsc::text::TextBackendKind::DirectWrite);
+    std::unique_ptr<wsc::text::ITextBackend> coreText =
+        wsc::text::createTextBackend(wsc::text::TextBackendKind::CoreText);
+
+    const std::vector<wsc::text::TextBackendDiagnostic> directWriteDiagnostics = directWrite->diagnostics();
+    const std::vector<wsc::text::TextBackendDiagnostic> coreTextDiagnostics = coreText->diagnostics();
+
+    return expect(!directWriteDiagnostics.empty(),
+                  "DirectWrite backend request should add an unavailable-adapter diagnostic")
+        && expect(directWriteDiagnostics.front().message.find("directwrite") != std::string::npos,
+                  "DirectWrite diagnostic should name the adapter")
+        && expect(!coreTextDiagnostics.empty(),
+                  "CoreText backend request should add an unavailable-adapter diagnostic")
+        && expect(coreTextDiagnostics.front().message.find("coretext") != std::string::npos,
+                  "CoreText diagnostic should name the adapter");
+}
+
 } // namespace
 
 int main()
@@ -344,10 +460,14 @@ int main()
         && testLongWordLineBreakQuery()
         && testDiagnosticsForRejectedFallback()
         && testPortableBackendUsesGeometryPath()
+        && testPortableBackendSkipsZeroWidthBreak()
         && testPortableBackendUsesGlyphAtlasForRegisteredFont()
+        && testPortableBackendUsesRgbaAtlasForColorGlyphs()
         && testPortableBackendAppliesSimpleKerning()
         && testPortableBackendResolvesFallbackGlyphRange()
         && testPortableBackendShapesFallbackFontSegments()
-        && testOpenTypeShapingRequestFallsBackWithDiagnostic();
+        && testOpenTypeShapingRequestFallsBackWithDiagnostic()
+        && testTextBackendCapabilityMatrix()
+        && testUnavailableNativeTextAdaptersFallback();
     return ok ? 0 : 1;
 }

@@ -11,3 +11,7 @@ images/draw_path.png
 compare2.md
 article_functions.md
 build-gles-check/
+build-nmake-local/
+build-wsl/
+build-wsl-gles/
+build-wsl-gles-check/

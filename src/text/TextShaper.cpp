@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include "text/TextUtils.h"
+#include "text/UnicodeBidi.h"
 
 namespace wsc::text {
 
@@ -54,9 +55,17 @@ bool isStrongLeftToRightCodepoint(std::uint32_t codepoint)
         || (codepoint >= 0x1E00 && codepoint <= 0x1EFF);
 }
 
+bool isLineBreakCodepoint(std::uint32_t codepoint)
+{
+    return codepoint == '\n' || codepoint == '\r';
+}
+
 bool firstStrongDirectionIsRightToLeft(const std::vector<Utf8Codepoint> &codepoints)
 {
     for (const Utf8Codepoint &codepoint : codepoints) {
+        if (isLineBreakCodepoint(codepoint.value)) {
+            break;
+        }
         if (codepoint.value == 0x061C || codepoint.value == 0x200F) {
             return true;
         }
@@ -86,6 +95,57 @@ std::optional<bool> strongDirectionForCodepoint(std::uint32_t codepoint)
     }
     if (isStrongLeftToRightCodepoint(codepoint)) {
         return false;
+    }
+    return std::nullopt;
+}
+
+std::optional<bool> explicitDirectionForControl(std::uint32_t codepoint)
+{
+    switch (codepoint) {
+    case 0x202A: // LRE
+    case 0x202D: // LRO
+    case 0x2066: // LRI
+        return false;
+    case 0x202B: // RLE
+    case 0x202E: // RLO
+    case 0x2067: // RLI
+        return true;
+    default:
+        return std::nullopt;
+    }
+}
+
+bool isDirectionalPopControl(std::uint32_t codepoint)
+{
+    return codepoint == 0x202C || codepoint == 0x2069;
+}
+
+std::optional<bool> firstStrongDirectionInIsolate(const std::vector<Utf8Codepoint> &codepoints,
+                                                  std::size_t startIndex)
+{
+    int isolateDepth = 0;
+    for (std::size_t index = startIndex + 1; index < codepoints.size(); ++index) {
+        const Utf8Codepoint &codepoint = codepoints[index];
+        if (isLineBreakCodepoint(codepoint.value)) {
+            break;
+        }
+        if (codepoint.value == 0x2066 || codepoint.value == 0x2067 || codepoint.value == 0x2068) {
+            ++isolateDepth;
+            continue;
+        }
+        if (codepoint.value == 0x2069) {
+            if (isolateDepth == 0) {
+                break;
+            }
+            --isolateDepth;
+            continue;
+        }
+        if (isBidiControlCodepoint(codepoint.value) || isZeroWidthBreakCodepoint(codepoint.value)) {
+            continue;
+        }
+        if (const std::optional<bool> direction = strongDirectionForCodepoint(codepoint.value)) {
+            return direction;
+        }
     }
     return std::nullopt;
 }
@@ -133,11 +193,6 @@ std::uint32_t mirroredCodepointForRightToLeftRun(std::uint32_t codepoint)
     }
 }
 
-bool isLineBreakCodepoint(std::uint32_t codepoint)
-{
-    return codepoint == '\n' || codepoint == '\r';
-}
-
 } // namespace
 
 bool isBidiControlCodepoint(std::uint32_t codepoint)
@@ -169,7 +224,7 @@ std::optional<ShapedTextRun> shapeTextSimple(const std::string &normalizedText,
         if (codepoint.value < 32) {
             continue;
         }
-        if (isBidiControlCodepoint(codepoint.value)) {
+        if (isBidiControlCodepoint(codepoint.value) || isZeroWidthBreakCodepoint(codepoint.value)) {
             continue;
         }
 
@@ -209,72 +264,7 @@ std::optional<ShapedTextRun> shapeTextSimple(const std::string &normalizedText,
 
 std::vector<BidiRun> segmentBidiRuns(const std::string &normalizedText)
 {
-    std::vector<BidiRun> runs;
-    const std::vector<Utf8Codepoint> codepoints = decodeUtf8(normalizedText);
-    std::optional<bool> currentDirection;
-    std::size_t currentStart = std::string::npos;
-    std::size_t currentEnd = 0;
-    std::size_t visibleStart = std::string::npos;
-    std::size_t visibleEnd = 0;
-
-    const auto finishCurrent = [&]() {
-        if (currentDirection && currentStart != std::string::npos && currentEnd > currentStart) {
-            runs.push_back({currentStart, currentEnd, *currentDirection});
-        }
-    };
-
-    for (const Utf8Codepoint &codepoint : codepoints) {
-        if (isLineBreakCodepoint(codepoint.value)) {
-            break;
-        }
-        if (codepoint.value < 32) {
-            continue;
-        }
-        if (isBidiControlCodepoint(codepoint.value)) {
-            if (const std::optional<bool> direction = strongDirectionForCodepoint(codepoint.value)) {
-                if (!currentDirection) {
-                    currentDirection = direction;
-                }
-            }
-            continue;
-        }
-
-        if (visibleStart == std::string::npos) {
-            visibleStart = codepoint.offset;
-        }
-        visibleEnd = codepoint.offset + codepoint.length;
-
-        const std::optional<bool> direction = strongDirectionForCodepoint(codepoint.value);
-        if (!direction) {
-            if (currentDirection) {
-                if (currentStart == std::string::npos) {
-                    currentStart = codepoint.offset;
-                }
-                currentEnd = codepoint.offset + codepoint.length;
-            } else if (currentStart == std::string::npos) {
-                currentStart = codepoint.offset;
-            }
-            continue;
-        }
-
-        if (!currentDirection) {
-            currentDirection = direction;
-            if (currentStart == std::string::npos) {
-                currentStart = visibleStart;
-            }
-        } else if (*direction != *currentDirection) {
-            finishCurrent();
-            currentDirection = direction;
-            currentStart = codepoint.offset;
-        }
-        currentEnd = codepoint.offset + codepoint.length;
-    }
-
-    finishCurrent();
-    if (runs.empty() && visibleStart != std::string::npos && visibleEnd > visibleStart) {
-        runs.push_back({visibleStart, visibleEnd, false});
-    }
-    return runs;
+    return resolveUnicodeBidiRuns(normalizedText);
 }
 
 bool isOpenTypeShapingAvailable()
