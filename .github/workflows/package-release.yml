@@ -40,9 +40,21 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
 
+      - name: Set up MSVC developer command prompt
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
       - name: Build package on Windows
         if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          WHATSCANVAS_BUILD_DIR: ${{ github.workspace }}\build-github-win
+          WHATSCANVAS_CMAKE_GENERATOR: NMake Makefiles
+          WHATSCANVAS_CMAKE_MULTI_CONFIG: '0'
+          WHATSCANVAS_CMAKE_PLATFORM: ''
+          WHATSCANVAS_CMAKE_TOOLSET: ''
         run: |
           cmd /c build.bat --release --package --no-run
 
