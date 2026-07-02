@@ -454,6 +454,46 @@ bool testBidiRunSegmentationUsesDirectionalMarks()
                   "ALM should not be included in the visible source range");
 }
 
+bool testBidiRunSegmentationUsesExplicitControls()
+{
+    const std::string rleText = "\xE2\x80\xAB" "123" "\xE2\x80\xAC";
+    const std::string lreText = "\xE2\x80\xAA" "123" "\xE2\x80\xAC";
+    const std::string rliText = "\xE2\x81\xA7" "123" "\xE2\x81\xA9";
+    const std::string fsiText = "\xE2\x81\xA8" "\xD7\x90" "12" "\xE2\x81\xA9";
+    const std::string restoredText = "a " "\xE2\x80\xAB" "123" "\xE2\x80\xAC" " b";
+
+    const std::vector<wsc::text::BidiRun> rleRuns = wsc::text::segmentBidiRuns(rleText);
+    const std::vector<wsc::text::BidiRun> lreRuns = wsc::text::segmentBidiRuns(lreText);
+    const std::vector<wsc::text::BidiRun> rliRuns = wsc::text::segmentBidiRuns(rliText);
+    const std::vector<wsc::text::BidiRun> fsiRuns = wsc::text::segmentBidiRuns(fsiText);
+    const std::vector<wsc::text::BidiRun> restoredRuns = wsc::text::segmentBidiRuns(restoredText);
+
+    return expect(rleRuns.size() == 1 && rleRuns[0].rightToLeft,
+                  "RLE should set weak-only text to RTL")
+        && expect(rleRuns[0].sourceStart == 3 && rleRuns[0].sourceEnd == 6,
+                  "RLE/PDF controls should stay outside visible source ranges")
+        && expect(lreRuns.size() == 1 && !lreRuns[0].rightToLeft,
+                  "LRE should keep weak-only text LTR")
+        && expect(lreRuns[0].sourceStart == 3 && lreRuns[0].sourceEnd == 6,
+                  "LRE/PDF controls should stay outside visible source ranges")
+        && expect(rliRuns.size() == 1 && rliRuns[0].rightToLeft,
+                  "RLI should set isolated weak-only text to RTL")
+        && expect(rliRuns[0].sourceStart == 3 && rliRuns[0].sourceEnd == 6,
+                  "RLI/PDI controls should stay outside visible source ranges")
+        && expect(fsiRuns.size() == 1 && fsiRuns[0].rightToLeft,
+                  "FSI should infer RTL from the first strong isolated codepoint")
+        && expect(fsiRuns[0].sourceStart == 3 && fsiRuns[0].sourceEnd == 7,
+                  "FSI/PDI controls should stay outside visible source ranges")
+        && expect(restoredRuns.size() == 3, "PDF should restore the previous direction")
+        && expect(!restoredRuns[0].rightToLeft && restoredRuns[0].sourceStart == 0 && restoredRuns[0].sourceEnd == 2,
+                  "text before RLE should remain LTR")
+        && expect(restoredRuns[1].rightToLeft && restoredRuns[1].sourceStart == 5 && restoredRuns[1].sourceEnd == 8,
+                  "text inside RLE should be RTL")
+        && expect(!restoredRuns[2].rightToLeft && restoredRuns[2].sourceStart == 11
+                      && restoredRuns[2].sourceEnd == restoredText.size(),
+                  "text after PDF should restore LTR");
+}
+
 bool testColorFontTableDetection()
 {
     const std::vector<std::uint8_t> sfnt =
@@ -511,6 +551,7 @@ int main()
         && testBidiRunSegmentationSkipsControlOnlyText()
         && testBidiRunSegmentationStopsAtCarriageReturn()
         && testBidiRunSegmentationUsesDirectionalMarks()
+        && testBidiRunSegmentationUsesExplicitControls()
         && testColorFontTableDetection()
         && testColorFontTableDetectionHandlesTtcAndMalformedData();
     return ok ? EXIT_SUCCESS : EXIT_FAILURE;
