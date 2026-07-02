@@ -1,11 +1,13 @@
 #include <iostream>
 #include <fstream>
+#include <cmath>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "canvas/Paint.h"
 #include "text/BasicTextBackend.h"
+#include "text/FontRasterizer.h"
 #include "text/ITextBackend.h"
 #include "wsc/Font.h"
 
@@ -198,6 +200,43 @@ bool testPortableBackendUsesGlyphAtlasForRegisteredFont()
     return ok;
 }
 
+bool testPortableBackendAppliesSimpleKerning()
+{
+    const std::string fontPath = findSystemFontPath();
+    if (fontPath.empty()) {
+        std::cout << "Skipping simple kerning test; no known system font path found." << std::endl;
+        return true;
+    }
+
+    wsc::FontFace face = wsc::FontFace::fromFile(wsc::FontDescriptor("KerningPrimary"), fontPath);
+    wsc::text::FontRasterizer rasterizer;
+    const auto a = rasterizer.glyphMetrics(face, 'A', 48.0f);
+    const auto v = rasterizer.glyphMetrics(face, 'V', 48.0f);
+    if (!a || !v) {
+        std::cout << "Skipping simple kerning test; font does not expose A/V glyph metrics." << std::endl;
+        return true;
+    }
+
+    const auto kerning = rasterizer.glyphKerning(face, a->glyphIndex, v->glyphIndex, 48.0f);
+    if (!kerning || *kerning == 0.0f) {
+        std::cout << "Skipping simple kerning test; font has no A/V kern pair." << std::endl;
+        return true;
+    }
+
+    std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createPortableTextBackend();
+    bool ok = expect(backend->registerFontFace(face), "kerning test font should register");
+
+    Paint paint;
+    paint.setTextSize(48.0f);
+    paint.setFontFamily("KerningPrimary");
+    const float measured = backend->measureTextWidth("AV", paint);
+    const float expected = std::max(0.0f, a->advanceX + *kerning) + v->advanceX;
+
+    ok = expect(std::abs(measured - expected) < 0.01f,
+                "portable simple shaping should apply registered-font glyph kerning") && ok;
+    return ok;
+}
+
 bool testPortableBackendResolvesFallbackGlyphRange()
 {
     std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createPortableTextBackend();
@@ -306,6 +345,7 @@ int main()
         && testDiagnosticsForRejectedFallback()
         && testPortableBackendUsesGeometryPath()
         && testPortableBackendUsesGlyphAtlasForRegisteredFont()
+        && testPortableBackendAppliesSimpleKerning()
         && testPortableBackendResolvesFallbackGlyphRange()
         && testPortableBackendShapesFallbackFontSegments()
         && testOpenTypeShapingRequestFallsBackWithDiagnostic();
