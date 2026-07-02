@@ -225,6 +225,27 @@ bool testSimpleShaperStopsAtCarriageReturn()
                   "simple shaper should not render text after carriage return");
 }
 
+bool testSimpleShaperDirectionStopsAtLineBreak()
+{
+    const auto lfRun = wsc::text::shapeTextSimple("123\n\xd7\x90",
+                                                  0.0f,
+                                                  [](std::uint32_t codepoint) -> std::optional<wsc::text::ResolvedGlyph> {
+        return wsc::text::ResolvedGlyph{static_cast<int>(codepoint), 5.0f};
+    });
+    const auto crRun = wsc::text::shapeTextSimple("123\r\xd7\x90",
+                                                  0.0f,
+                                                  [](std::uint32_t codepoint) -> std::optional<wsc::text::ResolvedGlyph> {
+        return wsc::text::ResolvedGlyph{static_cast<int>(codepoint), 5.0f};
+    });
+
+    return expect(lfRun.has_value() && !lfRun->rightToLeft,
+                  "simple shaper direction should ignore strong text after LF")
+        && expect(crRun.has_value() && !crRun->rightToLeft,
+                  "simple shaper direction should ignore strong text after CR")
+        && expect(lfRun->glyphs.size() == 3 && crRun->glyphs.size() == 3,
+                  "line-break direction test should only shape first-line glyphs");
+}
+
 bool testSimpleShaperOrdersRightToLeftRuns()
 {
     const std::string hebrew = "\xd7\x90\xd7\x91";
@@ -421,6 +442,7 @@ int main()
         && testSimpleShaperBuildsGlyphRun()
         && testSimpleShaperStopsAtFirstLineAndFailsMissingGlyphs()
         && testSimpleShaperStopsAtCarriageReturn()
+        && testSimpleShaperDirectionStopsAtLineBreak()
         && testSimpleShaperOrdersRightToLeftRuns()
         && testSimpleShaperMirrorsRightToLeftPunctuation()
         && testSimpleShaperSkipsBidiControls()
