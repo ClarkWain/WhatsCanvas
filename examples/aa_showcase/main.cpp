@@ -272,15 +272,14 @@ int main(int argc, char **argv)
             glClearColor(0.09f, 0.10f, 0.12f, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT);
 
-            // Divider first so it never inherits a preceding gradient's state.
+            scene(canvas, 0.0f, false);                          // left panel
+            scene(canvas, static_cast<float>(kPanelWidth), true); // right panel
+
             Paint divider;
             divider.setStyle(Paint::Style::FILL);
             divider.setFillColor(Color(0, 0, 0));
             canvas.drawRect(RectF(static_cast<float>(kPanelWidth) - 1.0f, 0.0f, 2.0f,
                                   static_cast<float>(kHeight)), divider);
-
-            scene(canvas, 0.0f, false);                          // left panel
-            scene(canvas, static_cast<float>(kPanelWidth), true); // right panel
             canvas.endFrame();
 
             std::vector<unsigned char> pixels;

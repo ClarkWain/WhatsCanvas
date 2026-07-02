@@ -249,7 +249,9 @@ void Renderer::flush()
         }
 
         auto *pathCmd = static_cast<DrawPathCommand *>(commands_[i].get());
-        if (pathCmd->data().hasVertexColors()) {
+        if (pathCmd->data().hasVertexColors() || pathCmd->data().hasShaderGradient()) {
+            // Per-vertex colours and shader gradients carry per-shape state that
+            // cannot be shared across a merged draw call, so render individually.
             executeCommand(commands_[i]);
             ++i;
             continue;
@@ -267,6 +269,16 @@ void Renderer::flush()
             auto *nextPathCmd = static_cast<DrawPathCommand *>(commands_[j].get());
             const auto &next = nextPathCmd->data();
             if (next.hasVertexColors()) {
+                break;
+            }
+            if (next.hasShaderGradient()) {
+                // A gradient fill has its own shader state; never fold it into
+                // this batch (and never let a following solid draw inherit it).
+                break;
+            }
+            if (next.hasCoverage() != first.hasCoverage()) {
+                // Analytic-AA coverage must be present (or absent) uniformly so
+                // the concatenated coverage attribute stays aligned with points.
                 break;
             }
             if (next.drawMode != first.drawMode) {
@@ -312,10 +324,16 @@ void Renderer::flush()
 
             DrawPathData merged = first;
             merged.points.reserve(totalPoints);
+            if (first.hasCoverage()) {
+                merged.coverage.reserve(totalPoints / 2);
+            }
 
             for (std::size_t m = i + 1; m < j; ++m) {
                 const auto &next = static_cast<DrawPathCommand *>(commands_[m].get())->data();
                 merged.points.insert(merged.points.end(), next.points.begin(), next.points.end());
+                if (first.hasCoverage()) {
+                    merged.coverage.insert(merged.coverage.end(), next.coverage.begin(), next.coverage.end());
+                }
             }
 
             DrawPathCommand mergedCmd(merged);
