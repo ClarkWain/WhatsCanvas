@@ -358,6 +358,15 @@ wsc::text::BidiClass bracketStrongClass(wsc::text::BidiClass bidiClass)
     return wsc::text::BidiClass::ON;
 }
 
+bool bidiBracketsMatch(std::uint32_t expectedClosing, std::uint32_t actualClosing)
+{
+    if (expectedClosing == actualClosing) {
+        return true;
+    }
+    return (expectedClosing == 0x232A && actualClosing == 0x3009)
+        || (expectedClosing == 0x3009 && actualClosing == 0x232A);
+}
+
 void setBracketPairClass(std::vector<BidiItem> &items, std::size_t index, wsc::text::BidiClass bidiClass)
 {
     items[index].resolvedClass = bidiClass;
@@ -406,7 +415,7 @@ void resolvePairedBrackets(std::vector<BidiItem> &items, wsc::text::BidiClass st
             continue;
         }
         for (std::size_t cursor = stack.size(); cursor > 0; --cursor) {
-            if (stack[cursor - 1].closingCodepoint == items[i].codepoint.value) {
+            if (bidiBracketsMatch(stack[cursor - 1].closingCodepoint, items[i].codepoint.value)) {
                 pairs.push_back({stack[cursor - 1].index, i});
                 stack.resize(cursor - 1);
                 break;
@@ -526,13 +535,18 @@ void resolveNeutralTypes(std::vector<BidiItem> &items, wsc::text::BidiClass star
                          wsc::text::BidiClass endClass)
 {
     for (std::size_t i = 0; i < items.size(); ++i) {
+        if (items[i].preserveLevel) {
+            continue;
+        }
         if (!isNeutralClass(items[i].resolvedClass)) {
             continue;
         }
 
         const std::size_t start = i;
         std::size_t end = i;
-        while (end + 1 < items.size() && isNeutralClass(items[end + 1].resolvedClass)) {
+        while (end + 1 < items.size()
+               && !items[end + 1].preserveLevel
+               && isNeutralClass(items[end + 1].resolvedClass)) {
             ++end;
         }
 
@@ -648,8 +662,13 @@ void resolveRuns(std::vector<BidiItem> &items, int paragraphLevelValue)
         const int nextLevel = runEnd + 1 < items.size() ? initialLevels[runEnd + 1] : paragraphLevelValue;
         const wsc::text::BidiClass startClass = runBoundaryClass(paragraphLevelValue,
                                                                  std::max(previousLevel, runLevel));
-        const wsc::text::BidiClass endClass = runBoundaryClass(paragraphLevelValue,
-                                                               std::max(nextLevel, runLevel));
+        wsc::text::BidiClass endClass = runBoundaryClass(paragraphLevelValue,
+                                                         std::max(nextLevel, runLevel));
+        if (runLevel == paragraphLevelValue
+            && items[runEnd].preserveLevel
+            && isIsolateInitiator(items[runEnd].originalClass)) {
+            endClass = paragraphLevelValue % 2 == 0 ? wsc::text::BidiClass::L : wsc::text::BidiClass::R;
+        }
 
         std::vector<BidiItem> run(items.begin() + static_cast<std::ptrdiff_t>(runStart),
                                   items.begin() + static_cast<std::ptrdiff_t>(runEnd + 1));
@@ -772,6 +791,33 @@ std::vector<BidiItem> resolveItemsFromClasses(const std::vector<wsc::text::BidiC
         allItems.push_back(item);
         if (bidiClass == wsc::text::BidiClass::B) {
             break;
+        }
+    }
+
+    std::vector<std::size_t> isolateStack;
+    for (std::size_t index = 0; index < allItems.size(); ++index) {
+        if (isIsolateInitiator(allItems[index].originalClass)) {
+            isolateStack.push_back(index);
+            continue;
+        }
+        if (allItems[index].originalClass != wsc::text::BidiClass::PDI
+            || !allItems[index].preserveLevel
+            || isolateStack.empty()) {
+            continue;
+        }
+        const std::size_t initiatorIndex = isolateStack.back();
+        isolateStack.pop_back();
+
+        bool hasVisibleContent = false;
+        for (std::size_t cursor = initiatorIndex + 1; cursor < index; ++cursor) {
+            if (allItems[cursor].visible && !isDirectionalIsolate(allItems[cursor].originalClass)) {
+                hasVisibleContent = true;
+                break;
+            }
+        }
+        if (!hasVisibleContent) {
+            allItems[initiatorIndex].preserveLevel = false;
+            allItems[index].preserveLevel = false;
         }
     }
 
