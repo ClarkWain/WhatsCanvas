@@ -2,7 +2,7 @@
 set -eu
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-BUILD_DIR="$ROOT_DIR/build-gles-check"
+BUILD_DIR="${WHATSCANVAS_GLES_BUILD_DIR:-$ROOT_DIR/build-gles-check}"
 
 cmake -S "$ROOT_DIR" -B "$BUILD_DIR" \
     -DWHATSCANVAS_BUILD_OPENGL=OFF \

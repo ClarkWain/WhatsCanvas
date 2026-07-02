@@ -79,7 +79,7 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
         COMMAND ${CMAKE_COMMAND}
             -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
             -DWHATSCANVAS_TEST_TARGET=WhatsCanvasGraphicsStateStackTests
-            -DWHATSCANVAS_TEST_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/Debug/WhatsCanvasGraphicsStateStackTests.exe
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasGraphicsStateStackTests>
             -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
     )
@@ -96,7 +96,7 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
         COMMAND ${CMAKE_COMMAND}
             -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
             -DWHATSCANVAS_TEST_TARGET=WhatsCanvasTextLayoutTests
-            -DWHATSCANVAS_TEST_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/Debug/WhatsCanvasTextLayoutTests.exe
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasTextLayoutTests>
             -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
     )
@@ -117,7 +117,7 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
         COMMAND ${CMAKE_COMMAND}
             -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
             -DWHATSCANVAS_TEST_TARGET=WhatsCanvasTextUtilsTests
-            -DWHATSCANVAS_TEST_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/Debug/WhatsCanvasTextUtilsTests.exe
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasTextUtilsTests>
             -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
     )
@@ -133,7 +133,7 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
         COMMAND ${CMAKE_COMMAND}
             -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
             -DWHATSCANVAS_TEST_TARGET=WhatsCanvasFontManagerTests
-            -DWHATSCANVAS_TEST_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/Debug/WhatsCanvasFontManagerTests.exe
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasFontManagerTests>
             -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
     )
@@ -154,7 +154,7 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
         COMMAND ${CMAKE_COMMAND}
             -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
             -DWHATSCANVAS_TEST_TARGET=WhatsCanvasTextBackendContractTests
-            -DWHATSCANVAS_TEST_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/Debug/WhatsCanvasTextBackendContractTests.exe
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasTextBackendContractTests>
             -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
     )
@@ -175,7 +175,7 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
         COMMAND ${CMAKE_COMMAND}
             -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
             -DWHATSCANVAS_TEST_TARGET=WhatsCanvasTextRegressionTests
-            -DWHATSCANVAS_TEST_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/Debug/WhatsCanvasTextRegressionTests.exe
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasTextRegressionTests>
             -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
     )
@@ -195,7 +195,7 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
         COMMAND ${CMAKE_COMMAND}
             -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
             -DWHATSCANVAS_TEST_TARGET=WhatsCanvasRenderStatsTests
-            -DWHATSCANVAS_TEST_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/Debug/WhatsCanvasRenderStatsTests.exe
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasRenderStatsTests>
             -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
     )
@@ -215,7 +215,7 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
         COMMAND ${CMAKE_COMMAND}
             -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
             -DWHATSCANVAS_TEST_TARGET=WhatsCanvasRenderTargetPoolTests
-            -DWHATSCANVAS_TEST_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/Debug/WhatsCanvasRenderTargetPoolTests.exe
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasRenderTargetPoolTests>
             -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
     )
@@ -232,7 +232,7 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
         COMMAND ${CMAKE_COMMAND}
             -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
             -DWHATSCANVAS_TEST_TARGET=WhatsCanvasCanvasAdapterTests
-            -DWHATSCANVAS_TEST_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/Debug/WhatsCanvasCanvasAdapterTests.exe
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasCanvasAdapterTests>
             -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
     )
@@ -249,7 +249,7 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
         COMMAND ${CMAKE_COMMAND}
             -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
             -DWHATSCANVAS_TEST_TARGET=WhatsCanvasMatrixClipTests
-            -DWHATSCANVAS_TEST_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/Debug/WhatsCanvasMatrixClipTests.exe
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasMatrixClipTests>
             -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
     )
@@ -266,7 +266,7 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
         COMMAND ${CMAKE_COMMAND}
             -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
             -DWHATSCANVAS_TEST_TARGET=WhatsCanvasPaintStateTests
-            -DWHATSCANVAS_TEST_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/Debug/WhatsCanvasPaintStateTests.exe
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasPaintStateTests>
             -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
     )
@@ -287,7 +287,7 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
         COMMAND ${CMAKE_COMMAND}
             -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
             -DWHATSCANVAS_TEST_TARGET=WhatsCanvasImageResourceLifecycleTests
-            -DWHATSCANVAS_TEST_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/Debug/WhatsCanvasImageResourceLifecycleTests.exe
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasImageResourceLifecycleTests>
             -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
     )
@@ -308,7 +308,7 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
         COMMAND ${CMAKE_COMMAND}
             -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
             -DWHATSCANVAS_TEST_TARGET=WhatsCanvasContextLifecycleTests
-            -DWHATSCANVAS_TEST_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/Debug/WhatsCanvasContextLifecycleTests.exe
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasContextLifecycleTests>
             -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
     )
@@ -328,7 +328,7 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
         COMMAND ${CMAKE_COMMAND}
             -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
             -DWHATSCANVAS_TEST_TARGET=WhatsCanvasGlyphAtlasTests
-            -DWHATSCANVAS_TEST_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/Debug/WhatsCanvasGlyphAtlasTests.exe
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasGlyphAtlasTests>
             -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
     )
@@ -348,7 +348,7 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
         COMMAND ${CMAKE_COMMAND}
             -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
             -DWHATSCANVAS_TEST_TARGET=WhatsCanvasDeprecationTrackerTests
-            -DWHATSCANVAS_TEST_EXECUTABLE=${CMAKE_CURRENT_BINARY_DIR}/Debug/WhatsCanvasDeprecationTrackerTests.exe
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasDeprecationTrackerTests>
             -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
     )

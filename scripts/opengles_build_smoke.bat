@@ -4,7 +4,8 @@ setlocal EnableExtensions EnableDelayedExpansion
 set "SCRIPT_DIR=%~dp0"
 if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
 for %%I in ("%SCRIPT_DIR%\..") do set "ROOT_DIR=%%~fI"
-set "BUILD_DIR=%ROOT_DIR%\build-gles-check"
+if not defined WHATSCANVAS_GLES_BUILD_DIR set "WHATSCANVAS_GLES_BUILD_DIR=%ROOT_DIR%\build-gles-check"
+set "BUILD_DIR=%WHATSCANVAS_GLES_BUILD_DIR%"
 
 cmake -S "%ROOT_DIR%" -B "%BUILD_DIR%" ^
     -DWHATSCANVAS_BUILD_OPENGL=OFF ^
