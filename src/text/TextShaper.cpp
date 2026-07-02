@@ -133,6 +133,11 @@ std::uint32_t mirroredCodepointForRightToLeftRun(std::uint32_t codepoint)
     }
 }
 
+bool isLineBreakCodepoint(std::uint32_t codepoint)
+{
+    return codepoint == '\n' || codepoint == '\r';
+}
+
 } // namespace
 
 bool isBidiControlCodepoint(std::uint32_t codepoint)
@@ -158,7 +163,7 @@ std::optional<ShapedTextRun> shapeTextSimple(const std::string &normalizedText,
     bool hasVisibleGlyph = false;
 
     for (const Utf8Codepoint &codepoint : codepoints) {
-        if (codepoint.value == '\n') {
+        if (isLineBreakCodepoint(codepoint.value)) {
             break;
         }
         if (codepoint.value < 32) {
@@ -219,7 +224,7 @@ std::vector<BidiRun> segmentBidiRuns(const std::string &normalizedText)
     };
 
     for (const Utf8Codepoint &codepoint : codepoints) {
-        if (codepoint.value == '\n') {
+        if (isLineBreakCodepoint(codepoint.value)) {
             break;
         }
         if (codepoint.value < 32) {
