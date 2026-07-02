@@ -98,6 +98,57 @@ std::optional<bool> strongDirectionForCodepoint(std::uint32_t codepoint)
     return std::nullopt;
 }
 
+std::optional<bool> explicitDirectionForControl(std::uint32_t codepoint)
+{
+    switch (codepoint) {
+    case 0x202A: // LRE
+    case 0x202D: // LRO
+    case 0x2066: // LRI
+        return false;
+    case 0x202B: // RLE
+    case 0x202E: // RLO
+    case 0x2067: // RLI
+        return true;
+    default:
+        return std::nullopt;
+    }
+}
+
+bool isDirectionalPopControl(std::uint32_t codepoint)
+{
+    return codepoint == 0x202C || codepoint == 0x2069;
+}
+
+std::optional<bool> firstStrongDirectionInIsolate(const std::vector<Utf8Codepoint> &codepoints,
+                                                  std::size_t startIndex)
+{
+    int isolateDepth = 0;
+    for (std::size_t index = startIndex + 1; index < codepoints.size(); ++index) {
+        const Utf8Codepoint &codepoint = codepoints[index];
+        if (isLineBreakCodepoint(codepoint.value)) {
+            break;
+        }
+        if (codepoint.value == 0x2066 || codepoint.value == 0x2067 || codepoint.value == 0x2068) {
+            ++isolateDepth;
+            continue;
+        }
+        if (codepoint.value == 0x2069) {
+            if (isolateDepth == 0) {
+                break;
+            }
+            --isolateDepth;
+            continue;
+        }
+        if (isBidiControlCodepoint(codepoint.value) || isZeroWidthBreakCodepoint(codepoint.value)) {
+            continue;
+        }
+        if (const std::optional<bool> direction = strongDirectionForCodepoint(codepoint.value)) {
+            return direction;
+        }
+    }
+    return std::nullopt;
+}
+
 std::uint32_t mirroredCodepointForRightToLeftRun(std::uint32_t codepoint)
 {
     switch (codepoint) {
@@ -219,14 +270,27 @@ std::vector<BidiRun> segmentBidiRuns(const std::string &normalizedText)
     std::size_t currentEnd = 0;
     std::size_t visibleStart = std::string::npos;
     std::size_t visibleEnd = 0;
+    std::vector<std::optional<bool>> directionalStack;
 
     const auto finishCurrent = [&]() {
         if (currentDirection && currentStart != std::string::npos && currentEnd > currentStart) {
             runs.push_back({currentStart, currentEnd, *currentDirection});
         }
     };
+    const auto resetCurrentRange = [&]() {
+        currentStart = std::string::npos;
+        currentEnd = 0;
+    };
+    const auto setExplicitDirection = [&](std::optional<bool> direction) {
+        if (currentDirection != direction && currentStart != std::string::npos && currentEnd > currentStart) {
+            finishCurrent();
+            resetCurrentRange();
+        }
+        currentDirection = direction;
+    };
 
-    for (const Utf8Codepoint &codepoint : codepoints) {
+    for (std::size_t index = 0; index < codepoints.size(); ++index) {
+        const Utf8Codepoint &codepoint = codepoints[index];
         if (isLineBreakCodepoint(codepoint.value)) {
             break;
         }
@@ -237,9 +301,27 @@ std::vector<BidiRun> segmentBidiRuns(const std::string &normalizedText)
             continue;
         }
         if (isBidiControlCodepoint(codepoint.value)) {
-            if (const std::optional<bool> direction = strongDirectionForCodepoint(codepoint.value)) {
+            std::optional<bool> explicitDirection = explicitDirectionForControl(codepoint.value);
+            if (codepoint.value == 0x2068) {
+                explicitDirection = firstStrongDirectionInIsolate(codepoints, index).value_or(false);
+            }
+            if (explicitDirection) {
+                directionalStack.push_back(currentDirection);
+                setExplicitDirection(explicitDirection);
+                continue;
+            }
+            if (isDirectionalPopControl(codepoint.value)) {
+                const std::optional<bool> restoredDirection =
+                    directionalStack.empty() ? std::nullopt : directionalStack.back();
+                if (!directionalStack.empty()) {
+                    directionalStack.pop_back();
+                }
+                setExplicitDirection(restoredDirection);
+                continue;
+            }
+            if (const std::optional<bool> markDirection = strongDirectionForCodepoint(codepoint.value)) {
                 if (!currentDirection) {
-                    currentDirection = direction;
+                    currentDirection = markDirection;
                 }
             }
             continue;
@@ -265,6 +347,10 @@ std::vector<BidiRun> segmentBidiRuns(const std::string &normalizedText)
 
         if (!currentDirection) {
             currentDirection = direction;
+            if (currentStart == std::string::npos) {
+                currentStart = visibleStart;
+            }
+        } else if (*direction == *currentDirection) {
             if (currentStart == std::string::npos) {
                 currentStart = visibleStart;
             }
