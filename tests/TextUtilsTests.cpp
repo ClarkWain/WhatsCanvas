@@ -165,6 +165,20 @@ bool testUnicodeBreakTokensStopAtCarriageReturn()
                   "carriage return should not be included in break-token source spans");
 }
 
+bool testUnicodeBreakTokensSplitZeroWidthSpace()
+{
+    const std::string text = "alpha\xE2\x80\x8B" "beta";
+    const std::vector<wsc::text::TextBreakToken> tokens =
+        wsc::text::buildTextBreakTokens(text, 0, text.size());
+
+    return expect(tokens.size() == 2, "zero-width space should split break tokens")
+        && expect(tokens[0].sourceStart == 0 && tokens[0].sourceEnd == 5,
+                  "zero-width break should keep first source span visible")
+        && expect(tokens[1].sourceStart == 8 && tokens[1].sourceEnd == text.size(),
+                  "zero-width break should skip its UTF-8 bytes in the next source span")
+        && expect(!tokens[1].prefixSpace, "zero-width break should not request a visible prefix space");
+}
+
 bool testSimpleShaperBuildsGlyphRun()
 {
     const std::string text = "A\xe4\xb8\xad";
@@ -439,6 +453,7 @@ int main()
         && testUnicodeBreakTokensAttachOpeningPunctuation()
         && testUnicodeBreakTokensTreatWhitespaceAsBreaks()
         && testUnicodeBreakTokensStopAtCarriageReturn()
+        && testUnicodeBreakTokensSplitZeroWidthSpace()
         && testSimpleShaperBuildsGlyphRun()
         && testSimpleShaperStopsAtFirstLineAndFailsMissingGlyphs()
         && testSimpleShaperStopsAtCarriageReturn()
