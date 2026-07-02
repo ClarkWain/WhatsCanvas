@@ -17,6 +17,7 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 | Color font table detection | Contract supported | Font rasterizer utilities can detect COLR/CPAL, CBDT/CBLC, SBIX, and SVG OpenType tables as a backend capability probe before concrete glyph extraction. |
 | Shaped glyph run abstraction | Supported | Portable raster text uses shaped runs with source byte mapping, glyph indices, glyph advances, offsets, and letter spacing before atlas upload. |
 | Glyph-index rasterization path | Supported | Font rasterization can render by glyph index, which is required by real shaping outputs. |
+| Simple kerning | Supported | The portable simple shaping path applies registered-font glyph kerning pairs when OpenType shaping is not active. |
 | Basic RTL run ordering | Supported | The built-in shaper detects RTL-first runs, mirrors common paired punctuation, and emits glyphs in visual order while preserving source byte mapping. |
 | Bidi run segmentation | Supported | Mixed-direction text is split into directional byte ranges before font segmentation and shaping; bidi formatting controls are invisible, LRM/RLM/ALM can steer weak-only text direction, leading neutral text is retained, weak-only text defaults to LTR, and RTL-base paragraphs reverse visual run order. |
 | OpenType shaping adapter boundary | Supported | `BasicTextBackendOptions` can request an OpenType shaping backend; unavailable adapters fall back to simple shaping with diagnostics. |

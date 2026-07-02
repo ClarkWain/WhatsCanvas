@@ -64,6 +64,8 @@ public:
     std::optional<int> glyphIndex(const FontFace &face, std::uint32_t codepoint) const;
     std::optional<float> glyphAdvance(const FontFace &face, std::uint32_t codepoint,
                                       float pixelSize) const;
+    std::optional<float> glyphKerning(const FontFace &face, int leftGlyphIndex, int rightGlyphIndex,
+                                      float pixelSize) const;
     std::optional<FontVerticalMetrics> verticalMetrics(const FontFace &face, float pixelSize) const;
     std::optional<GlyphMetrics> glyphMetrics(const FontFace &face, std::uint32_t codepoint,
                                              float pixelSize) const;

@@ -167,6 +167,18 @@ std::optional<float> FontRasterizer::glyphAdvance(const FontFace &face, std::uin
     return metrics ? std::optional<float>(metrics->advanceX) : std::nullopt;
 }
 
+std::optional<float> FontRasterizer::glyphKerning(const FontFace &face, int leftGlyphIndex, int rightGlyphIndex,
+                                                  float pixelSize) const
+{
+    const LoadedFace *loaded = loadFace(face);
+    if (loaded == nullptr || pixelSize <= 0.0f || leftGlyphIndex <= 0 || rightGlyphIndex <= 0) {
+        return std::nullopt;
+    }
+
+    const int advance = stbtt_GetGlyphKernAdvance(&loaded->info, leftGlyphIndex, rightGlyphIndex);
+    return static_cast<float>(advance) * stbtt_ScaleForPixelHeight(&loaded->info, pixelSize);
+}
+
 std::optional<FontVerticalMetrics> FontRasterizer::verticalMetrics(const FontFace &face, float pixelSize) const
 {
     const LoadedFace *loaded = loadFace(face);
