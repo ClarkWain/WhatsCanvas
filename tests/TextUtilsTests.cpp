@@ -154,6 +154,23 @@ bool testUnicodeBreakTokensTreatWhitespaceAsBreaks()
                   "ideographic-space-separated token should request a collapsed prefix space");
 }
 
+bool testUnicodeBreakTokensPreserveNoBreakSpaces()
+{
+    const std::string figureSpace = "12\xE2\x80\x87" "34";
+    const std::string narrowNoBreakSpace = "12\xE2\x80\xAF" "34";
+    const std::vector<wsc::text::TextBreakToken> figureTokens =
+        wsc::text::buildTextBreakTokens(figureSpace, 0, figureSpace.size());
+    const std::vector<wsc::text::TextBreakToken> narrowTokens =
+        wsc::text::buildTextBreakTokens(narrowNoBreakSpace, 0, narrowNoBreakSpace.size());
+
+    return expect(figureTokens.size() == 1, "figure space should not split break tokens")
+        && expect(figureTokens[0].sourceStart == 0 && figureTokens[0].sourceEnd == figureSpace.size(),
+                  "figure space should remain inside the token source span")
+        && expect(narrowTokens.size() == 1, "narrow no-break space should not split break tokens")
+        && expect(narrowTokens[0].sourceStart == 0 && narrowTokens[0].sourceEnd == narrowNoBreakSpace.size(),
+                  "narrow no-break space should remain inside the token source span");
+}
+
 bool testUnicodeBreakTokensStopAtCarriageReturn()
 {
     const std::string text = "alpha\rbeta";
@@ -452,6 +469,7 @@ int main()
         && testUnicodeBreakTokensAttachClosingPunctuation()
         && testUnicodeBreakTokensAttachOpeningPunctuation()
         && testUnicodeBreakTokensTreatWhitespaceAsBreaks()
+        && testUnicodeBreakTokensPreserveNoBreakSpaces()
         && testUnicodeBreakTokensStopAtCarriageReturn()
         && testUnicodeBreakTokensSplitZeroWidthSpace()
         && testSimpleShaperBuildsGlyphRun()

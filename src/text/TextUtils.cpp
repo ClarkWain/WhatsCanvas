@@ -43,7 +43,7 @@ bool isBreakWhitespace(std::uint32_t codepoint)
     return codepoint == ' '
         || codepoint == '\t'
         || codepoint == 0x1680
-        || (codepoint >= 0x2000 && codepoint <= 0x200A)
+        || ((codepoint >= 0x2000 && codepoint <= 0x200A) && codepoint != 0x2007)
         || codepoint == 0x2028
         || codepoint == 0x2029
         || codepoint == 0x205F
