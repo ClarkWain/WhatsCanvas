@@ -1,0 +1,92 @@
+name: Cross-Platform Validation
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unit:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            build_dir: build-validation-win
+            shell: pwsh
+          - os: ubuntu-latest
+            build_dir: build-validation-linux
+            shell: bash
+          - os: macos-latest
+            build_dir: build-validation-macos
+            shell: bash
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Linux OpenGL dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
+
+      - name: Set up MSVC developer command prompt
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Configure
+        run: cmake -S . -B ${{ matrix.build_dir }} -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build
+        run: cmake --build ${{ matrix.build_dir }} --config Debug
+
+      - name: Unit tests
+        run: ctest --test-dir ${{ matrix.build_dir }} -C Debug -L unit --output-on-failure
+
+  opengles-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Linux OpenGL dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
+
+      - name: OpenGLES build smoke
+        run: |
+          chmod +x scripts/opengles_build_smoke.sh
+          ./scripts/opengles_build_smoke.sh
+
+  optional-opentype-shaping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install text shaping dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libharfbuzz-dev
+
+      - name: Configure with OpenType shaping
+        run: cmake -S . -B build-validation-harfbuzz -DCMAKE_BUILD_TYPE=Debug -DWHATSCANVAS_ENABLE_OPENTYPE_SHAPING=ON
+
+      - name: Build with OpenType shaping
+        run: cmake --build build-validation-harfbuzz --config Debug
+
+      - name: Text unit tests with OpenType shaping
+        run: ctest --test-dir build-validation-harfbuzz -C Debug -L text --output-on-failure

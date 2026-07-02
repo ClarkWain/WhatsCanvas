@@ -33,7 +33,15 @@ The target architecture is:
 - `GlyphAtlas`
 - backend/platform adapters
 
-Planned adapter priorities:
+The current implementation now exposes explicit backend slots and capability queries:
+
+- Portable glyph-atlas backend: implemented and required.
+- Windows native compatibility path: available on Windows when native text is enabled.
+- HarfBuzz shaping adapter: optional at build time.
+- DirectWrite adapter: reserved backend slot with diagnostic fallback.
+- CoreText adapter: reserved backend slot with diagnostic fallback.
+
+Adapter implementation priorities:
 
 1. Windows: DirectWrite adapter.
 2. Cross-platform: HarfBuzz + FreeType adapter.
@@ -61,6 +69,6 @@ Planned adapter priorities:
 
 ## Follow-up
 
-1. Expand `ITextBackend` into richer shaping/layout abstractions (`TextRun`, `TextLayout`, glyph caching).
-2. Replace the Windows GDI helper path with a real DirectWrite adapter.
-3. Add a cross-platform HarfBuzz + FreeType backend and make backend selection explicit.
+1. Replace the Windows GDI helper path with a real DirectWrite adapter.
+2. Add a cross-platform HarfBuzz + FreeType backend implementation for glyph loading/rasterization parity.
+3. Implement the CoreText adapter behind the existing backend slot.

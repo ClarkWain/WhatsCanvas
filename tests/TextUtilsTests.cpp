@@ -383,9 +383,9 @@ bool testBidiRunSegmentation()
     bool ok = expect(runs.size() == 3, "mixed LTR/RTL text should split into three bidi runs");
     ok = expect(!runs[0].rightToLeft && runs[0].sourceStart == 0 && runs[0].sourceEnd == 4,
                 "first bidi run should be LTR and include trailing neutral space") && ok;
-    ok = expect(runs[1].rightToLeft && runs[1].sourceStart == 4 && runs[1].sourceEnd == 9,
-                "second bidi run should be RTL and include trailing neutral space") && ok;
-    ok = expect(!runs[2].rightToLeft && runs[2].sourceStart == 9 && runs[2].sourceEnd == mixed.size(),
+    ok = expect(runs[1].rightToLeft && runs[1].sourceStart == 4 && runs[1].sourceEnd == 8,
+                "second bidi run should be RTL and contain the Hebrew span") && ok;
+    ok = expect(!runs[2].rightToLeft && runs[2].sourceStart == 8 && runs[2].sourceEnd == mixed.size(),
                 "third bidi run should return to LTR") && ok;
     return ok;
 }
@@ -440,16 +440,16 @@ bool testBidiRunSegmentationUsesDirectionalMarks()
     const std::vector<wsc::text::BidiRun> lrmRuns = wsc::text::segmentBidiRuns(lrmText);
     const std::vector<wsc::text::BidiRun> almRuns = wsc::text::segmentBidiRuns(almText);
 
-    return expect(rlmRuns.size() == 1 && rlmRuns[0].rightToLeft,
-                  "RLM should set weak-only text to RTL")
+    return expect(rlmRuns.size() == 1 && !rlmRuns[0].rightToLeft,
+                  "RLM should set RTL paragraph context while European digits remain an LTR number run")
         && expect(rlmRuns[0].sourceStart == 3 && rlmRuns[0].sourceEnd == rlmText.size(),
                   "RLM should not be included in the visible source range")
         && expect(lrmRuns.size() == 1 && !lrmRuns[0].rightToLeft,
                   "LRM should set weak-only text to LTR")
         && expect(lrmRuns[0].sourceStart == 3 && lrmRuns[0].sourceEnd == lrmText.size(),
                   "LRM should not be included in the visible source range")
-        && expect(almRuns.size() == 1 && almRuns[0].rightToLeft,
-                  "ALM should set weak-only text to RTL")
+        && expect(almRuns.size() == 1 && !almRuns[0].rightToLeft,
+                  "ALM should set RTL paragraph context while European digits remain an LTR number run")
         && expect(almRuns[0].sourceStart == 2 && almRuns[0].sourceEnd == almText.size(),
                   "ALM should not be included in the visible source range");
 }
@@ -468,30 +468,67 @@ bool testBidiRunSegmentationUsesExplicitControls()
     const std::vector<wsc::text::BidiRun> fsiRuns = wsc::text::segmentBidiRuns(fsiText);
     const std::vector<wsc::text::BidiRun> restoredRuns = wsc::text::segmentBidiRuns(restoredText);
 
-    return expect(rleRuns.size() == 1 && rleRuns[0].rightToLeft,
-                  "RLE should set weak-only text to RTL")
+    return expect(rleRuns.size() == 1 && !rleRuns[0].rightToLeft,
+                  "RLE should embed European digits as an LTR number run inside RTL context")
         && expect(rleRuns[0].sourceStart == 3 && rleRuns[0].sourceEnd == 6,
                   "RLE/PDF controls should stay outside visible source ranges")
         && expect(lreRuns.size() == 1 && !lreRuns[0].rightToLeft,
                   "LRE should keep weak-only text LTR")
         && expect(lreRuns[0].sourceStart == 3 && lreRuns[0].sourceEnd == 6,
                   "LRE/PDF controls should stay outside visible source ranges")
-        && expect(rliRuns.size() == 1 && rliRuns[0].rightToLeft,
-                  "RLI should set isolated weak-only text to RTL")
+        && expect(rliRuns.size() == 1 && !rliRuns[0].rightToLeft,
+                  "RLI should isolate European digits as an LTR number run inside RTL context")
         && expect(rliRuns[0].sourceStart == 3 && rliRuns[0].sourceEnd == 6,
                   "RLI/PDI controls should stay outside visible source ranges")
-        && expect(fsiRuns.size() == 1 && fsiRuns[0].rightToLeft,
-                  "FSI should infer RTL from the first strong isolated codepoint")
-        && expect(fsiRuns[0].sourceStart == 3 && fsiRuns[0].sourceEnd == 7,
+        && expect(fsiRuns.size() == 2 && !fsiRuns[0].rightToLeft && fsiRuns[1].rightToLeft,
+                  "FSI should infer RTL isolate direction and return visual level-run order")
+        && expect(fsiRuns[0].sourceStart == 5 && fsiRuns[0].sourceEnd == 7
+                      && fsiRuns[1].sourceStart == 3 && fsiRuns[1].sourceEnd == 5,
                   "FSI/PDI controls should stay outside visible source ranges")
         && expect(restoredRuns.size() == 3, "PDF should restore the previous direction")
         && expect(!restoredRuns[0].rightToLeft && restoredRuns[0].sourceStart == 0 && restoredRuns[0].sourceEnd == 2,
                   "text before RLE should remain LTR")
-        && expect(restoredRuns[1].rightToLeft && restoredRuns[1].sourceStart == 5 && restoredRuns[1].sourceEnd == 8,
-                  "text inside RLE should be RTL")
+        && expect(!restoredRuns[1].rightToLeft && restoredRuns[1].sourceStart == 5 && restoredRuns[1].sourceEnd == 8,
+                  "European digits inside RLE should remain an LTR number run")
         && expect(!restoredRuns[2].rightToLeft && restoredRuns[2].sourceStart == 11
                       && restoredRuns[2].sourceEnd == restoredText.size(),
                   "text after PDF should restore LTR");
+}
+
+bool testUnicodeBidiResolvesWeakAndNeutralTypes()
+{
+    const std::string arabicNumber = "\xD8\xA7" " 12,34";
+    const std::string mixedNeutral = "abc \xD7\x90\xD7\x91 def";
+    const std::vector<wsc::text::BidiRun> arabicRuns = wsc::text::segmentBidiRuns(arabicNumber);
+    const std::vector<wsc::text::BidiRun> neutralRuns = wsc::text::segmentBidiRuns(mixedNeutral);
+
+    bool ok = expect(!arabicRuns.empty(), "Arabic-number bidi text should produce runs");
+    ok = expect(arabicRuns.size() >= 2,
+                "Arabic paragraph with European digits should split strong text and number runs") && ok;
+    ok = expect(arabicRuns.front().sourceStart >= 3 || !arabicRuns.front().rightToLeft,
+                "Arabic paragraph should preserve a renderable number run") && ok;
+    ok = expect(neutralRuns.size() == 3,
+                "mixed strong text with neutral separator should split into three resolved runs") && ok;
+    ok = expect(!neutralRuns[2].rightToLeft && neutralRuns[2].sourceStart == 8,
+                "neutral space between RTL and LTR should resolve with the following LTR run") && ok;
+    return ok;
+}
+
+bool testUnicodeBidiOverrideControls()
+{
+    const std::string rloText = "\xE2\x80\xAE" "abc" "\xE2\x80\xAC";
+    const std::string lroText = "\xE2\x80\xAD" "\xD7\x90\xD7\x91" "\xE2\x80\xAC";
+    const std::vector<wsc::text::BidiRun> rloRuns = wsc::text::segmentBidiRuns(rloText);
+    const std::vector<wsc::text::BidiRun> lroRuns = wsc::text::segmentBidiRuns(lroText);
+
+    return expect(rloRuns.size() == 1 && rloRuns[0].rightToLeft,
+                  "RLO should force enclosed LTR letters into an RTL run")
+        && expect(rloRuns[0].sourceStart == 3 && rloRuns[0].sourceEnd == 6,
+                  "RLO/PDF controls should stay outside the visible source range")
+        && expect(lroRuns.size() == 1 && !lroRuns[0].rightToLeft,
+                  "LRO should force enclosed RTL letters into an LTR run")
+        && expect(lroRuns[0].sourceStart == 3 && lroRuns[0].sourceEnd == 7,
+                  "LRO/PDF controls should stay outside the visible source range");
 }
 
 bool testColorFontTableDetection()
@@ -552,6 +589,8 @@ int main()
         && testBidiRunSegmentationStopsAtCarriageReturn()
         && testBidiRunSegmentationUsesDirectionalMarks()
         && testBidiRunSegmentationUsesExplicitControls()
+        && testUnicodeBidiResolvesWeakAndNeutralTypes()
+        && testUnicodeBidiOverrideControls()
         && testColorFontTableDetection()
         && testColorFontTableDetectionHandlesTtcAndMalformedData();
     return ok ? EXIT_SUCCESS : EXIT_FAILURE;
