@@ -1,8 +1,10 @@
 #include "text/FontRasterizer.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <fstream>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -63,6 +65,157 @@ std::vector<unsigned char> readFileBytes(const std::string &path)
     return input ? bytes : std::vector<unsigned char>();
 }
 
+struct TableView
+{
+    const unsigned char *data = nullptr;
+    std::size_t size = 0;
+};
+
+struct ColorLayer
+{
+    int glyphIndex = 0;
+    std::uint16_t paletteIndex = 0;
+};
+
+struct RgbaColor
+{
+    unsigned char r = 255;
+    unsigned char g = 255;
+    unsigned char b = 255;
+    unsigned char a = 255;
+};
+
+std::optional<TableView> findSfntTable(const std::vector<unsigned char> &bytes,
+                                       std::size_t fontOffset,
+                                       const char tag[4])
+{
+    if (fontOffset > bytes.size() || bytes.size() - fontOffset < 12u) {
+        return std::nullopt;
+    }
+
+    const unsigned char *sfnt = bytes.data() + fontOffset;
+    const std::size_t sfntSize = bytes.size() - fontOffset;
+    const std::uint16_t tableCount = readU16BE(sfnt + 4u);
+    if (tableCount == 0u || tableCount > (sfntSize - 12u) / 16u) {
+        return std::nullopt;
+    }
+
+    for (std::uint16_t i = 0; i < tableCount; ++i) {
+        const unsigned char *record = sfnt + 12u + static_cast<std::size_t>(i) * 16u;
+        if (!tagEquals(record, tag)) {
+            continue;
+        }
+
+        const std::uint32_t offset = readU32BE(record + 8u);
+        const std::uint32_t length = readU32BE(record + 12u);
+        if (offset > bytes.size() || length > bytes.size() - offset) {
+            return std::nullopt;
+        }
+        return TableView{bytes.data() + offset, static_cast<std::size_t>(length)};
+    }
+
+    return std::nullopt;
+}
+
+std::optional<std::vector<ColorLayer>> findColrLayers(TableView colr, int glyphIndex)
+{
+    if (colr.data == nullptr || colr.size < 14u || glyphIndex <= 0 || glyphIndex > 0xffff
+        || readU16BE(colr.data) != 0u) {
+        return std::nullopt;
+    }
+
+    const std::uint16_t baseGlyphCount = readU16BE(colr.data + 2u);
+    const std::uint32_t baseGlyphOffset = readU32BE(colr.data + 4u);
+    const std::uint32_t layerOffset = readU32BE(colr.data + 8u);
+    const std::uint16_t layerCount = readU16BE(colr.data + 12u);
+    if (baseGlyphOffset > colr.size || layerOffset > colr.size
+        || static_cast<std::size_t>(baseGlyphCount) * 6u > colr.size - baseGlyphOffset
+        || static_cast<std::size_t>(layerCount) * 4u > colr.size - layerOffset) {
+        return std::nullopt;
+    }
+
+    for (std::uint16_t i = 0; i < baseGlyphCount; ++i) {
+        const unsigned char *base = colr.data + baseGlyphOffset + static_cast<std::size_t>(i) * 6u;
+        if (readU16BE(base) != static_cast<std::uint16_t>(glyphIndex)) {
+            continue;
+        }
+
+        const std::uint16_t firstLayer = readU16BE(base + 2u);
+        const std::uint16_t glyphLayerCount = readU16BE(base + 4u);
+        if (firstLayer > layerCount || glyphLayerCount > layerCount - firstLayer) {
+            return std::nullopt;
+        }
+
+        std::vector<ColorLayer> layers;
+        layers.reserve(glyphLayerCount);
+        for (std::uint16_t layer = 0; layer < glyphLayerCount; ++layer) {
+            const unsigned char *record = colr.data + layerOffset
+                + static_cast<std::size_t>(firstLayer + layer) * 4u;
+            layers.push_back({static_cast<int>(readU16BE(record)), readU16BE(record + 2u)});
+        }
+        return layers.empty() ? std::nullopt : std::optional<std::vector<ColorLayer>>(std::move(layers));
+    }
+
+    return std::nullopt;
+}
+
+std::optional<RgbaColor> cpalColor(TableView cpal, std::uint16_t paletteIndex)
+{
+    if (paletteIndex == 0xffffu) {
+        return RgbaColor{};
+    }
+    if (cpal.data == nullptr || cpal.size < 12u) {
+        return std::nullopt;
+    }
+
+    const std::uint16_t version = readU16BE(cpal.data);
+    const std::uint16_t paletteEntryCount = readU16BE(cpal.data + 2u);
+    const std::uint16_t paletteCount = readU16BE(cpal.data + 4u);
+    const std::uint16_t colorRecordCount = readU16BE(cpal.data + 6u);
+    const std::uint32_t colorRecordOffset = readU32BE(cpal.data + 8u);
+    if (version > 1u || paletteCount == 0u || paletteIndex >= paletteEntryCount
+        || static_cast<std::size_t>(paletteCount) * 2u > cpal.size - 12u
+        || colorRecordOffset > cpal.size
+        || static_cast<std::size_t>(colorRecordCount) * 4u > cpal.size - colorRecordOffset) {
+        return std::nullopt;
+    }
+
+    const std::uint16_t firstPaletteColor = readU16BE(cpal.data + 12u);
+    const std::uint32_t colorIndex = static_cast<std::uint32_t>(firstPaletteColor) + paletteIndex;
+    if (colorIndex >= colorRecordCount) {
+        return std::nullopt;
+    }
+
+    const unsigned char *color = cpal.data + colorRecordOffset + static_cast<std::size_t>(colorIndex) * 4u;
+    return RgbaColor{color[2], color[1], color[0], color[3]};
+}
+
+void compositePixel(unsigned char *dst, RgbaColor color, unsigned char coverage)
+{
+    const int srcA = static_cast<int>(color.a) * static_cast<int>(coverage) / 255;
+    if (srcA <= 0) {
+        return;
+    }
+
+    const int dstA = dst[3];
+    const int outA = srcA + dstA * (255 - srcA) / 255;
+    if (outA <= 0) {
+        dst[0] = 0;
+        dst[1] = 0;
+        dst[2] = 0;
+        dst[3] = 0;
+        return;
+    }
+
+    dst[0] = static_cast<unsigned char>((static_cast<int>(color.r) * srcA
+        + static_cast<int>(dst[0]) * dstA * (255 - srcA) / 255) / outA);
+    dst[1] = static_cast<unsigned char>((static_cast<int>(color.g) * srcA
+        + static_cast<int>(dst[1]) * dstA * (255 - srcA) / 255) / outA);
+    dst[2] = static_cast<unsigned char>((static_cast<int>(color.b) * srcA
+        + static_cast<int>(dst[2]) * dstA * (255 - srcA) / 255) / outA);
+    dst[3] = static_cast<unsigned char>(outA);
+}
+
 } // namespace
 
 namespace wsc::text {
@@ -108,6 +261,7 @@ struct FontRasterizer::LoadedFace
 {
     std::vector<unsigned char> bytes;
     stbtt_fontinfo info = {};
+    std::size_t fontOffset = 0;
     bool valid = false;
 };
 
@@ -130,6 +284,7 @@ const FontRasterizer::LoadedFace *FontRasterizer::loadFace(const FontFace &face)
 
     if (!loaded->bytes.empty()) {
         const int fontOffset = stbtt_GetFontOffsetForIndex(loaded->bytes.data(), 0);
+        loaded->fontOffset = fontOffset >= 0 ? static_cast<std::size_t>(fontOffset) : 0u;
         loaded->valid = fontOffset >= 0
             && stbtt_InitFont(&loaded->info, loaded->bytes.data(), fontOffset) != 0;
     }
@@ -242,6 +397,10 @@ std::optional<RasterizedGlyph> FontRasterizer::rasterizeGlyphIndex(const FontFac
         return std::nullopt;
     }
 
+    if (auto colorGlyph = rasterizeColorGlyph(face, *loaded, glyphIndex, sourceCodepoint, pixelSize)) {
+        return colorGlyph;
+    }
+
     const float scale = stbtt_ScaleForPixelHeight(&loaded->info, pixelSize);
     int advance = 0;
     int leftBearing = 0;
@@ -273,6 +432,119 @@ std::optional<RasterizedGlyph> FontRasterizer::rasterizeGlyphIndex(const FontFac
     glyph.key.glyphIndex = glyphIndex;
     glyph.key.pixelSize = pixelSize;
     glyph.key.format = GlyphBitmapFormat::Alpha;
+    glyph.bitmap = std::move(bitmap);
+    return glyph;
+}
+
+std::optional<RasterizedGlyph> FontRasterizer::rasterizeColorGlyph(const FontFace &face,
+                                                                   const LoadedFace &loaded,
+                                                                   int glyphIndex,
+                                                                   std::uint32_t sourceCodepoint,
+                                                                   float pixelSize) const
+{
+    const auto colr = findSfntTable(loaded.bytes, loaded.fontOffset, "COLR");
+    const auto cpal = findSfntTable(loaded.bytes, loaded.fontOffset, "CPAL");
+    if (!colr || !cpal) {
+        return std::nullopt;
+    }
+
+    const auto layers = findColrLayers(*colr, glyphIndex);
+    if (!layers) {
+        return std::nullopt;
+    }
+
+    const float scale = stbtt_ScaleForPixelHeight(&loaded.info, pixelSize);
+    int advance = 0;
+    int leftBearing = 0;
+    stbtt_GetGlyphHMetrics(&loaded.info, glyphIndex, &advance, &leftBearing);
+
+    int unionLeft = 0;
+    int unionTop = 0;
+    int unionRight = 0;
+    int unionBottom = 0;
+    bool hasBounds = false;
+    for (const ColorLayer &layer : *layers) {
+        int x0 = 0;
+        int y0 = 0;
+        int x1 = 0;
+        int y1 = 0;
+        stbtt_GetGlyphBitmapBox(&loaded.info, layer.glyphIndex, scale, scale, &x0, &y0, &x1, &y1);
+        if (x1 <= x0 || y1 <= y0) {
+            continue;
+        }
+        if (!hasBounds) {
+            unionLeft = x0;
+            unionTop = y0;
+            unionRight = x1;
+            unionBottom = y1;
+            hasBounds = true;
+        } else {
+            unionLeft = std::min(unionLeft, x0);
+            unionTop = std::min(unionTop, y0);
+            unionRight = std::max(unionRight, x1);
+            unionBottom = std::max(unionBottom, y1);
+        }
+    }
+
+    if (!hasBounds) {
+        return std::nullopt;
+    }
+
+    GlyphBitmap bitmap;
+    bitmap.format = GlyphBitmapFormat::RGBA;
+    bitmap.width = unionRight - unionLeft;
+    bitmap.height = unionBottom - unionTop;
+    bitmap.bearingX = static_cast<float>(unionLeft);
+    bitmap.bearingY = static_cast<float>(unionTop);
+    bitmap.advanceX = static_cast<float>(advance) * scale;
+    bitmap.rgbaPixels.resize(static_cast<std::size_t>(bitmap.width) * static_cast<std::size_t>(bitmap.height) * 4u);
+
+    bool painted = false;
+    for (const ColorLayer &layer : *layers) {
+        const auto color = cpalColor(*cpal, layer.paletteIndex);
+        if (!color) {
+            continue;
+        }
+
+        int x0 = 0;
+        int y0 = 0;
+        int x1 = 0;
+        int y1 = 0;
+        stbtt_GetGlyphBitmapBox(&loaded.info, layer.glyphIndex, scale, scale, &x0, &y0, &x1, &y1);
+        const int layerWidth = x1 - x0;
+        const int layerHeight = y1 - y0;
+        if (layerWidth <= 0 || layerHeight <= 0) {
+            continue;
+        }
+
+        std::vector<unsigned char> coverage(static_cast<std::size_t>(layerWidth) * static_cast<std::size_t>(layerHeight));
+        stbtt_MakeGlyphBitmap(&loaded.info, coverage.data(), layerWidth, layerHeight,
+                              layerWidth, scale, scale, layer.glyphIndex);
+
+        for (int y = 0; y < layerHeight; ++y) {
+            for (int x = 0; x < layerWidth; ++x) {
+                const std::size_t coverageIndex = static_cast<std::size_t>(y) * static_cast<std::size_t>(layerWidth)
+                    + static_cast<std::size_t>(x);
+                const int dstX = x0 - unionLeft + x;
+                const int dstY = y0 - unionTop + y;
+                const std::size_t dstIndex = (static_cast<std::size_t>(dstY) * static_cast<std::size_t>(bitmap.width)
+                    + static_cast<std::size_t>(dstX)) * 4u;
+                compositePixel(bitmap.rgbaPixels.data() + dstIndex, *color, coverage[coverageIndex]);
+                painted = painted || coverage[coverageIndex] != 0;
+            }
+        }
+    }
+
+    if (!painted) {
+        return std::nullopt;
+    }
+
+    RasterizedGlyph glyph;
+    glyph.key.fontFamily = face.family();
+    glyph.key.codepoint = sourceCodepoint;
+    glyph.key.glyphIndex = glyphIndex;
+    glyph.key.pixelSize = pixelSize;
+    glyph.key.format = GlyphBitmapFormat::RGBA;
     glyph.bitmap = std::move(bitmap);
     return glyph;
 }
