@@ -13,8 +13,9 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 | Atlas-backed glyph rendering | Supported | Rasterized glyphs are packed into `GlyphAtlas`; Canvas submits atlas quads through the image path. |
 | Persistent GPU atlas resource | Supported | Canvas owns a reusable GPU atlas image resource and updates it when the CPU atlas content changes. |
 | Dirty-rect atlas updates | Supported | Glyph uploads expose dirty rectangles; Canvas updates matching GPU atlas subregions when possible. |
-| RGBA glyph atlas path | Contract supported | `GlyphAtlas`, text render results, and Canvas atlas upload can carry RGBA glyph pixels; concrete color font format decoding is future backend work. |
+| RGBA glyph atlas path | Supported | `GlyphAtlas`, text render results, and Canvas atlas upload can carry RGBA glyph pixels for color font layers and alpha-derived glyphs. |
 | Color font table detection | Contract supported | Font rasterizer utilities can detect COLR/CPAL, CBDT/CBLC, SBIX, and SVG OpenType tables as a backend capability probe before concrete glyph extraction. |
+| COLR/CPAL v0 glyph decoding | Supported | Portable font rasterization can decode COLR/CPAL v0 layer records, rasterize each layer outline, composite palette colors into RGBA glyph bitmaps, and upload them through the atlas path. |
 | Shaped glyph run abstraction | Supported | Portable raster text uses shaped runs with source byte mapping, glyph indices, glyph advances, offsets, and letter spacing before atlas upload. |
 | Glyph-index rasterization path | Supported | Font rasterization can render by glyph index, which is required by real shaping outputs. |
 | Simple kerning | Supported | The portable simple shaping path applies registered-font glyph kerning pairs when OpenType shaping is not active. |
@@ -48,7 +49,7 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 | Capability | Status | Intended Direction |
 | --- | --- | --- |
 | Full Unicode bidi algorithm | Planned | Expand directional handling to the full UAX #9 rule set, including embedding levels, isolates, mirroring, and neutral resolution. |
-| Color font format decoding | Planned | Add COLR/CPAL, CBDT/CBLC, SBIX, and SVG glyph extraction on top of the color table detection and RGBA glyph atlas path. |
+| Additional color font formats | Planned | Add CBDT/CBLC, SBIX, SVG, and newer COLR paint graph extraction on top of the table detection and RGBA glyph atlas path. |
 
 ## Acceptance Targets
 

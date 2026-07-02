@@ -81,6 +81,11 @@ private:
     struct LoadedFace;
 
     const LoadedFace *loadFace(const FontFace &face) const;
+    std::optional<RasterizedGlyph> rasterizeColorGlyph(const FontFace &face,
+                                                       const LoadedFace &loaded,
+                                                       int glyphIndex,
+                                                       std::uint32_t sourceCodepoint,
+                                                       float pixelSize) const;
 };
 
 } // namespace wsc::text

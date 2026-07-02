@@ -396,6 +396,6 @@ python scripts\compare_ppm_fuzzy.py baseline.ppm candidate.ppm --max-channel-del
 
 - 持续完善文档、ADR 和学习路径。
 - 继续把 Canvas 核心抽成更清晰的可复用库目标。
-- 继续推进完整 Unicode bidi algorithm、COLR/CPAL / CBDT/CBLC / SBIX / SVG color glyph 解码和更高质量的文本渲染策略。
+- 继续推进完整 Unicode bidi algorithm、CBDT/CBLC / SBIX / SVG / COLR paint graph 等 color glyph 解码和更高质量的文本渲染策略；当前便携字体路径已支持 COLR/CPAL v0 layered glyph 到 RGBA atlas。
 - 增强自动化验证、渲染回归和性能基准能力。
 - 为更多图形后端保留清晰的扩展边界。

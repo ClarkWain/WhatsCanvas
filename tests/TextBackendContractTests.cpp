@@ -174,6 +174,24 @@ std::string findSystemFontPath()
     return {};
 }
 
+std::string findColorSystemFontPath()
+{
+    const std::vector<std::string> candidates = {
+        "C:/Windows/Fonts/seguiemj.ttf",
+        "/System/Library/Fonts/Apple Color Emoji.ttc",
+        "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",
+        "/usr/share/fonts/google-noto-color-emoji/NotoColorEmoji.ttf"
+    };
+
+    for (const std::string &path : candidates) {
+        std::ifstream input(path, std::ios::binary);
+        if (input.good()) {
+            return path;
+        }
+    }
+    return {};
+}
+
 bool testPortableBackendUsesGlyphAtlasForRegisteredFont()
 {
     const std::string fontPath = findSystemFontPath();
@@ -214,6 +232,41 @@ bool testPortableBackendUsesGlyphAtlasForRegisteredFont()
                 "cached registered font render should still use glyph atlas") && ok;
     ok = expect(cached.atlasDirtyRects.empty(),
                 "cached glyph atlas render should not dirty atlas rectangles") && ok;
+    return ok;
+}
+
+bool testPortableBackendUsesRgbaAtlasForColorGlyphs()
+{
+    const std::string fontPath = findColorSystemFontPath();
+    if (fontPath.empty()) {
+        std::cout << "Skipping color glyph atlas test; no known color system font path found." << std::endl;
+        return true;
+    }
+
+    wsc::FontFace face = wsc::FontFace::fromFile(wsc::FontDescriptor("ColorPrimary"), fontPath);
+    wsc::text::FontRasterizer rasterizer;
+    const auto tables = rasterizer.colorFontTables(face);
+    if (!tables || !tables->colr || !tables->cpal || !rasterizer.hasGlyph(face, 0x1F600u)) {
+        std::cout << "Skipping color glyph atlas test; color font does not expose COLR/CPAL grinning face." << std::endl;
+        return true;
+    }
+
+    std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createPortableTextBackend();
+    bool ok = expect(backend->registerFontFace(face), "color system font should register");
+
+    Paint paint;
+    paint.setTextSize(40.0f);
+    paint.setFontFamily("ColorPrimary");
+    const wsc::text::TextRenderResult rendered = backend->renderText("\xF0\x9F\x98\x80", 0.0f, 0.0f, paint);
+
+    ok = expect(rendered.kind == wsc::text::TextRenderKind::GlyphAtlas,
+                "color glyph text should render through glyph atlas") && ok;
+    ok = expect(rendered.atlasPixelFormat == wsc::text::GlyphAtlasPixelFormat::RGBA,
+                "color glyph text should expose an RGBA atlas") && ok;
+    ok = expect(!rendered.atlasRgbaPixels.empty(),
+                "color glyph text should expose atlas RGBA pixels") && ok;
+    ok = expect(!rendered.glyphAtlasQuads.empty(),
+                "color glyph text should emit atlas quads") && ok;
     return ok;
 }
 
@@ -363,6 +416,7 @@ int main()
         && testPortableBackendUsesGeometryPath()
         && testPortableBackendSkipsZeroWidthBreak()
         && testPortableBackendUsesGlyphAtlasForRegisteredFont()
+        && testPortableBackendUsesRgbaAtlasForColorGlyphs()
         && testPortableBackendAppliesSimpleKerning()
         && testPortableBackendResolvesFallbackGlyphRange()
         && testPortableBackendShapesFallbackFontSegments()
