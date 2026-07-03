@@ -397,6 +397,7 @@ void resolvePairedBrackets(std::vector<BidiItem> &items, wsc::text::BidiClass st
 
     std::vector<BracketStackEntry> stack;
     std::vector<BracketPair> pairs;
+    std::size_t overflowDepth = 0;
     for (std::size_t i = 0; i < items.size(); ++i) {
         if (items[i].resolvedClass != wsc::text::BidiClass::ON) {
             continue;
@@ -406,12 +407,22 @@ void resolvePairedBrackets(std::vector<BidiItem> &items, wsc::text::BidiClass st
             continue;
         }
         if (entry->kind == 'o') {
-            if (stack.size() < 63) {
+            if (overflowDepth > 0) {
+                ++overflowDepth;
+            } else if (stack.size() < 63) {
                 stack.push_back({i, entry->pair});
+            } else {
+                stack.clear();
+                pairs.clear();
+                overflowDepth = 1;
             }
             continue;
         }
         if (entry->kind != 'c') {
+            continue;
+        }
+        if (overflowDepth > 0) {
+            --overflowDepth;
             continue;
         }
         for (std::size_t cursor = stack.size(); cursor > 0; --cursor) {
@@ -644,12 +655,37 @@ wsc::text::BidiClass runBoundaryClass(int paragraphLevelValue, int adjacentLevel
 
 void resolveRuns(std::vector<BidiItem> &items, int paragraphLevelValue)
 {
+    struct LevelRun
+    {
+        std::size_t start = 0;
+        std::size_t end = 0;
+        int level = 0;
+    };
+
     std::vector<int> initialLevels;
     initialLevels.reserve(items.size());
     for (const BidiItem &item : items) {
         initialLevels.push_back(item.level);
     }
 
+    constexpr std::size_t noMatch = static_cast<std::size_t>(-1);
+    std::vector<std::size_t> matchingIsolate(items.size(), noMatch);
+    std::vector<std::size_t> isolateStack;
+    for (std::size_t i = 0; i < items.size(); ++i) {
+        if (isIsolateInitiator(items[i].originalClass)) {
+            isolateStack.push_back(i);
+            continue;
+        }
+        if (items[i].originalClass == wsc::text::BidiClass::PDI && !isolateStack.empty()) {
+            const std::size_t initiator = isolateStack.back();
+            isolateStack.pop_back();
+            matchingIsolate[initiator] = i;
+            matchingIsolate[i] = initiator;
+        }
+    }
+
+    std::vector<LevelRun> runs;
+    std::vector<std::size_t> itemRunIndex(items.size(), noMatch);
     std::size_t runStart = 0;
     while (runStart < items.size()) {
         const int runLevel = initialLevels[runStart];
@@ -657,34 +693,78 @@ void resolveRuns(std::vector<BidiItem> &items, int paragraphLevelValue)
         while (runEnd + 1 < items.size() && initialLevels[runEnd + 1] == runLevel) {
             ++runEnd;
         }
+        const std::size_t runIndex = runs.size();
+        runs.push_back({runStart, runEnd, runLevel});
+        for (std::size_t i = runStart; i <= runEnd; ++i) {
+            itemRunIndex[i] = runIndex;
+        }
+        runStart = runEnd + 1;
+    }
 
-        const bool startsAfterClosedIsolate = items[runStart].originalClass == wsc::text::BidiClass::PDI
-            && items[runStart].preserveLevel;
-        const int previousLevel = runStart == 0 || startsAfterClosedIsolate
+    std::vector<bool> processedRun(runs.size(), false);
+    for (std::size_t firstRunIndex = 0; firstRunIndex < runs.size(); ++firstRunIndex) {
+        if (processedRun[firstRunIndex]) {
+            continue;
+        }
+
+        std::vector<std::size_t> sequenceItemIndices;
+        std::size_t currentRunIndex = firstRunIndex;
+        while (currentRunIndex != noMatch && !processedRun[currentRunIndex]) {
+            const LevelRun &currentRun = runs[currentRunIndex];
+            processedRun[currentRunIndex] = true;
+            for (std::size_t i = currentRun.start; i <= currentRun.end; ++i) {
+                sequenceItemIndices.push_back(i);
+            }
+
+            const std::size_t lastIndex = currentRun.end;
+            if (!isIsolateInitiator(items[lastIndex].originalClass)
+                || matchingIsolate[lastIndex] == noMatch) {
+                break;
+            }
+            const std::size_t pdiIndex = matchingIsolate[lastIndex];
+            currentRunIndex = itemRunIndex[pdiIndex];
+        }
+
+        if (sequenceItemIndices.empty()) {
+            continue;
+        }
+
+        const std::size_t firstIndex = sequenceItemIndices.front();
+        const std::size_t lastIndex = sequenceItemIndices.back();
+        const int runLevel = initialLevels[firstIndex];
+        const bool startsAfterClosedIsolate = items[firstIndex].originalClass == wsc::text::BidiClass::PDI
+            && matchingIsolate[firstIndex] != noMatch;
+        const int previousLevel = firstIndex == 0 || startsAfterClosedIsolate
             ? paragraphLevelValue
-            : initialLevels[runStart - 1];
-        const int nextLevel = runEnd + 1 < items.size() ? initialLevels[runEnd + 1] : paragraphLevelValue;
+            : initialLevels[firstIndex - 1];
+        const int nextLevel = lastIndex + 1 < items.size() ? initialLevels[lastIndex + 1] : paragraphLevelValue;
         const wsc::text::BidiClass startClass = runBoundaryClass(paragraphLevelValue,
                                                                  std::max(previousLevel, runLevel));
         wsc::text::BidiClass endClass = runBoundaryClass(paragraphLevelValue,
                                                          std::max(nextLevel, runLevel));
         if (runLevel == paragraphLevelValue
-            && items[runEnd].preserveLevel
-            && isIsolateInitiator(items[runEnd].originalClass)) {
+            && items[lastIndex].preserveLevel
+            && isIsolateInitiator(items[lastIndex].originalClass)) {
             endClass = paragraphLevelValue % 2 == 0 ? wsc::text::BidiClass::L : wsc::text::BidiClass::R;
         }
 
-        std::vector<BidiItem> run(items.begin() + static_cast<std::ptrdiff_t>(runStart),
-                                  items.begin() + static_cast<std::ptrdiff_t>(runEnd + 1));
-        resolveWeakTypes(run, startClass);
-        resolvePairedBrackets(run, startClass);
-        resolveNeutralTypes(run, startClass, endClass);
-        resolveImplicitLevels(run);
-        for (std::size_t i = 0; i < run.size(); ++i) {
-            items[runStart + i] = run[i];
+        std::vector<BidiItem> sequence;
+        sequence.reserve(sequenceItemIndices.size());
+        for (const std::size_t itemIndex : sequenceItemIndices) {
+            BidiItem item = items[itemIndex];
+            if (isDirectionalIsolate(item.originalClass) && matchingIsolate[itemIndex] != noMatch) {
+                item.preserveLevel = false;
+            }
+            sequence.push_back(item);
         }
-
-        runStart = runEnd + 1;
+        resolveWeakTypes(sequence, startClass);
+        resolvePairedBrackets(sequence, startClass);
+        resolveNeutralTypes(sequence, startClass, endClass);
+        resolveImplicitLevels(sequence);
+        for (std::size_t i = 0; i < sequence.size(); ++i) {
+            items[sequenceItemIndices[i]].resolvedClass = sequence[i].resolvedClass;
+            items[sequenceItemIndices[i]].level = sequence[i].level;
+        }
     }
 }
 
