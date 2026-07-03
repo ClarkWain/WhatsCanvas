@@ -1,6 +1,6 @@
 # Vulkan Backend Roadmap
 
-Status: **Draft / in progress** · Branch: `feature/vulkan-backend` · Done: M1, M2, M3 (solid fills), M4 (gradients + blend), M5 (images)
+Status: **Draft / in progress** · Branch: `feature/vulkan-backend` · Done: M1, M2, M3 (solid fills), M4 (gradients + blend), M5 (images), M6 (layer composite)
 
 This document tracks the work needed to bring the Vulkan render backend
 (`VulkanRenderDevice`) to functional parity with the existing OpenGL backend
@@ -46,7 +46,7 @@ Not started: everything that produces or reads pixels. Ten of the eleven
 | `wrapExternalImageResource` | wrap handle | stub | M8 |
 | `createClipMaskResource` | AA coverage mask | stub | M7 |
 | `resourceStats` | live counts | render-target + texture counts | M2/M5 ✅ |
-| `renderCommandsToImageResource` | offscreen replay | stub | M6 |
+| `renderCommandsToImageResource` | offscreen replay | native compositeLayer (M6); command replay pending §3 | M6 ◑ |
 | Draw commands (points/lines/path/image/text) | 5 GL programs | solid triangle pipeline (M3) | M3–M5 |
 
 ## 3. Architectural constraint (must decide before M3)
@@ -142,11 +142,18 @@ Gate: fuzzy pixel-compare of an image + text scene vs OpenGL. **First step met**
 by `WhatsCanvasVulkanTextureTests` (2x2 texture sampled into quadrants + partial
 update) on NVIDIA RTX 2080 Ti.
 
-### M6 — Offscreen command replay (saveLayer)
+### M6 — Offscreen command replay (saveLayer) · **Mechanism done; generic replay pending §3**
 Depends on: M5.
 - `renderCommandsToImageResource`: record a command list into an offscreen image
   and return it as a `SharedImageResource` for `saveLayer` composition.
-Gate: a `saveLayer` scene composites correctly vs OpenGL.
+  *Pending*: the WhatsCanvas `Command` objects call OpenGL directly and cannot be
+  replayed on Vulkan until the backend-neutral command layer lands (§3 / ADR).
+- Vulkan-native saveLayer mechanism: **Done** via `compositeLayer`, which samples
+  an already-rendered offscreen layer and composites it over a background with a
+  layer alpha (fragment push-constant).
+Gate: a `saveLayer` scene composites correctly vs OpenGL. **Mechanism met** by
+`WhatsCanvasVulkanLayerTests` (red layer @50% over blue -> purple) on NVIDIA RTX
+2080 Ti.
 
 ### M7 — Anti-aliased path clipping
 Depends on: M6.
