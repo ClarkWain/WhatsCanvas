@@ -64,6 +64,15 @@ public:
     bool fillRenderTargetSolid(const std::unique_ptr<IRenderTarget> &target, unsigned char r, unsigned char g,
                                unsigned char b, unsigned char a) const;
 
+    /// Vulkan-specific M3 capability: rasterize a solid-colored triangle list
+    /// into an offscreen render target through a real graphics pipeline, then
+    /// leave it ready for readPixelsRGBA(). `ndcPositions` holds interleaved
+    /// x,y pairs in Vulkan normalized device coordinates (3 vertices per
+    /// triangle). Returns false when Vulkan is unavailable, the device is not
+    /// ready, the target is not a Vulkan render target, or the input is invalid.
+    bool renderSolidTriangles(const std::unique_ptr<IRenderTarget> &target, const std::vector<float> &ndcPositions,
+                              float r, float g, float b, float a) const;
+
     /// Opaque backend context, defined in the implementation file.
     struct VulkanContext;
 

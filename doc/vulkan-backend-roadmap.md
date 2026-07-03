@@ -1,6 +1,6 @@
 # Vulkan Backend Roadmap
 
-Status: **Draft / in progress** · Branch: `feature/vulkan-backend` · Done: M1, M2
+Status: **Draft / in progress** · Branch: `feature/vulkan-backend` · Done: M1, M2, M3 (solid fills)
 
 This document tracks the work needed to bring the Vulkan render backend
 (`VulkanRenderDevice`) to functional parity with the existing OpenGL backend
@@ -47,7 +47,7 @@ Not started: everything that produces or reads pixels. Ten of the eleven
 | `createClipMaskResource` | AA coverage mask | stub | M7 |
 | `resourceStats` | live counts | render-target count (M2) | M2 ✅ (incremental) |
 | `renderCommandsToImageResource` | offscreen replay | stub | M6 |
-| Draw commands (points/lines/path/image/text) | 5 GL programs | none | M3–M5 |
+| Draw commands (points/lines/path/image/text) | 5 GL programs | solid triangle pipeline (M3) | M3–M5 |
 
 ## 3. Architectural constraint (must decide before M3)
 
@@ -97,16 +97,21 @@ of the existing pixel-hash smoke approach. First real Vulkan pixels.
 **Met** by `WhatsCanvasVulkanRenderTargetTests` on NVIDIA RTX 2080 Ti (exact
 RGBA for a solid fill and a render-pass clear-to-zero).
 
-### M3 — First geometry: solid fills (points/lines/path fill)
+### M3 — First geometry: solid fills (points/lines/path fill) · **In progress (solid fills done)**
 Depends on: M2 and the §3 decision.
 - SPIR-V shaders compiled from GLSL with `glslc` (add a CMake shader-compile
-  step; embed or load `.spv`).
+  step; embed or load `.spv`). **Done**: `solid.vert`/`solid.frag` compiled to an
+  embedded SPIR-V header (`shaders/SolidShaderSpv.h`).
 - Graphics pipeline(s) for solid-colored triangles/lines/points; vertex/index
-  buffers; a push-constant or UBO for the transform/color.
+  buffers; a push-constant or UBO for the transform/color. **Done** for a
+  triangle-list solid pipeline (per-vertex color, dynamic viewport/scissor).
 - Translate `DrawPoints`, `DrawLines`, and solid `DrawPath` fill into Vulkan draws.
-- Blend state matching GL `SRC_ALPHA, ONE_MINUS_SRC_ALPHA` default.
+  *Pending*: wired via `renderSolidTriangles`; command-layer hookup still to come.
+- Blend state matching GL `SRC_ALPHA, ONE_MINUS_SRC_ALPHA` default. **Done**.
 Gate: render a filled polygon + polyline offscreen; pixel-compare (fuzzy) against
-the OpenGL output of the same scene.
+the OpenGL output of the same scene. **First step met** by
+`WhatsCanvasVulkanSolidGeometryTests` (triangle interior = fill color, corner =
+clear) on NVIDIA RTX 2080 Ti.
 
 ### M4 — Paint features on geometry
 Depends on: M3.

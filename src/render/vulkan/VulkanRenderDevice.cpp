@@ -11,6 +11,8 @@
 #include <optional>
 
 #include <vulkan/vulkan.h>
+
+#include "shaders/SolidShaderSpv.h"
 #endif
 
 // ---------------------------------------------------------------------------
@@ -43,6 +45,12 @@ struct VulkanRenderDevice::VulkanContext
     std::string physicalDeviceName;
     bool deviceReady = false;
 
+    // M3 solid-color graphics pipeline (lazily created against a render pass).
+    VkShaderModule solidVertModule = VK_NULL_HANDLE;
+    VkShaderModule solidFragModule = VK_NULL_HANDLE;
+    VkPipelineLayout solidPipelineLayout = VK_NULL_HANDLE;
+    VkPipeline solidPipeline = VK_NULL_HANDLE;
+
     // Most-recently-activated / filled render target, used as the readback
     // source for readPixelsRGBA(). Mirrors OpenGL's "current framebuffer".
     VkImage readbackImage = VK_NULL_HANDLE;
@@ -58,6 +66,22 @@ struct VulkanRenderDevice::VulkanContext
     {
         if (device != VK_NULL_HANDLE) {
             vkDeviceWaitIdle(device);
+            if (solidPipeline != VK_NULL_HANDLE) {
+                vkDestroyPipeline(device, solidPipeline, nullptr);
+                solidPipeline = VK_NULL_HANDLE;
+            }
+            if (solidPipelineLayout != VK_NULL_HANDLE) {
+                vkDestroyPipelineLayout(device, solidPipelineLayout, nullptr);
+                solidPipelineLayout = VK_NULL_HANDLE;
+            }
+            if (solidVertModule != VK_NULL_HANDLE) {
+                vkDestroyShaderModule(device, solidVertModule, nullptr);
+                solidVertModule = VK_NULL_HANDLE;
+            }
+            if (solidFragModule != VK_NULL_HANDLE) {
+                vkDestroyShaderModule(device, solidFragModule, nullptr);
+                solidFragModule = VK_NULL_HANDLE;
+            }
             if (commandPool != VK_NULL_HANDLE) {
                 vkDestroyCommandPool(device, commandPool, nullptr);
                 commandPool = VK_NULL_HANDLE;
@@ -69,6 +93,135 @@ struct VulkanRenderDevice::VulkanContext
             vkDestroyInstance(instance, nullptr);
             instance = VK_NULL_HANDLE;
         }
+    }
+
+    VkShaderModule createShaderModule(const std::uint32_t *code, std::size_t byteSize) const
+    {
+        VkShaderModuleCreateInfo info{};
+        info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+        info.codeSize = byteSize;
+        info.pCode = code;
+        VkShaderModule module = VK_NULL_HANDLE;
+        if (vkCreateShaderModule(device, &info, nullptr, &module) != VK_SUCCESS) {
+            return VK_NULL_HANDLE;
+        }
+        return module;
+    }
+
+    // Lazily build the solid-color pipeline. All render targets use structurally
+    // identical (compatible) render passes, so a single pipeline is reused.
+    bool ensureSolidPipeline(VkRenderPass renderPass)
+    {
+        if (solidPipeline != VK_NULL_HANDLE) {
+            return true;
+        }
+
+        solidVertModule = createShaderModule(kSolidVertSpv, sizeof(kSolidVertSpv));
+        solidFragModule = createShaderModule(kSolidFragSpv, sizeof(kSolidFragSpv));
+        if (solidVertModule == VK_NULL_HANDLE || solidFragModule == VK_NULL_HANDLE) {
+            return false;
+        }
+
+        VkPipelineLayoutCreateInfo layoutInfo{};
+        layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        if (vkCreatePipelineLayout(device, &layoutInfo, nullptr, &solidPipelineLayout) != VK_SUCCESS) {
+            return false;
+        }
+
+        std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
+        stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+        stages[0].module = solidVertModule;
+        stages[0].pName = "main";
+        stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+        stages[1].module = solidFragModule;
+        stages[1].pName = "main";
+
+        VkVertexInputBindingDescription binding{};
+        binding.binding = 0;
+        binding.stride = 6 * sizeof(float);
+        binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+        std::array<VkVertexInputAttributeDescription, 2> attrs{};
+        attrs[0].location = 0;
+        attrs[0].binding = 0;
+        attrs[0].format = VK_FORMAT_R32G32_SFLOAT;
+        attrs[0].offset = 0;
+        attrs[1].location = 1;
+        attrs[1].binding = 0;
+        attrs[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+        attrs[1].offset = 2 * sizeof(float);
+
+        VkPipelineVertexInputStateCreateInfo vertexInput{};
+        vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+        vertexInput.vertexBindingDescriptionCount = 1;
+        vertexInput.pVertexBindingDescriptions = &binding;
+        vertexInput.vertexAttributeDescriptionCount = static_cast<std::uint32_t>(attrs.size());
+        vertexInput.pVertexAttributeDescriptions = attrs.data();
+
+        VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+        inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+        inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+        VkPipelineViewportStateCreateInfo viewportState{};
+        viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+        viewportState.viewportCount = 1;
+        viewportState.scissorCount = 1;
+
+        VkPipelineRasterizationStateCreateInfo rasterizer{};
+        rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+        rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+        rasterizer.cullMode = VK_CULL_MODE_NONE;
+        rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+        rasterizer.lineWidth = 1.0f;
+
+        VkPipelineMultisampleStateCreateInfo multisample{};
+        multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+        multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+        VkPipelineColorBlendAttachmentState blendAttachment{};
+        blendAttachment.blendEnable = VK_TRUE;
+        blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+        blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        blendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+        blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        blendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+        blendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT
+                                         | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+        VkPipelineColorBlendStateCreateInfo colorBlend{};
+        colorBlend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        colorBlend.attachmentCount = 1;
+        colorBlend.pAttachments = &blendAttachment;
+
+        const std::array<VkDynamicState, 2> dynamicStates{VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+        VkPipelineDynamicStateCreateInfo dynamicState{};
+        dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+        dynamicState.dynamicStateCount = static_cast<std::uint32_t>(dynamicStates.size());
+        dynamicState.pDynamicStates = dynamicStates.data();
+
+        VkGraphicsPipelineCreateInfo pipelineInfo{};
+        pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        pipelineInfo.stageCount = static_cast<std::uint32_t>(stages.size());
+        pipelineInfo.pStages = stages.data();
+        pipelineInfo.pVertexInputState = &vertexInput;
+        pipelineInfo.pInputAssemblyState = &inputAssembly;
+        pipelineInfo.pViewportState = &viewportState;
+        pipelineInfo.pRasterizationState = &rasterizer;
+        pipelineInfo.pMultisampleState = &multisample;
+        pipelineInfo.pColorBlendState = &colorBlend;
+        pipelineInfo.pDynamicState = &dynamicState;
+        pipelineInfo.layout = solidPipelineLayout;
+        pipelineInfo.renderPass = renderPass;
+        pipelineInfo.subpass = 0;
+
+        if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &solidPipeline)
+            != VK_SUCCESS) {
+            return false;
+        }
+        return true;
     }
 
     std::optional<std::uint32_t> findMemoryType(std::uint32_t typeBits, VkMemoryPropertyFlags properties) const
@@ -345,6 +498,9 @@ public:
     VkImage image() const { return image_; }
     VkImageLayout layout() const { return layout_; }
     void setLayout(VkImageLayout layout) { layout_ = layout; }
+    VkRenderPass renderPass() const { return renderPass_; }
+    VkFramebuffer framebuffer() const { return framebuffer_; }
+    void markReadbackReady() { activated_ = true; }
 
 private:
     VulkanRenderDevice::VulkanContext *context_ = nullptr;
@@ -764,6 +920,122 @@ bool VulkanRenderDevice::fillRenderTargetSolid(const std::unique_ptr<IRenderTarg
     return true;
 #else
     (void)target;
+    (void)r;
+    (void)g;
+    (void)b;
+    (void)a;
+    return false;
+#endif
+}
+
+bool VulkanRenderDevice::renderSolidTriangles(const std::unique_ptr<IRenderTarget> &target,
+                                              const std::vector<float> &ndcPositions, float r, float g, float b,
+                                              float a) const
+{
+#if defined(WHATSCANVAS_ENABLE_VULKAN)
+    if (!context_ || !context_->deviceReady || !target || ndcPositions.size() < 6
+        || (ndcPositions.size() % 6) != 0) {
+        return false;
+    }
+    auto *rt = dynamic_cast<VulkanRenderTarget *>(target.get());
+    if (rt == nullptr || !rt->isValid()) {
+        return false;
+    }
+    if (!context_->ensureSolidPipeline(rt->renderPass())) {
+        return false;
+    }
+
+    // Build interleaved {x, y, r, g, b, a} vertices in a host-visible buffer.
+    const std::size_t vertexCount = ndcPositions.size() / 2;
+    std::vector<float> vertexData;
+    vertexData.reserve(vertexCount * 6);
+    for (std::size_t i = 0; i < vertexCount; ++i) {
+        vertexData.push_back(ndcPositions[i * 2 + 0]);
+        vertexData.push_back(ndcPositions[i * 2 + 1]);
+        vertexData.push_back(r);
+        vertexData.push_back(g);
+        vertexData.push_back(b);
+        vertexData.push_back(a);
+    }
+    const VkDeviceSize vertexBytes = static_cast<VkDeviceSize>(vertexData.size()) * sizeof(float);
+
+    VkBuffer vertexBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory vertexMemory = VK_NULL_HANDLE;
+    if (!context_->createHostVisibleBuffer(vertexBytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertexBuffer,
+                                           vertexMemory)) {
+        return false;
+    }
+    void *mapped = nullptr;
+    if (vkMapMemory(context_->device, vertexMemory, 0, vertexBytes, 0, &mapped) != VK_SUCCESS) {
+        vkDestroyBuffer(context_->device, vertexBuffer, nullptr);
+        vkFreeMemory(context_->device, vertexMemory, nullptr);
+        return false;
+    }
+    std::memcpy(mapped, vertexData.data(), static_cast<std::size_t>(vertexBytes));
+    vkUnmapMemory(context_->device, vertexMemory);
+
+    VkCommandBuffer cmd = context_->beginSingleTimeCommands();
+    if (cmd == VK_NULL_HANDLE) {
+        vkDestroyBuffer(context_->device, vertexBuffer, nullptr);
+        vkFreeMemory(context_->device, vertexMemory, nullptr);
+        return false;
+    }
+
+    VkClearValue clearValue{};
+    clearValue.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
+
+    VkRenderPassBeginInfo renderPassInfo{};
+    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    renderPassInfo.renderPass = rt->renderPass();
+    renderPassInfo.framebuffer = rt->framebuffer();
+    renderPassInfo.renderArea.offset = {0, 0};
+    renderPassInfo.renderArea.extent = {static_cast<std::uint32_t>(rt->width()),
+                                        static_cast<std::uint32_t>(rt->height())};
+    renderPassInfo.clearValueCount = 1;
+    renderPassInfo.pClearValues = &clearValue;
+
+    vkCmdBeginRenderPass(cmd, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+    VkViewport viewport{};
+    viewport.x = 0.0f;
+    viewport.y = 0.0f;
+    viewport.width = static_cast<float>(rt->width());
+    viewport.height = static_cast<float>(rt->height());
+    viewport.minDepth = 0.0f;
+    viewport.maxDepth = 1.0f;
+    vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+    VkRect2D scissor{};
+    scissor.offset = {0, 0};
+    scissor.extent = {static_cast<std::uint32_t>(rt->width()), static_cast<std::uint32_t>(rt->height())};
+    vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, context_->solidPipeline);
+    const VkDeviceSize offset = 0;
+    vkCmdBindVertexBuffers(cmd, 0, 1, &vertexBuffer, &offset);
+    vkCmdDraw(cmd, static_cast<std::uint32_t>(vertexCount), 1, 0, 0);
+
+    vkCmdEndRenderPass(cmd);
+    const bool submitted = context_->endSingleTimeCommands(cmd);
+
+    vkDestroyBuffer(context_->device, vertexBuffer, nullptr);
+    vkFreeMemory(context_->device, vertexMemory, nullptr);
+
+    if (!submitted) {
+        return false;
+    }
+
+    // Render pass finalLayout leaves the image ready for a transfer read.
+    rt->setLayout(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    rt->markReadbackReady();
+    context_->readbackImage = rt->image();
+    context_->readbackLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    context_->readbackWidth = rt->width();
+    context_->readbackHeight = rt->height();
+    return true;
+#else
+    (void)target;
+    (void)ndcPositions;
     (void)r;
     (void)g;
     (void)b;
