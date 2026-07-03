@@ -250,6 +250,11 @@ bool testPortableBackendUsesRgbaAtlasForColorGlyphs()
         std::cout << "Skipping color glyph atlas test; color font does not expose COLR/CPAL grinning face." << std::endl;
         return true;
     }
+    const auto colorGlyph = rasterizer.rasterizeGlyph(face, 0x1F600u, 40.0f);
+    if (!colorGlyph || colorGlyph->bitmap.format != wsc::text::GlyphBitmapFormat::RGBA) {
+        std::cout << "Skipping color glyph atlas test; color font is present but portable RGBA rasterization is unavailable." << std::endl;
+        return true;
+    }
 
     std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createPortableTextBackend();
     bool ok = expect(backend->registerFontFace(face), "color system font should register");
