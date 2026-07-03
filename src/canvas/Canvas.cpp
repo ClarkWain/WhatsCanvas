@@ -1109,6 +1109,30 @@ DrawShadowData makeGaussianShadowData(const std::vector<float> &trianglePoints,
     return data;
 }
 
+// Variant for texture-based text (glyph atlas / bitmap): the silhouette is a set
+// of white, shadow-offset image quads whose sampled alpha is the glyph coverage.
+DrawShadowData makeGaussianImageShadowData(std::vector<DrawImageData> imageSilhouette,
+                                           const Paint &paint, int canvasWidth, int canvasHeight,
+                                           const ScissorState &scissor)
+{
+    const Color shadowColor = applyPaintAlpha(paint, paint.getShadowColor());
+    float shadowRgba[4] = {shadowColor.r(), shadowColor.g(), shadowColor.b(), shadowColor.a()};
+    GammaCorrect::srgbToLinear4(shadowRgba);
+
+    DrawShadowData data;
+    data.imageSilhouette = std::move(imageSilhouette);
+    data.color[0] = shadowRgba[0];
+    data.color[1] = shadowRgba[1];
+    data.color[2] = shadowRgba[2];
+    data.color[3] = shadowRgba[3];
+    data.blurRadius = std::max(0.0f, paint.getShadowRadius());
+    data.canvasWidth = canvasWidth;
+    data.canvasHeight = canvasHeight;
+    data.scissor = scissor;
+    data.blendMode = toDrawBlendMode(paint.getBlendMode());
+    return data;
+}
+
 std::vector<ShadowPass> buildShadowPasses(const Paint &paint, const glm::mat4 &transform)
 {
     std::vector<ShadowPass> passes;
@@ -3547,8 +3571,45 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
             }
         };
 
+        bool blurredAtlasShadow = false;
+        if (paint.hasShadowLayer() && std::max(0.0f, paint.getShadowRadius()) > 0.0f
+            && impl_->width > 0 && impl_->height > 0 && !renderedText.glyphAtlasQuads.empty()) {
+            const glm::mat4 offset = makeOffsetTransform(impl_->currentState().matrix,
+                                                         paint.getShadowDx(), paint.getShadowDy());
+            std::vector<DrawImageData> silhouette;
+            silhouette.reserve(renderedText.glyphAtlasQuads.size());
+            for (const auto &quad : renderedText.glyphAtlasQuads) {
+                DrawImageData d;
+                d.imageResource = imageResource;
+                d.x = quad.x;
+                d.y = quad.y;
+                d.width = quad.width;
+                d.height = quad.height;
+                d.u0 = quad.u0;
+                d.u1 = quad.u1;
+                d.v0 = quad.v0;
+                d.v1 = quad.v1;
+                d.tintColor[0] = 1.0f;
+                d.tintColor[1] = 1.0f;
+                d.tintColor[2] = 1.0f;
+                d.tintColor[3] = 1.0f;
+                d.alpha = 1.0f;
+                d.sampling = DrawImageSampling::Linear;
+                d.tileMode = DrawImageTileMode::Clamp;
+                d.transform = offset;
+                d.blendMode = DrawBlendMode::SrcOver;
+                silhouette.push_back(std::move(d));
+            }
+            impl_->renderer->submit(std::make_unique<DrawShadowCommand>(
+                makeGaussianImageShadowData(std::move(silhouette), paint, impl_->width,
+                                            impl_->height, scissor)));
+            blurredAtlasShadow = true;
+        }
+
         for (const auto &shadowPass : buildAtlasTextShadowPasses(paint, impl_->currentState().matrix)) {
-            submitAtlasText(shadowPass.color, shadowPass.transform);
+            if (!blurredAtlasShadow) {
+                submitAtlasText(shadowPass.color, shadowPass.transform);
+            }
         }
         for (const auto &strokePass : strokePasses) {
             submitAtlasText(strokePass.color, strokePass.transform);
@@ -3598,8 +3659,41 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
             impl_->renderer->submit(std::make_unique<DrawImageCommand>(data));
         };
 
+        bool blurredBitmapShadow = false;
+        if (paint.hasShadowLayer() && std::max(0.0f, paint.getShadowRadius()) > 0.0f
+            && impl_->width > 0 && impl_->height > 0) {
+            DrawImageData d;
+            d.imageResource = imageResource;
+            d.x = renderedText.drawX;
+            d.y = renderedText.drawY;
+            d.width = renderedText.width;
+            d.height = renderedText.height;
+            d.u0 = 0.0f;
+            d.u1 = 1.0f;
+            d.v0 = 0.0f;
+            d.v1 = 1.0f;
+            d.tintColor[0] = 1.0f;
+            d.tintColor[1] = 1.0f;
+            d.tintColor[2] = 1.0f;
+            d.tintColor[3] = 1.0f;
+            d.alpha = 1.0f;
+            d.sampling = DrawImageSampling::Linear;
+            d.tileMode = DrawImageTileMode::Clamp;
+            d.transform = makeOffsetTransform(impl_->currentState().matrix,
+                                              paint.getShadowDx(), paint.getShadowDy());
+            d.blendMode = DrawBlendMode::SrcOver;
+            std::vector<DrawImageData> silhouette;
+            silhouette.push_back(std::move(d));
+            impl_->renderer->submit(std::make_unique<DrawShadowCommand>(
+                makeGaussianImageShadowData(std::move(silhouette), paint, impl_->width,
+                                            impl_->height, scissor)));
+            blurredBitmapShadow = true;
+        }
+
         for (const auto &shadowPass : buildShadowPasses(paint, impl_->currentState().matrix)) {
-            submitBitmapText(shadowPass.color, shadowPass.transform);
+            if (!blurredBitmapShadow) {
+                submitBitmapText(shadowPass.color, shadowPass.transform);
+            }
         }
         for (const auto &strokePass : strokePasses) {
             submitBitmapText(strokePass.color, strokePass.transform);
