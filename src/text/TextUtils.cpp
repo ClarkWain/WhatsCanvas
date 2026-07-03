@@ -407,7 +407,12 @@ std::vector<float> buildTextVertices(const std::string &asciiText, float x, floa
 
     const size_t bufferSize = estimateAsciiTextVertexBufferBytes(asciiText);
     std::vector<char> buffer(bufferSize, 0);
-    int quads = stb_easy_font_print(x, y, const_cast<char *>(asciiText.c_str()), nullptr, buffer.data(), static_cast<int>(buffer.size()));
+    // Lay the glyphs out at the origin so only the local glyph coordinates are
+    // scaled; the pen position (x, y) is a device-space translation applied
+    // afterwards. Passing (x, y) into stb_easy_font_print would bake the origin
+    // into the quad coordinates and then scale it too, throwing the text far off
+    // its intended position for any non-zero origin.
+    int quads = stb_easy_font_print(0.0f, 0.0f, const_cast<char *>(asciiText.c_str()), nullptr, buffer.data(), static_cast<int>(buffer.size()));
     if (quads <= 0) {
         return {};
     }
@@ -417,14 +422,14 @@ std::vector<float> buildTextVertices(const std::string &asciiText, float x, floa
     vertices.reserve(static_cast<size_t>(quads) * 12);
 
     for (int quad = 0; quad < quads; ++quad) {
-        const float x0 = quadData[quad * 16 + 0] * scale;
-        const float y0 = quadData[quad * 16 + 1] * scale;
-        const float x1 = quadData[quad * 16 + 4] * scale;
-        const float y1 = quadData[quad * 16 + 5] * scale;
-        const float x2 = quadData[quad * 16 + 8] * scale;
-        const float y2 = quadData[quad * 16 + 9] * scale;
-        const float x3 = quadData[quad * 16 + 12] * scale;
-        const float y3 = quadData[quad * 16 + 13] * scale;
+        const float x0 = x + quadData[quad * 16 + 0] * scale;
+        const float y0 = y + quadData[quad * 16 + 1] * scale;
+        const float x1 = x + quadData[quad * 16 + 4] * scale;
+        const float y1 = y + quadData[quad * 16 + 5] * scale;
+        const float x2 = x + quadData[quad * 16 + 8] * scale;
+        const float y2 = y + quadData[quad * 16 + 9] * scale;
+        const float x3 = x + quadData[quad * 16 + 12] * scale;
+        const float y3 = y + quadData[quad * 16 + 13] * scale;
 
         vertices.insert(vertices.end(), {
             x0, y0,
