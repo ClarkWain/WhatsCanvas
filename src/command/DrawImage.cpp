@@ -9,6 +9,7 @@
 #include "DrawValidation.h"
 #include "opengl/GlobalIndexBuffers.h"
 #include "opengl/GLShaderSource.h"
+#include "opengl/ClipMaskUniforms.h"
 #include "render/GammaCorrect.h"
 
 DrawImageProgram *DrawImageProgram::instance_ = nullptr;
@@ -44,7 +45,8 @@ void DrawImageProgram::initialize()
         }
     )";
 
-    const std::string fragmentSrc = std::string(wsc::opengl::shaderVersionDirective()) + R"(
+    const std::string fragmentSrc = std::string(wsc::opengl::shaderVersionDirective())
+        + wsc::opengl::clipMaskFragmentUniforms() + R"(
         in vec2 vUv;
 
         uniform sampler2D uTexture;
@@ -68,6 +70,9 @@ void DrawImageProgram::initialize()
             vec4 color = vec4(texColor.rgb * uTintColor.rgb, texColor.a * uTintColor.a * uAlpha);
             if (uUseColorMatrix) {
                 color = clamp(uColorMatrix * color + uColorMatrixOffset, 0.0, 1.0);
+            }
+            if (uClipEnabled != 0) {
+                color.a *= texture(uClipMask, gl_FragCoord.xy / uClipViewport).r;
             }
             FragColor = color;
         }
@@ -166,6 +171,7 @@ void DrawImageProgram::draw(const RenderContext &context, const DrawImageData &d
     }
     program_->setInt("uTileMode", tileMode);
     program_->setInt("uTexture", 0);
+    wsc::opengl::applyClipMaskUniforms(program_, context);
 
     context.bindImageResource(data.imageResource, data.sampling, data.tileMode, data.mipmapsReady);
 

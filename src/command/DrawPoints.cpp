@@ -7,6 +7,7 @@
 #include <string>
 #include "opengl/GLProgram.h"
 #include "opengl/GLShaderSource.h"
+#include "opengl/ClipMaskUniforms.h"
 #include "render/GammaCorrect.h"
 #include "DrawValidation.h"
 
@@ -45,14 +46,19 @@ void DrawPointsProgram::initialize()
         }
     )";
 
-    std::string fragmentSrc = std::string(wsc::opengl::shaderVersionDirective()) + R"(
+    std::string fragmentSrc = std::string(wsc::opengl::shaderVersionDirective())
+        + wsc::opengl::clipMaskFragmentUniforms() + R"(
         out vec4 FragColor;
 
         in vec4 color;
 
         void main()
         {
-            FragColor = color;
+            vec4 outColor = color;
+            if (uClipEnabled != 0) {
+                outColor.a *= texture(uClipMask, gl_FragCoord.xy / uClipViewport).r;
+            }
+            FragColor = outColor;
         }
     )";
 
@@ -133,6 +139,7 @@ void DrawPointsProgram::draw(const RenderContext &context, const DrawPointsData 
     glm::mat4 projection = glm::ortho(0.0f, static_cast<float>(context.getWidth()), static_cast<float>(context.getHeight()), 0.0f);
     program_->setMat4("uProjection", projection);
     program_->setMat4("uTransform", data.transform);
+    wsc::opengl::applyClipMaskUniforms(program_, context);
 
     glBindVertexArray(VAO_);
     vertexBuffer_.upload(vertexCache_.data(), vertexCache_.size());

@@ -4,19 +4,27 @@
 
 #include "command/DrawData.h"
 #include "command/DrawPath.h"
+#include "opengl/ClipCoverageProgram.h"
 
 namespace {
 
-std::uint64_t makeClipStateKey(const ClipMaskState &clipMask, const ScissorState &scissor)
+// Texture unit reserved for the anti-aliased clip coverage mask. Content uses
+// unit 0 and the gradient texel buffer uses unit 1, so unit 3 stays free.
+constexpr int kClipMaskTextureUnit = 3;
+
+std::uint64_t makeClipStateKey(const ClipMaskState &clipMask, const ScissorState &scissor,
+                               int width, int height)
 {
     constexpr std::uint64_t kFnvPrime = 1099511628211ull;
     std::uint64_t hash = clipMask.fingerprint == 0 ? 1469598103934665603ull : clipMask.fingerprint;
-    const std::uint64_t scissorValues[5] = {
+    const std::uint64_t scissorValues[7] = {
         scissor.enabled ? 1ull : 0ull,
         static_cast<std::uint64_t>(static_cast<std::uint32_t>(scissor.x)),
         static_cast<std::uint64_t>(static_cast<std::uint32_t>(scissor.y)),
         static_cast<std::uint64_t>(static_cast<std::uint32_t>(scissor.width)),
-        static_cast<std::uint64_t>(static_cast<std::uint32_t>(scissor.height))
+        static_cast<std::uint64_t>(static_cast<std::uint32_t>(scissor.height)),
+        static_cast<std::uint64_t>(static_cast<std::uint32_t>(width)),
+        static_cast<std::uint64_t>(static_cast<std::uint32_t>(height))
     };
 
     for (std::uint64_t value : scissorValues) {
@@ -92,45 +100,70 @@ void RenderContext::clearClipMask() const
     lastClipMaskKey_ = 0;
 }
 
+void RenderContext::bindClipMaskTexture(unsigned int texture) const
+{
+    glActiveTexture(GL_TEXTURE0 + kClipMaskTextureUnit);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glActiveTexture(GL_TEXTURE0);
+}
+
+int RenderContext::clipMaskTextureUnit() const
+{
+    return kClipMaskTextureUnit;
+}
+
 void RenderContext::applyClipState(const ScissorState &scissor, const ClipMaskState &clipMask) const
 {
-    applyScissorState(scissor);
-
     if (!clipMask.hasPaths()) {
-        glDisable(GL_STENCIL_TEST);
-        glStencilMask(0xFF);
+        clipMaskActive_ = false;
         clearClipMask();
+        applyScissorState(scissor);
         return;
     }
 
-    const std::uint64_t clipKey = makeClipStateKey(clipMask, scissor);
+    const std::uint64_t clipKey = makeClipStateKey(clipMask, scissor, width, height);
     if (isClipMaskCurrent(clipKey)) {
-        glEnable(GL_STENCIL_TEST);
-        glStencilMask(0x00);
-        glStencilFunc(GL_EQUAL, static_cast<GLint>(clipMask.pathCount()), 0xFF);
-        glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
+        clipMaskActive_ = true;
+        applyScissorState(scissor);
         return;
     }
 
-    glEnable(GL_STENCIL_TEST);
-    glStencilMask(0xFF);
-    glClearStencil(0);
-    glClear(GL_STENCIL_BUFFER_BIT);
-    glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+    auto *program = wsc::opengl::ClipCoverageProgram::getInstance();
+    program->initialize();
+    if (width <= 0 || height <= 0 || !program->ensureTargets(width, height)) {
+        clipMaskActive_ = false;
+        clearClipMask();
+        applyScissorState(scissor);
+        return;
+    }
 
-    for (size_t clipIndex = 0; clipIndex < clipMask.resources.size(); ++clipIndex) {
-        const auto &clipResource = clipMask.resources[clipIndex];
+    // Build the anti-aliased clip coverage mask off-screen. Save and restore the
+    // caller's framebuffer/viewport so the subsequent draw targets the frame.
+    GLint previousFramebuffer = 0;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &previousFramebuffer);
+    GLint previousViewport[4] = {0, 0, 0, 0};
+    glGetIntegerv(GL_VIEWPORT, previousViewport);
+
+    program->beginAccumulator(width, height);
+    for (const auto &clipResource : clipMask.resources) {
         if (!clipResource || !clipResource->isValid()) {
             continue;
         }
-
-        clipResource->apply(*this, scissor, clipIndex);
+        program->beginClipLayer(width, height);
+        clipResource->apply(*this, scissor, 0);
+        program->multiplyLayerIntoAccumulator(width, height);
     }
 
-    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-    glStencilMask(0x00);
-    glStencilFunc(GL_EQUAL, static_cast<GLint>(clipMask.pathCount()), 0xFF);
-    glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
+    glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(previousFramebuffer));
+    glViewport(previousViewport[0], previousViewport[1], previousViewport[2], previousViewport[3]);
+    glBlendEquation(GL_FUNC_ADD);
+    bindClipMaskTexture(program->accumulatorTexture());
+
+    // The off-screen passes changed GL state directly, so drop the cached state
+    // and re-establish scissor; the following applyBlendMode/draw re-issue theirs.
+    resetRenderState();
+    applyScissorState(scissor);
+    clipMaskActive_ = true;
     rememberClipMask(clipKey);
 }
 
@@ -291,6 +324,7 @@ void RenderContext::resetRenderState() const
     glStencilMask(0xFF);
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     clearClipMask();
+    clipMaskActive_ = false;
     hasScissorRect_ = false;
     hasBlendMode_ = false;
     hasBoundTexture_ = false;

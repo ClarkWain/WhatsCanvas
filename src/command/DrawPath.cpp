@@ -8,6 +8,7 @@
 #include "DrawValidation.h"
 #include "render/GammaCorrect.h"
 #include "opengl/GLShaderSource.h"
+#include "opengl/ClipMaskUniforms.h"
 
 DrawPathProgram* DrawPathProgram::instance_ = nullptr;
 
@@ -45,6 +46,7 @@ void DrawPathProgram::initialize()
     )";
 
     std::string fragmentSrc = std::string(wsc::opengl::shaderVersionDirective()) +
+        wsc::opengl::clipMaskFragmentUniforms() +
 #if defined(WHATSCANVAS_OPENGL_ES)
     R"(
         out vec4 FragColor;
@@ -126,6 +128,9 @@ void DrawPathProgram::initialize()
             }
             if (uUseCoverage != 0) {
                 outColor.a *= clamp(vCoverage, 0.0, 1.0);
+            }
+            if (uClipEnabled != 0) {
+                outColor.a *= texture(uClipMask, gl_FragCoord.xy / uClipViewport).r;
             }
             FragColor = outColor;
         }
@@ -234,6 +239,9 @@ void DrawPathProgram::initialize()
             if (uUseCoverage != 0) {
                 outColor.a *= clamp(vCoverage, 0.0, 1.0);
             }
+            if (uClipEnabled != 0) {
+                outColor.a *= texture(uClipMask, gl_FragCoord.xy / uClipViewport).r;
+            }
             FragColor = outColor;
         }
     )";
@@ -322,6 +330,7 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
     program_->setVec4("uColor", glm::make_vec4(color));
     program_->setInt("uUseVertexColor", data.hasVertexColors() ? 1 : 0);
     program_->setInt("uUseCoverage", data.hasCoverage() ? 1 : 0);
+    wsc::opengl::applyClipMaskUniforms(program_, context);
     program_->setInt("uGradientType", static_cast<int>(data.gradientType));
     program_->setInt("uGradientTileMode", static_cast<int>(data.gradientTileMode));
     program_->setVec2("uLinearStart", glm::vec2(data.gradientStart[0], data.gradientStart[1]));
