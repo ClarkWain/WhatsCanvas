@@ -202,6 +202,7 @@ ctest -C Debug -L unit --output-on-failure
 cmd /c scripts\smoke_test.bat
 cmd /c scripts\clip_path_smoke.bat
 cmd /c scripts\regression_smoke.bat
+cmd /c scripts\text_pixel_regression.bat
 cmd /c scripts\examples_smoke.bat
 cmd /c scripts\validation_scene_smoke.bat
 cmd /c scripts\opengles_build_smoke.bat
@@ -209,6 +210,8 @@ ctest -C Debug -L smoke --output-on-failure
 ```
 
 如果只想跑核心单元测试，优先使用 `ctest -C Debug -L unit --output-on-failure`。当前单元测试覆盖 GraphicsState / Path、文本布局、UTF-8 工具、FontManager、文本后端契约、文本回归、RenderStats、RenderTargetPool、CanvasAdapter、矩阵与裁剪、Paint 状态、Image 生命周期、Canvas 上下文生命周期、GlyphAtlas 和弃用提示。
+
+字体像素回归只覆盖文本渲染路径，使用 `font-regression` 场景捕获 PPM 后与 `tests/baselines/text/font-regression.ppm` 做 fuzzy comparison。需要刷新本机字体基准时，先设置 `WHATSCANVAS_UPDATE_TEXT_BASELINES=1`，再运行 `scripts\text_pixel_regression.bat`。
 
 根 demo 支持以下环境变量：
 
@@ -221,6 +224,7 @@ WHATSCANVAS_FIXED_TIME_SECONDS=1.25 .\build\Debug\WhatsCanvasDemo.exe
 WHATSCANVAS_DISABLE_MSAA=1 .\build\Debug\WhatsCanvasDemo.exe
 WHATSCANVAS_EXERCISE_CLIP_PATH=1 .\build\Debug\WhatsCanvasDemo.exe
 WHATSCANVAS_VALIDATION_SCENE=text-heavy .\build\Debug\WhatsCanvasDemo.exe
+WHATSCANVAS_VALIDATION_SCENE=font-regression .\build\Debug\WhatsCanvasDemo.exe
 ```
 
 Driver-sensitive 场景可以用 PPM 容差比较：

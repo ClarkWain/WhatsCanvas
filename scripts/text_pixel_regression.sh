@@ -1,0 +1,50 @@
+#!/usr/bin/env sh
+set -eu
+
+ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+BUILD_DIR="${WHATSCANVAS_BUILD_DIR:-$ROOT_DIR/build}"
+BASELINE_DIR="$ROOT_DIR/tests/baselines/text"
+CANDIDATE_DIR="$BUILD_DIR/text_pixel_regression"
+SCENE="font-regression"
+BASELINE="$BASELINE_DIR/$SCENE.ppm"
+CANDIDATE="$CANDIDATE_DIR/$SCENE.ppm"
+
+mkdir -p "$BASELINE_DIR" "$CANDIDATE_DIR"
+
+sh "$ROOT_DIR/build.sh" --no-run
+
+EXE_PATH="$BUILD_DIR/Debug/WhatsCanvasDemo.exe"
+if [ ! -x "$EXE_PATH" ] && [ -x "$BUILD_DIR/WhatsCanvasDemo" ]; then
+    EXE_PATH="$BUILD_DIR/WhatsCanvasDemo"
+fi
+
+WHATSCANVAS_VALIDATION_SCENE="$SCENE" \
+WHATSCANVAS_CAPTURE_PPM="$CANDIDATE" \
+WHATSCANVAS_EXIT_AFTER_FIRST_FRAME=1 \
+WHATSCANVAS_FIXED_TIME_SECONDS=0 \
+"$EXE_PATH"
+
+if [ "${WHATSCANVAS_UPDATE_TEXT_BASELINES:-0}" = "1" ]; then
+    cp "$CANDIDATE" "$BASELINE"
+    echo "TEXT_PIXEL_REGRESSION_BASELINE_UPDATED=$BASELINE"
+    echo "TEXT_PIXEL_REGRESSION_RESULT=PASS"
+    exit 0
+fi
+
+if [ ! -f "$BASELINE" ]; then
+    echo "TEXT_PIXEL_REGRESSION_RESULT=FAIL"
+    echo "TEXT_PIXEL_REGRESSION_FAILED_STAGE=MISSING_BASELINE"
+    echo "TEXT_PIXEL_REGRESSION_BASELINE=$BASELINE"
+    exit 1
+fi
+
+python3 "$ROOT_DIR/scripts/compare_ppm_fuzzy.py" "$BASELINE" "$CANDIDATE" \
+    --max-channel-delta 4 \
+    --max-mean-delta 0.85 \
+    --max-changed-percent 5.0
+
+echo "TEXT_PIXEL_REGRESSION_SCENE=$SCENE"
+echo "TEXT_PIXEL_REGRESSION_BASELINE=$BASELINE"
+echo "TEXT_PIXEL_REGRESSION_CANDIDATE=$CANDIDATE"
+echo "TEXT_PIXEL_REGRESSION_TEST=PASS"
+echo "TEXT_PIXEL_REGRESSION_RESULT=PASS"

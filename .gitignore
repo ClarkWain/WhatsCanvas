@@ -6,6 +6,7 @@ out/
 *.suo
 *.user
 *.ppm
+!tests/baselines/text/*.ppm
 draw_path.png
 images/draw_path.png
 compare2.md

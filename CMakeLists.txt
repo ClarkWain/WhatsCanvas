@@ -525,6 +525,14 @@ if (BUILD_TESTING AND WHATSCANVAS_ENABLE_SCRIPT_TESTS)
             )
             set_tests_properties(WhatsCanvasRegressionSmoke PROPERTIES LABELS "smoke;regression;local")
             set_tests_properties(WhatsCanvasRegressionSmoke PROPERTIES TIMEOUT 1800)
+            add_test(NAME WhatsCanvasTextPixelRegression
+                COMMAND ${CMAKE_COMMAND}
+                    -DWHATSCANVAS_GATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/text_pixel_regression.bat
+                    -DWHATSCANVAS_GATE_WORKDIR=${CMAKE_CURRENT_SOURCE_DIR}
+                    -P ${WHATSCANVAS_TEST_WRAPPER}
+            )
+            set_tests_properties(WhatsCanvasTextPixelRegression PROPERTIES LABELS "smoke;regression;local;text;font")
+            set_tests_properties(WhatsCanvasTextPixelRegression PROPERTIES TIMEOUT 1800)
         endif()
     else()
         add_test(NAME WhatsCanvasSmoke
@@ -574,6 +582,15 @@ if (BUILD_TESTING AND WHATSCANVAS_ENABLE_SCRIPT_TESTS)
             )
             set_tests_properties(WhatsCanvasRegressionSmoke PROPERTIES LABELS "smoke;regression;local")
             set_tests_properties(WhatsCanvasRegressionSmoke PROPERTIES TIMEOUT 1800)
+            add_test(NAME WhatsCanvasTextPixelRegression
+                COMMAND ${CMAKE_COMMAND}
+                    -DWHATSCANVAS_GATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/text_pixel_regression.sh
+                    -DWHATSCANVAS_GATE_WORKDIR=${CMAKE_CURRENT_SOURCE_DIR}
+                    -DWHATSCANVAS_GATE_LAUNCHER=sh
+                    -P ${WHATSCANVAS_TEST_WRAPPER}
+            )
+            set_tests_properties(WhatsCanvasTextPixelRegression PROPERTIES LABELS "smoke;regression;local;text;font")
+            set_tests_properties(WhatsCanvasTextPixelRegression PROPERTIES TIMEOUT 1800)
         endif()
     endif()
 
