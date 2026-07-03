@@ -84,8 +84,58 @@ int main()
         return 1;
     }
 
-    std::cout << "[VulkanSolidGeometryTests] PASS: solid triangle rasterized on \"" << device.selectedDeviceName()
-              << "\"." << std::endl;
+    // Filled quad (two triangles) covering the whole target in green.
+    const std::vector<float> quad = {
+        -1.0f, -1.0f, 1.0f, -1.0f, 1.0f, 1.0f,
+        -1.0f, -1.0f, 1.0f,  1.0f, -1.0f, 1.0f,
+    };
+    if (!device.renderSolidTriangles(target, quad, 0.0f, 1.0f, 0.0f, 1.0f)) {
+        std::cerr << "[VulkanSolidGeometryTests] FAIL: quad render returned false." << std::endl;
+        return 1;
+    }
+    if (!device.readPixelsRGBA(width, height, pixels)) {
+        std::cerr << "[VulkanSolidGeometryTests] FAIL: readback after quad failed." << std::endl;
+        return 1;
+    }
+    if (!pixelEquals(pixels, width, 0, 0, 0, 255, 0, 255)
+        || !pixelEquals(pixels, width, width - 1, height - 1, 0, 255, 0, 255)) {
+        std::cerr << "[VulkanSolidGeometryTests] FAIL: full-target quad did not fill with green." << std::endl;
+        return 1;
+    }
+
+    // Points topology: a single point at the center in blue.
+    const std::vector<float> point = {0.0f, 0.0f};
+    if (!device.renderSolidPrimitives(target, VulkanRenderDevice::SolidTopology::Points, point, 0.0f, 0.0f, 1.0f,
+                                      1.0f)) {
+        std::cerr << "[VulkanSolidGeometryTests] FAIL: point render returned false." << std::endl;
+        return 1;
+    }
+    if (!device.readPixelsRGBA(width, height, pixels)) {
+        std::cerr << "[VulkanSolidGeometryTests] FAIL: readback after point failed." << std::endl;
+        return 1;
+    }
+    // A single 1px point lands near the center; its exact pixel depends on
+    // rasterization rounding, so scan a small neighborhood for the blue pixel.
+    int blueCount = 0;
+    bool blueNearCenter = false;
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            if (pixelEquals(pixels, width, x, y, 0, 0, 255, 255)) {
+                ++blueCount;
+                if (x >= width / 2 - 1 && x <= width / 2 + 1 && y >= height / 2 - 1 && y <= height / 2 + 1) {
+                    blueNearCenter = true;
+                }
+            }
+        }
+    }
+    if (blueCount != 1 || !blueNearCenter) {
+        std::cerr << "[VulkanSolidGeometryTests] FAIL: expected exactly one blue point near center, found "
+                  << blueCount << (blueNearCenter ? " (near center)" : " (not near center)") << "." << std::endl;
+        return 1;
+    }
+
+    std::cout << "[VulkanSolidGeometryTests] PASS: triangle, quad, and point rasterized on \""
+              << device.selectedDeviceName() << "\"." << std::endl;
 
     target.reset();
     device.finalizeBackend();

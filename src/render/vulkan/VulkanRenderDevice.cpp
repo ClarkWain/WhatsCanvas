@@ -49,7 +49,8 @@ struct VulkanRenderDevice::VulkanContext
     VkShaderModule solidVertModule = VK_NULL_HANDLE;
     VkShaderModule solidFragModule = VK_NULL_HANDLE;
     VkPipelineLayout solidPipelineLayout = VK_NULL_HANDLE;
-    VkPipeline solidPipeline = VK_NULL_HANDLE;
+    // One pipeline per topology (triangles, lines, points).
+    VkPipeline solidPipelines[3] = {VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE};
 
     // Most-recently-activated / filled render target, used as the readback
     // source for readPixelsRGBA(). Mirrors OpenGL's "current framebuffer".
@@ -66,9 +67,11 @@ struct VulkanRenderDevice::VulkanContext
     {
         if (device != VK_NULL_HANDLE) {
             vkDeviceWaitIdle(device);
-            if (solidPipeline != VK_NULL_HANDLE) {
-                vkDestroyPipeline(device, solidPipeline, nullptr);
-                solidPipeline = VK_NULL_HANDLE;
+            for (VkPipeline &pipeline : solidPipelines) {
+                if (pipeline != VK_NULL_HANDLE) {
+                    vkDestroyPipeline(device, pipeline, nullptr);
+                    pipeline = VK_NULL_HANDLE;
+                }
             }
             if (solidPipelineLayout != VK_NULL_HANDLE) {
                 vkDestroyPipelineLayout(device, solidPipelineLayout, nullptr);
@@ -108,24 +111,31 @@ struct VulkanRenderDevice::VulkanContext
         return module;
     }
 
-    // Lazily build the solid-color pipeline. All render targets use structurally
-    // identical (compatible) render passes, so a single pipeline is reused.
-    bool ensureSolidPipeline(VkRenderPass renderPass)
+    // Lazily build the solid-color pipeline for a given primitive topology. All
+    // render targets use structurally identical (compatible) render passes, so a
+    // single pipeline per topology is reused across targets.
+    bool ensureSolidPipeline(VkRenderPass renderPass, VkPrimitiveTopology topology, int slot)
     {
-        if (solidPipeline != VK_NULL_HANDLE) {
+        if (solidPipelines[slot] != VK_NULL_HANDLE) {
             return true;
         }
 
-        solidVertModule = createShaderModule(kSolidVertSpv, sizeof(kSolidVertSpv));
-        solidFragModule = createShaderModule(kSolidFragSpv, sizeof(kSolidFragSpv));
+        if (solidVertModule == VK_NULL_HANDLE) {
+            solidVertModule = createShaderModule(kSolidVertSpv, sizeof(kSolidVertSpv));
+        }
+        if (solidFragModule == VK_NULL_HANDLE) {
+            solidFragModule = createShaderModule(kSolidFragSpv, sizeof(kSolidFragSpv));
+        }
         if (solidVertModule == VK_NULL_HANDLE || solidFragModule == VK_NULL_HANDLE) {
             return false;
         }
 
-        VkPipelineLayoutCreateInfo layoutInfo{};
-        layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        if (vkCreatePipelineLayout(device, &layoutInfo, nullptr, &solidPipelineLayout) != VK_SUCCESS) {
-            return false;
+        if (solidPipelineLayout == VK_NULL_HANDLE) {
+            VkPipelineLayoutCreateInfo layoutInfo{};
+            layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+            if (vkCreatePipelineLayout(device, &layoutInfo, nullptr, &solidPipelineLayout) != VK_SUCCESS) {
+                return false;
+            }
         }
 
         std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
@@ -162,7 +172,7 @@ struct VulkanRenderDevice::VulkanContext
 
         VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
         inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-        inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        inputAssembly.topology = topology;
 
         VkPipelineViewportStateCreateInfo viewportState{};
         viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -217,7 +227,7 @@ struct VulkanRenderDevice::VulkanContext
         pipelineInfo.renderPass = renderPass;
         pipelineInfo.subpass = 0;
 
-        if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &solidPipeline)
+        if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &solidPipelines[slot])
             != VK_SUCCESS) {
             return false;
         }
@@ -932,21 +942,51 @@ bool VulkanRenderDevice::renderSolidTriangles(const std::unique_ptr<IRenderTarge
                                               const std::vector<float> &ndcPositions, float r, float g, float b,
                                               float a) const
 {
+    return renderSolidPrimitives(target, SolidTopology::Triangles, ndcPositions, r, g, b, a);
+}
+
+bool VulkanRenderDevice::renderSolidPrimitives(const std::unique_ptr<IRenderTarget> &target, SolidTopology topology,
+                                               const std::vector<float> &ndcPositions, float r, float g, float b,
+                                               float a) const
+{
 #if defined(WHATSCANVAS_ENABLE_VULKAN)
-    if (!context_ || !context_->deviceReady || !target || ndcPositions.size() < 6
-        || (ndcPositions.size() % 6) != 0) {
+    if (!context_ || !context_->deviceReady || !target || ndcPositions.empty() || (ndcPositions.size() % 2) != 0) {
         return false;
     }
+
+    const std::size_t vertexCount = ndcPositions.size() / 2;
+    VkPrimitiveTopology vkTopology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    int slot = 0;
+    switch (topology) {
+    case SolidTopology::Triangles:
+        if (vertexCount < 3 || (vertexCount % 3) != 0) {
+            return false;
+        }
+        vkTopology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        slot = 0;
+        break;
+    case SolidTopology::Lines:
+        if (vertexCount < 2 || (vertexCount % 2) != 0) {
+            return false;
+        }
+        vkTopology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+        slot = 1;
+        break;
+    case SolidTopology::Points:
+        vkTopology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+        slot = 2;
+        break;
+    }
+
     auto *rt = dynamic_cast<VulkanRenderTarget *>(target.get());
     if (rt == nullptr || !rt->isValid()) {
         return false;
     }
-    if (!context_->ensureSolidPipeline(rt->renderPass())) {
+    if (!context_->ensureSolidPipeline(rt->renderPass(), vkTopology, slot)) {
         return false;
     }
 
     // Build interleaved {x, y, r, g, b, a} vertices in a host-visible buffer.
-    const std::size_t vertexCount = ndcPositions.size() / 2;
     std::vector<float> vertexData;
     vertexData.reserve(vertexCount * 6);
     for (std::size_t i = 0; i < vertexCount; ++i) {
@@ -1010,7 +1050,7 @@ bool VulkanRenderDevice::renderSolidTriangles(const std::unique_ptr<IRenderTarge
     scissor.extent = {static_cast<std::uint32_t>(rt->width()), static_cast<std::uint32_t>(rt->height())};
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, context_->solidPipeline);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, context_->solidPipelines[slot]);
     const VkDeviceSize offset = 0;
     vkCmdBindVertexBuffers(cmd, 0, 1, &vertexBuffer, &offset);
     vkCmdDraw(cmd, static_cast<std::uint32_t>(vertexCount), 1, 0, 0);
@@ -1035,6 +1075,7 @@ bool VulkanRenderDevice::renderSolidTriangles(const std::unique_ptr<IRenderTarge
     return true;
 #else
     (void)target;
+    (void)topology;
     (void)ndcPositions;
     (void)r;
     (void)g;
