@@ -213,33 +213,31 @@ void drawShadowScene(Canvas &canvas, float ox, bool strong)
         p.setStyle(Paint::Style::FILL);
         p.setFillColor(Color(90, 150, 235));
         p.setShadowLayer(radius, dx, dy, shadow);
-        canvas.drawRoundRect(RectF(ox + 60.0f, 60.0f, 150.0f, 110.0f), 22.0f, p);
+        canvas.drawRoundRect(RectF(ox + 50.0f, 45.0f, 150.0f, 100.0f), 22.0f, p);
     }
     {
         Paint p;
         p.setStyle(Paint::Style::FILL);
         p.setFillColor(Color(240, 120, 130));
         p.setShadowLayer(radius, dx, dy, shadow);
-        canvas.drawCircle(ox + 320.0f, 120.0f, 62.0f, p);
+        canvas.drawCircle(ox + 330.0f, 95.0f, 55.0f, p);
     }
     {
         Paint p;
         p.setStyle(Paint::Style::FILL);
         p.setFillColor(Color(250, 205, 70));
         p.setShadowLayer(radius, dx, dy, shadow);
-        canvas.drawPath(makeStar(ox + 150.0f, 320.0f, 85.0f, 34.0f), p);
+        canvas.drawPath(makeStar(ox + 135.0f, 275.0f, 78.0f, 31.0f), p);
     }
+    // Stroked outline: exercises the Gaussian shadow for stroke meshes.
     {
         Paint p;
-        p.setStyle(Paint::Style::FILL);
-        p.setFillColor(Color(120, 210, 150));
+        p.setStyle(Paint::Style::STROKE);
+        p.setStrokeWidth(14.0f);
+        p.setAntiAlias(true);
+        p.setStrokeColor(Color(120, 210, 150));
         p.setShadowLayer(radius, dx, dy, shadow);
-        Path tri;
-        tri.moveTo(ox + 300.0f, 250.0f);
-        tri.lineTo(ox + 410.0f, 300.0f);
-        tri.lineTo(ox + 300.0f, 410.0f);
-        tri.close();
-        canvas.drawPath(tri, p);
+        canvas.drawRoundRect(RectF(ox + 265.0f, 210.0f, 150.0f, 120.0f), 26.0f, p);
     }
 }
 

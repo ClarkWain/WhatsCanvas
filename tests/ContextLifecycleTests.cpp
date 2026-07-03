@@ -364,6 +364,96 @@ bool testTextStrokeQueuesWork()
     return ok;
 }
 
+std::size_t countShadowCommands(const FakeRenderer &renderer)
+{
+    std::size_t count = 0;
+    for (const auto &command : renderer.commands) {
+        if (command && command->type() == Command::Type::Shadow) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+wsc::Path makeSquarePath()
+{
+    wsc::Path square;
+    square.moveTo(40.0f, 40.0f);
+    square.lineTo(120.0f, 40.0f);
+    square.lineTo(120.0f, 120.0f);
+    square.lineTo(40.0f, 120.0f);
+    square.close();
+    return square;
+}
+
+bool testFillGaussianShadowQueuesShadowCommand()
+{
+    auto renderer = std::make_unique<FakeRenderer>();
+    FakeRenderer *rawRenderer = renderer.get();
+    std::unique_ptr<wsc::Canvas> canvas = wsc::CanvasLifecycleTestAccess::create(std::move(renderer));
+
+    bool ok = expect(canvas->initializeContext(), "initializeContext should succeed");
+    canvas->setSize(200, 200);
+
+    wsc::Paint fill;
+    fill.setStyle(wsc::Paint::Style::FILL);
+    fill.setColor(wsc::Color(200, 60, 60));
+    fill.setShadowLayer(10.0f, 4.0f, 5.0f, wsc::Color(0, 0, 0, 160));
+    canvas->drawPath(makeSquarePath(), fill);
+    ok = expect(countShadowCommands(*rawRenderer) == 1,
+                "blurred fill shadow should queue exactly one DrawShadowCommand") && ok;
+
+    // Radius 0 falls back to the offset passes; no Gaussian command is queued.
+    rawRenderer->clear();
+    fill.setShadowLayer(0.0f, 4.0f, 5.0f, wsc::Color(0, 0, 0, 160));
+    canvas->drawPath(makeSquarePath(), fill);
+    ok = expect(countShadowCommands(*rawRenderer) == 0,
+                "radius-0 fill shadow should not use the Gaussian path") && ok;
+
+    return ok;
+}
+
+bool testStrokeGaussianShadowQueuesShadowCommand()
+{
+    auto renderer = std::make_unique<FakeRenderer>();
+    FakeRenderer *rawRenderer = renderer.get();
+    std::unique_ptr<wsc::Canvas> canvas = wsc::CanvasLifecycleTestAccess::create(std::move(renderer));
+
+    bool ok = expect(canvas->initializeContext(), "initializeContext should succeed");
+    canvas->setSize(200, 200);
+
+    wsc::Paint stroke;
+    stroke.setStyle(wsc::Paint::Style::STROKE);
+    stroke.setStrokeWidth(6.0f);
+    stroke.setStrokeColor(wsc::Color(60, 160, 90));
+    stroke.setShadowLayer(10.0f, 4.0f, 5.0f, wsc::Color(0, 0, 0, 160));
+    canvas->drawPath(makeSquarePath(), stroke);
+    ok = expect(countShadowCommands(*rawRenderer) == 1,
+                "blurred stroke shadow should queue exactly one DrawShadowCommand") && ok;
+
+    return ok;
+}
+
+bool testGeometryTextGaussianShadowQueuesShadowCommand()
+{
+    auto renderer = std::make_unique<FakeRenderer>();
+    FakeRenderer *rawRenderer = renderer.get();
+    std::unique_ptr<wsc::Canvas> canvas = wsc::CanvasLifecycleTestAccess::create(std::move(renderer));
+
+    bool ok = expect(canvas->initializeContext(), "initializeContext should succeed");
+    canvas->setSize(200, 100);
+
+    wsc::Paint textPaint;
+    textPaint.setTextSize(16.0f);
+    textPaint.setColor(wsc::Color::WHITE);
+    textPaint.setShadowLayer(8.0f, 2.0f, 3.0f, wsc::Color(0, 0, 0, 160));
+    canvas->drawText("shadow", 20.0f, 24.0f, textPaint);
+    ok = expect(countShadowCommands(*rawRenderer) == 1,
+                "blurred geometry-text shadow should queue exactly one DrawShadowCommand") && ok;
+
+    return ok;
+}
+
 bool testGradientQueuesShaderDescriptor()
 {
     auto renderer = std::make_unique<FakeRenderer>();
@@ -453,6 +543,9 @@ int main()
     ok = testBoxShadowQueuesWork() && ok;
     ok = testTextShadowQueuesWork() && ok;
     ok = testTextStrokeQueuesWork() && ok;
+    ok = testFillGaussianShadowQueuesShadowCommand() && ok;
+    ok = testStrokeGaussianShadowQueuesShadowCommand() && ok;
+    ok = testGeometryTextGaussianShadowQueuesShadowCommand() && ok;
     ok = testGradientQueuesShaderDescriptor() && ok;
     ok = testAsyncReadbackRejectsInvalidState() && ok;
     ok = testContextRecreation() && ok;
