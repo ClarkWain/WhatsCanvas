@@ -199,6 +199,50 @@ void drawGradientScene(Canvas &canvas, float ox, bool fragmentLevel)
     }
 }
 
+// Draws filled shapes with a true separable-Gaussian drop shadow. The panel
+// toggle picks the blur radius so the same shapes can be compared at two blurs.
+void drawShadowScene(Canvas &canvas, float ox, bool strong)
+{
+    const float radius = strong ? 24.0f : 8.0f;
+    const float dx = 6.0f;
+    const float dy = 8.0f;
+    const Color shadow(20, 20, 30, 150);
+
+    {
+        Paint p;
+        p.setStyle(Paint::Style::FILL);
+        p.setFillColor(Color(90, 150, 235));
+        p.setShadowLayer(radius, dx, dy, shadow);
+        canvas.drawRoundRect(RectF(ox + 60.0f, 60.0f, 150.0f, 110.0f), 22.0f, p);
+    }
+    {
+        Paint p;
+        p.setStyle(Paint::Style::FILL);
+        p.setFillColor(Color(240, 120, 130));
+        p.setShadowLayer(radius, dx, dy, shadow);
+        canvas.drawCircle(ox + 320.0f, 120.0f, 62.0f, p);
+    }
+    {
+        Paint p;
+        p.setStyle(Paint::Style::FILL);
+        p.setFillColor(Color(250, 205, 70));
+        p.setShadowLayer(radius, dx, dy, shadow);
+        canvas.drawPath(makeStar(ox + 150.0f, 320.0f, 85.0f, 34.0f), p);
+    }
+    {
+        Paint p;
+        p.setStyle(Paint::Style::FILL);
+        p.setFillColor(Color(120, 210, 150));
+        p.setShadowLayer(radius, dx, dy, shadow);
+        Path tri;
+        tri.moveTo(ox + 300.0f, 250.0f);
+        tri.lineTo(ox + 410.0f, 300.0f);
+        tri.lineTo(ox + 300.0f, 410.0f);
+        tri.close();
+        canvas.drawPath(tri, p);
+    }
+}
+
 std::string getEnv(const char *name)
 {
 #ifdef _MSC_VER
@@ -267,9 +311,14 @@ int main(int argc, char **argv)
         // Renders `scene` into both panels and writes the framebuffer to `path`.
         auto renderAndSave = [&](const std::string &path,
                                  const std::function<void(Canvas &, float, bool)> &scene,
-                                 const char *label) -> bool {
+                                 const char *label,
+                                 bool lightBackground = false) -> bool {
             canvas.beginFrame();
-            glClearColor(0.09f, 0.10f, 0.12f, 1.0f);
+            if (lightBackground) {
+                glClearColor(0.90f, 0.91f, 0.93f, 1.0f);
+            } else {
+                glClearColor(0.09f, 0.10f, 0.12f, 1.0f);
+            }
             glClear(GL_COLOR_BUFFER_BIT);
 
             scene(canvas, 0.0f, false);                          // left panel
@@ -277,7 +326,7 @@ int main(int argc, char **argv)
 
             Paint divider;
             divider.setStyle(Paint::Style::FILL);
-            divider.setFillColor(Color(0, 0, 0));
+            divider.setFillColor(lightBackground ? Color(150, 150, 155) : Color(0, 0, 0));
             canvas.drawRect(RectF(static_cast<float>(kPanelWidth) - 1.0f, 0.0f, 2.0f,
                                   static_cast<float>(kHeight)), divider);
             canvas.endFrame();
@@ -304,6 +353,9 @@ int main(int argc, char **argv)
 
         bool ok = renderAndSave(outputPath, drawScene, "left: AA off, right: AA on");
         ok = renderAndSave(gradientPath, drawGradientScene, "left: banded (Gouraud-style), right: fragment-level") && ok;
+        const std::string shadowPath = dir + "shadow_comparison.png";
+        ok = renderAndSave(shadowPath, drawShadowScene,
+                           "true Gaussian shadow — left: radius 8, right: radius 24", true) && ok;
         if (!ok) {
             glfwTerminate();
             return 1;
