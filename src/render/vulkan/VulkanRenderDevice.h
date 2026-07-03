@@ -112,6 +112,12 @@ public:
                               float bgR, float bgG, float bgB, float bgA, float fgR, float fgG, float fgB,
                               float fgA) const;
 
+    /// Vulkan-specific M5 capability: draw a full-target quad sampling the given
+    /// image resource (created via createImageResourceRGBA/FromImageData) into
+    /// an offscreen render target, then leave it ready for readPixelsRGBA().
+    bool renderTexturedQuad(const std::unique_ptr<IRenderTarget> &target,
+                            const SharedImageResource &imageResource) const;
+
     /// Opaque backend context, defined in the implementation file.
     struct VulkanContext;
 
