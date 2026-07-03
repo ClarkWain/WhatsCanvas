@@ -1,0 +1,188 @@
+# Vulkan Backend Roadmap
+
+Status: **Draft / in progress** · Branch: `feature/vulkan-backend`
+
+This document tracks the work needed to bring the Vulkan render backend
+(`VulkanRenderDevice`) to functional parity with the existing OpenGL backend
+(`OpenGLRenderDevice`). It is the source of truth for scope, ordering, and the
+validation gate for each milestone.
+
+## 1. Goal
+
+Make `RenderBackendType::Vulkan` a first-class, selectable backend that produces
+pixel output equivalent to the OpenGL path for the full WhatsCanvas Canvas API,
+validated on real hardware and guarded by automated tests.
+
+"Parity" is defined against the 11 `IRenderDevice` entry points plus the five
+draw-command families, not against internal implementation details.
+
+## 2. Current state (baseline)
+
+Completed on this branch:
+
+- `VulkanRenderDevice` implements `IRenderDevice` and is wired through
+  `RenderDeviceFactory` (`create` / `isBackendSupported` / `isAvailable`).
+- The source compiles unconditionally as an inert stub; real Vulkan is only
+  enabled with `-DWHATSCANVAS_ENABLE_VULKAN=ON` + a Vulkan SDK.
+- `initializeBackend()` performs real device bring-up: instance, physical-device
+  selection (discrete-GPU preferred), graphics queue-family discovery, logical
+  device and graphics queue creation.
+- `WhatsCanvasVulkanDeviceTests` (CTest label `vulkan`) validates bring-up on
+  real hardware (verified on NVIDIA GeForce RTX 2080 Ti).
+
+Not started: everything that produces or reads pixels. Ten of the eleven
+`IRenderDevice` methods are stubs.
+
+### 2.1 Parity gap
+
+| `IRenderDevice` method | OpenGL | Vulkan | Milestone |
+| --- | --- | --- | --- |
+| `initializeBackend` | full (state + 5 shader programs + buffers) | device bring-up only | M1 |
+| `readPixelsRGBA` | `glReadPixels` + flip | stub | M2 |
+| `createRenderTarget` | FBO + texture + stencil | stub | M2 |
+| `createImageResourceRGBA` | GL texture | stub | M5 |
+| `createImageResourceFromImageData` | GL texture + mipmap | stub | M5 |
+| `updateImageResourceRGBA` | partial texture update | stub | M5 |
+| `wrapExternalImageResource` | wrap handle | stub | M8 |
+| `createClipMaskResource` | AA coverage mask | stub | M7 |
+| `resourceStats` | live counts | empty | M2+ (incremental) |
+| `renderCommandsToImageResource` | offscreen replay | stub | M6 |
+| Draw commands (points/lines/path/image/text) | 5 GL programs | none | M3–M5 |
+
+## 3. Architectural constraint (must decide before M3)
+
+The five draw commands (`DrawPoints`, `DrawLines`, `DrawPath`, `DrawImage`,
+`DrawText`) currently call OpenGL directly inside `Command::execute(RenderContext)`.
+They are GL-coupled and cannot be reused by Vulkan as-is. ADR-002 introduced the
+device abstraction, but the command/recording layer is still GL-specific.
+
+Two viable strategies:
+
+- **A. Backend-neutral command layer (clean, larger).** Refactor commands to emit
+  backend-neutral draw primitives (vertex/index/uniform payloads + pipeline
+  state) that each backend consumes. Highest long-term value; unblocks Metal/D3D
+  too. Larger up-front refactor and regression risk to the shipping GL path.
+- **B. Parallel Vulkan command translator (pragmatic, faster).** Keep GL commands
+  untouched; add a Vulkan-side translation that reads the same `DrawData`
+  payloads and records Vulkan draws. Faster to a visible result; some duplicated
+  dispatch logic.
+
+Recommendation: start with **B** to reach visible parity quickly (M3–M5), then
+extract the common seam toward **A** once the Vulkan pipeline shapes are known.
+This decision is a hard dependency for M3 and should be recorded as an ADR.
+
+## 4. Milestones
+
+Each milestone lists deliverables and a concrete validation gate. Gates should be
+added to CTest under the `vulkan` label so regressions are caught automatically.
+
+### M1 — Render core bring-up
+Depends on: device bring-up (done).
+- Vulkan Memory Allocator (or a minimal allocator) for device/host memory.
+- Command pool + command buffer allocation; fences/semaphores for submission.
+- A single-time-submit helper and a per-frame submit path.
+- Extend `resourceStats` scaffolding.
+Gate: unit test allocates a buffer, submits an empty command buffer, waits on a
+fence — all succeed on hardware.
+
+### M2 — Offscreen render target + readback
+Depends on: M1.
+- `createRenderTarget(w,h)`: offscreen `VkImage` (color, optionally
+  depth/stencil), `VkImageView`, `VkFramebuffer`, a clear-only render pass.
+- `IRenderTarget` begin/activate/end semantics mapped to render-pass begin/end.
+- `readPixelsRGBA`: copy the color image to a host-visible staging buffer,
+  handle row layout and top-left origin to match OpenGL output.
+Gate: clear the target to a known color, read it back, assert exact RGBA — mirror
+of the existing pixel-hash smoke approach. First real Vulkan pixels.
+
+### M3 — First geometry: solid fills (points/lines/path fill)
+Depends on: M2 and the §3 decision.
+- SPIR-V shaders compiled from GLSL with `glslc` (add a CMake shader-compile
+  step; embed or load `.spv`).
+- Graphics pipeline(s) for solid-colored triangles/lines/points; vertex/index
+  buffers; a push-constant or UBO for the transform/color.
+- Translate `DrawPoints`, `DrawLines`, and solid `DrawPath` fill into Vulkan draws.
+- Blend state matching GL `SRC_ALPHA, ONE_MINUS_SRC_ALPHA` default.
+Gate: render a filled polygon + polyline offscreen; pixel-compare (fuzzy) against
+the OpenGL output of the same scene.
+
+### M4 — Paint features on geometry
+Depends on: M3.
+- Per-Paint anti-aliased fill/stroke (coverage feathering) to match GL analytic AA.
+- Linear/radial multi-stop gradients (fragment evaluation; texel-buffer or UBO).
+- Blend modes (Porter-Duff subset + Add/Multiply/Screen).
+- Alpha, stroke mesh (reuse Polyline2D tessellation output).
+Gate: fuzzy pixel-compare of an AA + gradient + blend scene vs OpenGL.
+
+### M5 — Images and text
+Depends on: M4.
+- `createImageResourceRGBA` / `createImageResourceFromImageData` / `updateImageResourceRGBA`:
+  `VkImage` + `VkImageView` + `VkSampler`, staging upload, optional mipmaps.
+- `DrawImage`: sampling modes (Linear/Nearest/Mipmap), tile modes
+  (Clamp/Repeat/Mirror/Decal), tint, color matrix.
+- `DrawText`: sample the existing GPU glyph atlas as a Vulkan sampled image.
+Gate: fuzzy pixel-compare of an image + text scene vs OpenGL.
+
+### M6 — Offscreen command replay (saveLayer)
+Depends on: M5.
+- `renderCommandsToImageResource`: record a command list into an offscreen image
+  and return it as a `SharedImageResource` for `saveLayer` composition.
+Gate: a `saveLayer` scene composites correctly vs OpenGL.
+
+### M7 — Anti-aliased path clipping
+Depends on: M6.
+- `createClipMaskResource`: rasterize AA coverage into an R8 mask image; multiply
+  coverage per fragment; intersect nested clips (match GL clip-mask semantics).
+- Rectangular clip fast path via `VkRect2D` scissor.
+Gate: fuzzy pixel-compare of the clip-path scene vs OpenGL (reuse the existing
+clip-path smoke scene/hash).
+
+### M8 — Windowed presentation + external images
+Depends on: M2 (swapchain can proceed in parallel after M2).
+- GLFW Vulkan surface (`glfwCreateWindowSurface`) + swapchain + present queue.
+- Frame loop: acquire/record/submit/present with proper synchronization + resize.
+- `wrapExternalImageResource` for externally-provided images.
+Gate: the showcase demo renders on-screen through Vulkan (manual + a headless
+first-frame smoke that presents to an offscreen image).
+
+### M9 — Integration, selection, and CI
+Depends on: M3+ (progressively).
+- Allow selecting the Vulkan backend at runtime/build (factory + demo wiring).
+- Add a Vulkan smoke gate to CI where a Vulkan-capable runner exists (or software
+  Vulkan / lavapipe as a fallback).
+- Documentation: update README backend section from "reserved" to "experimental".
+Gate: `ctest -L vulkan` green; CI job green.
+
+## 5. Ordering and dependencies
+
+```
+device bring-up (done)
+      -> M1 render core
+            -> M2 render target + readback
+                  -> M3 solid geometry ---> M4 paint features -> M5 images/text -> M6 saveLayer -> M7 clip
+                  -> M8 swapchain/present (parallel after M2)
+                                                                          -> M9 integration + CI
+```
+
+## 6. Cross-cutting concerns
+
+- **Shaders:** add a CMake step invoking `glslc` (already installed with the SDK)
+  to compile GLSL → SPIR-V; decide embed-as-header vs load-from-file.
+- **Validation layers:** enable `VK_LAYER_KHRONOS_validation` in debug builds and
+  fail tests on validation errors.
+- **Coordinate/clip origin:** Vulkan clip space Y is inverted vs OpenGL; normalize
+  so pixel output matches the OpenGL reference (readback origin already handled in
+  M2).
+- **Parity signal:** prefer the existing fuzzy-PPM / pixel-hash comparison
+  infrastructure so Vulkan scenes are checked against OpenGL references directly.
+- **Keep GL green:** every milestone must leave the OpenGL path and the default
+  (Vulkan-off) build unchanged and passing.
+
+## 7. Definition of done (parity)
+
+- All 11 `IRenderDevice` methods implemented for Vulkan.
+- All five draw-command families render on Vulkan.
+- A representative scene set (fills, AA, gradients, shadows, images, text, clip,
+  saveLayer) matches OpenGL within the fuzzy-compare tolerance.
+- `ctest -L vulkan` passes on hardware; CI covers it where a runner allows.
+- README documents Vulkan as an available (experimental) backend.
