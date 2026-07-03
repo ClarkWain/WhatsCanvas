@@ -56,9 +56,18 @@ public:
     /// when no device has been selected.
     const std::string &selectedDeviceName() const;
 
-private:
+    /// Vulkan-specific capability: fill an offscreen render target with a solid
+    /// RGBA color using a device clear, leaving it ready for readPixelsRGBA().
+    /// Returns false when Vulkan is not compiled in, the device is not ready, or
+    /// the target is not a Vulkan render target. Used by validation and as a
+    /// building block until the draw-command pipeline lands.
+    bool fillRenderTargetSolid(const std::unique_ptr<IRenderTarget> &target, unsigned char r, unsigned char g,
+                               unsigned char b, unsigned char a) const;
+
+    /// Opaque backend context, defined in the implementation file.
     struct VulkanContext;
 
+private:
     std::unique_ptr<VulkanContext> context_;
     bool backendInitialized_ = false;
 };

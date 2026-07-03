@@ -1,10 +1,12 @@
 #include "VulkanRenderDevice.h"
 
 #include "../IRenderTarget.h"
+#include "../IRenderer.h"
 
 #include <iostream>
 
 #if defined(WHATSCANVAS_ENABLE_VULKAN)
+#include <array>
 #include <cstring>
 #include <optional>
 
@@ -25,7 +27,7 @@ bool VulkanRenderDevice::isAvailable()
 }
 
 // ---------------------------------------------------------------------------
-// Backend context
+// Backend context (M1 render core)
 // ---------------------------------------------------------------------------
 
 #if defined(WHATSCANVAS_ENABLE_VULKAN)
@@ -37,12 +39,29 @@ struct VulkanRenderDevice::VulkanContext
     VkDevice device = VK_NULL_HANDLE;
     VkQueue graphicsQueue = VK_NULL_HANDLE;
     std::uint32_t graphicsQueueFamily = 0;
+    VkCommandPool commandPool = VK_NULL_HANDLE;
     std::string physicalDeviceName;
     bool deviceReady = false;
 
-    ~VulkanContext()
+    // Most-recently-activated / filled render target, used as the readback
+    // source for readPixelsRGBA(). Mirrors OpenGL's "current framebuffer".
+    VkImage readbackImage = VK_NULL_HANDLE;
+    VkImageLayout readbackLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    int readbackWidth = 0;
+    int readbackHeight = 0;
+
+    std::size_t renderTargetCount = 0;
+
+    ~VulkanContext() { destroy(); }
+
+    void destroy()
     {
         if (device != VK_NULL_HANDLE) {
+            vkDeviceWaitIdle(device);
+            if (commandPool != VK_NULL_HANDLE) {
+                vkDestroyCommandPool(device, commandPool, nullptr);
+                commandPool = VK_NULL_HANDLE;
+            }
             vkDestroyDevice(device, nullptr);
             device = VK_NULL_HANDLE;
         }
@@ -51,9 +70,297 @@ struct VulkanRenderDevice::VulkanContext
             instance = VK_NULL_HANDLE;
         }
     }
+
+    std::optional<std::uint32_t> findMemoryType(std::uint32_t typeBits, VkMemoryPropertyFlags properties) const
+    {
+        VkPhysicalDeviceMemoryProperties memProps{};
+        vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProps);
+        for (std::uint32_t i = 0; i < memProps.memoryTypeCount; ++i) {
+            const bool typeAllowed = (typeBits & (1u << i)) != 0;
+            const bool hasProps = (memProps.memoryTypes[i].propertyFlags & properties) == properties;
+            if (typeAllowed && hasProps) {
+                return i;
+            }
+        }
+        return std::nullopt;
+    }
+
+    VkCommandBuffer beginSingleTimeCommands() const
+    {
+        VkCommandBufferAllocateInfo allocInfo{};
+        allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        allocInfo.commandPool = commandPool;
+        allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        allocInfo.commandBufferCount = 1;
+
+        VkCommandBuffer cmd = VK_NULL_HANDLE;
+        if (vkAllocateCommandBuffers(device, &allocInfo, &cmd) != VK_SUCCESS) {
+            return VK_NULL_HANDLE;
+        }
+
+        VkCommandBufferBeginInfo beginInfo{};
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(cmd, &beginInfo);
+        return cmd;
+    }
+
+    bool endSingleTimeCommands(VkCommandBuffer cmd) const
+    {
+        if (cmd == VK_NULL_HANDLE) {
+            return false;
+        }
+        vkEndCommandBuffer(cmd);
+
+        VkSubmitInfo submitInfo{};
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &cmd;
+
+        VkFenceCreateInfo fenceInfo{};
+        fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        VkFence fence = VK_NULL_HANDLE;
+        vkCreateFence(device, &fenceInfo, nullptr, &fence);
+
+        const VkResult submitResult = vkQueueSubmit(graphicsQueue, 1, &submitInfo, fence);
+        if (submitResult == VK_SUCCESS) {
+            vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
+        }
+
+        vkDestroyFence(device, fence, nullptr);
+        vkFreeCommandBuffers(device, commandPool, 1, &cmd);
+        return submitResult == VK_SUCCESS;
+    }
+
+    // Broad, synchronous layout transition. Simple and correct for the
+    // single-time submits used in M1/M2; tighter barriers come with the
+    // per-frame pipeline in later milestones.
+    static void transitionImageLayout(VkCommandBuffer cmd, VkImage image, VkImageLayout oldLayout,
+                                      VkImageLayout newLayout)
+    {
+        VkImageMemoryBarrier barrier{};
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.oldLayout = oldLayout;
+        barrier.newLayout = newLayout;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = image;
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        barrier.subresourceRange.baseMipLevel = 0;
+        barrier.subresourceRange.levelCount = 1;
+        barrier.subresourceRange.baseArrayLayer = 0;
+        barrier.subresourceRange.layerCount = 1;
+        barrier.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT | VK_ACCESS_MEMORY_READ_BIT;
+        barrier.dstAccessMask = VK_ACCESS_MEMORY_WRITE_BIT | VK_ACCESS_MEMORY_READ_BIT;
+
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0,
+                             nullptr, 0, nullptr, 1, &barrier);
+    }
+
+    bool createHostVisibleBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkBuffer &outBuffer,
+                                 VkDeviceMemory &outMemory) const
+    {
+        VkBufferCreateInfo bufferInfo{};
+        bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        bufferInfo.size = size;
+        bufferInfo.usage = usage;
+        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        if (vkCreateBuffer(device, &bufferInfo, nullptr, &outBuffer) != VK_SUCCESS) {
+            return false;
+        }
+
+        VkMemoryRequirements memReq{};
+        vkGetBufferMemoryRequirements(device, outBuffer, &memReq);
+        const auto typeIndex = findMemoryType(memReq.memoryTypeBits,
+                                              VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
+                                                  | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        if (!typeIndex.has_value()) {
+            vkDestroyBuffer(device, outBuffer, nullptr);
+            outBuffer = VK_NULL_HANDLE;
+            return false;
+        }
+
+        VkMemoryAllocateInfo allocInfo{};
+        allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocInfo.allocationSize = memReq.size;
+        allocInfo.memoryTypeIndex = typeIndex.value();
+        if (vkAllocateMemory(device, &allocInfo, nullptr, &outMemory) != VK_SUCCESS) {
+            vkDestroyBuffer(device, outBuffer, nullptr);
+            outBuffer = VK_NULL_HANDLE;
+            return false;
+        }
+
+        vkBindBufferMemory(device, outBuffer, outMemory, 0);
+        return true;
+    }
 };
 
 namespace {
+
+constexpr VkFormat kRenderTargetFormat = VK_FORMAT_R8G8B8A8_UNORM;
+
+// Minimal non-owning image resource; the owning render target manages the image
+// lifetime. Sampling support arrives with the texture milestone (M5).
+class VulkanImageResource final : public ImageResource
+{
+public:
+    VulkanImageResource(VkImage image, int width, int height)
+        : image_(image), width_(width), height_(height)
+    {
+    }
+
+    bool isValid() const override { return image_ != VK_NULL_HANDLE; }
+    void bind(const RenderContext & /*context*/) const override {}
+    bool updateRGBA(int /*x*/, int /*y*/, int /*width*/, int /*height*/, const unsigned char * /*pixels*/,
+                    bool /*regenerateMipmaps*/) override
+    {
+        return false;
+    }
+
+    VkImage image() const { return image_; }
+
+private:
+    VkImage image_ = VK_NULL_HANDLE;
+    int width_ = 0;
+    int height_ = 0;
+};
+
+// Offscreen render target: color image + view + clear render pass + framebuffer.
+class VulkanRenderTarget final : public IRenderTarget
+{
+public:
+    VulkanRenderTarget(VulkanRenderDevice::VulkanContext *context, int width, int height, VkImage image,
+                       VkDeviceMemory memory, VkImageView view, VkRenderPass renderPass, VkFramebuffer framebuffer)
+        : context_(context),
+          width_(width),
+          height_(height),
+          image_(image),
+          memory_(memory),
+          view_(view),
+          renderPass_(renderPass),
+          framebuffer_(framebuffer),
+          imageResource_(std::make_shared<VulkanImageResource>(image, width, height))
+    {
+        if (context_) {
+            ++context_->renderTargetCount;
+        }
+    }
+
+    ~VulkanRenderTarget() override
+    {
+        if (!context_ || context_->device == VK_NULL_HANDLE) {
+            return;
+        }
+        vkDeviceWaitIdle(context_->device);
+        if (context_->readbackImage == image_) {
+            context_->readbackImage = VK_NULL_HANDLE;
+            context_->readbackLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            context_->readbackWidth = 0;
+            context_->readbackHeight = 0;
+        }
+        if (framebuffer_ != VK_NULL_HANDLE) {
+            vkDestroyFramebuffer(context_->device, framebuffer_, nullptr);
+        }
+        if (renderPass_ != VK_NULL_HANDLE) {
+            vkDestroyRenderPass(context_->device, renderPass_, nullptr);
+        }
+        if (view_ != VK_NULL_HANDLE) {
+            vkDestroyImageView(context_->device, view_, nullptr);
+        }
+        if (image_ != VK_NULL_HANDLE) {
+            vkDestroyImage(context_->device, image_, nullptr);
+        }
+        if (memory_ != VK_NULL_HANDLE) {
+            vkFreeMemory(context_->device, memory_, nullptr);
+        }
+        if (context_->renderTargetCount > 0) {
+            --context_->renderTargetCount;
+        }
+    }
+
+    bool isValid() const override
+    {
+        return width_ > 0 && height_ > 0 && image_ != VK_NULL_HANDLE && view_ != VK_NULL_HANDLE
+            && renderPass_ != VK_NULL_HANDLE && framebuffer_ != VK_NULL_HANDLE;
+    }
+
+    int width() const override { return width_; }
+    int height() const override { return height_; }
+
+    bool begin(const OffscreenRenderRequest &request) override
+    {
+        request_ = request;
+        begun_ = true;
+        activated_ = false;
+        return isValid();
+    }
+
+    void activate() override
+    {
+        if (activated_ || !begun_ || !isValid()) {
+            return;
+        }
+
+        VkCommandBuffer cmd = context_->beginSingleTimeCommands();
+        if (cmd == VK_NULL_HANDLE) {
+            return;
+        }
+
+        VkClearValue clearValue{};
+        clearValue.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
+
+        VkRenderPassBeginInfo renderPassInfo{};
+        renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        renderPassInfo.renderPass = renderPass_;
+        renderPassInfo.framebuffer = framebuffer_;
+        renderPassInfo.renderArea.offset = {0, 0};
+        renderPassInfo.renderArea.extent = {static_cast<std::uint32_t>(width_), static_cast<std::uint32_t>(height_)};
+        renderPassInfo.clearValueCount = 1;
+        renderPassInfo.pClearValues = &clearValue;
+
+        vkCmdBeginRenderPass(cmd, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+        // No draws yet (M3); the clear load-op paints the target.
+        vkCmdEndRenderPass(cmd);
+        context_->endSingleTimeCommands(cmd);
+
+        // The render pass finalLayout leaves the image ready for a transfer read.
+        layout_ = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        context_->readbackImage = image_;
+        context_->readbackLayout = layout_;
+        context_->readbackWidth = width_;
+        context_->readbackHeight = height_;
+        activated_ = true;
+    }
+
+    bool isActivated() const override { return activated_; }
+
+    void end() override
+    {
+        begun_ = false;
+        activated_ = false;
+    }
+
+    SharedImageResource getImageResource() const override { return imageResource_; }
+
+    VkImage image() const { return image_; }
+    VkImageLayout layout() const { return layout_; }
+    void setLayout(VkImageLayout layout) { layout_ = layout; }
+
+private:
+    VulkanRenderDevice::VulkanContext *context_ = nullptr;
+    int width_ = 0;
+    int height_ = 0;
+    VkImage image_ = VK_NULL_HANDLE;
+    VkDeviceMemory memory_ = VK_NULL_HANDLE;
+    VkImageView view_ = VK_NULL_HANDLE;
+    VkRenderPass renderPass_ = VK_NULL_HANDLE;
+    VkFramebuffer framebuffer_ = VK_NULL_HANDLE;
+    VkImageLayout layout_ = VK_IMAGE_LAYOUT_UNDEFINED;
+    SharedImageResource imageResource_;
+    bool begun_ = false;
+    bool activated_ = false;
+    OffscreenRenderRequest request_{};
+};
 
 // Locate a queue family that supports graphics operations.
 std::optional<std::uint32_t> findGraphicsQueueFamily(VkPhysicalDevice device)
@@ -221,6 +528,17 @@ void VulkanRenderDevice::initializeBackend()
     }
 
     vkGetDeviceQueue(context_->device, context_->graphicsQueueFamily, 0, &context_->graphicsQueue);
+
+    // M1 render core: command pool for single-time and per-frame submissions.
+    VkCommandPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    poolInfo.queueFamilyIndex = context_->graphicsQueueFamily;
+    if (vkCreateCommandPool(context_->device, &poolInfo, nullptr, &context_->commandPool) != VK_SUCCESS) {
+        std::cerr << "[VulkanRenderDevice] Failed to create Vulkan command pool." << std::endl;
+        return;
+    }
+
     context_->deviceReady = true;
     backendInitialized_ = true;
 
@@ -270,32 +588,288 @@ const std::string &VulkanRenderDevice::selectedDeviceName() const
 }
 
 // ---------------------------------------------------------------------------
+// M2: offscreen render target + readback
+// ---------------------------------------------------------------------------
+
+std::unique_ptr<IRenderTarget> VulkanRenderDevice::createRenderTarget(int width, int height) const
+{
+#if defined(WHATSCANVAS_ENABLE_VULKAN)
+    if (!context_ || !context_->deviceReady || width <= 0 || height <= 0) {
+        return nullptr;
+    }
+
+    VkDevice device = context_->device;
+
+    VkImage image = VK_NULL_HANDLE;
+    VkDeviceMemory memory = VK_NULL_HANDLE;
+    VkImageView view = VK_NULL_HANDLE;
+    VkRenderPass renderPass = VK_NULL_HANDLE;
+    VkFramebuffer framebuffer = VK_NULL_HANDLE;
+
+    auto cleanup = [&]() {
+        if (framebuffer != VK_NULL_HANDLE) vkDestroyFramebuffer(device, framebuffer, nullptr);
+        if (renderPass != VK_NULL_HANDLE) vkDestroyRenderPass(device, renderPass, nullptr);
+        if (view != VK_NULL_HANDLE) vkDestroyImageView(device, view, nullptr);
+        if (image != VK_NULL_HANDLE) vkDestroyImage(device, image, nullptr);
+        if (memory != VK_NULL_HANDLE) vkFreeMemory(device, memory, nullptr);
+    };
+
+    VkImageCreateInfo imageInfo{};
+    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    imageInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageInfo.format = kRenderTargetFormat;
+    imageInfo.extent = {static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height), 1};
+    imageInfo.mipLevels = 1;
+    imageInfo.arrayLayers = 1;
+    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT
+                      | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    if (vkCreateImage(device, &imageInfo, nullptr, &image) != VK_SUCCESS) {
+        return nullptr;
+    }
+
+    VkMemoryRequirements memReq{};
+    vkGetImageMemoryRequirements(device, image, &memReq);
+    const auto typeIndex = context_->findMemoryType(memReq.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (!typeIndex.has_value()) {
+        cleanup();
+        return nullptr;
+    }
+
+    VkMemoryAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize = memReq.size;
+    allocInfo.memoryTypeIndex = typeIndex.value();
+    if (vkAllocateMemory(device, &allocInfo, nullptr, &memory) != VK_SUCCESS) {
+        cleanup();
+        return nullptr;
+    }
+    vkBindImageMemory(device, image, memory, 0);
+
+    VkImageViewCreateInfo viewInfo{};
+    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewInfo.image = image;
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.format = kRenderTargetFormat;
+    viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    viewInfo.subresourceRange.baseMipLevel = 0;
+    viewInfo.subresourceRange.levelCount = 1;
+    viewInfo.subresourceRange.baseArrayLayer = 0;
+    viewInfo.subresourceRange.layerCount = 1;
+    if (vkCreateImageView(device, &viewInfo, nullptr, &view) != VK_SUCCESS) {
+        cleanup();
+        return nullptr;
+    }
+
+    VkAttachmentDescription colorAttachment{};
+    colorAttachment.format = kRenderTargetFormat;
+    colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    colorAttachment.finalLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+
+    VkAttachmentReference colorRef{};
+    colorRef.attachment = 0;
+    colorRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    VkSubpassDescription subpass{};
+    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.colorAttachmentCount = 1;
+    subpass.pColorAttachments = &colorRef;
+
+    VkRenderPassCreateInfo renderPassInfo{};
+    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    renderPassInfo.attachmentCount = 1;
+    renderPassInfo.pAttachments = &colorAttachment;
+    renderPassInfo.subpassCount = 1;
+    renderPassInfo.pSubpasses = &subpass;
+    if (vkCreateRenderPass(device, &renderPassInfo, nullptr, &renderPass) != VK_SUCCESS) {
+        cleanup();
+        return nullptr;
+    }
+
+    VkFramebufferCreateInfo framebufferInfo{};
+    framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+    framebufferInfo.renderPass = renderPass;
+    framebufferInfo.attachmentCount = 1;
+    framebufferInfo.pAttachments = &view;
+    framebufferInfo.width = static_cast<std::uint32_t>(width);
+    framebufferInfo.height = static_cast<std::uint32_t>(height);
+    framebufferInfo.layers = 1;
+    if (vkCreateFramebuffer(device, &framebufferInfo, nullptr, &framebuffer) != VK_SUCCESS) {
+        cleanup();
+        return nullptr;
+    }
+
+    return std::make_unique<VulkanRenderTarget>(context_.get(), width, height, image, memory, view, renderPass,
+                                                framebuffer);
+#else
+    (void)width;
+    (void)height;
+    return nullptr;
+#endif
+}
+
+bool VulkanRenderDevice::fillRenderTargetSolid(const std::unique_ptr<IRenderTarget> &target, unsigned char r,
+                                               unsigned char g, unsigned char b, unsigned char a) const
+{
+#if defined(WHATSCANVAS_ENABLE_VULKAN)
+    if (!context_ || !context_->deviceReady || !target) {
+        return false;
+    }
+    auto *rt = dynamic_cast<VulkanRenderTarget *>(target.get());
+    if (rt == nullptr || !rt->isValid()) {
+        return false;
+    }
+
+    VkCommandBuffer cmd = context_->beginSingleTimeCommands();
+    if (cmd == VK_NULL_HANDLE) {
+        return false;
+    }
+
+    VulkanContext::transitionImageLayout(cmd, rt->image(), rt->layout(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+    VkClearColorValue clearColor{};
+    clearColor.float32[0] = static_cast<float>(r) / 255.0f;
+    clearColor.float32[1] = static_cast<float>(g) / 255.0f;
+    clearColor.float32[2] = static_cast<float>(b) / 255.0f;
+    clearColor.float32[3] = static_cast<float>(a) / 255.0f;
+
+    VkImageSubresourceRange range{};
+    range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    range.baseMipLevel = 0;
+    range.levelCount = 1;
+    range.baseArrayLayer = 0;
+    range.layerCount = 1;
+    vkCmdClearColorImage(cmd, rt->image(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clearColor, 1, &range);
+
+    VulkanContext::transitionImageLayout(cmd, rt->image(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+
+    if (!context_->endSingleTimeCommands(cmd)) {
+        return false;
+    }
+
+    rt->setLayout(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    context_->readbackImage = rt->image();
+    context_->readbackLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    context_->readbackWidth = rt->width();
+    context_->readbackHeight = rt->height();
+    return true;
+#else
+    (void)target;
+    (void)r;
+    (void)g;
+    (void)b;
+    (void)a;
+    return false;
+#endif
+}
+
+bool VulkanRenderDevice::readPixelsRGBA(int width, int height, std::vector<unsigned char> &pixels) const
+{
+#if defined(WHATSCANVAS_ENABLE_VULKAN)
+    if (!context_ || !context_->deviceReady || width <= 0 || height <= 0
+        || context_->readbackImage == VK_NULL_HANDLE || width != context_->readbackWidth
+        || height != context_->readbackHeight) {
+        pixels.clear();
+        return false;
+    }
+
+    const VkDeviceSize bufferSize = static_cast<VkDeviceSize>(width) * static_cast<VkDeviceSize>(height) * 4u;
+
+    VkBuffer staging = VK_NULL_HANDLE;
+    VkDeviceMemory stagingMemory = VK_NULL_HANDLE;
+    if (!context_->createHostVisibleBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT, staging, stagingMemory)) {
+        pixels.clear();
+        return false;
+    }
+
+    VkCommandBuffer cmd = context_->beginSingleTimeCommands();
+    if (cmd == VK_NULL_HANDLE) {
+        vkDestroyBuffer(context_->device, staging, nullptr);
+        vkFreeMemory(context_->device, stagingMemory, nullptr);
+        pixels.clear();
+        return false;
+    }
+
+    if (context_->readbackLayout != VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL) {
+        VulkanContext::transitionImageLayout(cmd, context_->readbackImage, context_->readbackLayout,
+                                             VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    }
+
+    VkBufferImageCopy region{};
+    region.bufferOffset = 0;
+    region.bufferRowLength = 0;
+    region.bufferImageHeight = 0;
+    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.imageSubresource.mipLevel = 0;
+    region.imageSubresource.baseArrayLayer = 0;
+    region.imageSubresource.layerCount = 1;
+    region.imageOffset = {0, 0, 0};
+    region.imageExtent = {static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height), 1};
+    vkCmdCopyImageToBuffer(cmd, context_->readbackImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staging, 1, &region);
+
+    const bool submitted = context_->endSingleTimeCommands(cmd);
+    context_->readbackLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+
+    bool success = false;
+    if (submitted) {
+        void *mapped = nullptr;
+        if (vkMapMemory(context_->device, stagingMemory, 0, bufferSize, 0, &mapped) == VK_SUCCESS) {
+            pixels.resize(static_cast<std::size_t>(bufferSize));
+            std::memcpy(pixels.data(), mapped, static_cast<std::size_t>(bufferSize));
+            vkUnmapMemory(context_->device, stagingMemory);
+            success = true;
+        }
+    }
+
+    vkDestroyBuffer(context_->device, staging, nullptr);
+    vkFreeMemory(context_->device, stagingMemory, nullptr);
+
+    if (!success) {
+        pixels.clear();
+    }
+    return success;
+#else
+    (void)width;
+    (void)height;
+    pixels.clear();
+    return false;
+#endif
+}
+
+RenderResourceStats VulkanRenderDevice::resourceStats() const
+{
+    RenderResourceStats stats{};
+#if defined(WHATSCANVAS_ENABLE_VULKAN)
+    if (context_) {
+        stats.renderTargetCount = context_->renderTargetCount;
+    }
+#endif
+    return stats;
+}
+
+// ---------------------------------------------------------------------------
 // Resource + command entry points (later milestones)
 // ---------------------------------------------------------------------------
 
-bool VulkanRenderDevice::readPixelsRGBA(int /*width*/, int /*height*/,
-                                        std::vector<unsigned char> & /*pixels*/) const
-{
-    // TODO(vulkan): implement framebuffer readback once the render pass lands.
-    return false;
-}
-
-std::unique_ptr<IRenderTarget> VulkanRenderDevice::createRenderTarget(int /*width*/, int /*height*/) const
-{
-    // TODO(vulkan): implement offscreen render targets.
-    return nullptr;
-}
-
 SharedClipMaskResource VulkanRenderDevice::createClipMaskResource(const ClipMaskPath & /*maskPath*/) const
 {
-    // TODO(vulkan): implement coverage-mask clip resources.
+    // TODO(vulkan, M7): implement coverage-mask clip resources.
     return nullptr;
 }
 
 SharedImageResource VulkanRenderDevice::createImageResourceRGBA(int /*width*/, int /*height*/,
                                                                 const std::vector<unsigned char> & /*pixels*/) const
 {
-    // TODO(vulkan): implement image/texture resources.
+    // TODO(vulkan, M5): implement image/texture resources.
     return nullptr;
 }
 
@@ -304,7 +878,7 @@ SharedImageResource VulkanRenderDevice::createImageResourceFromImageData(int /*w
                                                                          const unsigned char * /*pixels*/,
                                                                          bool /*generateMipmaps*/) const
 {
-    // TODO(vulkan): implement image/texture resources.
+    // TODO(vulkan, M5): implement image/texture resources.
     return nullptr;
 }
 
@@ -312,24 +886,19 @@ bool VulkanRenderDevice::updateImageResourceRGBA(const SharedImageResource & /*i
                                                  int /*width*/, int /*height*/, const unsigned char * /*pixels*/,
                                                  bool /*regenerateMipmaps*/) const
 {
-    // TODO(vulkan): implement partial image updates.
+    // TODO(vulkan, M5): implement partial image updates.
     return false;
 }
 
 SharedImageResource VulkanRenderDevice::wrapExternalImageResource(ImageResourceHandle /*handle*/) const
 {
-    // TODO(vulkan): implement external image wrapping.
+    // TODO(vulkan, M8): implement external image wrapping.
     return nullptr;
-}
-
-RenderResourceStats VulkanRenderDevice::resourceStats() const
-{
-    return RenderResourceStats{};
 }
 
 SharedImageResource VulkanRenderDevice::renderCommandsToImageResource(
     const std::vector<std::unique_ptr<Command>> & /*commands*/, const OffscreenRenderRequest & /*request*/) const
 {
-    // TODO(vulkan): implement command replay into an offscreen image.
+    // TODO(vulkan, M6): implement command replay into an offscreen image.
     return nullptr;
 }
