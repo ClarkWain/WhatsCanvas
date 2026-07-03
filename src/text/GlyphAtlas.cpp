@@ -17,6 +17,19 @@ bool GlyphKey::operator==(const GlyphKey &other) const
         && format == other.format;
 }
 
+std::size_t GlyphKeyHasher::operator()(const GlyphKey &key) const
+{
+    std::size_t seed = std::hash<std::string>{}(key.fontFamily);
+    const auto combine = [&seed](std::size_t value) {
+        seed ^= value + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2);
+    };
+    combine(std::hash<std::uint32_t>{}(key.codepoint));
+    combine(std::hash<int>{}(key.glyphIndex));
+    combine(std::hash<float>{}(key.pixelSize));
+    combine(std::hash<int>{}(static_cast<int>(key.format)));
+    return seed;
+}
+
 GlyphAtlas::GlyphAtlas(int width, int height, int padding)
     : width_(std::max(0, width)),
       height_(std::max(0, height)),
@@ -29,10 +42,11 @@ GlyphAtlas::GlyphAtlas(int width, int height, int padding)
 
 const GlyphAtlasEntry *GlyphAtlas::find(const GlyphKey &key) const
 {
-    const auto found = std::find_if(entries_.begin(), entries_.end(), [&](const GlyphAtlasEntry &entry) {
-        return entry.key == key;
-    });
-    return found == entries_.end() ? nullptr : &(*found);
+    const auto found = entryIndex_.find(key);
+    if (found == entryIndex_.end() || found->second >= entries_.size()) {
+        return nullptr;
+    }
+    return &entries_[found->second];
 }
 
 std::optional<GlyphAtlasEntry> GlyphAtlas::uploadGlyph(const GlyphKey &key, const GlyphBitmap &bitmap)
@@ -77,8 +91,9 @@ std::optional<GlyphAtlasEntry> GlyphAtlas::uploadGlyph(const GlyphKey &key, cons
     entry.advanceX = bitmap.advanceX;
     entry.generation = generation_;
 
-    writeGlyphPixels(entry, bitmap);
     entries_.push_back(entry);
+    entryIndex_[entry.key] = entries_.size() - 1u;
+    writeGlyphPixels(entries_.back(), bitmap);
     ++uploadCount_;
     textureValid_ = true;
     return entry;
@@ -87,6 +102,7 @@ std::optional<GlyphAtlasEntry> GlyphAtlas::uploadGlyph(const GlyphKey &key, cons
 void GlyphAtlas::clear()
 {
     entries_.clear();
+    entryIndex_.clear();
     std::fill(pixels_.begin(), pixels_.end(), 0);
     std::fill(rgbaPixels_.begin(), rgbaPixels_.end(), 0);
     hasColorPixels_ = false;
@@ -204,6 +220,7 @@ bool GlyphAtlas::growToFit(int width, int height)
     pixels_.assign(static_cast<std::size_t>(width_) * static_cast<std::size_t>(height_), 0);
     rgbaPixels_.assign(static_cast<std::size_t>(width_) * static_cast<std::size_t>(height_) * 4u, 0);
     entries_.clear();
+    entryIndex_.clear();
     hasColorPixels_ = false;
     resetPacking();
     markFullDirty();

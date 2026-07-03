@@ -116,6 +116,26 @@ bool testResizeAndOversizedGlyph()
     return ok;
 }
 
+bool testLookupIndexClearsAfterReset()
+{
+    wsc::text::GlyphAtlas atlas(12, 8, 1);
+    bool ok = expect(atlas.uploadGlyph(makeKey('A'), makeBitmap(3, 3, 20)).has_value(), "first indexed glyph should fit");
+    ok = expect(atlas.uploadGlyph(makeKey('B'), makeBitmap(3, 3, 40)).has_value(), "second indexed glyph should fit") && ok;
+    ok = expect(atlas.find(makeKey('A')) != nullptr, "indexed glyph lookup should hit before reset") && ok;
+
+    ok = expect(atlas.uploadGlyph(makeKey('C'), makeBitmap(3, 3, 60)).has_value(),
+                "third glyph should force resize") && ok;
+    ok = expect(atlas.find(makeKey('A')) == nullptr,
+                "resize should clear lookup index for entries that need rebuild") && ok;
+    ok = expect(atlas.find(makeKey('C')) != nullptr,
+                "lookup index should include glyph uploaded after resize") && ok;
+
+    atlas.onContextLost();
+    ok = expect(atlas.find(makeKey('C')) == nullptr,
+                "context loss should clear lookup index for evicted entries") && ok;
+    return ok;
+}
+
 bool testContextLossRebuildHooks()
 {
     wsc::text::GlyphAtlas atlas(32, 16, 1);
@@ -160,6 +180,7 @@ int main()
     ok = testUploadAndFind() && ok;
     ok = testDuplicateUploadHitsCache() && ok;
     ok = testResizeAndOversizedGlyph() && ok;
+    ok = testLookupIndexClearsAfterReset() && ok;
     ok = testContextLossRebuildHooks() && ok;
     ok = testColorGlyphUploadKeepsRgbaPixels() && ok;
     return ok ? 0 : 1;

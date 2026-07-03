@@ -1,8 +1,10 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace wsc::text {
@@ -22,6 +24,11 @@ struct GlyphKey
     GlyphBitmapFormat format = GlyphBitmapFormat::Alpha;
 
     bool operator==(const GlyphKey &other) const;
+};
+
+struct GlyphKeyHasher
+{
+    std::size_t operator()(const GlyphKey &key) const;
 };
 
 struct GlyphBitmap
@@ -111,6 +118,7 @@ private:
     int cursorY_ = 0;
     int rowHeight_ = 0;
     std::vector<GlyphAtlasEntry> entries_;
+    std::unordered_map<GlyphKey, std::size_t, GlyphKeyHasher> entryIndex_;
     std::vector<GlyphKey> pendingRebuildKeys_;
     std::vector<GlyphAtlasDirtyRect> dirtyRects_;
     std::vector<unsigned char> pixels_;

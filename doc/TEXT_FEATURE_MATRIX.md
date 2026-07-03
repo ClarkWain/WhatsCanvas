@@ -12,6 +12,7 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 | Cross-platform font rasterization | Supported | Registered file-backed or memory-backed TrueType faces can be rasterized through the portable font rasterizer; FreeType is used when available and `stb_truetype` remains the dependency-free fallback. |
 | Optional FreeType rasterizer | Build-time supported | When FreeType is found and `WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=ON`, glyph lookup, metrics, kerning, and alpha glyph rasterization use FreeType. |
 | Atlas-backed glyph rendering | Supported | Rasterized glyphs are packed into `GlyphAtlas`; Canvas submits atlas quads through the image path. |
+| Indexed glyph lookup | Supported | `GlyphAtlas` maintains a hash index from glyph key to entry slot, avoiding linear scans on repeated glyph uploads in longer text runs. |
 | Persistent GPU atlas resource | Supported | Canvas owns a reusable GPU atlas image resource and updates it when the CPU atlas content changes. |
 | Dirty-rect atlas updates | Supported | Glyph uploads expose dirty rectangles; Canvas updates matching GPU atlas subregions when possible. |
 | RGBA glyph atlas path | Supported | `GlyphAtlas`, text render results, and Canvas atlas upload can carry RGBA glyph pixels for color font layers and alpha-derived glyphs. |
