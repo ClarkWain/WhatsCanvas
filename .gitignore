@@ -19,3 +19,4 @@ build-aa/
 task.md
 build-wsl-freetype/
 build-vendored-text/
+build-validation-win/
