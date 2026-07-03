@@ -45,12 +45,18 @@ struct VulkanRenderDevice::VulkanContext
     std::string physicalDeviceName;
     bool deviceReady = false;
 
-    // M3 solid-color graphics pipeline (lazily created against a render pass).
+    // M3/M4 solid-color graphics pipelines (lazily created against a render
+    // pass), cached per (topology, blend mode).
     VkShaderModule solidVertModule = VK_NULL_HANDLE;
     VkShaderModule solidFragModule = VK_NULL_HANDLE;
     VkPipelineLayout solidPipelineLayout = VK_NULL_HANDLE;
-    // One pipeline per topology (triangles, lines, points).
-    VkPipeline solidPipelines[3] = {VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE};
+    struct CachedPipeline
+    {
+        VkPrimitiveTopology topology;
+        int blendMode;
+        VkPipeline pipeline;
+    };
+    std::vector<CachedPipeline> pipelineCache;
 
     // Most-recently-activated / filled render target, used as the readback
     // source for readPixelsRGBA(). Mirrors OpenGL's "current framebuffer".
@@ -67,12 +73,13 @@ struct VulkanRenderDevice::VulkanContext
     {
         if (device != VK_NULL_HANDLE) {
             vkDeviceWaitIdle(device);
-            for (VkPipeline &pipeline : solidPipelines) {
-                if (pipeline != VK_NULL_HANDLE) {
-                    vkDestroyPipeline(device, pipeline, nullptr);
-                    pipeline = VK_NULL_HANDLE;
+            for (CachedPipeline &entry : pipelineCache) {
+                if (entry.pipeline != VK_NULL_HANDLE) {
+                    vkDestroyPipeline(device, entry.pipeline, nullptr);
+                    entry.pipeline = VK_NULL_HANDLE;
                 }
             }
+            pipelineCache.clear();
             if (solidPipelineLayout != VK_NULL_HANDLE) {
                 vkDestroyPipelineLayout(device, solidPipelineLayout, nullptr);
                 solidPipelineLayout = VK_NULL_HANDLE;
@@ -111,13 +118,55 @@ struct VulkanRenderDevice::VulkanContext
         return module;
     }
 
-    // Lazily build the solid-color pipeline for a given primitive topology. All
-    // render targets use structurally identical (compatible) render passes, so a
-    // single pipeline per topology is reused across targets.
-    bool ensureSolidPipeline(VkRenderPass renderPass, VkPrimitiveTopology topology, int slot)
+    // Fixed-function blend attachment state for a blend-mode index matching
+    // VulkanRenderDevice::SolidBlendMode.
+    static VkPipelineColorBlendAttachmentState blendStateFor(int blendMode)
     {
-        if (solidPipelines[slot] != VK_NULL_HANDLE) {
-            return true;
+        VkPipelineColorBlendAttachmentState blend{};
+        blend.blendEnable = VK_TRUE;
+        blend.colorBlendOp = VK_BLEND_OP_ADD;
+        blend.alphaBlendOp = VK_BLEND_OP_ADD;
+        blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT
+                               | VK_COLOR_COMPONENT_A_BIT;
+        switch (blendMode) {
+        case 1: // Src
+            blend.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+            blend.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;
+            blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+            blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+            break;
+        case 2: // Add
+            blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+            blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+            break;
+        case 3: // Multiply
+            blend.srcColorBlendFactor = VK_BLEND_FACTOR_DST_COLOR;
+            blend.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;
+            break;
+        case 4: // Screen
+            blend.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+            blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
+            break;
+        case 0: // SrcOver
+        default:
+            blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+            blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+            break;
+        }
+        return blend;
+    }
+
+    // Lazily build (and cache) a solid-color pipeline for the given topology and
+    // blend mode. All render targets use compatible render passes, so pipelines
+    // are reused across targets. Returns VK_NULL_HANDLE on failure.
+    VkPipeline ensureSolidPipeline(VkRenderPass renderPass, VkPrimitiveTopology topology, int blendMode)
+    {
+        for (const CachedPipeline &entry : pipelineCache) {
+            if (entry.topology == topology && entry.blendMode == blendMode) {
+                return entry.pipeline;
+            }
         }
 
         if (solidVertModule == VK_NULL_HANDLE) {
@@ -127,14 +176,14 @@ struct VulkanRenderDevice::VulkanContext
             solidFragModule = createShaderModule(kSolidFragSpv, sizeof(kSolidFragSpv));
         }
         if (solidVertModule == VK_NULL_HANDLE || solidFragModule == VK_NULL_HANDLE) {
-            return false;
+            return VK_NULL_HANDLE;
         }
 
         if (solidPipelineLayout == VK_NULL_HANDLE) {
             VkPipelineLayoutCreateInfo layoutInfo{};
             layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
             if (vkCreatePipelineLayout(device, &layoutInfo, nullptr, &solidPipelineLayout) != VK_SUCCESS) {
-                return false;
+                return VK_NULL_HANDLE;
             }
         }
 
@@ -190,16 +239,7 @@ struct VulkanRenderDevice::VulkanContext
         multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
         multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 
-        VkPipelineColorBlendAttachmentState blendAttachment{};
-        blendAttachment.blendEnable = VK_TRUE;
-        blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-        blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-        blendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
-        blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-        blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-        blendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
-        blendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT
-                                         | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+        VkPipelineColorBlendAttachmentState blendAttachment = blendStateFor(blendMode);
 
         VkPipelineColorBlendStateCreateInfo colorBlend{};
         colorBlend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
@@ -227,11 +267,12 @@ struct VulkanRenderDevice::VulkanContext
         pipelineInfo.renderPass = renderPass;
         pipelineInfo.subpass = 0;
 
-        if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &solidPipelines[slot])
-            != VK_SUCCESS) {
-            return false;
+        VkPipeline pipeline = VK_NULL_HANDLE;
+        if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline) != VK_SUCCESS) {
+            return VK_NULL_HANDLE;
         }
-        return true;
+        pipelineCache.push_back({topology, blendMode, pipeline});
+        return pipeline;
     }
 
     std::optional<std::uint32_t> findMemoryType(std::uint32_t typeBits, VkMemoryPropertyFlags properties) const
@@ -527,6 +568,141 @@ private:
     bool activated_ = false;
     OffscreenRenderRequest request_{};
 };
+
+// A single solid draw within a render pass: interleaved {x,y,r,g,b,a} vertices.
+struct SolidBatch
+{
+    VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    int blendMode = 0;
+    std::vector<float> vertices;
+    std::uint32_t vertexCount = 0;
+};
+
+// Record and submit one or more solid draws into `rt` inside a single render
+// pass (loadOp CLEAR). Multiple batches enable draw-over-draw compositing (e.g.
+// blend-mode validation). Leaves the target ready for readback.
+bool recordSolidBatches(VulkanRenderDevice::VulkanContext *ctx, VulkanRenderTarget *rt,
+                        const std::vector<SolidBatch> &batches)
+{
+    if (ctx == nullptr || rt == nullptr || !rt->isValid() || batches.empty()) {
+        return false;
+    }
+
+    std::vector<VkPipeline> pipelines(batches.size(), VK_NULL_HANDLE);
+    for (std::size_t i = 0; i < batches.size(); ++i) {
+        pipelines[i] = ctx->ensureSolidPipeline(rt->renderPass(), batches[i].topology, batches[i].blendMode);
+        if (pipelines[i] == VK_NULL_HANDLE) {
+            return false;
+        }
+    }
+
+    std::vector<VkBuffer> buffers(batches.size(), VK_NULL_HANDLE);
+    std::vector<VkDeviceMemory> memories(batches.size(), VK_NULL_HANDLE);
+    auto destroyBuffers = [&]() {
+        for (std::size_t i = 0; i < batches.size(); ++i) {
+            if (buffers[i] != VK_NULL_HANDLE) vkDestroyBuffer(ctx->device, buffers[i], nullptr);
+            if (memories[i] != VK_NULL_HANDLE) vkFreeMemory(ctx->device, memories[i], nullptr);
+        }
+    };
+
+    for (std::size_t i = 0; i < batches.size(); ++i) {
+        const VkDeviceSize bytes = static_cast<VkDeviceSize>(batches[i].vertices.size()) * sizeof(float);
+        if (!ctx->createHostVisibleBuffer(bytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, buffers[i], memories[i])) {
+            destroyBuffers();
+            return false;
+        }
+        void *mapped = nullptr;
+        if (vkMapMemory(ctx->device, memories[i], 0, bytes, 0, &mapped) != VK_SUCCESS) {
+            destroyBuffers();
+            return false;
+        }
+        std::memcpy(mapped, batches[i].vertices.data(), static_cast<std::size_t>(bytes));
+        vkUnmapMemory(ctx->device, memories[i]);
+    }
+
+    VkCommandBuffer cmd = ctx->beginSingleTimeCommands();
+    if (cmd == VK_NULL_HANDLE) {
+        destroyBuffers();
+        return false;
+    }
+
+    VkClearValue clearValue{};
+    clearValue.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
+
+    VkRenderPassBeginInfo renderPassInfo{};
+    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    renderPassInfo.renderPass = rt->renderPass();
+    renderPassInfo.framebuffer = rt->framebuffer();
+    renderPassInfo.renderArea.offset = {0, 0};
+    renderPassInfo.renderArea.extent = {static_cast<std::uint32_t>(rt->width()),
+                                        static_cast<std::uint32_t>(rt->height())};
+    renderPassInfo.clearValueCount = 1;
+    renderPassInfo.pClearValues = &clearValue;
+
+    vkCmdBeginRenderPass(cmd, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+    VkViewport viewport{};
+    viewport.width = static_cast<float>(rt->width());
+    viewport.height = static_cast<float>(rt->height());
+    viewport.minDepth = 0.0f;
+    viewport.maxDepth = 1.0f;
+    vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+    VkRect2D scissor{};
+    scissor.extent = {static_cast<std::uint32_t>(rt->width()), static_cast<std::uint32_t>(rt->height())};
+    vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+    const VkDeviceSize offset = 0;
+    for (std::size_t i = 0; i < batches.size(); ++i) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines[i]);
+        vkCmdBindVertexBuffers(cmd, 0, 1, &buffers[i], &offset);
+        vkCmdDraw(cmd, batches[i].vertexCount, 1, 0, 0);
+    }
+
+    vkCmdEndRenderPass(cmd);
+    const bool submitted = ctx->endSingleTimeCommands(cmd);
+
+    destroyBuffers();
+
+    if (!submitted) {
+        return false;
+    }
+
+    rt->setLayout(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    rt->markReadbackReady();
+    ctx->readbackImage = rt->image();
+    ctx->readbackLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    ctx->readbackWidth = rt->width();
+    ctx->readbackHeight = rt->height();
+    return true;
+}
+
+// Interleave positions + a single solid color into a batch vertex array.
+std::vector<float> buildSolidVertices(const std::vector<float> &ndcPositions, float r, float g, float b, float a)
+{
+    const std::size_t vertexCount = ndcPositions.size() / 2;
+    std::vector<float> out;
+    out.reserve(vertexCount * 6);
+    for (std::size_t i = 0; i < vertexCount; ++i) {
+        out.push_back(ndcPositions[i * 2 + 0]);
+        out.push_back(ndcPositions[i * 2 + 1]);
+        out.push_back(r);
+        out.push_back(g);
+        out.push_back(b);
+        out.push_back(a);
+    }
+    return out;
+}
+
+// A full-target quad as a triangle list (6 vertices) in NDC.
+const std::vector<float> &fullTargetQuad()
+{
+    static const std::vector<float> kQuad = {
+        -1.0f, -1.0f, 1.0f, -1.0f, 1.0f, 1.0f,
+        -1.0f, -1.0f, 1.0f,  1.0f, -1.0f, 1.0f,
+    };
+    return kQuad;
+}
 
 // Locate a queue family that supports graphics operations.
 std::optional<std::uint32_t> findGraphicsQueueFamily(VkPhysicalDevice device)
@@ -956,123 +1132,35 @@ bool VulkanRenderDevice::renderSolidPrimitives(const std::unique_ptr<IRenderTarg
 
     const std::size_t vertexCount = ndcPositions.size() / 2;
     VkPrimitiveTopology vkTopology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-    int slot = 0;
     switch (topology) {
     case SolidTopology::Triangles:
         if (vertexCount < 3 || (vertexCount % 3) != 0) {
             return false;
         }
         vkTopology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-        slot = 0;
         break;
     case SolidTopology::Lines:
         if (vertexCount < 2 || (vertexCount % 2) != 0) {
             return false;
         }
         vkTopology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
-        slot = 1;
         break;
     case SolidTopology::Points:
         vkTopology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
-        slot = 2;
         break;
     }
 
     auto *rt = dynamic_cast<VulkanRenderTarget *>(target.get());
-    if (rt == nullptr || !rt->isValid()) {
-        return false;
-    }
-    if (!context_->ensureSolidPipeline(rt->renderPass(), vkTopology, slot)) {
+    if (rt == nullptr) {
         return false;
     }
 
-    // Build interleaved {x, y, r, g, b, a} vertices in a host-visible buffer.
-    std::vector<float> vertexData;
-    vertexData.reserve(vertexCount * 6);
-    for (std::size_t i = 0; i < vertexCount; ++i) {
-        vertexData.push_back(ndcPositions[i * 2 + 0]);
-        vertexData.push_back(ndcPositions[i * 2 + 1]);
-        vertexData.push_back(r);
-        vertexData.push_back(g);
-        vertexData.push_back(b);
-        vertexData.push_back(a);
-    }
-    const VkDeviceSize vertexBytes = static_cast<VkDeviceSize>(vertexData.size()) * sizeof(float);
-
-    VkBuffer vertexBuffer = VK_NULL_HANDLE;
-    VkDeviceMemory vertexMemory = VK_NULL_HANDLE;
-    if (!context_->createHostVisibleBuffer(vertexBytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertexBuffer,
-                                           vertexMemory)) {
-        return false;
-    }
-    void *mapped = nullptr;
-    if (vkMapMemory(context_->device, vertexMemory, 0, vertexBytes, 0, &mapped) != VK_SUCCESS) {
-        vkDestroyBuffer(context_->device, vertexBuffer, nullptr);
-        vkFreeMemory(context_->device, vertexMemory, nullptr);
-        return false;
-    }
-    std::memcpy(mapped, vertexData.data(), static_cast<std::size_t>(vertexBytes));
-    vkUnmapMemory(context_->device, vertexMemory);
-
-    VkCommandBuffer cmd = context_->beginSingleTimeCommands();
-    if (cmd == VK_NULL_HANDLE) {
-        vkDestroyBuffer(context_->device, vertexBuffer, nullptr);
-        vkFreeMemory(context_->device, vertexMemory, nullptr);
-        return false;
-    }
-
-    VkClearValue clearValue{};
-    clearValue.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
-
-    VkRenderPassBeginInfo renderPassInfo{};
-    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    renderPassInfo.renderPass = rt->renderPass();
-    renderPassInfo.framebuffer = rt->framebuffer();
-    renderPassInfo.renderArea.offset = {0, 0};
-    renderPassInfo.renderArea.extent = {static_cast<std::uint32_t>(rt->width()),
-                                        static_cast<std::uint32_t>(rt->height())};
-    renderPassInfo.clearValueCount = 1;
-    renderPassInfo.pClearValues = &clearValue;
-
-    vkCmdBeginRenderPass(cmd, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-
-    VkViewport viewport{};
-    viewport.x = 0.0f;
-    viewport.y = 0.0f;
-    viewport.width = static_cast<float>(rt->width());
-    viewport.height = static_cast<float>(rt->height());
-    viewport.minDepth = 0.0f;
-    viewport.maxDepth = 1.0f;
-    vkCmdSetViewport(cmd, 0, 1, &viewport);
-
-    VkRect2D scissor{};
-    scissor.offset = {0, 0};
-    scissor.extent = {static_cast<std::uint32_t>(rt->width()), static_cast<std::uint32_t>(rt->height())};
-    vkCmdSetScissor(cmd, 0, 1, &scissor);
-
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, context_->solidPipelines[slot]);
-    const VkDeviceSize offset = 0;
-    vkCmdBindVertexBuffers(cmd, 0, 1, &vertexBuffer, &offset);
-    vkCmdDraw(cmd, static_cast<std::uint32_t>(vertexCount), 1, 0, 0);
-
-    vkCmdEndRenderPass(cmd);
-    const bool submitted = context_->endSingleTimeCommands(cmd);
-
-    vkDestroyBuffer(context_->device, vertexBuffer, nullptr);
-    vkFreeMemory(context_->device, vertexMemory, nullptr);
-
-    if (!submitted) {
-        return false;
-    }
-
-    // Render pass finalLayout leaves the image ready for a transfer read.
-    rt->setLayout(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-    rt->markReadbackReady();
-    context_->readbackImage = rt->image();
-    context_->readbackLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    context_->readbackWidth = rt->width();
-    context_->readbackHeight = rt->height();
-    return true;
+    SolidBatch batch;
+    batch.topology = vkTopology;
+    batch.blendMode = 0; // SrcOver
+    batch.vertices = buildSolidVertices(ndcPositions, r, g, b, a);
+    batch.vertexCount = static_cast<std::uint32_t>(vertexCount);
+    return recordSolidBatches(context_.get(), rt, {batch});
 #else
     (void)target;
     (void)topology;
@@ -1081,6 +1169,86 @@ bool VulkanRenderDevice::renderSolidPrimitives(const std::unique_ptr<IRenderTarg
     (void)g;
     (void)b;
     (void)a;
+    return false;
+#endif
+}
+
+bool VulkanRenderDevice::renderGradientTriangles(const std::unique_ptr<IRenderTarget> &target,
+                                                 const std::vector<float> &ndcPositions,
+                                                 const std::vector<float> &rgbaPerVertex) const
+{
+#if defined(WHATSCANVAS_ENABLE_VULKAN)
+    if (!context_ || !context_->deviceReady || !target || ndcPositions.size() < 6 || (ndcPositions.size() % 6) != 0) {
+        return false;
+    }
+    const std::size_t vertexCount = ndcPositions.size() / 2;
+    if (rgbaPerVertex.size() != vertexCount * 4) {
+        return false;
+    }
+    auto *rt = dynamic_cast<VulkanRenderTarget *>(target.get());
+    if (rt == nullptr) {
+        return false;
+    }
+
+    SolidBatch batch;
+    batch.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    batch.blendMode = 0; // SrcOver
+    batch.vertices.reserve(vertexCount * 6);
+    for (std::size_t i = 0; i < vertexCount; ++i) {
+        batch.vertices.push_back(ndcPositions[i * 2 + 0]);
+        batch.vertices.push_back(ndcPositions[i * 2 + 1]);
+        batch.vertices.push_back(rgbaPerVertex[i * 4 + 0]);
+        batch.vertices.push_back(rgbaPerVertex[i * 4 + 1]);
+        batch.vertices.push_back(rgbaPerVertex[i * 4 + 2]);
+        batch.vertices.push_back(rgbaPerVertex[i * 4 + 3]);
+    }
+    batch.vertexCount = static_cast<std::uint32_t>(vertexCount);
+    return recordSolidBatches(context_.get(), rt, {batch});
+#else
+    (void)target;
+    (void)ndcPositions;
+    (void)rgbaPerVertex;
+    return false;
+#endif
+}
+
+bool VulkanRenderDevice::renderBlendedOverlay(const std::unique_ptr<IRenderTarget> &target, SolidBlendMode blendMode,
+                                              float bgR, float bgG, float bgB, float bgA, float fgR, float fgG,
+                                              float fgB, float fgA) const
+{
+#if defined(WHATSCANVAS_ENABLE_VULKAN)
+    if (!context_ || !context_->deviceReady || !target) {
+        return false;
+    }
+    auto *rt = dynamic_cast<VulkanRenderTarget *>(target.get());
+    if (rt == nullptr) {
+        return false;
+    }
+
+    SolidBatch background;
+    background.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    background.blendMode = 1; // Src: write background exactly
+    background.vertices = buildSolidVertices(fullTargetQuad(), bgR, bgG, bgB, bgA);
+    background.vertexCount = 6;
+
+    SolidBatch foreground;
+    foreground.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    foreground.blendMode = static_cast<int>(blendMode);
+    foreground.vertices = buildSolidVertices(fullTargetQuad(), fgR, fgG, fgB, fgA);
+    foreground.vertexCount = 6;
+
+    return recordSolidBatches(context_.get(), rt, {background, foreground});
+#else
+    (void)target;
+    (void)blendMode;
+    (void)bgR;
+    (void)bgG;
+    (void)bgB;
+    (void)bgA;
+    (void)fgR;
+    (void)fgG;
+    (void)fgB;
+    (void)fgA;
     return false;
 #endif
 }
