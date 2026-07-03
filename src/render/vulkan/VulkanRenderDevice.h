@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "../DrawList.h"
 #include "../IRenderDevice.h"
 
 /// Vulkan implementation of the WhatsCanvas render-device abstraction.
@@ -134,6 +135,12 @@ public:
     bool renderClippedSolid(const std::unique_ptr<IRenderTarget> &target,
                             const std::unique_ptr<IRenderTarget> &maskTarget, float r, float g, float b,
                             float a) const;
+
+    /// Backend-neutral entry point (first slice of ADR-006): execute a
+    /// backend-neutral DrawList into an offscreen render target. The Vulkan
+    /// backend translates each primitive onto its own pipelines. This is the
+    /// seam that a future backend-neutral command layer will feed.
+    bool executeDrawList(const std::unique_ptr<IRenderTarget> &target, const wsc::DrawList &drawList) const;
 
     /// Opaque backend context, defined in the implementation file.
     struct VulkanContext;

@@ -228,6 +228,26 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
         )
         set_tests_properties(WhatsCanvasVulkanClipTests PROPERTIES LABELS "vulkan" TIMEOUT 60)
+
+        add_executable(WhatsCanvasVulkanDrawListTests
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/VulkanDrawListTests.cpp"
+        )
+        target_include_directories(WhatsCanvasVulkanDrawListTests PRIVATE
+            "${SRC_DIR}"
+        )
+        target_link_libraries(WhatsCanvasVulkanDrawListTests PRIVATE
+            WhatsCanvasOpenGL
+            WhatsCanvasGLM
+        )
+        add_test(NAME WhatsCanvasVulkanDrawListTests
+            COMMAND ${CMAKE_COMMAND}
+                -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+                -DWHATSCANVAS_TEST_TARGET=WhatsCanvasVulkanDrawListTests
+                -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasVulkanDrawListTests>
+                -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+        )
+        set_tests_properties(WhatsCanvasVulkanDrawListTests PROPERTIES LABELS "vulkan" TIMEOUT 60)
     endif()
 
     add_executable(WhatsCanvasTextLayoutTests
