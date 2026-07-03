@@ -11,7 +11,7 @@ WhatsCanvas 是一个用 C++17 编写的轻量级二维渲染引擎项目，以 
 - 当前以 OpenGL 路线最完整，并已提供 OpenGLES 编译目标；Vulkan、Metal 等后端仍保留扩展空间。
 - 对外提供的是 Canvas 风格 API，而不是底层图形接口的直接暴露。
 - 定位偏轻量，强调易接入、易阅读、易验证，适合中小型项目、工具型界面、2D 游戏和教学场景。
-- 项目自带根工程演示、三个游戏示例、跨平台 CI、冒烟脚本、像素回归钩子和专题文档，方便试用、学习和继续演进。
+- 项目自带根工程演示、游戏示例、跨平台 CI、冒烟脚本、像素回归钩子和专题文档，方便试用、学习和继续演进。
 
 ## 能力总览
 
@@ -28,6 +28,20 @@ WhatsCanvas 的公开接口仍然是熟悉的 `Canvas` / `Paint` / `Path` / `Ima
 | 渲染后端 | 桌面 OpenGL 主路径、OpenGLES 目标、共享 GL-family 后端、proc-address 注入、上下文生命周期、资源释放与重建、shader portability。 | `Canvas::loadOpenGL`、`WhatsCanvas::OpenGL`、`WhatsCanvas::OpenGLES`、`initializeContext`、`releaseResources` |
 | 性能与资源 | 流式顶点缓冲、图片命令同纹理合批、路径命令合批、全局 quad index buffer、离屏 render target 复用池、GPU glyph atlas 复用、indexed glyph lookup、填充三角化 / 描边网格 / 裁剪掩码 LRU 缓存、桌面 GL texel buffer 渐变 stop、OpenGLES fallback。 | `Renderer`、`RenderTargetPool`、`GlyphAtlas`、`LruCache`、`RenderStats` |
 | 诊断与验证 | 同步 / 异步像素回读、PPM 截图、像素哈希、fuzzy PPM 对比、固定时间首帧冒烟、OpenGLES 构建冒烟、示例构建冒烟、Unicode Bidi conformance、跨平台 CI。 | `readPixelsRGBA`、`readPixelsRGBAAsync`、`savePixelsPPM`、`computePixelsHashRGBA`、`ctest`、`scripts/*_smoke.*` |
+
+## 与常见 2D 图形库的能力参照
+
+下表是粗粒度的功能定位对比，用来说明 WhatsCanvas 当前更接近哪类使用场景；它不是性能排名，也不表示其它项目不能通过扩展实现相同能力。
+
+| 项目 | 主要定位 | 渲染后端 | 路径 / Canvas 状态 | 图片 / 纹理 | 字体与文本 | 工程化与验证 |
+| --- | --- | --- | --- | --- | --- | --- |
+| WhatsCanvas | 轻量 C++ Canvas 风格 2D 渲染库，兼顾 UI、工具界面、2D 游戏和学习。 | OpenGL 主路径，OpenGLES 目标，保留多后端扩展空间。 | `save/restore`、矩阵、裁剪、路径、离屏层、解析抗锯齿、真高斯阴影、渐变、命中测试。 | 图片解码、raw RGBA、外部纹理、局部更新、九宫格、圆角 / 圆形裁剪、平铺、render-target canvas。 | FreeType / stb rasterizer、HarfBuzz shaping、fallback chain、glyph atlas、COLR/CPAL v0、UAX #9、像素回归。 | CTest、跨平台 CI、OpenGLES smoke、像素 hash / PPM / fuzzy diff、benchmark smoke、专题文档。 |
+| Skia | 完整工业级 2D 图形引擎，覆盖浏览器、应用框架和复杂排版场景。 | CPU、GPU、多平台后端生态成熟。 | 路径、滤镜、着色器、文本和图像能力覆盖面很广。 | 图像编解码、颜色管理、滤镜和 GPU 资源体系完整。 | 高级文本和字体能力完整，常与 HarfBuzz / ICU 等生态协作。 | 成熟工程生态，体量和接入复杂度也更高。 |
+| Cairo | 稳定的 2D 矢量绘图库，偏文档、桌面和软件渲染场景。 | CPU surface、PDF / SVG / PS 等输出面强。 | 路径、stroke/fill、变换、裁剪成熟。 | 图像 surface 支持稳定，但不是游戏式纹理管线。 | 基本文字能力可用，复杂 shaping 通常依赖外部文本栈。 | 稳定、可移植，实时 GPU 特性不是重点。 |
+| NanoVG | 小型即时模式矢量绘制库，适合嵌入式 UI 和调试面板。 | 典型为 OpenGL 类后端。 | API 简洁，路径、渐变、阴影等 UI 绘制常用能力轻量。 | 支持基础图片绘制和纹理使用。 | 基本文本绘制为主，复杂排版、fallback 和字体诊断不是重点。 | 接入轻，但验证、排版和资源治理通常需要应用侧补齐。 |
+| HTML Canvas 2D | 浏览器内建 2D API，适合 Web 内容、图表、小游戏和工具界面。 | 由浏览器实现，后端对用户透明。 | Canvas 状态、路径、变换、裁剪、渐变、阴影能力完整且标准化。 | 图片、视频、ImageBitmap、像素读写等 Web 生态强。 | 文本绘制依赖浏览器字体栈，复杂排版能力受 API 边界影响。 | 跨平台由浏览器兜底，但原生 C++ 嵌入和渲染管线控制较弱。 |
+| Qt QPainter | Qt 应用框架中的高层 2D 绘制 API，适合桌面应用 UI。 | Qt paint engine 抽象，随平台和 surface 变化。 | 路径、文本、图片、变换、裁剪等应用 UI 能力成熟。 | 与 Qt image / pixmap / resource 体系结合紧密。 | 与 Qt 字体和文本系统集成好。 | 依托 Qt 生态，功能强但框架依赖较重。 |
+| LÖVE2D | 面向 Lua 的 2D 游戏框架，适合快速制作游戏和交互 demo。 | 封装底层图形后端，面向游戏循环。 | Canvas、变换、图像、粒子、shader 等游戏常用能力友好。 | 纹理、sprite、render target、资源加载体验好。 | 文本能力适合游戏 UI，复杂排版不是核心目标。 | 开发体验强，但不是 C++ 库式嵌入接口。 |
 
 ## 字体与文本
 
@@ -179,12 +193,6 @@ cmake -S . -B build -DWHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=ON
 
 ![Racer example built with WhatsCanvas](images/racer.png)
 
-### Bubble Shooter
-
-位于 [examples/game/bubble_shooter](examples/game/bubble_shooter)。适合学习网格排布、瞄准辅助线和轻量 UI 绘制。
-
-![Bubble Shooter example built with WhatsCanvas](images/bubble_shooter.jpg)
-
 示例单独构建：
 
 ```bat
@@ -194,11 +202,6 @@ build.bat --no-run
 
 ```bat
 cd examples\game\racer
-build.bat --no-run
-```
-
-```bat
-cd examples\game\bubble_shooter
 build.bat --no-run
 ```
 
@@ -240,12 +243,6 @@ Driver-sensitive 场景可以用 PPM 容差比较：
 
 ```powershell
 python scripts\compare_ppm_fuzzy.py baseline.ppm candidate.ppm --max-channel-delta 3 --max-mean-delta 0.75 --max-changed-percent 5
-```
-
-Windows 主机也可以通过 WSL2 跑 Linux 验证：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\wsl_linux_validation.ps1 -EnableOpenTypeShaping
 ```
 
 ## 文档入口
@@ -296,7 +293,7 @@ powershell -ExecutionPolicy Bypass -File scripts\wsl_linux_validation.ps1 -Enabl
 ## 项目结构
 
 - `src/`: 核心实现，包含 Canvas、命令、渲染器、OpenGL 后端和文本模块。
-- `examples/game/`: 三个完整示例工程。
+- `examples/game/`: 完整游戏示例工程。
 - `examples/showcase/`: 根演示程序，适合快速浏览公共 Canvas API 的综合使用方式。
 - `examples/snippets/`: 可复制的功能片段，覆盖 font fallback、multiline text、external texture 和 image pattern。
 - `tests/`: 单元测试入口与测试说明。
@@ -307,14 +304,6 @@ powershell -ExecutionPolicy Bypass -File scripts\wsl_linux_validation.ps1 -Enabl
 - `doc/architecture/`: ADR 和架构文档，适合系统性阅读。
 - `doc/CanvasEvaluation.md`: 功能演进与验证记录。
 - `third_party/`: 内部实现和示例构建使用的第三方源码。
-
-## 依赖边界
-
-- 对外消费面：C++17、CMake package、`WhatsCanvas::OpenGL`、可选 `WhatsCanvas::OpenGLES`、`include/wsc/`。
-- GLFW：只用于 examples 的窗口、OpenGL 上下文和事件循环，不随主库安装，也不是 `WhatsCanvas::OpenGL` 的传递依赖。
-- GLAD：作为 OpenGL loader 编进后端库，消费者通过 `Canvas::loadOpenGL` 传入 proc-address 函数，不直接 include 或链接 GLAD。
-- GLM：仅用于内部矩阵和向量实现，公共头使用 `wsc::Matrix4`。
-- STB / Polyline2D：内部图像加载、轻量文本和描边网格实现依赖，不作为公共 API 暴露。
 
 ## 后续方向
 
