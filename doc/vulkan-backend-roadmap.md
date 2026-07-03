@@ -1,6 +1,6 @@
 # Vulkan Backend Roadmap
 
-Status: **Draft / in progress** · Branch: `feature/vulkan-backend`
+Status: **Draft / in progress** · Branch: `feature/vulkan-backend` · Done: M1, M2
 
 This document tracks the work needed to bring the Vulkan render backend
 (`VulkanRenderDevice`) to functional parity with the existing OpenGL backend
@@ -37,15 +37,15 @@ Not started: everything that produces or reads pixels. Ten of the eleven
 
 | `IRenderDevice` method | OpenGL | Vulkan | Milestone |
 | --- | --- | --- | --- |
-| `initializeBackend` | full (state + 5 shader programs + buffers) | device bring-up only | M1 |
-| `readPixelsRGBA` | `glReadPixels` + flip | stub | M2 |
-| `createRenderTarget` | FBO + texture + stencil | stub | M2 |
+| `initializeBackend` | full (state + 5 shader programs + buffers) | device bring-up + render core (M1) | M1 ✅ |
+| `readPixelsRGBA` | `glReadPixels` + flip | image->staging->host copy (M2) | M2 ✅ |
+| `createRenderTarget` | FBO + texture + stencil | offscreen image + view + render pass + framebuffer (M2) | M2 ✅ |
 | `createImageResourceRGBA` | GL texture | stub | M5 |
 | `createImageResourceFromImageData` | GL texture + mipmap | stub | M5 |
 | `updateImageResourceRGBA` | partial texture update | stub | M5 |
 | `wrapExternalImageResource` | wrap handle | stub | M8 |
 | `createClipMaskResource` | AA coverage mask | stub | M7 |
-| `resourceStats` | live counts | empty | M2+ (incremental) |
+| `resourceStats` | live counts | render-target count (M2) | M2 ✅ (incremental) |
 | `renderCommandsToImageResource` | offscreen replay | stub | M6 |
 | Draw commands (points/lines/path/image/text) | 5 GL programs | none | M3–M5 |
 
@@ -76,16 +76,16 @@ This decision is a hard dependency for M3 and should be recorded as an ADR.
 Each milestone lists deliverables and a concrete validation gate. Gates should be
 added to CTest under the `vulkan` label so regressions are caught automatically.
 
-### M1 — Render core bring-up
+### M1 — Render core bring-up · **Done**
 Depends on: device bring-up (done).
 - Vulkan Memory Allocator (or a minimal allocator) for device/host memory.
 - Command pool + command buffer allocation; fences/semaphores for submission.
 - A single-time-submit helper and a per-frame submit path.
 - Extend `resourceStats` scaffolding.
 Gate: unit test allocates a buffer, submits an empty command buffer, waits on a
-fence — all succeed on hardware.
+fence — all succeed on hardware. **Met** (covered by M2 test path).
 
-### M2 — Offscreen render target + readback
+### M2 — Offscreen render target + readback · **Done**
 Depends on: M1.
 - `createRenderTarget(w,h)`: offscreen `VkImage` (color, optionally
   depth/stencil), `VkImageView`, `VkFramebuffer`, a clear-only render pass.
@@ -94,6 +94,8 @@ Depends on: M1.
   handle row layout and top-left origin to match OpenGL output.
 Gate: clear the target to a known color, read it back, assert exact RGBA — mirror
 of the existing pixel-hash smoke approach. First real Vulkan pixels.
+**Met** by `WhatsCanvasVulkanRenderTargetTests` on NVIDIA RTX 2080 Ti (exact
+RGBA for a solid fill and a render-pass clear-to-zero).
 
 ### M3 — First geometry: solid fills (points/lines/path fill)
 Depends on: M2 and the §3 decision.
