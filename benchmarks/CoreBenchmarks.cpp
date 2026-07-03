@@ -3,11 +3,13 @@
 #include "command/DrawCommand.h"
 #include "render/IRenderer.h"
 #include "text/BasicTextBackend.h"
+#include "text/FontRasterizer.h"
 #include "text/ITextBackend.h"
 
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <memory>
@@ -199,6 +201,31 @@ void printMetric(const std::string &name, int iterations, double totalMs)
               << std::endl;
 }
 
+void printSkippedMetric(const std::string &name, const std::string &reason)
+{
+    std::cout << "BENCHMARK_SKIPPED name=" << name << " reason=\"" << reason << "\"" << std::endl;
+}
+
+std::string findBenchmarkFontPath()
+{
+    const std::vector<std::string> candidates = {
+        "C:/Windows/Fonts/arial.ttf",
+        "C:/Windows/Fonts/segoeui.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
+        "/System/Library/Fonts/Supplemental/Arial.ttf",
+        "/System/Library/Fonts/SFNS.ttf"
+    };
+
+    for (const std::string &path : candidates) {
+        std::ifstream input(path, std::ios::binary);
+        if (input.good()) {
+            return path;
+        }
+    }
+    return {};
+}
+
 void benchmarkTextLayout(int iterations)
 {
     wsc::Canvas canvas;
@@ -240,6 +267,113 @@ void benchmarkTextCacheHitPath(int iterations)
 
     printMetric("text_cache_hit_path", iterations, cachedMs);
     std::cout << "BENCHMARK_DETAIL name=text_cache_hit_path rendered_bytes=" << renderedBytes << std::endl;
+}
+
+void benchmarkFontGlyphMetrics(int iterations)
+{
+    const std::string fontPath = findBenchmarkFontPath();
+    if (fontPath.empty()) {
+        printSkippedMetric("font_glyph_metrics_cache", "no benchmark font found");
+        return;
+    }
+
+    wsc::text::FontRasterizer rasterizer;
+    rasterizer.clearCache();
+    rasterizer.setCacheCapacity(16);
+    const wsc::FontFace face = wsc::FontFace::fromFile(wsc::FontDescriptor("BenchmarkFontMetrics"), fontPath);
+    const std::string glyphs = "WhatsCanvasTypography12345";
+    float accumulatedAdvance = 0.0f;
+
+    const double ms = timeMilliseconds([&]() {
+        for (int i = 0; i < iterations; ++i) {
+            const unsigned char ch = static_cast<unsigned char>(glyphs[static_cast<std::size_t>(i) % glyphs.size()]);
+            const auto metrics = rasterizer.glyphMetrics(face, ch, 18.0f + static_cast<float>(i % 5));
+            if (metrics) {
+                accumulatedAdvance += metrics->advanceX;
+            }
+        }
+    });
+
+    const wsc::text::FontRasterizerCacheStats stats = rasterizer.cacheStats();
+    printMetric("font_glyph_metrics_cache", iterations, ms);
+    std::cout << "BENCHMARK_DETAIL name=font_glyph_metrics_cache accumulated_advance="
+              << accumulatedAdvance
+              << " cache_faces=" << stats.faceCount
+              << " cache_hits=" << stats.hitCount
+              << " cache_misses=" << stats.missCount
+              << " cache_evictions=" << stats.evictionCount
+              << std::endl;
+}
+
+void benchmarkFontGlyphRasterize(int iterations)
+{
+    const std::string fontPath = findBenchmarkFontPath();
+    if (fontPath.empty()) {
+        printSkippedMetric("font_glyph_rasterize", "no benchmark font found");
+        return;
+    }
+
+    wsc::text::FontRasterizer rasterizer;
+    rasterizer.clearCache();
+    rasterizer.setCacheCapacity(16);
+    const wsc::FontFace face = wsc::FontFace::fromFile(wsc::FontDescriptor("BenchmarkFontRaster"), fontPath);
+    const std::string glyphs = "GlyphAtlas";
+    std::size_t totalPixels = 0;
+
+    const double ms = timeMilliseconds([&]() {
+        for (int i = 0; i < iterations; ++i) {
+            const unsigned char ch = static_cast<unsigned char>(glyphs[static_cast<std::size_t>(i) % glyphs.size()]);
+            const auto glyph = rasterizer.rasterizeGlyph(face, ch, 24.0f);
+            if (glyph) {
+                totalPixels += glyph->bitmap.alphaPixels.size() + glyph->bitmap.rgbaPixels.size();
+            }
+        }
+    });
+
+    const wsc::text::FontRasterizerCacheStats stats = rasterizer.cacheStats();
+    printMetric("font_glyph_rasterize", iterations, ms);
+    std::cout << "BENCHMARK_DETAIL name=font_glyph_rasterize total_pixels="
+              << totalPixels
+              << " cache_faces=" << stats.faceCount
+              << " cache_hits=" << stats.hitCount
+              << " cache_misses=" << stats.missCount
+              << " cache_evictions=" << stats.evictionCount
+              << std::endl;
+}
+
+void benchmarkPortableGlyphAtlasText(int iterations)
+{
+    const std::string fontPath = findBenchmarkFontPath();
+    if (fontPath.empty()) {
+        printSkippedMetric("portable_glyph_atlas_text", "no benchmark font found");
+        return;
+    }
+
+    std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createPortableTextBackend();
+    (void)backend->registerFontFace(wsc::FontFace::fromFile(wsc::FontDescriptor("BenchmarkAtlasFont"), fontPath));
+
+    wsc::Paint paint;
+    paint.setTextSize(22.0f);
+    paint.setFontFamily("BenchmarkAtlasFont");
+    paint.setLetterSpacing(0.25f);
+    const std::string text = "Glyph atlas text benchmark 12345";
+    std::size_t totalQuads = 0;
+    std::size_t totalDirtyRects = 0;
+
+    const double ms = timeMilliseconds([&]() {
+        for (int i = 0; i < iterations; ++i) {
+            const wsc::text::TextRenderResult result =
+                backend->renderText(text, static_cast<float>(i % 7), 0.0f, paint);
+            totalQuads += result.glyphAtlasQuads.size();
+            totalDirtyRects += result.atlasDirtyRects.size();
+        }
+    });
+
+    printMetric("portable_glyph_atlas_text", iterations, ms);
+    std::cout << "BENCHMARK_DETAIL name=portable_glyph_atlas_text total_quads="
+              << totalQuads
+              << " total_dirty_rects=" << totalDirtyRects
+              << std::endl;
 }
 
 void benchmarkPathMetrics(int iterations)
@@ -361,6 +495,9 @@ int main()
     std::cout << "WHATSCANVAS_CORE_BENCHMARKS iterations=" << iterations << std::endl;
     benchmarkTextLayout(iterations);
     benchmarkTextCacheHitPath(iterations);
+    benchmarkFontGlyphMetrics(iterations);
+    benchmarkFontGlyphRasterize(std::max(1, iterations / 10));
+    benchmarkPortableGlyphAtlasText(std::max(1, iterations / 10));
     benchmarkPathMetrics(iterations);
     benchmarkPixelHash(std::max(1, iterations / 100));
     benchmarkCommandRecording(iterations);

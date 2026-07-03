@@ -69,7 +69,7 @@ jobs:
           chmod +x scripts/opengles_build_smoke.sh
           ./scripts/opengles_build_smoke.sh
 
-  optional-opentype-shaping:
+  optional-font-stack:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -80,13 +80,16 @@ jobs:
       - name: Install text shaping dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libharfbuzz-dev
+          sudo apt-get install -y libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libharfbuzz-dev libfreetype-dev
 
-      - name: Configure with OpenType shaping
-        run: cmake -S . -B build-validation-harfbuzz -DCMAKE_BUILD_TYPE=Debug -DWHATSCANVAS_ENABLE_OPENTYPE_SHAPING=ON
+      - name: Configure with OpenType shaping and FreeType rasterizer
+        run: cmake -S . -B build-validation-font-stack -DCMAKE_BUILD_TYPE=Debug -DWHATSCANVAS_ENABLE_OPENTYPE_SHAPING=ON -DWHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=ON
 
-      - name: Build with OpenType shaping
-        run: cmake --build build-validation-harfbuzz --config Debug
+      - name: Build with OpenType shaping and FreeType rasterizer
+        run: cmake --build build-validation-font-stack --config Debug
 
-      - name: Text unit tests with OpenType shaping
-        run: ctest --test-dir build-validation-harfbuzz -C Debug -L text --output-on-failure
+      - name: Text unit tests with OpenType shaping and FreeType rasterizer
+        run: ctest --test-dir build-validation-font-stack -C Debug -L text --output-on-failure
+
+      - name: Font benchmark smoke
+        run: WHATSCANVAS_BENCHMARK_ITERATIONS=20 ./build-validation-font-stack/WhatsCanvasCoreBenchmarks
