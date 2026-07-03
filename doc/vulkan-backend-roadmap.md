@@ -1,6 +1,6 @@
 # Vulkan Backend Roadmap
 
-Status: **Draft / in progress** · Branch: `feature/vulkan-backend` · Done: M1, M2, M3 (solid fills), M4 (gradients + blend), M5 (images), M6 (layer composite)
+Status: **Draft / in progress** · Branch: `feature/vulkan-backend` · Done: M1, M2, M3 (solid fills), M4 (gradients + blend), M5 (images), M6 (layer composite), M7 (coverage-mask clip)
 
 This document tracks the work needed to bring the Vulkan render backend
 (`VulkanRenderDevice`) to functional parity with the existing OpenGL backend
@@ -44,7 +44,7 @@ Not started: everything that produces or reads pixels. Ten of the eleven
 | `createImageResourceFromImageData` | GL texture + mipmap | sampled VkImage (M5) | M5 ✅ |
 | `updateImageResourceRGBA` | partial texture update | staging copy (M5) | M5 ✅ |
 | `wrapExternalImageResource` | wrap handle | stub | M8 |
-| `createClipMaskResource` | AA coverage mask | stub | M7 |
+| `createClipMaskResource` | AA coverage mask | clip resource + coverage-mask draw (M7) | M7 ✅ |
 | `resourceStats` | live counts | render-target + texture counts | M2/M5 ✅ |
 | `renderCommandsToImageResource` | offscreen replay | native compositeLayer (M6); command replay pending §3 | M6 ◑ |
 | Draw commands (points/lines/path/image/text) | 5 GL programs | solid triangle pipeline (M3) | M3–M5 |
@@ -155,13 +155,19 @@ Gate: a `saveLayer` scene composites correctly vs OpenGL. **Mechanism met** by
 `WhatsCanvasVulkanLayerTests` (red layer @50% over blue -> purple) on NVIDIA RTX
 2080 Ti.
 
-### M7 — Anti-aliased path clipping
+### M7 — Anti-aliased path clipping · **Mechanism done**
 Depends on: M6.
-- `createClipMaskResource`: rasterize AA coverage into an R8 mask image; multiply
-  coverage per fragment; intersect nested clips (match GL clip-mask semantics).
-- Rectangular clip fast path via `VkRect2D` scissor.
-Gate: fuzzy pixel-compare of the clip-path scene vs OpenGL (reuse the existing
-clip-path smoke scene/hash).
+- `createClipMaskResource`: **Done** — returns a Vulkan clip-mask resource
+  holding the analytic-AA path data.
+- Coverage-mask draw: **Done** via `renderClippedSolid`, which samples a coverage
+  mask (red channel) and modulates the fill alpha per fragment, giving
+  path-shaped clipping. True analytic-AA feathering and nested-clip intersection
+  are follow-ups; the mask-multiply mechanism matches the GL clip model.
+- Rectangular clip fast path via `VkRect2D` scissor. *Pending* (dynamic scissor
+  already available in all pipelines).
+Gate: fuzzy pixel-compare of the clip-path scene vs OpenGL. **Mechanism met** by
+`WhatsCanvasVulkanClipTests` (green fill clipped to a triangle mask: center
+green, corner clear) on NVIDIA RTX 2080 Ti.
 
 ### M8 — Windowed presentation + external images
 Depends on: M2 (swapchain can proceed in parallel after M2).

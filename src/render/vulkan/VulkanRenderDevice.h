@@ -127,6 +127,14 @@ public:
                         const std::unique_ptr<IRenderTarget> &layerTarget, float bgR, float bgG, float bgB, float bgA,
                         float layerAlpha) const;
 
+    /// Vulkan-specific M7 capability: draw a full-target solid color into a
+    /// destination, clipped by a coverage mask. `maskTarget` is a render target
+    /// whose red channel holds the clip coverage (0 outside, 1 inside). The fill
+    /// alpha is modulated by the sampled coverage, giving path-shaped clipping.
+    bool renderClippedSolid(const std::unique_ptr<IRenderTarget> &target,
+                            const std::unique_ptr<IRenderTarget> &maskTarget, float r, float g, float b,
+                            float a) const;
+
     /// Opaque backend context, defined in the implementation file.
     struct VulkanContext;
 
