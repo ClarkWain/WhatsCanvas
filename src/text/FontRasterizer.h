@@ -57,6 +57,15 @@ struct ColorFontTables
 
 ColorFontTables detectColorFontTables(FontDataView fontData, int faceIndex = 0);
 
+struct FontRasterizerCacheStats
+{
+    std::size_t faceCount = 0;
+    std::size_t capacity = 0;
+    std::size_t hitCount = 0;
+    std::size_t missCount = 0;
+    std::size_t evictionCount = 0;
+};
+
 class FontRasterizer
 {
 public:
@@ -76,10 +85,17 @@ public:
                                                        float pixelSize) const;
     std::optional<FontDataView> fontData(const FontFace &face) const;
     std::optional<ColorFontTables> colorFontTables(const FontFace &face) const;
+    FontRasterizerCacheStats cacheStats() const;
+    void clearCache() const;
+    void setCacheCapacity(std::size_t capacity) const;
 
 private:
     struct LoadedFace;
+    struct CacheState;
 
+    static CacheState &cacheState();
+    static void touchCacheEntry(CacheState &cache, const std::string &key);
+    static void trimCache(CacheState &cache);
     const LoadedFace *loadFace(const FontFace &face) const;
     std::optional<RasterizedGlyph> rasterizeColorGlyph(const FontFace &face,
                                                        const LoadedFace &loaded,

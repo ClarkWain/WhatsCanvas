@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <deque>
 #include <fstream>
 #include <memory>
 #include <optional>
@@ -22,6 +23,8 @@
 #include "../../include/wsc/Font.h"
 
 namespace {
+
+constexpr std::size_t kDefaultLoadedFaceCacheCapacity = 64;
 
 std::uint32_t readU32BE(const unsigned char *data)
 {
@@ -337,15 +340,82 @@ struct FontRasterizer::LoadedFace
     bool valid = false;
 };
 
+struct FontRasterizer::CacheState
+{
+    std::unordered_map<std::string, std::unique_ptr<LoadedFace>> entries;
+    std::deque<std::string> lruOrder;
+    std::size_t capacity = kDefaultLoadedFaceCacheCapacity;
+    std::size_t hitCount = 0;
+    std::size_t missCount = 0;
+    std::size_t evictionCount = 0;
+};
+
+FontRasterizer::CacheState &FontRasterizer::cacheState()
+{
+    static CacheState state;
+    return state;
+}
+
+void FontRasterizer::touchCacheEntry(CacheState &cache, const std::string &key)
+{
+    const auto existing = std::find(cache.lruOrder.begin(), cache.lruOrder.end(), key);
+    if (existing != cache.lruOrder.end()) {
+        cache.lruOrder.erase(existing);
+    }
+    cache.lruOrder.push_back(key);
+}
+
+void FontRasterizer::trimCache(CacheState &cache)
+{
+    while (cache.entries.size() > cache.capacity && !cache.lruOrder.empty()) {
+        const std::string evictedKey = cache.lruOrder.front();
+        cache.lruOrder.pop_front();
+        if (cache.entries.erase(evictedKey) > 0u) {
+            ++cache.evictionCount;
+        }
+    }
+}
+
+FontRasterizerCacheStats FontRasterizer::cacheStats() const
+{
+    const CacheState &cache = cacheState();
+    FontRasterizerCacheStats stats;
+    stats.faceCount = cache.entries.size();
+    stats.capacity = cache.capacity;
+    stats.hitCount = cache.hitCount;
+    stats.missCount = cache.missCount;
+    stats.evictionCount = cache.evictionCount;
+    return stats;
+}
+
+void FontRasterizer::clearCache() const
+{
+    CacheState &cache = cacheState();
+    cache.entries.clear();
+    cache.lruOrder.clear();
+    cache.hitCount = 0;
+    cache.missCount = 0;
+    cache.evictionCount = 0;
+}
+
+void FontRasterizer::setCacheCapacity(std::size_t capacity) const
+{
+    CacheState &cache = cacheState();
+    cache.capacity = std::max<std::size_t>(1u, capacity);
+    trimCache(cache);
+}
+
 const FontRasterizer::LoadedFace *FontRasterizer::loadFace(const FontFace &face) const
 {
-    static std::unordered_map<std::string, std::unique_ptr<LoadedFace>> cache;
-
+    CacheState &cache = cacheState();
     const std::string key = makeFaceKey(face);
-    const auto found = cache.find(key);
-    if (found != cache.end()) {
+    const auto found = cache.entries.find(key);
+    if (found != cache.entries.end()) {
+        ++cache.hitCount;
+        touchCacheEntry(cache, key);
         return found->second->valid ? found->second.get() : nullptr;
     }
+    ++cache.missCount;
 
     auto loaded = std::make_unique<LoadedFace>();
     if (face.sourceType() == FontSourceType::FILE) {
@@ -376,7 +446,9 @@ const FontRasterizer::LoadedFace *FontRasterizer::loadFace(const FontFace &face)
     }
 
     LoadedFace *result = loaded.get();
-    cache.emplace(key, std::move(loaded));
+    cache.entries.emplace(key, std::move(loaded));
+    touchCacheEntry(cache, key);
+    trimCache(cache);
     return result->valid ? result : nullptr;
 }
 
