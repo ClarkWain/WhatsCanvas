@@ -53,13 +53,32 @@ WhatsCanvas 是一个用 C++17 编写的轻量级二维渲染引擎项目，以 
 ## 能力概览
 
 - 基础图元：点、线、折线、多边形、矩形、圆角矩形、圆、椭圆、圆弧、任意路径。
-- 绘制样式：填充、描边、透明度、线性 / 径向 / 多 stop 渐变、混合模式、阴影、虚线、圆角路径效果、图像采样与贴图模式。
+- 绘制样式：填充、描边、透明度、逐 Paint 解析抗锯齿（`setAntiAlias`）、线性 / 径向 / 多 stop 渐变、混合模式、阴影、虚线、圆角路径效果、图像采样与贴图模式。
 - 画布状态：`save` / `restore`、矩阵变换、矩形裁剪、`clipPath`、`saveLayer`、render-target canvas、命中测试和快速剔除。
 - 图像能力：文件解码、encoded memory、raw RGBA、外部纹理包装、整图替换、局部更新、contain / cover / fill 布局、锚点、九宫格、圆角裁剪、圆形裁剪和平铺绘制。
 - 文本能力：UTF-8 输入处理、字体描述与 fallback 契约、注册 TrueType 字体栅格化、真实字体 ascent/descent/line-gap metrics、glyph-index shaped run、simple kerning、可选 OpenType shaping implementation、multi-font shaping segmentation、Unicode UAX #9 bidi resolution、持久 GPU glyph atlas、RGBA glyph atlas 管线、COLR/CPAL v0 color glyph、color font table detection、dirty-rect atlas 更新、atlas 文本阴影采样、`drawText`、`drawTextBox`、`drawTextOnPath`、测量、文本框布局、tab/Unicode space / zero-width break 断行、基础 CJK no-space wrapping、长无空格 token hard wrap、行高、最大行、ellipsis、对齐、baseline、letter spacing、描边文本和缺字诊断。
 - 渲染后端：桌面 OpenGL 为主路径，OpenGLES 目标共享同一套 Canvas API 和 GL-family 后端实现；shader portability、上下文生命周期和资源重建已有对应验证。
 - 性能与资源：路径 / 点线 / 图像 / 文本绘制程序统一走流式顶点缓冲，图片命令支持同纹理合批，图片绘制使用全局 quad index buffer，离屏 render target 有复用池，桌面 GL 渐变 stop 支持 texel buffer，OpenGLES 保留兼容 fallback。
 - 诊断与验证：`RenderStats`、同步 / 异步像素回读、PPM 截图、像素哈希、fuzzy PPM 对比、固定时间首帧冒烟、OpenGLES 构建冒烟、示例构建冒烟和本地严格回归检查。
+
+## 抗锯齿与渐变画质
+
+填充与描边支持逐 `Paint` 的**解析抗锯齿**：沿轮廓生成一圈跨骑真实边缘的 ~1px 羽化带，由片元着色器按覆盖度调制 alpha。它是分辨率无关的（缩放后仍约 1px），不依赖 MSAA，且对所有渲染目标（含离屏 FBO）生效；细描边还会做亚像素淡化处理。默认关闭，与 Skia 语义一致，按需逐 `Paint` 开启：
+
+```cpp
+Paint paint;
+paint.setAntiAlias(true); // 逐 Paint 开启（默认关闭）
+```
+
+下图左侧关闭、右侧开启抗锯齿（星形填充、细圆环、放射细线、旋转方框、三角填充）：
+
+![抗锯齿对比：左关右开](images/aa/aa_comparison.png)
+
+渐变为片元级求值，支持多 stop 的线性 / 径向渐变，避免顶点色（Gouraud）在大三角上的分带。下图左侧为粗分带近似、右侧为片元级平滑渐变：
+
+![渐变画质对比：左分带右片元级](images/aa/gradient_comparison.png)
+
+对比图可用示例 `WhatsCanvasAAShowcase` 复现：`WhatsCanvasAAShowcase <输出路径>` 会生成 `aa_comparison.png` 与同目录的 `gradient_comparison.png`。
 
 ## Canvas API
 
