@@ -287,7 +287,7 @@ void drawTextShowcaseScene(Canvas& canvas, float currentTime)
     canvas.drawText("file / memory / TTC face index capable", 104.0f, 430.0f, small);
 
     canvas.drawRoundRect(RectF(836.0f, 220.0f, 700.0f, 250.0f), 14.0f, panel);
-    canvas.drawText("STROKE + SHADOW + METRICS", 876.0f, 254.0f, label);
+    canvas.drawText("GRADIENT + STROKE + METRICS", 876.0f, 254.0f, label);
     Paint outlined;
     outlined.setStyle(Paint::Style::FILL_AND_STROKE);
     outlined.setFillColor(Color(255, 235, 150, 245));
@@ -296,6 +296,12 @@ void drawTextShowcaseScene(Canvas& canvas, float currentTime)
     outlined.setTextSize(72.0f);
     outlined.setFontFamily("InterShowcase");
     outlined.setShadowLayer(9.0f, 0.0f, 7.0f, Color(0, 0, 0, 120));
+    outlined.setLinearGradient(876.0f, 300.0f, 1210.0f, 365.0f,
+                               {
+                                   Paint::ColorStop(0.0f, Color(255, 245, 145, 245)),
+                                   Paint::ColorStop(0.45f, Color(120, 220, 255, 245)),
+                                   Paint::ColorStop(1.0f, Color(255, 150, 225, 245))
+                               });
     canvas.drawText("Aa Glyphs", 876.0f, 310.0f, outlined);
     Paint mono = small;
     mono.setFontFamily("MonoShowcase");

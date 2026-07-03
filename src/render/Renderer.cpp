@@ -25,6 +25,7 @@ bool isSpriteBatchCompatible(const DrawImageData &data, const SharedImageResourc
         && data.imageResource
         && data.imageResource->isValid()
         && !data.hasColorMatrix
+        && !data.hasShaderGradient()
         && data.sampling == DrawImageSampling::Linear
         && data.tileMode == DrawImageTileMode::Clamp
         && !data.scissor.enabled

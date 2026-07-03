@@ -402,6 +402,64 @@ void applyPathGradient(const Paint &paint, DrawPathData &data)
     }
 }
 
+void applyImageGradient(const Paint &paint, DrawImageData &data)
+{
+    if (!paint.hasLinearGradient() && !paint.hasRadialGradient()) {
+        return;
+    }
+
+    data.gradientType = paint.hasLinearGradient() ? DrawGradientType::Linear : DrawGradientType::Radial;
+    data.gradientTileMode = toDrawGradientTileMode(paint.getShaderTileMode());
+    data.gradientStart[0] = paint.getGradientStartX();
+    data.gradientStart[1] = paint.getGradientStartY();
+    data.gradientEnd[0] = paint.getGradientEndX();
+    data.gradientEnd[1] = paint.getGradientEndY();
+    data.radialCenter[0] = paint.getRadialCenterX();
+    data.radialCenter[1] = paint.getRadialCenterY();
+    data.radialRadius = std::max(0.0001f, paint.getRadialRadius());
+
+    const auto &stops = paint.getGradientStops();
+    const int stopCount = static_cast<int>(std::min<std::size_t>(stops.size(), DrawImageData::kMaxGradientStops));
+    data.gradientStopCount = stopCount;
+    for (int i = 0; i < stopCount; ++i) {
+        const Color color = applyPaintAlpha(paint, stops[static_cast<std::size_t>(i)].color);
+        data.gradientStopPositions[i] = stops[static_cast<std::size_t>(i)].position;
+        data.gradientStopColors[i * 4 + 0] = color.r();
+        data.gradientStopColors[i * 4 + 1] = color.g();
+        data.gradientStopColors[i * 4 + 2] = color.b();
+        data.gradientStopColors[i * 4 + 3] = color.a();
+    }
+}
+
+void applyTextGradient(const Paint &paint, DrawTextData &data)
+{
+    if (!paint.hasLinearGradient() && !paint.hasRadialGradient()) {
+        return;
+    }
+
+    data.gradientType = paint.hasLinearGradient() ? DrawGradientType::Linear : DrawGradientType::Radial;
+    data.gradientTileMode = toDrawGradientTileMode(paint.getShaderTileMode());
+    data.gradientStart[0] = paint.getGradientStartX();
+    data.gradientStart[1] = paint.getGradientStartY();
+    data.gradientEnd[0] = paint.getGradientEndX();
+    data.gradientEnd[1] = paint.getGradientEndY();
+    data.radialCenter[0] = paint.getRadialCenterX();
+    data.radialCenter[1] = paint.getRadialCenterY();
+    data.radialRadius = std::max(0.0001f, paint.getRadialRadius());
+
+    const auto &stops = paint.getGradientStops();
+    const int stopCount = static_cast<int>(std::min<std::size_t>(stops.size(), DrawTextData::kMaxGradientStops));
+    data.gradientStopCount = stopCount;
+    for (int i = 0; i < stopCount; ++i) {
+        const Color color = applyPaintAlpha(paint, stops[static_cast<std::size_t>(i)].color);
+        data.gradientStopPositions[i] = stops[static_cast<std::size_t>(i)].position;
+        data.gradientStopColors[i * 4 + 0] = color.r();
+        data.gradientStopColors[i * 4 + 1] = color.g();
+        data.gradientStopColors[i * 4 + 2] = color.b();
+        data.gradientStopColors[i * 4 + 3] = color.a();
+    }
+}
+
 bool isFinitePoint(float x, float y)
 {
     return std::isfinite(x) && std::isfinite(y);
@@ -3544,7 +3602,7 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
 
         const ScissorState scissor = impl_->makeCurrentScissorState();
         const ClipMaskState clipMask = impl_->makeCurrentClipMaskState();
-        const auto submitAtlasText = [&](const Color &textColor, const glm::mat4 &transform) {
+        const auto submitAtlasText = [&](const Color &textColor, const glm::mat4 &transform, bool useFillShader = false) {
             for (const auto &quad : renderedText.glyphAtlasQuads) {
                 DrawImageData data;
                 data.imageResource = imageResource;
@@ -3567,6 +3625,9 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
                 data.scissor = scissor;
                 data.blendMode = toDrawBlendMode(paint.getBlendMode());
                 data.clipMask = clipMask;
+                if (useFillShader) {
+                    applyImageGradient(paint, data);
+                }
                 impl_->renderer->submit(std::make_unique<DrawImageCommand>(data));
             }
         };
@@ -3619,7 +3680,7 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
                 renderedText.atlasPixelFormat == wsc::text::GlyphAtlasPixelFormat::RGBA
                     ? Color(255, 255, 255, fillColor.getA())
                     : fillColor;
-            submitAtlasText(atlasFillColor, impl_->currentState().matrix);
+            submitAtlasText(atlasFillColor, impl_->currentState().matrix, true);
         }
         return;
     }
@@ -3634,7 +3695,7 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
 
         const ScissorState scissor = impl_->makeCurrentScissorState();
         const ClipMaskState clipMask = impl_->makeCurrentClipMaskState();
-        const auto submitBitmapText = [&](const Color &textColor, const glm::mat4 &transform) {
+        const auto submitBitmapText = [&](const Color &textColor, const glm::mat4 &transform, bool useFillShader = false) {
             DrawImageData data;
             data.imageResource = imageResource;
             data.x = renderedText.drawX;
@@ -3656,6 +3717,9 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
             data.scissor = scissor;
             data.blendMode = toDrawBlendMode(paint.getBlendMode());
             data.clipMask = clipMask;
+            if (useFillShader) {
+                applyImageGradient(paint, data);
+            }
             impl_->renderer->submit(std::make_unique<DrawImageCommand>(data));
         };
 
@@ -3699,14 +3763,14 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
             submitBitmapText(strokePass.color, strokePass.transform);
         }
         if (drawFill) {
-            submitBitmapText(fillColor, impl_->currentState().matrix);
+            submitBitmapText(fillColor, impl_->currentState().matrix, true);
         }
         return;
     }
 
     const ScissorState scissor = impl_->makeCurrentScissorState();
     const ClipMaskState clipMask = impl_->makeCurrentClipMaskState();
-    const auto submitGeometryText = [&](const Color &textColor, const glm::mat4 &transform) {
+    const auto submitGeometryText = [&](const Color &textColor, const glm::mat4 &transform, bool useFillShader = false) {
         DrawTextData data;
         data.vertices = renderedText.vertices;
         data.color[0] = textColor.r();
@@ -3717,6 +3781,9 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
         data.scissor = scissor;
         data.blendMode = toDrawBlendMode(paint.getBlendMode());
         data.clipMask = clipMask;
+        if (useFillShader) {
+            applyTextGradient(paint, data);
+        }
         impl_->renderer->submit(std::make_unique<DrawTextCommand>(data));
     };
 
@@ -3738,7 +3805,7 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
         submitGeometryText(strokePass.color, strokePass.transform);
     }
     if (drawFill) {
-        submitGeometryText(fillColor, impl_->currentState().matrix);
+        submitGeometryText(fillColor, impl_->currentState().matrix, true);
     }
 }
 
