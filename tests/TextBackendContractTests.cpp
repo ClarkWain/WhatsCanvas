@@ -1,8 +1,11 @@
 #include <iostream>
 #include <fstream>
+#include <atomic>
 #include <cmath>
+#include <functional>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "canvas/Paint.h"
@@ -337,6 +340,49 @@ bool testFontRasterizerCachePolicy()
     return ok;
 }
 
+bool testFontRasterizerCacheThreadSafety()
+{
+    wsc::text::FontRasterizer rasterizer;
+    rasterizer.clearCache();
+    rasterizer.setCacheCapacity(4);
+
+    const std::vector<std::uint8_t> invalidBytes = {1, 2, 3, 4};
+    wsc::FontFace first = wsc::FontFace::fromMemory(wsc::FontDescriptor("ThreadCacheOne"), invalidBytes);
+    wsc::FontFace second = wsc::FontFace::fromMemory(wsc::FontDescriptor("ThreadCacheTwo"), invalidBytes);
+    std::atomic<int> completed{0};
+
+    auto query = [&](const wsc::FontFace &face, std::uint32_t baseCodepoint) {
+        for (int i = 0; i < 128; ++i) {
+            (void)rasterizer.hasGlyph(face, baseCodepoint + static_cast<std::uint32_t>(i % 8));
+            (void)rasterizer.glyphMetrics(face, baseCodepoint + static_cast<std::uint32_t>(i % 8), 16.0f);
+            (void)rasterizer.cacheStats();
+        }
+        ++completed;
+    };
+
+    std::thread firstThread(query, std::cref(first), static_cast<std::uint32_t>('A'));
+    std::thread secondThread(query, std::cref(second), static_cast<std::uint32_t>('a'));
+    std::thread capacityThread([&]() {
+        for (int i = 0; i < 64; ++i) {
+            rasterizer.setCacheCapacity((i % 3) + 1);
+            (void)rasterizer.cacheStats();
+        }
+        ++completed;
+    });
+
+    firstThread.join();
+    secondThread.join();
+    capacityThread.join();
+
+    const wsc::text::FontRasterizerCacheStats stats = rasterizer.cacheStats();
+    bool ok = expect(completed == 3, "font rasterizer cache threads should complete");
+    ok = expect(stats.faceCount <= stats.capacity,
+                "threaded font rasterizer cache access should preserve capacity invariant") && ok;
+    rasterizer.clearCache();
+    rasterizer.setCacheCapacity(64);
+    return ok;
+}
+
 bool testPortableBackendAppliesSimpleKerning()
 {
     const std::string fontPath = findSystemFontPath();
@@ -558,6 +604,7 @@ int main()
         && testPortableBackendUsesGlyphAtlasForRegisteredFont()
         && testPortableBackendUsesRgbaAtlasForColorGlyphs()
         && testFontRasterizerCachePolicy()
+        && testFontRasterizerCacheThreadSafety()
         && testPortableBackendAppliesSimpleKerning()
         && testRasterTextFailureAddsDiagnostic()
         && testPortableBackendResolvesFallbackGlyphRange()

@@ -22,9 +22,15 @@ build\Debug\WhatsCanvasCoreBenchmarks.exe
 Current benchmark cases:
 
 - `text_layout`: bounded multiline layout with line height and ellipsis.
+- `text_cache_hit_path`: repeated text render calls over the cached backend path.
+- `font_glyph_metrics_cache`: registered-font glyph metric lookup with loaded-face cache stats.
+- `font_glyph_rasterize`: registered-font glyph rasterization cost with loaded-face cache stats.
+- `portable_glyph_atlas_text`: portable text shaping/rasterization/upload planning through the CPU glyph atlas.
 - `path_metrics`: path length and midpoint queries over a mixed curve path.
 - `pixel_hash_rgba_800x600`: RGBA framebuffer hash helper over an 800x600 buffer.
 - `command_record_rect`: CPU-side rectangle command recording without flushing a GL context.
+- `image_upload_rgba_64x64`: backend-neutral image resource creation/update cost through the renderer abstraction.
+- `frame_flush_single_rect`: command flush overhead with a lightweight renderer.
 
 ## Scope
 
@@ -32,7 +38,6 @@ This benchmark intentionally avoids requiring a live OpenGL context. That keeps 
 
 The remaining GPU-sensitive benchmark targets still need dedicated harnesses:
 
-- glyph cache hit rate once glyph atlas ownership lands
 - image upload cost with a current GL/GLES context
 - frame flush cost with real draw execution
 - backend-specific draw-call counters under stable validation scenes

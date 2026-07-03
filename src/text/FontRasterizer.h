@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <mutex>
 #include <optional>
 #include <string>
 
@@ -83,6 +84,7 @@ public:
     std::optional<RasterizedGlyph> rasterizeGlyphIndex(const FontFace &face, int glyphIndex,
                                                        std::uint32_t sourceCodepoint,
                                                        float pixelSize) const;
+    // Returns a thread-local snapshot that remains valid until the next fontData call on the same thread.
     std::optional<FontDataView> fontData(const FontFace &face) const;
     std::optional<ColorFontTables> colorFontTables(const FontFace &face) const;
     FontRasterizerCacheStats cacheStats() const;
@@ -94,6 +96,7 @@ private:
     struct CacheState;
 
     static CacheState &cacheState();
+    static std::mutex &cacheMutex();
     static void touchCacheEntry(CacheState &cache, const std::string &key);
     static void trimCache(CacheState &cache);
     const LoadedFace *loadFace(const FontFace &face) const;

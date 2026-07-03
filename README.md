@@ -40,14 +40,14 @@ WhatsCanvas 的公开接口仍然是熟悉的 `Canvas` / `Paint` / `Path` / `Ima
 - `FontSystem` 会发现常见平台系统字体，并为 `createBasicTextBackend()` 提供默认 primary / fallback chain；需要完全手动控制时可使用 portable backend 或手动注册字体。
 - `Paint::setFontWeight` 和 `Paint::setFontSlant` 会参与同 family 多 face 选择，优先匹配 slant，再选择最接近的 weight。
 - 跨平台字体路径支持文件字体、内存字体、TrueType Collection 和 collection face index。
-- `FontRasterizer` 的 loaded face 资源有默认 LRU 上限，可显式调整容量、清理缓存，并查询 face count、hit / miss 和 eviction 统计。
+- `FontRasterizer` 的 loaded face 资源有默认 LRU 上限，可显式调整容量、清理缓存，并查询 face count、hit / miss 和 eviction 统计；共享缓存访问已加互斥保护，覆盖并发查询和容量调整场景。
 - FreeType 可用时优先用于 glyph lookup、metrics、kerning 和 alpha glyph rasterization；不可用时自动回退到内置 `stb_truetype`。
 - HarfBuzz 作为可选 OpenType shaping implementation 接入；未启用或不可用时保留 simple shaping 和 kerning fallback。
 - `FontFace`、`FontDescriptor`、`FontFallbackChain`、`FontManager` 和后端契约已经成型，文本会按 resolved font face 分段后再 shaping/raster/render。
 - `GlyphAtlas` 管理 glyph allocation、indexed lookup、dirty rect count/area collapse stats、context rebuild keys 和 atlas stats；Canvas 侧拥有持久 GPU atlas resource，并支持局部更新、resize-before-evict 和 atlas 文本阴影采样。
 - 已支持 color font table detection，COLR/CPAL v0 layered glyph 可以解码、合成到 RGBA glyph bitmap，并通过 RGBA atlas 管线绘制。
 - UTF-8-safe layout、CJK no-space wrapping、Unicode spaces、zero-width break、ellipsis、baseline、line height、text box layout、渐变文本、text-on-path、缺字诊断和 raster / shaper / atlas 回退诊断已经纳入统一文本路径。
-- 内置 Unicode 17.0.0 `BidiTest.txt` / `BidiCharacterTest.txt` 数据和 conformance target；exhaustive conformance 已通过 861,948 cases、0 skips、0 failures。
+- 内置 Unicode 17.0.0 `BidiTest.txt` / `BidiCharacterTest.txt` 数据和 conformance target；exhaustive conformance 已通过 861,948 cases、0 skips、0 failures。CI 矩阵包含 HarfBuzz + FreeType 联合字体栈 text tests 和字体 benchmark smoke。
 
 更多细节见 [Text Feature Matrix](doc/TEXT_FEATURE_MATRIX.md) 和 [字体渲染专题](doc/Font%20Rendering%20Techniques/index.html)。
 
