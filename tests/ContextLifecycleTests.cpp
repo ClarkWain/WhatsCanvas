@@ -34,6 +34,13 @@ public:
     bool updateRGBA(int, int, int, int, const unsigned char *, bool) override { return true; }
 };
 
+class FakeClipMaskResource final : public ClipMaskResource
+{
+public:
+    bool isValid() const override { return true; }
+    void apply(const RenderContext &, const ScissorState &, std::size_t) const override {}
+};
+
 class FakeRenderer final : public IRenderer
 {
 public:
@@ -85,7 +92,12 @@ public:
     }
 
     bool readPixelsRGBA(std::vector<unsigned char> &) const override { return false; }
-    SharedClipMaskResource createClipMaskResource(const ClipMaskPath &) const override { return {}; }
+    SharedClipMaskResource createClipMaskResource(const ClipMaskPath &maskPath) const override
+    {
+        lastClipMaskPath = maskPath;
+        clipMaskResourceCount += 1;
+        return std::make_shared<FakeClipMaskResource>();
+    }
     SharedImageResource createImageResourceRGBA(int, int, const std::vector<unsigned char> &) const override
     {
         return {};
@@ -135,6 +147,8 @@ public:
     bool returnRenderTargetImage = false;
     std::vector<std::unique_ptr<Command>> commands;
     mutable FrameStats stats;
+    mutable ClipMaskPath lastClipMaskPath;
+    mutable int clipMaskResourceCount = 0;
 };
 
 } // namespace
@@ -364,6 +378,142 @@ bool testTextStrokeQueuesWork()
     return ok;
 }
 
+std::size_t countShadowCommands(const FakeRenderer &renderer)
+{
+    std::size_t count = 0;
+    for (const auto &command : renderer.commands) {
+        if (command && command->type() == Command::Type::Shadow) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+wsc::Path makeSquarePath()
+{
+    wsc::Path square;
+    square.moveTo(40.0f, 40.0f);
+    square.lineTo(120.0f, 40.0f);
+    square.lineTo(120.0f, 120.0f);
+    square.lineTo(40.0f, 120.0f);
+    square.close();
+    return square;
+}
+
+bool testFillGaussianShadowQueuesShadowCommand()
+{
+    auto renderer = std::make_unique<FakeRenderer>();
+    FakeRenderer *rawRenderer = renderer.get();
+    std::unique_ptr<wsc::Canvas> canvas = wsc::CanvasLifecycleTestAccess::create(std::move(renderer));
+
+    bool ok = expect(canvas->initializeContext(), "initializeContext should succeed");
+    canvas->setSize(200, 200);
+
+    wsc::Paint fill;
+    fill.setStyle(wsc::Paint::Style::FILL);
+    fill.setColor(wsc::Color(200, 60, 60));
+    fill.setShadowLayer(10.0f, 4.0f, 5.0f, wsc::Color(0, 0, 0, 160));
+    canvas->drawPath(makeSquarePath(), fill);
+    ok = expect(countShadowCommands(*rawRenderer) == 1,
+                "blurred fill shadow should queue exactly one DrawShadowCommand") && ok;
+
+    // Radius 0 falls back to the offset passes; no Gaussian command is queued.
+    rawRenderer->clear();
+    fill.setShadowLayer(0.0f, 4.0f, 5.0f, wsc::Color(0, 0, 0, 160));
+    canvas->drawPath(makeSquarePath(), fill);
+    ok = expect(countShadowCommands(*rawRenderer) == 0,
+                "radius-0 fill shadow should not use the Gaussian path") && ok;
+
+    return ok;
+}
+
+bool testStrokeGaussianShadowQueuesShadowCommand()
+{
+    auto renderer = std::make_unique<FakeRenderer>();
+    FakeRenderer *rawRenderer = renderer.get();
+    std::unique_ptr<wsc::Canvas> canvas = wsc::CanvasLifecycleTestAccess::create(std::move(renderer));
+
+    bool ok = expect(canvas->initializeContext(), "initializeContext should succeed");
+    canvas->setSize(200, 200);
+
+    wsc::Paint stroke;
+    stroke.setStyle(wsc::Paint::Style::STROKE);
+    stroke.setStrokeWidth(6.0f);
+    stroke.setStrokeColor(wsc::Color(60, 160, 90));
+    stroke.setShadowLayer(10.0f, 4.0f, 5.0f, wsc::Color(0, 0, 0, 160));
+    canvas->drawPath(makeSquarePath(), stroke);
+    ok = expect(countShadowCommands(*rawRenderer) == 1,
+                "blurred stroke shadow should queue exactly one DrawShadowCommand") && ok;
+
+    return ok;
+}
+
+bool testGeometryTextGaussianShadowQueuesShadowCommand()
+{
+    auto renderer = std::make_unique<FakeRenderer>();
+    FakeRenderer *rawRenderer = renderer.get();
+    std::unique_ptr<wsc::Canvas> canvas = wsc::CanvasLifecycleTestAccess::create(std::move(renderer));
+
+    bool ok = expect(canvas->initializeContext(), "initializeContext should succeed");
+    canvas->setSize(200, 100);
+
+    wsc::Paint textPaint;
+    textPaint.setTextSize(16.0f);
+    textPaint.setColor(wsc::Color::WHITE);
+    textPaint.setShadowLayer(8.0f, 2.0f, 3.0f, wsc::Color(0, 0, 0, 160));
+    canvas->drawText("shadow", 20.0f, 24.0f, textPaint);
+    ok = expect(countShadowCommands(*rawRenderer) == 1,
+                "blurred geometry-text shadow should queue exactly one DrawShadowCommand") && ok;
+
+    return ok;
+}
+
+bool testClipPathBuildsAntiAliasedCoverageMask()
+{
+    auto renderer = std::make_unique<FakeRenderer>();
+    FakeRenderer *rawRenderer = renderer.get();
+    std::unique_ptr<wsc::Canvas> canvas = wsc::CanvasLifecycleTestAccess::create(std::move(renderer));
+
+    bool ok = expect(canvas->initializeContext(), "initializeContext should succeed");
+    canvas->setSize(200, 200);
+
+    // A rotated, non-axis-aligned triangle clip cannot collapse to a scissor
+    // rect, so it takes the anti-aliased coverage-mask path.
+    wsc::Path clip;
+    clip.moveTo(40.0f, 20.0f);
+    clip.lineTo(170.0f, 60.0f);
+    clip.lineTo(90.0f, 180.0f);
+    clip.close();
+    canvas->clipPath(clip);
+
+    wsc::Paint fill;
+    fill.setStyle(wsc::Paint::Style::FILL);
+    fill.setColor(wsc::Color(200, 60, 60));
+    canvas->drawRect(wsc::RectF(0.0f, 0.0f, 200.0f, 200.0f), fill);
+
+    ok = expect(rawRenderer->clipMaskResourceCount >= 1,
+                "clipPath should create a clip mask resource") && ok;
+    const ClipMaskPath &mask = rawRenderer->lastClipMaskPath;
+    ok = expect(!mask.points.empty(), "clip mask should have geometry") && ok;
+    ok = expect(mask.coverage.size() == mask.points.size() / 2,
+                "clip mask should carry one AA coverage value per vertex") && ok;
+
+    bool hasInterior = false;
+    bool hasFringe = false;
+    for (float c : mask.coverage) {
+        if (c >= 0.99f) {
+            hasInterior = true;
+        }
+        if (c <= 0.5f) {
+            hasFringe = true;
+        }
+    }
+    ok = expect(hasInterior, "clip mask should have fully-covered interior samples") && ok;
+    ok = expect(hasFringe, "clip mask should have anti-aliased fringe samples (coverage < 1)") && ok;
+
+    return ok;
+}
+
 bool testGradientQueuesShaderDescriptor()
 {
     auto renderer = std::make_unique<FakeRenderer>();
@@ -453,6 +603,10 @@ int main()
     ok = testBoxShadowQueuesWork() && ok;
     ok = testTextShadowQueuesWork() && ok;
     ok = testTextStrokeQueuesWork() && ok;
+    ok = testFillGaussianShadowQueuesShadowCommand() && ok;
+    ok = testStrokeGaussianShadowQueuesShadowCommand() && ok;
+    ok = testGeometryTextGaussianShadowQueuesShadowCommand() && ok;
+    ok = testClipPathBuildsAntiAliasedCoverageMask() && ok;
     ok = testGradientQueuesShaderDescriptor() && ok;
     ok = testAsyncReadbackRejectsInvalidState() && ok;
     ok = testContextRecreation() && ok;

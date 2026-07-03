@@ -11,4 +11,15 @@ inline const char *shaderVersionDirective()
 #endif
 }
 
+// Global uniforms every fragment shader declares so it can honour an active
+// anti-aliased clip coverage mask. When uClipEnabled == 0 the shader behaves
+// exactly as before (no clip); otherwise it multiplies its output alpha by the
+// coverage sampled from uClipMask at the fragment's device position.
+inline const char *clipMaskFragmentUniforms()
+{
+    return "uniform sampler2D uClipMask;\n"
+           "uniform int uClipEnabled;\n"
+           "uniform vec2 uClipViewport;\n";
+}
+
 } // namespace wsc::opengl

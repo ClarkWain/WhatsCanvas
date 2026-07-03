@@ -118,3 +118,21 @@ struct DrawTextData {
     ClipMaskState clipMask;
     size_t getVertexCount() const { return vertices.size() / 2; }
 };
+
+/// A true (separable Gaussian) blurred shadow. The silhouette is a white fill
+/// (with the shadow offset baked into its transform) rendered offscreen, blurred
+/// on the GPU, then composited into the frame tinted with `color`. Resolved
+/// entirely at flush time so no transient blur target outlives its use.
+struct DrawShadowData {
+    DrawPathData silhouette;      // white fill of the shape at the shadow offset
+    // Optional textured silhouette (glyph atlas / bitmap text). When non-empty
+    // these are rendered (their texture alpha becomes coverage) instead of the
+    // path silhouette, so texture-based text also casts a true Gaussian shadow.
+    std::vector<DrawImageData> imageSilhouette;
+    float color[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+    float blurRadius = 0.0f;      // device pixels
+    int canvasWidth = 0;
+    int canvasHeight = 0;
+    ScissorState scissor;
+    DrawBlendMode blendMode = DrawBlendMode::SrcOver;
+};

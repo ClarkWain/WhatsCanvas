@@ -56,6 +56,7 @@ struct ScissorState {
 
 struct ClipMaskPath {
     std::vector<float> points;
+    std::vector<float> coverage;  // Per-vertex analytic-AA coverage in [0,1].
     glm::mat4 transform = glm::mat4(1.0f);
 };
 

@@ -13,7 +13,7 @@ struct ClipPathState
     Path path;
     glm::mat4 transform = glm::mat4(1.0f);
     RectF deviceBounds;
-    ClipMaskPath mask;
+    mutable ClipMaskPath mask;
     mutable SharedClipMaskResource resource;
 };
 
