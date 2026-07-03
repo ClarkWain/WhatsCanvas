@@ -2873,9 +2873,39 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
     }
 
     if (effectivePaint.hasShadowLayer()) {
+        const float shadowRadius = std::max(0.0f, effectivePaint.getShadowRadius());
+        const bool blurredFill = drawFill && fillTriangles && !fillTriangles->empty()
+            && shadowRadius > 0.0f && impl_->width > 0 && impl_->height > 0;
+
+        // True separable-Gaussian shadow for the fill: render the silhouette
+        // offscreen, blur it on the GPU, and composite it tinted with the
+        // shadow colour. Falls back to the offset passes below for radius 0.
+        if (blurredFill) {
+            const Color shadowColor = applyPaintAlpha(effectivePaint, effectivePaint.getShadowColor());
+            float shadowRgba[4] = {shadowColor.r(), shadowColor.g(), shadowColor.b(), shadowColor.a()};
+            GammaCorrect::srgbToLinear4(shadowRgba);
+
+            DrawShadowData shadowData;
+            shadowData.silhouette = makeDrawPathData(
+                flattenPoints(*fillTriangles), 0.0f, Color(255, 255, 255, 255), PathDrawMode::Fill,
+                makeOffsetTransform(impl_->currentState().matrix, effectivePaint.getShadowDx(),
+                                    effectivePaint.getShadowDy()),
+                ScissorState{}, DrawBlendMode::SrcOver, ClipMaskState{});
+            shadowData.color[0] = shadowRgba[0];
+            shadowData.color[1] = shadowRgba[1];
+            shadowData.color[2] = shadowRgba[2];
+            shadowData.color[3] = shadowRgba[3];
+            shadowData.blurRadius = shadowRadius;
+            shadowData.canvasWidth = impl_->width;
+            shadowData.canvasHeight = impl_->height;
+            shadowData.scissor = scissor;
+            shadowData.blendMode = toDrawBlendMode(effectivePaint.getBlendMode());
+            impl_->renderer->submit(std::make_unique<DrawShadowCommand>(shadowData));
+        }
+
         const auto shadowPasses = buildShadowPasses(effectivePaint, impl_->currentState().matrix);
         for (const auto &shadowPass : shadowPasses) {
-            if (drawFill && fillTriangles && !fillTriangles->empty()) {
+            if (drawFill && fillTriangles && !fillTriangles->empty() && !blurredFill) {
                 DrawPathData shadowFillData = makeDrawPathData(flattenPoints(*fillTriangles), effectivePaint.getStrokeWidth(),
                                                                shadowPass.color, PathDrawMode::Fill,
                                                                shadowPass.transform, scissor,

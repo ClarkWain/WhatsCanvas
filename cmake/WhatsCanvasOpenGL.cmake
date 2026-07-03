@@ -196,6 +196,7 @@ function(whatscanvas_add_gl_family_library target_name project_root)
         "${src_dir}/opengl/GlobalIndexBuffers.cpp"
         "${src_dir}/opengl/TexelBuffer.cpp"
         "${src_dir}/opengl/PixelFormatCaps.cpp"
+        "${src_dir}/opengl/GaussianBlurProgram.cpp"
         "${src_dir}/command/DrawCommand.cpp"
         "${src_dir}/command/DrawPoints.cpp"
         "${src_dir}/command/DrawLines.cpp"
