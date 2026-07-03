@@ -62,16 +62,23 @@ WhatsCanvas 是一个用 C++17 编写的轻量级二维渲染引擎项目，以 
 - `src/render/RenderDeviceFactory.cpp` 当前会在桌面 OpenGL 构建中默认选择 `OpenGL`，在 OpenGLES 构建中默认选择 `OpenGLES`；二者复用 `OpenGLRenderDevice`，Vulkan 和 Metal 分支存在但返回 `nullptr`。
 - `src/render/OpenGLRenderDevice.cpp` 负责初始化 Draw*Program、GlobalIndexBuffers、PixelFormatCaps，并创建 texture、FBO/render target、clip mask resource 和 readback；OpenGLES 目标通过编译定义切换 shader 版本和桌面 GL-only 状态。
 
-## 能力概览
+## 能力分组
 
-- 基础图元：点、线、折线、多边形、矩形、圆角矩形、圆、椭圆、圆弧、任意路径。
-- 绘制样式：填充、描边、透明度、逐 Paint 解析抗锯齿（`setAntiAlias`）、线性 / 径向 / 多 stop 渐变、混合模式、阴影、虚线、圆角路径效果、图像采样与贴图模式。
-- 画布状态：`save` / `restore`、矩阵变换、矩形裁剪、`clipPath`、`saveLayer`、render-target canvas、命中测试和快速剔除。
-- 图像能力：文件解码、encoded memory、raw RGBA、外部纹理包装、整图替换、局部更新、contain / cover / fill 布局、锚点、九宫格、圆角裁剪、圆形裁剪和平铺绘制。
-- 文本能力：UTF-8 输入处理、字体描述与 fallback 契约、注册 TrueType 字体栅格化、真实字体 ascent/descent/line-gap metrics、glyph-index shaped run、simple kerning、可选 OpenType shaping implementation、multi-font shaping segmentation、Unicode UAX #9 bidi resolution、持久 GPU glyph atlas、RGBA glyph atlas 管线、COLR/CPAL v0 color glyph、color font table detection、dirty-rect atlas 更新、atlas 文本阴影采样、`drawText`、`drawTextBox`、`drawTextOnPath`、测量、文本框布局、tab/Unicode space / zero-width break 断行、基础 CJK no-space wrapping、长无空格 token hard wrap、行高、最大行、ellipsis、对齐、baseline、letter spacing、描边文本和缺字诊断。
-- 渲染后端：桌面 OpenGL 为主路径，OpenGLES 目标共享同一套 Canvas API 和 GL-family 后端实现；shader portability、上下文生命周期和资源重建已有对应验证。
-- 性能与资源：路径 / 点线 / 图像 / 文本绘制程序统一走流式顶点缓冲，图片命令支持同纹理合批，图片绘制使用全局 quad index buffer，离屏 render target 有复用池，桌面 GL 渐变 stop 支持 texel buffer，OpenGLES 保留兼容 fallback。
-- 诊断与验证：`RenderStats`、同步 / 异步像素回读、PPM 截图、像素哈希、fuzzy PPM 对比、固定时间首帧冒烟、OpenGLES 构建冒烟、示例构建冒烟和本地严格回归检查。
+WhatsCanvas 的公开接口仍然是熟悉的 `Canvas` / `Paint` / `Path` / `Image` / `FontFace`，但按能力看会更直观：
+
+| 能力组 | 已实现能力 | 代表入口 |
+| --- | --- | --- |
+| 基础绘制 | 点、线、折线、多边形、矩形、圆角矩形、圆、椭圆、圆弧、任意路径。 | `drawPoint`、`drawLine`、`drawRect`、`drawRoundRect`、`drawCircle`、`drawOval`、`drawArc`、`drawPath` |
+| 路径与几何 | `Path` 构建、曲线 flatten、路径 bounds、fill/stroke hit-test、stroke bounds、虚线、圆角路径效果、Polyline2D 描边网格。 | `Path`、`measureStrokeBounds`、`hitTestPathFill`、`hitTestPathStroke`、`Paint::setDashPathEffect` |
+| 绘制样式 | 填充、描边、透明度、逐 `Paint` 解析抗锯齿、线性 / 径向 / 多 stop 渐变、混合模式、阴影、采样质量、图像 tile mode、颜色矩阵。 | `Paint`、`setAntiAlias`、`setLinearGradient`、`setRadialGradient`、`setBlendMode`、`setShadowLayer`、`setColorMatrix` |
+| Canvas 状态 | `save` / `restore`、矩阵变换、矩形裁剪、路径裁剪、`saveLayer` 离屏层、render-target canvas、clip 查询、quick reject。 | `save`、`restore`、`translate`、`scale`、`rotate`、`clipRect`、`clipPath`、`saveLayer`、`quickReject` |
+| 图像与纹理 | 文件解码、encoded memory、raw RGBA、外部纹理包装、整图替换、局部更新、contain / cover / fill 布局、锚点、九宫格、圆角裁剪、圆形裁剪、平铺绘制。 | `Image`、`drawImage`、`drawImageFit`、`drawImageNinePatch`、`drawImageRounded`、`drawImageCircle`、`drawImageTiled`、`wrapExternalTexture` |
+| 字体与文本 | 跨平台 TrueType / TTC 注册、file / memory 字体、collection face index、FreeType glyph lookup / metrics / kerning / rasterization、stb fallback、HarfBuzz shaping、simple shaping fallback、多字体 fallback 分段、真实 ascent / descent / lineGap、GPU glyph atlas、dirty rect atlas update、RGBA atlas、COLR/CPAL v0 color glyph、UTF-8 layout、CJK no-space wrapping、Unicode space、zero-width break、ellipsis、baseline、letter spacing、描边文本、文本阴影、text-on-path、缺字诊断、Unicode UAX #9 全量通过。 | `FontFace`、`FontManager`、`FontFallbackChain`、`registerFontFace`、`setFontFallbackChain`、`drawText`、`drawTextBox`、`layoutTextBox`、`drawTextOnPath`、`measureTextMetrics` |
+| 渲染后端 | 桌面 OpenGL 主路径、OpenGLES 目标、共享 GL-family 后端、proc-address 注入、上下文生命周期、资源释放与重建、shader portability。 | `Canvas::loadOpenGL`、`WhatsCanvas::OpenGL`、`WhatsCanvas::OpenGLES`、`initializeContext`、`releaseResources` |
+| 性能与资源 | 流式顶点缓冲、图片命令同纹理合批、路径命令合批、全局 quad index buffer、离屏 render target 复用池、GPU glyph atlas 复用、桌面 GL texel buffer 渐变 stop、OpenGLES fallback。 | `Renderer`、`RenderTargetPool`、`GlyphAtlas`、`RenderStats` |
+| 诊断与验证 | 同步 / 异步像素回读、PPM 截图、像素哈希、fuzzy PPM 对比、固定时间首帧冒烟、OpenGLES 构建冒烟、示例构建冒烟、Unicode Bidi conformance、跨平台 CI。 | `readPixelsRGBA`、`readPixelsRGBAAsync`、`savePixelsPPM`、`computePixelsHashRGBA`、`ctest`、`scripts/*_smoke.*` |
+
+字体这一组是当前重点能力之一：它已经不是简单的 `drawText`，而是一条从字体注册、fallback、shaping、glyph rasterization、atlas upload 到 Canvas 绘制的完整链路。默认构建会优先使用 vendored / system FreeType，OpenType shaping 可以通过 HarfBuzz 打开；依赖不可用时仍能回退到便携路径，保证项目可构建、可测试、可逐步增强。
 
 ## 抗锯齿与渐变画质
 
@@ -92,112 +99,9 @@ paint.setAntiAlias(true); // 逐 Paint 开启（默认关闭）
 
 对比图可用示例 `WhatsCanvasAAShowcase` 复现：`WhatsCanvasAAShowcase <输出路径>` 会生成 `aa_comparison.png` 与同目录的 `gradient_comparison.png`。
 
-## Canvas API
+## API 入口
 
-公开的 `Canvas` API 保持在一个熟悉、直接的二维绘制模型上，便于上层调用，也便于顺着接口往下理解内部实现。
-
-```cpp
-class Canvas {
-	struct TextMetrics;
-	enum class ImageFit { FILL, CONTAIN, COVER };
-	enum class ImageAnchor { ... };
-
-	static void initialize();
-	static void finalize();
-	static bool loadOpenGL(...);
-	static void setGammaCorrect(bool enabled);
-
-	void shutdown();
-	bool initializeContext();
-	void finalizeContext();
-	void releaseResources();
-	void setSize(int width, int height);
-	int getWidth() const;
-	int getHeight() const;
-	void setColor(Color color);
-	void setBlendMode(Paint::BlendMode blendMode);
-	void setRenderTargetMode(bool enabled);
-
-	void drawColor(const Color& color);
-	void drawPaint(const Paint& paint);
-	void drawPoint(...);
-	void drawPoints(...);
-	void drawLine(...);
-	void drawLines(...);
-	void drawPolyline(...);
-	void drawPolygon(...);
-	void drawRect(...);
-	void drawRoundRect(...);
-	void drawCircle(...);
-	void drawOval(...);
-	void drawArc(...);
-	void drawPath(const Path& path, ...);
-	RectF measureStrokeBounds(...);
-
-	void drawImage(...);
-	void drawImageFit(...);
-	void drawImageNinePatch(...);
-	void drawImageRounded(...);
-	void drawImageCircle(...);
-	void drawImageTiled(...);
-	void drawImage(const ITextureSource& source, ...);
-	bool loadImageFromEncodedMemory(...);
-	bool loadImageFromRGBA(...);
-	bool replaceImageRGBA(...);
-	bool updateImageRGBA(...);
-	bool wrapExternalTexture(...);
-
-	void drawText(...);
-	void drawTextBox(...);
-	std::vector<TextLine> layoutTextBox(...);
-	void drawTextOnPath(...);
-	float measureText(...);
-	RectF measureTextBounds(...);
-	TextMetrics measureTextMetrics(...);
-	bool registerFontFace(...);
-	bool setFontFallbackChain(...);
-
-	int save();
-	int saveLayer(...);
-	void restore();
-	int getSaveCount() const;
-	void restoreToCount(int saveCount);
-
-	Matrix4 getMatrix() const;
-	PointF mapPoint(...);
-	RectF mapRect(...);
-	bool inverseMapPoint(...);
-	bool inverseMapRect(...);
-	void setMatrix(const Matrix4& matrix);
-	void resetMatrix();
-	void concat(const Matrix4& matrix);
-	void translate(float dx, float dy);
-	void scale(float sx, float sy);
-	void rotate(float radians);
-
-	void clipRect(...);
-	void clipPath(const Path& path);
-	bool hasClip() const;
-	bool getClipBounds(RectF& bounds) const;
-	bool isPointInClip(...);
-	bool quickReject(...);
-	bool hitTestPathFill(...);
-	bool hitTestPathStroke(...);
-
-	void beginFrame();
-	void flush();
-	void endFrame();
-	RenderStats getRenderStats() const;
-	bool readPixelsRGBA(...);
-	bool readPixelsRGBAAsync(...);
-	bool pollReadPixelsRGBAAsync();
-	bool hasPendingReadPixelsRGBAAsync() const;
-	std::vector<unsigned char> readPixelsRGBA() const;
-	bool savePixelsPPM(const std::string& path) const;
-	static std::uint64_t hashPixelsRGBA(...);
-	std::uint64_t computePixelsHashRGBA() const;
-};
-```
+完整函数签名以 `include/wsc/` 下的公共头文件为准，README 这里更偏向按能力导航：`wsc/wsc.h` 是最常用的一站式入口，也可以按模块包含 `wsc/Canvas.h`、`wsc/Paint.h`、`wsc/Path.h`、`wsc/Image.h`、`wsc/Font.h` 和 `wsc/base.h`。
 
 图片 pattern 目前使用 `drawImageTiled` 表达：`Image` 是 pattern 的源，`Paint::setImageTileMode` 控制 `CLAMP` / `REPEAT` / `MIRROR` / `DECAL`，`Paint` 的 alpha、tint、color matrix 和 sampling 继续生效；如果需要移动、缩放、旋转 pattern 区域，可以在调用前使用 `save()` + `translate()` / `scale()` / `rotate()`，绘制后 `restore()`。
 
