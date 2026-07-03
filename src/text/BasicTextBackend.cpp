@@ -586,10 +586,15 @@ private:
         result.width = shapedRun->width;
         result.height = paint.getTextSize();
 
-        float penX = alignedX;
-        const float baselineY = result.drawY + paint.getTextSize();
-        const float spacing = std::isfinite(paint.getLetterSpacing()) ? paint.getLetterSpacing() : 0.0f;
-        bool usedRasterGlyph = false;
+        struct PendingGlyphDraw
+        {
+            wsc::text::ShapedGlyph glyph;
+            wsc::text::GlyphKey key;
+            wsc::text::GlyphBitmap bitmap;
+        };
+
+        std::vector<PendingGlyphDraw> pendingGlyphs;
+        pendingGlyphs.reserve(shapedRun->glyphs.size());
         for (const wsc::text::ShapedGlyph &glyph : shapedRun->glyphs) {
             const wsc::FontFace *face = findRasterFaceForCodepoint(glyph.codepoint, paint);
             if (face == nullptr) {
@@ -603,30 +608,56 @@ private:
                 return std::nullopt;
             }
 
-            if (usedRasterGlyph) {
-                penX += spacing;
-            }
+            pendingGlyphs.push_back({glyph, rasterized->key, rasterized->bitmap});
+        }
 
-            if (rasterized->bitmap.width > 0 && rasterized->bitmap.height > 0) {
-                const auto entry = glyphAtlas_.uploadGlyph(rasterized->key, rasterized->bitmap);
-                if (!entry) {
-                    return std::nullopt;
+        const float baselineY = result.drawY + paint.getTextSize();
+        const float spacing = std::isfinite(paint.getLetterSpacing()) ? paint.getLetterSpacing() : 0.0f;
+        bool uploadedConsistentGeneration = false;
+        for (int attempt = 0; attempt < 3 && !uploadedConsistentGeneration; ++attempt) {
+            result.glyphAtlasQuads.clear();
+            float penX = alignedX;
+            bool usedRasterGlyph = false;
+            bool restartUpload = false;
+
+            for (const PendingGlyphDraw &pending : pendingGlyphs) {
+                if (usedRasterGlyph) {
+                    penX += spacing;
                 }
 
-                TextRenderResult::GlyphAtlasQuad quad;
-                quad.x = penX + glyph.offsetX + entry->bearingX;
-                quad.y = baselineY + glyph.offsetY + entry->bearingY;
-                quad.width = static_cast<float>(entry->width);
-                quad.height = static_cast<float>(entry->height);
-                quad.u0 = entry->u0;
-                quad.v0 = entry->v0;
-                quad.u1 = entry->u1;
-                quad.v1 = entry->v1;
-                result.glyphAtlasQuads.push_back(quad);
+                if (pending.bitmap.width > 0 && pending.bitmap.height > 0) {
+                    const std::uint64_t generationBeforeUpload = glyphAtlas_.stats().generation;
+                    const auto entry = glyphAtlas_.uploadGlyph(pending.key, pending.bitmap);
+                    if (!entry) {
+                        return std::nullopt;
+                    }
+                    const std::uint64_t generationAfterUpload = glyphAtlas_.stats().generation;
+                    if (generationAfterUpload != generationBeforeUpload && !result.glyphAtlasQuads.empty()) {
+                        restartUpload = true;
+                        break;
+                    }
+
+                    TextRenderResult::GlyphAtlasQuad quad;
+                    quad.x = penX + pending.glyph.offsetX + entry->bearingX;
+                    quad.y = baselineY + pending.glyph.offsetY + entry->bearingY;
+                    quad.width = static_cast<float>(entry->width);
+                    quad.height = static_cast<float>(entry->height);
+                    quad.u0 = entry->u0;
+                    quad.v0 = entry->v0;
+                    quad.u1 = entry->u1;
+                    quad.v1 = entry->v1;
+                    result.glyphAtlasQuads.push_back(quad);
+                }
+
+                penX += pending.glyph.advanceX;
+                usedRasterGlyph = true;
             }
 
-            penX += glyph.advanceX;
-            usedRasterGlyph = true;
+            uploadedConsistentGeneration = !restartUpload;
+        }
+
+        if (!uploadedConsistentGeneration) {
+            return std::nullopt;
         }
 
         if (result.glyphAtlasQuads.empty()) {

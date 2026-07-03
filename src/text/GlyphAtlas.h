@@ -61,6 +61,7 @@ struct GlyphAtlasStats
     std::size_t usedBytes = 0;
     std::size_t uploadCount = 0;
     std::size_t evictionCount = 0;
+    std::size_t resizeCount = 0;
     std::uint64_t generation = 0;
     bool textureValid = false;
 };
@@ -93,8 +94,10 @@ public:
     GlyphAtlasStats stats() const;
 
 private:
-    bool canStore(const GlyphBitmap &bitmap) const;
+    bool hasValidPixels(const GlyphBitmap &bitmap) const;
+    bool canStoreDimensions(int width, int height) const;
     bool allocateRect(int width, int height, int &x, int &y);
+    bool growToFit(int width, int height);
     void resetPacking();
     void rememberRebuildKeys();
     void markDirtyRect(int x, int y, int width, int height);
@@ -114,6 +117,7 @@ private:
     std::vector<unsigned char> rgbaPixels_;
     std::size_t uploadCount_ = 0;
     std::size_t evictionCount_ = 0;
+    std::size_t resizeCount_ = 0;
     std::uint64_t generation_ = 1;
     bool textureValid_ = true;
     bool hasColorPixels_ = false;
