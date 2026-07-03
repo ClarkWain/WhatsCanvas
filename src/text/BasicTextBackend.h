@@ -34,6 +34,7 @@ struct BasicTextBackendOptions
 {
     TextBackendKind backendKind = TextBackendKind::Auto;
     bool enableNativeText = true;
+    bool enableSystemFontFallback = true;
     TextShapingBackend shapingBackend = TextShapingBackend::Simple;
 };
 

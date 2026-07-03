@@ -60,6 +60,9 @@ public:
         if (shaper_ == nullptr) {
             shaper_ = wsc::text::createSimpleTextShapingEngine();
         }
+        if (options_.enableSystemFontFallback) {
+            registerSystemFontFallbacks();
+        }
     }
 
     bool registerFontFace(const wsc::FontFace &face) override
@@ -95,6 +98,9 @@ public:
     {
         if (fontManager_.hasFamily(preferredFamily)) {
             return fontManager_.resolveFamilies(preferredFamily);
+        }
+        if (preferredFamily.empty() && fontManager_.hasFamily(wsc::FontSystem::kDefaultPrimaryFamily)) {
+            return fontManager_.resolveFamilies(wsc::FontSystem::kDefaultPrimaryFamily);
         }
         return preferredFamily.empty() ? std::vector<std::string>() : std::vector<std::string>{preferredFamily};
     }
@@ -198,15 +204,15 @@ public:
             return true;
         }
 
-        if (paint.hasFontFamily()) {
-            const std::vector<std::string> families = resolveFontFamilies(paint.getFontFamily());
-            for (const std::string &family : families) {
-                for (const wsc::FontFace *face : fontManager_.findFaces(family)) {
-                    if (face != nullptr
-                        && ((face->hasCodepointRanges() && face->supportsCodepoint(codepoint))
-                            || rasterizer_.hasGlyph(*face, codepoint))) {
-                        return true;
-                    }
+        const std::vector<std::string> families = paint.hasFontFamily()
+            ? resolveFontFamilies(paint.getFontFamily())
+            : resolveFontFamilies(std::string());
+        for (const std::string &family : families) {
+            for (const wsc::FontFace *face : fontManager_.findFaces(family)) {
+                if (face != nullptr
+                    && ((face->hasCodepointRanges() && face->supportsCodepoint(codepoint))
+                        || rasterizer_.hasGlyph(*face, codepoint))) {
+                    return true;
                 }
             }
         }
@@ -216,7 +222,8 @@ public:
             return true;
         }
 #endif
-        addMissingGlyphDiagnostic(codepoint, paint.hasFontFamily() ? paint.getFontFamily() : std::string());
+        addMissingGlyphDiagnostic(codepoint, paint.hasFontFamily() ? paint.getFontFamily()
+                                                                   : wsc::FontSystem::kDefaultPrimaryFamily);
         return false;
     }
 
@@ -322,7 +329,8 @@ public:
         metrics.lineHeight = metrics.height;
 
         const std::string normalizedText = wsc::text::normalizeUtf8ForText(text);
-        if (normalizedText.empty() || paint.getTextSize() <= 0.0f || !paint.hasFontFamily()) {
+        if (normalizedText.empty() || paint.getTextSize() <= 0.0f
+            || (!paint.hasFontFamily() && !fontManager_.hasFamily(wsc::FontSystem::kDefaultPrimaryFamily))) {
             return metrics;
         }
 
@@ -435,20 +443,61 @@ public:
     }
 
 private:
+    void registerSystemFontFallbacks()
+    {
+        const std::vector<wsc::FontFace> faces = wsc::FontSystem::defaultSystemFontFaces();
+        if (faces.empty()) {
+            diagnostics_.push_back({wsc::text::TextBackendDiagnostic::Severity::Info,
+                                    "No default system font files were discovered."});
+            return;
+        }
+
+        for (const wsc::FontFace &face : faces) {
+            fontManager_.registerFace(face);
+        }
+
+        const wsc::FontFallbackChain defaultChain = wsc::FontSystem::defaultFallbackChain();
+        for (const std::string &family : defaultChain.fallbackFamilies()) {
+            fontManager_.addFallbackFamily(defaultChain.primaryFamily(), family);
+        }
+    }
+
     const wsc::FontFace *findRasterFaceForCodepoint(std::uint32_t codepoint, const Paint &paint) const
     {
-        if (!paint.hasFontFamily()) {
+        const std::vector<std::string> families = paint.hasFontFamily()
+            ? resolveFontFamilies(paint.getFontFamily())
+            : resolveFontFamilies(wsc::FontSystem::kDefaultPrimaryFamily);
+        if (families.empty()) {
             return nullptr;
         }
 
-        for (const std::string &family : resolveFontFamilies(paint.getFontFamily())) {
-            for (const wsc::FontFace *face : fontManager_.findFaces(family)) {
-                if (face != nullptr && rasterizer_.hasGlyph(*face, codepoint)) {
-                    return face;
-                }
+        for (const std::string &family : families) {
+            if (const wsc::FontFace *face = findBestRasterFaceForCodepoint(family, codepoint, paint)) {
+                return face;
             }
         }
         return nullptr;
+    }
+
+    const wsc::FontFace *findBestRasterFaceForCodepoint(const std::string &family, std::uint32_t codepoint,
+                                                        const Paint &paint) const
+    {
+        const wsc::FontFace *bestFace = nullptr;
+        int bestScore = 0;
+        for (const wsc::FontFace *face : fontManager_.findFaces(family)) {
+            if (face == nullptr || !rasterizer_.hasGlyph(*face, codepoint)) {
+                continue;
+            }
+
+            const int slantPenalty = face->slant() == paint.getFontSlant() ? 0 : 1000;
+            const int weightPenalty = std::abs(face->weight() - paint.getFontWeight());
+            const int score = slantPenalty + weightPenalty;
+            if (bestFace == nullptr || score < bestScore) {
+                bestFace = face;
+                bestScore = score;
+            }
+        }
+        return bestFace;
     }
 
     struct RasterTextSegment
@@ -608,7 +657,9 @@ private:
                                                                 const Paint &paint) const
     {
         if (!paint.hasFontFamily()) {
-            return std::nullopt;
+            if (!fontManager_.hasFamily(wsc::FontSystem::kDefaultPrimaryFamily)) {
+                return std::nullopt;
+            }
         }
 
         if (!shaper_) {
@@ -843,6 +894,7 @@ std::unique_ptr<ITextBackend> createPortableTextBackend()
     BasicTextBackendOptions options;
     options.backendKind = TextBackendKind::Portable;
     options.enableNativeText = false;
+    options.enableSystemFontFallback = false;
     return createBasicTextBackend(options);
 }
 
