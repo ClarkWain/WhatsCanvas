@@ -112,7 +112,7 @@ build.bat --release --package --no-run
 ```
 
 ```cmake
-find_package(WhatsCanvas 0.1.10 CONFIG REQUIRED)
+find_package(WhatsCanvas 0.1.11 CONFIG REQUIRED)
 
 add_executable(MyApp main.cpp)
 target_link_libraries(MyApp PRIVATE WhatsCanvas::OpenGL)

@@ -69,7 +69,7 @@ jobs:
         id: archive
         shell: pwsh
         run: |
-          $version = "0.1.10"
+          $version = "0.1.11"
           $configLower = "${{ matrix.config }}".ToLowerInvariant()
           $artifactName = "whatscanvas-${{ matrix.os_id }}-$configLower-$version"
           $archivePath = Join-Path $PWD "$artifactName.zip"
