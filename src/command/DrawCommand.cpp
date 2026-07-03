@@ -105,7 +105,18 @@ void DrawShadowCommand::execute(RenderContext &context)
     glDisable(GL_BLEND);
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
     glClear(GL_COLOR_BUFFER_BIT);
-    DrawPathProgram::getInstance()->draw(context, data_.silhouette);
+    if (!data_.imageSilhouette.empty()) {
+        // Textured text (glyph atlas / bitmap): draw the glyph quads so their
+        // sampled texture alpha accumulates as coverage. These go through the
+        // image program, which manages its own blend/clip via the context, so
+        // invalidate the cached GL state first (the raw calls above bypassed it).
+        context.resetRenderState();
+        for (const auto &imageData : data_.imageSilhouette) {
+            DrawImageCommand(imageData).execute(context);
+        }
+    } else {
+        DrawPathProgram::getInstance()->draw(context, data_.silhouette);
+    }
 
     // 2. Separable Gaussian blur: A -> B (horizontal) -> A (vertical).
     const wsc::render::GaussianKernel kernel = wsc::render::computeGaussianKernel(data_.blurRadius);
