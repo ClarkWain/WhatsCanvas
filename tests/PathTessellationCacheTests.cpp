@@ -134,6 +134,71 @@ bool testStrokeOnlyDoesNotPopulateFillCache()
                   "a stroke-only draw should not populate the fill tessellation cache");
 }
 
+bool testIdenticalStrokeReusesMesh()
+{
+    Canvas canvas;
+    canvas.setSize(256, 256);
+
+    Paint stroke;
+    stroke.setStyle(Paint::Style::STROKE);
+    stroke.setStrokeWidth(4.0f);
+    stroke.setStrokeColor(Color(240, 200, 60));
+
+    const Path square = makeSquare(40.0f, 40.0f, 120.0f);
+
+    canvas.drawPath(square, stroke);
+    Canvas::RenderStats s1 = canvas.getRenderStats();
+    bool ok = expect(s1.strokeCacheMisses == 1 && s1.strokeCacheHits == 0 && s1.strokeCacheSize == 1,
+                     "first stroke should be a cache miss and populate one entry");
+
+    // Same stroke under a different transform must still reuse the mesh, which
+    // is built in local path space independent of the current matrix.
+    canvas.save();
+    canvas.translate(20.0f, 10.0f);
+    canvas.drawPath(square, stroke);
+    canvas.restore();
+    Canvas::RenderStats s2 = canvas.getRenderStats();
+    ok = expect(s2.strokeCacheHits == 1 && s2.strokeCacheSize == 1,
+                "transformed identical stroke should reuse the cached mesh") && ok;
+
+    // A different stroke width must not collide with the cached mesh.
+    Paint thicker = stroke;
+    thicker.setStrokeWidth(8.0f);
+    canvas.drawPath(square, thicker);
+    Canvas::RenderStats s3 = canvas.getRenderStats();
+    ok = expect(s3.strokeCacheMisses == 2 && s3.strokeCacheSize == 2,
+                "changing stroke width should produce a distinct cache entry") && ok;
+    return ok;
+}
+
+bool testClipMaskSharesFillTessellationCache()
+{
+    Canvas canvas;
+    canvas.setSize(256, 256);
+
+    Paint fill;
+    fill.setStyle(Paint::Style::FILL);
+    fill.setColor(Color(200, 200, 200));
+
+    const Path pentagon = makePentagon(120.0f, 120.0f, 80.0f);
+
+    // Filling the shape triangulates and caches it.
+    canvas.drawPath(pentagon, fill);
+    Canvas::RenderStats s1 = canvas.getRenderStats();
+    bool ok = expect(s1.tessellationCacheMisses == 1 && s1.tessellationCacheSize == 1,
+                     "fill should populate the tessellation cache");
+
+    // Clipping with the same path reuses that triangulation (the clip mask is
+    // the fill triangulation of the path), so it hits the shared cache.
+    canvas.save();
+    canvas.clipPath(pentagon);
+    canvas.restore();
+    Canvas::RenderStats s2 = canvas.getRenderStats();
+    ok = expect(s2.tessellationCacheHits == 1 && s2.tessellationCacheSize == 1,
+                "clipping with a previously filled path should reuse the cached tessellation") && ok;
+    return ok;
+}
+
 } // namespace
 
 int main()
@@ -143,5 +208,7 @@ int main()
     ok = testTransformDoesNotInvalidateTessellation() && ok;
     ok = testDistinctShapesUseDistinctEntries() && ok;
     ok = testStrokeOnlyDoesNotPopulateFillCache() && ok;
+    ok = testIdenticalStrokeReusesMesh() && ok;
+    ok = testClipMaskSharesFillTessellationCache() && ok;
     return ok ? 0 : 1;
 }
