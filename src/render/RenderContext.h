@@ -26,10 +26,17 @@ public:
                            DrawImageTileMode tileMode, bool mipmapsReady) const;
     void resetRenderState() const;
 
+    /// Whether an anti-aliased clip coverage mask is currently bound. Draw
+    /// programs sample it and multiply their output alpha by the coverage.
+    bool isClipMaskActive() const { return clipMaskActive_; }
+    /// Texture unit holding the clip coverage mask (valid when active).
+    int clipMaskTextureUnit() const;
+
 private:
     bool isClipMaskCurrent(std::uint64_t key) const;
     void rememberClipMask(std::uint64_t key) const;
     void clearClipMask() const;
+    void bindClipMaskTexture(unsigned int texture) const;
 
     int width = 0;
     int height = 0;
@@ -55,4 +62,5 @@ private:
     mutable bool generatedMipmapsForBoundTexture_ = false;
     mutable bool hasClipMaskKey_ = false;
     mutable std::uint64_t lastClipMaskKey_ = 0;
+    mutable bool clipMaskActive_ = false;
 };

@@ -4556,6 +4556,20 @@ ClipMaskState Canvas::Impl::makeCurrentClipMaskState() const
                 return {};
             }
 
+            if (clipPath.mask.coverage.empty()) {
+                // Expand the fill triangulation with an analytic-AA fringe so the
+                // clip mask has smooth edges. Done once per clip and cached in the
+                // mask (the fill triangles are replaced by the expanded mesh).
+                std::vector<crushedpixel::Vec2> tris;
+                tris.reserve(clipPath.mask.points.size() / 2);
+                for (std::size_t i = 0; i + 1 < clipPath.mask.points.size(); i += 2) {
+                    tris.emplace_back(clipPath.mask.points[i], clipPath.mask.points[i + 1]);
+                }
+                AAExpandedMesh aa = expandTrianglesWithAA(tris, computeLocalFringe(clipPath.mask.transform));
+                clipPath.mask.points = flattenPoints(aa.vertices);
+                clipPath.mask.coverage = std::move(aa.coverage);
+            }
+
             clipPath.resource = renderer->createClipMaskResource(clipPath.mask);
             if (!clipPath.resource || !clipPath.resource->isValid()) {
                 return {};

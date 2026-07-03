@@ -250,6 +250,49 @@ void drawShadowScene(Canvas &canvas, float ox, bool strong)
     }
 }
 
+// Clips solid fills by non-rectangular paths. With the anti-aliased clip mask
+// the star's diagonal edges and the circle's curve stay smooth; the old 1-bit
+// stencil clip left them hard/jagged.
+void drawClipScene(Canvas &canvas, float ox, bool strong)
+{
+    (void)strong;
+    // Star-shaped clip over a solid fill.
+    {
+        canvas.save();
+        canvas.clipPath(makeStar(ox + 150.0f, 150.0f, 120.0f, 50.0f));
+        Paint p;
+        p.setStyle(Paint::Style::FILL);
+        p.setFillColor(Color(90, 150, 235));
+        canvas.drawRect(RectF(ox + 10.0f, 20.0f, 290.0f, 270.0f), p);
+        canvas.restore();
+    }
+    // Circular clip over a solid fill.
+    {
+        Path circle;
+        circle.addCircle(ox + 320.0f, 330.0f, 95.0f);
+        canvas.save();
+        canvas.clipPath(circle);
+        Paint p;
+        p.setStyle(Paint::Style::FILL);
+        p.setFillColor(Color(240, 120, 130));
+        canvas.drawRect(RectF(ox + 210.0f, 230.0f, 220.0f, 200.0f), p);
+        canvas.restore();
+    }
+    // Star clip intersected with the circle-clipped region is not needed here;
+    // a rounded-rect clip shows a smooth mixed straight/curved edge.
+    {
+        Path roundish;
+        roundish.addOval(RectF(ox + 40.0f, 300.0f, 150.0f, 120.0f));
+        canvas.save();
+        canvas.clipPath(roundish);
+        Paint p;
+        p.setStyle(Paint::Style::FILL);
+        p.setFillColor(Color(250, 205, 70));
+        canvas.drawRect(RectF(ox + 20.0f, 290.0f, 200.0f, 150.0f), p);
+        canvas.restore();
+    }
+}
+
 std::string getEnv(const char *name)
 {
 #ifdef _MSC_VER
@@ -364,6 +407,9 @@ int main(int argc, char **argv)
         const std::string shadowPath = dir + "shadow_comparison.png";
         ok = renderAndSave(shadowPath, drawShadowScene,
                            "true Gaussian shadow — left: radius 8, right: radius 24", true) && ok;
+        const std::string clipPath = dir + "clip_comparison.png";
+        ok = renderAndSave(clipPath, drawClipScene,
+                           "anti-aliased path clipping (star / circle / oval masks)", true) && ok;
         if (!ok) {
             glfwTerminate();
             return 1;

@@ -19,8 +19,8 @@ DrawPointsCommand::DrawPointsCommand(const DrawPointsData &data)
 
 void DrawPointsCommand::execute(RenderContext &context)
 {
-    context.applyBlendMode(data_.blendMode);
     context.applyClipState(data_.scissor, data_.clipMask);
+    context.applyBlendMode(data_.blendMode);
     DrawPointsProgram::getInstance()->draw(context, data_);
 }
 
@@ -31,8 +31,8 @@ DrawLinesCommand::DrawLinesCommand(const DrawLinesData &data)
 
 void DrawLinesCommand::execute(RenderContext &context)
 {
-    context.applyBlendMode(data_.blendMode);
     context.applyClipState(data_.scissor, data_.clipMask);
+    context.applyBlendMode(data_.blendMode);
     DrawLinesProgram::getInstance()->draw(context, data_);
 }
 
@@ -43,8 +43,8 @@ DrawPathCommand::DrawPathCommand(const DrawPathData &data)
 
 void DrawPathCommand::execute(RenderContext &context)
 {
-    context.applyBlendMode(data_.blendMode);
     context.applyClipState(data_.scissor, data_.clipMask);
+    context.applyBlendMode(data_.blendMode);
     DrawPathProgram::getInstance()->draw(context, data_);
 }
 
@@ -55,8 +55,8 @@ DrawImageCommand::DrawImageCommand(const DrawImageData &data)
 
 void DrawImageCommand::execute(RenderContext &context)
 {
-    context.applyBlendMode(data_.blendMode);
     context.applyClipState(data_.scissor, data_.clipMask);
+    context.applyBlendMode(data_.blendMode);
     DrawImageProgram::getInstance()->draw(context, data_);
 }
 
@@ -67,8 +67,8 @@ DrawTextCommand::DrawTextCommand(const DrawTextData &data)
 
 void DrawTextCommand::execute(RenderContext &context)
 {
-    context.applyBlendMode(data_.blendMode);
     context.applyClipState(data_.scissor, data_.clipMask);
+    context.applyBlendMode(data_.blendMode);
     DrawTextProgram::getInstance()->draw(context, data_);
 }
 
@@ -115,6 +115,7 @@ void DrawShadowCommand::execute(RenderContext &context)
             DrawImageCommand(imageData).execute(context);
         }
     } else {
+        context.resetRenderState();
         DrawPathProgram::getInstance()->draw(context, data_.silhouette);
     }
 

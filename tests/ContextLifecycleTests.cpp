@@ -34,6 +34,13 @@ public:
     bool updateRGBA(int, int, int, int, const unsigned char *, bool) override { return true; }
 };
 
+class FakeClipMaskResource final : public ClipMaskResource
+{
+public:
+    bool isValid() const override { return true; }
+    void apply(const RenderContext &, const ScissorState &, std::size_t) const override {}
+};
+
 class FakeRenderer final : public IRenderer
 {
 public:
@@ -85,7 +92,12 @@ public:
     }
 
     bool readPixelsRGBA(std::vector<unsigned char> &) const override { return false; }
-    SharedClipMaskResource createClipMaskResource(const ClipMaskPath &) const override { return {}; }
+    SharedClipMaskResource createClipMaskResource(const ClipMaskPath &maskPath) const override
+    {
+        lastClipMaskPath = maskPath;
+        clipMaskResourceCount += 1;
+        return std::make_shared<FakeClipMaskResource>();
+    }
     SharedImageResource createImageResourceRGBA(int, int, const std::vector<unsigned char> &) const override
     {
         return {};
@@ -135,6 +147,8 @@ public:
     bool returnRenderTargetImage = false;
     std::vector<std::unique_ptr<Command>> commands;
     mutable FrameStats stats;
+    mutable ClipMaskPath lastClipMaskPath;
+    mutable int clipMaskResourceCount = 0;
 };
 
 } // namespace
@@ -454,6 +468,52 @@ bool testGeometryTextGaussianShadowQueuesShadowCommand()
     return ok;
 }
 
+bool testClipPathBuildsAntiAliasedCoverageMask()
+{
+    auto renderer = std::make_unique<FakeRenderer>();
+    FakeRenderer *rawRenderer = renderer.get();
+    std::unique_ptr<wsc::Canvas> canvas = wsc::CanvasLifecycleTestAccess::create(std::move(renderer));
+
+    bool ok = expect(canvas->initializeContext(), "initializeContext should succeed");
+    canvas->setSize(200, 200);
+
+    // A rotated, non-axis-aligned triangle clip cannot collapse to a scissor
+    // rect, so it takes the anti-aliased coverage-mask path.
+    wsc::Path clip;
+    clip.moveTo(40.0f, 20.0f);
+    clip.lineTo(170.0f, 60.0f);
+    clip.lineTo(90.0f, 180.0f);
+    clip.close();
+    canvas->clipPath(clip);
+
+    wsc::Paint fill;
+    fill.setStyle(wsc::Paint::Style::FILL);
+    fill.setColor(wsc::Color(200, 60, 60));
+    canvas->drawRect(wsc::RectF(0.0f, 0.0f, 200.0f, 200.0f), fill);
+
+    ok = expect(rawRenderer->clipMaskResourceCount >= 1,
+                "clipPath should create a clip mask resource") && ok;
+    const ClipMaskPath &mask = rawRenderer->lastClipMaskPath;
+    ok = expect(!mask.points.empty(), "clip mask should have geometry") && ok;
+    ok = expect(mask.coverage.size() == mask.points.size() / 2,
+                "clip mask should carry one AA coverage value per vertex") && ok;
+
+    bool hasInterior = false;
+    bool hasFringe = false;
+    for (float c : mask.coverage) {
+        if (c >= 0.99f) {
+            hasInterior = true;
+        }
+        if (c <= 0.5f) {
+            hasFringe = true;
+        }
+    }
+    ok = expect(hasInterior, "clip mask should have fully-covered interior samples") && ok;
+    ok = expect(hasFringe, "clip mask should have anti-aliased fringe samples (coverage < 1)") && ok;
+
+    return ok;
+}
+
 bool testGradientQueuesShaderDescriptor()
 {
     auto renderer = std::make_unique<FakeRenderer>();
@@ -546,6 +606,7 @@ int main()
     ok = testFillGaussianShadowQueuesShadowCommand() && ok;
     ok = testStrokeGaussianShadowQueuesShadowCommand() && ok;
     ok = testGeometryTextGaussianShadowQueuesShadowCommand() && ok;
+    ok = testClipPathBuildsAntiAliasedCoverageMask() && ok;
     ok = testGradientQueuesShaderDescriptor() && ok;
     ok = testAsyncReadbackRejectsInvalidState() && ok;
     ok = testContextRecreation() && ok;
