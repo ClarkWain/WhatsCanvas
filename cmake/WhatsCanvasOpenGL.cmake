@@ -172,6 +172,22 @@ function(whatscanvas_add_gl_family_library target_name project_root)
         endif()
     endif()
 
+    # Optional Vulkan backend. The Vulkan source is always compiled so the render
+    # device factory can reference it, but real Vulkan API usage is only enabled
+    # when the option is set and a Vulkan SDK is discovered at configure time.
+    set(vulkan_backend_libraries)
+    set(vulkan_backend_enabled OFF)
+    if (WHATSCANVAS_ENABLE_VULKAN)
+        find_package(Vulkan QUIET)
+        if (Vulkan_FOUND)
+            set(vulkan_backend_enabled ON)
+            list(APPEND vulkan_backend_libraries Vulkan::Vulkan)
+            message(STATUS "WhatsCanvas Vulkan backend enabled (${Vulkan_LIBRARIES}).")
+        else()
+            message(STATUS "WHATSCANVAS_ENABLE_VULKAN is ON, but a Vulkan SDK was not found. Building the Vulkan backend as an inert stub.")
+        endif()
+    endif()
+
     add_library(${target_name}
         "${glad_path}/src/glad.c"
         "${src_dir}/canvas/base.cpp"
@@ -211,6 +227,7 @@ function(whatscanvas_add_gl_family_library target_name project_root)
         "${src_dir}/render/RenderTargetPool.cpp"
         "${src_dir}/render/SpriteBatch.cpp"
         "${src_dir}/render/Renderer.cpp"
+        "${src_dir}/render/vulkan/VulkanRenderDevice.cpp"
     )
 
     if (WSC_GL_OPENGLES)
@@ -227,6 +244,11 @@ function(whatscanvas_add_gl_family_library target_name project_root)
 
     if (WHATSCANVAS_FREETYPE_TARGET)
         target_compile_definitions(${target_name} PRIVATE WHATSCANVAS_HAS_FREETYPE)
+    endif()
+
+    if (vulkan_backend_enabled)
+        target_compile_definitions(${target_name} PRIVATE WHATSCANVAS_ENABLE_VULKAN)
+        target_link_libraries(${target_name} PRIVATE ${vulkan_backend_libraries})
     endif()
 
     target_include_directories(${target_name}
