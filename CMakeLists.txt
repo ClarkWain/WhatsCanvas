@@ -246,6 +246,46 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     )
     set_tests_properties(WhatsCanvasBatchMergeTests PROPERTIES LABELS "unit;diagnostics")
 
+    add_executable(WhatsCanvasLruCacheTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/LruCacheTests.cpp"
+    )
+    target_include_directories(WhatsCanvasLruCacheTests PRIVATE
+        "${SRC_DIR}"
+    )
+    target_link_libraries(WhatsCanvasLruCacheTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasLruCacheTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasLruCacheTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasLruCacheTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasLruCacheTests PROPERTIES LABELS "unit;diagnostics")
+
+    add_executable(WhatsCanvasPathTessellationCacheTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/PathTessellationCacheTests.cpp"
+    )
+    target_include_directories(WhatsCanvasPathTessellationCacheTests PRIVATE
+        "${SRC_DIR}"
+    )
+    target_link_libraries(WhatsCanvasPathTessellationCacheTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasPathTessellationCacheTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasPathTessellationCacheTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasPathTessellationCacheTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasPathTessellationCacheTests PROPERTIES LABELS "unit;diagnostics")
+
     add_executable(WhatsCanvasRenderTargetPoolTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/RenderTargetPoolTests.cpp"
     )

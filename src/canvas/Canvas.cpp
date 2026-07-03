@@ -34,6 +34,7 @@
 #include "command/DrawCommand.h"
 #include "opengl/AsyncReadback.h"
 #include "render/AntiAlias.h"
+#include "render/LruCache.h"
 #include "render/GammaCorrect.h"
 #include "render/DeprecationTracker.h"
 #include "render/ResizeHandler.h"
@@ -621,6 +622,26 @@ void hashFloat(std::uint64_t &hash, float value)
     std::uint32_t bits = 0;
     std::memcpy(&bits, &value, sizeof(bits));
     hashUint64(hash, bits);
+}
+
+/// Content hash of the inputs to fill tessellation. Two draws that produce the
+/// same triangulation (same contour geometry, winding, and fill rule) share a
+/// key, so the cached triangle mesh can be reused across frames and transforms
+/// (the triangulation is computed in local path space and is transform-free).
+std::uint64_t hashFillTessellation(const std::vector<PathContour> &contours, Path::FillType fillType)
+{
+    std::uint64_t hash = kFnvOffsetBasis;
+    hashUint64(hash, static_cast<std::uint64_t>(fillType));
+    hashUint64(hash, contours.size());
+    for (const auto &contour : contours) {
+        hashUint64(hash, contour.closed ? 1ull : 0ull);
+        hashUint64(hash, contour.points.size());
+        for (const auto &point : contour.points) {
+            hashFloat(hash, point.x);
+            hashFloat(hash, point.y);
+        }
+    }
+    return hash;
 }
 
 RectF clampSourceRect(const RectF &src, int imageWidth, int imageHeight)
@@ -1900,6 +1921,9 @@ struct Canvas::Impl
     std::unique_ptr<GraphicsStateStack> graphicsStates;
     AsyncReadback asyncReadback;
     std::vector<LayerState> layerStack;
+    // Retains transform-independent fill triangulations so repeated/static
+    // shapes are not re-triangulated every frame.
+    wsc::render::LruCache<std::vector<crushedpixel::Vec2>> fillTessellationCache{256};
     bool rendererInitialized = false;
     SharedImageResource glyphAtlasImageResource;
     int glyphAtlasWidth = 0;
@@ -2025,6 +2049,7 @@ bool Canvas::Impl::ensureRendererInitialized()
 void Canvas::Impl::releaseResources()
 {
     layerStack.clear();
+    fillTessellationCache.clear();
     glyphAtlasImageResource.reset();
     glyphAtlasWidth = 0;
     glyphAtlasHeight = 0;
@@ -2256,6 +2281,9 @@ Canvas::RenderStats Canvas::getRenderStats() const
     stats.renderTargetSwitches = frameStats.renderTargetSwitches;
     stats.imageTextureCount = resourceStats.imageTextureCount;
     stats.renderTargetCount = resourceStats.renderTargetCount;
+    stats.tessellationCacheHits = impl_->fillTessellationCache.hitCount();
+    stats.tessellationCacheMisses = impl_->fillTessellationCache.missCount();
+    stats.tessellationCacheSize = impl_->fillTessellationCache.size();
     return stats;
 }
 
@@ -2775,16 +2803,22 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
     const ScissorState scissor = impl_->makeCurrentScissorState();
     const ClipMaskState clipMask = impl_->makeCurrentClipMaskState();
 
-    std::vector<crushedpixel::Vec2> fillTriangles;
+    const std::vector<crushedpixel::Vec2> *fillTriangles = nullptr;
     if (drawFill) {
-        fillTriangles = triangulateContours(contours, sourcePath->getFillType());
+        const std::uint64_t tessKey = hashFillTessellation(contours, sourcePath->getFillType());
+        if (const auto *cached = impl_->fillTessellationCache.find(tessKey)) {
+            fillTriangles = cached;
+        } else {
+            fillTriangles = &impl_->fillTessellationCache.insert(
+                tessKey, triangulateContours(contours, sourcePath->getFillType()));
+        }
     }
 
     if (effectivePaint.hasShadowLayer()) {
         const auto shadowPasses = buildShadowPasses(effectivePaint, impl_->currentState().matrix);
         for (const auto &shadowPass : shadowPasses) {
-            if (drawFill && !fillTriangles.empty()) {
-                DrawPathData shadowFillData = makeDrawPathData(flattenPoints(fillTriangles), effectivePaint.getStrokeWidth(),
+            if (drawFill && fillTriangles && !fillTriangles->empty()) {
+                DrawPathData shadowFillData = makeDrawPathData(flattenPoints(*fillTriangles), effectivePaint.getStrokeWidth(),
                                                                shadowPass.color, PathDrawMode::Fill,
                                                                shadowPass.transform, scissor,
                                                                toDrawBlendMode(effectivePaint.getBlendMode()), clipMask);
@@ -2805,15 +2839,15 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
         }
     }
 
-    if (drawFill && !fillTriangles.empty()) {
+    if (drawFill && fillTriangles && !fillTriangles->empty()) {
         std::vector<float> fillPoints;
         std::vector<float> fillCoverage;
         if (effectivePaint.isAntiAlias()) {
-            AAExpandedMesh aa = expandTrianglesWithAA(fillTriangles, computeLocalFringe(impl_->currentState().matrix));
+            AAExpandedMesh aa = expandTrianglesWithAA(*fillTriangles, computeLocalFringe(impl_->currentState().matrix));
             fillPoints = flattenPoints(aa.vertices);
             fillCoverage = std::move(aa.coverage);
         } else {
-            fillPoints = flattenPoints(fillTriangles);
+            fillPoints = flattenPoints(*fillTriangles);
         }
         DrawPathData fillData = makeDrawPathData(fillPoints, effectivePaint.getStrokeWidth(),
                                                  applyPaintAlpha(effectivePaint, effectivePaint.getFillColor()), PathDrawMode::Fill,
