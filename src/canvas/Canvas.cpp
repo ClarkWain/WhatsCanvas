@@ -788,8 +788,8 @@ float computeLocalFringe(const glm::mat4 &transform)
     return AntiAlias::featherWidthPixels() / averageDeviceScale(transform);
 }
 
-/// Expand a filled/stroked triangle soup with a NanoVG-style analytic AA
-/// fringe. Interior triangles keep coverage 1.0; a thin band is emitted along
+/// Expand a filled/stroked triangle soup with an analytic AA fringe.
+/// Interior triangles keep coverage 1.0; a thin band is emitted along
 /// the silhouette (every edge referenced by a single triangle) whose coverage
 /// ramps from 1.0 half a feather-width inside the true edge to 0.0 half a
 /// feather-width outside, so the perceived edge stays on the real silhouette
@@ -1669,7 +1669,7 @@ void submitStrokeMesh(IRenderer &renderer, const std::vector<crushedpixel::Vec2>
     // Hairline handling: when the stroke is thinner than one device pixel the
     // two analytic-AA fringes would overlap and over-cover. Instead keep the
     // geometry at a one-pixel device width and fade the alpha by the sub-pixel
-    // coverage, so thin lines stay crisp and uniform (matching NanoVG).
+    // coverage, so thin lines stay crisp and uniform like established vector renderers.
     const bool antiAlias = paint.isAntiAlias();
     Paint strokePaint = paint;
     Color strokeColor = applyPaintAlpha(paint, paint.getStrokeColor());
