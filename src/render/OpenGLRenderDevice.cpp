@@ -13,6 +13,7 @@
 #include "opengl/GlobalIndexBuffers.h"
 #include "opengl/GLTextureUtils.h"
 #include "opengl/PixelFormatCaps.h"
+#include "opengl/ClipCoverageProgram.h"
 #include "render/IRenderer.h"
 #include "render/IRenderTarget.h"
 #include "render/RenderContext.h"
@@ -73,6 +74,7 @@ class OpenGLClipMaskResource final : public ClipMaskResource
 public:
     explicit OpenGLClipMaskResource(const ClipMaskPath &maskPath)
         : points_(maskPath.points),
+          coverage_(maskPath.coverage),
           transform_(maskPath.transform)
     {
     }
@@ -84,28 +86,20 @@ public:
 
     void apply(const RenderContext &context, const ScissorState &scissor, std::size_t clipIndex) const override
     {
+        (void)scissor;
+        (void)clipIndex;
         if (!isValid()) {
             return;
         }
-
-        DrawPathData clipData;
-        clipData.points = points_;
-        clipData.color[0] = 1.0f;
-        clipData.color[1] = 1.0f;
-        clipData.color[2] = 1.0f;
-        clipData.color[3] = 1.0f;
-        clipData.drawMode = PathDrawMode::Fill;
-        clipData.capStyle = PathCapStyle::Bevel;
-        clipData.transform = transform_;
-        clipData.scissor = scissor;
-        clipData.blendMode = DrawBlendMode::Src;
-        glStencilFunc(GL_EQUAL, static_cast<GLint>(clipIndex), 0xFF);
-        glStencilOp(GL_KEEP, GL_KEEP, GL_INCR);
-        DrawPathProgram::getInstance()->draw(context, clipData);
+        // Rasterise this clip's anti-aliased coverage into the temp layer that
+        // the coverage program bound before calling us.
+        wsc::opengl::ClipCoverageProgram::getInstance()->drawCoverage(
+            points_, coverage_, transform_, context.getWidth(), context.getHeight());
     }
 
 private:
     std::vector<float> points_;
+    std::vector<float> coverage_;
     glm::mat4 transform_ = glm::mat4(1.0f);
 };
 

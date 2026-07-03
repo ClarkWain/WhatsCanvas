@@ -8,6 +8,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include "DrawValidation.h"
 #include "opengl/GLShaderSource.h"
+#include "opengl/ClipMaskUniforms.h"
 #include "render/GammaCorrect.h"
 
 DrawTextProgram *DrawTextProgram::instance_ = nullptr;
@@ -39,14 +40,19 @@ void DrawTextProgram::initialize()
         }
     )";
 
-    const std::string fragmentSrc = std::string(wsc::opengl::shaderVersionDirective()) + R"(
+    const std::string fragmentSrc = std::string(wsc::opengl::shaderVersionDirective())
+        + wsc::opengl::clipMaskFragmentUniforms() + R"(
         uniform vec4 uColor;
 
         out vec4 FragColor;
 
         void main()
         {
-            FragColor = uColor;
+            vec4 outColor = uColor;
+            if (uClipEnabled != 0) {
+                outColor.a *= texture(uClipMask, gl_FragCoord.xy / uClipViewport).r;
+            }
+            FragColor = outColor;
         }
     )";
 
@@ -106,6 +112,7 @@ void DrawTextProgram::draw(const RenderContext &context, const DrawTextData &dat
     float color[4] = {data.color[0], data.color[1], data.color[2], data.color[3]};
     GammaCorrect::srgbToLinear4(color);
     program_->setVec4("uColor", glm::vec4(color[0], color[1], color[2], color[3]));
+    wsc::opengl::applyClipMaskUniforms(program_, context);
 
     glBindVertexArray(VAO_);
     vertexBuffer_.upload(data.vertices.data(), data.vertices.size());

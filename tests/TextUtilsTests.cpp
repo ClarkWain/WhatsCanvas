@@ -1,5 +1,6 @@
 #include <cstdlib>
 #include <cstdint>
+#include <algorithm>
 #include <iostream>
 #include <optional>
 #include <string>
@@ -558,6 +559,35 @@ bool testColorFontTableDetectionHandlesTtcAndMalformedData()
         && expect(!malformedTables.hasAny(), "malformed font data should not report color tables");
 }
 
+bool testGeometryTextVerticesRespectOrigin()
+{
+    // The pen origin must be a device-space translation, not scaled with the
+    // glyph coordinates. Regression guard for the ASCII fallback that used to
+    // bake (x, y) into stb_easy_font output and then multiply it by the scale.
+    const float originX = 100.0f;
+    const float originY = 200.0f;
+    const float scale = 5.0f;
+    const std::vector<float> vertices =
+        wsc::text::buildTextVertices("A", originX, originY, scale, 0.0f);
+    if (!expect(!vertices.empty(), "geometry text should emit vertices")) {
+        return false;
+    }
+
+    float minX = vertices[0];
+    float minY = vertices[1];
+    for (std::size_t i = 0; i + 1 < vertices.size(); i += 2) {
+        minX = std::min(minX, vertices[i]);
+        minY = std::min(minY, vertices[i + 1]);
+    }
+
+    // The glyph's top-left starts at the origin (plus a small scaled inset),
+    // never at origin * scale (which would land near 500, 1000 here).
+    return expect(minX >= originX - 1.0f && minX <= originX + 8.0f * scale,
+                  "glyph x should sit at the pen origin, not the scaled origin")
+        && expect(minY >= originY - 1.0f && minY <= originY + 12.0f * scale,
+                  "glyph y should sit at the pen origin, not the scaled origin");
+}
+
 } // namespace
 
 int main()
@@ -592,6 +622,7 @@ int main()
         && testUnicodeBidiResolvesWeakAndNeutralTypes()
         && testUnicodeBidiOverrideControls()
         && testColorFontTableDetection()
-        && testColorFontTableDetectionHandlesTtcAndMalformedData();
+        && testColorFontTableDetectionHandlesTtcAndMalformedData()
+        && testGeometryTextVerticesRespectOrigin();
     return ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }

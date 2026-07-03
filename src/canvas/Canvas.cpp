@@ -34,6 +34,7 @@
 #include "command/DrawCommand.h"
 #include "opengl/AsyncReadback.h"
 #include "render/AntiAlias.h"
+#include "render/LruCache.h"
 #include "render/GammaCorrect.h"
 #include "render/DeprecationTracker.h"
 #include "render/ResizeHandler.h"
@@ -120,6 +121,7 @@ std::vector<float> flattenPoints(const std::vector<crushedpixel::Vec2> &points);
 std::vector<PathContour> extractContours(const Path &path);
 std::vector<crushedpixel::Vec2> triangulateContours(const std::vector<PathContour> &contours,
                                                     Path::FillType fillType);
+std::uint64_t hashFillTessellation(const std::vector<PathContour> &contours, Path::FillType fillType);
 
 PathDrawMode toPathDrawMode(Paint::Style style)
 {
@@ -593,19 +595,34 @@ bool tryResolveAxisAlignedRectClip(const Path &path, const glm::mat4 &transform,
     return true;
 }
 
-bool buildClipMaskPath(const Path &path, const glm::mat4 &transform, ClipMaskPath &maskPath)
+bool buildClipMaskPath(const Path &path, const glm::mat4 &transform, ClipMaskPath &maskPath,
+                       wsc::render::LruCache<std::vector<crushedpixel::Vec2>> *tessellationCache = nullptr)
 {
     const auto contours = extractContours(path);
     if (contours.empty()) {
         return false;
     }
 
-    const auto fillTriangles = triangulateContours(contours, path.getFillType());
-    if (fillTriangles.empty()) {
+    // The clip mask is the fill triangulation of the path, so it shares the fill
+    // tessellation cache: a shape used as both a fill and a clip triangulates once.
+    std::vector<crushedpixel::Vec2> storage;
+    const std::vector<crushedpixel::Vec2> *fillTriangles = nullptr;
+    if (tessellationCache != nullptr) {
+        const std::uint64_t key = hashFillTessellation(contours, path.getFillType());
+        if (const auto *cached = tessellationCache->find(key)) {
+            fillTriangles = cached;
+        } else {
+            fillTriangles = &tessellationCache->insert(key, triangulateContours(contours, path.getFillType()));
+        }
+    } else {
+        storage = triangulateContours(contours, path.getFillType());
+        fillTriangles = &storage;
+    }
+    if (fillTriangles->empty()) {
         return false;
     }
 
-    maskPath.points = flattenPoints(fillTriangles);
+    maskPath.points = flattenPoints(*fillTriangles);
     maskPath.transform = transform;
     return true;
 }
@@ -621,6 +638,26 @@ void hashFloat(std::uint64_t &hash, float value)
     std::uint32_t bits = 0;
     std::memcpy(&bits, &value, sizeof(bits));
     hashUint64(hash, bits);
+}
+
+/// Content hash of the inputs to fill tessellation. Two draws that produce the
+/// same triangulation (same contour geometry, winding, and fill rule) share a
+/// key, so the cached triangle mesh can be reused across frames and transforms
+/// (the triangulation is computed in local path space and is transform-free).
+std::uint64_t hashFillTessellation(const std::vector<PathContour> &contours, Path::FillType fillType)
+{
+    std::uint64_t hash = kFnvOffsetBasis;
+    hashUint64(hash, static_cast<std::uint64_t>(fillType));
+    hashUint64(hash, contours.size());
+    for (const auto &contour : contours) {
+        hashUint64(hash, contour.closed ? 1ull : 0ull);
+        hashUint64(hash, contour.points.size());
+        for (const auto &point : contour.points) {
+            hashFloat(hash, point.x);
+            hashFloat(hash, point.y);
+        }
+    }
+    return hash;
 }
 
 RectF clampSourceRect(const RectF &src, int imageWidth, int imageHeight)
@@ -1039,6 +1076,61 @@ bool isValidGlyphAtlasDirtyRect(const wsc::text::TextRenderResult &renderedText,
 glm::mat4 makeOffsetTransform(const glm::mat4 &transform, float dx, float dy)
 {
     return glm::translate(transform, glm::vec3(dx, dy, 0.0f));
+}
+
+// Builds a true (separable Gaussian) blurred shadow from an already-tessellated
+// set of triangles (interleaved x,y). The shape is rendered white and offset by
+// the paint's shadow delta, blurred on the GPU, then composited tinted with the
+// gamma-corrected shadow colour. Shared by fills, strokes and geometry text so
+// they all get the same smooth shadow instead of the offset-ring approximation.
+DrawShadowData makeGaussianShadowData(const std::vector<float> &trianglePoints,
+                                      const Paint &paint, const glm::mat4 &baseTransform,
+                                      int canvasWidth, int canvasHeight,
+                                      const ScissorState &scissor)
+{
+    const Color shadowColor = applyPaintAlpha(paint, paint.getShadowColor());
+    float shadowRgba[4] = {shadowColor.r(), shadowColor.g(), shadowColor.b(), shadowColor.a()};
+    GammaCorrect::srgbToLinear4(shadowRgba);
+
+    DrawShadowData data;
+    data.silhouette = makeDrawPathData(
+        trianglePoints, 0.0f, Color(255, 255, 255, 255), PathDrawMode::Fill,
+        makeOffsetTransform(baseTransform, paint.getShadowDx(), paint.getShadowDy()),
+        ScissorState{}, DrawBlendMode::SrcOver, ClipMaskState{});
+    data.color[0] = shadowRgba[0];
+    data.color[1] = shadowRgba[1];
+    data.color[2] = shadowRgba[2];
+    data.color[3] = shadowRgba[3];
+    data.blurRadius = std::max(0.0f, paint.getShadowRadius());
+    data.canvasWidth = canvasWidth;
+    data.canvasHeight = canvasHeight;
+    data.scissor = scissor;
+    data.blendMode = toDrawBlendMode(paint.getBlendMode());
+    return data;
+}
+
+// Variant for texture-based text (glyph atlas / bitmap): the silhouette is a set
+// of white, shadow-offset image quads whose sampled alpha is the glyph coverage.
+DrawShadowData makeGaussianImageShadowData(std::vector<DrawImageData> imageSilhouette,
+                                           const Paint &paint, int canvasWidth, int canvasHeight,
+                                           const ScissorState &scissor)
+{
+    const Color shadowColor = applyPaintAlpha(paint, paint.getShadowColor());
+    float shadowRgba[4] = {shadowColor.r(), shadowColor.g(), shadowColor.b(), shadowColor.a()};
+    GammaCorrect::srgbToLinear4(shadowRgba);
+
+    DrawShadowData data;
+    data.imageSilhouette = std::move(imageSilhouette);
+    data.color[0] = shadowRgba[0];
+    data.color[1] = shadowRgba[1];
+    data.color[2] = shadowRgba[2];
+    data.color[3] = shadowRgba[3];
+    data.blurRadius = std::max(0.0f, paint.getShadowRadius());
+    data.canvasWidth = canvasWidth;
+    data.canvasHeight = canvasHeight;
+    data.scissor = scissor;
+    data.blendMode = toDrawBlendMode(paint.getBlendMode());
+    return data;
 }
 
 std::vector<ShadowPass> buildShadowPasses(const Paint &paint, const glm::mat4 &transform)
@@ -1652,9 +1744,29 @@ std::vector<std::vector<crushedpixel::Vec2>> buildDashedPolylines(const std::vec
     return dashes;
 }
 
+/// Content hash of the inputs to stroke meshing. The mesh is built in local
+/// path space, so identical geometry and stroke style share a key regardless
+/// of transform (the effective width already folds in any hairline widening).
+std::uint64_t hashStrokeMesh(const std::vector<crushedpixel::Vec2> &points, bool closed, const Paint &paint)
+{
+    std::uint64_t hash = kFnvOffsetBasis;
+    hashUint64(hash, closed ? 1ull : 0ull);
+    hashFloat(hash, paint.getStrokeWidth());
+    hashUint64(hash, static_cast<std::uint64_t>(paint.getStrokeCap()));
+    hashUint64(hash, static_cast<std::uint64_t>(paint.getStrokeJoin()));
+    hashFloat(hash, paint.getStrokeMiterLimit());
+    hashUint64(hash, points.size());
+    for (const auto &point : points) {
+        hashFloat(hash, point.x);
+        hashFloat(hash, point.y);
+    }
+    return hash;
+}
+
 void submitStrokeMesh(IRenderer &renderer, const std::vector<crushedpixel::Vec2> &points,
                       bool closed, const Paint &paint, const glm::mat4 &transform,
-                      const ScissorState &scissor, const ClipMaskState &clipMask = {})
+                      const ScissorState &scissor, const ClipMaskState &clipMask = {},
+                      wsc::render::LruCache<std::vector<crushedpixel::Vec2>> *strokeCache = nullptr)
 {
     if (paint.hasDashPathEffect()) {
         Paint dashPaint = paint;
@@ -1682,10 +1794,26 @@ void submitStrokeMesh(IRenderer &renderer, const std::vector<crushedpixel::Vec2>
         }
     }
 
-    auto strokeMesh = buildStrokeMesh(points, closed, strokePaint);
-    if (strokeMesh.empty()) {
+    // Retain the transform-independent stroke mesh so repeated/static strokes
+    // are not re-meshed every frame. Dashed strokes recurse above and are never
+    // cached (their segmentation is phase dependent).
+    std::vector<crushedpixel::Vec2> strokeMeshStorage;
+    const std::vector<crushedpixel::Vec2> *strokeMeshPtr = nullptr;
+    if (strokeCache != nullptr) {
+        const std::uint64_t key = hashStrokeMesh(points, closed, strokePaint);
+        if (const auto *cached = strokeCache->find(key)) {
+            strokeMeshPtr = cached;
+        } else {
+            strokeMeshPtr = &strokeCache->insert(key, buildStrokeMesh(points, closed, strokePaint));
+        }
+    } else {
+        strokeMeshStorage = buildStrokeMesh(points, closed, strokePaint);
+        strokeMeshPtr = &strokeMeshStorage;
+    }
+    if (strokeMeshPtr->empty()) {
         return;
     }
+    const std::vector<crushedpixel::Vec2> &strokeMesh = *strokeMeshPtr;
 
     std::vector<float> strokePoints;
     std::vector<float> strokeCoverage;
@@ -1900,6 +2028,11 @@ struct Canvas::Impl
     std::unique_ptr<GraphicsStateStack> graphicsStates;
     AsyncReadback asyncReadback;
     std::vector<LayerState> layerStack;
+    // Retains transform-independent fill triangulations so repeated/static
+    // shapes are not re-triangulated every frame.
+    wsc::render::LruCache<std::vector<crushedpixel::Vec2>> fillTessellationCache{256};
+    // Retains transform-independent stroke meshes for the same reason.
+    wsc::render::LruCache<std::vector<crushedpixel::Vec2>> strokeTessellationCache{256};
     bool rendererInitialized = false;
     SharedImageResource glyphAtlasImageResource;
     int glyphAtlasWidth = 0;
@@ -2025,6 +2158,8 @@ bool Canvas::Impl::ensureRendererInitialized()
 void Canvas::Impl::releaseResources()
 {
     layerStack.clear();
+    fillTessellationCache.clear();
+    strokeTessellationCache.clear();
     glyphAtlasImageResource.reset();
     glyphAtlasWidth = 0;
     glyphAtlasHeight = 0;
@@ -2256,6 +2391,12 @@ Canvas::RenderStats Canvas::getRenderStats() const
     stats.renderTargetSwitches = frameStats.renderTargetSwitches;
     stats.imageTextureCount = resourceStats.imageTextureCount;
     stats.renderTargetCount = resourceStats.renderTargetCount;
+    stats.tessellationCacheHits = impl_->fillTessellationCache.hitCount();
+    stats.tessellationCacheMisses = impl_->fillTessellationCache.missCount();
+    stats.tessellationCacheSize = impl_->fillTessellationCache.size();
+    stats.strokeCacheHits = impl_->strokeTessellationCache.hitCount();
+    stats.strokeCacheMisses = impl_->strokeTessellationCache.missCount();
+    stats.strokeCacheSize = impl_->strokeTessellationCache.size();
     return stats;
 }
 
@@ -2775,23 +2916,67 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
     const ScissorState scissor = impl_->makeCurrentScissorState();
     const ClipMaskState clipMask = impl_->makeCurrentClipMaskState();
 
-    std::vector<crushedpixel::Vec2> fillTriangles;
+    const std::vector<crushedpixel::Vec2> *fillTriangles = nullptr;
     if (drawFill) {
-        fillTriangles = triangulateContours(contours, sourcePath->getFillType());
+        const std::uint64_t tessKey = hashFillTessellation(contours, sourcePath->getFillType());
+        if (const auto *cached = impl_->fillTessellationCache.find(tessKey)) {
+            fillTriangles = cached;
+        } else {
+            fillTriangles = &impl_->fillTessellationCache.insert(
+                tessKey, triangulateContours(contours, sourcePath->getFillType()));
+        }
     }
 
     if (effectivePaint.hasShadowLayer()) {
+        const float shadowRadius = std::max(0.0f, effectivePaint.getShadowRadius());
+        const bool canBlur = shadowRadius > 0.0f && impl_->width > 0 && impl_->height > 0;
+        const bool blurredFill = drawFill && fillTriangles && !fillTriangles->empty() && canBlur;
+
+        // True separable-Gaussian shadow for the fill: render the silhouette
+        // offscreen, blur it on the GPU, and composite it tinted with the
+        // shadow colour. Falls back to the offset passes below for radius 0.
+        if (blurredFill) {
+            impl_->renderer->submit(std::make_unique<DrawShadowCommand>(
+                makeGaussianShadowData(flattenPoints(*fillTriangles), effectivePaint,
+                                       impl_->currentState().matrix, impl_->width, impl_->height,
+                                       scissor)));
+        }
+
+        // Same Gaussian treatment for the stroke: mesh every contour's stroke
+        // ribbon into one silhouette so the outline casts a smooth shadow too,
+        // instead of the coarse offset ring used previously.
+        bool blurredStroke = false;
+        if (drawStroke && canBlur) {
+            std::vector<float> strokeSilhouette;
+            for (const auto &contour : contours) {
+                const std::vector<crushedpixel::Vec2> mesh =
+                    buildStrokeMesh(contour.points, contour.closed, effectivePaint);
+                if (mesh.empty()) {
+                    continue;
+                }
+                const std::vector<float> flat = flattenPoints(mesh);
+                strokeSilhouette.insert(strokeSilhouette.end(), flat.begin(), flat.end());
+            }
+            if (!strokeSilhouette.empty()) {
+                blurredStroke = true;
+                impl_->renderer->submit(std::make_unique<DrawShadowCommand>(
+                    makeGaussianShadowData(strokeSilhouette, effectivePaint,
+                                           impl_->currentState().matrix, impl_->width, impl_->height,
+                                           scissor)));
+            }
+        }
+
         const auto shadowPasses = buildShadowPasses(effectivePaint, impl_->currentState().matrix);
         for (const auto &shadowPass : shadowPasses) {
-            if (drawFill && !fillTriangles.empty()) {
-                DrawPathData shadowFillData = makeDrawPathData(flattenPoints(fillTriangles), effectivePaint.getStrokeWidth(),
+            if (drawFill && fillTriangles && !fillTriangles->empty() && !blurredFill) {
+                DrawPathData shadowFillData = makeDrawPathData(flattenPoints(*fillTriangles), effectivePaint.getStrokeWidth(),
                                                                shadowPass.color, PathDrawMode::Fill,
                                                                shadowPass.transform, scissor,
                                                                toDrawBlendMode(effectivePaint.getBlendMode()), clipMask);
                 impl_->renderer->submit(std::make_unique<DrawPathCommand>(shadowFillData));
             }
 
-            if (drawStroke) {
+            if (drawStroke && !blurredStroke) {
                 Paint shadowPaint = effectivePaint;
                 shadowPaint.clearShader();
                 shadowPaint.clearShadowLayer();
@@ -2805,15 +2990,15 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
         }
     }
 
-    if (drawFill && !fillTriangles.empty()) {
+    if (drawFill && fillTriangles && !fillTriangles->empty()) {
         std::vector<float> fillPoints;
         std::vector<float> fillCoverage;
         if (effectivePaint.isAntiAlias()) {
-            AAExpandedMesh aa = expandTrianglesWithAA(fillTriangles, computeLocalFringe(impl_->currentState().matrix));
+            AAExpandedMesh aa = expandTrianglesWithAA(*fillTriangles, computeLocalFringe(impl_->currentState().matrix));
             fillPoints = flattenPoints(aa.vertices);
             fillCoverage = std::move(aa.coverage);
         } else {
-            fillPoints = flattenPoints(fillTriangles);
+            fillPoints = flattenPoints(*fillTriangles);
         }
         DrawPathData fillData = makeDrawPathData(fillPoints, effectivePaint.getStrokeWidth(),
                                                  applyPaintAlpha(effectivePaint, effectivePaint.getFillColor()), PathDrawMode::Fill,
@@ -2827,7 +3012,7 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
     if (drawStroke) {
         for (const auto &contour : contours) {
             submitStrokeMesh(*impl_->renderer, contour.points, contour.closed, effectivePaint,
-                             impl_->currentState().matrix, scissor, clipMask);
+                             impl_->currentState().matrix, scissor, clipMask, &impl_->strokeTessellationCache);
         }
     }
 }
@@ -3386,8 +3571,45 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
             }
         };
 
+        bool blurredAtlasShadow = false;
+        if (paint.hasShadowLayer() && std::max(0.0f, paint.getShadowRadius()) > 0.0f
+            && impl_->width > 0 && impl_->height > 0 && !renderedText.glyphAtlasQuads.empty()) {
+            const glm::mat4 offset = makeOffsetTransform(impl_->currentState().matrix,
+                                                         paint.getShadowDx(), paint.getShadowDy());
+            std::vector<DrawImageData> silhouette;
+            silhouette.reserve(renderedText.glyphAtlasQuads.size());
+            for (const auto &quad : renderedText.glyphAtlasQuads) {
+                DrawImageData d;
+                d.imageResource = imageResource;
+                d.x = quad.x;
+                d.y = quad.y;
+                d.width = quad.width;
+                d.height = quad.height;
+                d.u0 = quad.u0;
+                d.u1 = quad.u1;
+                d.v0 = quad.v0;
+                d.v1 = quad.v1;
+                d.tintColor[0] = 1.0f;
+                d.tintColor[1] = 1.0f;
+                d.tintColor[2] = 1.0f;
+                d.tintColor[3] = 1.0f;
+                d.alpha = 1.0f;
+                d.sampling = DrawImageSampling::Linear;
+                d.tileMode = DrawImageTileMode::Clamp;
+                d.transform = offset;
+                d.blendMode = DrawBlendMode::SrcOver;
+                silhouette.push_back(std::move(d));
+            }
+            impl_->renderer->submit(std::make_unique<DrawShadowCommand>(
+                makeGaussianImageShadowData(std::move(silhouette), paint, impl_->width,
+                                            impl_->height, scissor)));
+            blurredAtlasShadow = true;
+        }
+
         for (const auto &shadowPass : buildAtlasTextShadowPasses(paint, impl_->currentState().matrix)) {
-            submitAtlasText(shadowPass.color, shadowPass.transform);
+            if (!blurredAtlasShadow) {
+                submitAtlasText(shadowPass.color, shadowPass.transform);
+            }
         }
         for (const auto &strokePass : strokePasses) {
             submitAtlasText(strokePass.color, strokePass.transform);
@@ -3437,8 +3659,41 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
             impl_->renderer->submit(std::make_unique<DrawImageCommand>(data));
         };
 
+        bool blurredBitmapShadow = false;
+        if (paint.hasShadowLayer() && std::max(0.0f, paint.getShadowRadius()) > 0.0f
+            && impl_->width > 0 && impl_->height > 0) {
+            DrawImageData d;
+            d.imageResource = imageResource;
+            d.x = renderedText.drawX;
+            d.y = renderedText.drawY;
+            d.width = renderedText.width;
+            d.height = renderedText.height;
+            d.u0 = 0.0f;
+            d.u1 = 1.0f;
+            d.v0 = 0.0f;
+            d.v1 = 1.0f;
+            d.tintColor[0] = 1.0f;
+            d.tintColor[1] = 1.0f;
+            d.tintColor[2] = 1.0f;
+            d.tintColor[3] = 1.0f;
+            d.alpha = 1.0f;
+            d.sampling = DrawImageSampling::Linear;
+            d.tileMode = DrawImageTileMode::Clamp;
+            d.transform = makeOffsetTransform(impl_->currentState().matrix,
+                                              paint.getShadowDx(), paint.getShadowDy());
+            d.blendMode = DrawBlendMode::SrcOver;
+            std::vector<DrawImageData> silhouette;
+            silhouette.push_back(std::move(d));
+            impl_->renderer->submit(std::make_unique<DrawShadowCommand>(
+                makeGaussianImageShadowData(std::move(silhouette), paint, impl_->width,
+                                            impl_->height, scissor)));
+            blurredBitmapShadow = true;
+        }
+
         for (const auto &shadowPass : buildShadowPasses(paint, impl_->currentState().matrix)) {
-            submitBitmapText(shadowPass.color, shadowPass.transform);
+            if (!blurredBitmapShadow) {
+                submitBitmapText(shadowPass.color, shadowPass.transform);
+            }
         }
         for (const auto &strokePass : strokePasses) {
             submitBitmapText(strokePass.color, strokePass.transform);
@@ -3465,8 +3720,19 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
         impl_->renderer->submit(std::make_unique<DrawTextCommand>(data));
     };
 
-    for (const auto &shadowPass : buildShadowPasses(paint, impl_->currentState().matrix)) {
-        submitGeometryText(shadowPass.color, shadowPass.transform);
+    const bool blurredTextShadow = paint.hasShadowLayer()
+        && std::max(0.0f, paint.getShadowRadius()) > 0.0f
+        && impl_->width > 0 && impl_->height > 0 && !renderedText.vertices.empty();
+    if (blurredTextShadow) {
+        // Geometry glyphs are solid triangles just like a fill, so reuse the
+        // Gaussian silhouette path for a smooth text shadow.
+        impl_->renderer->submit(std::make_unique<DrawShadowCommand>(
+            makeGaussianShadowData(renderedText.vertices, paint, impl_->currentState().matrix,
+                                   impl_->width, impl_->height, scissor)));
+    } else {
+        for (const auto &shadowPass : buildShadowPasses(paint, impl_->currentState().matrix)) {
+            submitGeometryText(shadowPass.color, shadowPass.transform);
+        }
     }
     for (const auto &strokePass : strokePasses) {
         submitGeometryText(strokePass.color, strokePass.transform);
@@ -4144,7 +4410,7 @@ void Canvas::clipPath(const Path &path)
     }
 
     ClipMaskPath maskPath;
-    if (!buildClipMaskPath(path, impl_->currentState().matrix, maskPath)) {
+    if (!buildClipMaskPath(path, impl_->currentState().matrix, maskPath, &impl_->fillTessellationCache)) {
         impl_->currentState().clip.rect = RectF();
         return;
     }
@@ -4288,6 +4554,20 @@ ClipMaskState Canvas::Impl::makeCurrentClipMaskState() const
         if (!clipPath.resource || !clipPath.resource->isValid()) {
             if (renderer == nullptr) {
                 return {};
+            }
+
+            if (clipPath.mask.coverage.empty()) {
+                // Expand the fill triangulation with an analytic-AA fringe so the
+                // clip mask has smooth edges. Done once per clip and cached in the
+                // mask (the fill triangles are replaced by the expanded mesh).
+                std::vector<crushedpixel::Vec2> tris;
+                tris.reserve(clipPath.mask.points.size() / 2);
+                for (std::size_t i = 0; i + 1 < clipPath.mask.points.size(); i += 2) {
+                    tris.emplace_back(clipPath.mask.points[i], clipPath.mask.points[i + 1]);
+                }
+                AAExpandedMesh aa = expandTrianglesWithAA(tris, computeLocalFringe(clipPath.mask.transform));
+                clipPath.mask.points = flattenPoints(aa.vertices);
+                clipPath.mask.coverage = std::move(aa.coverage);
             }
 
             clipPath.resource = renderer->createClipMaskResource(clipPath.mask);

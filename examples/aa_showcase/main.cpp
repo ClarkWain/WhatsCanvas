@@ -199,6 +199,100 @@ void drawGradientScene(Canvas &canvas, float ox, bool fragmentLevel)
     }
 }
 
+// Draws filled shapes with a true separable-Gaussian drop shadow. The panel
+// toggle picks the blur radius so the same shapes can be compared at two blurs.
+void drawShadowScene(Canvas &canvas, float ox, bool strong)
+{
+    const float radius = strong ? 24.0f : 8.0f;
+    const float dx = 6.0f;
+    const float dy = 8.0f;
+    const Color shadow(20, 20, 30, 150);
+
+    {
+        Paint p;
+        p.setStyle(Paint::Style::FILL);
+        p.setFillColor(Color(90, 150, 235));
+        p.setShadowLayer(radius, dx, dy, shadow);
+        canvas.drawRoundRect(RectF(ox + 50.0f, 45.0f, 150.0f, 100.0f), 22.0f, p);
+    }
+    {
+        Paint p;
+        p.setStyle(Paint::Style::FILL);
+        p.setFillColor(Color(240, 120, 130));
+        p.setShadowLayer(radius, dx, dy, shadow);
+        canvas.drawCircle(ox + 330.0f, 95.0f, 55.0f, p);
+    }
+    {
+        Paint p;
+        p.setStyle(Paint::Style::FILL);
+        p.setFillColor(Color(250, 205, 70));
+        p.setShadowLayer(radius, dx, dy, shadow);
+        canvas.drawPath(makeStar(ox + 135.0f, 275.0f, 78.0f, 31.0f), p);
+    }
+    // Stroked outline: exercises the Gaussian shadow for stroke meshes.
+    {
+        Paint p;
+        p.setStyle(Paint::Style::STROKE);
+        p.setStrokeWidth(14.0f);
+        p.setAntiAlias(true);
+        p.setStrokeColor(Color(120, 210, 150));
+        p.setShadowLayer(radius, dx, dy, shadow);
+        canvas.drawRoundRect(RectF(ox + 265.0f, 210.0f, 150.0f, 120.0f), 26.0f, p);
+    }
+    // Geometry text: exercises the Gaussian shadow for glyph triangles.
+    {
+        Paint p;
+        p.setStyle(Paint::Style::FILL);
+        p.setFillColor(Color(60, 70, 95));
+        p.setTextSize(40.0f);
+        p.setShadowLayer(radius, dx, dy, shadow);
+        canvas.drawText("Shadow", ox + 60.0f, 380.0f, p);
+    }
+}
+
+// Clips solid fills by non-rectangular paths. With the anti-aliased clip mask
+// the star's diagonal edges and the circle's curve stay smooth; the old 1-bit
+// stencil clip left them hard/jagged.
+void drawClipScene(Canvas &canvas, float ox, bool strong)
+{
+    (void)strong;
+    // Star-shaped clip over a solid fill.
+    {
+        canvas.save();
+        canvas.clipPath(makeStar(ox + 150.0f, 150.0f, 120.0f, 50.0f));
+        Paint p;
+        p.setStyle(Paint::Style::FILL);
+        p.setFillColor(Color(90, 150, 235));
+        canvas.drawRect(RectF(ox + 10.0f, 20.0f, 290.0f, 270.0f), p);
+        canvas.restore();
+    }
+    // Circular clip over a solid fill.
+    {
+        Path circle;
+        circle.addCircle(ox + 320.0f, 330.0f, 95.0f);
+        canvas.save();
+        canvas.clipPath(circle);
+        Paint p;
+        p.setStyle(Paint::Style::FILL);
+        p.setFillColor(Color(240, 120, 130));
+        canvas.drawRect(RectF(ox + 210.0f, 230.0f, 220.0f, 200.0f), p);
+        canvas.restore();
+    }
+    // Star clip intersected with the circle-clipped region is not needed here;
+    // a rounded-rect clip shows a smooth mixed straight/curved edge.
+    {
+        Path roundish;
+        roundish.addOval(RectF(ox + 40.0f, 300.0f, 150.0f, 120.0f));
+        canvas.save();
+        canvas.clipPath(roundish);
+        Paint p;
+        p.setStyle(Paint::Style::FILL);
+        p.setFillColor(Color(250, 205, 70));
+        canvas.drawRect(RectF(ox + 20.0f, 290.0f, 200.0f, 150.0f), p);
+        canvas.restore();
+    }
+}
+
 std::string getEnv(const char *name)
 {
 #ifdef _MSC_VER
@@ -262,14 +356,20 @@ int main(int argc, char **argv)
         Canvas canvas;
         canvas.setSize(fbWidth, fbHeight);
 
-        stbi_flip_vertically_on_write(1); // GL readback is bottom-up
+        // Canvas::readPixelsRGBA already returns top-left-origin rows, so the
+        // stb writer must NOT flip again (doing so produced upside-down images).
 
         // Renders `scene` into both panels and writes the framebuffer to `path`.
         auto renderAndSave = [&](const std::string &path,
                                  const std::function<void(Canvas &, float, bool)> &scene,
-                                 const char *label) -> bool {
+                                 const char *label,
+                                 bool lightBackground = false) -> bool {
             canvas.beginFrame();
-            glClearColor(0.09f, 0.10f, 0.12f, 1.0f);
+            if (lightBackground) {
+                glClearColor(0.90f, 0.91f, 0.93f, 1.0f);
+            } else {
+                glClearColor(0.09f, 0.10f, 0.12f, 1.0f);
+            }
             glClear(GL_COLOR_BUFFER_BIT);
 
             scene(canvas, 0.0f, false);                          // left panel
@@ -277,7 +377,7 @@ int main(int argc, char **argv)
 
             Paint divider;
             divider.setStyle(Paint::Style::FILL);
-            divider.setFillColor(Color(0, 0, 0));
+            divider.setFillColor(lightBackground ? Color(150, 150, 155) : Color(0, 0, 0));
             canvas.drawRect(RectF(static_cast<float>(kPanelWidth) - 1.0f, 0.0f, 2.0f,
                                   static_cast<float>(kHeight)), divider);
             canvas.endFrame();
@@ -304,6 +404,12 @@ int main(int argc, char **argv)
 
         bool ok = renderAndSave(outputPath, drawScene, "left: AA off, right: AA on");
         ok = renderAndSave(gradientPath, drawGradientScene, "left: banded (Gouraud-style), right: fragment-level") && ok;
+        const std::string shadowPath = dir + "shadow_comparison.png";
+        ok = renderAndSave(shadowPath, drawShadowScene,
+                           "true Gaussian shadow — left: radius 8, right: radius 24", true) && ok;
+        const std::string clipPath = dir + "clip_comparison.png";
+        ok = renderAndSave(clipPath, drawClipScene,
+                           "anti-aliased path clipping (star / circle / oval masks)", true) && ok;
         if (!ok) {
             glfwTerminate();
             return 1;

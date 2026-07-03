@@ -10,7 +10,7 @@ class RenderContext;
 class Command
 {
 public:
-    enum class Type : std::uint8_t { Points, Lines, Path, Image, Text };
+    enum class Type : std::uint8_t { Points, Lines, Path, Image, Text, Shadow };
 
     virtual ~Command() = default;
     virtual void execute(RenderContext &context) = 0;
@@ -97,4 +97,17 @@ public:
 
 private:
     DrawTextData data_;
+};
+
+class DrawShadowCommand : public Command
+{
+public:
+    explicit DrawShadowCommand(const DrawShadowData &data);
+    ~DrawShadowCommand() override = default;
+
+    void execute(RenderContext &context) override;
+    const DrawShadowData &data() const { return data_; }
+
+private:
+    DrawShadowData data_;
 };
