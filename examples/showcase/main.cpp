@@ -16,6 +16,8 @@ constexpr int kWindowWidth = 800;
 constexpr int kWindowHeight = 600;
 constexpr int kTextShowcaseWindowWidth = 1600;
 constexpr int kTextShowcaseWindowHeight = 900;
+constexpr int kFontRegressionWindowWidth = 960;
+constexpr int kFontRegressionWindowHeight = 540;
 constexpr unsigned int kOpenGLMultisample = 0x809D;
 
 std::string getEnvironmentValue(const char* name)
@@ -360,6 +362,74 @@ void drawTextShowcaseScene(Canvas& canvas, float currentTime)
     canvas.drawTextOnPath("text-on-path rendered from glyph atlas", wave, std::fmod(currentTime * 28.0f, 110.0f), -26.0f, pathText);
 }
 
+void drawFontRegressionScene(Canvas& canvas)
+{
+    Paint background;
+    background.setStyle(Paint::Style::FILL);
+    background.setFillColor(Color(18, 22, 28));
+    canvas.drawRect(RectF(0.0f, 0.0f, 960.0f, 540.0f), background);
+
+    Paint text;
+    text.setStyle(Paint::Style::FILL);
+    text.setFillColor(Color(235, 240, 248, 245));
+    text.setTextSize(34.0f);
+    canvas.drawText("System fallback text AaBb 123", 40.0f, 36.0f, text);
+
+    Paint cjk = text;
+    cjk.setTextSize(32.0f);
+    canvas.drawText("\xE7\xB3\xBB\xE7\xBB\x9F\xE5\xAD\x97\xE4\xBD\x93 fallback \xE4\xB8\xAD\xE6\x96\x87\xE6\xB8\xB2\xE6\x9F\x93", 40.0f, 94.0f, cjk);
+
+    Paint bidi = text;
+    bidi.setTextSize(28.0f);
+    canvas.drawText(std::string("Bidi Latin 123 ") +
+                    "\xD7\xA9\xD7\x9C\xD7\x95\xD7\x9D " +
+                    "\xD9\x85\xD8\xB1\xD8\xAD\xD8\xA8\xD8\xA7",
+                    40.0f, 150.0f, bidi);
+
+    Paint gradient = text;
+    gradient.setTextSize(46.0f);
+    gradient.setFontWeight(700);
+    gradient.setLinearGradient(40.0f, 216.0f, 520.0f, 270.0f,
+                               {
+                                   Paint::ColorStop(0.0f, Color(255, 230, 120, 245)),
+                                   Paint::ColorStop(0.45f, Color(90, 220, 255, 245)),
+                                   Paint::ColorStop(1.0f, Color(255, 145, 225, 245))
+                               });
+    canvas.drawText("Gradient glyph atlas", 40.0f, 216.0f, gradient);
+
+    Paint outline = text;
+    outline.setStyle(Paint::Style::FILL_AND_STROKE);
+    outline.setTextSize(42.0f);
+    outline.setFillColor(Color(255, 244, 190, 245));
+    outline.setStrokeColor(Color(35, 50, 72, 245));
+    outline.setStrokeWidth(4.0f);
+    outline.setShadowLayer(7.0f, 3.0f, 4.0f, Color(0, 0, 0, 150));
+    canvas.drawText("Stroke and shadow", 40.0f, 292.0f, outline);
+
+    Paint box = text;
+    box.setTextSize(22.0f);
+    box.setLetterSpacing(0.8f);
+    canvas.drawTextBox("Wrapped text box uses glyph metrics, line height, ellipsis, atlas updates.",
+                       RectF(40.0f, 370.0f, 520.0f, 70.0f), 28.0f, 2, true, box);
+
+    Path wave;
+    wave.moveTo(580.0f, 418.0f);
+    wave.cubicTo(680.0f, 350.0f, 780.0f, 482.0f, 920.0f, 388.0f);
+    Paint wavePaint;
+    wavePaint.setStyle(Paint::Style::STROKE);
+    wavePaint.setStrokeColor(Color(90, 210, 245, 160));
+    wavePaint.setStrokeWidth(4.0f);
+    wavePaint.setStrokeCap(Paint::StrokeCap::ROUND);
+    canvas.drawPath(wave, wavePaint);
+
+    Paint pathText;
+    pathText.setStyle(Paint::Style::FILL);
+    pathText.setFillColor(Color(255, 238, 140, 240));
+    pathText.setTextSize(24.0f);
+    pathText.setFontSlant(FontSlant::ITALIC);
+    canvas.drawTextOnPath("text-on-path", wave, 0.0f, -18.0f, pathText);
+}
+
 void drawImageHeavyValidationScene(Canvas& canvas, const ValidationImages& images, float currentTime)
 {
     Paint background;
@@ -647,12 +717,13 @@ int main() {
     const std::string validationScene = getEnvironmentValue("WHATSCANVAS_VALIDATION_SCENE");
     const bool runTextValidation = validationScene == "text-heavy";
     const bool runTextShowcase = validationScene == "text-showcase";
+    const bool runFontRegression = validationScene == "font-regression";
     const bool runImageValidation = validationScene == "image-heavy";
     const bool runGradientEffectValidation = validationScene == "gradient-effect";
     const bool runClippingValidation = validationScene == "clipping";
     const bool runTransformValidation = validationScene == "transform";
     const bool runSaveLayerValidation = validationScene == "save-layer";
-    if (!validationScene.empty() && !runTextValidation && !runTextShowcase && !runImageValidation
+    if (!validationScene.empty() && !runTextValidation && !runTextShowcase && !runFontRegression && !runImageValidation
         && !runGradientEffectValidation && !runClippingValidation
         && !runTransformValidation && !runSaveLayerValidation) {
         std::cerr << "Unknown validation scene: " << validationScene << std::endl;
@@ -677,8 +748,10 @@ int main() {
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
     #endif
 
-    const int windowWidth = runTextShowcase ? kTextShowcaseWindowWidth : kWindowWidth;
-    const int windowHeight = runTextShowcase ? kTextShowcaseWindowHeight : kWindowHeight;
+    const int windowWidth = runTextShowcase ? kTextShowcaseWindowWidth
+        : (runFontRegression ? kFontRegressionWindowWidth : kWindowWidth);
+    const int windowHeight = runTextShowcase ? kTextShowcaseWindowHeight
+        : (runFontRegression ? kFontRegressionWindowHeight : kWindowHeight);
 
     // Create the window
     GLFWwindow* window = glfwCreateWindow(windowWidth, windowHeight, "WhatsCanvas Demo", nullptr, nullptr);
@@ -1137,6 +1210,8 @@ int main() {
             drawTextHeavyValidationScene(canvas, currentTime);
         } else if (runTextShowcase) {
             drawTextShowcaseScene(canvas, currentTime);
+        } else if (runFontRegression) {
+            drawFontRegressionScene(canvas);
         } else if (runImageValidation) {
             drawImageHeavyValidationScene(canvas, validationImages, currentTime);
         } else if (runGradientEffectValidation) {
