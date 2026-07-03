@@ -4,6 +4,10 @@
 
 namespace wsc::text {
 
+namespace {
+constexpr int kMaxGlyphAtlasDimension = 4096;
+}
+
 bool GlyphKey::operator==(const GlyphKey &other) const
 {
     return fontFamily == other.fontFamily
@@ -37,16 +41,22 @@ std::optional<GlyphAtlasEntry> GlyphAtlas::uploadGlyph(const GlyphKey &key, cons
         return *existing;
     }
 
-    if (!canStore(bitmap)) {
+    if (!hasValidPixels(bitmap)) {
+        return std::nullopt;
+    }
+    if (!canStoreDimensions(bitmap.width, bitmap.height) && !growToFit(bitmap.width, bitmap.height)) {
         return std::nullopt;
     }
 
     int x = 0;
     int y = 0;
     if (!allocateRect(bitmap.width, bitmap.height, x, y)) {
-        rememberRebuildKeys();
-        clear();
-        ++evictionCount_;
+        if (!growToFit(bitmap.width, bitmap.height)) {
+            rememberRebuildKeys();
+            clear();
+            ++evictionCount_;
+            ++generation_;
+        }
         if (!allocateRect(bitmap.width, bitmap.height, x, y)) {
             return std::nullopt;
         }
@@ -106,6 +116,7 @@ GlyphAtlasStats GlyphAtlas::stats() const
     result.usedBytes = pixels_.size();
     result.uploadCount = uploadCount_;
     result.evictionCount = evictionCount_;
+    result.resizeCount = resizeCount_;
     result.generation = generation_;
     result.textureValid = textureValid_;
     return result;
@@ -118,18 +129,23 @@ std::vector<GlyphAtlasDirtyRect> GlyphAtlas::consumeDirtyRects()
     return result;
 }
 
-bool GlyphAtlas::canStore(const GlyphBitmap &bitmap) const
+bool GlyphAtlas::hasValidPixels(const GlyphBitmap &bitmap) const
 {
     const std::size_t expectedSize = static_cast<std::size_t>(std::max(0, bitmap.width))
         * static_cast<std::size_t>(std::max(0, bitmap.height));
     const bool hasAlphaPixels = bitmap.alphaPixels.size() >= expectedSize;
     const bool hasRgbaPixels = bitmap.rgbaPixels.size() >= expectedSize * 4u;
-    return width_ > 0 && height_ > 0
-        && bitmap.width > 0 && bitmap.height > 0
-        && bitmap.width + padding_ * 2 <= width_
-        && bitmap.height + padding_ * 2 <= height_
+    return bitmap.width > 0 && bitmap.height > 0
         && ((bitmap.format == GlyphBitmapFormat::Alpha && hasAlphaPixels)
             || (bitmap.format == GlyphBitmapFormat::RGBA && hasRgbaPixels));
+}
+
+bool GlyphAtlas::canStoreDimensions(int width, int height) const
+{
+    return width_ > 0 && height_ > 0
+        && width > 0 && height > 0
+        && width + padding_ * 2 <= width_
+        && height + padding_ * 2 <= height_;
 }
 
 bool GlyphAtlas::allocateRect(int width, int height, int &x, int &y)
@@ -150,6 +166,50 @@ bool GlyphAtlas::allocateRect(int width, int height, int &x, int &y)
     y = cursorY_ + padding_;
     cursorX_ += paddedWidth;
     rowHeight_ = std::max(rowHeight_, paddedHeight);
+    return true;
+}
+
+bool GlyphAtlas::growToFit(int width, int height)
+{
+    if (width <= 0 || height <= 0) {
+        return false;
+    }
+
+    int nextWidth = std::max(1, width_);
+    int nextHeight = std::max(1, height_);
+    const int requiredWidth = width + padding_ * 2;
+    const int requiredHeight = height + padding_ * 2;
+    while ((nextWidth < requiredWidth || nextHeight < requiredHeight
+            || (nextWidth == width_ && nextHeight == height_))
+           && (nextWidth < kMaxGlyphAtlasDimension || nextHeight < kMaxGlyphAtlasDimension)) {
+        if (nextWidth <= nextHeight && nextWidth < kMaxGlyphAtlasDimension) {
+            nextWidth = std::min(kMaxGlyphAtlasDimension, nextWidth * 2);
+        } else if (nextHeight < kMaxGlyphAtlasDimension) {
+            nextHeight = std::min(kMaxGlyphAtlasDimension, nextHeight * 2);
+        } else if (nextWidth < kMaxGlyphAtlasDimension) {
+            nextWidth = std::min(kMaxGlyphAtlasDimension, nextWidth * 2);
+        }
+    }
+
+    if (nextWidth == width_ && nextHeight == height_) {
+        return false;
+    }
+    if (requiredWidth > nextWidth || requiredHeight > nextHeight) {
+        return false;
+    }
+
+    rememberRebuildKeys();
+    width_ = nextWidth;
+    height_ = nextHeight;
+    pixels_.assign(static_cast<std::size_t>(width_) * static_cast<std::size_t>(height_), 0);
+    rgbaPixels_.assign(static_cast<std::size_t>(width_) * static_cast<std::size_t>(height_) * 4u, 0);
+    entries_.clear();
+    hasColorPixels_ = false;
+    resetPacking();
+    markFullDirty();
+    ++resizeCount_;
+    ++generation_;
+    textureValid_ = true;
     return true;
 }
 
