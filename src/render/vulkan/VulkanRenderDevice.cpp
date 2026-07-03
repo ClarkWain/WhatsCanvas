@@ -14,6 +14,7 @@
 
 #include "shaders/SolidShaderSpv.h"
 #include "shaders/TexturedShaderSpv.h"
+#include "shaders/ClipShaderSpv.h"
 #endif
 
 // ---------------------------------------------------------------------------
@@ -66,6 +67,13 @@ struct VulkanRenderDevice::VulkanContext
     VkPipelineLayout texPipelineLayout = VK_NULL_HANDLE;
     VkPipeline texPipeline = VK_NULL_HANDLE;
 
+    // M7 clip pipeline (position + color + mask UV; samples an R-channel mask).
+    VkShaderModule clipVertModule = VK_NULL_HANDLE;
+    VkShaderModule clipFragModule = VK_NULL_HANDLE;
+    VkDescriptorSetLayout clipDescriptorSetLayout = VK_NULL_HANDLE;
+    VkPipelineLayout clipPipelineLayout = VK_NULL_HANDLE;
+    VkPipeline clipPipeline = VK_NULL_HANDLE;
+
     std::size_t imageTextureCount = 0;
 
     // Most-recently-activated / filled render target, used as the readback
@@ -109,6 +117,26 @@ struct VulkanRenderDevice::VulkanContext
             if (texFragModule != VK_NULL_HANDLE) {
                 vkDestroyShaderModule(device, texFragModule, nullptr);
                 texFragModule = VK_NULL_HANDLE;
+            }
+            if (clipPipeline != VK_NULL_HANDLE) {
+                vkDestroyPipeline(device, clipPipeline, nullptr);
+                clipPipeline = VK_NULL_HANDLE;
+            }
+            if (clipPipelineLayout != VK_NULL_HANDLE) {
+                vkDestroyPipelineLayout(device, clipPipelineLayout, nullptr);
+                clipPipelineLayout = VK_NULL_HANDLE;
+            }
+            if (clipDescriptorSetLayout != VK_NULL_HANDLE) {
+                vkDestroyDescriptorSetLayout(device, clipDescriptorSetLayout, nullptr);
+                clipDescriptorSetLayout = VK_NULL_HANDLE;
+            }
+            if (clipVertModule != VK_NULL_HANDLE) {
+                vkDestroyShaderModule(device, clipVertModule, nullptr);
+                clipVertModule = VK_NULL_HANDLE;
+            }
+            if (clipFragModule != VK_NULL_HANDLE) {
+                vkDestroyShaderModule(device, clipFragModule, nullptr);
+                clipFragModule = VK_NULL_HANDLE;
             }
             if (solidPipelineLayout != VK_NULL_HANDLE) {
                 vkDestroyPipelineLayout(device, solidPipelineLayout, nullptr);
@@ -571,6 +599,132 @@ struct VulkanRenderDevice::VulkanContext
         }
         return true;
     }
+
+    // Lazily build the clip pipeline (position + color + mask UV; combined image
+    // sampler at binding 0). Used for coverage-mask clipping.
+    bool ensureClipPipeline(VkRenderPass renderPass)
+    {
+        if (clipPipeline != VK_NULL_HANDLE) {
+            return true;
+        }
+
+        clipVertModule = createShaderModule(kClipVertSpv, sizeof(kClipVertSpv));
+        clipFragModule = createShaderModule(kClipFragSpv, sizeof(kClipFragSpv));
+        if (clipVertModule == VK_NULL_HANDLE || clipFragModule == VK_NULL_HANDLE) {
+            return false;
+        }
+
+        VkDescriptorSetLayoutBinding samplerBinding{};
+        samplerBinding.binding = 0;
+        samplerBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        samplerBinding.descriptorCount = 1;
+        samplerBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        VkDescriptorSetLayoutCreateInfo dslInfo{};
+        dslInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        dslInfo.bindingCount = 1;
+        dslInfo.pBindings = &samplerBinding;
+        if (vkCreateDescriptorSetLayout(device, &dslInfo, nullptr, &clipDescriptorSetLayout) != VK_SUCCESS) {
+            return false;
+        }
+
+        VkPipelineLayoutCreateInfo layoutInfo{};
+        layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        layoutInfo.setLayoutCount = 1;
+        layoutInfo.pSetLayouts = &clipDescriptorSetLayout;
+        if (vkCreatePipelineLayout(device, &layoutInfo, nullptr, &clipPipelineLayout) != VK_SUCCESS) {
+            return false;
+        }
+
+        std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
+        stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+        stages[0].module = clipVertModule;
+        stages[0].pName = "main";
+        stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+        stages[1].module = clipFragModule;
+        stages[1].pName = "main";
+
+        VkVertexInputBindingDescription binding{};
+        binding.binding = 0;
+        binding.stride = 8 * sizeof(float);
+        binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+        std::array<VkVertexInputAttributeDescription, 3> attrs{};
+        attrs[0].location = 0;
+        attrs[0].binding = 0;
+        attrs[0].format = VK_FORMAT_R32G32_SFLOAT;
+        attrs[0].offset = 0;
+        attrs[1].location = 1;
+        attrs[1].binding = 0;
+        attrs[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+        attrs[1].offset = 2 * sizeof(float);
+        attrs[2].location = 2;
+        attrs[2].binding = 0;
+        attrs[2].format = VK_FORMAT_R32G32_SFLOAT;
+        attrs[2].offset = 6 * sizeof(float);
+
+        VkPipelineVertexInputStateCreateInfo vertexInput{};
+        vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+        vertexInput.vertexBindingDescriptionCount = 1;
+        vertexInput.pVertexBindingDescriptions = &binding;
+        vertexInput.vertexAttributeDescriptionCount = static_cast<std::uint32_t>(attrs.size());
+        vertexInput.pVertexAttributeDescriptions = attrs.data();
+
+        VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+        inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+        inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+        VkPipelineViewportStateCreateInfo viewportState{};
+        viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+        viewportState.viewportCount = 1;
+        viewportState.scissorCount = 1;
+
+        VkPipelineRasterizationStateCreateInfo rasterizer{};
+        rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+        rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+        rasterizer.cullMode = VK_CULL_MODE_NONE;
+        rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+        rasterizer.lineWidth = 1.0f;
+
+        VkPipelineMultisampleStateCreateInfo multisample{};
+        multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+        multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+        VkPipelineColorBlendAttachmentState blendAttachment = blendStateFor(0);
+
+        VkPipelineColorBlendStateCreateInfo colorBlend{};
+        colorBlend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        colorBlend.attachmentCount = 1;
+        colorBlend.pAttachments = &blendAttachment;
+
+        const std::array<VkDynamicState, 2> dynamicStates{VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+        VkPipelineDynamicStateCreateInfo dynamicState{};
+        dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+        dynamicState.dynamicStateCount = static_cast<std::uint32_t>(dynamicStates.size());
+        dynamicState.pDynamicStates = dynamicStates.data();
+
+        VkGraphicsPipelineCreateInfo pipelineInfo{};
+        pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        pipelineInfo.stageCount = static_cast<std::uint32_t>(stages.size());
+        pipelineInfo.pStages = stages.data();
+        pipelineInfo.pVertexInputState = &vertexInput;
+        pipelineInfo.pInputAssemblyState = &inputAssembly;
+        pipelineInfo.pViewportState = &viewportState;
+        pipelineInfo.pRasterizationState = &rasterizer;
+        pipelineInfo.pMultisampleState = &multisample;
+        pipelineInfo.pColorBlendState = &colorBlend;
+        pipelineInfo.pDynamicState = &dynamicState;
+        pipelineInfo.layout = clipPipelineLayout;
+        pipelineInfo.renderPass = renderPass;
+        pipelineInfo.subpass = 0;
+
+        if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &clipPipeline)
+            != VK_SUCCESS) {
+            return false;
+        }
+        return true;
+    }
 };
 
 namespace {
@@ -813,6 +967,31 @@ std::shared_ptr<VulkanTextureResource> createSampledTexture(VulkanRenderDevice::
 
     return std::make_shared<VulkanTextureResource>(ctx, image, memory, view, sampler, width, height);
 }
+
+// Clip-mask resource holding the analytic-AA path data. Application into a live
+// pass is done by the device's coverage-mask draw path.
+class VulkanClipMaskResource final : public ClipMaskResource
+{
+public:
+    explicit VulkanClipMaskResource(const ClipMaskPath &path)
+        : points_(path.points), coverage_(path.coverage), transform_(path.transform)
+    {
+    }
+
+    bool isValid() const override { return !points_.empty(); }
+    void apply(const RenderContext & /*context*/, const ScissorState & /*scissor*/,
+               std::size_t /*clipIndex*/) const override
+    {
+        // Application through the shared RenderContext is pending the
+        // backend-neutral command layer; the Vulkan coverage-mask mechanism is
+        // exercised directly via VulkanRenderDevice::renderClippedSolid().
+    }
+
+private:
+    std::vector<float> points_;
+    std::vector<float> coverage_;
+    glm::mat4 transform_ = glm::mat4(1.0f);
+};
 
 // Offscreen render target: color image + view + clear render pass + framebuffer.
 class VulkanRenderTarget final : public IRenderTarget
@@ -1727,10 +1906,191 @@ RenderResourceStats VulkanRenderDevice::resourceStats() const
 // Resource + command entry points (later milestones)
 // ---------------------------------------------------------------------------
 
-SharedClipMaskResource VulkanRenderDevice::createClipMaskResource(const ClipMaskPath & /*maskPath*/) const
+SharedClipMaskResource VulkanRenderDevice::createClipMaskResource(const ClipMaskPath &maskPath) const
 {
-    // TODO(vulkan, M7): implement coverage-mask clip resources.
+#if defined(WHATSCANVAS_ENABLE_VULKAN)
+    if (maskPath.points.empty()) {
+        return nullptr;
+    }
+    return std::make_shared<VulkanClipMaskResource>(maskPath);
+#else
+    (void)maskPath;
     return nullptr;
+#endif
+}
+
+bool VulkanRenderDevice::renderClippedSolid(const std::unique_ptr<IRenderTarget> &target,
+                                            const std::unique_ptr<IRenderTarget> &maskTarget, float r, float g,
+                                            float b, float a) const
+{
+#if defined(WHATSCANVAS_ENABLE_VULKAN)
+    if (!context_ || !context_->deviceReady || !target || !maskTarget) {
+        return false;
+    }
+    auto *dst = dynamic_cast<VulkanRenderTarget *>(target.get());
+    auto *mask = dynamic_cast<VulkanRenderTarget *>(maskTarget.get());
+    if (dst == nullptr || mask == nullptr || !dst->isValid() || !mask->isValid()) {
+        return false;
+    }
+    if (!context_->ensureClipPipeline(dst->renderPass())) {
+        return false;
+    }
+
+    VkDevice device = context_->device;
+
+    // Temporary view + sampler over the mask image.
+    VkImageView maskView = VK_NULL_HANDLE;
+    VkSampler maskSampler = VK_NULL_HANDLE;
+    VkImageViewCreateInfo viewInfo{};
+    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewInfo.image = mask->image();
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.format = kRenderTargetFormat;
+    viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    viewInfo.subresourceRange.levelCount = 1;
+    viewInfo.subresourceRange.layerCount = 1;
+    if (vkCreateImageView(device, &viewInfo, nullptr, &maskView) != VK_SUCCESS) {
+        return false;
+    }
+    VkSamplerCreateInfo samplerInfo{};
+    samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    samplerInfo.magFilter = VK_FILTER_LINEAR;
+    samplerInfo.minFilter = VK_FILTER_LINEAR;
+    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    if (vkCreateSampler(device, &samplerInfo, nullptr, &maskSampler) != VK_SUCCESS) {
+        vkDestroyImageView(device, maskView, nullptr);
+        return false;
+    }
+
+    VkDescriptorPoolSize poolSize{};
+    poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    poolSize.descriptorCount = 1;
+    VkDescriptorPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.maxSets = 1;
+    poolInfo.poolSizeCount = 1;
+    poolInfo.pPoolSizes = &poolSize;
+    VkDescriptorPool pool = VK_NULL_HANDLE;
+    auto cleanup = [&]() {
+        if (pool != VK_NULL_HANDLE) vkDestroyDescriptorPool(device, pool, nullptr);
+        vkDestroySampler(device, maskSampler, nullptr);
+        vkDestroyImageView(device, maskView, nullptr);
+    };
+    if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &pool) != VK_SUCCESS) {
+        cleanup();
+        return false;
+    }
+    VkDescriptorSetAllocateInfo setAlloc{};
+    setAlloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    setAlloc.descriptorPool = pool;
+    setAlloc.descriptorSetCount = 1;
+    setAlloc.pSetLayouts = &context_->clipDescriptorSetLayout;
+    VkDescriptorSet set = VK_NULL_HANDLE;
+    if (vkAllocateDescriptorSets(device, &setAlloc, &set) != VK_SUCCESS) {
+        cleanup();
+        return false;
+    }
+    VkDescriptorImageInfo imageDescriptor{};
+    imageDescriptor.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    imageDescriptor.imageView = maskView;
+    imageDescriptor.sampler = maskSampler;
+    VkWriteDescriptorSet write{};
+    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.dstSet = set;
+    write.dstBinding = 0;
+    write.descriptorCount = 1;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    write.pImageInfo = &imageDescriptor;
+    vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+
+    // Full-target quad with color + mask UV (8 floats/vertex, top-left UV).
+    const std::array<float, 48> quad = {
+        -1.0f, -1.0f, r, g, b, a, 0.0f, 0.0f, 1.0f, -1.0f, r, g, b, a, 1.0f, 0.0f,
+        1.0f,  1.0f,  r, g, b, a, 1.0f, 1.0f, -1.0f, -1.0f, r, g, b, a, 0.0f, 0.0f,
+        1.0f,  1.0f,  r, g, b, a, 1.0f, 1.0f, -1.0f, 1.0f,  r, g, b, a, 0.0f, 1.0f,
+    };
+    const VkDeviceSize vertexBytes = quad.size() * sizeof(float);
+    VkBuffer vertexBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory vertexMemory = VK_NULL_HANDLE;
+    if (!context_->createHostVisibleBuffer(vertexBytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertexBuffer,
+                                           vertexMemory)) {
+        cleanup();
+        return false;
+    }
+    void *mapped = nullptr;
+    if (vkMapMemory(device, vertexMemory, 0, vertexBytes, 0, &mapped) != VK_SUCCESS) {
+        vkDestroyBuffer(device, vertexBuffer, nullptr);
+        vkFreeMemory(device, vertexMemory, nullptr);
+        cleanup();
+        return false;
+    }
+    std::memcpy(mapped, quad.data(), static_cast<std::size_t>(vertexBytes));
+    vkUnmapMemory(device, vertexMemory);
+
+    VkCommandBuffer cmd = context_->beginSingleTimeCommands();
+    bool submitted = false;
+    if (cmd != VK_NULL_HANDLE) {
+        VulkanContext::transitionImageLayout(cmd, mask->image(), mask->layout(),
+                                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+        VkClearValue clearValue{};
+        clearValue.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
+        VkRenderPassBeginInfo renderPassInfo{};
+        renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        renderPassInfo.renderPass = dst->renderPass();
+        renderPassInfo.framebuffer = dst->framebuffer();
+        renderPassInfo.renderArea.offset = {0, 0};
+        renderPassInfo.renderArea.extent = {static_cast<std::uint32_t>(dst->width()),
+                                            static_cast<std::uint32_t>(dst->height())};
+        renderPassInfo.clearValueCount = 1;
+        renderPassInfo.pClearValues = &clearValue;
+        vkCmdBeginRenderPass(cmd, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+        VkViewport viewport{};
+        viewport.width = static_cast<float>(dst->width());
+        viewport.height = static_cast<float>(dst->height());
+        viewport.maxDepth = 1.0f;
+        vkCmdSetViewport(cmd, 0, 1, &viewport);
+        VkRect2D scissor{};
+        scissor.extent = {static_cast<std::uint32_t>(dst->width()), static_cast<std::uint32_t>(dst->height())};
+        vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, context_->clipPipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, context_->clipPipelineLayout, 0, 1, &set, 0,
+                                nullptr);
+        const VkDeviceSize offset = 0;
+        vkCmdBindVertexBuffers(cmd, 0, 1, &vertexBuffer, &offset);
+        vkCmdDraw(cmd, 6, 1, 0, 0);
+        vkCmdEndRenderPass(cmd);
+        submitted = context_->endSingleTimeCommands(cmd);
+    }
+
+    mask->setLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    vkDestroyBuffer(device, vertexBuffer, nullptr);
+    vkFreeMemory(device, vertexMemory, nullptr);
+    cleanup();
+
+    if (!submitted) {
+        return false;
+    }
+    dst->setLayout(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    dst->markReadbackReady();
+    context_->readbackImage = dst->image();
+    context_->readbackLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    context_->readbackWidth = dst->width();
+    context_->readbackHeight = dst->height();
+    return true;
+#else
+    (void)target;
+    (void)maskTarget;
+    (void)r;
+    (void)g;
+    (void)b;
+    (void)a;
+    return false;
+#endif
 }
 
 SharedImageResource VulkanRenderDevice::createImageResourceRGBA(int width, int height,
