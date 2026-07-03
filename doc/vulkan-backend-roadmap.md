@@ -70,6 +70,7 @@ Two viable strategies:
 Recommendation: start with **B** to reach visible parity quickly (M3–M5), then
 extract the common seam toward **A** once the Vulkan pipeline shapes are known.
 This decision is a hard dependency for M3 and should be recorded as an ADR.
+Recorded in [ADR-006](architecture/ADR-006-backend-neutral-command-layer.md).
 
 ## 4. Milestones
 
