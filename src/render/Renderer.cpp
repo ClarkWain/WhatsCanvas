@@ -9,6 +9,7 @@
 #include <glm/glm.hpp>
 
 #include "render/GammaCorrect.h"
+#include "render/PathMerge.h"
 
 namespace {
 constexpr float kMergeEpsilon = 0.001f;
@@ -249,7 +250,9 @@ void Renderer::flush()
         }
 
         auto *pathCmd = static_cast<DrawPathCommand *>(commands_[i].get());
-        if (pathCmd->data().hasVertexColors()) {
+        if (pathCmd->data().hasVertexColors() || pathCmd->data().hasShaderGradient()) {
+            // Per-vertex colours and shader gradients carry per-shape state that
+            // cannot be shared across a merged draw call, so render individually.
             executeCommand(commands_[i]);
             ++i;
             continue;
@@ -266,38 +269,7 @@ void Renderer::flush()
 
             auto *nextPathCmd = static_cast<DrawPathCommand *>(commands_[j].get());
             const auto &next = nextPathCmd->data();
-            if (next.hasVertexColors()) {
-                break;
-            }
-            if (next.drawMode != first.drawMode) {
-                break;
-            }
-            if (next.capStyle != first.capStyle) {
-                break;
-            }
-            if (std::abs(next.width - first.width) > kMergeEpsilon) {
-                break;
-            }
-            if (next.blendMode != first.blendMode) {
-                break;
-            }
-            if (next.transform != first.transform) {
-                break;
-            }
-            if (next.scissor.enabled != first.scissor.enabled ||
-                next.scissor.x != first.scissor.x ||
-                next.scissor.y != first.scissor.y ||
-                next.scissor.width != first.scissor.width ||
-                next.scissor.height != first.scissor.height) {
-                break;
-            }
-            if (next.clipMask.fingerprint != first.clipMask.fingerprint) {
-                break;
-            }
-            if (std::abs(next.color[0] - first.color[0]) > kMergeEpsilon ||
-                std::abs(next.color[1] - first.color[1]) > kMergeEpsilon ||
-                std::abs(next.color[2] - first.color[2]) > kMergeEpsilon ||
-                std::abs(next.color[3] - first.color[3]) > kMergeEpsilon) {
+            if (!wsc::render::canMergePathData(first, next)) {
                 break;
             }
             ++j;
@@ -312,10 +284,16 @@ void Renderer::flush()
 
             DrawPathData merged = first;
             merged.points.reserve(totalPoints);
+            if (first.hasCoverage()) {
+                merged.coverage.reserve(totalPoints / 2);
+            }
 
             for (std::size_t m = i + 1; m < j; ++m) {
                 const auto &next = static_cast<DrawPathCommand *>(commands_[m].get())->data();
                 merged.points.insert(merged.points.end(), next.points.begin(), next.points.end());
+                if (first.hasCoverage()) {
+                    merged.coverage.insert(merged.coverage.end(), next.coverage.begin(), next.coverage.end());
+                }
             }
 
             DrawPathCommand mergedCmd(merged);

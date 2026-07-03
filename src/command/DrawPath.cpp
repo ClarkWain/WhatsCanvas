@@ -29,14 +29,17 @@ void DrawPathProgram::initialize()
     std::string vertexSrc = std::string(wsc::opengl::shaderVersionDirective()) + R"(
         layout (location = 0) in vec2 aPos;
         layout (location = 1) in vec4 aColor;
+        layout (location = 2) in float aCoverage;
         uniform mat4 uProjection;
         uniform mat4 uTransform;
         out vec4 vColor;
         out vec2 vLocalPos;
+        out float vCoverage;
         void main()
         {
             vColor = aColor;
             vLocalPos = aPos;
+            vCoverage = aCoverage;
             gl_Position = uProjection * uTransform * vec4(aPos, 0.0, 1.0);
         }
     )";
@@ -56,8 +59,10 @@ void DrawPathProgram::initialize()
         uniform int uGradientStopCount;
         uniform float uGradientStopPositions[8];
         uniform vec4 uGradientStopColors[8];
+        uniform int uUseCoverage;
         in vec4 vColor;
         in vec2 vLocalPos;
+        in float vCoverage;
 
         float applyGradientTile(float t, out float visibility)
         {
@@ -107,19 +112,22 @@ void DrawPathProgram::initialize()
 
         void main()
         {
+            vec4 outColor;
             if (uGradientType == 1) {
                 vec2 direction = uLinearEnd - uLinearStart;
                 float lengthSq = max(dot(direction, direction), 0.0001);
                 float t = dot(vLocalPos - uLinearStart, direction) / lengthSq;
-                FragColor = sampleGradient(t);
-                return;
-            }
-            if (uGradientType == 2) {
+                outColor = sampleGradient(t);
+            } else if (uGradientType == 2) {
                 float t = length(vLocalPos - uRadialCenter) / max(uRadialRadius, 0.0001);
-                FragColor = sampleGradient(t);
-                return;
+                outColor = sampleGradient(t);
+            } else {
+                outColor = uUseVertexColor != 0 ? vColor : uColor;
             }
-            FragColor = uUseVertexColor != 0 ? vColor : uColor;
+            if (uUseCoverage != 0) {
+                outColor.a *= clamp(vCoverage, 0.0, 1.0);
+            }
+            FragColor = outColor;
         }
     )";
 #else
@@ -138,8 +146,10 @@ void DrawPathProgram::initialize()
         uniform samplerBuffer uGradientStops;
         uniform float uGradientStopPositions[8];
         uniform vec4 uGradientStopColors[8];
+        uniform int uUseCoverage;
         in vec4 vColor;
         in vec2 vLocalPos;
+        in float vCoverage;
 
         float gradientStopPosition(int index)
         {
@@ -209,19 +219,22 @@ void DrawPathProgram::initialize()
 
         void main()
         {
+            vec4 outColor;
             if (uGradientType == 1) {
                 vec2 direction = uLinearEnd - uLinearStart;
                 float lengthSq = max(dot(direction, direction), 0.0001);
                 float t = dot(vLocalPos - uLinearStart, direction) / lengthSq;
-                FragColor = sampleGradient(t);
-                return;
-            }
-            if (uGradientType == 2) {
+                outColor = sampleGradient(t);
+            } else if (uGradientType == 2) {
                 float t = length(vLocalPos - uRadialCenter) / max(uRadialRadius, 0.0001);
-                FragColor = sampleGradient(t);
-                return;
+                outColor = sampleGradient(t);
+            } else {
+                outColor = uUseVertexColor != 0 ? vColor : uColor;
             }
-            FragColor = uUseVertexColor != 0 ? vColor : uColor;
+            if (uUseCoverage != 0) {
+                outColor.a *= clamp(vCoverage, 0.0, 1.0);
+            }
+            FragColor = outColor;
         }
     )";
 #endif
@@ -234,6 +247,7 @@ void DrawPathProgram::initialize()
     // Initialize stream buffers
     positionBuffer_.initialize(4096);
     colorBuffer_.initialize(8192);
+    coverageBuffer_.initialize(2048);
 
     // Bind the VAO and configure vertex attributes
     glBindVertexArray(VAO_);
@@ -245,6 +259,10 @@ void DrawPathProgram::initialize()
     glBindBuffer(GL_ARRAY_BUFFER, colorBuffer_.handle());
     glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(1);
+
+    glBindBuffer(GL_ARRAY_BUFFER, coverageBuffer_.handle());
+    glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, sizeof(float), (void*)0);
+    glEnableVertexAttribArray(2);
 
     // Unbind
     glBindVertexArray(0);
@@ -265,6 +283,7 @@ void DrawPathProgram::release()
 
     positionBuffer_.release();
     colorBuffer_.release();
+    coverageBuffer_.release();
     gradientStopBuffer_.release();
 
     initialized_ = false;
@@ -287,6 +306,10 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
         colorBuffer_.upload(data.colors.data(), data.colors.size());
     }
 
+    if (data.hasCoverage()) {
+        coverageBuffer_.upload(data.coverage.data(), data.coverage.size());
+    }
+
     // Set the projection matrix
     glm::mat4 projection = glm::ortho(0.0f, static_cast<float>(context.getWidth()), static_cast<float>(context.getHeight()), 0.0f);
     program_->use();
@@ -298,6 +321,7 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
     GammaCorrect::srgbToLinear4(color);
     program_->setVec4("uColor", glm::make_vec4(color));
     program_->setInt("uUseVertexColor", data.hasVertexColors() ? 1 : 0);
+    program_->setInt("uUseCoverage", data.hasCoverage() ? 1 : 0);
     program_->setInt("uGradientType", static_cast<int>(data.gradientType));
     program_->setInt("uGradientTileMode", static_cast<int>(data.gradientTileMode));
     program_->setVec2("uLinearStart", glm::vec2(data.gradientStart[0], data.gradientStart[1]));
@@ -348,6 +372,13 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
 
     // Bind VAO and draw (StreamBuffer already bound the data via upload)
     glBindVertexArray(VAO_);
+
+    if (data.hasCoverage()) {
+        glEnableVertexAttribArray(2);
+    } else {
+        glDisableVertexAttribArray(2);
+        glVertexAttrib1f(2, 1.0f);
+    }
 
     if (data.drawMode == PathDrawMode::Fill)
     {

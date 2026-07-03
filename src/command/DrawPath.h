@@ -41,5 +41,6 @@ private:
 
     StreamBuffer positionBuffer_;
     StreamBuffer colorBuffer_;
+    StreamBuffer coverageBuffer_;
     TexelBuffer gradientStopBuffer_;
 };
