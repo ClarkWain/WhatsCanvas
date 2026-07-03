@@ -121,6 +121,7 @@ std::vector<float> flattenPoints(const std::vector<crushedpixel::Vec2> &points);
 std::vector<PathContour> extractContours(const Path &path);
 std::vector<crushedpixel::Vec2> triangulateContours(const std::vector<PathContour> &contours,
                                                     Path::FillType fillType);
+std::uint64_t hashFillTessellation(const std::vector<PathContour> &contours, Path::FillType fillType);
 
 PathDrawMode toPathDrawMode(Paint::Style style)
 {
@@ -594,19 +595,34 @@ bool tryResolveAxisAlignedRectClip(const Path &path, const glm::mat4 &transform,
     return true;
 }
 
-bool buildClipMaskPath(const Path &path, const glm::mat4 &transform, ClipMaskPath &maskPath)
+bool buildClipMaskPath(const Path &path, const glm::mat4 &transform, ClipMaskPath &maskPath,
+                       wsc::render::LruCache<std::vector<crushedpixel::Vec2>> *tessellationCache = nullptr)
 {
     const auto contours = extractContours(path);
     if (contours.empty()) {
         return false;
     }
 
-    const auto fillTriangles = triangulateContours(contours, path.getFillType());
-    if (fillTriangles.empty()) {
+    // The clip mask is the fill triangulation of the path, so it shares the fill
+    // tessellation cache: a shape used as both a fill and a clip triangulates once.
+    std::vector<crushedpixel::Vec2> storage;
+    const std::vector<crushedpixel::Vec2> *fillTriangles = nullptr;
+    if (tessellationCache != nullptr) {
+        const std::uint64_t key = hashFillTessellation(contours, path.getFillType());
+        if (const auto *cached = tessellationCache->find(key)) {
+            fillTriangles = cached;
+        } else {
+            fillTriangles = &tessellationCache->insert(key, triangulateContours(contours, path.getFillType()));
+        }
+    } else {
+        storage = triangulateContours(contours, path.getFillType());
+        fillTriangles = &storage;
+    }
+    if (fillTriangles->empty()) {
         return false;
     }
 
-    maskPath.points = flattenPoints(fillTriangles);
+    maskPath.points = flattenPoints(*fillTriangles);
     maskPath.transform = transform;
     return true;
 }
@@ -1673,9 +1689,29 @@ std::vector<std::vector<crushedpixel::Vec2>> buildDashedPolylines(const std::vec
     return dashes;
 }
 
+/// Content hash of the inputs to stroke meshing. The mesh is built in local
+/// path space, so identical geometry and stroke style share a key regardless
+/// of transform (the effective width already folds in any hairline widening).
+std::uint64_t hashStrokeMesh(const std::vector<crushedpixel::Vec2> &points, bool closed, const Paint &paint)
+{
+    std::uint64_t hash = kFnvOffsetBasis;
+    hashUint64(hash, closed ? 1ull : 0ull);
+    hashFloat(hash, paint.getStrokeWidth());
+    hashUint64(hash, static_cast<std::uint64_t>(paint.getStrokeCap()));
+    hashUint64(hash, static_cast<std::uint64_t>(paint.getStrokeJoin()));
+    hashFloat(hash, paint.getStrokeMiterLimit());
+    hashUint64(hash, points.size());
+    for (const auto &point : points) {
+        hashFloat(hash, point.x);
+        hashFloat(hash, point.y);
+    }
+    return hash;
+}
+
 void submitStrokeMesh(IRenderer &renderer, const std::vector<crushedpixel::Vec2> &points,
                       bool closed, const Paint &paint, const glm::mat4 &transform,
-                      const ScissorState &scissor, const ClipMaskState &clipMask = {})
+                      const ScissorState &scissor, const ClipMaskState &clipMask = {},
+                      wsc::render::LruCache<std::vector<crushedpixel::Vec2>> *strokeCache = nullptr)
 {
     if (paint.hasDashPathEffect()) {
         Paint dashPaint = paint;
@@ -1703,10 +1739,26 @@ void submitStrokeMesh(IRenderer &renderer, const std::vector<crushedpixel::Vec2>
         }
     }
 
-    auto strokeMesh = buildStrokeMesh(points, closed, strokePaint);
-    if (strokeMesh.empty()) {
+    // Retain the transform-independent stroke mesh so repeated/static strokes
+    // are not re-meshed every frame. Dashed strokes recurse above and are never
+    // cached (their segmentation is phase dependent).
+    std::vector<crushedpixel::Vec2> strokeMeshStorage;
+    const std::vector<crushedpixel::Vec2> *strokeMeshPtr = nullptr;
+    if (strokeCache != nullptr) {
+        const std::uint64_t key = hashStrokeMesh(points, closed, strokePaint);
+        if (const auto *cached = strokeCache->find(key)) {
+            strokeMeshPtr = cached;
+        } else {
+            strokeMeshPtr = &strokeCache->insert(key, buildStrokeMesh(points, closed, strokePaint));
+        }
+    } else {
+        strokeMeshStorage = buildStrokeMesh(points, closed, strokePaint);
+        strokeMeshPtr = &strokeMeshStorage;
+    }
+    if (strokeMeshPtr->empty()) {
         return;
     }
+    const std::vector<crushedpixel::Vec2> &strokeMesh = *strokeMeshPtr;
 
     std::vector<float> strokePoints;
     std::vector<float> strokeCoverage;
@@ -1924,6 +1976,8 @@ struct Canvas::Impl
     // Retains transform-independent fill triangulations so repeated/static
     // shapes are not re-triangulated every frame.
     wsc::render::LruCache<std::vector<crushedpixel::Vec2>> fillTessellationCache{256};
+    // Retains transform-independent stroke meshes for the same reason.
+    wsc::render::LruCache<std::vector<crushedpixel::Vec2>> strokeTessellationCache{256};
     bool rendererInitialized = false;
     SharedImageResource glyphAtlasImageResource;
     int glyphAtlasWidth = 0;
@@ -2050,6 +2104,7 @@ void Canvas::Impl::releaseResources()
 {
     layerStack.clear();
     fillTessellationCache.clear();
+    strokeTessellationCache.clear();
     glyphAtlasImageResource.reset();
     glyphAtlasWidth = 0;
     glyphAtlasHeight = 0;
@@ -2284,6 +2339,9 @@ Canvas::RenderStats Canvas::getRenderStats() const
     stats.tessellationCacheHits = impl_->fillTessellationCache.hitCount();
     stats.tessellationCacheMisses = impl_->fillTessellationCache.missCount();
     stats.tessellationCacheSize = impl_->fillTessellationCache.size();
+    stats.strokeCacheHits = impl_->strokeTessellationCache.hitCount();
+    stats.strokeCacheMisses = impl_->strokeTessellationCache.missCount();
+    stats.strokeCacheSize = impl_->strokeTessellationCache.size();
     return stats;
 }
 
@@ -2861,7 +2919,7 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
     if (drawStroke) {
         for (const auto &contour : contours) {
             submitStrokeMesh(*impl_->renderer, contour.points, contour.closed, effectivePaint,
-                             impl_->currentState().matrix, scissor, clipMask);
+                             impl_->currentState().matrix, scissor, clipMask, &impl_->strokeTessellationCache);
         }
     }
 }
@@ -4178,7 +4236,7 @@ void Canvas::clipPath(const Path &path)
     }
 
     ClipMaskPath maskPath;
-    if (!buildClipMaskPath(path, impl_->currentState().matrix, maskPath)) {
+    if (!buildClipMaskPath(path, impl_->currentState().matrix, maskPath, &impl_->fillTessellationCache)) {
         impl_->currentState().clip.rect = RectF();
         return;
     }
