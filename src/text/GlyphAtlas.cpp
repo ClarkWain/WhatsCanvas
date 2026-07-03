@@ -6,6 +6,7 @@ namespace wsc::text {
 
 namespace {
 constexpr int kMaxGlyphAtlasDimension = 4096;
+constexpr std::size_t kMaxGlyphAtlasDirtyRects = 64;
 }
 
 bool GlyphKey::operator==(const GlyphKey &other) const
@@ -251,12 +252,20 @@ void GlyphAtlas::markDirtyRect(int x, int y, int width, int height)
     if (width <= 0 || height <= 0) {
         return;
     }
+    if (hasFullDirtyRect()) {
+        return;
+    }
 
     const int left = std::clamp(x, 0, width_);
     const int top = std::clamp(y, 0, height_);
     const int right = std::clamp(x + width, 0, width_);
     const int bottom = std::clamp(y + height, 0, height_);
     if (right <= left || bottom <= top) {
+        return;
+    }
+
+    if (dirtyRects_.size() >= kMaxGlyphAtlasDirtyRects) {
+        markFullDirty();
         return;
     }
 
@@ -271,6 +280,15 @@ void GlyphAtlas::markFullDirty()
 
     dirtyRects_.clear();
     dirtyRects_.push_back({0, 0, width_, height_});
+}
+
+bool GlyphAtlas::hasFullDirtyRect() const
+{
+    return dirtyRects_.size() == 1
+        && dirtyRects_[0].x == 0
+        && dirtyRects_[0].y == 0
+        && dirtyRects_[0].width == width_
+        && dirtyRects_[0].height == height_;
 }
 
 void GlyphAtlas::writeGlyphPixels(const GlyphAtlasEntry &entry, const GlyphBitmap &bitmap)

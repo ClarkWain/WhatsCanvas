@@ -109,6 +109,7 @@ private:
     void rememberRebuildKeys();
     void markDirtyRect(int x, int y, int width, int height);
     void markFullDirty();
+    bool hasFullDirtyRect() const;
     void writeGlyphPixels(const GlyphAtlasEntry &entry, const GlyphBitmap &bitmap);
 
     int width_ = 0;
