@@ -69,6 +69,7 @@ struct GlyphAtlasStats
     std::size_t uploadCount = 0;
     std::size_t evictionCount = 0;
     std::size_t resizeCount = 0;
+    std::size_t dirtyRectCollapseCount = 0;
     std::uint64_t generation = 0;
     bool textureValid = false;
 };
@@ -127,6 +128,7 @@ private:
     std::size_t uploadCount_ = 0;
     std::size_t evictionCount_ = 0;
     std::size_t resizeCount_ = 0;
+    std::size_t dirtyRectCollapseCount_ = 0;
     std::uint64_t generation_ = 1;
     bool textureValid_ = true;
     bool hasColorPixels_ = false;

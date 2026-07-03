@@ -147,6 +147,8 @@ bool testDirtyRectsCollapseToFullAtlas()
 
     const auto dirtyRects = atlas.consumeDirtyRects();
     ok = expect(dirtyRects.size() == 1, "many dirty glyph rects should collapse to one full atlas rect") && ok;
+    ok = expect(atlas.stats().dirtyRectCollapseCount == 1,
+                "dirty rect collapse should be counted in atlas stats") && ok;
     ok = expect(dirtyRects.front().x == 0 && dirtyRects.front().y == 0
                     && dirtyRects.front().width == atlas.stats().width
                     && dirtyRects.front().height == atlas.stats().height,

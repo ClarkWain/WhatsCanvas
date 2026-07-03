@@ -134,6 +134,7 @@ GlyphAtlasStats GlyphAtlas::stats() const
     result.uploadCount = uploadCount_;
     result.evictionCount = evictionCount_;
     result.resizeCount = resizeCount_;
+    result.dirtyRectCollapseCount = dirtyRectCollapseCount_;
     result.generation = generation_;
     result.textureValid = textureValid_;
     return result;
@@ -265,6 +266,7 @@ void GlyphAtlas::markDirtyRect(int x, int y, int width, int height)
     }
 
     if (dirtyRects_.size() >= kMaxGlyphAtlasDirtyRects) {
+        ++dirtyRectCollapseCount_;
         markFullDirty();
         return;
     }
