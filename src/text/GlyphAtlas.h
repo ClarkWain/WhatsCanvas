@@ -110,6 +110,7 @@ private:
     void rememberRebuildKeys();
     void markDirtyRect(int x, int y, int width, int height);
     void markFullDirty();
+    std::size_t fullDirtyArea() const;
     bool hasFullDirtyRect() const;
     void writeGlyphPixels(const GlyphAtlasEntry &entry, const GlyphBitmap &bitmap);
 
@@ -123,6 +124,7 @@ private:
     std::unordered_map<GlyphKey, std::size_t, GlyphKeyHasher> entryIndex_;
     std::vector<GlyphKey> pendingRebuildKeys_;
     std::vector<GlyphAtlasDirtyRect> dirtyRects_;
+    std::size_t dirtyRectArea_ = 0;
     std::vector<unsigned char> pixels_;
     std::vector<unsigned char> rgbaPixels_;
     std::size_t uploadCount_ = 0;
