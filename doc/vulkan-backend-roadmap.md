@@ -1,6 +1,6 @@
 # Vulkan Backend Roadmap
 
-Status: **Draft / in progress** · Branch: `feature/vulkan-backend` · Done: M1, M2, M3 (solid fills)
+Status: **Draft / in progress** · Branch: `feature/vulkan-backend` · Done: M1, M2, M3 (solid fills), M4 (gradients + blend)
 
 This document tracks the work needed to bring the Vulkan render backend
 (`VulkanRenderDevice`) to functional parity with the existing OpenGL backend
@@ -113,13 +113,20 @@ the OpenGL output of the same scene. **First step met** by
 `WhatsCanvasVulkanSolidGeometryTests` (triangle interior = fill color, corner =
 clear) on NVIDIA RTX 2080 Ti.
 
-### M4 — Paint features on geometry
+### M4 — Paint features on geometry · **In progress (gradients + blend done)**
 Depends on: M3.
 - Per-Paint anti-aliased fill/stroke (coverage feathering) to match GL analytic AA.
+  *Pending*.
 - Linear/radial multi-stop gradients (fragment evaluation; texel-buffer or UBO).
-- Blend modes (Porter-Duff subset + Add/Multiply/Screen).
-- Alpha, stroke mesh (reuse Polyline2D tessellation output).
+  **Done** for per-vertex color interpolation (`renderGradientTriangles`);
+  fragment texel-buffer multi-stop still pending.
+- Blend modes (Porter-Duff subset + Add/Multiply/Screen). **Done**: pipelines
+  cached per (topology, blend mode); `renderBlendedOverlay` validates SrcOver/Src/
+  Add/Multiply/Screen via draw-over-draw.
+- Alpha, stroke mesh (reuse Polyline2D tessellation output). *Pending*.
 Gate: fuzzy pixel-compare of an AA + gradient + blend scene vs OpenGL.
+**First step met** by `WhatsCanvasVulkanPaintTests` (gradient interpolation,
+SrcOver and Add results within tolerance) on NVIDIA RTX 2080 Ti.
 
 ### M5 — Images and text
 Depends on: M4.

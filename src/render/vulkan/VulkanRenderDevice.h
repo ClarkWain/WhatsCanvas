@@ -88,6 +88,30 @@ public:
     bool renderSolidPrimitives(const std::unique_ptr<IRenderTarget> &target, SolidTopology topology,
                                const std::vector<float> &ndcPositions, float r, float g, float b, float a) const;
 
+    /// Blend mode for renderBlendedOverlay(). Fixed-function approximations that
+    /// mirror the OpenGL backend's supported modes.
+    enum class SolidBlendMode
+    {
+        SrcOver,  ///< src.a, 1-src.a (default over).
+        Src,      ///< replace destination.
+        Add,      ///< additive.
+        Multiply, ///< src * dst.
+        Screen    ///< 1 - (1-src)(1-dst).
+    };
+
+    /// Vulkan-specific M4 capability: rasterize a triangle list with per-vertex
+    /// colors (fragment-interpolated gradient). `rgbaPerVertex` holds 4 floats
+    /// per vertex, matching the vertex count implied by `ndcPositions`.
+    bool renderGradientTriangles(const std::unique_ptr<IRenderTarget> &target, const std::vector<float> &ndcPositions,
+                                 const std::vector<float> &rgbaPerVertex) const;
+
+    /// Vulkan-specific M4 capability: draw a full-target opaque background, then
+    /// a full-target foreground with the given blend mode over it. Leaves the
+    /// target ready for readPixelsRGBA(). Used to validate blend modes.
+    bool renderBlendedOverlay(const std::unique_ptr<IRenderTarget> &target, SolidBlendMode blendMode,
+                              float bgR, float bgG, float bgB, float bgA, float fgR, float fgG, float fgB,
+                              float fgA) const;
+
     /// Opaque backend context, defined in the implementation file.
     struct VulkanContext;
 
