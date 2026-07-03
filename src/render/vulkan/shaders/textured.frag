@@ -8,7 +8,13 @@ layout(location = 0) out vec4 outColor;
 
 layout(binding = 0) uniform sampler2D uTexture;
 
+layout(push_constant) uniform Push
+{
+    float layerAlpha;
+} pc;
+
 void main()
 {
-    outColor = texture(uTexture, vUV);
+    vec4 sampled = texture(uTexture, vUV);
+    outColor = vec4(sampled.rgb, sampled.a * pc.layerAlpha);
 }

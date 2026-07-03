@@ -118,6 +118,15 @@ public:
     bool renderTexturedQuad(const std::unique_ptr<IRenderTarget> &target,
                             const SharedImageResource &imageResource) const;
 
+    /// Vulkan-specific M6 capability: composite an already-rendered offscreen
+    /// layer onto a destination target over a solid background, using a layer
+    /// alpha. Demonstrates the saveLayer composite-back step. Note: the generic
+    /// renderCommandsToImageResource() remains pending a backend-neutral command
+    /// layer (see the Vulkan roadmap, M6 / section 3).
+    bool compositeLayer(const std::unique_ptr<IRenderTarget> &dstTarget,
+                        const std::unique_ptr<IRenderTarget> &layerTarget, float bgR, float bgG, float bgB, float bgA,
+                        float layerAlpha) const;
+
     /// Opaque backend context, defined in the implementation file.
     struct VulkanContext;
 
