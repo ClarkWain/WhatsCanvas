@@ -1078,6 +1078,37 @@ glm::mat4 makeOffsetTransform(const glm::mat4 &transform, float dx, float dy)
     return glm::translate(transform, glm::vec3(dx, dy, 0.0f));
 }
 
+// Builds a true (separable Gaussian) blurred shadow from an already-tessellated
+// set of triangles (interleaved x,y). The shape is rendered white and offset by
+// the paint's shadow delta, blurred on the GPU, then composited tinted with the
+// gamma-corrected shadow colour. Shared by fills, strokes and geometry text so
+// they all get the same smooth shadow instead of the offset-ring approximation.
+DrawShadowData makeGaussianShadowData(const std::vector<float> &trianglePoints,
+                                      const Paint &paint, const glm::mat4 &baseTransform,
+                                      int canvasWidth, int canvasHeight,
+                                      const ScissorState &scissor)
+{
+    const Color shadowColor = applyPaintAlpha(paint, paint.getShadowColor());
+    float shadowRgba[4] = {shadowColor.r(), shadowColor.g(), shadowColor.b(), shadowColor.a()};
+    GammaCorrect::srgbToLinear4(shadowRgba);
+
+    DrawShadowData data;
+    data.silhouette = makeDrawPathData(
+        trianglePoints, 0.0f, Color(255, 255, 255, 255), PathDrawMode::Fill,
+        makeOffsetTransform(baseTransform, paint.getShadowDx(), paint.getShadowDy()),
+        ScissorState{}, DrawBlendMode::SrcOver, ClipMaskState{});
+    data.color[0] = shadowRgba[0];
+    data.color[1] = shadowRgba[1];
+    data.color[2] = shadowRgba[2];
+    data.color[3] = shadowRgba[3];
+    data.blurRadius = std::max(0.0f, paint.getShadowRadius());
+    data.canvasWidth = canvasWidth;
+    data.canvasHeight = canvasHeight;
+    data.scissor = scissor;
+    data.blendMode = toDrawBlendMode(paint.getBlendMode());
+    return data;
+}
+
 std::vector<ShadowPass> buildShadowPasses(const Paint &paint, const glm::mat4 &transform)
 {
     std::vector<ShadowPass> passes;
@@ -2874,33 +2905,41 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
 
     if (effectivePaint.hasShadowLayer()) {
         const float shadowRadius = std::max(0.0f, effectivePaint.getShadowRadius());
-        const bool blurredFill = drawFill && fillTriangles && !fillTriangles->empty()
-            && shadowRadius > 0.0f && impl_->width > 0 && impl_->height > 0;
+        const bool canBlur = shadowRadius > 0.0f && impl_->width > 0 && impl_->height > 0;
+        const bool blurredFill = drawFill && fillTriangles && !fillTriangles->empty() && canBlur;
 
         // True separable-Gaussian shadow for the fill: render the silhouette
         // offscreen, blur it on the GPU, and composite it tinted with the
         // shadow colour. Falls back to the offset passes below for radius 0.
         if (blurredFill) {
-            const Color shadowColor = applyPaintAlpha(effectivePaint, effectivePaint.getShadowColor());
-            float shadowRgba[4] = {shadowColor.r(), shadowColor.g(), shadowColor.b(), shadowColor.a()};
-            GammaCorrect::srgbToLinear4(shadowRgba);
+            impl_->renderer->submit(std::make_unique<DrawShadowCommand>(
+                makeGaussianShadowData(flattenPoints(*fillTriangles), effectivePaint,
+                                       impl_->currentState().matrix, impl_->width, impl_->height,
+                                       scissor)));
+        }
 
-            DrawShadowData shadowData;
-            shadowData.silhouette = makeDrawPathData(
-                flattenPoints(*fillTriangles), 0.0f, Color(255, 255, 255, 255), PathDrawMode::Fill,
-                makeOffsetTransform(impl_->currentState().matrix, effectivePaint.getShadowDx(),
-                                    effectivePaint.getShadowDy()),
-                ScissorState{}, DrawBlendMode::SrcOver, ClipMaskState{});
-            shadowData.color[0] = shadowRgba[0];
-            shadowData.color[1] = shadowRgba[1];
-            shadowData.color[2] = shadowRgba[2];
-            shadowData.color[3] = shadowRgba[3];
-            shadowData.blurRadius = shadowRadius;
-            shadowData.canvasWidth = impl_->width;
-            shadowData.canvasHeight = impl_->height;
-            shadowData.scissor = scissor;
-            shadowData.blendMode = toDrawBlendMode(effectivePaint.getBlendMode());
-            impl_->renderer->submit(std::make_unique<DrawShadowCommand>(shadowData));
+        // Same Gaussian treatment for the stroke: mesh every contour's stroke
+        // ribbon into one silhouette so the outline casts a smooth shadow too,
+        // instead of the coarse offset ring used previously.
+        bool blurredStroke = false;
+        if (drawStroke && canBlur) {
+            std::vector<float> strokeSilhouette;
+            for (const auto &contour : contours) {
+                const std::vector<crushedpixel::Vec2> mesh =
+                    buildStrokeMesh(contour.points, contour.closed, effectivePaint);
+                if (mesh.empty()) {
+                    continue;
+                }
+                const std::vector<float> flat = flattenPoints(mesh);
+                strokeSilhouette.insert(strokeSilhouette.end(), flat.begin(), flat.end());
+            }
+            if (!strokeSilhouette.empty()) {
+                blurredStroke = true;
+                impl_->renderer->submit(std::make_unique<DrawShadowCommand>(
+                    makeGaussianShadowData(strokeSilhouette, effectivePaint,
+                                           impl_->currentState().matrix, impl_->width, impl_->height,
+                                           scissor)));
+            }
         }
 
         const auto shadowPasses = buildShadowPasses(effectivePaint, impl_->currentState().matrix);
@@ -2913,7 +2952,7 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
                 impl_->renderer->submit(std::make_unique<DrawPathCommand>(shadowFillData));
             }
 
-            if (drawStroke) {
+            if (drawStroke && !blurredStroke) {
                 Paint shadowPaint = effectivePaint;
                 shadowPaint.clearShader();
                 shadowPaint.clearShadowLayer();
@@ -3587,8 +3626,19 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
         impl_->renderer->submit(std::make_unique<DrawTextCommand>(data));
     };
 
-    for (const auto &shadowPass : buildShadowPasses(paint, impl_->currentState().matrix)) {
-        submitGeometryText(shadowPass.color, shadowPass.transform);
+    const bool blurredTextShadow = paint.hasShadowLayer()
+        && std::max(0.0f, paint.getShadowRadius()) > 0.0f
+        && impl_->width > 0 && impl_->height > 0 && !renderedText.vertices.empty();
+    if (blurredTextShadow) {
+        // Geometry glyphs are solid triangles just like a fill, so reuse the
+        // Gaussian silhouette path for a smooth text shadow.
+        impl_->renderer->submit(std::make_unique<DrawShadowCommand>(
+            makeGaussianShadowData(renderedText.vertices, paint, impl_->currentState().matrix,
+                                   impl_->width, impl_->height, scissor)));
+    } else {
+        for (const auto &shadowPass : buildShadowPasses(paint, impl_->currentState().matrix)) {
+            submitGeometryText(shadowPass.color, shadowPass.transform);
+        }
     }
     for (const auto &strokePass : strokePasses) {
         submitGeometryText(strokePass.color, strokePass.transform);
