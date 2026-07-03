@@ -88,6 +88,28 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     )
     set_tests_properties(WhatsCanvasGraphicsStateStackTests PROPERTIES LABELS "unit")
 
+    if (WHATSCANVAS_ENABLE_VULKAN)
+        add_executable(WhatsCanvasVulkanDeviceTests
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/VulkanDeviceTests.cpp"
+        )
+        target_include_directories(WhatsCanvasVulkanDeviceTests PRIVATE
+            "${SRC_DIR}"
+        )
+        target_link_libraries(WhatsCanvasVulkanDeviceTests PRIVATE
+            WhatsCanvasOpenGL
+            WhatsCanvasGLM
+        )
+        add_test(NAME WhatsCanvasVulkanDeviceTests
+            COMMAND ${CMAKE_COMMAND}
+                -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+                -DWHATSCANVAS_TEST_TARGET=WhatsCanvasVulkanDeviceTests
+                -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasVulkanDeviceTests>
+                -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+        )
+        set_tests_properties(WhatsCanvasVulkanDeviceTests PROPERTIES LABELS "vulkan" TIMEOUT 60)
+    endif()
+
     add_executable(WhatsCanvasTextLayoutTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/TextLayoutTests.cpp"
     )
