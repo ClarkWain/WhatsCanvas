@@ -67,6 +67,28 @@ std::vector<std::uint8_t> makeTtcWithFirstFontTables(const std::vector<std::stri
     return bytes;
 }
 
+std::vector<std::uint8_t> makeTtcWithFontTables(const std::vector<std::vector<std::string>> &fontTags)
+{
+    std::vector<std::uint8_t> bytes;
+    appendU32BE(bytes, 0x74746366u);
+    appendU32BE(bytes, 0x00010000u);
+    appendU32BE(bytes, static_cast<std::uint32_t>(fontTags.size()));
+
+    std::vector<std::vector<std::uint8_t>> fonts;
+    fonts.reserve(fontTags.size());
+    std::uint32_t offset = static_cast<std::uint32_t>(12u + fontTags.size() * 4u);
+    for (const auto &tags : fontTags) {
+        std::vector<std::uint8_t> sfnt = makeSfntWithTables(tags);
+        appendU32BE(bytes, offset);
+        offset += static_cast<std::uint32_t>(sfnt.size());
+        fonts.push_back(std::move(sfnt));
+    }
+    for (const auto &font : fonts) {
+        bytes.insert(bytes.end(), font.begin(), font.end());
+    }
+    return bytes;
+}
+
 bool testDecodeValidUtf8()
 {
     const std::string text = "A\xe4\xb8\xad\xf0\x9f\x98\x80";
@@ -538,12 +560,15 @@ bool testColorFontTableDetection()
         makeSfntWithTables({"COLR", "CPAL", "CBDT", "CBLC", "sbix", "SVG "});
     const wsc::text::ColorFontTables tables =
         wsc::text::detectColorFontTables({sfnt.data(), sfnt.size()});
+    const wsc::text::ColorFontTables outOfRangeTables =
+        wsc::text::detectColorFontTables({sfnt.data(), sfnt.size()}, 1);
 
     return expect(tables.hasAny(), "color table detection should report color font data")
         && expect(tables.colr && tables.cpal, "COLR/CPAL tables should be detected")
         && expect(tables.cbdt && tables.cblc, "CBDT/CBLC bitmap color tables should be detected")
         && expect(tables.sbix, "sbix table should be detected")
-        && expect(tables.svg, "SVG table should be detected");
+        && expect(tables.svg, "SVG table should be detected")
+        && expect(!outOfRangeTables.hasAny(), "non-collection face index should not alias face 0");
 }
 
 bool testColorFontTableDetectionHandlesTtcAndMalformedData()
@@ -551,11 +576,22 @@ bool testColorFontTableDetectionHandlesTtcAndMalformedData()
     const std::vector<std::uint8_t> ttc = makeTtcWithFirstFontTables({"COLR", "CPAL"});
     const wsc::text::ColorFontTables ttcTables =
         wsc::text::detectColorFontTables({ttc.data(), ttc.size()});
+    const std::vector<std::uint8_t> indexedTtc = makeTtcWithFontTables({{"CBDT"}, {"COLR", "CPAL"}});
+    const wsc::text::ColorFontTables firstTables =
+        wsc::text::detectColorFontTables({indexedTtc.data(), indexedTtc.size()}, 0);
+    const wsc::text::ColorFontTables secondTables =
+        wsc::text::detectColorFontTables({indexedTtc.data(), indexedTtc.size()}, 1);
+    const wsc::text::ColorFontTables outOfRangeTables =
+        wsc::text::detectColorFontTables({indexedTtc.data(), indexedTtc.size()}, 2);
     const std::vector<std::uint8_t> malformed = {0, 1, 2, 3, 4};
     const wsc::text::ColorFontTables malformedTables =
         wsc::text::detectColorFontTables({malformed.data(), malformed.size()});
 
     return expect(ttcTables.colr && ttcTables.cpal, "TTC first-font color tables should be detected")
+        && expect(firstTables.cbdt && !firstTables.colr, "TTC face index 0 should read the first font tables")
+        && expect(secondTables.colr && secondTables.cpal && !secondTables.cbdt,
+                  "TTC face index 1 should read the second font tables")
+        && expect(!outOfRangeTables.hasAny(), "out-of-range TTC face index should not report color tables")
         && expect(!malformedTables.hasAny(), "malformed font data should not report color tables");
 }
 

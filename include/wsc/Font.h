@@ -63,21 +63,23 @@ struct FontCodepointRange
 class FontFace
 {
 public:
-    static FontFace fromFile(FontDescriptor descriptor, std::string path)
+    static FontFace fromFile(FontDescriptor descriptor, std::string path, int faceIndex = 0)
     {
         FontFace face;
         face.descriptor_ = std::move(descriptor);
         face.sourceType_ = FontSourceType::FILE;
         face.path_ = std::move(path);
+        face.faceIndex_ = faceIndex < 0 ? 0 : faceIndex;
         return face;
     }
 
-    static FontFace fromMemory(FontDescriptor descriptor, std::vector<std::uint8_t> bytes)
+    static FontFace fromMemory(FontDescriptor descriptor, std::vector<std::uint8_t> bytes, int faceIndex = 0)
     {
         FontFace face;
         face.descriptor_ = std::move(descriptor);
         face.sourceType_ = FontSourceType::MEMORY;
         face.bytes_ = std::make_shared<std::vector<std::uint8_t>>(std::move(bytes));
+        face.faceIndex_ = faceIndex < 0 ? 0 : faceIndex;
         return face;
     }
 
@@ -86,6 +88,7 @@ public:
     int weight() const { return descriptor_.weight; }
     FontSlant slant() const { return descriptor_.slant; }
     FontSourceType sourceType() const { return sourceType_; }
+    int faceIndex() const { return faceIndex_; }
     const std::string &path() const { return path_; }
     const std::vector<std::uint8_t> *bytes() const { return bytes_ ? bytes_.get() : nullptr; }
     void addCodepointRange(std::uint32_t firstCodepoint, std::uint32_t lastCodepoint)
@@ -113,6 +116,7 @@ public:
 private:
     FontDescriptor descriptor_;
     FontSourceType sourceType_ = FontSourceType::FILE;
+    int faceIndex_ = 0;
     std::string path_;
     std::shared_ptr<std::vector<std::uint8_t>> bytes_;
     std::vector<FontCodepointRange> codepointRanges_;
@@ -164,14 +168,14 @@ private:
 class FontManager
 {
 public:
-    bool registerFontFile(const FontDescriptor &descriptor, const std::string &path)
+    bool registerFontFile(const FontDescriptor &descriptor, const std::string &path, int faceIndex = 0)
     {
-        return registerFace(FontFace::fromFile(descriptor, path));
+        return registerFace(FontFace::fromFile(descriptor, path, faceIndex));
     }
 
-    bool registerFontMemory(const FontDescriptor &descriptor, std::vector<std::uint8_t> bytes)
+    bool registerFontMemory(const FontDescriptor &descriptor, std::vector<std::uint8_t> bytes, int faceIndex = 0)
     {
-        return registerFace(FontFace::fromMemory(descriptor, std::move(bytes)));
+        return registerFace(FontFace::fromMemory(descriptor, std::move(bytes), faceIndex));
     }
 
     bool registerFace(FontFace face)

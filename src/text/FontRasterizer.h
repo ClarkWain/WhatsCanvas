@@ -55,7 +55,7 @@ struct ColorFontTables
     }
 };
 
-ColorFontTables detectColorFontTables(FontDataView fontData);
+ColorFontTables detectColorFontTables(FontDataView fontData, int faceIndex = 0);
 
 class FontRasterizer
 {
