@@ -56,6 +56,29 @@ bool testFontFaceCodepointRanges()
         && expect(!face.supportsCodepoint('A'), "font face should reject codepoints outside declared ranges");
 }
 
+bool testFontFaceCollectionIndex()
+{
+    wsc::FontFace defaultFile = wsc::FontFace::fromFile(wsc::FontDescriptor("Default"), "collection.ttc");
+    wsc::FontFace indexedFile = wsc::FontFace::fromFile(wsc::FontDescriptor("Indexed"), "collection.ttc", 2);
+    wsc::FontFace clampedFile = wsc::FontFace::fromFile(wsc::FontDescriptor("Clamped"), "collection.ttc", -3);
+    wsc::FontFace indexedMemory =
+        wsc::FontFace::fromMemory(wsc::FontDescriptor("MemoryIndexed"), {1, 2, 3, 4}, 1);
+    wsc::FontManager manager;
+    manager.registerFontFile(wsc::FontDescriptor("ManagedFile"), "collection.ttc", 3);
+    manager.registerFontMemory(wsc::FontDescriptor("ManagedMemory"), {5, 6, 7, 8}, 4);
+    const wsc::FontFace *managedFile = manager.findFirstFace("ManagedFile");
+    const wsc::FontFace *managedMemory = manager.findFirstFace("ManagedMemory");
+
+    return expect(defaultFile.faceIndex() == 0, "file font should default to collection face 0")
+        && expect(indexedFile.faceIndex() == 2, "file font should preserve explicit collection face index")
+        && expect(clampedFile.faceIndex() == 0, "negative file face index should clamp to 0")
+        && expect(indexedMemory.faceIndex() == 1, "memory font should preserve explicit collection face index")
+        && expect(managedFile != nullptr && managedFile->faceIndex() == 3,
+                  "font manager file registration should preserve collection face index")
+        && expect(managedMemory != nullptr && managedMemory->faceIndex() == 4,
+                  "font manager memory registration should preserve collection face index");
+}
+
 bool testFallbackResolutionOrder()
 {
     wsc::FontManager manager;
@@ -83,6 +106,7 @@ int main()
     const bool ok = testRegisterFontFile()
         && testRegisterFontMemory()
         && testFontFaceCodepointRanges()
+        && testFontFaceCollectionIndex()
         && testFallbackResolutionOrder();
     return ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }

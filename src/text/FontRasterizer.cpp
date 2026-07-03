@@ -47,10 +47,12 @@ bool tagEquals(const unsigned char *data, const char tag[4])
 
 std::string makeFaceKey(const wsc::FontFace &face)
 {
+    const std::string indexSuffix = "#" + std::to_string(face.faceIndex());
     if (face.sourceType() == wsc::FontSourceType::FILE) {
-        return std::string("file:") + face.path();
+        return std::string("file:") + face.path() + indexSuffix;
     }
-    return std::string("memory:") + face.family() + ":" + std::to_string(reinterpret_cast<std::uintptr_t>(face.bytes()));
+    return std::string("memory:") + face.family() + ":" + std::to_string(reinterpret_cast<std::uintptr_t>(face.bytes()))
+        + indexSuffix;
 }
 
 std::vector<unsigned char> readFileBytes(const std::string &path)
@@ -268,7 +270,7 @@ bool setFreeTypePixelSize(FT_Face face, float pixelSize)
 
 namespace wsc::text {
 
-ColorFontTables detectColorFontTables(FontDataView fontData)
+ColorFontTables detectColorFontTables(FontDataView fontData, int faceIndex)
 {
     ColorFontTables result;
     if (fontData.data == nullptr || fontData.size < 12u) {
@@ -276,14 +278,23 @@ ColorFontTables detectColorFontTables(FontDataView fontData)
     }
 
     std::size_t fontOffset = 0;
+    const int clampedFaceIndex = std::max(0, faceIndex);
     if (tagEquals(fontData.data, "ttcf")) {
-        if (fontData.size < 16u || readU32BE(fontData.data + 8u) == 0u) {
+        if (fontData.size < 16u) {
             return result;
         }
-        fontOffset = static_cast<std::size_t>(readU32BE(fontData.data + 12u));
+        const std::uint32_t faceCount = readU32BE(fontData.data + 8u);
+        if (faceCount == 0u || static_cast<std::uint32_t>(clampedFaceIndex) >= faceCount
+            || fontData.size - 12u < (static_cast<std::size_t>(clampedFaceIndex) + 1u) * 4u) {
+            return result;
+        }
+        fontOffset = static_cast<std::size_t>(readU32BE(fontData.data + 12u
+            + static_cast<std::size_t>(clampedFaceIndex) * 4u));
         if (fontOffset > fontData.size || fontData.size - fontOffset < 12u) {
             return result;
         }
+    } else if (clampedFaceIndex > 0) {
+        return result;
     }
 
     const unsigned char *sfnt = fontData.data + fontOffset;
@@ -344,7 +355,7 @@ const FontRasterizer::LoadedFace *FontRasterizer::loadFace(const FontFace &face)
     }
 
     if (!loaded->bytes.empty()) {
-        const int fontOffset = stbtt_GetFontOffsetForIndex(loaded->bytes.data(), 0);
+        const int fontOffset = stbtt_GetFontOffsetForIndex(loaded->bytes.data(), face.faceIndex());
         loaded->fontOffset = fontOffset >= 0 ? static_cast<std::size_t>(fontOffset) : 0u;
         loaded->stbValid = fontOffset >= 0
             && stbtt_InitFont(&loaded->info, loaded->bytes.data(), fontOffset) != 0;
@@ -355,7 +366,7 @@ const FontRasterizer::LoadedFace *FontRasterizer::loadFace(const FontFace &face)
             if (FT_New_Memory_Face(freeTypeLibrary().library,
                                    loaded->bytes.data(),
                                    static_cast<FT_Long>(loaded->bytes.size()),
-                                   0,
+                                   static_cast<FT_Long>(face.faceIndex()),
                                    &ftFace) == 0) {
                 loaded->ftFace = ftFace;
                 loaded->valid = true;
@@ -757,7 +768,7 @@ std::optional<ColorFontTables> FontRasterizer::colorFontTables(const FontFace &f
     if (!data) {
         return std::nullopt;
     }
-    return detectColorFontTables(*data);
+    return detectColorFontTables(*data, face.faceIndex());
 }
 
 } // namespace wsc::text

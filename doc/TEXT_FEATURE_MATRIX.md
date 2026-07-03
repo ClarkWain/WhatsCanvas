@@ -28,6 +28,7 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 | Public font face model | Supported | `FontFace`, `FontDescriptor`, `FontFallbackChain`, and `FontManager` are public value/model types. |
 | Font file registration contract | Supported | `ITextBackend::registerFontFace` accepts file-backed faces. |
 | Font memory registration contract | Supported | `ITextBackend::registerFontFace` accepts memory-backed faces. |
+| TrueType Collection face selection | Supported | `FontFace::fromFile` and `FontFace::fromMemory` accept a collection face index; portable rasterization, FreeType loading, `stb_truetype` loading, cache keys, and color table detection honor the selected face. |
 | Fallback chain contract | Supported | `ITextBackend::setFontFallbackChain` and `resolveFontFamilies` define resolution order. |
 | Text metrics | Supported | `measureText`, `measureTextBounds`, `measureTextMetrics`, and backend metrics are available; registered font metrics use real ascent/descent/line-gap data. |
 | Bounded multiline layout | Supported | `Canvas::layoutTextBox` returns line rows, source ranges, widths, line height, and ellipsis state; line breaking supports ASCII words, tab/Unicode space separators, zero-width break opportunities, long unspaced tokens, basic CJK no-space wrapping, common CJK punctuation attachment, and UTF-8-safe ellipsis trimming. |
