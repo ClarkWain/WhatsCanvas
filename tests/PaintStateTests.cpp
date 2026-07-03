@@ -170,6 +170,15 @@ bool testTextAndStrokeState()
     paint.clearFont();
     ok = expect(!paint.hasFontFamily(), "clearFont should clear font family") && ok;
 
+    paint.setFontWeight(-200);
+    ok = expect(paint.getFontWeight() == 1, "font weight should clamp low") && ok;
+    paint.setFontWeight(1400);
+    ok = expect(paint.getFontWeight() == 1000, "font weight should clamp high") && ok;
+    paint.setFontWeight(650);
+    paint.setFontSlant(wsc::FontSlant::ITALIC);
+    ok = expect(paint.getFontWeight() == 650, "font weight should round trip") && ok;
+    ok = expect(paint.getFontSlant() == wsc::FontSlant::ITALIC, "font slant should round trip") && ok;
+
     paint.setLetterSpacing(std::numeric_limits<float>::infinity());
     ok = expect(near(paint.getLetterSpacing(), 0.0f), "non-finite letter spacing should reset to zero") && ok;
     paint.setLetterSpacing(1.25f);

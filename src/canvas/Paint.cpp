@@ -245,6 +245,10 @@ const std::string &Paint::getFont() const { return fontFamily_; }
 bool Paint::hasFontFamily() const { return !fontFamily_.empty(); }
 void Paint::clearFontFamily() { fontFamily_.clear(); }
 void Paint::clearFont() { clearFontFamily(); }
+void Paint::setFontWeight(int weight) { fontWeight_ = std::clamp(weight, 1, 1000); }
+int Paint::getFontWeight() const { return fontWeight_; }
+void Paint::setFontSlant(FontSlant slant) { fontSlant_ = slant; }
+FontSlant Paint::getFontSlant() const { return fontSlant_; }
 
 void Paint::setLetterSpacing(float spacing)
 {

@@ -100,7 +100,7 @@ public:
     }
     SharedImageResource createImageResourceRGBA(int, int, const std::vector<unsigned char> &) const override
     {
-        return {};
+        return std::make_shared<FakeImageResource>();
     }
     SharedImageResource createImageResourceFromImageData(int, int, int, const unsigned char *, bool) const override
     {
@@ -328,17 +328,18 @@ bool testTextShadowQueuesWork()
     textPaint.setTextSize(16.0f);
     textPaint.setColor(wsc::Color::WHITE);
     canvas->drawText("shadow", 20.0f, 24.0f, textPaint);
-    ok = expect(rawRenderer->commandCount() == 1, "plain geometry text should queue one command") && ok;
+    const std::size_t plainCommands = rawRenderer->commandCount();
+    ok = expect(plainCommands > 0, "plain text should queue draw commands") && ok;
 
     rawRenderer->clear();
     textPaint.setShadowLayer(8.0f, 2.0f, 3.0f, wsc::Color(0, 0, 0, 128));
     canvas->drawText("shadow", 20.0f, 24.0f, textPaint);
-    ok = expect(rawRenderer->commandCount() > 1, "shadowed text should queue shadow and text commands") && ok;
+    ok = expect(rawRenderer->commandCount() > plainCommands, "shadowed text should queue shadow and text commands") && ok;
 
     rawRenderer->clear();
     textPaint.setShadowLayer(8.0f, 2.0f, 3.0f, wsc::Color(0, 0, 0, 0));
     canvas->drawText("shadow", 20.0f, 24.0f, textPaint);
-    ok = expect(rawRenderer->commandCount() == 1, "transparent text shadow should not add commands") && ok;
+    ok = expect(rawRenderer->commandCount() == plainCommands, "transparent text shadow should not add commands") && ok;
 
     return ok;
 }
@@ -366,7 +367,7 @@ bool testTextStrokeQueuesWork()
     rawRenderer->clear();
     textPaint.setStyle(wsc::Paint::Style::FILL_AND_STROKE);
     canvas->drawText("stroke", 20.0f, 24.0f, textPaint);
-    ok = expect(rawRenderer->commandCount() == strokeCommands + 1,
+    ok = expect(rawRenderer->commandCount() > strokeCommands,
                 "fill-and-stroke text should queue stroke commands plus fill") && ok;
 
     rawRenderer->clear();

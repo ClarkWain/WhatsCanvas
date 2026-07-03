@@ -68,6 +68,34 @@ bool testLineBreakAndGlyphQuery()
         && expect(backend->hasGlyphForCodepoint(0x200F, paint), "bidi controls should not require font glyphs");
 }
 
+bool testBasicBackendUsesSystemFontFallbackWhenAvailable()
+{
+    bool hasDefaultPrimary = false;
+    for (const wsc::FontFace &face : wsc::FontSystem::defaultSystemFontFaces()) {
+        hasDefaultPrimary = hasDefaultPrimary || face.family() == wsc::FontSystem::kDefaultPrimaryFamily;
+    }
+    if (!hasDefaultPrimary) {
+        return true;
+    }
+
+    std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createBasicTextBackend();
+    Paint paint;
+    paint.setTextSize(18.0f);
+    const std::vector<std::string> families = backend->resolveFontFamilies(std::string());
+    const wsc::text::TextRenderResult rendered = backend->renderText("System text", 4.0f, 8.0f, paint);
+    const wsc::text::TextMetrics metrics = backend->measureTextMetrics("System text", paint);
+
+    return expect(!families.empty(), "basic backend should expose default system fallback families")
+        && expect(families.front() == wsc::FontSystem::kDefaultPrimaryFamily,
+                  "default system fallback should resolve primary first")
+        && expect(rendered.kind == wsc::text::TextRenderKind::GlyphAtlas,
+                  "basic backend should render default system text through glyph atlas when available")
+        && expect(!rendered.glyphAtlasQuads.empty(),
+                  "system glyph atlas text should emit glyph quads")
+        && expect(metrics.lineHeight > 0.0f,
+                  "system font metrics should expose a positive line height");
+}
+
 bool testCrLfLineBreakQuery()
 {
     std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createBasicTextBackend();
@@ -460,6 +488,7 @@ int main()
 {
     const bool ok = testFontRegistrationAndFallback()
         && testLineBreakAndGlyphQuery()
+        && testBasicBackendUsesSystemFontFallbackWhenAvailable()
         && testCrLfLineBreakQuery()
         && testCjkLineBreakQuery()
         && testLongWordLineBreakQuery()
