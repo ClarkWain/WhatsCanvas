@@ -3,12 +3,14 @@
 #include <iostream>
 #include <fstream>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <limits>
 #include <glad/glad.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <memory>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -31,6 +33,7 @@
 #include "command/DrawData.h"
 #include "command/DrawCommand.h"
 #include "opengl/AsyncReadback.h"
+#include "render/AntiAlias.h"
 #include "render/GammaCorrect.h"
 #include "render/DeprecationTracker.h"
 #include "render/ResizeHandler.h"
@@ -354,6 +357,7 @@ DrawPathData makeDrawPathData(const std::vector<float> &points, float width, con
 {
     DrawPathData data{
         points,
+        {},
         {},
         width,
         {color.r(), color.g(), color.b(), color.a()},
@@ -760,6 +764,188 @@ std::vector<float> flattenPoints(const std::vector<crushedpixel::Vec2> &points)
         flattened.push_back(point.y);
     }
     return flattened;
+}
+
+/// Analytic anti-aliasing: a triangle soup expanded with a feathered fringe.
+struct AAExpandedMesh {
+    std::vector<crushedpixel::Vec2> vertices;
+    std::vector<float> coverage;
+};
+
+/// Average uniform device-space scale of the linear (2x2) part of a transform.
+float averageDeviceScale(const glm::mat4 &transform)
+{
+    const glm::vec2 col0(transform[0][0], transform[0][1]);
+    const glm::vec2 col1(transform[1][0], transform[1][1]);
+    const float scale = 0.5f * (glm::length(col0) + glm::length(col1));
+    return scale > 1e-6f ? scale : 1.0f;
+}
+
+/// Local-space feather width mapping to ~featherWidthPixels() device pixels,
+/// so the anti-aliasing band stays one pixel wide regardless of zoom.
+float computeLocalFringe(const glm::mat4 &transform)
+{
+    return AntiAlias::featherWidthPixels() / averageDeviceScale(transform);
+}
+
+/// Expand a filled/stroked triangle soup with a NanoVG-style analytic AA
+/// fringe. Interior triangles keep coverage 1.0; a thin band is emitted along
+/// the silhouette (every edge referenced by a single triangle) whose coverage
+/// ramps from 1.0 half a feather-width inside the true edge to 0.0 half a
+/// feather-width outside, so the perceived edge stays on the real silhouette
+/// and the shape keeps its nominal size. Adjacent fringe quads share per-vertex
+/// mitred inner/outer positions, so the band is seamless.
+AAExpandedMesh expandTrianglesWithAA(const std::vector<crushedpixel::Vec2> &triangles, float fringe)
+{
+    AAExpandedMesh mesh;
+    const std::size_t triVertCount = triangles.size();
+    if (triVertCount < 3 || !(fringe > 0.0f) || !std::isfinite(fringe)) {
+        mesh.vertices = triangles;
+        mesh.coverage.assign(triVertCount, 1.0f);
+        return mesh;
+    }
+
+    const std::size_t triCount = triVertCount / 3;
+
+    // Deduplicate vertices by quantized position (1/128 px grid).
+    constexpr float kQuant = 128.0f;
+    std::unordered_map<std::uint64_t, std::uint32_t> indexByKey;
+    indexByKey.reserve(triVertCount);
+    std::vector<crushedpixel::Vec2> uniqueVerts;
+    uniqueVerts.reserve(triVertCount);
+
+    auto indexOf = [&](const crushedpixel::Vec2 &p) -> std::uint32_t {
+        const std::int32_t qx = static_cast<std::int32_t>(std::lround(p.x * kQuant));
+        const std::int32_t qy = static_cast<std::int32_t>(std::lround(p.y * kQuant));
+        const std::uint64_t key = (static_cast<std::uint64_t>(static_cast<std::uint32_t>(qx)) << 32)
+                                | static_cast<std::uint64_t>(static_cast<std::uint32_t>(qy));
+        auto it = indexByKey.find(key);
+        if (it != indexByKey.end()) {
+            return it->second;
+        }
+        const std::uint32_t idx = static_cast<std::uint32_t>(uniqueVerts.size());
+        uniqueVerts.push_back(p);
+        indexByKey.emplace(key, idx);
+        return idx;
+    };
+
+    std::vector<std::uint32_t> triIndices(triVertCount);
+    for (std::size_t i = 0; i < triVertCount; ++i) {
+        triIndices[i] = indexOf(triangles[i]);
+    }
+
+    // Count undirected edge usage while keeping a directed representative whose
+    // interior lies to the left (triangles normalized to counter-clockwise).
+    struct EdgeRecord { std::uint32_t from; std::uint32_t to; int count; };
+    std::unordered_map<std::uint64_t, EdgeRecord> edges;
+    edges.reserve(triVertCount);
+
+    auto addEdge = [&](std::uint32_t a, std::uint32_t b) {
+        const std::uint32_t lo = std::min(a, b);
+        const std::uint32_t hi = std::max(a, b);
+        const std::uint64_t key = (static_cast<std::uint64_t>(lo) << 32) | static_cast<std::uint64_t>(hi);
+        auto it = edges.find(key);
+        if (it == edges.end()) {
+            edges.emplace(key, EdgeRecord{a, b, 1});
+        } else {
+            it->second.count += 1;
+        }
+    };
+
+    for (std::size_t t = 0; t < triCount; ++t) {
+        std::uint32_t i0 = triIndices[t * 3 + 0];
+        std::uint32_t i1 = triIndices[t * 3 + 1];
+        std::uint32_t i2 = triIndices[t * 3 + 2];
+        if (i0 == i1 || i1 == i2 || i0 == i2) {
+            continue; // degenerate triangle contributes no silhouette
+        }
+        const crushedpixel::Vec2 &a = uniqueVerts[i0];
+        const crushedpixel::Vec2 &b = uniqueVerts[i1];
+        const crushedpixel::Vec2 &c = uniqueVerts[i2];
+        const float area2 = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+        if (area2 < 0.0f) {
+            std::swap(i1, i2); // make CCW so interior is left of each directed edge
+        }
+        addEdge(i0, i1);
+        addEdge(i1, i2);
+        addEdge(i2, i0);
+    }
+
+    // Accumulate outward normals per boundary vertex for seamless mitres.
+    std::unordered_map<std::uint32_t, glm::vec2> outwardAccum;
+    std::vector<std::pair<std::uint32_t, std::uint32_t>> boundary;
+    outwardAccum.reserve(edges.size());
+    boundary.reserve(edges.size());
+
+    for (const auto &kv : edges) {
+        if (kv.second.count != 1) {
+            continue;
+        }
+        const std::uint32_t f = kv.second.from;
+        const std::uint32_t to = kv.second.to;
+        const crushedpixel::Vec2 &p0 = uniqueVerts[f];
+        const crushedpixel::Vec2 &p1 = uniqueVerts[to];
+        glm::vec2 dir(p1.x - p0.x, p1.y - p0.y);
+        const float len = glm::length(dir);
+        if (len < 1e-6f) {
+            continue;
+        }
+        dir /= len;
+        const glm::vec2 outward(dir.y, -dir.x); // right of a CCW edge points outward
+        outwardAccum[f] += outward;
+        outwardAccum[to] += outward;
+        boundary.emplace_back(f, to);
+    }
+
+    // Mitred inner/outer positions per boundary vertex. The feather straddles
+    // the true edge (half a feather-width inside at coverage 1.0, half outside
+    // at coverage 0.0) so the perceived 50%-coverage edge stays on the real
+    // silhouette and the shape keeps its nominal size instead of dilating.
+    struct EdgeOffset { crushedpixel::Vec2 inner; crushedpixel::Vec2 outer; };
+    std::unordered_map<std::uint32_t, EdgeOffset> offsets;
+    offsets.reserve(outwardAccum.size());
+    for (const auto &kv : outwardAccum) {
+        const crushedpixel::Vec2 &base = uniqueVerts[kv.first];
+        const float l = glm::length(kv.second);
+        if (l < 1e-4f) {
+            offsets.emplace(kv.first, EdgeOffset{base, base});
+            continue;
+        }
+        const glm::vec2 dir = kv.second / l;
+        const float mag = fringe / std::max(l, 0.5f); // half-feather each side; limit sharp mitres
+        offsets.emplace(kv.first, EdgeOffset{
+            crushedpixel::Vec2(base.x - dir.x * mag, base.y - dir.y * mag),
+            crushedpixel::Vec2(base.x + dir.x * mag, base.y + dir.y * mag)});
+    }
+
+    // Interior triangles first (fully covered), then the feathered fringe band.
+    mesh.vertices.reserve(triVertCount + boundary.size() * 6);
+    mesh.coverage.reserve(triVertCount + boundary.size() * 6);
+    for (const auto &v : triangles) {
+        mesh.vertices.push_back(v);
+        mesh.coverage.push_back(1.0f);
+    }
+
+    auto pushVert = [&](const crushedpixel::Vec2 &p, float cov) {
+        mesh.vertices.push_back(p);
+        mesh.coverage.push_back(cov);
+    };
+
+    for (const auto &e : boundary) {
+        auto ita = offsets.find(e.first);
+        auto itb = offsets.find(e.second);
+        if (ita == offsets.end() || itb == offsets.end()) {
+            continue;
+        }
+        const crushedpixel::Vec2 innerA = ita->second.inner;
+        const crushedpixel::Vec2 innerB = itb->second.inner;
+        const crushedpixel::Vec2 outerA = ita->second.outer;
+        const crushedpixel::Vec2 outerB = itb->second.outer;
+        pushVert(innerA, 1.0f); pushVert(outerA, 0.0f); pushVert(outerB, 0.0f);
+        pushVert(innerA, 1.0f); pushVert(outerB, 0.0f); pushVert(innerB, 1.0f);
+    }
+
+    return mesh;
 }
 
 float lerp(float start, float end, float progress)
@@ -1480,14 +1666,41 @@ void submitStrokeMesh(IRenderer &renderer, const std::vector<crushedpixel::Vec2>
         return;
     }
 
-    auto strokeMesh = buildStrokeMesh(points, closed, paint);
+    // Hairline handling: when the stroke is thinner than one device pixel the
+    // two analytic-AA fringes would overlap and over-cover. Instead keep the
+    // geometry at a one-pixel device width and fade the alpha by the sub-pixel
+    // coverage, so thin lines stay crisp and uniform (matching NanoVG).
+    const bool antiAlias = paint.isAntiAlias();
+    Paint strokePaint = paint;
+    Color strokeColor = applyPaintAlpha(paint, paint.getStrokeColor());
+    if (antiAlias) {
+        const float deviceScale = averageDeviceScale(transform);
+        const float deviceWidth = paint.getStrokeWidth() * deviceScale;
+        if (std::isfinite(deviceWidth) && deviceWidth > 0.0f && deviceWidth < 1.0f) {
+            strokePaint.setStrokeWidth(1.0f / deviceScale);
+            strokeColor = scaleAlpha(strokeColor, std::max(deviceWidth, 0.05f));
+        }
+    }
+
+    auto strokeMesh = buildStrokeMesh(points, closed, strokePaint);
     if (strokeMesh.empty()) {
         return;
     }
 
-    DrawPathData strokeData = makeDrawPathData(flattenPoints(strokeMesh), paint.getStrokeWidth(),
-                                               applyPaintAlpha(paint, paint.getStrokeColor()), PathDrawMode::Stroke,
+    std::vector<float> strokePoints;
+    std::vector<float> strokeCoverage;
+    if (antiAlias) {
+        AAExpandedMesh aa = expandTrianglesWithAA(strokeMesh, computeLocalFringe(transform));
+        strokePoints = flattenPoints(aa.vertices);
+        strokeCoverage = std::move(aa.coverage);
+    } else {
+        strokePoints = flattenPoints(strokeMesh);
+    }
+
+    DrawPathData strokeData = makeDrawPathData(strokePoints, strokePaint.getStrokeWidth(),
+                                               strokeColor, PathDrawMode::Stroke,
                                                transform, scissor, toDrawBlendMode(paint.getBlendMode()), clipMask);
+    strokeData.coverage = std::move(strokeCoverage);
     renderer.submit(std::make_unique<DrawPathCommand>(strokeData));
 }
 
@@ -2593,10 +2806,20 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
     }
 
     if (drawFill && !fillTriangles.empty()) {
-        DrawPathData fillData = makeDrawPathData(flattenPoints(fillTriangles), effectivePaint.getStrokeWidth(),
+        std::vector<float> fillPoints;
+        std::vector<float> fillCoverage;
+        if (effectivePaint.isAntiAlias()) {
+            AAExpandedMesh aa = expandTrianglesWithAA(fillTriangles, computeLocalFringe(impl_->currentState().matrix));
+            fillPoints = flattenPoints(aa.vertices);
+            fillCoverage = std::move(aa.coverage);
+        } else {
+            fillPoints = flattenPoints(fillTriangles);
+        }
+        DrawPathData fillData = makeDrawPathData(fillPoints, effectivePaint.getStrokeWidth(),
                                                  applyPaintAlpha(effectivePaint, effectivePaint.getFillColor()), PathDrawMode::Fill,
                                                  impl_->currentState().matrix, scissor,
                                                  toDrawBlendMode(effectivePaint.getBlendMode()), clipMask);
+        fillData.coverage = std::move(fillCoverage);
         applyPathGradient(effectivePaint, fillData);
         impl_->renderer->submit(std::make_unique<DrawPathCommand>(fillData));
     }

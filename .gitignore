@@ -15,3 +15,5 @@ build-nmake-local/
 build-wsl/
 build-wsl-gles/
 build-wsl-gles-check/
+build-aa/
+task.md
