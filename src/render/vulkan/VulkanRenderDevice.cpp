@@ -2533,3 +2533,41 @@ SharedImageResource VulkanRenderDevice::renderCommandsToImageResource(
     // is available today via compositeLayer().
     return nullptr;
 }
+
+bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &target,
+                                         const wsc::DrawList &drawList) const
+{
+#if defined(WHATSCANVAS_ENABLE_VULKAN)
+    if (!context_ || !context_->deviceReady || !target || drawList.empty()) {
+        return false;
+    }
+    auto *rt = dynamic_cast<VulkanRenderTarget *>(target.get());
+    if (rt == nullptr) {
+        return false;
+    }
+
+    std::vector<SolidBatch> batches;
+    batches.reserve(drawList.size());
+    for (const wsc::DrawPrimitive &prim : drawList) {
+        if (prim.kind != wsc::DrawPrimitiveKind::SolidTriangles) {
+            return false; // Other primitive kinds are follow-ups (ADR-006).
+        }
+        const std::size_t vertexCount = prim.positions.size() / 2;
+        if (vertexCount < 3 || (vertexCount % 3) != 0) {
+            return false;
+        }
+        SolidBatch batch;
+        batch.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        batch.blendMode = prim.blendMode;
+        batch.vertices = buildSolidVertices(prim.positions, prim.color[0], prim.color[1], prim.color[2],
+                                            prim.color[3]);
+        batch.vertexCount = static_cast<std::uint32_t>(vertexCount);
+        batches.push_back(std::move(batch));
+    }
+    return recordSolidBatches(context_.get(), rt, batches);
+#else
+    (void)target;
+    (void)drawList;
+    return false;
+#endif
+}
