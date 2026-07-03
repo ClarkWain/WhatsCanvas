@@ -33,7 +33,9 @@ WhatsCanvas 的公开接口仍然是熟悉的 `Canvas` / `Paint` / `Path` / `Ima
 
 字体系统已经从早期演示型文字绘制推进到一条完整链路：字体注册、fallback、shaping、glyph rasterization、atlas upload、Canvas 绘制和诊断验证都已经打通。
 
-![字体与文本渲染能力效果图](images/text-rendering-showcase.svg)
+![字体与文本渲染能力效果图](images/text-rendering-showcase.png)
+
+上图由 `WhatsCanvasDemo` 的 `text-showcase` 场景通过 `savePixelsPPM` 捕获后转换生成，展示的是当前 Canvas 文本渲染路径的真实输出。
 
 - 跨平台字体路径支持文件字体、内存字体、TrueType Collection 和 collection face index。
 - FreeType 可用时优先用于 glyph lookup、metrics、kerning 和 alpha glyph rasterization；不可用时自动回退到内置 `stb_truetype`。

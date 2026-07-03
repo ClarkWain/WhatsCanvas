@@ -6,7 +6,7 @@ if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
 for %%I in ("%SCRIPT_DIR%\..") do set "ROOT_DIR=%%~fI"
 set "BUILD_DIR=%ROOT_DIR%\build"
 set "EXE_PATH=%BUILD_DIR%\Debug\WhatsCanvasDemo.exe"
-set "SCENES=text-heavy image-heavy gradient-effect clipping transform save-layer"
+set "SCENES=text-heavy text-showcase image-heavy gradient-effect clipping transform save-layer"
 
 call :get_tick VALIDATION_SMOKE_START_MS
 

@@ -3,7 +3,7 @@ set -eu
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 BUILD_DIR="$ROOT_DIR/build"
-SCENES="text-heavy image-heavy gradient-effect clipping transform save-layer"
+SCENES="text-heavy text-showcase image-heavy gradient-effect clipping transform save-layer"
 
 sh "$ROOT_DIR/build.sh" --no-run
 
