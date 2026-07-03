@@ -136,6 +136,24 @@ bool testLookupIndexClearsAfterReset()
     return ok;
 }
 
+bool testDirtyRectsCollapseToFullAtlas()
+{
+    wsc::text::GlyphAtlas atlas(512, 16, 0);
+    bool ok = true;
+    for (std::uint32_t codepoint = 0; codepoint < 80; ++codepoint) {
+        ok = expect(atlas.uploadGlyph(makeKey('A' + codepoint), makeBitmap(2, 2, 80)).has_value(),
+                    "many small glyphs should upload without resizing") && ok;
+    }
+
+    const auto dirtyRects = atlas.consumeDirtyRects();
+    ok = expect(dirtyRects.size() == 1, "many dirty glyph rects should collapse to one full atlas rect") && ok;
+    ok = expect(dirtyRects.front().x == 0 && dirtyRects.front().y == 0
+                    && dirtyRects.front().width == atlas.stats().width
+                    && dirtyRects.front().height == atlas.stats().height,
+                "collapsed dirty rect should cover the full atlas") && ok;
+    return ok;
+}
+
 bool testContextLossRebuildHooks()
 {
     wsc::text::GlyphAtlas atlas(32, 16, 1);
@@ -181,6 +199,7 @@ int main()
     ok = testDuplicateUploadHitsCache() && ok;
     ok = testResizeAndOversizedGlyph() && ok;
     ok = testLookupIndexClearsAfterReset() && ok;
+    ok = testDirtyRectsCollapseToFullAtlas() && ok;
     ok = testContextLossRebuildHooks() && ok;
     ok = testColorGlyphUploadKeepsRgbaPixels() && ok;
     return ok ? 0 : 1;
