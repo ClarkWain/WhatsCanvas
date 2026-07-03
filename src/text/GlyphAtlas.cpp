@@ -144,6 +144,7 @@ std::vector<GlyphAtlasDirtyRect> GlyphAtlas::consumeDirtyRects()
 {
     std::vector<GlyphAtlasDirtyRect> result = std::move(dirtyRects_);
     dirtyRects_.clear();
+    dirtyRectArea_ = 0;
     return result;
 }
 
@@ -265,13 +266,16 @@ void GlyphAtlas::markDirtyRect(int x, int y, int width, int height)
         return;
     }
 
-    if (dirtyRects_.size() >= kMaxGlyphAtlasDirtyRects) {
+    const std::size_t rectArea = static_cast<std::size_t>(right - left) * static_cast<std::size_t>(bottom - top);
+    if (dirtyRects_.size() >= kMaxGlyphAtlasDirtyRects
+        || dirtyRectArea_ + rectArea >= fullDirtyArea() / 2u) {
         ++dirtyRectCollapseCount_;
         markFullDirty();
         return;
     }
 
     dirtyRects_.push_back({left, top, right - left, bottom - top});
+    dirtyRectArea_ += rectArea;
 }
 
 void GlyphAtlas::markFullDirty()
@@ -282,6 +286,12 @@ void GlyphAtlas::markFullDirty()
 
     dirtyRects_.clear();
     dirtyRects_.push_back({0, 0, width_, height_});
+    dirtyRectArea_ = fullDirtyArea();
+}
+
+std::size_t GlyphAtlas::fullDirtyArea() const
+{
+    return static_cast<std::size_t>(std::max(0, width_)) * static_cast<std::size_t>(std::max(0, height_));
 }
 
 bool GlyphAtlas::hasFullDirtyRect() const

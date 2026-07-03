@@ -156,6 +156,26 @@ bool testDirtyRectsCollapseToFullAtlas()
     return ok;
 }
 
+bool testDirtyRectsCollapseByArea()
+{
+    wsc::text::GlyphAtlas atlas(128, 64, 0);
+    bool ok = true;
+    for (std::uint32_t codepoint = 0; codepoint < 3; ++codepoint) {
+        ok = expect(atlas.uploadGlyph(makeKey('A' + codepoint), makeBitmap(40, 40, 90)).has_value(),
+                    "large glyphs should upload without resizing") && ok;
+    }
+
+    const auto dirtyRects = atlas.consumeDirtyRects();
+    ok = expect(dirtyRects.size() == 1, "large dirty glyph area should collapse to one full atlas rect") && ok;
+    ok = expect(atlas.stats().dirtyRectCollapseCount == 1,
+                "area-based dirty rect collapse should be counted in atlas stats") && ok;
+    ok = expect(dirtyRects.front().x == 0 && dirtyRects.front().y == 0
+                    && dirtyRects.front().width == atlas.stats().width
+                    && dirtyRects.front().height == atlas.stats().height,
+                "area-collapsed dirty rect should cover the full atlas") && ok;
+    return ok;
+}
+
 bool testContextLossRebuildHooks()
 {
     wsc::text::GlyphAtlas atlas(32, 16, 1);
@@ -202,6 +222,7 @@ int main()
     ok = testResizeAndOversizedGlyph() && ok;
     ok = testLookupIndexClearsAfterReset() && ok;
     ok = testDirtyRectsCollapseToFullAtlas() && ok;
+    ok = testDirtyRectsCollapseByArea() && ok;
     ok = testContextLossRebuildHooks() && ok;
     ok = testColorGlyphUploadKeepsRgbaPixels() && ok;
     return ok ? 0 : 1;

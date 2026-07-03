@@ -15,7 +15,7 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 | Indexed glyph lookup | Supported | `GlyphAtlas` maintains a hash index from glyph key to entry slot, avoiding linear scans on repeated glyph uploads in longer text runs. |
 | Persistent GPU atlas resource | Supported | Canvas owns a reusable GPU atlas image resource and updates it when the CPU atlas content changes. |
 | Dirty-rect atlas updates | Supported | Glyph uploads expose dirty rectangles; Canvas updates matching GPU atlas subregions when possible. |
-| Dirty-rect collapse | Supported | Glyph uploads keep precise dirty rectangles for short updates and collapse to one full-atlas dirty rectangle when a long text run would exceed the per-frame dirty-rect budget; collapse events are exposed through atlas stats. |
+| Dirty-rect collapse | Supported | Glyph uploads keep precise dirty rectangles for short updates and collapse to one full-atlas dirty rectangle when a long text run would exceed the per-frame dirty-rect count or dirty-area budget; collapse events are exposed through atlas stats. |
 | RGBA glyph atlas path | Supported | `GlyphAtlas`, text render results, and Canvas atlas upload can carry RGBA glyph pixels for color font layers and alpha-derived glyphs. |
 | Color font table detection | Contract supported | Font rasterizer utilities can detect COLR/CPAL, CBDT/CBLC, SBIX, and SVG OpenType tables as a backend capability probe before concrete glyph extraction. |
 | COLR/CPAL v0 glyph decoding | Supported | Portable font rasterization can decode COLR/CPAL v0 layer records, rasterize each layer outline, composite palette colors into RGBA glyph bitmaps, and upload them through the atlas path. |
