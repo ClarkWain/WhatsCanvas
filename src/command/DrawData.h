@@ -81,6 +81,8 @@ struct DrawPathData {
 };
 
 struct DrawImageData {
+    static constexpr std::size_t kMaxGradientStops = 8;
+
     SharedImageResource imageResource;
     float x = 0.0f;
     float y = 0.0f;
@@ -107,16 +109,38 @@ struct DrawImageData {
     ScissorState scissor;
     DrawBlendMode blendMode = DrawBlendMode::SrcOver;
     ClipMaskState clipMask;
+    DrawGradientType gradientType = DrawGradientType::None;
+    DrawGradientTileMode gradientTileMode = DrawGradientTileMode::Clamp;
+    float gradientStart[2] = {0.0f, 0.0f};
+    float gradientEnd[2] = {1.0f, 0.0f};
+    float radialCenter[2] = {0.0f, 0.0f};
+    float radialRadius = 1.0f;
+    int gradientStopCount = 0;
+    float gradientStopPositions[kMaxGradientStops] = {};
+    float gradientStopColors[kMaxGradientStops * 4] = {};
+    bool hasShaderGradient() const { return gradientType != DrawGradientType::None && gradientStopCount > 0; }
 };
 
 struct DrawTextData {
+    static constexpr std::size_t kMaxGradientStops = 8;
+
     std::vector<float> vertices; // Triangles, interleaved x,y.
     float color[4] = {1.0f, 1.0f, 1.0f, 1.0f};
     glm::mat4 transform = glm::mat4(1.0f);
     ScissorState scissor;
     DrawBlendMode blendMode = DrawBlendMode::SrcOver;
     ClipMaskState clipMask;
+    DrawGradientType gradientType = DrawGradientType::None;
+    DrawGradientTileMode gradientTileMode = DrawGradientTileMode::Clamp;
+    float gradientStart[2] = {0.0f, 0.0f};
+    float gradientEnd[2] = {1.0f, 0.0f};
+    float radialCenter[2] = {0.0f, 0.0f};
+    float radialRadius = 1.0f;
+    int gradientStopCount = 0;
+    float gradientStopPositions[kMaxGradientStops] = {};
+    float gradientStopColors[kMaxGradientStops * 4] = {};
     size_t getVertexCount() const { return vertices.size() / 2; }
+    bool hasShaderGradient() const { return gradientType != DrawGradientType::None && gradientStopCount > 0; }
 };
 
 /// A true (separable Gaussian) blurred shadow. The silhouette is a white fill

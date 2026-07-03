@@ -4,6 +4,11 @@
 
 namespace wsc::text {
 
+namespace {
+constexpr int kMaxGlyphAtlasDimension = 4096;
+constexpr std::size_t kMaxGlyphAtlasDirtyRects = 64;
+}
+
 bool GlyphKey::operator==(const GlyphKey &other) const
 {
     return fontFamily == other.fontFamily
@@ -11,6 +16,19 @@ bool GlyphKey::operator==(const GlyphKey &other) const
         && glyphIndex == other.glyphIndex
         && pixelSize == other.pixelSize
         && format == other.format;
+}
+
+std::size_t GlyphKeyHasher::operator()(const GlyphKey &key) const
+{
+    std::size_t seed = std::hash<std::string>{}(key.fontFamily);
+    const auto combine = [&seed](std::size_t value) {
+        seed ^= value + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2);
+    };
+    combine(std::hash<std::uint32_t>{}(key.codepoint));
+    combine(std::hash<int>{}(key.glyphIndex));
+    combine(std::hash<float>{}(key.pixelSize));
+    combine(std::hash<int>{}(static_cast<int>(key.format)));
+    return seed;
 }
 
 GlyphAtlas::GlyphAtlas(int width, int height, int padding)
@@ -25,10 +43,11 @@ GlyphAtlas::GlyphAtlas(int width, int height, int padding)
 
 const GlyphAtlasEntry *GlyphAtlas::find(const GlyphKey &key) const
 {
-    const auto found = std::find_if(entries_.begin(), entries_.end(), [&](const GlyphAtlasEntry &entry) {
-        return entry.key == key;
-    });
-    return found == entries_.end() ? nullptr : &(*found);
+    const auto found = entryIndex_.find(key);
+    if (found == entryIndex_.end() || found->second >= entries_.size()) {
+        return nullptr;
+    }
+    return &entries_[found->second];
 }
 
 std::optional<GlyphAtlasEntry> GlyphAtlas::uploadGlyph(const GlyphKey &key, const GlyphBitmap &bitmap)
@@ -37,16 +56,22 @@ std::optional<GlyphAtlasEntry> GlyphAtlas::uploadGlyph(const GlyphKey &key, cons
         return *existing;
     }
 
-    if (!canStore(bitmap)) {
+    if (!hasValidPixels(bitmap)) {
+        return std::nullopt;
+    }
+    if (!canStoreDimensions(bitmap.width, bitmap.height) && !growToFit(bitmap.width, bitmap.height)) {
         return std::nullopt;
     }
 
     int x = 0;
     int y = 0;
     if (!allocateRect(bitmap.width, bitmap.height, x, y)) {
-        rememberRebuildKeys();
-        clear();
-        ++evictionCount_;
+        if (!growToFit(bitmap.width, bitmap.height)) {
+            rememberRebuildKeys();
+            clear();
+            ++evictionCount_;
+            ++generation_;
+        }
         if (!allocateRect(bitmap.width, bitmap.height, x, y)) {
             return std::nullopt;
         }
@@ -67,8 +92,9 @@ std::optional<GlyphAtlasEntry> GlyphAtlas::uploadGlyph(const GlyphKey &key, cons
     entry.advanceX = bitmap.advanceX;
     entry.generation = generation_;
 
-    writeGlyphPixels(entry, bitmap);
     entries_.push_back(entry);
+    entryIndex_[entry.key] = entries_.size() - 1u;
+    writeGlyphPixels(entries_.back(), bitmap);
     ++uploadCount_;
     textureValid_ = true;
     return entry;
@@ -77,6 +103,7 @@ std::optional<GlyphAtlasEntry> GlyphAtlas::uploadGlyph(const GlyphKey &key, cons
 void GlyphAtlas::clear()
 {
     entries_.clear();
+    entryIndex_.clear();
     std::fill(pixels_.begin(), pixels_.end(), 0);
     std::fill(rgbaPixels_.begin(), rgbaPixels_.end(), 0);
     hasColorPixels_ = false;
@@ -106,6 +133,8 @@ GlyphAtlasStats GlyphAtlas::stats() const
     result.usedBytes = pixels_.size();
     result.uploadCount = uploadCount_;
     result.evictionCount = evictionCount_;
+    result.resizeCount = resizeCount_;
+    result.dirtyRectCollapseCount = dirtyRectCollapseCount_;
     result.generation = generation_;
     result.textureValid = textureValid_;
     return result;
@@ -115,21 +144,27 @@ std::vector<GlyphAtlasDirtyRect> GlyphAtlas::consumeDirtyRects()
 {
     std::vector<GlyphAtlasDirtyRect> result = std::move(dirtyRects_);
     dirtyRects_.clear();
+    dirtyRectArea_ = 0;
     return result;
 }
 
-bool GlyphAtlas::canStore(const GlyphBitmap &bitmap) const
+bool GlyphAtlas::hasValidPixels(const GlyphBitmap &bitmap) const
 {
     const std::size_t expectedSize = static_cast<std::size_t>(std::max(0, bitmap.width))
         * static_cast<std::size_t>(std::max(0, bitmap.height));
     const bool hasAlphaPixels = bitmap.alphaPixels.size() >= expectedSize;
     const bool hasRgbaPixels = bitmap.rgbaPixels.size() >= expectedSize * 4u;
-    return width_ > 0 && height_ > 0
-        && bitmap.width > 0 && bitmap.height > 0
-        && bitmap.width + padding_ * 2 <= width_
-        && bitmap.height + padding_ * 2 <= height_
+    return bitmap.width > 0 && bitmap.height > 0
         && ((bitmap.format == GlyphBitmapFormat::Alpha && hasAlphaPixels)
             || (bitmap.format == GlyphBitmapFormat::RGBA && hasRgbaPixels));
+}
+
+bool GlyphAtlas::canStoreDimensions(int width, int height) const
+{
+    return width_ > 0 && height_ > 0
+        && width > 0 && height > 0
+        && width + padding_ * 2 <= width_
+        && height + padding_ * 2 <= height_;
 }
 
 bool GlyphAtlas::allocateRect(int width, int height, int &x, int &y)
@@ -150,6 +185,51 @@ bool GlyphAtlas::allocateRect(int width, int height, int &x, int &y)
     y = cursorY_ + padding_;
     cursorX_ += paddedWidth;
     rowHeight_ = std::max(rowHeight_, paddedHeight);
+    return true;
+}
+
+bool GlyphAtlas::growToFit(int width, int height)
+{
+    if (width <= 0 || height <= 0) {
+        return false;
+    }
+
+    int nextWidth = std::max(1, width_);
+    int nextHeight = std::max(1, height_);
+    const int requiredWidth = width + padding_ * 2;
+    const int requiredHeight = height + padding_ * 2;
+    while ((nextWidth < requiredWidth || nextHeight < requiredHeight
+            || (nextWidth == width_ && nextHeight == height_))
+           && (nextWidth < kMaxGlyphAtlasDimension || nextHeight < kMaxGlyphAtlasDimension)) {
+        if (nextWidth <= nextHeight && nextWidth < kMaxGlyphAtlasDimension) {
+            nextWidth = std::min(kMaxGlyphAtlasDimension, nextWidth * 2);
+        } else if (nextHeight < kMaxGlyphAtlasDimension) {
+            nextHeight = std::min(kMaxGlyphAtlasDimension, nextHeight * 2);
+        } else if (nextWidth < kMaxGlyphAtlasDimension) {
+            nextWidth = std::min(kMaxGlyphAtlasDimension, nextWidth * 2);
+        }
+    }
+
+    if (nextWidth == width_ && nextHeight == height_) {
+        return false;
+    }
+    if (requiredWidth > nextWidth || requiredHeight > nextHeight) {
+        return false;
+    }
+
+    rememberRebuildKeys();
+    width_ = nextWidth;
+    height_ = nextHeight;
+    pixels_.assign(static_cast<std::size_t>(width_) * static_cast<std::size_t>(height_), 0);
+    rgbaPixels_.assign(static_cast<std::size_t>(width_) * static_cast<std::size_t>(height_) * 4u, 0);
+    entries_.clear();
+    entryIndex_.clear();
+    hasColorPixels_ = false;
+    resetPacking();
+    markFullDirty();
+    ++resizeCount_;
+    ++generation_;
+    textureValid_ = true;
     return true;
 }
 
@@ -174,6 +254,9 @@ void GlyphAtlas::markDirtyRect(int x, int y, int width, int height)
     if (width <= 0 || height <= 0) {
         return;
     }
+    if (hasFullDirtyRect()) {
+        return;
+    }
 
     const int left = std::clamp(x, 0, width_);
     const int top = std::clamp(y, 0, height_);
@@ -183,7 +266,16 @@ void GlyphAtlas::markDirtyRect(int x, int y, int width, int height)
         return;
     }
 
+    const std::size_t rectArea = static_cast<std::size_t>(right - left) * static_cast<std::size_t>(bottom - top);
+    if (dirtyRects_.size() >= kMaxGlyphAtlasDirtyRects
+        || dirtyRectArea_ + rectArea >= fullDirtyArea() / 2u) {
+        ++dirtyRectCollapseCount_;
+        markFullDirty();
+        return;
+    }
+
     dirtyRects_.push_back({left, top, right - left, bottom - top});
+    dirtyRectArea_ += rectArea;
 }
 
 void GlyphAtlas::markFullDirty()
@@ -194,6 +286,21 @@ void GlyphAtlas::markFullDirty()
 
     dirtyRects_.clear();
     dirtyRects_.push_back({0, 0, width_, height_});
+    dirtyRectArea_ = fullDirtyArea();
+}
+
+std::size_t GlyphAtlas::fullDirtyArea() const
+{
+    return static_cast<std::size_t>(std::max(0, width_)) * static_cast<std::size_t>(std::max(0, height_));
+}
+
+bool GlyphAtlas::hasFullDirtyRect() const
+{
+    return dirtyRects_.size() == 1
+        && dirtyRects_[0].x == 0
+        && dirtyRects_[0].y == 0
+        && dirtyRects_[0].width == width_
+        && dirtyRects_[0].height == height_;
 }
 
 void GlyphAtlas::writeGlyphPixels(const GlyphAtlasEntry &entry, const GlyphBitmap &bitmap)

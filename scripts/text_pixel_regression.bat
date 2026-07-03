@@ -1,0 +1,93 @@
+@echo off
+setlocal EnableExtensions EnableDelayedExpansion
+
+set "SCRIPT_DIR=%~dp0"
+if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
+for %%I in ("%SCRIPT_DIR%\..") do set "ROOT_DIR=%%~fI"
+set "BUILD_DIR=%ROOT_DIR%\build"
+if defined WHATSCANVAS_BUILD_DIR set "BUILD_DIR=%WHATSCANVAS_BUILD_DIR%"
+set "EXE_PATH=%BUILD_DIR%\Debug\WhatsCanvasDemo.exe"
+set "BASELINE_DIR=%ROOT_DIR%\tests\baselines\text"
+set "CANDIDATE_DIR=%BUILD_DIR%\text_pixel_regression"
+set "SCENES=font-regression text-showcase"
+if defined WHATSCANVAS_TEXT_REGRESSION_SCENES set "SCENES=%WHATSCANVAS_TEXT_REGRESSION_SCENES%"
+
+if not exist "%CANDIDATE_DIR%" mkdir "%CANDIDATE_DIR%"
+if not exist "%BASELINE_DIR%" mkdir "%BASELINE_DIR%"
+
+call "%ROOT_DIR%\build.bat" --no-run
+if errorlevel 1 (
+    echo TEXT_PIXEL_REGRESSION_RESULT=FAIL
+    echo TEXT_PIXEL_REGRESSION_FAILED_STAGE=BUILD
+    exit /b 1
+)
+
+for %%S in (%SCENES%) do (
+    call :run_scene "%%S"
+    if errorlevel 1 exit /b 1
+)
+
+echo TEXT_PIXEL_REGRESSION_SCENES=%SCENES%
+echo TEXT_PIXEL_REGRESSION_TEST=PASS
+echo TEXT_PIXEL_REGRESSION_RESULT=PASS
+exit /b 0
+
+:run_scene
+set "SCENE=%~1"
+set "BASELINE=%BASELINE_DIR%\%SCENE%.ppm"
+set "CANDIDATE=%CANDIDATE_DIR%\%SCENE%.ppm"
+set "WHATSCANVAS_VALIDATION_SCENE=%SCENE%"
+set "WHATSCANVAS_CAPTURE_PPM=%CANDIDATE%"
+set "WHATSCANVAS_EXIT_AFTER_FIRST_FRAME=1"
+set "WHATSCANVAS_FIXED_TIME_SECONDS=0"
+"%EXE_PATH%"
+if errorlevel 1 (
+    echo TEXT_PIXEL_REGRESSION_RESULT=FAIL
+    echo TEXT_PIXEL_REGRESSION_FAILED_STAGE=CAPTURE
+    echo TEXT_PIXEL_REGRESSION_SCENE=%SCENE%
+    exit /b 1
+)
+
+if not exist "%BASELINE%" (
+    if "%WHATSCANVAS_UPDATE_TEXT_BASELINES%"=="1" (
+        copy /Y "%CANDIDATE%" "%BASELINE%" >nul
+        if errorlevel 1 (
+            echo TEXT_PIXEL_REGRESSION_RESULT=FAIL
+            echo TEXT_PIXEL_REGRESSION_FAILED_STAGE=BASELINE_UPDATE
+            echo TEXT_PIXEL_REGRESSION_SCENE=%SCENE%
+            exit /b 1
+        )
+        echo TEXT_PIXEL_REGRESSION_BASELINE_UPDATED=%BASELINE%
+        exit /b 0
+    )
+    echo TEXT_PIXEL_REGRESSION_RESULT=FAIL
+    echo TEXT_PIXEL_REGRESSION_FAILED_STAGE=MISSING_BASELINE
+    echo TEXT_PIXEL_REGRESSION_SCENE=%SCENE%
+    echo TEXT_PIXEL_REGRESSION_BASELINE=%BASELINE%
+    exit /b 1
+)
+
+if "%WHATSCANVAS_UPDATE_TEXT_BASELINES%"=="1" (
+    copy /Y "%CANDIDATE%" "%BASELINE%" >nul
+    if errorlevel 1 (
+        echo TEXT_PIXEL_REGRESSION_RESULT=FAIL
+        echo TEXT_PIXEL_REGRESSION_FAILED_STAGE=BASELINE_UPDATE
+        echo TEXT_PIXEL_REGRESSION_SCENE=%SCENE%
+        exit /b 1
+    )
+    echo TEXT_PIXEL_REGRESSION_BASELINE_UPDATED=%BASELINE%
+    exit /b 0
+)
+
+python "%ROOT_DIR%\scripts\compare_ppm_fuzzy.py" "%BASELINE%" "%CANDIDATE%" --max-channel-delta 4 --max-mean-delta 0.85 --max-changed-percent 5.0
+if errorlevel 1 (
+    echo TEXT_PIXEL_REGRESSION_RESULT=FAIL
+    echo TEXT_PIXEL_REGRESSION_FAILED_STAGE=COMPARE
+    echo TEXT_PIXEL_REGRESSION_SCENE=%SCENE%
+    exit /b 1
+)
+
+echo TEXT_PIXEL_REGRESSION_SCENE=%SCENE%
+echo TEXT_PIXEL_REGRESSION_BASELINE=%BASELINE%
+echo TEXT_PIXEL_REGRESSION_CANDIDATE=%CANDIDATE%
+exit /b 0

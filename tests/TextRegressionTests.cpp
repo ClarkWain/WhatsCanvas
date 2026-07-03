@@ -29,7 +29,7 @@ Paint makeFallbackPaint()
 
 bool testAsciiRegression()
 {
-    std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createBasicTextBackend();
+    std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createPortableTextBackend();
     Paint paint = makeFallbackPaint();
     const std::string text = "Hello Canvas";
     const float width = backend->measureTextWidth(text, paint);
@@ -46,7 +46,7 @@ bool testAsciiRegression()
 
 bool testChineseFallbackRegression()
 {
-    std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createBasicTextBackend();
+    std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createPortableTextBackend();
     Paint paint = makeFallbackPaint();
     const std::string text = u8"中文测试";
     const float width = backend->measureTextWidth(text, paint);
@@ -62,7 +62,7 @@ bool testChineseFallbackRegression()
 
 bool testMixedLatinCjkRegression()
 {
-    std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createBasicTextBackend();
+    std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createPortableTextBackend();
     Paint paint = makeFallbackPaint();
     const std::string text = u8"Hello 中文 mix";
     const std::vector<wsc::text::TextLineBreak> wideLines = backend->breakLines(text, 400.0f, paint);
@@ -77,7 +77,7 @@ bool testMixedLatinCjkRegression()
 
 bool testUncoveredFallbackRegression()
 {
-    std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createBasicTextBackend();
+    std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createPortableTextBackend();
     Paint paint = makeFallbackPaint();
     const std::string text = std::string("range ") + "\xF0\x9F\x98\x80" + " fallback";
     const float width = backend->measureTextWidth(text, paint);

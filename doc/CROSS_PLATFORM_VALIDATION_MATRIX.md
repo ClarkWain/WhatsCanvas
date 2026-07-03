@@ -14,6 +14,7 @@ This matrix defines the validation surface for keeping the renderer portable acr
 | Portable text backend | Default build | Default build | `WhatsCanvasTextBackendContractTests` | Covers font registration, fallback, atlas text, COLR/CPAL v0, backend diagnostics, and adapter fallback. |
 | Optional OpenType shaping | `-DWHATSCANVAS_ENABLE_OPENTYPE_SHAPING=ON` | Build with vendored or system HarfBuzz | Unit tests | `third_party/harfbuzz` is preferred; absence must degrade to simple shaping with a diagnostic, not fail the build. |
 | Optional FreeType rasterizer | `-DWHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=ON` | Build with vendored or system FreeType | Text contract tests | `third_party/freetype` is preferred; absence must degrade to `stb_truetype`, not fail the build. |
+| Combined font stack | `-DWHATSCANVAS_ENABLE_OPENTYPE_SHAPING=ON -DWHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=ON` | Linux CI installs HarfBuzz and FreeType development packages | `ctest -L text` plus `WhatsCanvasCoreBenchmarks` smoke | Validates shaping, glyph metrics/rasterization, atlas text, cache policy, and benchmark wiring in one configuration. |
 
 ## Text Backend Matrix
 

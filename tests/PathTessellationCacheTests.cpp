@@ -3,6 +3,7 @@
 // these run headlessly: they exercise contour extraction, triangulation, and
 // the cache without a live OpenGL context.
 
+#include <cmath>
 #include <iostream>
 #include <string>
 

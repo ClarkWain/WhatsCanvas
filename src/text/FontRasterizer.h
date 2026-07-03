@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <mutex>
 #include <optional>
 #include <string>
 
@@ -55,7 +56,16 @@ struct ColorFontTables
     }
 };
 
-ColorFontTables detectColorFontTables(FontDataView fontData);
+ColorFontTables detectColorFontTables(FontDataView fontData, int faceIndex = 0);
+
+struct FontRasterizerCacheStats
+{
+    std::size_t faceCount = 0;
+    std::size_t capacity = 0;
+    std::size_t hitCount = 0;
+    std::size_t missCount = 0;
+    std::size_t evictionCount = 0;
+};
 
 class FontRasterizer
 {
@@ -74,12 +84,21 @@ public:
     std::optional<RasterizedGlyph> rasterizeGlyphIndex(const FontFace &face, int glyphIndex,
                                                        std::uint32_t sourceCodepoint,
                                                        float pixelSize) const;
+    // Returns a thread-local snapshot that remains valid until the next fontData call on the same thread.
     std::optional<FontDataView> fontData(const FontFace &face) const;
     std::optional<ColorFontTables> colorFontTables(const FontFace &face) const;
+    FontRasterizerCacheStats cacheStats() const;
+    void clearCache() const;
+    void setCacheCapacity(std::size_t capacity) const;
 
 private:
     struct LoadedFace;
+    struct CacheState;
 
+    static CacheState &cacheState();
+    static std::mutex &cacheMutex();
+    static void touchCacheEntry(CacheState &cache, const std::string &key);
+    static void trimCache(CacheState &cache);
     const LoadedFace *loadFace(const FontFace &face) const;
     std::optional<RasterizedGlyph> rasterizeColorGlyph(const FontFace &face,
                                                        const LoadedFace &loaded,

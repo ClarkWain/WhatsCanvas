@@ -3,8 +3,10 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <deque>
 #include <fstream>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -22,6 +24,8 @@
 #include "../../include/wsc/Font.h"
 
 namespace {
+
+constexpr std::size_t kDefaultLoadedFaceCacheCapacity = 64;
 
 std::uint32_t readU32BE(const unsigned char *data)
 {
@@ -47,10 +51,12 @@ bool tagEquals(const unsigned char *data, const char tag[4])
 
 std::string makeFaceKey(const wsc::FontFace &face)
 {
+    const std::string indexSuffix = "#" + std::to_string(face.faceIndex());
     if (face.sourceType() == wsc::FontSourceType::FILE) {
-        return std::string("file:") + face.path();
+        return std::string("file:") + face.path() + indexSuffix;
     }
-    return std::string("memory:") + face.family() + ":" + std::to_string(reinterpret_cast<std::uintptr_t>(face.bytes()));
+    return std::string("memory:") + face.family() + ":" + std::to_string(reinterpret_cast<std::uintptr_t>(face.bytes()))
+        + indexSuffix;
 }
 
 std::vector<unsigned char> readFileBytes(const std::string &path)
@@ -268,7 +274,7 @@ bool setFreeTypePixelSize(FT_Face face, float pixelSize)
 
 namespace wsc::text {
 
-ColorFontTables detectColorFontTables(FontDataView fontData)
+ColorFontTables detectColorFontTables(FontDataView fontData, int faceIndex)
 {
     ColorFontTables result;
     if (fontData.data == nullptr || fontData.size < 12u) {
@@ -276,14 +282,23 @@ ColorFontTables detectColorFontTables(FontDataView fontData)
     }
 
     std::size_t fontOffset = 0;
+    const int clampedFaceIndex = std::max(0, faceIndex);
     if (tagEquals(fontData.data, "ttcf")) {
-        if (fontData.size < 16u || readU32BE(fontData.data + 8u) == 0u) {
+        if (fontData.size < 16u) {
             return result;
         }
-        fontOffset = static_cast<std::size_t>(readU32BE(fontData.data + 12u));
+        const std::uint32_t faceCount = readU32BE(fontData.data + 8u);
+        if (faceCount == 0u || static_cast<std::uint32_t>(clampedFaceIndex) >= faceCount
+            || fontData.size - 12u < (static_cast<std::size_t>(clampedFaceIndex) + 1u) * 4u) {
+            return result;
+        }
+        fontOffset = static_cast<std::size_t>(readU32BE(fontData.data + 12u
+            + static_cast<std::size_t>(clampedFaceIndex) * 4u));
         if (fontOffset > fontData.size || fontData.size - fontOffset < 12u) {
             return result;
         }
+    } else if (clampedFaceIndex > 0) {
+        return result;
     }
 
     const unsigned char *sfnt = fontData.data + fontOffset;
@@ -326,15 +341,91 @@ struct FontRasterizer::LoadedFace
     bool valid = false;
 };
 
+struct FontRasterizer::CacheState
+{
+    std::unordered_map<std::string, std::unique_ptr<LoadedFace>> entries;
+    std::deque<std::string> lruOrder;
+    std::size_t capacity = kDefaultLoadedFaceCacheCapacity;
+    std::size_t hitCount = 0;
+    std::size_t missCount = 0;
+    std::size_t evictionCount = 0;
+};
+
+FontRasterizer::CacheState &FontRasterizer::cacheState()
+{
+    static CacheState state;
+    return state;
+}
+
+std::mutex &FontRasterizer::cacheMutex()
+{
+    static std::mutex mutex;
+    return mutex;
+}
+
+void FontRasterizer::touchCacheEntry(CacheState &cache, const std::string &key)
+{
+    const auto existing = std::find(cache.lruOrder.begin(), cache.lruOrder.end(), key);
+    if (existing != cache.lruOrder.end()) {
+        cache.lruOrder.erase(existing);
+    }
+    cache.lruOrder.push_back(key);
+}
+
+void FontRasterizer::trimCache(CacheState &cache)
+{
+    while (cache.entries.size() > cache.capacity && !cache.lruOrder.empty()) {
+        const std::string evictedKey = cache.lruOrder.front();
+        cache.lruOrder.pop_front();
+        if (cache.entries.erase(evictedKey) > 0u) {
+            ++cache.evictionCount;
+        }
+    }
+}
+
+FontRasterizerCacheStats FontRasterizer::cacheStats() const
+{
+    std::lock_guard<std::mutex> lock(cacheMutex());
+    const CacheState &cache = cacheState();
+    FontRasterizerCacheStats stats;
+    stats.faceCount = cache.entries.size();
+    stats.capacity = cache.capacity;
+    stats.hitCount = cache.hitCount;
+    stats.missCount = cache.missCount;
+    stats.evictionCount = cache.evictionCount;
+    return stats;
+}
+
+void FontRasterizer::clearCache() const
+{
+    std::lock_guard<std::mutex> lock(cacheMutex());
+    CacheState &cache = cacheState();
+    cache.entries.clear();
+    cache.lruOrder.clear();
+    cache.hitCount = 0;
+    cache.missCount = 0;
+    cache.evictionCount = 0;
+}
+
+void FontRasterizer::setCacheCapacity(std::size_t capacity) const
+{
+    std::lock_guard<std::mutex> lock(cacheMutex());
+    CacheState &cache = cacheState();
+    cache.capacity = std::max<std::size_t>(1u, capacity);
+    trimCache(cache);
+}
+
 const FontRasterizer::LoadedFace *FontRasterizer::loadFace(const FontFace &face) const
 {
-    static std::unordered_map<std::string, std::unique_ptr<LoadedFace>> cache;
-
+    CacheState &cache = cacheState();
     const std::string key = makeFaceKey(face);
-    const auto found = cache.find(key);
-    if (found != cache.end()) {
+    const auto found = cache.entries.find(key);
+    if (found != cache.entries.end()) {
+        ++cache.hitCount;
+        touchCacheEntry(cache, key);
         return found->second->valid ? found->second.get() : nullptr;
     }
+    ++cache.missCount;
 
     auto loaded = std::make_unique<LoadedFace>();
     if (face.sourceType() == FontSourceType::FILE) {
@@ -344,7 +435,7 @@ const FontRasterizer::LoadedFace *FontRasterizer::loadFace(const FontFace &face)
     }
 
     if (!loaded->bytes.empty()) {
-        const int fontOffset = stbtt_GetFontOffsetForIndex(loaded->bytes.data(), 0);
+        const int fontOffset = stbtt_GetFontOffsetForIndex(loaded->bytes.data(), face.faceIndex());
         loaded->fontOffset = fontOffset >= 0 ? static_cast<std::size_t>(fontOffset) : 0u;
         loaded->stbValid = fontOffset >= 0
             && stbtt_InitFont(&loaded->info, loaded->bytes.data(), fontOffset) != 0;
@@ -355,7 +446,7 @@ const FontRasterizer::LoadedFace *FontRasterizer::loadFace(const FontFace &face)
             if (FT_New_Memory_Face(freeTypeLibrary().library,
                                    loaded->bytes.data(),
                                    static_cast<FT_Long>(loaded->bytes.size()),
-                                   0,
+                                   static_cast<FT_Long>(face.faceIndex()),
                                    &ftFace) == 0) {
                 loaded->ftFace = ftFace;
                 loaded->valid = true;
@@ -365,7 +456,9 @@ const FontRasterizer::LoadedFace *FontRasterizer::loadFace(const FontFace &face)
     }
 
     LoadedFace *result = loaded.get();
-    cache.emplace(key, std::move(loaded));
+    cache.entries.emplace(key, std::move(loaded));
+    touchCacheEntry(cache, key);
+    trimCache(cache);
     return result->valid ? result : nullptr;
 }
 
@@ -375,6 +468,7 @@ bool FontRasterizer::hasGlyph(const FontFace &face, std::uint32_t codepoint) con
         return false;
     }
 
+    std::lock_guard<std::mutex> lock(cacheMutex());
     const LoadedFace *loaded = loadFace(face);
 #if defined(WHATSCANVAS_HAS_FREETYPE)
     if (loaded != nullptr && loaded->ftFace != nullptr) {
@@ -387,6 +481,7 @@ bool FontRasterizer::hasGlyph(const FontFace &face, std::uint32_t codepoint) con
 
 std::optional<int> FontRasterizer::glyphIndex(const FontFace &face, std::uint32_t codepoint) const
 {
+    std::lock_guard<std::mutex> lock(cacheMutex());
     const LoadedFace *loaded = loadFace(face);
     if (loaded == nullptr) {
         return std::nullopt;
@@ -417,6 +512,7 @@ std::optional<float> FontRasterizer::glyphAdvance(const FontFace &face, std::uin
 std::optional<float> FontRasterizer::glyphKerning(const FontFace &face, int leftGlyphIndex, int rightGlyphIndex,
                                                   float pixelSize) const
 {
+    std::lock_guard<std::mutex> lock(cacheMutex());
     const LoadedFace *loaded = loadFace(face);
     if (loaded == nullptr || pixelSize <= 0.0f || leftGlyphIndex <= 0 || rightGlyphIndex <= 0) {
         return std::nullopt;
@@ -446,6 +542,7 @@ std::optional<float> FontRasterizer::glyphKerning(const FontFace &face, int left
 
 std::optional<FontVerticalMetrics> FontRasterizer::verticalMetrics(const FontFace &face, float pixelSize) const
 {
+    std::lock_guard<std::mutex> lock(cacheMutex());
     const LoadedFace *loaded = loadFace(face);
     if (loaded == nullptr || pixelSize <= 0.0f) {
         return std::nullopt;
@@ -485,6 +582,7 @@ std::optional<FontVerticalMetrics> FontRasterizer::verticalMetrics(const FontFac
 std::optional<GlyphMetrics> FontRasterizer::glyphMetrics(const FontFace &face, std::uint32_t codepoint,
                                                          float pixelSize) const
 {
+    std::lock_guard<std::mutex> lock(cacheMutex());
     const LoadedFace *loaded = loadFace(face);
     if (loaded == nullptr || pixelSize <= 0.0f) {
         return std::nullopt;
@@ -537,6 +635,7 @@ std::optional<RasterizedGlyph> FontRasterizer::rasterizeGlyphIndex(const FontFac
                                                                    std::uint32_t sourceCodepoint,
                                                                    float pixelSize) const
 {
+    std::lock_guard<std::mutex> lock(cacheMutex());
     const LoadedFace *loaded = loadFace(face);
     if (loaded == nullptr || pixelSize <= 0.0f || glyphIndex <= 0) {
         return std::nullopt;
@@ -743,21 +842,25 @@ std::optional<RasterizedGlyph> FontRasterizer::rasterizeColorGlyph(const FontFac
 
 std::optional<FontDataView> FontRasterizer::fontData(const FontFace &face) const
 {
+    std::lock_guard<std::mutex> lock(cacheMutex());
     const LoadedFace *loaded = loadFace(face);
     if (loaded == nullptr || loaded->bytes.empty()) {
         return std::nullopt;
     }
 
-    return FontDataView{loaded->bytes.data(), loaded->bytes.size()};
+    thread_local std::vector<unsigned char> snapshot;
+    snapshot = loaded->bytes;
+    return FontDataView{snapshot.data(), snapshot.size()};
 }
 
 std::optional<ColorFontTables> FontRasterizer::colorFontTables(const FontFace &face) const
 {
-    const auto data = fontData(face);
-    if (!data) {
+    std::lock_guard<std::mutex> lock(cacheMutex());
+    const LoadedFace *loaded = loadFace(face);
+    if (loaded == nullptr || loaded->bytes.empty()) {
         return std::nullopt;
     }
-    return detectColorFontTables(*data);
+    return detectColorFontTables(FontDataView{loaded->bytes.data(), loaded->bytes.size()}, face.faceIndex());
 }
 
 } // namespace wsc::text
