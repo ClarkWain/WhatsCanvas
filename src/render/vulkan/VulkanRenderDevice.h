@@ -73,6 +73,21 @@ public:
     bool renderSolidTriangles(const std::unique_ptr<IRenderTarget> &target, const std::vector<float> &ndcPositions,
                               float r, float g, float b, float a) const;
 
+    /// Primitive topology for renderSolidPrimitives().
+    enum class SolidTopology
+    {
+        Triangles, ///< Triangle list (3 vertices per triangle).
+        Lines,     ///< Line list (2 vertices per line).
+        Points     ///< Point list (1 vertex per point).
+    };
+
+    /// Vulkan-specific M3 capability: rasterize solid-colored primitives of the
+    /// given topology into an offscreen render target. `ndcPositions` holds
+    /// interleaved x,y pairs in Vulkan NDC. Returns false on invalid input or
+    /// when Vulkan is unavailable.
+    bool renderSolidPrimitives(const std::unique_ptr<IRenderTarget> &target, SolidTopology topology,
+                               const std::vector<float> &ndcPositions, float r, float g, float b, float a) const;
+
     /// Opaque backend context, defined in the implementation file.
     struct VulkanContext;
 
