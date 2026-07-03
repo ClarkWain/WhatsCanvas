@@ -239,6 +239,15 @@ void drawShadowScene(Canvas &canvas, float ox, bool strong)
         p.setShadowLayer(radius, dx, dy, shadow);
         canvas.drawRoundRect(RectF(ox + 265.0f, 210.0f, 150.0f, 120.0f), 26.0f, p);
     }
+    // Geometry text: exercises the Gaussian shadow for glyph triangles.
+    {
+        Paint p;
+        p.setStyle(Paint::Style::FILL);
+        p.setFillColor(Color(60, 70, 95));
+        p.setTextSize(40.0f);
+        p.setShadowLayer(radius, dx, dy, shadow);
+        canvas.drawText("Shadow", ox + 60.0f, 380.0f, p);
+    }
 }
 
 std::string getEnv(const char *name)
@@ -304,7 +313,8 @@ int main(int argc, char **argv)
         Canvas canvas;
         canvas.setSize(fbWidth, fbHeight);
 
-        stbi_flip_vertically_on_write(1); // GL readback is bottom-up
+        // Canvas::readPixelsRGBA already returns top-left-origin rows, so the
+        // stb writer must NOT flip again (doing so produced upside-down images).
 
         // Renders `scene` into both panels and writes the framebuffer to `path`.
         auto renderAndSave = [&](const std::string &path,
