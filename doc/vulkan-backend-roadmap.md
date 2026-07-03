@@ -1,6 +1,6 @@
 # Vulkan Backend Roadmap
 
-Status: **Draft / in progress** · Branch: `feature/vulkan-backend` · Done: M1, M2, M3 (solid fills), M4 (gradients + blend)
+Status: **Draft / in progress** · Branch: `feature/vulkan-backend` · Done: M1, M2, M3 (solid fills), M4 (gradients + blend), M5 (images)
 
 This document tracks the work needed to bring the Vulkan render backend
 (`VulkanRenderDevice`) to functional parity with the existing OpenGL backend
@@ -40,12 +40,12 @@ Not started: everything that produces or reads pixels. Ten of the eleven
 | `initializeBackend` | full (state + 5 shader programs + buffers) | device bring-up + render core (M1) | M1 ✅ |
 | `readPixelsRGBA` | `glReadPixels` + flip | image->staging->host copy (M2) | M2 ✅ |
 | `createRenderTarget` | FBO + texture + stencil | offscreen image + view + render pass + framebuffer (M2) | M2 ✅ |
-| `createImageResourceRGBA` | GL texture | stub | M5 |
-| `createImageResourceFromImageData` | GL texture + mipmap | stub | M5 |
-| `updateImageResourceRGBA` | partial texture update | stub | M5 |
+| `createImageResourceRGBA` | GL texture | sampled VkImage + upload (M5) | M5 ✅ |
+| `createImageResourceFromImageData` | GL texture + mipmap | sampled VkImage (M5) | M5 ✅ |
+| `updateImageResourceRGBA` | partial texture update | staging copy (M5) | M5 ✅ |
 | `wrapExternalImageResource` | wrap handle | stub | M8 |
 | `createClipMaskResource` | AA coverage mask | stub | M7 |
-| `resourceStats` | live counts | render-target count (M2) | M2 ✅ (incremental) |
+| `resourceStats` | live counts | render-target + texture counts | M2/M5 ✅ |
 | `renderCommandsToImageResource` | offscreen replay | stub | M6 |
 | Draw commands (points/lines/path/image/text) | 5 GL programs | solid triangle pipeline (M3) | M3–M5 |
 
@@ -128,14 +128,19 @@ Gate: fuzzy pixel-compare of an AA + gradient + blend scene vs OpenGL.
 **First step met** by `WhatsCanvasVulkanPaintTests` (gradient interpolation,
 SrcOver and Add results within tolerance) on NVIDIA RTX 2080 Ti.
 
-### M5 — Images and text
+### M5 — Images and text · **In progress (images done)**
 Depends on: M4.
 - `createImageResourceRGBA` / `createImageResourceFromImageData` / `updateImageResourceRGBA`:
   `VkImage` + `VkImageView` + `VkSampler`, staging upload, optional mipmaps.
+  **Done** (mipmap generation still pending; channels 1/2/3 expanded to RGBA).
 - `DrawImage`: sampling modes (Linear/Nearest/Mipmap), tile modes
-  (Clamp/Repeat/Mirror/Decal), tint, color matrix.
+  (Clamp/Repeat/Mirror/Decal), tint, color matrix. *Pending* (basic textured
+  quad with nearest/linear + clamp done via `renderTexturedQuad`).
 - `DrawText`: sample the existing GPU glyph atlas as a Vulkan sampled image.
-Gate: fuzzy pixel-compare of an image + text scene vs OpenGL.
+  *Pending*.
+Gate: fuzzy pixel-compare of an image + text scene vs OpenGL. **First step met**
+by `WhatsCanvasVulkanTextureTests` (2x2 texture sampled into quadrants + partial
+update) on NVIDIA RTX 2080 Ti.
 
 ### M6 — Offscreen command replay (saveLayer)
 Depends on: M5.

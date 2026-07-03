@@ -13,6 +13,7 @@
 #include <vulkan/vulkan.h>
 
 #include "shaders/SolidShaderSpv.h"
+#include "shaders/TexturedShaderSpv.h"
 #endif
 
 // ---------------------------------------------------------------------------
@@ -58,6 +59,15 @@ struct VulkanRenderDevice::VulkanContext
     };
     std::vector<CachedPipeline> pipelineCache;
 
+    // M5 textured-quad pipeline.
+    VkShaderModule texVertModule = VK_NULL_HANDLE;
+    VkShaderModule texFragModule = VK_NULL_HANDLE;
+    VkDescriptorSetLayout texDescriptorSetLayout = VK_NULL_HANDLE;
+    VkPipelineLayout texPipelineLayout = VK_NULL_HANDLE;
+    VkPipeline texPipeline = VK_NULL_HANDLE;
+
+    std::size_t imageTextureCount = 0;
+
     // Most-recently-activated / filled render target, used as the readback
     // source for readPixelsRGBA(). Mirrors OpenGL's "current framebuffer".
     VkImage readbackImage = VK_NULL_HANDLE;
@@ -80,6 +90,26 @@ struct VulkanRenderDevice::VulkanContext
                 }
             }
             pipelineCache.clear();
+            if (texPipeline != VK_NULL_HANDLE) {
+                vkDestroyPipeline(device, texPipeline, nullptr);
+                texPipeline = VK_NULL_HANDLE;
+            }
+            if (texPipelineLayout != VK_NULL_HANDLE) {
+                vkDestroyPipelineLayout(device, texPipelineLayout, nullptr);
+                texPipelineLayout = VK_NULL_HANDLE;
+            }
+            if (texDescriptorSetLayout != VK_NULL_HANDLE) {
+                vkDestroyDescriptorSetLayout(device, texDescriptorSetLayout, nullptr);
+                texDescriptorSetLayout = VK_NULL_HANDLE;
+            }
+            if (texVertModule != VK_NULL_HANDLE) {
+                vkDestroyShaderModule(device, texVertModule, nullptr);
+                texVertModule = VK_NULL_HANDLE;
+            }
+            if (texFragModule != VK_NULL_HANDLE) {
+                vkDestroyShaderModule(device, texFragModule, nullptr);
+                texFragModule = VK_NULL_HANDLE;
+            }
             if (solidPipelineLayout != VK_NULL_HANDLE) {
                 vkDestroyPipelineLayout(device, solidPipelineLayout, nullptr);
                 solidPipelineLayout = VK_NULL_HANDLE;
@@ -397,6 +427,144 @@ struct VulkanRenderDevice::VulkanContext
         vkBindBufferMemory(device, outBuffer, outMemory, 0);
         return true;
     }
+
+    void copyBufferToImage(VkCommandBuffer cmd, VkBuffer buffer, VkImage image, int x, int y, int width,
+                           int height) const
+    {
+        VkBufferImageCopy region{};
+        region.bufferOffset = 0;
+        region.bufferRowLength = 0;
+        region.bufferImageHeight = 0;
+        region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        region.imageSubresource.mipLevel = 0;
+        region.imageSubresource.baseArrayLayer = 0;
+        region.imageSubresource.layerCount = 1;
+        region.imageOffset = {x, y, 0};
+        region.imageExtent = {static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height), 1};
+        vkCmdCopyBufferToImage(cmd, buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    }
+
+    // Lazily build the textured-quad pipeline (combined image sampler at
+    // binding 0), reused across compatible render passes.
+    bool ensureTexturePipeline(VkRenderPass renderPass)
+    {
+        if (texPipeline != VK_NULL_HANDLE) {
+            return true;
+        }
+
+        texVertModule = createShaderModule(kTexturedVertSpv, sizeof(kTexturedVertSpv));
+        texFragModule = createShaderModule(kTexturedFragSpv, sizeof(kTexturedFragSpv));
+        if (texVertModule == VK_NULL_HANDLE || texFragModule == VK_NULL_HANDLE) {
+            return false;
+        }
+
+        VkDescriptorSetLayoutBinding samplerBinding{};
+        samplerBinding.binding = 0;
+        samplerBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        samplerBinding.descriptorCount = 1;
+        samplerBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+        VkDescriptorSetLayoutCreateInfo dslInfo{};
+        dslInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        dslInfo.bindingCount = 1;
+        dslInfo.pBindings = &samplerBinding;
+        if (vkCreateDescriptorSetLayout(device, &dslInfo, nullptr, &texDescriptorSetLayout) != VK_SUCCESS) {
+            return false;
+        }
+
+        VkPipelineLayoutCreateInfo layoutInfo{};
+        layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        layoutInfo.setLayoutCount = 1;
+        layoutInfo.pSetLayouts = &texDescriptorSetLayout;
+        if (vkCreatePipelineLayout(device, &layoutInfo, nullptr, &texPipelineLayout) != VK_SUCCESS) {
+            return false;
+        }
+
+        std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
+        stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+        stages[0].module = texVertModule;
+        stages[0].pName = "main";
+        stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+        stages[1].module = texFragModule;
+        stages[1].pName = "main";
+
+        VkVertexInputBindingDescription binding{};
+        binding.binding = 0;
+        binding.stride = 4 * sizeof(float);
+        binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+        std::array<VkVertexInputAttributeDescription, 2> attrs{};
+        attrs[0].location = 0;
+        attrs[0].binding = 0;
+        attrs[0].format = VK_FORMAT_R32G32_SFLOAT;
+        attrs[0].offset = 0;
+        attrs[1].location = 1;
+        attrs[1].binding = 0;
+        attrs[1].format = VK_FORMAT_R32G32_SFLOAT;
+        attrs[1].offset = 2 * sizeof(float);
+
+        VkPipelineVertexInputStateCreateInfo vertexInput{};
+        vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+        vertexInput.vertexBindingDescriptionCount = 1;
+        vertexInput.pVertexBindingDescriptions = &binding;
+        vertexInput.vertexAttributeDescriptionCount = static_cast<std::uint32_t>(attrs.size());
+        vertexInput.pVertexAttributeDescriptions = attrs.data();
+
+        VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+        inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+        inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+        VkPipelineViewportStateCreateInfo viewportState{};
+        viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+        viewportState.viewportCount = 1;
+        viewportState.scissorCount = 1;
+
+        VkPipelineRasterizationStateCreateInfo rasterizer{};
+        rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+        rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+        rasterizer.cullMode = VK_CULL_MODE_NONE;
+        rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+        rasterizer.lineWidth = 1.0f;
+
+        VkPipelineMultisampleStateCreateInfo multisample{};
+        multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+        multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+        VkPipelineColorBlendAttachmentState blendAttachment = blendStateFor(0);
+
+        VkPipelineColorBlendStateCreateInfo colorBlend{};
+        colorBlend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        colorBlend.attachmentCount = 1;
+        colorBlend.pAttachments = &blendAttachment;
+
+        const std::array<VkDynamicState, 2> dynamicStates{VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+        VkPipelineDynamicStateCreateInfo dynamicState{};
+        dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+        dynamicState.dynamicStateCount = static_cast<std::uint32_t>(dynamicStates.size());
+        dynamicState.pDynamicStates = dynamicStates.data();
+
+        VkGraphicsPipelineCreateInfo pipelineInfo{};
+        pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        pipelineInfo.stageCount = static_cast<std::uint32_t>(stages.size());
+        pipelineInfo.pStages = stages.data();
+        pipelineInfo.pVertexInputState = &vertexInput;
+        pipelineInfo.pInputAssemblyState = &inputAssembly;
+        pipelineInfo.pViewportState = &viewportState;
+        pipelineInfo.pRasterizationState = &rasterizer;
+        pipelineInfo.pMultisampleState = &multisample;
+        pipelineInfo.pColorBlendState = &colorBlend;
+        pipelineInfo.pDynamicState = &dynamicState;
+        pipelineInfo.layout = texPipelineLayout;
+        pipelineInfo.renderPass = renderPass;
+        pipelineInfo.subpass = 0;
+
+        if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &texPipeline) != VK_SUCCESS) {
+            return false;
+        }
+        return true;
+    }
 };
 
 namespace {
@@ -428,6 +596,217 @@ private:
     int width_ = 0;
     int height_ = 0;
 };
+
+// Owning sampled texture: image + memory + view + sampler.
+class VulkanTextureResource final : public ImageResource
+{
+public:
+    VulkanTextureResource(VulkanRenderDevice::VulkanContext *context, VkImage image, VkDeviceMemory memory,
+                          VkImageView view, VkSampler sampler, int width, int height)
+        : context_(context),
+          image_(image),
+          memory_(memory),
+          view_(view),
+          sampler_(sampler),
+          width_(width),
+          height_(height)
+    {
+        if (context_) {
+            ++context_->imageTextureCount;
+        }
+    }
+
+    ~VulkanTextureResource() override
+    {
+        if (!context_ || context_->device == VK_NULL_HANDLE) {
+            return;
+        }
+        vkDeviceWaitIdle(context_->device);
+        if (sampler_ != VK_NULL_HANDLE) vkDestroySampler(context_->device, sampler_, nullptr);
+        if (view_ != VK_NULL_HANDLE) vkDestroyImageView(context_->device, view_, nullptr);
+        if (image_ != VK_NULL_HANDLE) vkDestroyImage(context_->device, image_, nullptr);
+        if (memory_ != VK_NULL_HANDLE) vkFreeMemory(context_->device, memory_, nullptr);
+        if (context_->imageTextureCount > 0) {
+            --context_->imageTextureCount;
+        }
+    }
+
+    bool isValid() const override
+    {
+        return image_ != VK_NULL_HANDLE && view_ != VK_NULL_HANDLE && sampler_ != VK_NULL_HANDLE;
+    }
+
+    void bind(const RenderContext & /*context*/) const override {}
+
+    bool updateRGBA(int x, int y, int width, int height, const unsigned char *pixels,
+                    bool /*regenerateMipmaps*/) override
+    {
+        if (!isValid() || pixels == nullptr || width <= 0 || height <= 0 || x < 0 || y < 0 || x + width > width_
+            || y + height > height_) {
+            return false;
+        }
+        const VkDeviceSize bytes = static_cast<VkDeviceSize>(width) * static_cast<VkDeviceSize>(height) * 4u;
+        VkBuffer staging = VK_NULL_HANDLE;
+        VkDeviceMemory stagingMemory = VK_NULL_HANDLE;
+        if (!context_->createHostVisibleBuffer(bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, staging, stagingMemory)) {
+            return false;
+        }
+        void *mapped = nullptr;
+        if (vkMapMemory(context_->device, stagingMemory, 0, bytes, 0, &mapped) != VK_SUCCESS) {
+            vkDestroyBuffer(context_->device, staging, nullptr);
+            vkFreeMemory(context_->device, stagingMemory, nullptr);
+            return false;
+        }
+        std::memcpy(mapped, pixels, static_cast<std::size_t>(bytes));
+        vkUnmapMemory(context_->device, stagingMemory);
+
+        VkCommandBuffer cmd = context_->beginSingleTimeCommands();
+        bool ok = cmd != VK_NULL_HANDLE;
+        if (ok) {
+            VulkanRenderDevice::VulkanContext::transitionImageLayout(cmd, image_,
+                                                                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                                                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+            context_->copyBufferToImage(cmd, staging, image_, x, y, width, height);
+            VulkanRenderDevice::VulkanContext::transitionImageLayout(cmd, image_,
+                                                                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                                                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            ok = context_->endSingleTimeCommands(cmd);
+        }
+        vkDestroyBuffer(context_->device, staging, nullptr);
+        vkFreeMemory(context_->device, stagingMemory, nullptr);
+        return ok;
+    }
+
+    VkImageView view() const { return view_; }
+    VkSampler sampler() const { return sampler_; }
+
+private:
+    VulkanRenderDevice::VulkanContext *context_ = nullptr;
+    VkImage image_ = VK_NULL_HANDLE;
+    VkDeviceMemory memory_ = VK_NULL_HANDLE;
+    VkImageView view_ = VK_NULL_HANDLE;
+    VkSampler sampler_ = VK_NULL_HANDLE;
+    int width_ = 0;
+    int height_ = 0;
+};
+
+// Create an owning sampled RGBA8 texture from tightly-packed pixels.
+std::shared_ptr<VulkanTextureResource> createSampledTexture(VulkanRenderDevice::VulkanContext *ctx, int width,
+                                                            int height, const unsigned char *pixels, bool nearest)
+{
+    if (ctx == nullptr || ctx->device == VK_NULL_HANDLE || width <= 0 || height <= 0 || pixels == nullptr) {
+        return nullptr;
+    }
+    VkDevice device = ctx->device;
+
+    VkImage image = VK_NULL_HANDLE;
+    VkDeviceMemory memory = VK_NULL_HANDLE;
+    VkImageView view = VK_NULL_HANDLE;
+    VkSampler sampler = VK_NULL_HANDLE;
+    auto cleanup = [&]() {
+        if (sampler != VK_NULL_HANDLE) vkDestroySampler(device, sampler, nullptr);
+        if (view != VK_NULL_HANDLE) vkDestroyImageView(device, view, nullptr);
+        if (image != VK_NULL_HANDLE) vkDestroyImage(device, image, nullptr);
+        if (memory != VK_NULL_HANDLE) vkFreeMemory(device, memory, nullptr);
+    };
+
+    VkImageCreateInfo imageInfo{};
+    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    imageInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageInfo.format = kRenderTargetFormat;
+    imageInfo.extent = {static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height), 1};
+    imageInfo.mipLevels = 1;
+    imageInfo.arrayLayers = 1;
+    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    if (vkCreateImage(device, &imageInfo, nullptr, &image) != VK_SUCCESS) {
+        return nullptr;
+    }
+
+    VkMemoryRequirements memReq{};
+    vkGetImageMemoryRequirements(device, image, &memReq);
+    const auto typeIndex = ctx->findMemoryType(memReq.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (!typeIndex.has_value()) {
+        cleanup();
+        return nullptr;
+    }
+    VkMemoryAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize = memReq.size;
+    allocInfo.memoryTypeIndex = typeIndex.value();
+    if (vkAllocateMemory(device, &allocInfo, nullptr, &memory) != VK_SUCCESS) {
+        cleanup();
+        return nullptr;
+    }
+    vkBindImageMemory(device, image, memory, 0);
+
+    // Upload pixels via a host-visible staging buffer.
+    const VkDeviceSize bytes = static_cast<VkDeviceSize>(width) * static_cast<VkDeviceSize>(height) * 4u;
+    VkBuffer staging = VK_NULL_HANDLE;
+    VkDeviceMemory stagingMemory = VK_NULL_HANDLE;
+    if (!ctx->createHostVisibleBuffer(bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, staging, stagingMemory)) {
+        cleanup();
+        return nullptr;
+    }
+    void *mapped = nullptr;
+    if (vkMapMemory(device, stagingMemory, 0, bytes, 0, &mapped) != VK_SUCCESS) {
+        vkDestroyBuffer(device, staging, nullptr);
+        vkFreeMemory(device, stagingMemory, nullptr);
+        cleanup();
+        return nullptr;
+    }
+    std::memcpy(mapped, pixels, static_cast<std::size_t>(bytes));
+    vkUnmapMemory(device, stagingMemory);
+
+    VkCommandBuffer cmd = ctx->beginSingleTimeCommands();
+    bool uploaded = cmd != VK_NULL_HANDLE;
+    if (uploaded) {
+        VulkanRenderDevice::VulkanContext::transitionImageLayout(cmd, image, VK_IMAGE_LAYOUT_UNDEFINED,
+                                                                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        ctx->copyBufferToImage(cmd, staging, image, 0, 0, width, height);
+        VulkanRenderDevice::VulkanContext::transitionImageLayout(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                                                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        uploaded = ctx->endSingleTimeCommands(cmd);
+    }
+    vkDestroyBuffer(device, staging, nullptr);
+    vkFreeMemory(device, stagingMemory, nullptr);
+    if (!uploaded) {
+        cleanup();
+        return nullptr;
+    }
+
+    VkImageViewCreateInfo viewInfo{};
+    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewInfo.image = image;
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.format = kRenderTargetFormat;
+    viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    viewInfo.subresourceRange.levelCount = 1;
+    viewInfo.subresourceRange.layerCount = 1;
+    if (vkCreateImageView(device, &viewInfo, nullptr, &view) != VK_SUCCESS) {
+        cleanup();
+        return nullptr;
+    }
+
+    VkSamplerCreateInfo samplerInfo{};
+    samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    samplerInfo.magFilter = nearest ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
+    samplerInfo.minFilter = nearest ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
+    samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.maxLod = 0.0f;
+    if (vkCreateSampler(device, &samplerInfo, nullptr, &sampler) != VK_SUCCESS) {
+        cleanup();
+        return nullptr;
+    }
+
+    return std::make_shared<VulkanTextureResource>(ctx, image, memory, view, sampler, width, height);
+}
 
 // Offscreen render target: color image + view + clear render pass + framebuffer.
 class VulkanRenderTarget final : public IRenderTarget
@@ -1332,6 +1711,7 @@ RenderResourceStats VulkanRenderDevice::resourceStats() const
 #if defined(WHATSCANVAS_ENABLE_VULKAN)
     if (context_) {
         stats.renderTargetCount = context_->renderTargetCount;
+        stats.imageTextureCount = context_->imageTextureCount;
     }
 #endif
     return stats;
@@ -1347,28 +1727,225 @@ SharedClipMaskResource VulkanRenderDevice::createClipMaskResource(const ClipMask
     return nullptr;
 }
 
-SharedImageResource VulkanRenderDevice::createImageResourceRGBA(int /*width*/, int /*height*/,
-                                                                const std::vector<unsigned char> & /*pixels*/) const
+SharedImageResource VulkanRenderDevice::createImageResourceRGBA(int width, int height,
+                                                                const std::vector<unsigned char> &pixels) const
 {
-    // TODO(vulkan, M5): implement image/texture resources.
+#if defined(WHATSCANVAS_ENABLE_VULKAN)
+    if (!context_ || !context_->deviceReady || width <= 0 || height <= 0
+        || pixels.size() < static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4u) {
+        return nullptr;
+    }
+    return createSampledTexture(context_.get(), width, height, pixels.data(), /*nearest=*/true);
+#else
+    (void)width;
+    (void)height;
+    (void)pixels;
     return nullptr;
+#endif
 }
 
-SharedImageResource VulkanRenderDevice::createImageResourceFromImageData(int /*width*/, int /*height*/,
-                                                                         int /*channels*/,
-                                                                         const unsigned char * /*pixels*/,
+SharedImageResource VulkanRenderDevice::createImageResourceFromImageData(int width, int height, int channels,
+                                                                         const unsigned char *pixels,
                                                                          bool /*generateMipmaps*/) const
 {
-    // TODO(vulkan, M5): implement image/texture resources.
+#if defined(WHATSCANVAS_ENABLE_VULKAN)
+    if (!context_ || !context_->deviceReady || width <= 0 || height <= 0 || pixels == nullptr || channels < 1
+        || channels > 4) {
+        return nullptr;
+    }
+    // Expand to tightly-packed RGBA8.
+    const std::size_t pixelCount = static_cast<std::size_t>(width) * static_cast<std::size_t>(height);
+    std::vector<unsigned char> rgba(pixelCount * 4u, 255);
+    for (std::size_t i = 0; i < pixelCount; ++i) {
+        const unsigned char *src = pixels + i * channels;
+        unsigned char *dst = rgba.data() + i * 4u;
+        switch (channels) {
+        case 1:
+            dst[0] = dst[1] = dst[2] = src[0];
+            dst[3] = 255;
+            break;
+        case 2:
+            dst[0] = dst[1] = dst[2] = src[0];
+            dst[3] = src[1];
+            break;
+        case 3:
+            dst[0] = src[0];
+            dst[1] = src[1];
+            dst[2] = src[2];
+            dst[3] = 255;
+            break;
+        default: // 4
+            dst[0] = src[0];
+            dst[1] = src[1];
+            dst[2] = src[2];
+            dst[3] = src[3];
+            break;
+        }
+    }
+    return createSampledTexture(context_.get(), width, height, rgba.data(), /*nearest=*/false);
+#else
+    (void)width;
+    (void)height;
+    (void)channels;
+    (void)pixels;
     return nullptr;
+#endif
 }
 
-bool VulkanRenderDevice::updateImageResourceRGBA(const SharedImageResource & /*imageResource*/, int /*x*/, int /*y*/,
-                                                 int /*width*/, int /*height*/, const unsigned char * /*pixels*/,
-                                                 bool /*regenerateMipmaps*/) const
+bool VulkanRenderDevice::updateImageResourceRGBA(const SharedImageResource &imageResource, int x, int y, int width,
+                                                 int height, const unsigned char *pixels,
+                                                 bool regenerateMipmaps) const
 {
-    // TODO(vulkan, M5): implement partial image updates.
+#if defined(WHATSCANVAS_ENABLE_VULKAN)
+    if (!imageResource) {
+        return false;
+    }
+    return imageResource->updateRGBA(x, y, width, height, pixels, regenerateMipmaps);
+#else
+    (void)imageResource;
+    (void)x;
+    (void)y;
+    (void)width;
+    (void)height;
+    (void)pixels;
+    (void)regenerateMipmaps;
     return false;
+#endif
+}
+
+bool VulkanRenderDevice::renderTexturedQuad(const std::unique_ptr<IRenderTarget> &target,
+                                            const SharedImageResource &imageResource) const
+{
+#if defined(WHATSCANVAS_ENABLE_VULKAN)
+    if (!context_ || !context_->deviceReady || !target || !imageResource) {
+        return false;
+    }
+    auto *rt = dynamic_cast<VulkanRenderTarget *>(target.get());
+    auto *tex = dynamic_cast<VulkanTextureResource *>(imageResource.get());
+    if (rt == nullptr || tex == nullptr || !rt->isValid() || !tex->isValid()) {
+        return false;
+    }
+    if (!context_->ensureTexturePipeline(rt->renderPass())) {
+        return false;
+    }
+
+    VkDevice device = context_->device;
+
+    // Descriptor pool + set for this draw (combined image sampler).
+    VkDescriptorPoolSize poolSize{};
+    poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    poolSize.descriptorCount = 1;
+    VkDescriptorPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.maxSets = 1;
+    poolInfo.poolSizeCount = 1;
+    poolInfo.pPoolSizes = &poolSize;
+    VkDescriptorPool pool = VK_NULL_HANDLE;
+    if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &pool) != VK_SUCCESS) {
+        return false;
+    }
+
+    VkDescriptorSetAllocateInfo setAlloc{};
+    setAlloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    setAlloc.descriptorPool = pool;
+    setAlloc.descriptorSetCount = 1;
+    setAlloc.pSetLayouts = &context_->texDescriptorSetLayout;
+    VkDescriptorSet set = VK_NULL_HANDLE;
+    if (vkAllocateDescriptorSets(device, &setAlloc, &set) != VK_SUCCESS) {
+        vkDestroyDescriptorPool(device, pool, nullptr);
+        return false;
+    }
+
+    VkDescriptorImageInfo imageDescriptor{};
+    imageDescriptor.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    imageDescriptor.imageView = tex->view();
+    imageDescriptor.sampler = tex->sampler();
+    VkWriteDescriptorSet write{};
+    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.dstSet = set;
+    write.dstBinding = 0;
+    write.descriptorCount = 1;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    write.pImageInfo = &imageDescriptor;
+    vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+
+    // Full-target quad with UVs (top-left origin: NDC (-1,-1) -> UV (0,0)).
+    const std::array<float, 24> quad = {
+        -1.0f, -1.0f, 0.0f, 0.0f, 1.0f, -1.0f, 1.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f,
+        -1.0f, -1.0f, 0.0f, 0.0f, 1.0f,  1.0f, 1.0f, 1.0f, -1.0f, 1.0f, 0.0f, 1.0f,
+    };
+    const VkDeviceSize vertexBytes = quad.size() * sizeof(float);
+    VkBuffer vertexBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory vertexMemory = VK_NULL_HANDLE;
+    if (!context_->createHostVisibleBuffer(vertexBytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertexBuffer,
+                                           vertexMemory)) {
+        vkDestroyDescriptorPool(device, pool, nullptr);
+        return false;
+    }
+    void *mapped = nullptr;
+    if (vkMapMemory(device, vertexMemory, 0, vertexBytes, 0, &mapped) != VK_SUCCESS) {
+        vkDestroyBuffer(device, vertexBuffer, nullptr);
+        vkFreeMemory(device, vertexMemory, nullptr);
+        vkDestroyDescriptorPool(device, pool, nullptr);
+        return false;
+    }
+    std::memcpy(mapped, quad.data(), static_cast<std::size_t>(vertexBytes));
+    vkUnmapMemory(device, vertexMemory);
+
+    VkCommandBuffer cmd = context_->beginSingleTimeCommands();
+    bool submitted = false;
+    if (cmd != VK_NULL_HANDLE) {
+        VkClearValue clearValue{};
+        clearValue.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
+        VkRenderPassBeginInfo renderPassInfo{};
+        renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        renderPassInfo.renderPass = rt->renderPass();
+        renderPassInfo.framebuffer = rt->framebuffer();
+        renderPassInfo.renderArea.offset = {0, 0};
+        renderPassInfo.renderArea.extent = {static_cast<std::uint32_t>(rt->width()),
+                                            static_cast<std::uint32_t>(rt->height())};
+        renderPassInfo.clearValueCount = 1;
+        renderPassInfo.pClearValues = &clearValue;
+        vkCmdBeginRenderPass(cmd, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+        VkViewport viewport{};
+        viewport.width = static_cast<float>(rt->width());
+        viewport.height = static_cast<float>(rt->height());
+        viewport.maxDepth = 1.0f;
+        vkCmdSetViewport(cmd, 0, 1, &viewport);
+        VkRect2D scissor{};
+        scissor.extent = {static_cast<std::uint32_t>(rt->width()), static_cast<std::uint32_t>(rt->height())};
+        vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, context_->texPipeline);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, context_->texPipelineLayout, 0, 1, &set, 0,
+                                nullptr);
+        const VkDeviceSize offset = 0;
+        vkCmdBindVertexBuffers(cmd, 0, 1, &vertexBuffer, &offset);
+        vkCmdDraw(cmd, 6, 1, 0, 0);
+        vkCmdEndRenderPass(cmd);
+        submitted = context_->endSingleTimeCommands(cmd);
+    }
+
+    vkDestroyBuffer(device, vertexBuffer, nullptr);
+    vkFreeMemory(device, vertexMemory, nullptr);
+    vkDestroyDescriptorPool(device, pool, nullptr);
+
+    if (!submitted) {
+        return false;
+    }
+    rt->setLayout(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    rt->markReadbackReady();
+    context_->readbackImage = rt->image();
+    context_->readbackLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    context_->readbackWidth = rt->width();
+    context_->readbackHeight = rt->height();
+    return true;
+#else
+    (void)target;
+    (void)imageResource;
+    return false;
+#endif
 }
 
 SharedImageResource VulkanRenderDevice::wrapExternalImageResource(ImageResourceHandle /*handle*/) const
