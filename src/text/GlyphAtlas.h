@@ -1,8 +1,10 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace wsc::text {
@@ -22,6 +24,11 @@ struct GlyphKey
     GlyphBitmapFormat format = GlyphBitmapFormat::Alpha;
 
     bool operator==(const GlyphKey &other) const;
+};
+
+struct GlyphKeyHasher
+{
+    std::size_t operator()(const GlyphKey &key) const;
 };
 
 struct GlyphBitmap
@@ -61,6 +68,8 @@ struct GlyphAtlasStats
     std::size_t usedBytes = 0;
     std::size_t uploadCount = 0;
     std::size_t evictionCount = 0;
+    std::size_t resizeCount = 0;
+    std::size_t dirtyRectCollapseCount = 0;
     std::uint64_t generation = 0;
     bool textureValid = false;
 };
@@ -93,12 +102,16 @@ public:
     GlyphAtlasStats stats() const;
 
 private:
-    bool canStore(const GlyphBitmap &bitmap) const;
+    bool hasValidPixels(const GlyphBitmap &bitmap) const;
+    bool canStoreDimensions(int width, int height) const;
     bool allocateRect(int width, int height, int &x, int &y);
+    bool growToFit(int width, int height);
     void resetPacking();
     void rememberRebuildKeys();
     void markDirtyRect(int x, int y, int width, int height);
     void markFullDirty();
+    std::size_t fullDirtyArea() const;
+    bool hasFullDirtyRect() const;
     void writeGlyphPixels(const GlyphAtlasEntry &entry, const GlyphBitmap &bitmap);
 
     int width_ = 0;
@@ -108,12 +121,16 @@ private:
     int cursorY_ = 0;
     int rowHeight_ = 0;
     std::vector<GlyphAtlasEntry> entries_;
+    std::unordered_map<GlyphKey, std::size_t, GlyphKeyHasher> entryIndex_;
     std::vector<GlyphKey> pendingRebuildKeys_;
     std::vector<GlyphAtlasDirtyRect> dirtyRects_;
+    std::size_t dirtyRectArea_ = 0;
     std::vector<unsigned char> pixels_;
     std::vector<unsigned char> rgbaPixels_;
     std::size_t uploadCount_ = 0;
     std::size_t evictionCount_ = 0;
+    std::size_t resizeCount_ = 0;
+    std::size_t dirtyRectCollapseCount_ = 0;
     std::uint64_t generation_ = 1;
     bool textureValid_ = true;
     bool hasColorPixels_ = false;

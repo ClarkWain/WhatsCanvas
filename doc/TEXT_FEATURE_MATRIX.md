@@ -11,9 +11,12 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 | Native Windows text bitmap path | Supported | Used when a font family is supplied and native measurement/render succeeds. |
 | Cross-platform font rasterization | Supported | Registered file-backed or memory-backed TrueType faces can be rasterized through the portable font rasterizer; FreeType is used when available and `stb_truetype` remains the dependency-free fallback. |
 | Optional FreeType rasterizer | Build-time supported | When FreeType is found and `WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=ON`, glyph lookup, metrics, kerning, and alpha glyph rasterization use FreeType. |
+| Font rasterizer cache policy | Supported | Loaded font faces are bounded by a mutex-protected LRU cache with explicit capacity control, cache clearing, and hit/miss/eviction stats. |
 | Atlas-backed glyph rendering | Supported | Rasterized glyphs are packed into `GlyphAtlas`; Canvas submits atlas quads through the image path. |
+| Indexed glyph lookup | Supported | `GlyphAtlas` maintains a hash index from glyph key to entry slot, avoiding linear scans on repeated glyph uploads in longer text runs. |
 | Persistent GPU atlas resource | Supported | Canvas owns a reusable GPU atlas image resource and updates it when the CPU atlas content changes. |
 | Dirty-rect atlas updates | Supported | Glyph uploads expose dirty rectangles; Canvas updates matching GPU atlas subregions when possible. |
+| Dirty-rect collapse | Supported | Glyph uploads keep precise dirty rectangles for short updates and collapse to one full-atlas dirty rectangle when a long text run would exceed the per-frame dirty-rect count or dirty-area budget; collapse events are exposed through atlas stats. |
 | RGBA glyph atlas path | Supported | `GlyphAtlas`, text render results, and Canvas atlas upload can carry RGBA glyph pixels for color font layers and alpha-derived glyphs. |
 | Color font table detection | Contract supported | Font rasterizer utilities can detect COLR/CPAL, CBDT/CBLC, SBIX, and SVG OpenType tables as a backend capability probe before concrete glyph extraction. |
 | COLR/CPAL v0 glyph decoding | Supported | Portable font rasterization can decode COLR/CPAL v0 layer records, rasterize each layer outline, composite palette colors into RGBA glyph bitmaps, and upload them through the atlas path. |
@@ -28,6 +31,7 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 | Public font face model | Supported | `FontFace`, `FontDescriptor`, `FontFallbackChain`, and `FontManager` are public value/model types. |
 | Font file registration contract | Supported | `ITextBackend::registerFontFace` accepts file-backed faces. |
 | Font memory registration contract | Supported | `ITextBackend::registerFontFace` accepts memory-backed faces. |
+| TrueType Collection face selection | Supported | `FontFace::fromFile` and `FontFace::fromMemory` accept a collection face index; portable rasterization, FreeType loading, `stb_truetype` loading, cache keys, and color table detection honor the selected face. |
 | Fallback chain contract | Supported | `ITextBackend::setFontFallbackChain` and `resolveFontFamilies` define resolution order. |
 | Text metrics | Supported | `measureText`, `measureTextBounds`, `measureTextMetrics`, and backend metrics are available; registered font metrics use real ascent/descent/line-gap data. |
 | Bounded multiline layout | Supported | `Canvas::layoutTextBox` returns line rows, source ranges, widths, line height, and ellipsis state; line breaking supports ASCII words, tab/Unicode space separators, zero-width break opportunities, long unspaced tokens, basic CJK no-space wrapping, common CJK punctuation attachment, and UTF-8-safe ellipsis trimming. |
@@ -43,6 +47,7 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 | Diagnostics hook | Contract supported | Backend diagnostics report rejected font/fallback registration events. |
 | Fallback range query | Contract supported | Font faces can declare codepoint ranges; glyph availability resolves primary and fallback families. |
 | Missing glyph diagnostics | Contract supported | Missing non-ASCII glyph queries add coalesced diagnostics with codepoint and requested family. |
+| Raster text fallback diagnostics | Contract supported | Raster shaping, face resolution, glyph rasterization, atlas upload, and atlas retry failures add coalesced diagnostics before falling back to alternate text rendering. |
 | Missing glyph render hooks | Contract supported | Geometry fallback render results expose missing glyph codepoints and source ranges. |
 
 ## Planned Backend Work

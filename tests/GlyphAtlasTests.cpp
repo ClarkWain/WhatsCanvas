@@ -95,22 +95,84 @@ bool testDuplicateUploadHitsCache()
     return ok;
 }
 
-bool testEvictionAndOversizedGlyph()
+bool testResizeAndOversizedGlyph()
 {
     wsc::text::GlyphAtlas atlas(12, 8, 1);
     bool ok = expect(atlas.uploadGlyph(makeKey('A'), makeBitmap(3, 3, 20)).has_value(), "first glyph should fit");
     ok = expect(atlas.uploadGlyph(makeKey('B'), makeBitmap(3, 3, 40)).has_value(), "second glyph should fit");
     ok = expect(atlas.uploadGlyph(makeKey('C'), makeBitmap(3, 3, 60)).has_value(),
-                "third glyph should evict and fit") && ok;
-    ok = expect(atlas.stats().evictionCount == 1, "atlas should count eviction") && ok;
-    ok = expect(atlas.pendingRebuildKeys().size() == 2, "eviction should remember replaced glyphs") && ok;
+                "third glyph should resize and fit") && ok;
+    ok = expect(atlas.stats().resizeCount == 1, "atlas should count resize before eviction") && ok;
+    ok = expect(atlas.stats().evictionCount == 0, "atlas should not evict when resize can make room") && ok;
+    ok = expect(atlas.pendingRebuildKeys().size() == 2, "resize should remember replaced glyphs") && ok;
+    ok = expect(atlas.stats().width > 12 || atlas.stats().height > 8, "resize should grow atlas dimensions") && ok;
     const auto dirtyRects = atlas.consumeDirtyRects();
-    ok = expect(!dirtyRects.empty(), "eviction should mark atlas dirty") && ok;
+    ok = expect(!dirtyRects.empty(), "resize should mark atlas dirty") && ok;
     ok = expect(dirtyRects.front().x == 0 && dirtyRects.front().y == 0
-                    && dirtyRects.front().width == 12 && dirtyRects.front().height == 8,
-                "eviction should dirty the full atlas because old glyph pixels were cleared") && ok;
-    ok = expect(!atlas.uploadGlyph(makeKey('Z'), makeBitmap(16, 16, 255)).has_value(),
+                    && dirtyRects.front().width == atlas.stats().width && dirtyRects.front().height == atlas.stats().height,
+                "resize should dirty the full atlas because old glyph pixels were cleared") && ok;
+    ok = expect(!atlas.uploadGlyph(makeKey('Z'), makeBitmap(5000, 16, 255)).has_value(),
                 "oversized glyph should be rejected") && ok;
+    return ok;
+}
+
+bool testLookupIndexClearsAfterReset()
+{
+    wsc::text::GlyphAtlas atlas(12, 8, 1);
+    bool ok = expect(atlas.uploadGlyph(makeKey('A'), makeBitmap(3, 3, 20)).has_value(), "first indexed glyph should fit");
+    ok = expect(atlas.uploadGlyph(makeKey('B'), makeBitmap(3, 3, 40)).has_value(), "second indexed glyph should fit") && ok;
+    ok = expect(atlas.find(makeKey('A')) != nullptr, "indexed glyph lookup should hit before reset") && ok;
+
+    ok = expect(atlas.uploadGlyph(makeKey('C'), makeBitmap(3, 3, 60)).has_value(),
+                "third glyph should force resize") && ok;
+    ok = expect(atlas.find(makeKey('A')) == nullptr,
+                "resize should clear lookup index for entries that need rebuild") && ok;
+    ok = expect(atlas.find(makeKey('C')) != nullptr,
+                "lookup index should include glyph uploaded after resize") && ok;
+
+    atlas.onContextLost();
+    ok = expect(atlas.find(makeKey('C')) == nullptr,
+                "context loss should clear lookup index for evicted entries") && ok;
+    return ok;
+}
+
+bool testDirtyRectsCollapseToFullAtlas()
+{
+    wsc::text::GlyphAtlas atlas(512, 16, 0);
+    bool ok = true;
+    for (std::uint32_t codepoint = 0; codepoint < 80; ++codepoint) {
+        ok = expect(atlas.uploadGlyph(makeKey('A' + codepoint), makeBitmap(2, 2, 80)).has_value(),
+                    "many small glyphs should upload without resizing") && ok;
+    }
+
+    const auto dirtyRects = atlas.consumeDirtyRects();
+    ok = expect(dirtyRects.size() == 1, "many dirty glyph rects should collapse to one full atlas rect") && ok;
+    ok = expect(atlas.stats().dirtyRectCollapseCount == 1,
+                "dirty rect collapse should be counted in atlas stats") && ok;
+    ok = expect(dirtyRects.front().x == 0 && dirtyRects.front().y == 0
+                    && dirtyRects.front().width == atlas.stats().width
+                    && dirtyRects.front().height == atlas.stats().height,
+                "collapsed dirty rect should cover the full atlas") && ok;
+    return ok;
+}
+
+bool testDirtyRectsCollapseByArea()
+{
+    wsc::text::GlyphAtlas atlas(128, 64, 0);
+    bool ok = true;
+    for (std::uint32_t codepoint = 0; codepoint < 3; ++codepoint) {
+        ok = expect(atlas.uploadGlyph(makeKey('A' + codepoint), makeBitmap(40, 40, 90)).has_value(),
+                    "large glyphs should upload without resizing") && ok;
+    }
+
+    const auto dirtyRects = atlas.consumeDirtyRects();
+    ok = expect(dirtyRects.size() == 1, "large dirty glyph area should collapse to one full atlas rect") && ok;
+    ok = expect(atlas.stats().dirtyRectCollapseCount == 1,
+                "area-based dirty rect collapse should be counted in atlas stats") && ok;
+    ok = expect(dirtyRects.front().x == 0 && dirtyRects.front().y == 0
+                    && dirtyRects.front().width == atlas.stats().width
+                    && dirtyRects.front().height == atlas.stats().height,
+                "area-collapsed dirty rect should cover the full atlas") && ok;
     return ok;
 }
 
@@ -157,7 +219,10 @@ int main()
     bool ok = true;
     ok = testUploadAndFind() && ok;
     ok = testDuplicateUploadHitsCache() && ok;
-    ok = testEvictionAndOversizedGlyph() && ok;
+    ok = testResizeAndOversizedGlyph() && ok;
+    ok = testLookupIndexClearsAfterReset() && ok;
+    ok = testDirtyRectsCollapseToFullAtlas() && ok;
+    ok = testDirtyRectsCollapseByArea() && ok;
     ok = testContextLossRebuildHooks() && ok;
     ok = testColorGlyphUploadKeepsRgbaPixels() && ok;
     return ok ? 0 : 1;

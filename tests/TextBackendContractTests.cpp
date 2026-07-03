@@ -1,8 +1,11 @@
 #include <iostream>
 #include <fstream>
+#include <atomic>
 #include <cmath>
+#include <functional>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "canvas/Paint.h"
@@ -66,6 +69,34 @@ bool testLineBreakAndGlyphQuery()
         && expect(lines.front().width > 0.0f, "line break should report measured width")
         && expect(backend->hasGlyphForCodepoint('A', paint), "ASCII glyph should be available")
         && expect(backend->hasGlyphForCodepoint(0x200F, paint), "bidi controls should not require font glyphs");
+}
+
+bool testBasicBackendUsesSystemFontFallbackWhenAvailable()
+{
+    bool hasDefaultPrimary = false;
+    for (const wsc::FontFace &face : wsc::FontSystem::defaultSystemFontFaces()) {
+        hasDefaultPrimary = hasDefaultPrimary || face.family() == wsc::FontSystem::kDefaultPrimaryFamily;
+    }
+    if (!hasDefaultPrimary) {
+        return true;
+    }
+
+    std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createBasicTextBackend();
+    Paint paint;
+    paint.setTextSize(18.0f);
+    const std::vector<std::string> families = backend->resolveFontFamilies(std::string());
+    const wsc::text::TextRenderResult rendered = backend->renderText("System text", 4.0f, 8.0f, paint);
+    const wsc::text::TextMetrics metrics = backend->measureTextMetrics("System text", paint);
+
+    return expect(!families.empty(), "basic backend should expose default system fallback families")
+        && expect(families.front() == wsc::FontSystem::kDefaultPrimaryFamily,
+                  "default system fallback should resolve primary first")
+        && expect(rendered.kind == wsc::text::TextRenderKind::GlyphAtlas,
+                  "basic backend should render default system text through glyph atlas when available")
+        && expect(!rendered.glyphAtlasQuads.empty(),
+                  "system glyph atlas text should emit glyph quads")
+        && expect(metrics.lineHeight > 0.0f,
+                  "system font metrics should expose a positive line height");
 }
 
 bool testCrLfLineBreakQuery()
@@ -275,6 +306,83 @@ bool testPortableBackendUsesRgbaAtlasForColorGlyphs()
     return ok;
 }
 
+bool testFontRasterizerCachePolicy()
+{
+    wsc::text::FontRasterizer rasterizer;
+    rasterizer.clearCache();
+    rasterizer.setCacheCapacity(2);
+
+    const std::vector<std::uint8_t> invalidBytes = {1, 2, 3, 4};
+    wsc::FontFace first = wsc::FontFace::fromMemory(wsc::FontDescriptor("CacheOne"), invalidBytes);
+    wsc::FontFace second = wsc::FontFace::fromMemory(wsc::FontDescriptor("CacheTwo"), invalidBytes);
+    wsc::FontFace third = wsc::FontFace::fromMemory(wsc::FontDescriptor("CacheThree"), invalidBytes);
+
+    const bool firstLoad = rasterizer.hasGlyph(first, 'A');
+    const bool firstCachedLoad = rasterizer.hasGlyph(first, 'B');
+    const bool secondLoad = rasterizer.hasGlyph(second, 'A');
+    const bool thirdLoad = rasterizer.hasGlyph(third, 'A');
+    const wsc::text::FontRasterizerCacheStats stats = rasterizer.cacheStats();
+
+    bool ok = expect(!firstLoad && !firstCachedLoad && !secondLoad && !thirdLoad,
+                     "invalid cached font faces should not claim glyph coverage");
+    ok = expect(stats.capacity == 2, "font rasterizer cache should expose configured capacity") && ok;
+    ok = expect(stats.faceCount == 2, "font rasterizer cache should enforce face capacity") && ok;
+    ok = expect(stats.hitCount >= 1, "font rasterizer cache should count repeated face hits") && ok;
+    ok = expect(stats.missCount >= 3, "font rasterizer cache should count new face misses") && ok;
+    ok = expect(stats.evictionCount >= 1, "font rasterizer cache should evict least recently used faces") && ok;
+
+    rasterizer.clearCache();
+    rasterizer.setCacheCapacity(64);
+    const wsc::text::FontRasterizerCacheStats cleared = rasterizer.cacheStats();
+    ok = expect(cleared.faceCount == 0, "font rasterizer cache clear should release loaded faces") && ok;
+    ok = expect(cleared.hitCount == 0 && cleared.missCount == 0 && cleared.evictionCount == 0,
+                "font rasterizer cache clear should reset counters") && ok;
+    return ok;
+}
+
+bool testFontRasterizerCacheThreadSafety()
+{
+    wsc::text::FontRasterizer rasterizer;
+    rasterizer.clearCache();
+    rasterizer.setCacheCapacity(4);
+
+    const std::vector<std::uint8_t> invalidBytes = {1, 2, 3, 4};
+    wsc::FontFace first = wsc::FontFace::fromMemory(wsc::FontDescriptor("ThreadCacheOne"), invalidBytes);
+    wsc::FontFace second = wsc::FontFace::fromMemory(wsc::FontDescriptor("ThreadCacheTwo"), invalidBytes);
+    std::atomic<int> completed{0};
+
+    auto query = [&](const wsc::FontFace &face, std::uint32_t baseCodepoint) {
+        for (int i = 0; i < 128; ++i) {
+            (void)rasterizer.hasGlyph(face, baseCodepoint + static_cast<std::uint32_t>(i % 8));
+            (void)rasterizer.glyphMetrics(face, baseCodepoint + static_cast<std::uint32_t>(i % 8), 16.0f);
+            (void)rasterizer.cacheStats();
+        }
+        ++completed;
+    };
+
+    std::thread firstThread(query, std::cref(first), static_cast<std::uint32_t>('A'));
+    std::thread secondThread(query, std::cref(second), static_cast<std::uint32_t>('a'));
+    std::thread capacityThread([&]() {
+        for (int i = 0; i < 64; ++i) {
+            rasterizer.setCacheCapacity((i % 3) + 1);
+            (void)rasterizer.cacheStats();
+        }
+        ++completed;
+    });
+
+    firstThread.join();
+    secondThread.join();
+    capacityThread.join();
+
+    const wsc::text::FontRasterizerCacheStats stats = rasterizer.cacheStats();
+    bool ok = expect(completed == 3, "font rasterizer cache threads should complete");
+    ok = expect(stats.faceCount <= stats.capacity,
+                "threaded font rasterizer cache access should preserve capacity invariant") && ok;
+    rasterizer.clearCache();
+    rasterizer.setCacheCapacity(64);
+    return ok;
+}
+
 bool testPortableBackendAppliesSimpleKerning()
 {
     const std::string fontPath = findSystemFontPath();
@@ -309,6 +417,32 @@ bool testPortableBackendAppliesSimpleKerning()
 
     ok = expect(std::abs(measured - expected) < 0.01f,
                 "portable simple shaping should apply registered-font glyph kerning") && ok;
+    return ok;
+}
+
+bool testRasterTextFailureAddsDiagnostic()
+{
+    std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createPortableTextBackend();
+    wsc::FontFace broken = wsc::FontFace::fromMemory(wsc::FontDescriptor("BrokenRaster"),
+                                                     std::vector<std::uint8_t>{1, 2, 3, 4});
+    bool ok = expect(backend->registerFontFace(broken), "broken memory font model should register for diagnostics");
+
+    Paint paint;
+    paint.setTextSize(18.0f);
+    paint.setFontFamily("BrokenRaster");
+    const wsc::text::TextRenderResult rendered = backend->renderText("A", 0.0f, 0.0f, paint);
+    const std::vector<wsc::text::TextBackendDiagnostic> diagnostics = backend->diagnostics();
+
+    bool sawRasterDiagnostic = false;
+    for (const wsc::text::TextBackendDiagnostic &diagnostic : diagnostics) {
+        sawRasterDiagnostic = sawRasterDiagnostic
+            || diagnostic.message.find("Raster text shaping failed") != std::string::npos;
+    }
+
+    ok = expect(rendered.kind == wsc::text::TextRenderKind::Geometry,
+                "failed raster text should fall back to geometry rendering") && ok;
+    ok = expect(sawRasterDiagnostic,
+                "failed raster text render should add a backend diagnostic") && ok;
     return ok;
 }
 
@@ -460,6 +594,7 @@ int main()
 {
     const bool ok = testFontRegistrationAndFallback()
         && testLineBreakAndGlyphQuery()
+        && testBasicBackendUsesSystemFontFallbackWhenAvailable()
         && testCrLfLineBreakQuery()
         && testCjkLineBreakQuery()
         && testLongWordLineBreakQuery()
@@ -468,7 +603,10 @@ int main()
         && testPortableBackendSkipsZeroWidthBreak()
         && testPortableBackendUsesGlyphAtlasForRegisteredFont()
         && testPortableBackendUsesRgbaAtlasForColorGlyphs()
+        && testFontRasterizerCachePolicy()
+        && testFontRasterizerCacheThreadSafety()
         && testPortableBackendAppliesSimpleKerning()
+        && testRasterTextFailureAddsDiagnostic()
         && testPortableBackendResolvesFallbackGlyphRange()
         && testPortableBackendShapesFallbackFontSegments()
         && testOpenTypeShapingRequestFallsBackWithDiagnostic()

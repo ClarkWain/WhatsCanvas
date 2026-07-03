@@ -23,6 +23,7 @@ This directory is the top-level home for WhatsCanvas validation beyond ad-hoc lo
 - `scripts/validation_scene_smoke.bat` / `scripts/validation_scene_smoke.sh`: six-scene render smoke gate covering text, images, gradients/effects, clipping, transforms, and saveLayer.
 - `scripts/opengles_build_smoke.bat` / `scripts/opengles_build_smoke.sh`: OpenGLES-only configure/build smoke gate.
 - `scripts/regression_smoke.bat` / `scripts/regression_smoke.sh`: strict local pixel-baseline gate.
+- `scripts/text_pixel_regression.bat` / `scripts/text_pixel_regression.sh`: font-only pixel regression for the `font-regression` and `text-showcase` scenes against `tests/baselines/text/*.ppm`; set `WHATSCANVAS_UPDATE_TEXT_BASELINES=1` to refresh baselines, or `WHATSCANVAS_TEXT_REGRESSION_SCENES=font-regression` to narrow the scene list locally.
 - `scripts/compare_ppm_fuzzy.py`: binary P6 PPM comparison helper for driver-sensitive visual baselines.
 
 ## Intended Growth

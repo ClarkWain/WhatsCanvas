@@ -14,6 +14,10 @@ using namespace wsc;
 const float PI = 3.14159265359f;
 constexpr int kWindowWidth = 800;
 constexpr int kWindowHeight = 600;
+constexpr int kTextShowcaseWindowWidth = 1600;
+constexpr int kTextShowcaseWindowHeight = 900;
+constexpr int kFontRegressionWindowWidth = 960;
+constexpr int kFontRegressionWindowHeight = 540;
 constexpr unsigned int kOpenGLMultisample = 0x809D;
 
 std::string getEnvironmentValue(const char* name)
@@ -105,6 +109,43 @@ std::string utf8ValidationText()
         "\xF0\x9F\x9A\x80 \xF0\x9F\x8C\x88, wrap and ellipsis behavior.";
 }
 
+std::string utf8TextShowcaseCjk()
+{
+    return std::string("\xE8\xB7\xA8\xE5\xB9\xB3\xE5\x8F\xB0\xE5\xAD\x97\xE4\xBD\x93\xE6\xA0\x85\xE6\xA0\xBC\xE5\x8C\x96\xE3\x80\x81") +
+        "\xE5\xAD\x97\xE5\xBD\xA2\xE5\x9B\xBE\xE9\x9B\x86\xE3\x80\x81\xE6\xAE\xB5\xE8\x90\xBD\xE6\x8D\xA2\xE8\xA1\x8C\xE5\x92\x8C\xE7\x9C\x9F\xE5\xAE\x9E\xE5\x9F\xBA\xE7\xBA\xBF\xE6\x8C\x87\xE6\xA0\x87";
+}
+
+std::string utf8TextShowcaseBidi()
+{
+    return std::string("Latin 123 ") +
+        "\xD7\xA9\xD7\x9C\xD7\x95\xD7\x9D" +
+        " 456";
+}
+
+std::string utf8TextShowcaseArabic()
+{
+    return std::string("\xD9\x85\xD8\xB1\xD8\xAD\xD8\xA8\xD8\xA7 ") +
+        "\xD8\xA8\xD8\xA7\xD9\x84\xD8\xB9\xD8\xA7\xD9\x84\xD9\x85 789";
+}
+
+void registerTextShowcaseFonts(Canvas& canvas)
+{
+#ifdef _WIN32
+    canvas.registerFontFace(FontFace::fromFile(FontDescriptor("InterShowcase"), "C:/Windows/Fonts/segoeui.ttf"));
+    canvas.registerFontFace(FontFace::fromFile(FontDescriptor("InterShowcase", 700), "C:/Windows/Fonts/segoeuib.ttf"));
+    canvas.registerFontFace(FontFace::fromFile(FontDescriptor("MonoShowcase"), "C:/Windows/Fonts/consola.ttf"));
+    canvas.registerFontFace(FontFace::fromFile(FontDescriptor("CjkShowcase"), "C:/Windows/Fonts/msyh.ttc", 0));
+    canvas.registerFontFace(FontFace::fromFile(FontDescriptor("ArabicShowcase"), "C:/Windows/Fonts/arial.ttf"));
+    canvas.registerFontFace(FontFace::fromFile(FontDescriptor("SerifShowcase"), "C:/Windows/Fonts/georgia.ttf"));
+
+    FontFallbackChain chain("InterShowcase");
+    chain.addFallbackFamily("CjkShowcase");
+    chain.addFallbackFamily("ArabicShowcase");
+    chain.addFallbackFamily("SerifShowcase");
+    canvas.setFontFallbackChain(chain);
+#endif
+}
+
 struct ValidationImages
 {
     Image checker;
@@ -189,6 +230,204 @@ void drawTextHeavyValidationScene(Canvas& canvas, float currentTime)
     pathText.setFontFamily("Georgia");
     pathText.setLetterSpacing(1.0f);
     canvas.drawTextOnPath("path text metrics transform clip", wave, std::fmod(currentTime * 24.0f, 80.0f), -12.0f, pathText);
+}
+
+void drawTextShowcaseScene(Canvas& canvas, float currentTime)
+{
+    Paint background;
+    background.setStyle(Paint::Style::FILL);
+    background.setLinearGradient(0.0f, 0.0f, 1600.0f, 900.0f,
+                                 {
+                                     Paint::ColorStop(0.0f, Color(20, 26, 38)),
+                                     Paint::ColorStop(0.50f, Color(32, 41, 46)),
+                                     Paint::ColorStop(1.0f, Color(48, 43, 32))
+                                 });
+    canvas.drawRect(RectF(0.0f, 0.0f, 1600.0f, 900.0f), background);
+
+    Paint panel;
+    panel.setStyle(Paint::Style::FILL_AND_STROKE);
+    panel.setFillColor(Color(255, 255, 255, 20));
+    panel.setStrokeColor(Color(255, 255, 255, 48));
+    panel.setStrokeWidth(2.0f);
+
+    Paint label;
+    label.setStyle(Paint::Style::FILL);
+    label.setFillColor(Color(170, 222, 255, 230));
+    label.setTextSize(18.0f);
+    label.setFontFamily("MonoShowcase");
+    label.setLetterSpacing(1.4f);
+
+    Paint hero;
+    hero.setStyle(Paint::Style::FILL);
+    hero.setFillColor(Color(255, 250, 230, 245));
+    hero.setTextSize(74.0f);
+    hero.setFontFamily("InterShowcase");
+    hero.setShadowLayer(12.0f, 0.0f, 8.0f, Color(0, 0, 0, 150));
+    canvas.drawText("Text rendering showcase", 72.0f, 66.0f, hero);
+
+    Paint caption;
+    caption.setStyle(Paint::Style::FILL);
+    caption.setFillColor(Color(225, 232, 240, 220));
+    caption.setTextSize(27.0f);
+    caption.setFontFamily("InterShowcase");
+    canvas.drawText("Real Canvas output: fallback shaping, atlas glyphs, wrapping, stroke, shadow and path text.", 78.0f, 156.0f, caption);
+
+    canvas.drawRoundRect(RectF(64.0f, 220.0f, 700.0f, 250.0f), 14.0f, panel);
+    canvas.drawText("FONT FALLBACK + CJK WRAP", 104.0f, 254.0f, label);
+    Paint cjk;
+    cjk.setStyle(Paint::Style::FILL);
+    cjk.setFillColor(Color(246, 248, 255, 235));
+    cjk.setTextSize(42.0f);
+    cjk.setFontFamily("InterShowcase");
+    cjk.setLetterSpacing(0.4f);
+    canvas.drawTextBox(utf8TextShowcaseCjk(), RectF(104.0f, 300.0f, 600.0f, 112.0f), 52.0f, 2, true, cjk);
+    Paint small;
+    small.setStyle(Paint::Style::FILL);
+    small.setFillColor(Color(190, 200, 210, 210));
+    small.setTextSize(20.0f);
+    small.setFontFamily("InterShowcase");
+    canvas.drawText("file / memory / TTC face index capable", 104.0f, 430.0f, small);
+
+    canvas.drawRoundRect(RectF(836.0f, 220.0f, 700.0f, 250.0f), 14.0f, panel);
+    canvas.drawText("GRADIENT + STROKE + METRICS", 876.0f, 254.0f, label);
+    Paint outlined;
+    outlined.setStyle(Paint::Style::FILL_AND_STROKE);
+    outlined.setFillColor(Color(255, 235, 150, 245));
+    outlined.setStrokeColor(Color(55, 70, 92, 245));
+    outlined.setStrokeWidth(5.0f);
+    outlined.setTextSize(72.0f);
+    outlined.setFontFamily("InterShowcase");
+    outlined.setShadowLayer(9.0f, 0.0f, 7.0f, Color(0, 0, 0, 120));
+    outlined.setLinearGradient(876.0f, 300.0f, 1210.0f, 365.0f,
+                               {
+                                   Paint::ColorStop(0.0f, Color(255, 245, 145, 245)),
+                                   Paint::ColorStop(0.45f, Color(120, 220, 255, 245)),
+                                   Paint::ColorStop(1.0f, Color(255, 150, 225, 245))
+                               });
+    canvas.drawText("Aa Glyphs", 876.0f, 310.0f, outlined);
+    Paint mono = small;
+    mono.setFontFamily("MonoShowcase");
+    mono.setFillColor(Color(210, 235, 255, 220));
+    mono.setTextSize(21.0f);
+    const Canvas::TextMetrics metrics = canvas.measureTextMetrics("Aa Glyphs", outlined);
+    canvas.drawText("width=" + std::to_string(static_cast<int>(metrics.width)) +
+                    " ascent=" + std::to_string(static_cast<int>(metrics.ascent)) +
+                    " descent=" + std::to_string(static_cast<int>(metrics.descent)),
+                    876.0f, 408.0f, mono);
+
+    canvas.drawRoundRect(RectF(64.0f, 510.0f, 700.0f, 252.0f), 14.0f, panel);
+    canvas.drawText("BIDI + ALIGNMENT", 104.0f, 544.0f, label);
+    Paint bidi;
+    bidi.setStyle(Paint::Style::FILL);
+    bidi.setFillColor(Color(236, 246, 255, 232));
+    bidi.setTextSize(34.0f);
+    bidi.setFontFamily("InterShowcase");
+    canvas.drawText(utf8TextShowcaseBidi(), 104.0f, 595.0f, bidi);
+    canvas.drawText(utf8TextShowcaseArabic(), 104.0f, 647.0f, bidi);
+    Paint right = bidi;
+    right.setTextAlign(Paint::TextAlign::RIGHT);
+    right.setFillColor(Color(255, 225, 185, 232));
+    canvas.drawText("right aligned", 704.0f, 708.0f, right);
+
+    canvas.drawRoundRect(RectF(836.0f, 510.0f, 700.0f, 252.0f), 14.0f, panel);
+    canvas.drawText("SIZE + LETTER SPACING", 876.0f, 544.0f, label);
+    Paint sizes;
+    sizes.setStyle(Paint::Style::FILL);
+    sizes.setFillColor(Color(245, 247, 250, 235));
+    sizes.setFontFamily("InterShowcase");
+    for (int i = 0; i < 4; ++i) {
+        sizes.setTextSize(22.0f + static_cast<float>(i) * 7.0f);
+        sizes.setLetterSpacing(static_cast<float>(i) * 1.0f);
+        canvas.drawText("Canvas text AaBb 123", 876.0f, 590.0f + static_cast<float>(i) * 42.0f, sizes);
+    }
+
+    Path wave;
+    wave.moveTo(140.0f, 838.0f);
+    wave.cubicTo(420.0f, 748.0f, 610.0f, 892.0f, 900.0f, 818.0f);
+    wave.cubicTo(1110.0f, 758.0f, 1320.0f, 858.0f, 1480.0f, 792.0f);
+
+    Paint wavePaint;
+    wavePaint.setStyle(Paint::Style::STROKE);
+    wavePaint.setStrokeColor(Color(100, 220, 255, 150));
+    wavePaint.setStrokeWidth(6.0f);
+    wavePaint.setStrokeCap(Paint::StrokeCap::ROUND);
+    canvas.drawPath(wave, wavePaint);
+
+    Paint pathText;
+    pathText.setStyle(Paint::Style::FILL);
+    pathText.setFillColor(Color(255, 246, 170, 235));
+    pathText.setTextSize(34.0f);
+    pathText.setFontFamily("SerifShowcase");
+    pathText.setLetterSpacing(1.2f);
+    canvas.drawTextOnPath("text-on-path rendered from glyph atlas", wave, std::fmod(currentTime * 28.0f, 110.0f), -26.0f, pathText);
+}
+
+void drawFontRegressionScene(Canvas& canvas)
+{
+    Paint background;
+    background.setStyle(Paint::Style::FILL);
+    background.setFillColor(Color(18, 22, 28));
+    canvas.drawRect(RectF(0.0f, 0.0f, 960.0f, 540.0f), background);
+
+    Paint text;
+    text.setStyle(Paint::Style::FILL);
+    text.setFillColor(Color(235, 240, 248, 245));
+    text.setTextSize(34.0f);
+    canvas.drawText("System fallback text AaBb 123", 40.0f, 36.0f, text);
+
+    Paint cjk = text;
+    cjk.setTextSize(32.0f);
+    canvas.drawText("\xE7\xB3\xBB\xE7\xBB\x9F\xE5\xAD\x97\xE4\xBD\x93 fallback \xE4\xB8\xAD\xE6\x96\x87\xE6\xB8\xB2\xE6\x9F\x93", 40.0f, 94.0f, cjk);
+
+    Paint bidi = text;
+    bidi.setTextSize(28.0f);
+    canvas.drawText(std::string("Bidi Latin 123 ") +
+                    "\xD7\xA9\xD7\x9C\xD7\x95\xD7\x9D " +
+                    "\xD9\x85\xD8\xB1\xD8\xAD\xD8\xA8\xD8\xA7",
+                    40.0f, 150.0f, bidi);
+
+    Paint gradient = text;
+    gradient.setTextSize(46.0f);
+    gradient.setFontWeight(700);
+    gradient.setLinearGradient(40.0f, 216.0f, 520.0f, 270.0f,
+                               {
+                                   Paint::ColorStop(0.0f, Color(255, 230, 120, 245)),
+                                   Paint::ColorStop(0.45f, Color(90, 220, 255, 245)),
+                                   Paint::ColorStop(1.0f, Color(255, 145, 225, 245))
+                               });
+    canvas.drawText("Gradient glyph atlas", 40.0f, 216.0f, gradient);
+
+    Paint outline = text;
+    outline.setStyle(Paint::Style::FILL_AND_STROKE);
+    outline.setTextSize(42.0f);
+    outline.setFillColor(Color(255, 244, 190, 245));
+    outline.setStrokeColor(Color(35, 50, 72, 245));
+    outline.setStrokeWidth(4.0f);
+    outline.setShadowLayer(7.0f, 3.0f, 4.0f, Color(0, 0, 0, 150));
+    canvas.drawText("Stroke and shadow", 40.0f, 292.0f, outline);
+
+    Paint box = text;
+    box.setTextSize(22.0f);
+    box.setLetterSpacing(0.8f);
+    canvas.drawTextBox("Wrapped text box uses glyph metrics, line height, ellipsis, atlas updates.",
+                       RectF(40.0f, 370.0f, 520.0f, 70.0f), 28.0f, 2, true, box);
+
+    Path wave;
+    wave.moveTo(580.0f, 418.0f);
+    wave.cubicTo(680.0f, 350.0f, 780.0f, 482.0f, 920.0f, 388.0f);
+    Paint wavePaint;
+    wavePaint.setStyle(Paint::Style::STROKE);
+    wavePaint.setStrokeColor(Color(90, 210, 245, 160));
+    wavePaint.setStrokeWidth(4.0f);
+    wavePaint.setStrokeCap(Paint::StrokeCap::ROUND);
+    canvas.drawPath(wave, wavePaint);
+
+    Paint pathText;
+    pathText.setStyle(Paint::Style::FILL);
+    pathText.setFillColor(Color(255, 238, 140, 240));
+    pathText.setTextSize(24.0f);
+    pathText.setFontSlant(FontSlant::ITALIC);
+    canvas.drawTextOnPath("text-on-path", wave, 0.0f, -18.0f, pathText);
 }
 
 void drawImageHeavyValidationScene(Canvas& canvas, const ValidationImages& images, float currentTime)
@@ -477,12 +716,14 @@ int main() {
     const bool exerciseClipPath = !getEnvironmentValue("WHATSCANVAS_EXERCISE_CLIP_PATH").empty();
     const std::string validationScene = getEnvironmentValue("WHATSCANVAS_VALIDATION_SCENE");
     const bool runTextValidation = validationScene == "text-heavy";
+    const bool runTextShowcase = validationScene == "text-showcase";
+    const bool runFontRegression = validationScene == "font-regression";
     const bool runImageValidation = validationScene == "image-heavy";
     const bool runGradientEffectValidation = validationScene == "gradient-effect";
     const bool runClippingValidation = validationScene == "clipping";
     const bool runTransformValidation = validationScene == "transform";
     const bool runSaveLayerValidation = validationScene == "save-layer";
-    if (!validationScene.empty() && !runTextValidation && !runImageValidation
+    if (!validationScene.empty() && !runTextValidation && !runTextShowcase && !runFontRegression && !runImageValidation
         && !runGradientEffectValidation && !runClippingValidation
         && !runTransformValidation && !runSaveLayerValidation) {
         std::cerr << "Unknown validation scene: " << validationScene << std::endl;
@@ -507,8 +748,13 @@ int main() {
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
     #endif
 
+    const int windowWidth = runTextShowcase ? kTextShowcaseWindowWidth
+        : (runFontRegression ? kFontRegressionWindowWidth : kWindowWidth);
+    const int windowHeight = runTextShowcase ? kTextShowcaseWindowHeight
+        : (runFontRegression ? kFontRegressionWindowHeight : kWindowHeight);
+
     // Create the window
-    GLFWwindow* window = glfwCreateWindow(kWindowWidth, kWindowHeight, "WhatsCanvas Demo", nullptr, nullptr);
+    GLFWwindow* window = glfwCreateWindow(windowWidth, windowHeight, "WhatsCanvas Demo", nullptr, nullptr);
     if (!window) {
         std::cerr << "Failed to create GLFW window" << std::endl;
         glfwTerminate();
@@ -533,10 +779,10 @@ int main() {
     int framebufferHeight = 0;
     glfwGetFramebufferSize(window, &framebufferWidth, &framebufferHeight);
     if (framebufferWidth <= 0) {
-        framebufferWidth = kWindowWidth;
+        framebufferWidth = windowWidth;
     }
     if (framebufferHeight <= 0) {
-        framebufferHeight = kWindowHeight;
+        framebufferHeight = windowHeight;
     }
 
     // Set the viewport
@@ -551,6 +797,7 @@ int main() {
         canvas.setSize(framebufferWidth, framebufferHeight);
         glfwSetWindowUserPointer(window, &canvas);
         glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+        registerTextShowcaseFonts(canvas);
     
     Paint paint1;
     paint1.setStrokeWidth(26.0f);
@@ -961,6 +1208,10 @@ int main() {
 
         if (runTextValidation) {
             drawTextHeavyValidationScene(canvas, currentTime);
+        } else if (runTextShowcase) {
+            drawTextShowcaseScene(canvas, currentTime);
+        } else if (runFontRegression) {
+            drawFontRegressionScene(canvas);
         } else if (runImageValidation) {
             drawImageHeavyValidationScene(canvas, validationImages, currentTime);
         } else if (runGradientEffectValidation) {

@@ -60,6 +60,9 @@ public:
         if (shaper_ == nullptr) {
             shaper_ = wsc::text::createSimpleTextShapingEngine();
         }
+        if (options_.enableSystemFontFallback) {
+            registerSystemFontFallbacks();
+        }
     }
 
     bool registerFontFace(const wsc::FontFace &face) override
@@ -95,6 +98,9 @@ public:
     {
         if (fontManager_.hasFamily(preferredFamily)) {
             return fontManager_.resolveFamilies(preferredFamily);
+        }
+        if (preferredFamily.empty() && fontManager_.hasFamily(wsc::FontSystem::kDefaultPrimaryFamily)) {
+            return fontManager_.resolveFamilies(wsc::FontSystem::kDefaultPrimaryFamily);
         }
         return preferredFamily.empty() ? std::vector<std::string>() : std::vector<std::string>{preferredFamily};
     }
@@ -198,15 +204,15 @@ public:
             return true;
         }
 
-        if (paint.hasFontFamily()) {
-            const std::vector<std::string> families = resolveFontFamilies(paint.getFontFamily());
-            for (const std::string &family : families) {
-                for (const wsc::FontFace *face : fontManager_.findFaces(family)) {
-                    if (face != nullptr
-                        && ((face->hasCodepointRanges() && face->supportsCodepoint(codepoint))
-                            || rasterizer_.hasGlyph(*face, codepoint))) {
-                        return true;
-                    }
+        const std::vector<std::string> families = paint.hasFontFamily()
+            ? resolveFontFamilies(paint.getFontFamily())
+            : resolveFontFamilies(std::string());
+        for (const std::string &family : families) {
+            for (const wsc::FontFace *face : fontManager_.findFaces(family)) {
+                if (face != nullptr
+                    && ((face->hasCodepointRanges() && face->supportsCodepoint(codepoint))
+                        || rasterizer_.hasGlyph(*face, codepoint))) {
+                    return true;
                 }
             }
         }
@@ -216,7 +222,8 @@ public:
             return true;
         }
 #endif
-        addMissingGlyphDiagnostic(codepoint, paint.hasFontFamily() ? paint.getFontFamily() : std::string());
+        addMissingGlyphDiagnostic(codepoint, paint.hasFontFamily() ? paint.getFontFamily()
+                                                                   : wsc::FontSystem::kDefaultPrimaryFamily);
         return false;
     }
 
@@ -322,7 +329,8 @@ public:
         metrics.lineHeight = metrics.height;
 
         const std::string normalizedText = wsc::text::normalizeUtf8ForText(text);
-        if (normalizedText.empty() || paint.getTextSize() <= 0.0f || !paint.hasFontFamily()) {
+        if (normalizedText.empty() || paint.getTextSize() <= 0.0f
+            || (!paint.hasFontFamily() && !fontManager_.hasFamily(wsc::FontSystem::kDefaultPrimaryFamily))) {
             return metrics;
         }
 
@@ -435,20 +443,61 @@ public:
     }
 
 private:
+    void registerSystemFontFallbacks()
+    {
+        const std::vector<wsc::FontFace> faces = wsc::FontSystem::defaultSystemFontFaces();
+        if (faces.empty()) {
+            diagnostics_.push_back({wsc::text::TextBackendDiagnostic::Severity::Info,
+                                    "No default system font files were discovered."});
+            return;
+        }
+
+        for (const wsc::FontFace &face : faces) {
+            fontManager_.registerFace(face);
+        }
+
+        const wsc::FontFallbackChain defaultChain = wsc::FontSystem::defaultFallbackChain();
+        for (const std::string &family : defaultChain.fallbackFamilies()) {
+            fontManager_.addFallbackFamily(defaultChain.primaryFamily(), family);
+        }
+    }
+
     const wsc::FontFace *findRasterFaceForCodepoint(std::uint32_t codepoint, const Paint &paint) const
     {
-        if (!paint.hasFontFamily()) {
+        const std::vector<std::string> families = paint.hasFontFamily()
+            ? resolveFontFamilies(paint.getFontFamily())
+            : resolveFontFamilies(wsc::FontSystem::kDefaultPrimaryFamily);
+        if (families.empty()) {
             return nullptr;
         }
 
-        for (const std::string &family : resolveFontFamilies(paint.getFontFamily())) {
-            for (const wsc::FontFace *face : fontManager_.findFaces(family)) {
-                if (face != nullptr && rasterizer_.hasGlyph(*face, codepoint)) {
-                    return face;
-                }
+        for (const std::string &family : families) {
+            if (const wsc::FontFace *face = findBestRasterFaceForCodepoint(family, codepoint, paint)) {
+                return face;
             }
         }
         return nullptr;
+    }
+
+    const wsc::FontFace *findBestRasterFaceForCodepoint(const std::string &family, std::uint32_t codepoint,
+                                                        const Paint &paint) const
+    {
+        const wsc::FontFace *bestFace = nullptr;
+        int bestScore = 0;
+        for (const wsc::FontFace *face : fontManager_.findFaces(family)) {
+            if (face == nullptr || !rasterizer_.hasGlyph(*face, codepoint)) {
+                continue;
+            }
+
+            const int slantPenalty = face->slant() == paint.getFontSlant() ? 0 : 1000;
+            const int weightPenalty = std::abs(face->weight() - paint.getFontWeight());
+            const int score = slantPenalty + weightPenalty;
+            if (bestFace == nullptr || score < bestScore) {
+                bestFace = face;
+                bestScore = score;
+            }
+        }
+        return bestFace;
     }
 
     struct RasterTextSegment
@@ -520,6 +569,11 @@ private:
     {
         const auto shapedRun = shapeRasterizedText(normalizedText, paint);
         if (!shapedRun) {
+            addDiagnosticOnce(wsc::text::TextBackendDiagnostic::Severity::Warning,
+                              "raster-shape#" + diagnosticFontFamily(paint),
+                              "Raster text shaping failed; falling back to alternate text path.",
+                              0u,
+                              diagnosticFontFamily(paint));
             return std::nullopt;
         }
 
@@ -537,13 +591,24 @@ private:
         result.width = shapedRun->width;
         result.height = paint.getTextSize();
 
-        float penX = alignedX;
-        const float baselineY = result.drawY + paint.getTextSize();
-        const float spacing = std::isfinite(paint.getLetterSpacing()) ? paint.getLetterSpacing() : 0.0f;
-        bool usedRasterGlyph = false;
+        struct PendingGlyphDraw
+        {
+            wsc::text::ShapedGlyph glyph;
+            wsc::text::GlyphKey key;
+            wsc::text::GlyphBitmap bitmap;
+        };
+
+        std::vector<PendingGlyphDraw> pendingGlyphs;
+        pendingGlyphs.reserve(shapedRun->glyphs.size());
         for (const wsc::text::ShapedGlyph &glyph : shapedRun->glyphs) {
             const wsc::FontFace *face = findRasterFaceForCodepoint(glyph.codepoint, paint);
             if (face == nullptr) {
+                addDiagnosticOnce(wsc::text::TextBackendDiagnostic::Severity::Warning,
+                                  "raster-face#" + diagnosticFontFamily(paint) + "#"
+                                      + std::to_string(glyph.codepoint),
+                                  "No raster font face resolved for shaped glyph.",
+                                  glyph.codepoint,
+                                  diagnosticFontFamily(paint));
                 return std::nullopt;
             }
 
@@ -551,36 +616,83 @@ private:
                 ? rasterizer_.rasterizeGlyphIndex(*face, glyph.glyphIndex, glyph.codepoint, paint.getTextSize())
                 : rasterizer_.rasterizeGlyph(*face, glyph.codepoint, paint.getTextSize());
             if (!rasterized) {
+                addDiagnosticOnce(wsc::text::TextBackendDiagnostic::Severity::Warning,
+                                  "raster-glyph#" + face->family() + "#" + std::to_string(glyph.codepoint)
+                                      + "#" + std::to_string(glyph.glyphIndex),
+                                  "Glyph rasterization failed; falling back to alternate text path.",
+                                  glyph.codepoint,
+                                  face->family());
                 return std::nullopt;
             }
 
-            if (usedRasterGlyph) {
-                penX += spacing;
-            }
+            pendingGlyphs.push_back({glyph, rasterized->key, rasterized->bitmap});
+        }
 
-            if (rasterized->bitmap.width > 0 && rasterized->bitmap.height > 0) {
-                const auto entry = glyphAtlas_.uploadGlyph(rasterized->key, rasterized->bitmap);
-                if (!entry) {
-                    return std::nullopt;
+        const float baselineY = result.drawY + paint.getTextSize();
+        const float spacing = std::isfinite(paint.getLetterSpacing()) ? paint.getLetterSpacing() : 0.0f;
+        bool uploadedConsistentGeneration = false;
+        for (int attempt = 0; attempt < 3 && !uploadedConsistentGeneration; ++attempt) {
+            result.glyphAtlasQuads.clear();
+            float penX = alignedX;
+            bool usedRasterGlyph = false;
+            bool restartUpload = false;
+
+            for (const PendingGlyphDraw &pending : pendingGlyphs) {
+                if (usedRasterGlyph) {
+                    penX += spacing;
                 }
 
-                TextRenderResult::GlyphAtlasQuad quad;
-                quad.x = penX + glyph.offsetX + entry->bearingX;
-                quad.y = baselineY + glyph.offsetY + entry->bearingY;
-                quad.width = static_cast<float>(entry->width);
-                quad.height = static_cast<float>(entry->height);
-                quad.u0 = entry->u0;
-                quad.v0 = entry->v0;
-                quad.u1 = entry->u1;
-                quad.v1 = entry->v1;
-                result.glyphAtlasQuads.push_back(quad);
+                if (pending.bitmap.width > 0 && pending.bitmap.height > 0) {
+                    const std::uint64_t generationBeforeUpload = glyphAtlas_.stats().generation;
+                    const auto entry = glyphAtlas_.uploadGlyph(pending.key, pending.bitmap);
+                    if (!entry) {
+                        addDiagnosticOnce(wsc::text::TextBackendDiagnostic::Severity::Warning,
+                                          "atlas-upload#" + std::to_string(pending.glyph.codepoint),
+                                          "Glyph atlas upload failed; falling back to alternate text path.",
+                                          pending.glyph.codepoint,
+                                          diagnosticFontFamily(paint));
+                        return std::nullopt;
+                    }
+                    const std::uint64_t generationAfterUpload = glyphAtlas_.stats().generation;
+                    if (generationAfterUpload != generationBeforeUpload && !result.glyphAtlasQuads.empty()) {
+                        restartUpload = true;
+                        break;
+                    }
+
+                    TextRenderResult::GlyphAtlasQuad quad;
+                    quad.x = penX + pending.glyph.offsetX + entry->bearingX;
+                    quad.y = baselineY + pending.glyph.offsetY + entry->bearingY;
+                    quad.width = static_cast<float>(entry->width);
+                    quad.height = static_cast<float>(entry->height);
+                    quad.u0 = entry->u0;
+                    quad.v0 = entry->v0;
+                    quad.u1 = entry->u1;
+                    quad.v1 = entry->v1;
+                    result.glyphAtlasQuads.push_back(quad);
+                }
+
+                penX += pending.glyph.advanceX;
+                usedRasterGlyph = true;
             }
 
-            penX += glyph.advanceX;
-            usedRasterGlyph = true;
+            uploadedConsistentGeneration = !restartUpload;
+        }
+
+        if (!uploadedConsistentGeneration) {
+            addDiagnosticOnce(wsc::text::TextBackendDiagnostic::Severity::Warning,
+                              "atlas-generation#" + diagnosticFontFamily(paint),
+                              "Glyph atlas upload did not stabilize after retries.",
+                              0u,
+                              diagnosticFontFamily(paint));
+            return std::nullopt;
         }
 
         if (result.glyphAtlasQuads.empty()) {
+            addDiagnosticOnce(wsc::text::TextBackendDiagnostic::Severity::Warning,
+                              "atlas-empty#" + diagnosticFontFamily(paint),
+                              "Glyph atlas render emitted no drawable quads.",
+                              0u,
+                              diagnosticFontFamily(paint));
             return std::nullopt;
         }
 
@@ -608,7 +720,9 @@ private:
                                                                 const Paint &paint) const
     {
         if (!paint.hasFontFamily()) {
-            return std::nullopt;
+            if (!fontManager_.hasFamily(wsc::FontSystem::kDefaultPrimaryFamily)) {
+                return std::nullopt;
+            }
         }
 
         if (!shaper_) {
@@ -695,6 +809,29 @@ private:
         return combined;
     }
 
+    std::string diagnosticFontFamily(const Paint &paint) const
+    {
+        return paint.hasFontFamily() ? paint.getFontFamily() : wsc::FontSystem::kDefaultPrimaryFamily;
+    }
+
+    void addDiagnosticOnce(wsc::text::TextBackendDiagnostic::Severity severity,
+                           const std::string &key,
+                           const std::string &message,
+                           std::uint32_t codepoint,
+                           const std::string &family) const
+    {
+        if (!diagnosticKeys_.insert(key).second) {
+            return;
+        }
+
+        wsc::text::TextBackendDiagnostic diagnostic;
+        diagnostic.severity = severity;
+        diagnostic.message = message;
+        diagnostic.codepoint = codepoint;
+        diagnostic.fontFamily = family;
+        diagnostics_.push_back(std::move(diagnostic));
+    }
+
     void addMissingGlyphDiagnostic(std::uint32_t codepoint, const std::string &family) const
     {
         const std::string key = family + '#' + std::to_string(codepoint);
@@ -779,6 +916,7 @@ private:
     mutable wsc::text::FontRasterizer rasterizer_;
     mutable wsc::text::GlyphAtlas glyphAtlas_{kDefaultGlyphAtlasSize, kDefaultGlyphAtlasSize, 1};
     mutable std::vector<wsc::text::TextBackendDiagnostic> diagnostics_;
+    mutable std::unordered_set<std::string> diagnosticKeys_;
     mutable std::unordered_set<std::string> missingGlyphDiagnosticKeys_;
 };
 
@@ -843,6 +981,7 @@ std::unique_ptr<ITextBackend> createPortableTextBackend()
     BasicTextBackendOptions options;
     options.backendKind = TextBackendKind::Portable;
     options.enableNativeText = false;
+    options.enableSystemFontFallback = false;
     return createBasicTextBackend(options);
 }
 

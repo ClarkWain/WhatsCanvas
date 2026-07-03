@@ -6,6 +6,7 @@
 
 #include "Color.h"
 #include "Export.h"
+#include "Font.h"
 
 namespace wsc {
 
@@ -175,6 +176,10 @@ public:
     bool hasFontFamily() const;
     void clearFontFamily();
     void clearFont();
+    void setFontWeight(int weight);
+    int getFontWeight() const;
+    void setFontSlant(FontSlant slant);
+    FontSlant getFontSlant() const;
     void setLetterSpacing(float spacing);
     float getLetterSpacing() const;
     void setTextAlign(TextAlign align);
@@ -224,6 +229,8 @@ private:
     float strokeWidth_ = 1.0f;
     float textSize_ = 16.0f;
     std::string fontFamily_;
+    int fontWeight_ = 400;
+    FontSlant fontSlant_ = FontSlant::NORMAL;
     float letterSpacing_ = 0.0f;
     TextAlign textAlign_ = TextAlign::LEFT;
     TextBaseline textBaseline_ = TextBaseline::TOP;
