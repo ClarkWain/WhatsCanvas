@@ -5,6 +5,7 @@ project(WhatsCanvas VERSION 0.1.11 LANGUAGES C CXX)
 include(CTest)
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
+find_package(Python3 COMPONENTS Interpreter QUIET)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -36,6 +37,23 @@ set(WHATSCANVAS_CMAKE_DIR ${CMAKE_CURRENT_LIST_DIR}/cmake)
 include(${WHATSCANVAS_CMAKE_DIR}/WhatsCanvasOpenGL.cmake)
 
 whatscanvas_add_common_dependencies(${CMAKE_CURRENT_LIST_DIR})
+
+if (Python3_Interpreter_FOUND)
+    add_custom_target(WhatsCanvasGenerateApiReference
+        COMMAND ${Python3_EXECUTABLE} scripts/generate_api_reference.py
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "Generating doc/API_REFERENCE.md from include/wsc"
+        VERBATIM
+    )
+    add_custom_target(WhatsCanvasCheckApiReference
+        COMMAND ${Python3_EXECUTABLE} scripts/generate_api_reference.py --check
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "Checking generated public API reference freshness"
+        VERBATIM
+    )
+else()
+    message(STATUS "Python3 interpreter not found; API reference generation targets are disabled.")
+endif()
 
 if (WHATSCANVAS_BUILD_OPENGL)
     whatscanvas_add_opengl_library(WhatsCanvasOpenGL ${CMAKE_CURRENT_LIST_DIR})

@@ -18,13 +18,25 @@ The stable public surface lives under `include/wsc/` and is exported through the
 - `wsc/TextureSource.h`
 
 The generated API index is maintained in `doc/API_REFERENCE.md`.
-Refresh it after public header changes:
+Refresh it after public header changes through the configured CMake project:
+
+```sh
+cmake --build build --target WhatsCanvasGenerateApiReference
+```
+
+The direct script entry point is also available:
 
 ```sh
 python scripts/generate_api_reference.py
 ```
 
 CI or local checks can verify that it is current:
+
+```sh
+cmake --build build --target WhatsCanvasCheckApiReference
+```
+
+or directly:
 
 ```sh
 python scripts/generate_api_reference.py --check
