@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>抗锯齿原理与实现互动教学</title>
+  <style>
+    :root {
+      --bg: #f4efe6;
+      --bg-accent: #efe0ca;
+      --panel: rgba(255, 251, 245, 0.9);
+      --ink: #172126;
+      --muted: #5c6a70;
+      --line: rgba(23, 33, 38, 0.12);
+      --accent: #0e7c86;
+      --accent-soft: rgba(14, 124, 134, 0.12);
+      --accent-strong: #c25a1b;
+      --success: #2f7d32;
+      --shadow: 0 20px 60px rgba(40, 27, 11, 0.12);
+      --radius: 24px;
+      --radius-sm: 16px;
+      --mono: "Cascadia Code", "Consolas", monospace;
+      --sans: "Aptos", "Segoe UI Variable", "Segoe UI", sans-serif;
+      --display: "Bahnschrift", "Trebuchet MS", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: var(--sans);
+      color: var(--ink);
+      line-height: 1.72;
+      background:
+        radial-gradient(circle at top left, rgba(14, 124, 134, 0.12), transparent 32%),
+        linear-gradient(180deg, #fbf6eb 0%, var(--bg) 100%);
+    }
+
+    a { color: var(--accent); }
+    .page {
+      width: min(1320px, calc(100% - 32px));
+      margin: 24px auto 80px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .hero, .section, .card, .code-card, .method-card, .timeline-step, .metric-card {
+      border: 1px solid rgba(23, 33, 38, 0.08);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      -webkit-backdrop-filter: blur(12px);
+      backdrop-filter: blur(12px);
+    }
+
+    .hero {
+      padding: 28px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: auto -70px -90px auto;
+      width: 280px;
+      height: 280px;
+      background: radial-gradient(circle, rgba(194, 90, 27, 0.18), transparent 70%);
+      pointer-events: none;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 0.84rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+
+    h1, h2, h3 { margin: 0; font-family: var(--display); letter-spacing: 0.01em; }
+    h1 { font-size: clamp(2.2rem, 4vw, 3.4rem); line-height: 1.08; max-width: 12ch; }
+    h2 { font-size: clamp(1.45rem, 2.2vw, 2.1rem); margin-bottom: 10px; }
+    h3 { font-size: 1.08rem; margin-bottom: 8px; }
+    p { margin: 0 0 12px; color: var(--muted); }
+
+    .lead { margin-top: 16px; font-size: 1.08rem; max-width: 66ch; color: #28333a; }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.3fr) minmax(300px, 0.7fr);
+      gap: 20px;
+      align-items: start;
+    }
+
+    .hero-points {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .hero-point {
+      padding: 14px;
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.78);
+      border: 1px solid rgba(23, 33, 38, 0.08);
+    }
+
+    .hero-point strong { display: block; margin-bottom: 4px; color: var(--ink); }
+
+    .summary-card {
+      padding: 18px;
+      border-radius: var(--radius-sm);
+      background: rgba(255, 255, 255, 0.84);
+      border: 1px solid rgba(23, 33, 38, 0.08);
+    }
+
+    .summary-card ul { margin: 10px 0 0 18px; padding: 0; color: var(--muted); }
+    .summary-card li { margin-bottom: 6px; }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 290px;
+      gap: 22px;
+      margin-top: 22px;
+    }
+
+    .content { display: grid; gap: 22px; }
+
+    .section { padding: 24px; }
+
+    .section-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .section-tag {
+      padding: 7px 12px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 0.88rem;
+      font-weight: 700;
+    }
+
+    .section-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+      gap: 18px;
+      align-items: start;
+    }
+
+    .demo-panel, .method-panel, .formula, .code-card, .timeline-step, .metric-card {
+      padding: 16px 18px;
+      border-radius: var(--radius-sm);
+      background: rgba(255, 255, 255, 0.82);
+      border: 1px solid rgba(23, 33, 38, 0.08);
+    }
+
+    .demo-panel canvas {
+      width: 100%;
+      height: auto;
+      display: block;
+      border-radius: 16px;
+      background: linear-gradient(180deg, #fefdf8, #f6eddc);
+      border: 1px solid rgba(23, 33, 38, 0.08);
+    }
+
+    .canvas-caption { margin-top: 10px; color: var(--muted); font-size: 0.92rem; }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      margin: 12px 0 10px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      cursor: pointer;
+      background: #fff;
+      border: 1px solid rgba(23, 33, 38, 0.1);
+      transition: 140ms ease;
+      user-select: none;
+    }
+
+    .pill.active {
+      color: white;
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+
+    .method-buttons { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+    .method-card { margin-top: 12px; }
+    .method-card .pros, .method-card .cons { margin: 8px 0 0 18px; color: var(--muted); }
+    .method-card strong { color: var(--ink); }
+
+    .formula .label {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--accent);
+      font-weight: 700;
+      font-size: 0.9rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .formula .math {
+      font-family: "Cambria Math", "Times New Roman", serif;
+      font-size: 1.06rem;
+      white-space: pre-wrap;
+      color: var(--ink);
+    }
+
+    .formula .explain { margin-top: 8px; color: #465158; }
+
+    .toc {
+      position: sticky;
+      top: 14px;
+      align-self: start;
+      padding: 18px;
+      border-radius: 22px;
+      background: rgba(255, 252, 246, 0.9);
+      border: 1px solid rgba(23, 33, 38, 0.08);
+      box-shadow: 0 14px 40px rgba(43, 31, 18, 0.08);
+    }
+
+    .toc h3 { margin-bottom: 10px; }
+    .toc a {
+      display: block;
+      padding: 7px 9px;
+      margin: 4px 0;
+      text-decoration: none;
+      border-radius: 12px;
+      color: var(--muted);
+    }
+    .toc a:hover, .toc a:focus-visible { background: var(--accent-soft); color: var(--accent); outline: none; }
+
+    .trace-list {
+      display: grid;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .trace-item {
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.74);
+      border: 1px solid rgba(23, 33, 38, 0.08);
+      color: var(--muted);
+    }
+
+    .trace-item strong { color: var(--ink); }
+
+    .method-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      margin-top: 14px;
+    }
+
+    .method-grid .metric-card { cursor: pointer; transition: transform 120ms ease, box-shadow 120ms ease; }
+    .method-grid .metric-card:hover { transform: translateY(-2px); }
+    .method-grid .metric-card.active { border-color: rgba(14, 124, 134, 0.4); box-shadow: 0 12px 30px rgba(14, 124, 134, 0.12); }
+
+    .code-card pre {
+      margin: 10px 0 0;
+      padding: 12px;
+      overflow-x: auto;
+      background: #182024;
+      color: #f8f7f3;
+      border-radius: 12px;
+      font-family: var(--mono);
+      font-size: 0.92rem;
+      line-height: 1.6;
+    }
+
+    .mini-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .note { font-size: 0.95rem; color: var(--muted); }
+
+    @media (max-width: 980px) {
+      .hero-grid, .section-grid, .layout, .method-grid, .mini-grid {
+        grid-template-columns: 1fr;
+      }
+      .toc { position: static; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="hero">
+      <div class="hero-grid">
+        <div>
+          <div class="eyebrow">互动教学 · 抗锯齿</div>
+          <h1>为什么直线会“吃齿”，怎么把它磨平？</h1>
+          <p class="lead">抗锯齿不是魔法，而是一套“把像素边缘变得更像连续曲线”的策略。这个教程会用交互演示带你看清：为什么会出现锯齿、有哪些常见实现方法、当前仓库怎么做，以及主流 2D 图形库通常怎么做。</p>
+          <div class="hero-points">
+            <div class="hero-point">
+              <strong>1. 先理解问题</strong>
+              你看到的“锯齿”其实是离散像素对连续几何的近似误差。
+            </div>
+            <div class="hero-point">
+              <strong>2. 再看方法</strong>
+              超采样、解析式覆盖度、后处理滤波各有优缺点。
+            </div>
+          </div>
+        </div>
+        <div class="summary-card">
+          <h3>这页要带你掌握的 4 件事</h3>
+          <ul>
+            <li>什么是抗锯齿，以及为什么它在像素栅格里是必要的。</li>
+            <li>3 类常见实现方法：超级采样、解析式 AA、后处理 AA。</li>
+            <li>WhatsCanvas 当前实际采取的做法：几何扩边 + coverage fringe。</li>
+            <li>Skia、Cairo、Qt、浏览器 Canvas 等库通常会怎么做。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <div class="layout">
+      <div class="content">
+        <section class="section" id="what">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">01 · 先看问题</div>
+              <h2>为什么屏幕上的斜线会“吃齿”</h2>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <div class="controls">
+                <label for="sampleSlider" class="pill">采样密度：<strong id="sampleValue">4×</strong></label>
+                <input id="sampleSlider" type="range" min="1" max="16" value="4">
+              </div>
+              <canvas id="aaCanvas" width="520" height="520"></canvas>
+              <p class="canvas-caption">上图把一条斜线按像素网格“打散”。左上角像素是 0/1 采样，右下角则用更细的子采样来得到半透明覆盖度。你可以把滑块拉大，看到边缘的“灰度过渡”是如何变得更平滑的。</p>
+            </div>
+            <div class="info-stack">
+              <div class="formula">
+                <span class="label">核心直觉</span>
+                <span class="math">连续几何 → 离散像素
+一个像素只能表示“占据 / 不占据”这两种极端，
+如果我们把边缘附近的像素按覆盖率混合，就能得到更像连续线的视觉效果。</span>
+                <p class="explain">这就是抗锯齿的本质：不是把几何“变得更复杂”，而是让像素边缘表达“部分覆盖”的信息。</p>
+              </div>
+              <div class="formula">
+                <span class="label">一个最小例子</span>
+                <span class="math">假设某像素只被直线覆盖了 30%，
+那它就不必被硬生生地画成全黑或全白，
+而可以用 30% 的强度表示。</span>
+                <p class="explain">这就是覆盖度（coverage）概念：同一个像素在不同子采样点上的命中率。</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="methods">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">02 · 3 种常见方法</div>
+              <h2>超采样、解析式 AA、后处理 AA，三者各自怎么做</h2>
+            </div>
+          </div>
+          <div class="method-grid">
+            <div class="metric-card active" data-method="supersample">
+              <strong>超采样（SSAA / MSAA）</strong>
+              <p>在一个像素里额外采样多次，再把结果平均。</p>
+            </div>
+            <div class="metric-card" data-method="analytic">
+              <strong>解析式 AA（Analytic AA）</strong>
+              <p>不靠多采样，而是把几何边缘“扩成一带”并给出覆盖度。</p>
+            </div>
+            <div class="metric-card" data-method="post">
+              <strong>后处理 AA（FXAA / SMAA）</strong>
+              <p>先渲染一张有锯齿的图，再用滤波器“修边”。</p>
+            </div>
+          </div>
+          <div class="method-card" id="methodDetail">
+            <h3 id="methodTitle">超采样（SSAA / MSAA）</h3>
+            <p id="methodBody">把一个像素拆成若干个子采样点，分别判断是落在线内还是线外，最后把命中率平均出来。它直观、容易理解，但代价较大。</p>
+            <strong>优点</strong>
+            <ul class="pros" id="methodPros"></ul>
+            <strong>缺点</strong>
+            <ul class="cons" id="methodCons"></ul>
+          </div>
+        </section>
+
+        <section class="section" id="repo">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">03 · 当前仓库怎么做</div>
+              <h2>WhatsCanvas 现在走的是“几何扩边 + 覆盖度”路线</h2>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="code-card">
+              <p>从源码看，当前项目的思路不是传统的 MSAA，而是把填充/描边几何沿轮廓扩出一层“羽化带”，再把这层覆盖度传给片元着色器：</p>
+              <pre>// src/render/AntiAlias.h
+inline float featherWidthPixels() {
+    return 1.0f;
+}</pre>
+              <pre>// src/canvas/Canvas.cpp
+// Interior triangles keep coverage 1.0;
+// fringe triangles get coverage ramping from 1.0 to 0.0.
+mesh.coverage.push_back(1.0f);
+mesh.coverage.push_back(cov);
+mesh.coverage.push_back(cov);</pre>
+              <p class="note">这意味着：形状真实边缘附近会多出一圈“半透明边”，浏览器或屏幕看到的结果就不会再像“硬切”的像素台阶。</p>
+            </div>
+            <div class="info-stack">
+              <div class="timeline-step">
+                <strong>1. 先把几何边缘变成“有覆盖度的三角带”</strong>
+                在 Canvas 的路径三角化阶段，程序会沿形状轮廓额外生成一小段围边三角，覆盖度从 1 到 0 平滑变化。
+              </div>
+              <div class="timeline-step">
+                <strong>2. 再把 coverage 传给渲染器</strong>
+                片元着色器按插值覆盖度去乘 alpha，边缘就会显得更平滑，而不是全黑/全白的像素阶梯。
+              </div>
+              <div class="timeline-step">
+                <strong>3. 裁剪路径也用同样思路</strong>
+                <code>src/opengl/ClipCoverageProgram.cpp</code> 里会把裁剪路径的 AA 覆盖度光栅化成一张 R8 掩码，绘制时按覆盖度调制 alpha，得到圆滑裁剪边缘。
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="libraries">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">04 · 主流 2D 图形库怎么做</div>
+              <h2>Skia、Cairo、Qt、浏览器 Canvas 都有自己的取舍</h2>
+            </div>
+          </div>
+          <div class="mini-grid">
+            <div class="metric-card">
+              <strong>Skia</strong>
+              <p>常见于 Chrome / Android / Flutter。它把路径栅格化做得很成熟，既有解析式路径 AA，也会在不同后端上适配不同采样与滤波策略。</p>
+            </div>
+            <div class="metric-card">
+              <strong>Cairo</strong>
+              <p>偏 CPU 2D 向量渲染，通常基于扫描线和覆盖度/像素级混合做边缘平滑，重视稳定性和可移植性。</p>
+            </div>
+            <div class="metric-card">
+              <strong>Qt / QPainter</strong>
+              <p>把绘制抽象成 PaintEngine，平台差异很大，但整体上会在路径、文本、图像上做一层覆盖度与滤波平衡。</p>
+            </div>
+            <div class="metric-card">
+              <strong>浏览器 Canvas 2D</strong>
+              <p>浏览器背后会把这件事交给其渲染引擎；对开发者来说，通常只需要关心“是否开启抗锯齿”和“图形质量/性能之间的平衡”。</p>
+            </div>
+          </div>
+          <div class="trace-list">
+            <div class="trace-item"><strong>结论：</strong>主流库的共同点是“边缘不是 0/1 二值，而是用覆盖度、羽化带或滤波让视觉更接近连续线”；不同点是它们把成本放在了 CPU、GPU、纹理、栅格器还是后处理阶段。</div>
+          </div>
+        </section>
+
+        <section class="section" id="takeaway">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">05 · 你可以怎么判断</div>
+              <h2>什么时候该选哪种实现</h2>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="info-stack">
+              <div class="timeline-step"><strong>想要最直观、最容易理解</strong> 选超采样；如果你的目标是教学、单机 demo、静态图而不是极致性能，SSAA 很有帮助。</div>
+              <div class="timeline-step"><strong>想要高性能、可扩展到实时渲染</strong> 选解析式 AA；尤其像 SVG、路径、矢量图和 2D UI 这种场景，几何覆盖度是很常见的方案。</div>
+              <div class="timeline-step"><strong>想要快速补救已有图像</strong> 选后处理 AA；它适合现成渲染结果的“锦上添花”，但对几何边缘的控制一般不如前两种精细。</div>
+            </div>
+            <div class="formula">
+              <span class="label">一句话总结</span>
+              <span class="math">抗锯齿的本质是“把边界从 0/1 变成覆盖度”，
+而不同方法只是把这件事放在不同阶段完成：
+采样阶段、几何阶段，还是图像后处理阶段。</span>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <aside class="toc">
+        <h3>目录</h3>
+        <a href="#what">1. 先看问题</a>
+        <a href="#methods">2. 三种方法</a>
+        <a href="#repo">3. 当前仓库实现</a>
+        <a href="#libraries">4. 主流库做法</a>
+        <a href="#takeaway">5. 选型建议</a>
+        <p class="note">如果你想把这部分继续深入，建议同时看源码里的 <code>src/render/AntiAlias.h</code>、<code>src/canvas/Canvas.cpp</code> 与 <code>src/opengl/ClipCoverageProgram.cpp</code>。</p>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('aaCanvas');
+    const ctx = canvas.getContext('2d');
+    const slider = document.getElementById('sampleSlider');
+    const sampleValue = document.getElementById('sampleValue');
+
+    const methods = {
+      supersample: {
+        title: '超采样（SSAA / MSAA）',
+        body: '把一个像素拆成若干个子采样点，分别判断落在线内还是线外，最后把命中率平均出来。它直观、容易理解，但代价较大。',
+        pros: ['直觉强，容易解释', '对复杂场景也有效', '可以把“边缘过渡”做得很自然'],
+        cons: ['要额外采样，性能开销大', '多重采样带来显存和带宽压力', '并不是所有后端都愿意把采样数做得很高']
+      },
+      analytic: {
+        title: '解析式 AA（Analytic AA）',
+        body: '不靠多采样，而是把边缘扩成一条“羽化带”，给每个顶点或片元一个覆盖度。它更像“几何级别的抗锯齿”，成本更低。',
+        pros: ['几何边缘更精确', '更适合实时矢量绘制', '不会像超采样那样把每个像素都放大一圈'],
+        cons: ['实现更复杂', '需要在几何阶段和渲染阶段一起配合', '对复杂滤镜和后处理不一定完全通用']
+      },
+      post: {
+        title: '后处理 AA（FXAA / SMAA）',
+        body: '先把图像渲染出来，再用滤波器去“修边”。它适合做补救，但对几何精度与边缘控制通常不如前面两种直接。',
+        pros: ['部署简单，通常只需后处理着色器', '对已有渲染结果可快速补救', '对某些实时引擎很实用'],
+        cons: ['对线宽、文本和几何轮廓的控制不够直接', '可能“模糊”整体画面', '很难把边界做得像真正的矢量几何那样干净']
+      }
+    };
+
+    const detail = {
+      title: document.getElementById('methodTitle'),
+      body: document.getElementById('methodBody'),
+      pros: document.getElementById('methodPros'),
+      cons: document.getElementById('methodCons')
+    };
+
+    function updateMethod(methodName) {
+      document.querySelectorAll('.metric-card[data-method]').forEach(card => card.classList.toggle('active', card.dataset.method === methodName));
+      const cfg = methods[methodName];
+      detail.title.textContent = cfg.title;
+      detail.body.textContent = cfg.body;
+      detail.pros.innerHTML = cfg.pros.map(item => `<li>${item}</li>`).join('');
+      detail.cons.innerHTML = cfg.cons.map(item => `<li>${item}</li>`).join('');
+    }
+
+    document.querySelectorAll('.metric-card[data-method]').forEach(card => {
+      card.addEventListener('click', () => updateMethod(card.dataset.method));
+    });
+
+    function drawLineDemo() {
+      const size = canvas.width;
+      const samples = parseInt(slider.value, 10);
+      sampleValue.textContent = `${samples}×`;
+      const image = ctx.createImageData(size, size);
+      const data = image.data;
+      const slope = 0.9;
+      const intercept = -18;
+      const methodName = document.querySelector('.metric-card.active')?.dataset.method || 'supersample';
+
+      for (let y = 0; y < size; y += 1) {
+        for (let x = 0; x < size; x += 1) {
+          let total = 0;
+          for (let sy = 0; sy < samples; sy += 1) {
+            for (let sx = 0; sx < samples; sx += 1) {
+              const px = x + (sx + 0.5) / samples;
+              const py = y + (sy + 0.5) / samples;
+              const d = Math.abs(slope * px - py + intercept) / Math.sqrt(slope * slope + 1);
+              let coverage = 0;
+              if (methodName === 'analytic') {
+                coverage = Math.max(0, 1 - Math.min(1, d / 0.7));
+              } else {
+                coverage = d < 0.5 ? 1 : 0;
+              }
+              total += coverage;
+            }
+          }
+          const alpha = total / (samples * samples);
+          const idx = (y * size + x) * 4;
+          if (alpha > 0) {
+            data[idx + 0] = 16;
+            data[idx + 1] = 16;
+            data[idx + 2] = 16;
+            data[idx + 3] = Math.round(alpha * 255);
+          } else {
+            data[idx + 0] = 255;
+            data[idx + 1] = 255;
+            data[idx + 2] = 255;
+            data[idx + 3] = 255;
+          }
+        }
+      }
+
+      ctx.putImageData(image, 0, 0);
+      ctx.strokeStyle = 'rgba(14, 124, 134, 0.28)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(size, size * 0.85);
+      ctx.stroke();
+    }
+
+    slider.addEventListener('input', drawLineDemo);
+    updateMethod('supersample');
+    drawLineDemo();
+  </script>
+</body>
+</html>
