@@ -23,6 +23,8 @@ cmake --build build --target WhatsCanvasCheckPackageConsumer
 cmd /c scripts\package_consumer_smoke.bat
 ```
 
+The default package scripts build a portable package with external FreeType disabled, so the artifact can be consumed without requiring the host project to define `Freetype::Freetype`. Set `WHATSCANVAS_PACKAGE_ENABLE_FREETYPE=1` only for dependency-aware packages.
+
 6. Run the normal validation set appropriate for the change:
 
 ```bat

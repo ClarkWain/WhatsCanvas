@@ -35,7 +35,12 @@ if [ -d "$ROOT_DIR/.git" ] && command -v git >/dev/null 2>&1; then
 fi
 
 echo "[1/3] Configuring..."
-cmake -S "$ROOT_DIR" -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE="$CONFIG" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+PACKAGE_CMAKE_ARGS=""
+if [ "$PACKAGE" -eq 1 ] && [ "${WHATSCANVAS_PACKAGE_ENABLE_FREETYPE:-0}" != "1" ]; then
+    PACKAGE_CMAKE_ARGS="$PACKAGE_CMAKE_ARGS -DWHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=OFF"
+fi
+# shellcheck disable=SC2086
+cmake -S "$ROOT_DIR" -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE="$CONFIG" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON $PACKAGE_CMAKE_ARGS ${WHATSCANVAS_CMAKE_EXTRA_ARGS:-}
 
 echo "[2/3] Building..."
 cmake --build "$BUILD_DIR" --config "$CONFIG" --target "$TARGET"
