@@ -1,6 +1,7 @@
 #include "RenderDeviceFactory.h"
 
 #include "OpenGLRenderDevice.h"
+#include "vulkan/VulkanRenderDevice.h"
 
 #include <iostream>
 
@@ -40,6 +41,10 @@ std::unique_ptr<IRenderDevice> RenderDeviceFactory::create(RenderBackendType typ
         return std::make_unique<OpenGLRenderDevice>();
 
     case RenderBackendType::Vulkan:
+        if (VulkanRenderDevice::isAvailable()) {
+            g_activeBackend = RenderBackendType::Vulkan;
+            return std::make_unique<VulkanRenderDevice>();
+        }
         return nullptr;
 
     case RenderBackendType::Metal:
@@ -62,7 +67,7 @@ bool RenderDeviceFactory::isBackendSupported(RenderBackendType type)
         return true;  // Supported by the GL-family device when the target is built for it.
 
     case RenderBackendType::Vulkan:
-        return false;
+        return VulkanRenderDevice::isAvailable();
 
     case RenderBackendType::Metal:
         return false;
