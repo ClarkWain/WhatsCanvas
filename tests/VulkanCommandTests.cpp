@@ -131,12 +131,49 @@ int main()
     if (!pixelIs(pixels, width, width / 2, height / 2, 0, 0, 255, 255, "line center blue")) return 1;
     if (!pixelIs(pixels, width, width / 2, 2, 0, 0, 0, 0, "line off clear")) return 1;
 
+    // A DrawImage command: a 2x2 texture drawn across the whole canvas.
+    const std::vector<unsigned char> texels = {
+        255, 0,   0,   255, 0,   255, 0,   255,
+        0,   0,   255, 255, 255, 255, 0,   255,
+    };
+    auto image = device.createImageResourceRGBA(2, 2, texels);
+    if (!image || !image->isValid()) {
+        std::cerr << "[VulkanCommandTests] FAIL: could not create image." << std::endl;
+        return 1;
+    }
+    DrawImageData imageData;
+    imageData.imageResource = image;
+    imageData.x = 0.0f;
+    imageData.y = 0.0f;
+    imageData.width = static_cast<float>(width);
+    imageData.height = static_cast<float>(height);
+    imageData.u0 = 0.0f;
+    imageData.v0 = 0.0f;
+    imageData.u1 = 1.0f;
+    imageData.v1 = 1.0f;
+    imageData.alpha = 1.0f;
+    std::vector<std::unique_ptr<Command>> imageCommands;
+    imageCommands.push_back(std::make_unique<DrawImageCommand>(imageData));
+    if (!device.executeCommands(target, imageCommands, request)) {
+        std::cerr << "[VulkanCommandTests] FAIL: executeCommands (image) returned false." << std::endl;
+        return 1;
+    }
+    if (!device.readPixelsRGBA(width, height, pixels)) {
+        std::cerr << "[VulkanCommandTests] FAIL: image readback failed." << std::endl;
+        return 1;
+    }
+    if (!pixelIs(pixels, width, 16, 12, 255, 0, 0, 255, "image top-left red")) return 1;
+    if (!pixelIs(pixels, width, 48, 36, 255, 255, 0, 255, "image bottom-right yellow")) return 1;
+
     std::cout << "[VulkanCommandTests] PASS: translated a real Command stream on \"" << device.selectedDeviceName()
               << "\"." << std::endl;
 
     commands.clear();
     pointCommands.clear();
     lineCommands.clear();
+    imageData.imageResource.reset();
+    imageCommands.clear();
+    image.reset();
     target.reset();
     device.finalizeBackend();
     return 0;
