@@ -152,6 +152,83 @@ int main()
         ptTarget.reset();
     }
 
+    // --- Clipped gradient: a full-canvas red->red horizontal fill clipped left. ---
+    {
+        auto gTarget = device.createRenderTarget(width, height);
+        DrawPathData g;
+        g.points = {0.0f, 0.0f, fw, 0.0f, fw, fh, 0.0f, 0.0f, fw, fh, 0.0f, fh};
+        g.drawMode = PathDrawMode::Fill;
+        g.gradientType = DrawGradientType::Linear;
+        g.gradientTileMode = DrawGradientTileMode::Clamp;
+        g.gradientStart[0] = 0.0f;
+        g.gradientEnd[0] = fw;
+        g.gradientStopCount = 2;
+        g.gradientStopPositions[0] = 0.0f;
+        g.gradientStopPositions[1] = 1.0f;
+        g.gradientStopColors[0] = 1.0f; // red at t=0
+        g.gradientStopColors[3] = 1.0f;
+        g.gradientStopColors[4] = 1.0f; // red at t=1 (uniform red, easy to check)
+        g.gradientStopColors[7] = 1.0f;
+        g.clipMask.resources.push_back(clipRes);
+        std::vector<std::unique_ptr<Command>> gCmds;
+        gCmds.push_back(std::make_unique<DrawPathCommand>(g));
+        if (!device.executeCommands(gTarget, gCmds, request)) {
+            std::cerr << "[VulkanClipCommandTests] FAIL: clipped gradient executeCommands returned false."
+                      << std::endl;
+            return 1;
+        }
+        std::vector<unsigned char> gpx;
+        if (!device.readPixelsRGBA(width, height, gpx)) return 1;
+        if (!near4(gpx, width, width / 4, height / 2, 255, 0, 0, 255, 6, "clipped gradient left")) return 1;
+        if (!near4(gpx, width, (width * 3) / 4, height / 2, 0, 0, 0, 0, 6, "clipped gradient right")) return 1;
+        gCmds.clear();
+        gTarget.reset();
+    }
+
+    // --- Clipped image: an opaque yellow 2x2 image stretched full-canvas, left. ---
+    {
+        auto iTarget = device.createRenderTarget(width, height);
+        std::vector<unsigned char> texels(2 * 2 * 4);
+        for (int i = 0; i < 4; ++i) {
+            texels[i * 4 + 0] = 255; // yellow
+            texels[i * 4 + 1] = 255;
+            texels[i * 4 + 2] = 0;
+            texels[i * 4 + 3] = 255;
+        }
+        SharedImageResource img = device.createImageResourceRGBA(2, 2, texels);
+        if (!img || !img->isValid()) {
+            std::cerr << "[VulkanClipCommandTests] FAIL: could not create image resource." << std::endl;
+            return 1;
+        }
+        DrawImageData im;
+        im.imageResource = img;
+        im.x = 0.0f;
+        im.y = 0.0f;
+        im.width = fw;
+        im.height = fh;
+        im.u0 = 0.0f;
+        im.v0 = 0.0f;
+        im.u1 = 1.0f;
+        im.v1 = 1.0f;
+        im.alpha = 1.0f;
+        im.clipMask.resources.push_back(clipRes);
+        std::vector<std::unique_ptr<Command>> iCmds;
+        iCmds.push_back(std::make_unique<DrawImageCommand>(im));
+        if (!device.executeCommands(iTarget, iCmds, request)) {
+            std::cerr << "[VulkanClipCommandTests] FAIL: clipped image executeCommands returned false."
+                      << std::endl;
+            return 1;
+        }
+        std::vector<unsigned char> ipx;
+        if (!device.readPixelsRGBA(width, height, ipx)) return 1;
+        if (!near4(ipx, width, width / 4, height / 2, 255, 255, 0, 255, 8, "clipped image left")) return 1;
+        if (!near4(ipx, width, (width * 3) / 4, height / 2, 0, 0, 0, 0, 8, "clipped image right")) return 1;
+        iCmds.clear();
+        im.imageResource.reset();
+        img.reset();
+        iTarget.reset();
+    }
+
     std::cout << "[VulkanClipCommandTests] PASS: clipped solid fill on \"" << device.selectedDeviceName()
               << "\"." << std::endl;
 

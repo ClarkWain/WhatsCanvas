@@ -81,12 +81,14 @@ documented gap; 2 remain.
   identical kernel math to the GL passes), and composited as a tinted textured
   quad in stream order (``WhatsCanvasVulkanShadowTests``; both path silhouettes
   -- shapes + vector text -- and bitmap/glyph-atlas image silhouettes).
-  **Clipped solid fills** translate: the clip paths are rasterized (with their
-  analytic-AA coverage) into a coverage mask (nested clips intersect), and the
-  fill is drawn through the M7 clip pipeline sampling that mask at each
-  fragment's screen position -- mirroring the GL clip-mask fragment path
-  (``WhatsCanvasVulkanClipCommandTests`` covers clipped path fills, vector text,
-  and points/lines). Clipped gradient/image fills are follow-ups.
+  **Clipped fills** translate: the clip paths are rasterized (with their
+  analytic-AA coverage) into a coverage mask (nested clips intersect). Solid path
+  fills, vector text, points and lines are drawn through the M7 clip pipeline
+  (sampling the mask at each fragment's screen position). Clipped **gradient**
+  and **image** fills are rendered in isolation and clipped on the CPU (alpha
+  multiplied by the coverage) then composited -- mirroring the GL clip-mask
+  fragment path (``WhatsCanvasVulkanClipCommandTests`` covers fills, text,
+  points, gradient, and image).
 - **Analytic-AA feathering / multi-stop fragment gradients**: the mechanisms are
   in place (coverage mask, vertex-color gradients); true AA feathering and
   texel-buffer multi-stop gradients are refinements.
