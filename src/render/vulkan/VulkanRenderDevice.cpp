@@ -19,6 +19,7 @@
 #include "shaders/SolidShaderSpv.h"
 #include "shaders/TexturedShaderSpv.h"
 #include "shaders/ClipShaderSpv.h"
+#include "shaders/GradientShaderSpv.h"
 #endif
 
 // ---------------------------------------------------------------------------
@@ -50,6 +51,18 @@ struct TexPushConstants
     float colorOffset[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     float layerAlpha = 1.0f;
     std::int32_t useColorMatrix = 0;
+};
+
+// Uniform buffer for the gradient pipeline (std140-compatible, matches
+// GradientUBO in gradient.frag). Size 208 bytes.
+struct GradientUBO
+{
+    float linear[4] = {0.0f, 0.0f, 1.0f, 0.0f};      // start.xy, end.xy
+    float radial[4] = {0.0f, 0.0f, 1.0f, 1.0f};      // center.xy, radius, type
+    std::int32_t modeCount[4] = {0, 0, 0, 0};        // tileMode, stopCount, _, _
+    float stopPos0[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    float stopPos1[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    float stopColors[8][4] = {};
 };
 
 struct VulkanRenderDevice::VulkanContext
@@ -89,6 +102,13 @@ struct VulkanRenderDevice::VulkanContext
     VkDescriptorSetLayout clipDescriptorSetLayout = VK_NULL_HANDLE;
     VkPipelineLayout clipPipelineLayout = VK_NULL_HANDLE;
     VkPipeline clipPipeline = VK_NULL_HANDLE;
+
+    // Gradient pipeline (fragment-evaluated linear/radial gradient via a UBO).
+    VkShaderModule gradientVertModule = VK_NULL_HANDLE;
+    VkShaderModule gradientFragModule = VK_NULL_HANDLE;
+    VkDescriptorSetLayout gradientDescriptorSetLayout = VK_NULL_HANDLE;
+    VkPipelineLayout gradientPipelineLayout = VK_NULL_HANDLE;
+    VkPipeline gradientPipeline = VK_NULL_HANDLE;
 
     // Cached samplers keyed by (filter, address mode) for per-draw sampling/tile
     // modes.
@@ -163,6 +183,26 @@ struct VulkanRenderDevice::VulkanContext
             if (clipFragModule != VK_NULL_HANDLE) {
                 vkDestroyShaderModule(device, clipFragModule, nullptr);
                 clipFragModule = VK_NULL_HANDLE;
+            }
+            if (gradientPipeline != VK_NULL_HANDLE) {
+                vkDestroyPipeline(device, gradientPipeline, nullptr);
+                gradientPipeline = VK_NULL_HANDLE;
+            }
+            if (gradientPipelineLayout != VK_NULL_HANDLE) {
+                vkDestroyPipelineLayout(device, gradientPipelineLayout, nullptr);
+                gradientPipelineLayout = VK_NULL_HANDLE;
+            }
+            if (gradientDescriptorSetLayout != VK_NULL_HANDLE) {
+                vkDestroyDescriptorSetLayout(device, gradientDescriptorSetLayout, nullptr);
+                gradientDescriptorSetLayout = VK_NULL_HANDLE;
+            }
+            if (gradientVertModule != VK_NULL_HANDLE) {
+                vkDestroyShaderModule(device, gradientVertModule, nullptr);
+                gradientVertModule = VK_NULL_HANDLE;
+            }
+            if (gradientFragModule != VK_NULL_HANDLE) {
+                vkDestroyShaderModule(device, gradientFragModule, nullptr);
+                gradientFragModule = VK_NULL_HANDLE;
             }
             for (CachedSampler &entry : samplerCache) {
                 if (entry.sampler != VK_NULL_HANDLE) {
@@ -779,6 +819,128 @@ struct VulkanRenderDevice::VulkanContext
         pipelineInfo.subpass = 0;
 
         if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &clipPipeline)
+            != VK_SUCCESS) {
+            return false;
+        }
+        return true;
+    }
+
+    // Lazily build the gradient pipeline (position + canvas-space local; UBO with
+    // gradient parameters + stops at binding 0).
+    bool ensureGradientPipeline(VkRenderPass renderPass)
+    {
+        if (gradientPipeline != VK_NULL_HANDLE) {
+            return true;
+        }
+
+        gradientVertModule = createShaderModule(kGradientVertSpv, sizeof(kGradientVertSpv));
+        gradientFragModule = createShaderModule(kGradientFragSpv, sizeof(kGradientFragSpv));
+        if (gradientVertModule == VK_NULL_HANDLE || gradientFragModule == VK_NULL_HANDLE) {
+            return false;
+        }
+
+        VkDescriptorSetLayoutBinding uboBinding{};
+        uboBinding.binding = 0;
+        uboBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        uboBinding.descriptorCount = 1;
+        uboBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        VkDescriptorSetLayoutCreateInfo dslInfo{};
+        dslInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        dslInfo.bindingCount = 1;
+        dslInfo.pBindings = &uboBinding;
+        if (vkCreateDescriptorSetLayout(device, &dslInfo, nullptr, &gradientDescriptorSetLayout) != VK_SUCCESS) {
+            return false;
+        }
+
+        VkPipelineLayoutCreateInfo layoutInfo{};
+        layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        layoutInfo.setLayoutCount = 1;
+        layoutInfo.pSetLayouts = &gradientDescriptorSetLayout;
+        if (vkCreatePipelineLayout(device, &layoutInfo, nullptr, &gradientPipelineLayout) != VK_SUCCESS) {
+            return false;
+        }
+
+        std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
+        stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+        stages[0].module = gradientVertModule;
+        stages[0].pName = "main";
+        stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+        stages[1].module = gradientFragModule;
+        stages[1].pName = "main";
+
+        VkVertexInputBindingDescription binding{};
+        binding.binding = 0;
+        binding.stride = 4 * sizeof(float);
+        binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+        std::array<VkVertexInputAttributeDescription, 2> attrs{};
+        attrs[0].location = 0;
+        attrs[0].binding = 0;
+        attrs[0].format = VK_FORMAT_R32G32_SFLOAT;
+        attrs[0].offset = 0;
+        attrs[1].location = 1;
+        attrs[1].binding = 0;
+        attrs[1].format = VK_FORMAT_R32G32_SFLOAT;
+        attrs[1].offset = 2 * sizeof(float);
+
+        VkPipelineVertexInputStateCreateInfo vertexInput{};
+        vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+        vertexInput.vertexBindingDescriptionCount = 1;
+        vertexInput.pVertexBindingDescriptions = &binding;
+        vertexInput.vertexAttributeDescriptionCount = static_cast<std::uint32_t>(attrs.size());
+        vertexInput.pVertexAttributeDescriptions = attrs.data();
+
+        VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+        inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+        inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+        VkPipelineViewportStateCreateInfo viewportState{};
+        viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+        viewportState.viewportCount = 1;
+        viewportState.scissorCount = 1;
+
+        VkPipelineRasterizationStateCreateInfo rasterizer{};
+        rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+        rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+        rasterizer.cullMode = VK_CULL_MODE_NONE;
+        rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+        rasterizer.lineWidth = 1.0f;
+
+        VkPipelineMultisampleStateCreateInfo multisample{};
+        multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+        multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+        VkPipelineColorBlendAttachmentState blendAttachment = blendStateFor(0);
+
+        VkPipelineColorBlendStateCreateInfo colorBlend{};
+        colorBlend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        colorBlend.attachmentCount = 1;
+        colorBlend.pAttachments = &blendAttachment;
+
+        const std::array<VkDynamicState, 2> dynamicStates{VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+        VkPipelineDynamicStateCreateInfo dynamicState{};
+        dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+        dynamicState.dynamicStateCount = static_cast<std::uint32_t>(dynamicStates.size());
+        dynamicState.pDynamicStates = dynamicStates.data();
+
+        VkGraphicsPipelineCreateInfo pipelineInfo{};
+        pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        pipelineInfo.stageCount = static_cast<std::uint32_t>(stages.size());
+        pipelineInfo.pStages = stages.data();
+        pipelineInfo.pVertexInputState = &vertexInput;
+        pipelineInfo.pInputAssemblyState = &inputAssembly;
+        pipelineInfo.pViewportState = &viewportState;
+        pipelineInfo.pRasterizationState = &rasterizer;
+        pipelineInfo.pMultisampleState = &multisample;
+        pipelineInfo.pColorBlendState = &colorBlend;
+        pipelineInfo.pDynamicState = &dynamicState;
+        pipelineInfo.layout = gradientPipelineLayout;
+        pipelineInfo.renderPass = renderPass;
+        pipelineInfo.subpass = 0;
+
+        if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &gradientPipeline)
             != VK_SUCCESS) {
             return false;
         }
@@ -2634,11 +2796,14 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
 
     std::uint32_t texturedCount = 0;
     std::uint32_t clipCount = 0;
+    std::uint32_t gradientCount = 0;
     for (const wsc::DrawPrimitive &prim : drawList) {
         if (prim.kind == wsc::DrawPrimitiveKind::TexturedQuad) {
             ++texturedCount;
         } else if (prim.kind == wsc::DrawPrimitiveKind::ClipFill) {
             ++clipCount;
+        } else if (prim.kind == wsc::DrawPrimitiveKind::GradientFill) {
+            ++gradientCount;
         }
     }
 
@@ -2648,18 +2813,26 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
     if (clipCount > 0 && !context_->ensureClipPipeline(rt->renderPass())) {
         return false;
     }
+    if (gradientCount > 0 && !context_->ensureGradientPipeline(rt->renderPass())) {
+        return false;
+    }
 
     VkDescriptorPool pool = VK_NULL_HANDLE;
     const std::uint32_t samplerSets = texturedCount + clipCount;
-    if (samplerSets > 0) {
-        VkDescriptorPoolSize poolSize{};
-        poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        poolSize.descriptorCount = samplerSets;
+    const std::uint32_t totalSets = samplerSets + gradientCount;
+    if (totalSets > 0) {
+        std::vector<VkDescriptorPoolSize> poolSizes;
+        if (samplerSets > 0) {
+            poolSizes.push_back({VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, samplerSets});
+        }
+        if (gradientCount > 0) {
+            poolSizes.push_back({VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, gradientCount});
+        }
         VkDescriptorPoolCreateInfo poolInfo{};
         poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        poolInfo.maxSets = samplerSets;
-        poolInfo.poolSizeCount = 1;
-        poolInfo.pPoolSizes = &poolSize;
+        poolInfo.maxSets = totalSets;
+        poolInfo.poolSizeCount = static_cast<std::uint32_t>(poolSizes.size());
+        poolInfo.pPoolSizes = poolSizes.data();
         if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &pool) != VK_SUCCESS) {
             return false;
         }
@@ -2675,6 +2848,8 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
         VkPipelineLayout descriptorLayout = VK_NULL_HANDLE;
         bool pushLayerAlpha = false;
         TexPushConstants push;
+        VkBuffer uboBuffer = VK_NULL_HANDLE;
+        VkDeviceMemory uboMemory = VK_NULL_HANDLE;
     };
     std::vector<RecordedDraw> draws;
     draws.reserve(drawList.size());
@@ -2684,6 +2859,8 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
         for (RecordedDraw &d : draws) {
             if (d.buffer != VK_NULL_HANDLE) vkDestroyBuffer(device, d.buffer, nullptr);
             if (d.memory != VK_NULL_HANDLE) vkFreeMemory(device, d.memory, nullptr);
+            if (d.uboBuffer != VK_NULL_HANDLE) vkDestroyBuffer(device, d.uboBuffer, nullptr);
+            if (d.uboMemory != VK_NULL_HANDLE) vkFreeMemory(device, d.uboMemory, nullptr);
         }
         if (pool != VK_NULL_HANDLE) vkDestroyDescriptorPool(device, pool, nullptr);
     };
@@ -2807,7 +2984,7 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
                 };
                 draw.vertexCount = 6;
             }
-        } else { // ClipFill
+        } else if (prim.kind == wsc::DrawPrimitiveKind::ClipFill) {
             auto *mask = dynamic_cast<VulkanTextureResource *>(prim.texture.get());
             if (mask == nullptr || !mask->isValid()) {
                 ok = false;
@@ -2827,6 +3004,80 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
                 1.0f,  1.0f,  r, g, b, a, 1.0f, 1.0f, -1.0f, 1.0f,  r, g, b, a, 0.0f, 1.0f,
             };
             draw.vertexCount = 6;
+        } else { // GradientFill
+            const std::size_t vertexCount = prim.positions.size() / 2;
+            if (vertexCount < 3 || (vertexCount % 3) != 0 || prim.localPositions.size() != prim.positions.size()) {
+                ok = false;
+                break;
+            }
+            if (!context_->createHostVisibleBuffer(sizeof(GradientUBO), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                                                   draw.uboBuffer, draw.uboMemory)) {
+                ok = false;
+                break;
+            }
+            GradientUBO ubo;
+            ubo.linear[0] = prim.linearStart[0];
+            ubo.linear[1] = prim.linearStart[1];
+            ubo.linear[2] = prim.linearEnd[0];
+            ubo.linear[3] = prim.linearEnd[1];
+            ubo.radial[0] = prim.radialCenter[0];
+            ubo.radial[1] = prim.radialCenter[1];
+            ubo.radial[2] = prim.radialRadius;
+            ubo.radial[3] = static_cast<float>(prim.gradientType);
+            ubo.modeCount[0] = prim.gradientTileMode;
+            ubo.modeCount[1] = prim.gradientStopCount;
+            for (int i = 0; i < 8; ++i) {
+                const bool has = i < prim.gradientStopCount;
+                const float p = has ? prim.gradientStopPositions[i] : 0.0f;
+                if (i < 4) {
+                    ubo.stopPos0[i] = p;
+                } else {
+                    ubo.stopPos1[i - 4] = p;
+                }
+                for (int c = 0; c < 4; ++c) {
+                    ubo.stopColors[i][c] = has ? prim.gradientStopColors[i * 4 + c] : 0.0f;
+                }
+            }
+            void *uboMapped = nullptr;
+            if (vkMapMemory(device, draw.uboMemory, 0, sizeof(GradientUBO), 0, &uboMapped) != VK_SUCCESS) {
+                ok = false;
+                break;
+            }
+            std::memcpy(uboMapped, &ubo, sizeof(GradientUBO));
+            vkUnmapMemory(device, draw.uboMemory);
+
+            VkDescriptorSetAllocateInfo setAlloc{};
+            setAlloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+            setAlloc.descriptorPool = pool;
+            setAlloc.descriptorSetCount = 1;
+            setAlloc.pSetLayouts = &context_->gradientDescriptorSetLayout;
+            if (vkAllocateDescriptorSets(device, &setAlloc, &draw.descriptorSet) != VK_SUCCESS) {
+                ok = false;
+                break;
+            }
+            VkDescriptorBufferInfo bufferInfo{};
+            bufferInfo.buffer = draw.uboBuffer;
+            bufferInfo.offset = 0;
+            bufferInfo.range = sizeof(GradientUBO);
+            VkWriteDescriptorSet write{};
+            write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write.dstSet = draw.descriptorSet;
+            write.dstBinding = 0;
+            write.descriptorCount = 1;
+            write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            write.pBufferInfo = &bufferInfo;
+            vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+
+            draw.pipeline = context_->gradientPipeline;
+            draw.descriptorLayout = context_->gradientPipelineLayout;
+            vertices.reserve(vertexCount * 4);
+            for (std::size_t v = 0; v < vertexCount; ++v) {
+                vertices.push_back(prim.positions[v * 2 + 0]);
+                vertices.push_back(prim.positions[v * 2 + 1]);
+                vertices.push_back(prim.localPositions[v * 2 + 0]);
+                vertices.push_back(prim.localPositions[v * 2 + 1]);
+            }
+            draw.vertexCount = static_cast<std::uint32_t>(vertexCount);
         }
 
         if (draw.pipeline == VK_NULL_HANDLE) {
@@ -2983,7 +3234,7 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
         if (cmd->type() == Command::Type::Path) {
             const auto *pathCmd = static_cast<const DrawPathCommand *>(cmd.get());
             const DrawPathData &d = pathCmd->data();
-            if (d.hasShaderGradient() || d.clipMask.hasPaths()) {
+            if (d.clipMask.hasPaths()) {
                 continue;
             }
             const std::size_t vertexCount = d.getPointCount();
@@ -2991,7 +3242,6 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
                 continue;
             }
             wsc::DrawPrimitive prim;
-            prim.kind = wsc::DrawPrimitiveKind::SolidTriangles;
             prim.blendMode = mapBlend(d.blendMode);
             prim.positions.reserve(vertexCount * 2);
             for (std::size_t i = 0; i < vertexCount; ++i) {
@@ -3000,13 +3250,42 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
                 prim.positions.push_back(nx);
                 prim.positions.push_back(ny);
             }
-            if (d.hasVertexColors()) {
-                prim.colors = d.colors; // per-vertex RGBA (baked gradient / vertex colors)
+            if (d.hasShaderGradient()) {
+                prim.kind = wsc::DrawPrimitiveKind::GradientFill;
+                // Local (canvas-space) positions matching the transformed geometry.
+                prim.localPositions.reserve(vertexCount * 2);
+                for (std::size_t i = 0; i < vertexCount; ++i) {
+                    const glm::vec4 p =
+                        d.transform * glm::vec4(d.points[i * 2 + 0], d.points[i * 2 + 1], 0.0f, 1.0f);
+                    prim.localPositions.push_back(p.x);
+                    prim.localPositions.push_back(p.y);
+                }
+                prim.gradientType = static_cast<int>(d.gradientType);
+                prim.gradientTileMode = static_cast<int>(d.gradientTileMode);
+                prim.linearStart[0] = d.gradientStart[0];
+                prim.linearStart[1] = d.gradientStart[1];
+                prim.linearEnd[0] = d.gradientEnd[0];
+                prim.linearEnd[1] = d.gradientEnd[1];
+                prim.radialCenter[0] = d.radialCenter[0];
+                prim.radialCenter[1] = d.radialCenter[1];
+                prim.radialRadius = d.radialRadius;
+                prim.gradientStopCount = d.gradientStopCount;
+                for (int i = 0; i < d.gradientStopCount && i < 8; ++i) {
+                    prim.gradientStopPositions[i] = d.gradientStopPositions[i];
+                    for (int c = 0; c < 4; ++c) {
+                        prim.gradientStopColors[i * 4 + c] = d.gradientStopColors[i * 4 + c];
+                    }
+                }
+            } else {
+                prim.kind = wsc::DrawPrimitiveKind::SolidTriangles;
+                if (d.hasVertexColors()) {
+                    prim.colors = d.colors;
+                }
+                prim.color[0] = d.color[0];
+                prim.color[1] = d.color[1];
+                prim.color[2] = d.color[2];
+                prim.color[3] = d.color[3];
             }
-            prim.color[0] = d.color[0];
-            prim.color[1] = d.color[1];
-            prim.color[2] = d.color[2];
-            prim.color[3] = d.color[3];
             list.push_back(std::move(prim));
         } else if (cmd->type() == Command::Type::Points) {
             const auto *pointsCmd = static_cast<const DrawPointsCommand *>(cmd.get());
