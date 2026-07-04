@@ -22,7 +22,7 @@ is covered by a real-hardware test under the CTest `vulkan` label (8 tests,
 | M5 | Sampled textures (create/upload/partial update); textured-quad draw | `WhatsCanvasVulkanTextureTests` |
 | M6 | Offscreen-layer compositing with layer alpha (saveLayer mechanism) | `WhatsCanvasVulkanLayerTests` |
 | M7 | Coverage-mask path clipping | `WhatsCanvasVulkanClipTests` |
-| ADR-006 | Backend-neutral `DrawList` + Vulkan translator (solid primitives) | `WhatsCanvasVulkanDrawListTests` |
+| ADR-006 | Backend-neutral `DrawList` + Vulkan translator (solid + textured primitives) | `WhatsCanvasVulkanDrawListTests` |
 
 ## `IRenderDevice` parity
 
@@ -46,11 +46,12 @@ documented gap; 2 remain.
 - **Windowed presentation (M8 swapchain)**: requires a GLFW window + present
   loop, which is not validatable in the headless test harness. Deferred to a
   windowed work item.
-- **Textured/clip `DrawList` primitives (ADR-006 follow-up)**: extending
-  `executeDrawList` beyond solid primitives surfaced a process-exit heap crash
-  (rendering + readback correct, validation clean) when a texture is created
-  after an `executeDrawList` call. Not yet root-caused; the solid-only slice is
-  what shipped. Investigate with AddressSanitizer before re-landing.
+- **Textured/clip `DrawList` primitives (ADR-006 follow-up)**: textured primitives
+  now land (`executeDrawList` handles solid + textured in one render pass). A
+  teardown crash during development was root-caused with AddressSanitizer to a
+  test lifetime bug (a `DrawList` holding a texture ref must be released before
+  `finalizeBackend`), not a rendering bug. Clip primitives in `DrawList` are
+  still a follow-up.
 - **Analytic-AA feathering / multi-stop fragment gradients**: the mechanisms are
   in place (coverage mask, vertex-color gradients); true AA feathering and
   texel-buffer multi-stop gradients are refinements.

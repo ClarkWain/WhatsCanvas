@@ -94,9 +94,58 @@ int main()
     if (!pixelIs(pixels, width, width / 2, height / 2, 255, 0, 0, 255, "center red")) return 1;
     if (!pixelIs(pixels, width, 0, 0, 0, 255, 0, 255, "corner green")) return 1;
 
+    // Second list: a textured quad over a solid background (mixed primitives).
+    const std::vector<unsigned char> texels = {
+        255, 0,   0,   255, 0,   255, 0,   255,
+        0,   0,   255, 255, 255, 255, 0,   255,
+    };
+    auto texture = device.createImageResourceRGBA(2, 2, texels);
+    if (!texture || !texture->isValid()) {
+        std::cerr << "[VulkanDrawListTests] FAIL: could not create texture." << std::endl;
+        return 1;
+    }
+
+    wsc::DrawList mixed;
+    wsc::DrawPrimitive bg2;
+    bg2.kind = wsc::DrawPrimitiveKind::SolidTriangles;
+    bg2.positions = background.positions;
+    bg2.color[0] = 0.0f;
+    bg2.color[1] = 0.0f;
+    bg2.color[2] = 0.0f;
+    bg2.color[3] = 1.0f;
+    mixed.push_back(bg2);
+
+    wsc::DrawPrimitive texturedQuad;
+    texturedQuad.kind = wsc::DrawPrimitiveKind::TexturedQuad;
+    texturedQuad.texture = texture;
+    mixed.push_back(texturedQuad);
+
+    auto dst2 = device.createRenderTarget(width, height);
+    if (!dst2 || !dst2->isValid()) {
+        std::cerr << "[VulkanDrawListTests] FAIL: could not create second render target." << std::endl;
+        return 1;
+    }
+    if (!device.executeDrawList(dst2, mixed)) {
+        std::cerr << "[VulkanDrawListTests] FAIL: mixed executeDrawList returned false." << std::endl;
+        return 1;
+    }
+    if (!device.readPixelsRGBA(width, height, pixels)) {
+        std::cerr << "[VulkanDrawListTests] FAIL: mixed readback failed." << std::endl;
+        return 1;
+    }
+    if (!pixelIs(pixels, width, 16, 12, 255, 0, 0, 255, "textured top-left red")) return 1;
+    if (!pixelIs(pixels, width, 48, 36, 255, 255, 0, 255, "textured bottom-right yellow")) return 1;
+
     std::cout << "[VulkanDrawListTests] PASS: backend-neutral DrawList executed on \"" << device.selectedDeviceName()
               << "\"." << std::endl;
 
+    // Release all resource references (including those held by the DrawLists and
+    // the local primitive) before tearing down the device.
+    drawList.clear();
+    mixed.clear();
+    texturedQuad.texture.reset();
+    texture.reset();
+    dst2.reset();
     target.reset();
     device.finalizeBackend();
     return 0;

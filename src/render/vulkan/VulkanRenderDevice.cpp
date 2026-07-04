@@ -2542,29 +2542,189 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
         return false;
     }
     auto *rt = dynamic_cast<VulkanRenderTarget *>(target.get());
-    if (rt == nullptr) {
+    if (rt == nullptr || !rt->isValid()) {
         return false;
     }
 
-    std::vector<SolidBatch> batches;
-    batches.reserve(drawList.size());
+    VkDevice device = context_->device;
+
+    std::uint32_t texturedCount = 0;
     for (const wsc::DrawPrimitive &prim : drawList) {
-        if (prim.kind != wsc::DrawPrimitiveKind::SolidTriangles) {
-            return false; // Other primitive kinds are follow-ups (ADR-006).
+        if (prim.kind == wsc::DrawPrimitiveKind::TexturedQuad) {
+            ++texturedCount;
         }
-        const std::size_t vertexCount = prim.positions.size() / 2;
-        if (vertexCount < 3 || (vertexCount % 3) != 0) {
+    }
+
+    VkDescriptorPool pool = VK_NULL_HANDLE;
+    if (texturedCount > 0) {
+        if (!context_->ensureTexturePipeline(rt->renderPass())) {
             return false;
         }
-        SolidBatch batch;
-        batch.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-        batch.blendMode = prim.blendMode;
-        batch.vertices = buildSolidVertices(prim.positions, prim.color[0], prim.color[1], prim.color[2],
-                                            prim.color[3]);
-        batch.vertexCount = static_cast<std::uint32_t>(vertexCount);
-        batches.push_back(std::move(batch));
+        VkDescriptorPoolSize poolSize{};
+        poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        poolSize.descriptorCount = texturedCount;
+        VkDescriptorPoolCreateInfo poolInfo{};
+        poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        poolInfo.maxSets = texturedCount;
+        poolInfo.poolSizeCount = 1;
+        poolInfo.pPoolSizes = &poolSize;
+        if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &pool) != VK_SUCCESS) {
+            return false;
+        }
     }
-    return recordSolidBatches(context_.get(), rt, batches);
+
+    struct RecordedDraw
+    {
+        VkPipeline pipeline = VK_NULL_HANDLE;
+        VkBuffer buffer = VK_NULL_HANDLE;
+        VkDeviceMemory memory = VK_NULL_HANDLE;
+        std::uint32_t vertexCount = 0;
+        bool textured = false;
+        VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
+    };
+    std::vector<RecordedDraw> draws;
+    draws.reserve(drawList.size());
+
+    bool ok = true;
+    auto cleanup = [&]() {
+        for (RecordedDraw &d : draws) {
+            if (d.buffer != VK_NULL_HANDLE) vkDestroyBuffer(device, d.buffer, nullptr);
+            if (d.memory != VK_NULL_HANDLE) vkFreeMemory(device, d.memory, nullptr);
+        }
+        if (pool != VK_NULL_HANDLE) vkDestroyDescriptorPool(device, pool, nullptr);
+    };
+
+    for (const wsc::DrawPrimitive &prim : drawList) {
+        RecordedDraw draw;
+        std::vector<float> vertices;
+        if (prim.kind == wsc::DrawPrimitiveKind::SolidTriangles) {
+            const std::size_t vertexCount = prim.positions.size() / 2;
+            if (vertexCount < 3 || (vertexCount % 3) != 0) {
+                ok = false;
+                break;
+            }
+            draw.pipeline = context_->ensureSolidPipeline(rt->renderPass(), VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+                                                          prim.blendMode);
+            vertices = buildSolidVertices(prim.positions, prim.color[0], prim.color[1], prim.color[2], prim.color[3]);
+            draw.vertexCount = static_cast<std::uint32_t>(vertexCount);
+        } else { // TexturedQuad
+            auto *tex = dynamic_cast<VulkanTextureResource *>(prim.texture.get());
+            if (tex == nullptr || !tex->isValid()) {
+                ok = false;
+                break;
+            }
+            draw.pipeline = context_->texPipeline;
+            draw.textured = true;
+
+            VkDescriptorSetAllocateInfo setAlloc{};
+            setAlloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+            setAlloc.descriptorPool = pool;
+            setAlloc.descriptorSetCount = 1;
+            setAlloc.pSetLayouts = &context_->texDescriptorSetLayout;
+            if (vkAllocateDescriptorSets(device, &setAlloc, &draw.descriptorSet) != VK_SUCCESS) {
+                ok = false;
+                break;
+            }
+            VkDescriptorImageInfo imageDescriptor{};
+            imageDescriptor.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            imageDescriptor.imageView = tex->view();
+            imageDescriptor.sampler = tex->sampler();
+            VkWriteDescriptorSet write{};
+            write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write.dstSet = draw.descriptorSet;
+            write.dstBinding = 0;
+            write.descriptorCount = 1;
+            write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write.pImageInfo = &imageDescriptor;
+            vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+
+            vertices = {
+                -1.0f, -1.0f, 0.0f, 0.0f, 1.0f, -1.0f, 1.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f,
+                -1.0f, -1.0f, 0.0f, 0.0f, 1.0f,  1.0f, 1.0f, 1.0f, -1.0f, 1.0f, 0.0f, 1.0f,
+            };
+            draw.vertexCount = 6;
+        }
+
+        if (draw.pipeline == VK_NULL_HANDLE) {
+            ok = false;
+            break;
+        }
+        const VkDeviceSize bytes = static_cast<VkDeviceSize>(vertices.size()) * sizeof(float);
+        if (!context_->createHostVisibleBuffer(bytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, draw.buffer, draw.memory)) {
+            ok = false;
+            break;
+        }
+        void *mapped = nullptr;
+        if (vkMapMemory(device, draw.memory, 0, bytes, 0, &mapped) != VK_SUCCESS) {
+            ok = false;
+            draws.push_back(draw);
+            break;
+        }
+        std::memcpy(mapped, vertices.data(), static_cast<std::size_t>(bytes));
+        vkUnmapMemory(device, draw.memory);
+        draws.push_back(draw);
+    }
+
+    if (!ok) {
+        cleanup();
+        return false;
+    }
+
+    VkCommandBuffer cmd = context_->beginSingleTimeCommands();
+    bool submitted = false;
+    if (cmd != VK_NULL_HANDLE) {
+        VkClearValue clearValue{};
+        clearValue.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
+        VkRenderPassBeginInfo renderPassInfo{};
+        renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        renderPassInfo.renderPass = rt->renderPass();
+        renderPassInfo.framebuffer = rt->framebuffer();
+        renderPassInfo.renderArea.offset = {0, 0};
+        renderPassInfo.renderArea.extent = {static_cast<std::uint32_t>(rt->width()),
+                                            static_cast<std::uint32_t>(rt->height())};
+        renderPassInfo.clearValueCount = 1;
+        renderPassInfo.pClearValues = &clearValue;
+        vkCmdBeginRenderPass(cmd, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+        VkViewport viewport{};
+        viewport.width = static_cast<float>(rt->width());
+        viewport.height = static_cast<float>(rt->height());
+        viewport.maxDepth = 1.0f;
+        vkCmdSetViewport(cmd, 0, 1, &viewport);
+        VkRect2D scissor{};
+        scissor.extent = {static_cast<std::uint32_t>(rt->width()), static_cast<std::uint32_t>(rt->height())};
+        vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+        const VkDeviceSize offset = 0;
+        const float layerAlpha = 1.0f;
+        for (const RecordedDraw &d : draws) {
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, d.pipeline);
+            if (d.textured) {
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, context_->texPipelineLayout, 0, 1,
+                                        &d.descriptorSet, 0, nullptr);
+                vkCmdPushConstants(cmd, context_->texPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(float),
+                                   &layerAlpha);
+            }
+            vkCmdBindVertexBuffers(cmd, 0, 1, &d.buffer, &offset);
+            vkCmdDraw(cmd, d.vertexCount, 1, 0, 0);
+        }
+
+        vkCmdEndRenderPass(cmd);
+        submitted = context_->endSingleTimeCommands(cmd);
+    }
+
+    cleanup();
+
+    if (!submitted) {
+        return false;
+    }
+    rt->setLayout(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    rt->markReadbackReady();
+    context_->readbackImage = rt->image();
+    context_->readbackLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    context_->readbackWidth = rt->width();
+    context_->readbackHeight = rt->height();
+    return true;
 #else
     (void)target;
     (void)drawList;
