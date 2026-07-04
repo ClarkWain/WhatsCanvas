@@ -101,6 +101,8 @@
   <table class="cmp status-table">
     <thead><tr><th>术语</th><th>在 WhatsCanvas 中的含义</th></tr></thead>
     <tbody>
+      <tr><td>Font family</td><td>用户请求的字体族名，例如 <code>Inter</code> 或 <code>Noto Sans CJK</code>；它不是单个字形文件，而是一组候选 face。</td></tr>
+      <tr><td>Font face</td><td>具体可加载和渲染的一张字体面，包含 family、weight、slant、来源路径/内存、collection face index 等信息。</td></tr>
       <tr><td>Font discovery</td><td>发现系统默认字体和已注册字体，并把它们转换成可查询的 face/descriptor。</td></tr>
       <tr><td>Face matching</td><td>当请求 <code>family + weight + slant</code> 时，从候选 face 中选最接近的一项。</td></tr>
       <tr><td>Fallback chain</td><td>主字体缺字时继续尝试的字体顺序；它决定混排文本会被拆成哪些 font runs。</td></tr>
