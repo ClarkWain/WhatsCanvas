@@ -51,8 +51,30 @@ if (Python3_Interpreter_FOUND)
         COMMENT "Checking generated public API reference freshness"
         VERBATIM
     )
+    add_custom_target(WhatsCanvasCheckVersionConsistency
+        COMMAND ${Python3_EXECUTABLE} scripts/version_consistency_check.py
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "Checking release version metadata consistency"
+        VERBATIM
+    )
 else()
-    message(STATUS "Python3 interpreter not found; API reference generation targets are disabled.")
+    message(STATUS "Python3 interpreter not found; API reference and version consistency targets are disabled.")
+endif()
+
+if (WIN32)
+    add_custom_target(WhatsCanvasCheckPackageConsumer
+        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/package_consumer_smoke.bat
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "Checking external CMake package consumer"
+        VERBATIM
+    )
+else()
+    add_custom_target(WhatsCanvasCheckPackageConsumer
+        COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/scripts/package_consumer_smoke.sh
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "Checking external CMake package consumer"
+        VERBATIM
+    )
 endif()
 
 if (WHATSCANVAS_BUILD_OPENGL)
