@@ -56,6 +56,12 @@ documented gap; 2 remain.
   channel). A teardown crash during development was root-caused with
   AddressSanitizer to a test lifetime bug (a `DrawList` holding a texture ref must
   be released before `finalizeBackend`), not a rendering bug.
+- **Command translation (ADR-006)**: `executeCommands` reads a real WhatsCanvas
+  `Command` stream and translates solid path fills to Vulkan draws (canvas->NDC
+  via the same ortho the GL path uses), without touching the OpenGL command
+  execution. Verified by `WhatsCanvasVulkanCommandTests` (a real `DrawPathCommand`
+  filled triangle). Other command kinds (stroke, points/lines, image, text,
+  gradients, clip) and `renderCommandsToImageResource` wrapping are follow-ups.
 - **Analytic-AA feathering / multi-stop fragment gradients**: the mechanisms are
   in place (coverage mask, vertex-color gradients); true AA feathering and
   texel-buffer multi-stop gradients are refinements.
