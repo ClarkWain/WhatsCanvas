@@ -2,6 +2,7 @@
 // Vulkan. Only built with -DWHATSCANVAS_ENABLE_VULKAN=ON.
 
 #include <cstdint>
+#include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <vector>
@@ -25,6 +26,23 @@ bool pixelIs(const std::vector<unsigned char> &pixels, int width, int x, int y, 
         std::cerr << "[VulkanCommandTests] FAIL: " << label << " = (" << int(pixels[idx]) << ","
                   << int(pixels[idx + 1]) << "," << int(pixels[idx + 2]) << "," << int(pixels[idx + 3])
                   << "), expected (" << r << "," << g << "," << b << "," << a << ")." << std::endl;
+        return false;
+    }
+    return true;
+}
+
+bool pixelNear(const std::vector<unsigned char> &pixels, int width, int x, int y, int r, int g, int b, int a,
+               int tol, const char *label)
+{
+    const std::size_t idx = (static_cast<std::size_t>(y) * static_cast<std::size_t>(width) + x) * 4u;
+    if (idx + 3 >= pixels.size()) {
+        std::cerr << "[VulkanCommandTests] FAIL: " << label << " out of range." << std::endl;
+        return false;
+    }
+    const int pr = pixels[idx], pg = pixels[idx + 1], pb = pixels[idx + 2], pa = pixels[idx + 3];
+    if (std::abs(pr - r) > tol || std::abs(pg - g) > tol || std::abs(pb - b) > tol || std::abs(pa - a) > tol) {
+        std::cerr << "[VulkanCommandTests] FAIL: " << label << " = (" << pr << "," << pg << "," << pb << "," << pa
+                  << "), expected ~(" << r << "," << g << "," << b << "," << a << ") +/-" << tol << "." << std::endl;
         return false;
     }
     return true;
@@ -165,6 +183,35 @@ int main()
     if (!pixelIs(pixels, width, 16, 12, 255, 0, 0, 255, "image top-left red")) return 1;
     if (!pixelIs(pixels, width, 48, 36, 255, 255, 0, 255, "image bottom-right yellow")) return 1;
 
+    // A vertex-color path (baked gradient): a full-canvas quad, left red, right blue.
+    DrawPathData gradientData;
+    gradientData.points = {
+        0.0f, 0.0f, static_cast<float>(width), 0.0f, static_cast<float>(width), static_cast<float>(height),
+        0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, static_cast<float>(height),
+    };
+    gradientData.drawMode = PathDrawMode::Fill;
+    gradientData.capStyle = PathCapStyle::Round;
+    // Per-vertex colors: x==0 -> red, x==width -> blue.
+    const float redV[4] = {1.0f, 0.0f, 0.0f, 1.0f};
+    const float blueV[4] = {0.0f, 0.0f, 1.0f, 1.0f};
+    for (std::size_t v = 0; v < gradientData.points.size() / 2; ++v) {
+        const float *c = gradientData.points[v * 2] < 1.0f ? redV : blueV;
+        gradientData.colors.insert(gradientData.colors.end(), c, c + 4);
+    }
+    std::vector<std::unique_ptr<Command>> gradientCommands;
+    gradientCommands.push_back(std::make_unique<DrawPathCommand>(gradientData));
+    if (!device.executeCommands(target, gradientCommands, request)) {
+        std::cerr << "[VulkanCommandTests] FAIL: executeCommands (vertex-color) returned false." << std::endl;
+        return 1;
+    }
+    if (!device.readPixelsRGBA(width, height, pixels)) {
+        std::cerr << "[VulkanCommandTests] FAIL: vertex-color readback failed." << std::endl;
+        return 1;
+    }
+    if (!pixelNear(pixels, width, 0, height / 2, 255, 0, 0, 255, 10, "grad left red")) return 1;
+    if (!pixelNear(pixels, width, width - 1, height / 2, 0, 0, 255, 255, 10, "grad right blue")) return 1;
+    if (!pixelNear(pixels, width, width / 2, height / 2, 128, 0, 128, 255, 10, "grad center purple")) return 1;
+
     std::cout << "[VulkanCommandTests] PASS: translated a real Command stream on \"" << device.selectedDeviceName()
               << "\"." << std::endl;
 
@@ -173,6 +220,7 @@ int main()
     lineCommands.clear();
     imageData.imageResource.reset();
     imageCommands.clear();
+    gradientCommands.clear();
     image.reset();
     target.reset();
     device.finalizeBackend();

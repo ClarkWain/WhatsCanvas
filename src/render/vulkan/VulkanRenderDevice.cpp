@@ -2646,7 +2646,20 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
             }
             draw.pipeline = context_->ensureSolidPipeline(rt->renderPass(), VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
                                                           prim.blendMode);
-            vertices = buildSolidVertices(prim.positions, prim.color[0], prim.color[1], prim.color[2], prim.color[3]);
+            if (prim.colors.size() == vertexCount * 4) {
+                vertices.reserve(vertexCount * 6);
+                for (std::size_t v = 0; v < vertexCount; ++v) {
+                    vertices.push_back(prim.positions[v * 2 + 0]);
+                    vertices.push_back(prim.positions[v * 2 + 1]);
+                    vertices.push_back(prim.colors[v * 4 + 0]);
+                    vertices.push_back(prim.colors[v * 4 + 1]);
+                    vertices.push_back(prim.colors[v * 4 + 2]);
+                    vertices.push_back(prim.colors[v * 4 + 3]);
+                }
+            } else {
+                vertices = buildSolidVertices(prim.positions, prim.color[0], prim.color[1], prim.color[2],
+                                              prim.color[3]);
+            }
             draw.vertexCount = static_cast<std::uint32_t>(vertexCount);
         } else if (prim.kind == wsc::DrawPrimitiveKind::TexturedQuad) {
             auto *tex = dynamic_cast<VulkanTextureResource *>(prim.texture.get());
@@ -2856,7 +2869,7 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
         if (cmd->type() == Command::Type::Path) {
             const auto *pathCmd = static_cast<const DrawPathCommand *>(cmd.get());
             const DrawPathData &d = pathCmd->data();
-            if (d.hasShaderGradient() || d.hasVertexColors() || d.clipMask.hasPaths()) {
+            if (d.hasShaderGradient() || d.clipMask.hasPaths()) {
                 continue;
             }
             const std::size_t vertexCount = d.getPointCount();
@@ -2872,6 +2885,9 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
                 toNdc(d.transform, d.points[i * 2 + 0], d.points[i * 2 + 1], nx, ny);
                 prim.positions.push_back(nx);
                 prim.positions.push_back(ny);
+            }
+            if (d.hasVertexColors()) {
+                prim.colors = d.colors; // per-vertex RGBA (baked gradient / vertex colors)
             }
             prim.color[0] = d.color[0];
             prim.color[1] = d.color[1];
