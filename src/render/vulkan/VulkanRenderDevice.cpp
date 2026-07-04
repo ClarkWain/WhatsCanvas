@@ -2549,23 +2549,31 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
     VkDevice device = context_->device;
 
     std::uint32_t texturedCount = 0;
+    std::uint32_t clipCount = 0;
     for (const wsc::DrawPrimitive &prim : drawList) {
         if (prim.kind == wsc::DrawPrimitiveKind::TexturedQuad) {
             ++texturedCount;
+        } else if (prim.kind == wsc::DrawPrimitiveKind::ClipFill) {
+            ++clipCount;
         }
     }
 
+    if (texturedCount > 0 && !context_->ensureTexturePipeline(rt->renderPass())) {
+        return false;
+    }
+    if (clipCount > 0 && !context_->ensureClipPipeline(rt->renderPass())) {
+        return false;
+    }
+
     VkDescriptorPool pool = VK_NULL_HANDLE;
-    if (texturedCount > 0) {
-        if (!context_->ensureTexturePipeline(rt->renderPass())) {
-            return false;
-        }
+    const std::uint32_t samplerSets = texturedCount + clipCount;
+    if (samplerSets > 0) {
         VkDescriptorPoolSize poolSize{};
         poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        poolSize.descriptorCount = texturedCount;
+        poolSize.descriptorCount = samplerSets;
         VkDescriptorPoolCreateInfo poolInfo{};
         poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        poolInfo.maxSets = texturedCount;
+        poolInfo.maxSets = samplerSets;
         poolInfo.poolSizeCount = 1;
         poolInfo.pPoolSizes = &poolSize;
         if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &pool) != VK_SUCCESS) {
@@ -2579,8 +2587,9 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
         VkBuffer buffer = VK_NULL_HANDLE;
         VkDeviceMemory memory = VK_NULL_HANDLE;
         std::uint32_t vertexCount = 0;
-        bool textured = false;
         VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
+        VkPipelineLayout descriptorLayout = VK_NULL_HANDLE;
+        bool pushLayerAlpha = false;
     };
     std::vector<RecordedDraw> draws;
     draws.reserve(drawList.size());
@@ -2592,6 +2601,33 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
             if (d.memory != VK_NULL_HANDLE) vkFreeMemory(device, d.memory, nullptr);
         }
         if (pool != VK_NULL_HANDLE) vkDestroyDescriptorPool(device, pool, nullptr);
+    };
+
+    // Bind a texture resource to a freshly allocated descriptor set of the given
+    // layout. Returns VK_NULL_HANDLE on failure.
+    auto allocSampledSet = [&](VulkanTextureResource *tex, VkDescriptorSetLayout layout) -> VkDescriptorSet {
+        VkDescriptorSetAllocateInfo setAlloc{};
+        setAlloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        setAlloc.descriptorPool = pool;
+        setAlloc.descriptorSetCount = 1;
+        setAlloc.pSetLayouts = &layout;
+        VkDescriptorSet set = VK_NULL_HANDLE;
+        if (vkAllocateDescriptorSets(device, &setAlloc, &set) != VK_SUCCESS) {
+            return VK_NULL_HANDLE;
+        }
+        VkDescriptorImageInfo imageDescriptor{};
+        imageDescriptor.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        imageDescriptor.imageView = tex->view();
+        imageDescriptor.sampler = tex->sampler();
+        VkWriteDescriptorSet write{};
+        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write.dstSet = set;
+        write.dstBinding = 0;
+        write.descriptorCount = 1;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write.pImageInfo = &imageDescriptor;
+        vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+        return set;
     };
 
     for (const wsc::DrawPrimitive &prim : drawList) {
@@ -2607,40 +2643,43 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
                                                           prim.blendMode);
             vertices = buildSolidVertices(prim.positions, prim.color[0], prim.color[1], prim.color[2], prim.color[3]);
             draw.vertexCount = static_cast<std::uint32_t>(vertexCount);
-        } else { // TexturedQuad
+        } else if (prim.kind == wsc::DrawPrimitiveKind::TexturedQuad) {
             auto *tex = dynamic_cast<VulkanTextureResource *>(prim.texture.get());
             if (tex == nullptr || !tex->isValid()) {
                 ok = false;
                 break;
             }
             draw.pipeline = context_->texPipeline;
-            draw.textured = true;
-
-            VkDescriptorSetAllocateInfo setAlloc{};
-            setAlloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-            setAlloc.descriptorPool = pool;
-            setAlloc.descriptorSetCount = 1;
-            setAlloc.pSetLayouts = &context_->texDescriptorSetLayout;
-            if (vkAllocateDescriptorSets(device, &setAlloc, &draw.descriptorSet) != VK_SUCCESS) {
+            draw.descriptorLayout = context_->texPipelineLayout;
+            draw.pushLayerAlpha = true;
+            draw.descriptorSet = allocSampledSet(tex, context_->texDescriptorSetLayout);
+            if (draw.descriptorSet == VK_NULL_HANDLE) {
                 ok = false;
                 break;
             }
-            VkDescriptorImageInfo imageDescriptor{};
-            imageDescriptor.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            imageDescriptor.imageView = tex->view();
-            imageDescriptor.sampler = tex->sampler();
-            VkWriteDescriptorSet write{};
-            write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write.dstSet = draw.descriptorSet;
-            write.dstBinding = 0;
-            write.descriptorCount = 1;
-            write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            write.pImageInfo = &imageDescriptor;
-            vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
-
             vertices = {
                 -1.0f, -1.0f, 0.0f, 0.0f, 1.0f, -1.0f, 1.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f,
                 -1.0f, -1.0f, 0.0f, 0.0f, 1.0f,  1.0f, 1.0f, 1.0f, -1.0f, 1.0f, 0.0f, 1.0f,
+            };
+            draw.vertexCount = 6;
+        } else { // ClipFill
+            auto *mask = dynamic_cast<VulkanTextureResource *>(prim.texture.get());
+            if (mask == nullptr || !mask->isValid()) {
+                ok = false;
+                break;
+            }
+            draw.pipeline = context_->clipPipeline;
+            draw.descriptorLayout = context_->clipPipelineLayout;
+            draw.descriptorSet = allocSampledSet(mask, context_->clipDescriptorSetLayout);
+            if (draw.descriptorSet == VK_NULL_HANDLE) {
+                ok = false;
+                break;
+            }
+            const float r = prim.color[0], g = prim.color[1], b = prim.color[2], a = prim.color[3];
+            vertices = {
+                -1.0f, -1.0f, r, g, b, a, 0.0f, 0.0f, 1.0f, -1.0f, r, g, b, a, 1.0f, 0.0f,
+                1.0f,  1.0f,  r, g, b, a, 1.0f, 1.0f, -1.0f, -1.0f, r, g, b, a, 0.0f, 0.0f,
+                1.0f,  1.0f,  r, g, b, a, 1.0f, 1.0f, -1.0f, 1.0f,  r, g, b, a, 0.0f, 1.0f,
             };
             draw.vertexCount = 6;
         }
@@ -2699,11 +2738,13 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
         const float layerAlpha = 1.0f;
         for (const RecordedDraw &d : draws) {
             vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, d.pipeline);
-            if (d.textured) {
-                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, context_->texPipelineLayout, 0, 1,
+            if (d.descriptorSet != VK_NULL_HANDLE) {
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, d.descriptorLayout, 0, 1,
                                         &d.descriptorSet, 0, nullptr);
-                vkCmdPushConstants(cmd, context_->texPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(float),
-                                   &layerAlpha);
+                if (d.pushLayerAlpha) {
+                    vkCmdPushConstants(cmd, d.descriptorLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(float),
+                                       &layerAlpha);
+                }
             }
             vkCmdBindVertexBuffers(cmd, 0, 1, &d.buffer, &offset);
             vkCmdDraw(cmd, d.vertexCount, 1, 0, 0);

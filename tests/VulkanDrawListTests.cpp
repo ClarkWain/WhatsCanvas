@@ -136,15 +136,53 @@ int main()
     if (!pixelIs(pixels, width, 16, 12, 255, 0, 0, 255, "textured top-left red")) return 1;
     if (!pixelIs(pixels, width, 48, 36, 255, 255, 0, 255, "textured bottom-right yellow")) return 1;
 
+    // Third list: a clip fill using a coverage mask (red channel = coverage).
+    const std::vector<unsigned char> maskTexels = {
+        255, 0, 0, 255, 0, 0, 0, 255,
+        0,   0, 0, 255, 0, 0, 0, 255,
+    };
+    auto maskTex = device.createImageResourceRGBA(2, 2, maskTexels);
+    if (!maskTex || !maskTex->isValid()) {
+        std::cerr << "[VulkanDrawListTests] FAIL: could not create clip mask." << std::endl;
+        return 1;
+    }
+
+    wsc::DrawList clipList;
+    wsc::DrawPrimitive clipFill;
+    clipFill.kind = wsc::DrawPrimitiveKind::ClipFill;
+    clipFill.texture = maskTex;
+    clipFill.color[0] = 0.0f;
+    clipFill.color[1] = 1.0f;
+    clipFill.color[2] = 0.0f;
+    clipFill.color[3] = 1.0f;
+    clipList.push_back(clipFill);
+
+    auto dst3 = device.createRenderTarget(width, height);
+    if (!dst3 || !dst3->isValid() || !device.executeDrawList(dst3, clipList)) {
+        std::cerr << "[VulkanDrawListTests] FAIL: clip-fill executeDrawList failed." << std::endl;
+        return 1;
+    }
+    if (!device.readPixelsRGBA(width, height, pixels)) {
+        std::cerr << "[VulkanDrawListTests] FAIL: clip readback failed." << std::endl;
+        return 1;
+    }
+    // Only the top-left quadrant (mask coverage 1) is filled green; elsewhere clear.
+    if (!pixelIs(pixels, width, 16, 12, 0, 255, 0, 255, "clip top-left green")) return 1;
+    if (!pixelIs(pixels, width, 48, 36, 0, 0, 0, 0, "clip bottom-right clear")) return 1;
+
     std::cout << "[VulkanDrawListTests] PASS: backend-neutral DrawList executed on \"" << device.selectedDeviceName()
               << "\"." << std::endl;
 
     // Release all resource references (including those held by the DrawLists and
-    // the local primitive) before tearing down the device.
+    // local primitives) before tearing down the device.
     drawList.clear();
     mixed.clear();
+    clipList.clear();
     texturedQuad.texture.reset();
+    clipFill.texture.reset();
+    maskTex.reset();
     texture.reset();
+    dst3.reset();
     dst2.reset();
     target.reset();
     device.finalizeBackend();

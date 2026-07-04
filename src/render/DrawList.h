@@ -15,6 +15,7 @@ enum class DrawPrimitiveKind
 {
     SolidTriangles, ///< Triangle list, single solid color.
     TexturedQuad,   ///< Full-target quad sampling an image resource.
+    ClipFill,       ///< Full-target solid fill, clipped by a coverage mask (red channel).
 };
 
 /// One backend-neutral draw primitive.
@@ -29,10 +30,11 @@ struct DrawPrimitive
     /// coordinates (3 vertices per triangle).
     std::vector<float> positions;
 
-    /// SolidTriangles: RGBA fill color in [0,1].
+    /// SolidTriangles / ClipFill: RGBA fill color in [0,1].
     float color[4] = {1.0f, 1.0f, 1.0f, 1.0f};
 
     /// TexturedQuad: the image sampled across the full target.
+    /// ClipFill: the coverage mask; its red channel modulates the fill alpha.
     SharedImageResource texture;
 };
 

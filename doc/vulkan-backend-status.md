@@ -22,7 +22,7 @@ is covered by a real-hardware test under the CTest `vulkan` label (8 tests,
 | M5 | Sampled textures (create/upload/partial update); textured-quad draw | `WhatsCanvasVulkanTextureTests` |
 | M6 | Offscreen-layer compositing with layer alpha (saveLayer mechanism) | `WhatsCanvasVulkanLayerTests` |
 | M7 | Coverage-mask path clipping | `WhatsCanvasVulkanClipTests` |
-| ADR-006 | Backend-neutral `DrawList` + Vulkan translator (solid + textured primitives) | `WhatsCanvasVulkanDrawListTests` |
+| ADR-006 | Backend-neutral `DrawList` + Vulkan translator (solid + textured + clip primitives) | `WhatsCanvasVulkanDrawListTests` |
 
 ## `IRenderDevice` parity
 
@@ -50,12 +50,12 @@ documented gap; 2 remain.
   instance does not enable. A continuous frame loop, resize handling, and
   integrating present into `VulkanRenderDevice` are follow-ups. Not a CTest gate
   (windowed present is environment dependent).
-- **Textured/clip `DrawList` primitives (ADR-006 follow-up)**: textured primitives
-  now land (`executeDrawList` handles solid + textured in one render pass). A
-  teardown crash during development was root-caused with AddressSanitizer to a
-  test lifetime bug (a `DrawList` holding a texture ref must be released before
-  `finalizeBackend`), not a rendering bug. Clip primitives in `DrawList` are
-  still a follow-up.
+- **Textured/clip `DrawList` primitives (ADR-006 follow-up)**: solid, textured, and
+  clip-fill primitives now land (`executeDrawList` records them in one render
+  pass; clip-fill modulates the fill alpha by a coverage-mask texture's red
+  channel). A teardown crash during development was root-caused with
+  AddressSanitizer to a test lifetime bug (a `DrawList` holding a texture ref must
+  be released before `finalizeBackend`), not a rendering bug.
 - **Analytic-AA feathering / multi-stop fragment gradients**: the mechanisms are
   in place (coverage mask, vertex-color gradients); true AA feathering and
   texel-buffer multi-stop gradients are refinements.
