@@ -17,6 +17,8 @@ This directory is the top-level home for WhatsCanvas validation beyond ad-hoc lo
 - `ctest -C Debug -R ^WhatsCanvasImageResourceLifecycleTests$ --output-on-failure`: backend-neutral `Image` load, replace, update, external texture, reset, and move lifecycle coverage.
 - `ctest -C Debug -R ^WhatsCanvasContextLifecycleTests$ --output-on-failure`: public `Canvas` context initialize, finalize, resource release, and recreation lifecycle coverage.
 - `ctest -C Debug -L smoke --output-on-failure`: standard entry for the registered smoke/example script gates.
+- `ctest -C Debug -R ^WhatsCanvasApiReferenceCheck$ --output-on-failure`: generated public API reference freshness check.
+- `ctest -C Debug -R ^WhatsCanvasPackageConsumerSmoke$ --output-on-failure`: package/export smoke that builds the external CMake consumer under `tests/package_consumer`.
 - `scripts/smoke_test.bat` / `scripts/smoke_test.sh`: fixed-time first-frame smoke gate.
 - `scripts/clip_path_smoke.bat` / `scripts/clip_path_smoke.sh`: stacked non-rect `clipPath` smoke gate.
 - `scripts/examples_smoke.bat` / `scripts/examples_smoke.sh`: independent example build gate.
