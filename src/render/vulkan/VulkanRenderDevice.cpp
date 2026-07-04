@@ -40,6 +40,18 @@ bool VulkanRenderDevice::isAvailable()
 
 #if defined(WHATSCANVAS_ENABLE_VULKAN)
 
+// Fragment push constants for the textured pipeline. Layout matches the
+// std430-style push_constant block in textured.frag (104 bytes).
+struct TexPushConstants
+{
+    float colorMatrix[16] = {1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f,
+                             0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f};
+    float tint[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+    float colorOffset[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    float layerAlpha = 1.0f;
+    std::int32_t useColorMatrix = 0;
+};
+
 struct VulkanRenderDevice::VulkanContext
 {
     VkInstance instance = VK_NULL_HANDLE;
@@ -511,7 +523,7 @@ struct VulkanRenderDevice::VulkanContext
         VkPushConstantRange pushRange{};
         pushRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
         pushRange.offset = 0;
-        pushRange.size = sizeof(float);
+        pushRange.size = sizeof(TexPushConstants);
         layoutInfo.pushConstantRangeCount = 1;
         layoutInfo.pPushConstantRanges = &pushRange;
         if (vkCreatePipelineLayout(device, &layoutInfo, nullptr, &texPipelineLayout) != VK_SUCCESS) {
@@ -2290,9 +2302,9 @@ bool VulkanRenderDevice::renderTexturedQuad(const std::unique_ptr<IRenderTarget>
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, context_->texPipeline);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, context_->texPipelineLayout, 0, 1, &set, 0,
                                 nullptr);
-        const float layerAlpha = 1.0f;
-        vkCmdPushConstants(cmd, context_->texPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(float),
-                           &layerAlpha);
+        TexPushConstants push;
+        vkCmdPushConstants(cmd, context_->texPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                           sizeof(TexPushConstants), &push);
         const VkDeviceSize offset = 0;
         vkCmdBindVertexBuffers(cmd, 0, 1, &vertexBuffer, &offset);
         vkCmdDraw(cmd, 6, 1, 0, 0);
@@ -2492,8 +2504,10 @@ bool VulkanRenderDevice::compositeLayer(const std::unique_ptr<IRenderTarget> &ds
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, context_->texPipeline);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, context_->texPipelineLayout, 0, 1, &set, 0,
                                 nullptr);
-        vkCmdPushConstants(cmd, context_->texPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(float),
-                           &layerAlpha);
+        TexPushConstants push;
+        push.layerAlpha = layerAlpha;
+        vkCmdPushConstants(cmd, context_->texPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                           sizeof(TexPushConstants), &push);
         vkCmdBindVertexBuffers(cmd, 0, 1, &layerBuffer, &offset);
         vkCmdDraw(cmd, 6, 1, 0, 0);
 
@@ -2617,7 +2631,7 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
         VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
         VkPipelineLayout descriptorLayout = VK_NULL_HANDLE;
         bool pushLayerAlpha = false;
-        float layerAlpha = 1.0f;
+        TexPushConstants push;
     };
     std::vector<RecordedDraw> draws;
     draws.reserve(drawList.size());
@@ -2693,7 +2707,16 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
             draw.pipeline = context_->texPipeline;
             draw.descriptorLayout = context_->texPipelineLayout;
             draw.pushLayerAlpha = true;
-            draw.layerAlpha = prim.layerAlpha;
+            draw.push.layerAlpha = prim.layerAlpha;
+            draw.push.tint[0] = prim.tint[0];
+            draw.push.tint[1] = prim.tint[1];
+            draw.push.tint[2] = prim.tint[2];
+            draw.push.tint[3] = prim.tint[3];
+            draw.push.useColorMatrix = prim.hasColorMatrix ? 1 : 0;
+            if (prim.hasColorMatrix) {
+                std::memcpy(draw.push.colorMatrix, prim.colorMatrix, sizeof(draw.push.colorMatrix));
+                std::memcpy(draw.push.colorOffset, prim.colorMatrixOffset, sizeof(draw.push.colorOffset));
+            }
             draw.descriptorSet = allocSampledSet(tex, context_->texDescriptorSetLayout);
             if (draw.descriptorSet == VK_NULL_HANDLE) {
                 ok = false;
@@ -2795,8 +2818,8 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, d.descriptorLayout, 0, 1,
                                         &d.descriptorSet, 0, nullptr);
                 if (d.pushLayerAlpha) {
-                    vkCmdPushConstants(cmd, d.descriptorLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(float),
-                                       &d.layerAlpha);
+                    vkCmdPushConstants(cmd, d.descriptorLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                                       sizeof(TexPushConstants), &d.push);
                 }
             }
             vkCmdBindVertexBuffers(cmd, 0, 1, &d.buffer, &offset);
@@ -3000,6 +3023,15 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
             prim.kind = wsc::DrawPrimitiveKind::TexturedQuad;
             prim.texture = d.imageResource;
             prim.layerAlpha = d.alpha;
+            prim.tint[0] = d.tintColor[0];
+            prim.tint[1] = d.tintColor[1];
+            prim.tint[2] = d.tintColor[2];
+            prim.tint[3] = d.tintColor[3];
+            if (d.hasColorMatrix) {
+                prim.hasColorMatrix = true;
+                std::memcpy(prim.colorMatrix, d.colorMatrix, sizeof(prim.colorMatrix));
+                std::memcpy(prim.colorMatrixOffset, d.colorMatrixOffset, sizeof(prim.colorMatrixOffset));
+            }
             prim.positions.reserve(12);
             prim.uvs.reserve(12);
             for (int k : idx) {
