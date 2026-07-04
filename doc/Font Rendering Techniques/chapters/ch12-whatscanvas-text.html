@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第 12 章 · WhatsCanvas 文本管线：从能力到验证 · 字体渲染原理</title>
+<link rel="stylesheet" href="../assets/css/style.css">
+<style>
+.map-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;}
+.map-card{margin:0;}
+.map-card h3{margin:6px 0 8px;}
+.map-card ul{margin:0;padding-left:18px;color:var(--text-dim);font-size:14px;line-height:1.7;}
+.flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;}
+.flow .step{border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,.025);padding:12px;}
+.flow .n{font-family:var(--mono);font-size:12px;color:var(--accent);}
+.flow .t{font-weight:700;margin-top:4px;}
+.flow .d{font-size:13px;color:var(--text-dim);margin-top:6px;line-height:1.55;}
+.status-table td:first-child{font-family:var(--mono);white-space:nowrap;}
+</style>
+</head>
+<body data-page="ch12" data-base="../">
+
+<nav class="site-nav">
+  <a href="../index.html" class="brand"><span class="logo">字</span><span>字体渲染原理</span></a>
+  <span class="spacer"></span>
+  <div class="nav-links"></div>
+</nav>
+
+<div class="wrap wide">
+
+  <div class="chapter-kicker">CHAPTER 12 · IMPLEMENTATION MAP</div>
+  <h1 class="title">WhatsCanvas 文本管线：从能力到验证</h1>
+  <p class="lede">前 11 章讲的是字体渲染的通用原理。这一章把它们落到 WhatsCanvas 当前实现：一段 UTF-8 文本如何经过字体解析、fallback、双向文本、OpenType shaping、跨平台栅格化、glyph atlas，再进入 GPU 绘制；以及这些能力如何被测试和诊断。</p>
+
+  <h2>当前能力一览</h2>
+  <div class="map-grid">
+    <div class="card map-card">
+      <div class="chapter-kicker">FONT MODEL</div>
+      <h3>字体注册与 fallback</h3>
+      <ul>
+        <li><code>FontFace</code> 支持文件与内存字体注册。</li>
+        <li>支持 TrueType Collection face index。</li>
+        <li><code>FontFallbackChain</code> 定义字体解析顺序。</li>
+        <li>字体可声明覆盖码点范围，用于 fallback 选择。</li>
+      </ul>
+    </div>
+    <div class="card map-card">
+      <div class="chapter-kicker">SHAPING</div>
+      <h3>Unicode 与 OpenType</h3>
+      <ul>
+        <li>UTF-8 输入归一化与错误输入的可预测处理。</li>
+        <li>UAX #9 双向文本解析、视觉 run 排序。</li>
+        <li>HarfBuzz 可选接入，输出 glyph index、advance、offset。</li>
+        <li>无 HarfBuzz 时走 simple shaping 与 kerning fallback。</li>
+      </ul>
+    </div>
+    <div class="card map-card">
+      <div class="chapter-kicker">RASTER</div>
+      <h3>跨平台栅格化</h3>
+      <ul>
+        <li>FreeType 可选接入，负责 glyph lookup、metrics、kerning、alpha raster。</li>
+        <li><code>stb_truetype</code> 保留为 dependency-free fallback。</li>
+        <li>支持按 glyph index 栅格化，这是 shaping 输出进入绘制的关键。</li>
+        <li>已具备字体表探测与 COLR/CPAL v0 图层合成路径。</li>
+      </ul>
+    </div>
+    <div class="card map-card">
+      <div class="chapter-kicker">GPU</div>
+      <h3>glyph atlas 渲染</h3>
+      <ul>
+        <li>栅格化字形打包进 <code>GlyphAtlas</code>。</li>
+        <li>Canvas 复用持久 GPU atlas 资源。</li>
+        <li>支持 dirty-rect 增量上传与过量更新自动合并。</li>
+        <li>RGBA atlas 可承载彩色字体图层。</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>从文本到 GPU 的真实路径</h2>
+  <div class="demo">
+    <div class="demo-head"><span class="dot"></span> whatscanvas.text.pipeline</div>
+    <div class="demo-body">
+      <div class="flow">
+        <div class="step"><div class="n">01</div><div class="t">UTF-8 输入</div><div class="d">验证并归一化文本，保留 source byte range，方便后续诊断与布局回溯。</div></div>
+        <div class="step"><div class="n">02</div><div class="t">字体解析</div><div class="d">按 primary family 与 fallback chain 选择可覆盖当前码点的 face。</div></div>
+        <div class="step"><div class="n">03</div><div class="t">Bidi run</div><div class="d">用 UAX #9 解析混排方向，得到逻辑顺序与视觉顺序之间的映射。</div></div>
+        <div class="step"><div class="n">04</div><div class="t">Shaping</div><div class="d">HarfBuzz 或 simple shaping 产出 glyph index、advance、offset 与 byte mapping。</div></div>
+        <div class="step"><div class="n">05</div><div class="t">Raster</div><div class="d">FreeType 或 stb 按 glyph index 生成 alpha/RGBA glyph bitmap 与度量数据。</div></div>
+        <div class="step"><div class="n">06</div><div class="t">Atlas</div><div class="d">字形进入 atlas，记录 UV、dirty rect、cache stats 与 rebuild 状态。</div></div>
+        <div class="step"><div class="n">07</div><div class="t">DrawCommand</div><div class="d">Canvas 提交 atlas quads，走图像/纹理批处理路径进入 OpenGL。</div></div>
+        <div class="step"><div class="n">08</div><div class="t">GPU 输出</div><div class="d">片元着色器采样 glyph atlas，叠加 Paint 颜色、渐变、透明度与阴影效果。</div></div>
+      </div>
+    </div>
+  </div>
+
+  <h2>哪些点值得特别记住</h2>
+  <table class="cmp status-table">
+    <thead><tr><th>能力</th><th>为什么重要</th></tr></thead>
+    <tbody>
+      <tr><td>fallback segmentation</td><td>不同字体覆盖不同码点，文本必须先分段再 shaping/raster，否则 CJK、拉丁、符号混排会出现缺字或度量错位。</td></tr>
+      <tr><td>glyph-index path</td><td>OpenType shaping 的结果是 glyph index，不是 Unicode codepoint；渲染器必须能直接栅格化 glyph index。</td></tr>
+      <tr><td>UAX #9</td><td>阿拉伯语、希伯来语与拉丁数字混排时，视觉顺序和逻辑顺序不同，必须先解决方向再排字形。</td></tr>
+      <tr><td>dirty rect atlas</td><td>新字形出现时只上传变化区域，避免每帧重传整张 atlas；长文本压力过大时再合并为一次大更新。</td></tr>
+      <tr><td>RGBA atlas</td><td>彩色字体与 alpha 字形可以共用渲染路径，后续扩展 CBDT/SBIX/SVG/COLR v1 时不需要推翻 atlas 设计。</td></tr>
+      <tr><td>diagnostics</td><td>字体注册失败、fallback 缺失、shaping/raster/atlas 失败都会进入诊断链路，方便定位文本为什么退回备用路径。</td></tr>
+    </tbody>
+  </table>
+
+  <h2>验证体系</h2>
+  <div class="map-grid">
+    <div class="card map-card">
+      <div class="chapter-kicker">CONFORMANCE</div>
+      <h3>Unicode 官方数据</h3>
+      <ul>
+        <li>接入 <code>BidiTest.txt</code> 与 <code>BidiCharacterTest.txt</code>。</li>
+        <li>通过生成的 DerivedBidiClass 数据覆盖完整 bidi class 查询。</li>
+        <li>区分快速子集与 exhaustive 模式，便于本地和 CI 取舍。</li>
+      </ul>
+    </div>
+    <div class="card map-card">
+      <div class="chapter-kicker">PIXEL</div>
+      <h3>文本像素回归</h3>
+      <ul>
+        <li>覆盖 alpha atlas、RGBA atlas、fallback、布局、阴影等文字相关路径。</li>
+        <li>以像素输出保护渲染行为，避免“度量正确但画面变化”漏掉。</li>
+        <li>只聚焦字体文本，避免和其它渲染分支互相污染。</li>
+      </ul>
+    </div>
+    <div class="card map-card">
+      <div class="chapter-kicker">PERF</div>
+      <h3>缓存与性能观测</h3>
+      <ul>
+        <li>loaded face cache 有容量控制、清理、hit/miss/eviction 统计。</li>
+        <li>glyph atlas 暴露 dirty rect、collapse、rebuild 等状态。</li>
+        <li>这些指标能帮助判断性能瓶颈在 shaping、raster 还是 GPU 上传。</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="callout good">
+    <div class="callout-title">一句话总结</div>
+    WhatsCanvas 的文本系统已经从“能画 ASCII 文本”推进到了完整的工程管线：公开字体模型、跨平台栅格化、OpenType shaping、Unicode bidi、fallback segmentation、glyph atlas、彩色字体基础路径、诊断与回归验证都已经连起来。后续扩展的重点不再是推倒重来，而是在现有边界内继续增加 native adapter、更多彩色字体格式和更丰富的排版特性。
+  </div>
+
+  <div class="checkpoint">
+    <div class="cp-title">检查一下理解</div>
+    <p class="q">问：为什么 shaping 之后必须支持按 glyph index 栅格化，而不能只按 Unicode codepoint 画字？</p>
+    <details>
+      <summary>看答案</summary>
+      <p style="font-size:14.5px;">因为 shaping 会把字符序列转换成字体内部的 glyph 序列：一个字符可能变成不同形态，一个组合可能变成一个 glyph，连字也可能把多个字符合成一个 glyph。此时正确的显示单位已经是 glyph index，而不是原始 Unicode codepoint。</p>
+    </details>
+  </div>
+
+  <div class="chapter-foot"></div>
+</div>
+
+<script src="../assets/js/site.js"></script>
+</body>
+</html>
