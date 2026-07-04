@@ -60,7 +60,7 @@
 
   <!-- 章节地图 -->
   <h2 id="chapters">教程地图</h2>
-  <p>全套教程分为九章，外加一个进阶实验室。你可以顺序阅读，也可以从任意一章独立切入。</p>
+  <p>全套教程从字体基础讲到 GPU 绘制与工程落地。你可以顺序阅读，也可以从任意一章独立切入。</p>
 
   <div class="ch-grid" id="ch-grid"></div>
 
@@ -179,6 +179,9 @@ const descs = {
   ch7:"stb_truetype / FreeType / HarfBuzz / OpenGL 各自的职责边界。",
   ch8:"glyph 缓存、纹理图集、批量绘制，以及 SDF/MSDF 的取舍。",
   ch9:"@font-face、WOFF2、子集化、可变字体轴、加载与回退策略。",
+  ch10:"用代码拆开 stb_truetype、FreeType、HarfBuzz 的职责与数据流。",
+  ch11:"SDF/MSDF 的距离场思想、缩放优势、特效能力与适用边界。",
+  ch12:"把前面所有阶段映射到 WhatsCanvas 当前文本管线与验证体系。",
 };
 grid.innerHTML = CHAPTERS.filter(c => c.id !== "index").map(c => `
   <a class="ch-card" href="${c.file}">

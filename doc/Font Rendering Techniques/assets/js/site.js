@@ -16,6 +16,7 @@ const CHAPTERS = [
   { id: "ch9",     num: "09", file: "chapters/ch9-webfonts.html",    title: "Web 字体" },
   { id: "ch10",    num: "10", file: "chapters/ch10-libraries-code.html", title: "三大库代码示例" },
   { id: "ch11",    num: "11", file: "chapters/ch11-sdf.html", title: "SDF / MSDF" },
+  { id: "ch12",    num: "12", file: "chapters/ch12-whatscanvas-text.html", title: "WhatsCanvas 文本管线" },
 ];
 
 // 渲染顶部导航
