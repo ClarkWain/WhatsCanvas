@@ -2594,6 +2594,7 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
         VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
         VkPipelineLayout descriptorLayout = VK_NULL_HANDLE;
         bool pushLayerAlpha = false;
+        float layerAlpha = 1.0f;
     };
     std::vector<RecordedDraw> draws;
     draws.reserve(drawList.size());
@@ -2656,16 +2657,29 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
             draw.pipeline = context_->texPipeline;
             draw.descriptorLayout = context_->texPipelineLayout;
             draw.pushLayerAlpha = true;
+            draw.layerAlpha = prim.layerAlpha;
             draw.descriptorSet = allocSampledSet(tex, context_->texDescriptorSetLayout);
             if (draw.descriptorSet == VK_NULL_HANDLE) {
                 ok = false;
                 break;
             }
-            vertices = {
-                -1.0f, -1.0f, 0.0f, 0.0f, 1.0f, -1.0f, 1.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f,
-                -1.0f, -1.0f, 0.0f, 0.0f, 1.0f,  1.0f, 1.0f, 1.0f, -1.0f, 1.0f, 0.0f, 1.0f,
-            };
-            draw.vertexCount = 6;
+            const std::size_t explicitVerts = prim.positions.size() / 2;
+            if (explicitVerts >= 3 && (explicitVerts % 3) == 0 && prim.uvs.size() == prim.positions.size()) {
+                vertices.reserve(explicitVerts * 4);
+                for (std::size_t v = 0; v < explicitVerts; ++v) {
+                    vertices.push_back(prim.positions[v * 2 + 0]);
+                    vertices.push_back(prim.positions[v * 2 + 1]);
+                    vertices.push_back(prim.uvs[v * 2 + 0]);
+                    vertices.push_back(prim.uvs[v * 2 + 1]);
+                }
+                draw.vertexCount = static_cast<std::uint32_t>(explicitVerts);
+            } else {
+                vertices = {
+                    -1.0f, -1.0f, 0.0f, 0.0f, 1.0f, -1.0f, 1.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f,
+                    -1.0f, -1.0f, 0.0f, 0.0f, 1.0f,  1.0f, 1.0f, 1.0f, -1.0f, 1.0f, 0.0f, 1.0f,
+                };
+                draw.vertexCount = 6;
+            }
         } else { // ClipFill
             auto *mask = dynamic_cast<VulkanTextureResource *>(prim.texture.get());
             if (mask == nullptr || !mask->isValid()) {
@@ -2739,7 +2753,6 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
         vkCmdSetScissor(cmd, 0, 1, &scissor);
 
         const VkDeviceSize offset = 0;
-        const float layerAlpha = 1.0f;
         for (const RecordedDraw &d : draws) {
             vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, d.pipeline);
             if (d.descriptorSet != VK_NULL_HANDLE) {
@@ -2747,7 +2760,7 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
                                         &d.descriptorSet, 0, nullptr);
                 if (d.pushLayerAlpha) {
                     vkCmdPushConstants(cmd, d.descriptorLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(float),
-                                       &layerAlpha);
+                                       &d.layerAlpha);
                 }
             }
             vkCmdBindVertexBuffers(cmd, 0, 1, &d.buffer, &offset);
@@ -2930,8 +2943,35 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
             prim.color[2] = d.color[2];
             prim.color[3] = d.color[3];
             list.push_back(std::move(prim));
+        } else if (cmd->type() == Command::Type::Image) {
+            const auto *imageCmd = static_cast<const DrawImageCommand *>(cmd.get());
+            const DrawImageData &d = imageCmd->data();
+            if (!d.imageResource || d.clipMask.hasPaths()) {
+                continue;
+            }
+            float nx[4], ny[4];
+            toNdc(d.transform, d.x, d.y, nx[0], ny[0]);
+            toNdc(d.transform, d.x + d.width, d.y, nx[1], ny[1]);
+            toNdc(d.transform, d.x + d.width, d.y + d.height, nx[2], ny[2]);
+            toNdc(d.transform, d.x, d.y + d.height, nx[3], ny[3]);
+            const float uu[4] = {d.u0, d.u1, d.u1, d.u0};
+            const float vv[4] = {d.v0, d.v0, d.v1, d.v1};
+            const int idx[6] = {0, 1, 2, 0, 2, 3};
+            wsc::DrawPrimitive prim;
+            prim.kind = wsc::DrawPrimitiveKind::TexturedQuad;
+            prim.texture = d.imageResource;
+            prim.layerAlpha = d.alpha;
+            prim.positions.reserve(12);
+            prim.uvs.reserve(12);
+            for (int k : idx) {
+                prim.positions.push_back(nx[k]);
+                prim.positions.push_back(ny[k]);
+                prim.uvs.push_back(uu[k]);
+                prim.uvs.push_back(vv[k]);
+            }
+            list.push_back(std::move(prim));
         }
-        // Other command kinds (image, text, gradients, clip) are ADR-006 follow-ups.
+        // Other command kinds (text, gradients, clip) are ADR-006 follow-ups.
     }
 
     if (list.empty()) {

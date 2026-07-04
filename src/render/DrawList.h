@@ -28,12 +28,21 @@ struct DrawPrimitive
 
     /// SolidTriangles: interleaved x,y vertex positions in normalized device
     /// coordinates (3 vertices per triangle).
+    /// TexturedQuad: optional explicit NDC quad as a triangle list (x,y pairs);
+    /// when empty, the full target is used.
     std::vector<float> positions;
+
+    /// TexturedQuad: optional per-vertex UVs (u,v pairs) matching `positions`;
+    /// when empty, full 0..1 UVs are used.
+    std::vector<float> uvs;
 
     /// SolidTriangles / ClipFill: RGBA fill color in [0,1].
     float color[4] = {1.0f, 1.0f, 1.0f, 1.0f};
 
-    /// TexturedQuad: the image sampled across the full target.
+    /// TexturedQuad: alpha multiplier applied to the sampled texture.
+    float layerAlpha = 1.0f;
+
+    /// TexturedQuad: the image sampled across the quad.
     /// ClipFill: the coverage mask; its red channel modulates the fill alpha.
     SharedImageResource texture;
 };
