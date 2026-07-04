@@ -19,6 +19,11 @@ jobs:
           chmod +x scripts/api_reference_check.sh
           ./scripts/api_reference_check.sh
 
+      - name: Check version consistency
+        run: |
+          chmod +x scripts/version_consistency_check.sh
+          ./scripts/version_consistency_check.sh
+
   unit:
     runs-on: ${{ matrix.os }}
     strategy:

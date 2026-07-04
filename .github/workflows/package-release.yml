@@ -69,7 +69,11 @@ jobs:
         id: archive
         shell: pwsh
         run: |
-          $version = "0.1.11"
+          $cmake = Get-Content CMakeLists.txt -Raw
+          if ($cmake -notmatch 'project\s*\(\s*WhatsCanvas\s+VERSION\s+([0-9]+\.[0-9]+\.[0-9]+)') {
+            throw "Unable to read WhatsCanvas version from CMakeLists.txt"
+          }
+          $version = $Matches[1]
           $configLower = "${{ matrix.config }}".ToLowerInvariant()
           $artifactName = "whatscanvas-${{ matrix.os_id }}-$configLower-$version"
           $archivePath = Join-Path $PWD "$artifactName.zip"
