@@ -89,6 +89,41 @@
     <tr><td>天城文/泰文</td><td>重排序、元音附标</td><td>字符显示顺序被打乱</td></tr>
   </table>
 
+  <h2>OpenType shaping 里真正发生了什么</h2>
+  <p>
+    OpenType shaping 可以理解成“按文字系统执行一组字体内置规则”。HarfBuzz 不只是查 <code>cmap</code>，
+    它会根据 <strong>script</strong>、<strong>language</strong> 和启用的 <strong>feature</strong>，读取字体里的
+    <code>GSUB</code> / <code>GPOS</code> 表，把初始 glyph 序列改造成最终可绘制的 glyph run。
+  </p>
+
+  <table class="cmp">
+    <tr><th>概念</th><th>作用</th><th>例子</th></tr>
+    <tr><td><code>GSUB</code></td><td>Glyph Substitution，替换字形。</td><td><code>f</code> + <code>i</code> → <code>fi</code> 连字；阿拉伯字母按上下文替换成首形/中形/尾形。</td></tr>
+    <tr><td><code>GPOS</code></td><td>Glyph Positioning，调整位置。</td><td><code>AV</code> 字偶距；重音符号贴到基字母上；组合符号之间继续对齐。</td></tr>
+    <tr><td>feature tag</td><td>开关某类排版规则。</td><td><code>liga</code> 标准连字，<code>kern</code> 字偶距，<code>mark</code> 标记定位，<code>mkmk</code> 标记到标记定位，<code>rlig</code> 必需连字。</td></tr>
+    <tr><td>script / language</td><td>选择对应文字系统和语言的 shaping 行为。</td><td>同一套字体在拉丁、阿拉伯、天城文下会走不同规则；同一 script 下不同 language 也可能启用不同特性。</td></tr>
+    <tr><td>cluster</td><td>记录输出 glyph 对应输入文本的哪一段。</td><td>连字后 2 个字符变 1 个 glyph，但命中测试、选区、诊断仍要知道它来自原文哪个 byte range。</td></tr>
+  </table>
+
+  <div class="callout">
+    <div class="callout-title">HarfBuzz 输出的不是“字符列表”</div>
+    <p style="margin:0;">
+      <code>hb_shape</code> 之后拿到的是 <code>hb_glyph_info_t</code> 和 <code>hb_glyph_position_t</code>：
+      前者给出 glyph id 与 cluster，后者给出 <code>x_advance</code>、<code>y_advance</code>、
+      <code>x_offset</code>、<code>y_offset</code>。后面的栅格化必须按 glyph id 取字形；
+      后面的布局、选区、fallback 和 diagnostics 则要继续保留 cluster/source mapping。
+    </p>
+  </div>
+
+  <pre><code>// 简化后的 OpenType shaping 心智模型
+Unicode text
+  -> bidi / script itemization
+  -> cmap: codepoint -> initial glyph id
+  -> GSUB: substitute glyph ids by feature/script/language
+  -> GPOS: adjust advances and offsets
+  -> glyph run: { gid, cluster, advance, offset }[]
+  -> rasterize by gid, then draw atlas quads</code></pre>
+
   <div class="callout">
     <span class="label">职责边界</span>
     <strong>HarfBuzz 只做塑形</strong>——它告诉你“画哪些字形、画在哪里”，但<strong>不栅格化、不画像素</strong>。拿到字形索引和位置后，还要交给 FreeType / stb_truetype 去取轮廓并栅格化（第 6 章），最后由 OpenGL 上屏（第 8 章）。

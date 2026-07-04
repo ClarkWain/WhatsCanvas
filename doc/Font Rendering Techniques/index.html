@@ -173,7 +173,7 @@ const descs = {
   ch1:"从活字到数字字体：点阵、矢量、可变、Web 字体分别解决了什么问题。",
   ch2:"font face / glyph / cmap / metrics —— 一个字体文件里到底装了什么。",
   ch3:"码点如何通过 cmap 找到字形索引，以及为什么会出现“豆腐块”。",
-  ch4:"塑形、连字、组合符号、双向文本：为什么字符数不等于字形数。",
+  ch4:"塑形、OpenType GSUB/GPOS、feature、cluster、双向文本：为什么字符数不等于字形数。",
   ch5:"基线、advance、bearing、字偶距：文字是怎么被“排”出来的。",
   ch6:"轮廓 → 像素：抗锯齿、hinting、子像素渲染的真正含义。",
   ch7:"stb_truetype / FreeType / HarfBuzz / OpenGL 各自的职责边界。",
@@ -181,7 +181,7 @@ const descs = {
   ch9:"@font-face、WOFF2、子集化、可变字体轴、加载与回退策略。",
   ch10:"用代码拆开 stb_truetype、FreeType、HarfBuzz 的职责与数据流。",
   ch11:"SDF/MSDF 的距离场思想、缩放优势、特效能力与适用边界。",
-  ch12:"把前面所有阶段映射到 WhatsCanvas 当前文本管线与验证体系。",
+  ch12:"把字体发现、fallback、shaping、atlas 与验证体系映射到 WhatsCanvas 当前实现。",
 };
 grid.innerHTML = CHAPTERS.filter(c => c.id !== "index").map(c => `
   <a class="ch-card" href="${c.file}">
