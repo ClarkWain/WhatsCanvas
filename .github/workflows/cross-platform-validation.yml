@@ -8,6 +8,17 @@ on:
   workflow_dispatch:
 
 jobs:
+  api-reference:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check generated API reference
+        run: |
+          chmod +x scripts/api_reference_check.sh
+          ./scripts/api_reference_check.sh
+
   unit:
     runs-on: ${{ matrix.os }}
     strategy:
