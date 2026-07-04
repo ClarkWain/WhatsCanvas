@@ -39,6 +39,11 @@ struct DrawPrimitive
     /// SolidTriangles / ClipFill: RGBA fill color in [0,1].
     float color[4] = {1.0f, 1.0f, 1.0f, 1.0f};
 
+    /// SolidTriangles: optional per-vertex RGBA colors (4 floats per vertex,
+    /// matching the vertex count implied by `positions`). When present, they
+    /// override the uniform `color` and are fragment-interpolated.
+    std::vector<float> colors;
+
     /// TexturedQuad: alpha multiplier applied to the sampled texture.
     float layerAlpha = 1.0f;
 
