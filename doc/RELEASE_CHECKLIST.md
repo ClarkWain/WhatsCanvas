@@ -10,6 +10,7 @@ This checklist keeps releases aligned with the project's current goal: a lightwe
 4. Run the fast metadata checks:
 
 ```bat
+cmake --build build --target WhatsCanvasCheckApiReference
 cmd /c scripts\api_reference_check.bat
 cmd /c scripts\version_consistency_check.bat
 ```

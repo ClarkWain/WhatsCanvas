@@ -29,6 +29,8 @@ This directory is the top-level home for WhatsCanvas validation beyond ad-hoc lo
 - `scripts/text_pixel_regression.bat` / `scripts/text_pixel_regression.sh`: font-only pixel regression for the `font-regression` and `text-showcase` scenes against `tests/baselines/text/*.ppm`; set `WHATSCANVAS_UPDATE_TEXT_BASELINES=1` to refresh baselines, or `WHATSCANVAS_TEXT_REGRESSION_SCENES=font-regression` to narrow the scene list locally.
 - `scripts/compare_ppm_fuzzy.py`: binary P6 PPM comparison helper for driver-sensitive visual baselines.
 - `scripts/api_reference_check.bat` / `scripts/api_reference_check.sh`: verifies that `doc/API_REFERENCE.md` matches the current `include/wsc/` public headers.
+- `cmake --build build --target WhatsCanvasGenerateApiReference`: refreshes `doc/API_REFERENCE.md` from `include/wsc/` after public header changes.
+- `cmake --build build --target WhatsCanvasCheckApiReference`: checks generated API reference freshness through the configured Python interpreter.
 - `scripts/version_consistency_check.bat` / `scripts/version_consistency_check.sh`: verifies version declarations are synchronized across CMake, public headers, docs, and release packaging.
 - `scripts/package_consumer_smoke.bat` / `scripts/package_consumer_smoke.sh`: builds `tests/package_consumer` against the installed package to verify `find_package(WhatsCanvas CONFIG REQUIRED)` and exported targets.
 - `scripts/release_preflight.bat` / `scripts/release_preflight.sh`: fast local release preflight that runs API reference freshness, version consistency, a Debug build, unit tests, and the registered API/version/package CTest gates.

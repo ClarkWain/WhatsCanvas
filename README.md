@@ -273,6 +273,13 @@ python scripts\compare_ppm_fuzzy.py baseline.ppm candidate.ppm --max-channel-del
 - [功能演进记录](doc/CanvasEvaluation.md)：适合回看功能推进、验证方式和阶段性成果。
 - [测试说明](tests/README.md)：适合查看本地测试入口和 Unicode Bidi conformance 说明。
 
+公开 API 文档可通过 CMake target 刷新或检查：
+
+```bat
+cmake --build build --target WhatsCanvasGenerateApiReference
+cmake --build build --target WhatsCanvasCheckApiReference
+```
+
 ## 架构
 
 下面的图基于当前源码和 CMake 目标整理。当前实际 GL-family 构建目标是 `WhatsCanvasOpenGL`，可选目标是 `WhatsCanvasOpenGLES`，它们把 `src/canvas`、`src/text`、`src/command`、`src/render` 和 `src/opengl` 编进库；对外消费面主要是 `include/wsc/`。
