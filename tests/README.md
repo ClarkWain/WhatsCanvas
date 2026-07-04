@@ -32,7 +32,9 @@ This directory is the top-level home for WhatsCanvas validation beyond ad-hoc lo
 - `cmake --build build --target WhatsCanvasGenerateApiReference`: refreshes `doc/API_REFERENCE.md` from `include/wsc/` after public header changes.
 - `cmake --build build --target WhatsCanvasCheckApiReference`: checks generated API reference freshness through the configured Python interpreter.
 - `scripts/version_consistency_check.bat` / `scripts/version_consistency_check.sh`: verifies version declarations are synchronized across CMake, public headers, docs, and release packaging.
+- `cmake --build build --target WhatsCanvasCheckVersionConsistency`: checks release metadata consistency through the configured Python interpreter.
 - `scripts/package_consumer_smoke.bat` / `scripts/package_consumer_smoke.sh`: builds `tests/package_consumer` against the installed package to verify `find_package(WhatsCanvas CONFIG REQUIRED)` and exported targets.
+- `cmake --build build --target WhatsCanvasCheckPackageConsumer`: runs the external package consumer smoke through the configured build tree.
 - `scripts/release_preflight.bat` / `scripts/release_preflight.sh`: fast local release preflight that runs API reference freshness, version consistency, a Debug build, unit tests, and the registered API/version/package CTest gates.
 
 ## Intended Growth

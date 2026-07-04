@@ -280,6 +280,13 @@ cmake --build build --target WhatsCanvasGenerateApiReference
 cmake --build build --target WhatsCanvasCheckApiReference
 ```
 
+版本和安装包消费面也提供了对应的 CMake 检查入口：
+
+```bat
+cmake --build build --target WhatsCanvasCheckVersionConsistency
+cmake --build build --target WhatsCanvasCheckPackageConsumer
+```
+
 ## 架构
 
 下面的图基于当前源码和 CMake 目标整理。当前实际 GL-family 构建目标是 `WhatsCanvasOpenGL`，可选目标是 `WhatsCanvasOpenGLES`，它们把 `src/canvas`、`src/text`、`src/command`、`src/render` 和 `src/opengl` 编进库；对外消费面主要是 `include/wsc/`。

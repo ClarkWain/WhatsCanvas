@@ -11,6 +11,7 @@ This checklist keeps releases aligned with the project's current goal: a lightwe
 
 ```bat
 cmake --build build --target WhatsCanvasCheckApiReference
+cmake --build build --target WhatsCanvasCheckVersionConsistency
 cmd /c scripts\api_reference_check.bat
 cmd /c scripts\version_consistency_check.bat
 ```
@@ -18,6 +19,7 @@ cmd /c scripts\version_consistency_check.bat
 5. Run the package consumer smoke:
 
 ```bat
+cmake --build build --target WhatsCanvasCheckPackageConsumer
 cmd /c scripts\package_consumer_smoke.bat
 ```
 
