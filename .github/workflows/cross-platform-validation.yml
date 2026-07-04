@@ -104,6 +104,31 @@ jobs:
           ./build.sh --release --package --no-run
           ./scripts/package_consumer_smoke.sh
 
+  cmake-release-targets:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Linux OpenGL dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
+
+      - name: Configure release validation targets
+        run: cmake -S . -B build-validation-release-targets -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Check API reference target
+        run: cmake --build build-validation-release-targets --target WhatsCanvasCheckApiReference
+
+      - name: Check version consistency target
+        run: cmake --build build-validation-release-targets --target WhatsCanvasCheckVersionConsistency
+
+      - name: Check package consumer target
+        run: cmake --build build-validation-release-targets --target WhatsCanvasCheckPackageConsumer
+
   optional-font-stack:
     runs-on: ubuntu-latest
     steps:
