@@ -212,6 +212,35 @@ int main()
     if (!pixelNear(pixels, width, width - 1, height / 2, 0, 0, 255, 255, 10, "grad right blue")) return 1;
     if (!pixelNear(pixels, width, width / 2, height / 2, 128, 0, 128, 255, 10, "grad center purple")) return 1;
 
+    // renderCommandsToImageResource: render a command stream into an owned,
+    // sampleable texture, then composite that texture to verify its content.
+    DrawPathData layerPath;
+    layerPath.points = {5.0f, 5.0f, 59.0f, 5.0f, 32.0f, 43.0f};
+    layerPath.color[0] = 1.0f;
+    layerPath.color[1] = 0.0f;
+    layerPath.color[2] = 0.0f;
+    layerPath.color[3] = 1.0f;
+    layerPath.drawMode = PathDrawMode::Fill;
+    layerPath.capStyle = PathCapStyle::Round;
+    std::vector<std::unique_ptr<Command>> layerCommands;
+    layerCommands.push_back(std::make_unique<DrawPathCommand>(layerPath));
+    auto layerImage = device.renderCommandsToImageResource(layerCommands, request);
+    if (!layerImage || !layerImage->isValid()) {
+        std::cerr << "[VulkanCommandTests] FAIL: renderCommandsToImageResource returned no image." << std::endl;
+        return 1;
+    }
+    auto dst4 = device.createRenderTarget(width, height);
+    if (!dst4 || !dst4->isValid() || !device.renderTexturedQuad(dst4, layerImage)) {
+        std::cerr << "[VulkanCommandTests] FAIL: could not draw the rendered command image." << std::endl;
+        return 1;
+    }
+    if (!device.readPixelsRGBA(width, height, pixels)) {
+        std::cerr << "[VulkanCommandTests] FAIL: layer-image readback failed." << std::endl;
+        return 1;
+    }
+    if (!pixelIs(pixels, width, width / 2, height / 2, 255, 0, 0, 255, "layer center red")) return 1;
+    if (!pixelIs(pixels, width, 0, 0, 0, 0, 0, 0, "layer corner clear")) return 1;
+
     std::cout << "[VulkanCommandTests] PASS: translated a real Command stream on \"" << device.selectedDeviceName()
               << "\"." << std::endl;
 
@@ -221,7 +250,10 @@ int main()
     imageData.imageResource.reset();
     imageCommands.clear();
     gradientCommands.clear();
+    layerCommands.clear();
+    layerImage.reset();
     image.reset();
+    dst4.reset();
     target.reset();
     device.finalizeBackend();
     return 0;

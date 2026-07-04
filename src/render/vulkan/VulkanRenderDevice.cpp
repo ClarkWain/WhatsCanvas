@@ -2528,14 +2528,37 @@ bool VulkanRenderDevice::compositeLayer(const std::unique_ptr<IRenderTarget> &ds
 }
 
 SharedImageResource VulkanRenderDevice::renderCommandsToImageResource(
-    const std::vector<std::unique_ptr<Command>> & /*commands*/, const OffscreenRenderRequest & /*request*/) const
+    const std::vector<std::unique_ptr<Command>> &commands, const OffscreenRenderRequest &request) const
 {
-    // TODO(vulkan, M6): the WhatsCanvas Command objects execute OpenGL directly,
-    // so they cannot be replayed on Vulkan yet. Once a backend-neutral command
-    // layer lands (roadmap section 3 / ADR), this will record those commands
-    // into an offscreen image. The Vulkan-native saveLayer composite mechanism
-    // is available today via compositeLayer().
+#if defined(WHATSCANVAS_ENABLE_VULKAN)
+    if (!context_ || !context_->deviceReady) {
+        return nullptr;
+    }
+    int w = request.targetWidth > 0 ? request.targetWidth : request.canvasWidth;
+    int h = request.targetHeight > 0 ? request.targetHeight : request.canvasHeight;
+    if (w <= 0 || h <= 0) {
+        return nullptr;
+    }
+
+    auto target = createRenderTarget(w, h);
+    if (!target || !target->isValid()) {
+        return nullptr;
+    }
+    // Translate + render the command stream, then snapshot the result into an
+    // owning sampled texture the caller can composite later (e.g. saveLayer).
+    if (!executeCommands(target, commands, request)) {
+        return nullptr;
+    }
+    std::vector<unsigned char> pixels;
+    if (!readPixelsRGBA(w, h, pixels)) {
+        return nullptr;
+    }
+    return createImageResourceRGBA(w, h, pixels);
+#else
+    (void)commands;
+    (void)request;
     return nullptr;
+#endif
 }
 
 bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &target,
