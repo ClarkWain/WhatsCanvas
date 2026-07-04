@@ -219,6 +219,7 @@ cmd /c scripts\text_pixel_regression.bat
 cmd /c scripts\examples_smoke.bat
 cmd /c scripts\validation_scene_smoke.bat
 cmd /c scripts\opengles_build_smoke.bat
+cmd /c scripts\package_consumer_smoke.bat
 ctest -C Debug -L smoke --output-on-failure
 ```
 

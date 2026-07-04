@@ -8,6 +8,7 @@ WhatsCanvas uses automated tests, smoke scenes, exact pixel hashes, and fuzzy PP
 | --- | --- | --- | --- |
 | Core API behavior | `ctest -L unit` | Assertions | Geometry, state, text utilities, resource lifecycle, and backend contracts. |
 | Public API reference | `scripts/api_reference_check.*` | Generated doc freshness | Fails when `doc/API_REFERENCE.md` is stale relative to `include/wsc/`. |
+| Package consumer | `scripts/package_consumer_smoke.*` | External CMake build | Verifies the install/package config can be consumed by a separate project. |
 | Deterministic smoke | `scripts/smoke_test.*` | Exact hash / first-frame checks | Use fixed time and disabled MSAA where possible. |
 | Text rendering | `scripts/text_pixel_regression.*` | Fuzzy PPM | Covers `font-regression` and `text-showcase` by default. |
 | Effects and scenes | `scripts/validation_scene_smoke.*` plus manual captures | Exact hash or fuzzy PPM depending on scene | Gradients, shadows, blend modes, strokes, dashes, and other driver-sensitive effects. |
@@ -82,6 +83,7 @@ python scripts/compare_ppm_fuzzy.py baseline.ppm candidate.ppm \
 | Change Type | Minimum Checks |
 | --- | --- |
 | Public API or packaging | `ctest -L unit`, package configure/build if touched |
+| Install/package CMake changes | `scripts/package_consumer_smoke.*` |
 | Public header changes | `scripts/api_reference_check.*` after regenerating `doc/API_REFERENCE.md` |
 | Text/font stack | `ctest -L text`, `scripts/text_pixel_regression.*` |
 | GL shader/render path | smoke test, relevant validation scene, fuzzy comparison if captured |

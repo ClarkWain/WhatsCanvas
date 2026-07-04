@@ -1,0 +1,55 @@
+@echo off
+setlocal EnableExtensions EnableDelayedExpansion
+
+set "SCRIPT_DIR=%~dp0"
+if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
+for %%I in ("%SCRIPT_DIR%\..") do set "ROOT_DIR=%%~fI"
+
+set "CONFIG=Release"
+set "PACKAGE_DIR=%ROOT_DIR%\out\package\%CONFIG%"
+set "CONSUMER_BUILD_DIR=%ROOT_DIR%\build-package-consumer"
+set "GENERATOR="
+set "GENERATOR_IS_MULTI_CONFIG=1"
+
+if defined WHATSCANVAS_PACKAGE_CONFIG set "CONFIG=%WHATSCANVAS_PACKAGE_CONFIG%"
+if defined WHATSCANVAS_PACKAGE_DIR set "PACKAGE_DIR=%WHATSCANVAS_PACKAGE_DIR%"
+if defined WHATSCANVAS_CONSUMER_BUILD_DIR set "CONSUMER_BUILD_DIR=%WHATSCANVAS_CONSUMER_BUILD_DIR%"
+if defined WHATSCANVAS_CONSUMER_GENERATOR set "GENERATOR=%WHATSCANVAS_CONSUMER_GENERATOR%"
+if defined WHATSCANVAS_CONSUMER_MULTI_CONFIG set "GENERATOR_IS_MULTI_CONFIG=%WHATSCANVAS_CONSUMER_MULTI_CONFIG%"
+
+if /I "%GENERATOR%"=="Ninja" set "GENERATOR_IS_MULTI_CONFIG=0"
+if /I "%GENERATOR%"=="NMake Makefiles" set "GENERATOR_IS_MULTI_CONFIG=0"
+if /I "%GENERATOR%"=="Unix Makefiles" set "GENERATOR_IS_MULTI_CONFIG=0"
+
+if not exist "%PACKAGE_DIR%\lib\cmake\WhatsCanvas\WhatsCanvasConfig.cmake" (
+    echo Package not found, building package first: "%PACKAGE_DIR%"
+    call "%ROOT_DIR%\build.bat" --release --package --no-run
+    if errorlevel 1 (
+        echo PACKAGE_CONSUMER_SMOKE_RESULT=FAIL
+        echo PACKAGE_CONSUMER_SMOKE_FAILED_STAGE=PACKAGE
+        exit /b 1
+    )
+)
+
+if exist "%CONSUMER_BUILD_DIR%" rmdir /s /q "%CONSUMER_BUILD_DIR%"
+
+set "CONFIGURE_ARGS=-S "%ROOT_DIR%\tests\package_consumer" -B "%CONSUMER_BUILD_DIR%" -DCMAKE_PREFIX_PATH="%PACKAGE_DIR%""
+if not "%GENERATOR%"=="" set "CONFIGURE_ARGS=%CONFIGURE_ARGS% -G "%GENERATOR%""
+if "%GENERATOR_IS_MULTI_CONFIG%"=="0" set "CONFIGURE_ARGS=%CONFIGURE_ARGS% -DCMAKE_BUILD_TYPE=%CONFIG%"
+
+cmake %CONFIGURE_ARGS%
+if errorlevel 1 (
+    echo PACKAGE_CONSUMER_SMOKE_RESULT=FAIL
+    echo PACKAGE_CONSUMER_SMOKE_FAILED_STAGE=CONFIGURE
+    exit /b 1
+)
+
+cmake --build "%CONSUMER_BUILD_DIR%" --config %CONFIG%
+if errorlevel 1 (
+    echo PACKAGE_CONSUMER_SMOKE_RESULT=FAIL
+    echo PACKAGE_CONSUMER_SMOKE_FAILED_STAGE=BUILD
+    exit /b 1
+)
+
+echo PACKAGE_CONSUMER_SMOKE_RESULT=PASS
+exit /b 0
