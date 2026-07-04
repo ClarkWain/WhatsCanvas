@@ -706,6 +706,12 @@ if (BUILD_TESTING AND WHATSCANVAS_ENABLE_SCRIPT_TESTS)
                 -DWHATSCANVAS_GATE_WORKDIR=${CMAKE_CURRENT_SOURCE_DIR}
                 -P ${WHATSCANVAS_TEST_WRAPPER}
         )
+        add_test(NAME WhatsCanvasVersionConsistencyCheck
+            COMMAND ${CMAKE_COMMAND}
+                -DWHATSCANVAS_GATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/version_consistency_check.bat
+                -DWHATSCANVAS_GATE_WORKDIR=${CMAKE_CURRENT_SOURCE_DIR}
+                -P ${WHATSCANVAS_TEST_WRAPPER}
+        )
         add_test(NAME WhatsCanvasPackageConsumerSmoke
             COMMAND ${CMAKE_COMMAND}
                 -DWHATSCANVAS_GATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/package_consumer_smoke.bat
@@ -775,6 +781,13 @@ if (BUILD_TESTING AND WHATSCANVAS_ENABLE_SCRIPT_TESTS)
                 -DWHATSCANVAS_GATE_LAUNCHER=sh
                 -P ${WHATSCANVAS_TEST_WRAPPER}
         )
+        add_test(NAME WhatsCanvasVersionConsistencyCheck
+            COMMAND ${CMAKE_COMMAND}
+                -DWHATSCANVAS_GATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/version_consistency_check.sh
+                -DWHATSCANVAS_GATE_WORKDIR=${CMAKE_CURRENT_SOURCE_DIR}
+                -DWHATSCANVAS_GATE_LAUNCHER=sh
+                -P ${WHATSCANVAS_TEST_WRAPPER}
+        )
         add_test(NAME WhatsCanvasPackageConsumerSmoke
             COMMAND ${CMAKE_COMMAND}
                 -DWHATSCANVAS_GATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/package_consumer_smoke.sh
@@ -813,6 +826,7 @@ if (BUILD_TESTING AND WHATSCANVAS_ENABLE_SCRIPT_TESTS)
         WhatsCanvasValidationSceneSmoke
         WhatsCanvasOpenGLESSmoke
         WhatsCanvasApiReferenceCheck
+        WhatsCanvasVersionConsistencyCheck
         WhatsCanvasPackageConsumerSmoke
         PROPERTIES
             WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
@@ -824,6 +838,7 @@ if (BUILD_TESTING AND WHATSCANVAS_ENABLE_SCRIPT_TESTS)
     set_tests_properties(WhatsCanvasValidationSceneSmoke PROPERTIES LABELS "smoke;validation")
     set_tests_properties(WhatsCanvasOpenGLESSmoke PROPERTIES LABELS "smoke;opengles")
     set_tests_properties(WhatsCanvasApiReferenceCheck PROPERTIES LABELS "smoke;api;docs")
+    set_tests_properties(WhatsCanvasVersionConsistencyCheck PROPERTIES LABELS "smoke;version;package")
     set_tests_properties(WhatsCanvasPackageConsumerSmoke PROPERTIES LABELS "smoke;package")
 endif()
 

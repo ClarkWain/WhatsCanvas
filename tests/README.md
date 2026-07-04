@@ -18,6 +18,7 @@ This directory is the top-level home for WhatsCanvas validation beyond ad-hoc lo
 - `ctest -C Debug -R ^WhatsCanvasContextLifecycleTests$ --output-on-failure`: public `Canvas` context initialize, finalize, resource release, and recreation lifecycle coverage.
 - `ctest -C Debug -L smoke --output-on-failure`: standard entry for the registered smoke/example script gates.
 - `ctest -C Debug -R ^WhatsCanvasApiReferenceCheck$ --output-on-failure`: generated public API reference freshness check.
+- `ctest -C Debug -R ^WhatsCanvasVersionConsistencyCheck$ --output-on-failure`: verifies CMake, public version macros, docs, and release workflow version handling stay synchronized.
 - `ctest -C Debug -R ^WhatsCanvasPackageConsumerSmoke$ --output-on-failure`: package/export smoke that builds the external CMake consumer under `tests/package_consumer`.
 - `scripts/smoke_test.bat` / `scripts/smoke_test.sh`: fixed-time first-frame smoke gate.
 - `scripts/clip_path_smoke.bat` / `scripts/clip_path_smoke.sh`: stacked non-rect `clipPath` smoke gate.
@@ -28,6 +29,7 @@ This directory is the top-level home for WhatsCanvas validation beyond ad-hoc lo
 - `scripts/text_pixel_regression.bat` / `scripts/text_pixel_regression.sh`: font-only pixel regression for the `font-regression` and `text-showcase` scenes against `tests/baselines/text/*.ppm`; set `WHATSCANVAS_UPDATE_TEXT_BASELINES=1` to refresh baselines, or `WHATSCANVAS_TEXT_REGRESSION_SCENES=font-regression` to narrow the scene list locally.
 - `scripts/compare_ppm_fuzzy.py`: binary P6 PPM comparison helper for driver-sensitive visual baselines.
 - `scripts/api_reference_check.bat` / `scripts/api_reference_check.sh`: verifies that `doc/API_REFERENCE.md` matches the current `include/wsc/` public headers.
+- `scripts/version_consistency_check.bat` / `scripts/version_consistency_check.sh`: verifies version declarations are synchronized across CMake, public headers, docs, and release packaging.
 - `scripts/package_consumer_smoke.bat` / `scripts/package_consumer_smoke.sh`: builds `tests/package_consumer` against the installed package to verify `find_package(WhatsCanvas CONFIG REQUIRED)` and exported targets.
 
 ## Intended Growth
