@@ -25,6 +25,7 @@ This directory is the top-level home for WhatsCanvas validation beyond ad-hoc lo
 - `scripts/regression_smoke.bat` / `scripts/regression_smoke.sh`: strict local pixel-baseline gate.
 - `scripts/text_pixel_regression.bat` / `scripts/text_pixel_regression.sh`: font-only pixel regression for the `font-regression` and `text-showcase` scenes against `tests/baselines/text/*.ppm`; set `WHATSCANVAS_UPDATE_TEXT_BASELINES=1` to refresh baselines, or `WHATSCANVAS_TEXT_REGRESSION_SCENES=font-regression` to narrow the scene list locally.
 - `scripts/compare_ppm_fuzzy.py`: binary P6 PPM comparison helper for driver-sensitive visual baselines.
+- `scripts/api_reference_check.bat` / `scripts/api_reference_check.sh`: verifies that `doc/API_REFERENCE.md` matches the current `include/wsc/` public headers.
 
 ## Intended Growth
 
