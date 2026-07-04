@@ -43,9 +43,13 @@ documented gap; 2 remain.
 - **Generic command replay** (`renderCommandsToImageResource`): the WhatsCanvas
   `Command` objects call OpenGL directly, so Vulkan cannot replay them. This is
   the coupling recorded in ADR-006; the fix is the backend-neutral command layer.
-- **Windowed presentation (M8 swapchain)**: requires a GLFW window + present
-  loop, which is not validatable in the headless test harness. Deferred to a
-  windowed work item.
+- **Windowed presentation (M8 swapchain)**: a standalone windowed present example
+  (`examples/vulkan_present`) creates a GLFW surface + swapchain and presents a
+  cleared frame; verified on NVIDIA RTX 2080 Ti. It is standalone because
+  presentation needs surface extensions that `VulkanRenderDevice`'s headless
+  instance does not enable. A continuous frame loop, resize handling, and
+  integrating present into `VulkanRenderDevice` are follow-ups. Not a CTest gate
+  (windowed present is environment dependent).
 - **Textured/clip `DrawList` primitives (ADR-006 follow-up)**: textured primitives
   now land (`executeDrawList` handles solid + textured in one render pass). A
   teardown crash during development was root-caused with AddressSanitizer to a
