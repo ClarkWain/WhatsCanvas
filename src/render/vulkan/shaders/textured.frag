@@ -1,6 +1,7 @@
 #version 450
 
-// M5 textured-quad fragment shader. Samples a combined image sampler.
+// Textured-quad fragment shader. Samples a combined image sampler and applies an
+// optional tint, 4x4 color matrix (+ offset), and a layer-alpha multiplier.
 
 layout(location = 0) in vec2 vUV;
 
@@ -10,11 +11,20 @@ layout(binding = 0) uniform sampler2D uTexture;
 
 layout(push_constant) uniform Push
 {
-    float layerAlpha;
+    mat4 colorMatrix;   // offset 0
+    vec4 tint;          // offset 64
+    vec4 colorOffset;   // offset 80
+    float layerAlpha;   // offset 96
+    int useColorMatrix; // offset 100
 } pc;
 
 void main()
 {
     vec4 sampled = texture(uTexture, vUV);
-    outColor = vec4(sampled.rgb, sampled.a * pc.layerAlpha);
+    vec4 c = vec4(sampled.rgb * pc.tint.rgb, sampled.a * pc.tint.a);
+    if (pc.useColorMatrix != 0)
+    {
+        c = pc.colorMatrix * c + pc.colorOffset;
+    }
+    outColor = vec4(c.rgb, c.a * pc.layerAlpha);
 }
