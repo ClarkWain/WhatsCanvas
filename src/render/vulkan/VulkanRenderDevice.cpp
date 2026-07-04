@@ -2,11 +2,13 @@
 
 #include "../IRenderTarget.h"
 #include "../IRenderer.h"
+#include "../GaussianKernel.h"
 #include "command/DrawCommand.h"
 
 #include <glm/glm.hpp>
 
 #include <iostream>
+#include <vector>
 
 #if defined(WHATSCANVAS_ENABLE_VULKAN)
 #include <array>
@@ -3519,6 +3521,152 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
                 prim.color[1] = d.color[1];
                 prim.color[2] = d.color[2];
                 prim.color[3] = d.color[3];
+            }
+            list.push_back(std::move(prim));
+        } else if (cmd->type() == Command::Type::Shadow) {
+            // Gaussian drop shadow. Mirrors DrawShadowCommand::execute: render a
+            // white silhouette into an offscreen coverage target, separable
+            // Gaussian blur it, then composite the tinted blurred coverage. The
+            // blur is evaluated on the CPU (identical kernel math to the GL
+            // separable passes) and the composite is expressed as a textured
+            // full-canvas quad -- the textured shader computes
+            // (tint.rgb, coverage * tint.a), exactly the GL composite formula --
+            // so it blends in-order with the rest of the command stream.
+            const auto *shadowCmd = static_cast<const DrawShadowCommand *>(cmd.get());
+            const DrawShadowData &d = shadowCmd->data();
+            const int sw = d.canvasWidth;
+            const int sh = d.canvasHeight;
+            // Only path silhouettes are handled (shapes + vector text); bitmap /
+            // glyph-atlas image silhouettes are a follow-up.
+            if (sw <= 0 || sh <= 0 || !(d.blurRadius > 0.0f) || !d.imageSilhouette.empty()) {
+                continue;
+            }
+            const DrawPathData &sil = d.silhouette;
+            const std::size_t silCount = sil.getPointCount();
+            if (silCount < 3 || (silCount % 3) != 0) {
+                continue;
+            }
+
+            // 1. Render the white silhouette into an offscreen coverage target.
+            std::unique_ptr<IRenderTarget> covTarget = createRenderTarget(sw, sh);
+            if (!covTarget || !covTarget->isValid()) {
+                continue;
+            }
+            auto toNdcShadow = [&](float x, float y, float &ox, float &oy) {
+                const glm::vec4 p = sil.transform * glm::vec4(x, y, 0.0f, 1.0f);
+                ox = p.x / static_cast<float>(sw) * 2.0f - 1.0f;
+                oy = p.y / static_cast<float>(sh) * 2.0f - 1.0f;
+            };
+            wsc::DrawList silList;
+            {
+                wsc::DrawPrimitive sp;
+                sp.kind = wsc::DrawPrimitiveKind::SolidTriangles;
+                sp.blendMode = 0; // SrcOver over the cleared (transparent) target
+                sp.positions.reserve(silCount * 2);
+                for (std::size_t i = 0; i < silCount; ++i) {
+                    float nx = 0.0f, ny = 0.0f;
+                    toNdcShadow(sil.points[i * 2 + 0], sil.points[i * 2 + 1], nx, ny);
+                    sp.positions.push_back(nx);
+                    sp.positions.push_back(ny);
+                }
+                sp.color[0] = 1.0f;
+                sp.color[1] = 1.0f;
+                sp.color[2] = 1.0f;
+                sp.color[3] = 1.0f;
+                silList.push_back(std::move(sp));
+            }
+            if (!executeDrawList(covTarget, silList)) {
+                continue;
+            }
+
+            // 2. Read back the silhouette coverage (the alpha channel).
+            std::vector<unsigned char> cov;
+            if (!readPixelsRGBA(sw, sh, cov)) {
+                continue;
+            }
+            const std::size_t pixelCount = static_cast<std::size_t>(sw) * static_cast<std::size_t>(sh);
+
+            // 3. Separable Gaussian blur on the alpha channel (horizontal then
+            //    vertical), edges clamped -- matching the GL CLAMP_TO_EDGE passes.
+            const wsc::render::GaussianKernel kernel = wsc::render::computeGaussianKernel(d.blurRadius);
+            const int radius = kernel.radius();
+            std::vector<float> srcA(pixelCount);
+            for (std::size_t i = 0; i < pixelCount; ++i) {
+                srcA[i] = static_cast<float>(cov[i * 4 + 3]) / 255.0f;
+            }
+            std::vector<float> tmpA(pixelCount, 0.0f);
+            std::vector<float> outA(pixelCount, 0.0f);
+            auto clampi = [](int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); };
+            for (int y = 0; y < sh; ++y) {
+                for (int x = 0; x < sw; ++x) {
+                    float a = srcA[static_cast<std::size_t>(y) * sw + x] * kernel.weights[0];
+                    for (int k = 1; k <= radius; ++k) {
+                        const int xl = clampi(x - k, 0, sw - 1);
+                        const int xr = clampi(x + k, 0, sw - 1);
+                        const float wk = kernel.weights[static_cast<std::size_t>(k)];
+                        a += srcA[static_cast<std::size_t>(y) * sw + xl] * wk;
+                        a += srcA[static_cast<std::size_t>(y) * sw + xr] * wk;
+                    }
+                    tmpA[static_cast<std::size_t>(y) * sw + x] = a;
+                }
+            }
+            for (int y = 0; y < sh; ++y) {
+                for (int x = 0; x < sw; ++x) {
+                    float a = tmpA[static_cast<std::size_t>(y) * sw + x] * kernel.weights[0];
+                    for (int k = 1; k <= radius; ++k) {
+                        const int yt = clampi(y - k, 0, sh - 1);
+                        const int yb = clampi(y + k, 0, sh - 1);
+                        const float wk = kernel.weights[static_cast<std::size_t>(k)];
+                        a += tmpA[static_cast<std::size_t>(yt) * sw + x] * wk;
+                        a += tmpA[static_cast<std::size_t>(yb) * sw + x] * wk;
+                    }
+                    outA[static_cast<std::size_t>(y) * sw + x] = a;
+                }
+            }
+
+            // 4. Upload the blurred coverage as a white-RGB / coverage-alpha texture.
+            std::vector<unsigned char> shadowPixels(pixelCount * 4);
+            for (std::size_t i = 0; i < pixelCount; ++i) {
+                const float a = outA[i] < 0.0f ? 0.0f : (outA[i] > 1.0f ? 1.0f : outA[i]);
+                shadowPixels[i * 4 + 0] = 255;
+                shadowPixels[i * 4 + 1] = 255;
+                shadowPixels[i * 4 + 2] = 255;
+                shadowPixels[i * 4 + 3] = static_cast<unsigned char>(a * 255.0f + 0.5f);
+            }
+            SharedImageResource shadowTex =
+                createSampledTexture(context_.get(), sw, sh, shadowPixels.data(), /*nearest=*/false);
+            if (!shadowTex) {
+                continue;
+            }
+
+            // 5. Composite as a tinted full-canvas textured quad (in stream order).
+            float qnx[4], qny[4];
+            toNdc(glm::mat4(1.0f), 0.0f, 0.0f, qnx[0], qny[0]);
+            toNdc(glm::mat4(1.0f), w, 0.0f, qnx[1], qny[1]);
+            toNdc(glm::mat4(1.0f), w, h, qnx[2], qny[2]);
+            toNdc(glm::mat4(1.0f), 0.0f, h, qnx[3], qny[3]);
+            const float qu[4] = {0.0f, 1.0f, 1.0f, 0.0f};
+            const float qv[4] = {0.0f, 0.0f, 1.0f, 1.0f};
+            const int qidx[6] = {0, 1, 2, 0, 2, 3};
+            wsc::DrawPrimitive prim;
+            prim.kind = wsc::DrawPrimitiveKind::TexturedQuad;
+            prim.blendMode = mapBlend(d.blendMode);
+            prim.texture = shadowTex;
+            prim.layerAlpha = 1.0f;
+            prim.tint[0] = d.color[0];
+            prim.tint[1] = d.color[1];
+            prim.tint[2] = d.color[2];
+            prim.tint[3] = d.color[3];
+            prim.sampling = static_cast<int>(DrawImageSampling::Linear);
+            prim.tileMode = static_cast<int>(DrawImageTileMode::Clamp);
+            prim.useCustomSampler = true;
+            prim.positions.reserve(12);
+            prim.uvs.reserve(12);
+            for (int k : qidx) {
+                prim.positions.push_back(qnx[k]);
+                prim.positions.push_back(qny[k]);
+                prim.uvs.push_back(qu[k]);
+                prim.uvs.push_back(qv[k]);
             }
             list.push_back(std::move(prim));
         }
