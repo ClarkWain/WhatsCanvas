@@ -3399,6 +3399,29 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
         return createSampledTexture(context_.get(), maskW, maskH, maskPixels.data(), /*nearest=*/false);
     };
 
+    // Convert an already-built solid primitive (positions + color, and optional
+    // per-vertex colors) into a ClipFill against the given clip state: builds the
+    // clip mask and sets per-vertex screen-space UVs so the clip pipeline
+    // modulates the fill by the mask. Returns false if the mask could not be
+    // built (caller should drop the command).
+    auto emitClippedSolid = [&](wsc::DrawPrimitive &prim, const ClipMaskState &clip) -> bool {
+        SharedImageResource clipTex = buildClipMaskTexture(clip);
+        if (!clipTex) {
+            return false;
+        }
+        const std::size_t vc = prim.positions.size() / 2;
+        prim.kind = wsc::DrawPrimitiveKind::ClipFill;
+        prim.texture = clipTex;
+        prim.uvs.clear();
+        prim.uvs.reserve(vc * 2);
+        for (std::size_t i = 0; i < vc; ++i) {
+            // Screen-space UV: NDC [-1,1] -> mask texture [0,1].
+            prim.uvs.push_back(prim.positions[i * 2 + 0] * 0.5f + 0.5f);
+            prim.uvs.push_back(prim.positions[i * 2 + 1] * 0.5f + 0.5f);
+        }
+        return true;
+    };
+
     // Translate the real Command stream into backend-neutral primitives.
     wsc::DrawList list;
     for (const std::unique_ptr<Command> &cmd : commands) {
@@ -3430,18 +3453,6 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
                 if (d.hasShaderGradient()) {
                     continue;
                 }
-                SharedImageResource clipTex = buildClipMaskTexture(d.clipMask);
-                if (!clipTex) {
-                    continue;
-                }
-                prim.kind = wsc::DrawPrimitiveKind::ClipFill;
-                prim.texture = clipTex;
-                prim.uvs.reserve(vertexCount * 2);
-                for (std::size_t i = 0; i < vertexCount; ++i) {
-                    // Screen-space UV: NDC [-1,1] -> mask texture [0,1].
-                    prim.uvs.push_back(prim.positions[i * 2 + 0] * 0.5f + 0.5f);
-                    prim.uvs.push_back(prim.positions[i * 2 + 1] * 0.5f + 0.5f);
-                }
                 prim.color[0] = d.color[0];
                 prim.color[1] = d.color[1];
                 prim.color[2] = d.color[2];
@@ -3457,6 +3468,9 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
                         prim.colors[i * 4 + 2] = d.color[2];
                         prim.colors[i * 4 + 3] = d.color[3] * d.coverage[i];
                     }
+                }
+                if (!emitClippedSolid(prim, d.clipMask)) {
+                    continue;
                 }
                 list.push_back(std::move(prim));
                 continue;
@@ -3504,9 +3518,6 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
         } else if (cmd->type() == Command::Type::Points) {
             const auto *pointsCmd = static_cast<const DrawPointsCommand *>(cmd.get());
             const DrawPointsData &d = pointsCmd->data();
-            if (d.clipMask.hasPaths()) {
-                continue;
-            }
             const std::size_t count = d.getPointCount();
             if (count == 0) {
                 continue;
@@ -3526,13 +3537,13 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
             prim.color[1] = d.color[1];
             prim.color[2] = d.color[2];
             prim.color[3] = d.color[3];
+            if (d.clipMask.hasPaths() && !emitClippedSolid(prim, d.clipMask)) {
+                continue;
+            }
             list.push_back(std::move(prim));
         } else if (cmd->type() == Command::Type::Lines) {
             const auto *linesCmd = static_cast<const DrawLinesCommand *>(cmd.get());
             const DrawLinesData &d = linesCmd->data();
-            if (d.clipMask.hasPaths()) {
-                continue;
-            }
             const std::size_t lineCount = d.getLineCount();
             if (lineCount == 0) {
                 continue;
@@ -3565,6 +3576,9 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
             prim.color[1] = d.color[1];
             prim.color[2] = d.color[2];
             prim.color[3] = d.color[3];
+            if (d.clipMask.hasPaths() && !emitClippedSolid(prim, d.clipMask)) {
+                continue;
+            }
             list.push_back(std::move(prim));
         } else if (cmd->type() == Command::Type::Image) {
             const auto *imageCmd = static_cast<const DrawImageCommand *>(cmd.get());
@@ -3613,12 +3627,13 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
             // (vLocalPos = aPos), so we mirror that exactly.
             const auto *textCmd = static_cast<const DrawTextCommand *>(cmd.get());
             const DrawTextData &d = textCmd->data();
-            if (d.clipMask.hasPaths()) {
-                continue;
-            }
             const std::size_t vertexCount = d.getVertexCount();
             if (vertexCount < 3 || (vertexCount % 3) != 0) {
                 continue;
+            }
+            const bool textClipped = d.clipMask.hasPaths();
+            if (textClipped && d.hasShaderGradient()) {
+                continue; // clipped gradient text is a follow-up
             }
             wsc::DrawPrimitive prim;
             prim.blendMode = mapBlend(d.blendMode);
@@ -3656,6 +3671,11 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
                 prim.color[1] = d.color[1];
                 prim.color[2] = d.color[2];
                 prim.color[3] = d.color[3];
+            }
+            if (textClipped) {
+                if (!emitClippedSolid(prim, d.clipMask)) {
+                    continue;
+                }
             }
             list.push_back(std::move(prim));
         } else if (cmd->type() == Command::Type::Shadow) {

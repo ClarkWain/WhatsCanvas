@@ -100,6 +100,58 @@ int main()
     if (!near4(px, width, width / 4, height / 2, 0, 255, 0, 255, 4, "left (inside clip)")) return 1;
     if (!near4(px, width, (width * 3) / 4, height / 2, 0, 0, 0, 0, 4, "right (clipped out)")) return 1;
 
+    // --- Clipped vector text: a full-canvas blue text quad clipped to the left. ---
+    {
+        auto textTarget = device.createRenderTarget(width, height);
+        DrawTextData t;
+        t.vertices = {0.0f, 0.0f, fw, 0.0f, fw, fh, 0.0f, 0.0f, fw, fh, 0.0f, fh};
+        t.color[0] = 0.0f;
+        t.color[1] = 0.0f;
+        t.color[2] = 1.0f;
+        t.color[3] = 1.0f;
+        t.clipMask.resources.push_back(clipRes);
+        std::vector<std::unique_ptr<Command>> textCmds;
+        textCmds.push_back(std::make_unique<DrawTextCommand>(t));
+        if (!device.executeCommands(textTarget, textCmds, request)) {
+            std::cerr << "[VulkanClipCommandTests] FAIL: clipped text executeCommands returned false."
+                      << std::endl;
+            return 1;
+        }
+        std::vector<unsigned char> tpx;
+        if (!device.readPixelsRGBA(width, height, tpx)) return 1;
+        if (!near4(tpx, width, width / 4, height / 2, 0, 0, 255, 255, 4, "clipped text left")) return 1;
+        if (!near4(tpx, width, (width * 3) / 4, height / 2, 0, 0, 0, 0, 4, "clipped text right")) return 1;
+        textCmds.clear();
+        textTarget.reset();
+    }
+
+    // --- Clipped points: a large point at (30,12) whose right half is clipped. ---
+    {
+        auto ptTarget = device.createRenderTarget(width, height);
+        DrawPointsData p;
+        p.points = {static_cast<float>(width) / 2.0f, 12.0f}; // centered on the clip boundary
+        p.size = 16.0f;
+        p.color[0] = 1.0f;
+        p.color[1] = 0.0f;
+        p.color[2] = 0.0f;
+        p.color[3] = 1.0f;
+        p.clipMask.resources.push_back(clipRes);
+        std::vector<std::unique_ptr<Command>> ptCmds;
+        ptCmds.push_back(std::make_unique<DrawPointsCommand>(p));
+        if (!device.executeCommands(ptTarget, ptCmds, request)) {
+            std::cerr << "[VulkanClipCommandTests] FAIL: clipped points executeCommands returned false."
+                      << std::endl;
+            return 1;
+        }
+        std::vector<unsigned char> ppx;
+        if (!device.readPixelsRGBA(width, height, ppx)) return 1;
+        // Left of the point (inside clip) is red; right of it (clipped) is clear.
+        if (!near4(ppx, width, width / 2 - 4, 12, 255, 0, 0, 255, 6, "clipped point left")) return 1;
+        if (!near4(ppx, width, width / 2 + 4, 12, 0, 0, 0, 0, 6, "clipped point right")) return 1;
+        ptCmds.clear();
+        ptTarget.reset();
+    }
+
     std::cout << "[VulkanClipCommandTests] PASS: clipped solid fill on \"" << device.selectedDeviceName()
               << "\"." << std::endl;
 

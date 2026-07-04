@@ -85,8 +85,8 @@ documented gap; 2 remain.
   analytic-AA coverage) into a coverage mask (nested clips intersect), and the
   fill is drawn through the M7 clip pipeline sampling that mask at each
   fragment's screen position -- mirroring the GL clip-mask fragment path
-  (``WhatsCanvasVulkanClipCommandTests``). Clipped gradient/image/points/lines
-  fills are follow-ups.
+  (``WhatsCanvasVulkanClipCommandTests`` covers clipped path fills, vector text,
+  and points/lines). Clipped gradient/image fills are follow-ups.
 - **Analytic-AA feathering / multi-stop fragment gradients**: the mechanisms are
   in place (coverage mask, vertex-color gradients); true AA feathering and
   texel-buffer multi-stop gradients are refinements.
