@@ -63,10 +63,12 @@ documented gap; 2 remain.
   path uses), without touching the OpenGL command execution.
   `renderCommandsToImageResource` renders a command stream into an offscreen
   target and returns it as an owned sampled texture. Images also honor tint and a
-  4x4 color matrix (fragment push constants). Verified by
-  `WhatsCanvasVulkanCommandTests` and `WhatsCanvasVulkanImageColorTests`,
-  ASan-clean. Fragment shader gradients, clip, and text translation are
-  follow-ups.
+  4x4 color matrix (fragment push constants). Fragment-evaluated **gradients**
+  (linear/radial, up to 8 stops, clamp/repeat/mirror/decal tile modes via a UBO)
+  translate ``DrawPathData`` shader gradients, matching the OpenGL gradient
+  shader. Verified by ``WhatsCanvasVulkanCommandTests``,
+  ``WhatsCanvasVulkanImageColorTests``, and ``WhatsCanvasVulkanGradientTests``,
+  ASan-clean. Clip and text translation are follow-ups.
 - **Analytic-AA feathering / multi-stop fragment gradients**: the mechanisms are
   in place (coverage mask, vertex-color gradients); true AA feathering and
   texel-buffer multi-stop gradients are refinements.
