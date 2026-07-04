@@ -117,15 +117,39 @@ int main()
     }
     if (!pixelIs(pixels, width, width / 2, height / 2, 0, 0, 255, 255, "matrix center blue")) return 1;
 
+    // Case C: REPEAT tile mode. A 2x2 texture tiled 2x horizontally (u1=2).
+    const std::vector<unsigned char> quad = {255, 0,   0,   255, 0,   255, 0,   255,
+                                            0,   0,   255, 255, 255, 255, 0,   255};
+    auto quadTex = device.createImageResourceRGBA(2, 2, quad);
+    DrawImageData repeatData = makeFullImage(quadTex, width, height);
+    repeatData.u1 = 2.0f; // tile twice across the width
+    repeatData.tileMode = DrawImageTileMode::Repeat;
+    repeatData.sampling = DrawImageSampling::Nearest;
+    std::vector<std::unique_ptr<Command>> repeatCmds;
+    repeatCmds.push_back(std::make_unique<DrawImageCommand>(repeatData));
+    if (!device.executeCommands(target, repeatCmds, request)) {
+        std::cerr << "[VulkanImageColorTests] FAIL: repeat executeCommands returned false." << std::endl;
+        return 1;
+    }
+    if (!device.readPixelsRGBA(width, height, pixels)) {
+        return 1;
+    }
+    // First tile column 0 (red) and the wrapped column 0 in the second tile.
+    if (!pixelIs(pixels, width, 4, 6, 255, 0, 0, 255, "repeat first-tile red")) return 1;
+    if (!pixelIs(pixels, width, 20, 6, 255, 0, 0, 255, "repeat wrapped red")) return 1;
+
     std::cout << "[VulkanImageColorTests] PASS: image tint + color matrix on \"" << device.selectedDeviceName()
               << "\"." << std::endl;
 
     tintData.imageResource.reset();
     matData.imageResource.reset();
+    repeatData.imageResource.reset();
     tintCmds.clear();
     matCmds.clear();
+    repeatCmds.clear();
     whiteTex.reset();
     redTex.reset();
+    quadTex.reset();
     target.reset();
     device.finalizeBackend();
     return 0;

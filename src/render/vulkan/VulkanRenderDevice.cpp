@@ -90,6 +90,16 @@ struct VulkanRenderDevice::VulkanContext
     VkPipelineLayout clipPipelineLayout = VK_NULL_HANDLE;
     VkPipeline clipPipeline = VK_NULL_HANDLE;
 
+    // Cached samplers keyed by (filter, address mode) for per-draw sampling/tile
+    // modes.
+    struct CachedSampler
+    {
+        VkFilter filter;
+        VkSamplerAddressMode addressMode;
+        VkSampler sampler;
+    };
+    std::vector<CachedSampler> samplerCache;
+
     std::size_t imageTextureCount = 0;
 
     // Most-recently-activated / filled render target, used as the readback
@@ -154,6 +164,13 @@ struct VulkanRenderDevice::VulkanContext
                 vkDestroyShaderModule(device, clipFragModule, nullptr);
                 clipFragModule = VK_NULL_HANDLE;
             }
+            for (CachedSampler &entry : samplerCache) {
+                if (entry.sampler != VK_NULL_HANDLE) {
+                    vkDestroySampler(device, entry.sampler, nullptr);
+                    entry.sampler = VK_NULL_HANDLE;
+                }
+            }
+            samplerCache.clear();
             if (solidPipelineLayout != VK_NULL_HANDLE) {
                 vkDestroyPipelineLayout(device, solidPipelineLayout, nullptr);
                 solidPipelineLayout = VK_NULL_HANDLE;
@@ -486,6 +503,32 @@ struct VulkanRenderDevice::VulkanContext
         region.imageOffset = {x, y, 0};
         region.imageExtent = {static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height), 1};
         vkCmdCopyBufferToImage(cmd, buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    }
+
+    // Return a cached sampler for the given filter and address mode.
+    VkSampler getSampler(VkFilter filter, VkSamplerAddressMode addressMode)
+    {
+        for (const CachedSampler &entry : samplerCache) {
+            if (entry.filter == filter && entry.addressMode == addressMode) {
+                return entry.sampler;
+            }
+        }
+        VkSamplerCreateInfo info{};
+        info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+        info.magFilter = filter;
+        info.minFilter = filter;
+        info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+        info.addressModeU = addressMode;
+        info.addressModeV = addressMode;
+        info.addressModeW = addressMode;
+        info.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK; // decal
+        info.maxLod = 0.0f;
+        VkSampler sampler = VK_NULL_HANDLE;
+        if (vkCreateSampler(device, &info, nullptr, &sampler) != VK_SUCCESS) {
+            return VK_NULL_HANDLE;
+        }
+        samplerCache.push_back({filter, addressMode, sampler});
+        return sampler;
     }
 
     // Lazily build the textured-quad pipeline (combined image sampler at
@@ -2647,7 +2690,8 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
 
     // Bind a texture resource to a freshly allocated descriptor set of the given
     // layout. Returns VK_NULL_HANDLE on failure.
-    auto allocSampledSet = [&](VulkanTextureResource *tex, VkDescriptorSetLayout layout) -> VkDescriptorSet {
+    auto allocSampledSet = [&](VulkanTextureResource *tex, VkDescriptorSetLayout layout,
+                               VkSampler sampler) -> VkDescriptorSet {
         VkDescriptorSetAllocateInfo setAlloc{};
         setAlloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
         setAlloc.descriptorPool = pool;
@@ -2660,7 +2704,7 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
         VkDescriptorImageInfo imageDescriptor{};
         imageDescriptor.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         imageDescriptor.imageView = tex->view();
-        imageDescriptor.sampler = tex->sampler();
+        imageDescriptor.sampler = sampler;
         VkWriteDescriptorSet write{};
         write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         write.dstSet = set;
@@ -2717,7 +2761,31 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
                 std::memcpy(draw.push.colorMatrix, prim.colorMatrix, sizeof(draw.push.colorMatrix));
                 std::memcpy(draw.push.colorOffset, prim.colorMatrixOffset, sizeof(draw.push.colorOffset));
             }
-            draw.descriptorSet = allocSampledSet(tex, context_->texDescriptorSetLayout);
+            VkSampler sampler = tex->sampler();
+            if (prim.useCustomSampler) {
+                const VkFilter filter = (prim.sampling == 1) ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
+                VkSamplerAddressMode addressMode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+                switch (prim.tileMode) {
+                case 1:
+                    addressMode = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+                    break;
+                case 2:
+                    addressMode = VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
+                    break;
+                case 3:
+                    addressMode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+                    break;
+                default:
+                    addressMode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+                    break;
+                }
+                sampler = context_->getSampler(filter, addressMode);
+            }
+            if (sampler == VK_NULL_HANDLE) {
+                ok = false;
+                break;
+            }
+            draw.descriptorSet = allocSampledSet(tex, context_->texDescriptorSetLayout, sampler);
             if (draw.descriptorSet == VK_NULL_HANDLE) {
                 ok = false;
                 break;
@@ -2747,7 +2815,7 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
             }
             draw.pipeline = context_->clipPipeline;
             draw.descriptorLayout = context_->clipPipelineLayout;
-            draw.descriptorSet = allocSampledSet(mask, context_->clipDescriptorSetLayout);
+            draw.descriptorSet = allocSampledSet(mask, context_->clipDescriptorSetLayout, mask->sampler());
             if (draw.descriptorSet == VK_NULL_HANDLE) {
                 ok = false;
                 break;
@@ -3032,6 +3100,9 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
                 std::memcpy(prim.colorMatrix, d.colorMatrix, sizeof(prim.colorMatrix));
                 std::memcpy(prim.colorMatrixOffset, d.colorMatrixOffset, sizeof(prim.colorMatrixOffset));
             }
+            prim.sampling = static_cast<int>(d.sampling);
+            prim.tileMode = static_cast<int>(d.tileMode);
+            prim.useCustomSampler = true;
             prim.positions.reserve(12);
             prim.uvs.reserve(12);
             for (int k : idx) {
