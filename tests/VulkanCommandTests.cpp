@@ -170,6 +170,7 @@ int main()
     imageData.u1 = 1.0f;
     imageData.v1 = 1.0f;
     imageData.alpha = 1.0f;
+    imageData.sampling = DrawImageSampling::Nearest; // exact 2x2 quadrant checks
     std::vector<std::unique_ptr<Command>> imageCommands;
     imageCommands.push_back(std::make_unique<DrawImageCommand>(imageData));
     if (!device.executeCommands(target, imageCommands, request)) {
