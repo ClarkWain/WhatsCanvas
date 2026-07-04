@@ -142,6 +142,16 @@ public:
     /// seam that a future backend-neutral command layer will feed.
     bool executeDrawList(const std::unique_ptr<IRenderTarget> &target, const wsc::DrawList &drawList) const;
 
+    /// ADR-006 command-translation slice: render a real WhatsCanvas `Command`
+    /// stream into an offscreen target by reading each command's backend-neutral
+    /// `DrawData` and translating it to Vulkan draws. This does NOT touch the
+    /// OpenGL command execution path. The current slice handles solid path
+    /// fills; other command kinds are skipped and are ADR-006 follow-ups.
+    /// `request` supplies the canvas size used for the ortho projection.
+    bool executeCommands(const std::unique_ptr<IRenderTarget> &target,
+                         const std::vector<std::unique_ptr<Command>> &commands,
+                         const OffscreenRenderRequest &request) const;
+
     /// Opaque backend context, defined in the implementation file.
     struct VulkanContext;
 

@@ -2,6 +2,9 @@
 
 #include "../IRenderTarget.h"
 #include "../IRenderer.h"
+#include "command/DrawCommand.h"
+
+#include <glm/glm.hpp>
 
 #include <iostream>
 
@@ -2769,6 +2772,88 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
 #else
     (void)target;
     (void)drawList;
+    return false;
+#endif
+}
+
+bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &target,
+                                         const std::vector<std::unique_ptr<Command>> &commands,
+                                         const OffscreenRenderRequest &request) const
+{
+#if defined(WHATSCANVAS_ENABLE_VULKAN)
+    if (!context_ || !context_->deviceReady || !target) {
+        return false;
+    }
+    auto *rt = dynamic_cast<VulkanRenderTarget *>(target.get());
+    if (rt == nullptr || !rt->isValid()) {
+        return false;
+    }
+    const float w = request.canvasWidth > 0 ? static_cast<float>(request.canvasWidth)
+                                            : static_cast<float>(rt->width());
+    const float h = request.canvasHeight > 0 ? static_cast<float>(request.canvasHeight)
+                                            : static_cast<float>(rt->height());
+    if (w <= 0.0f || h <= 0.0f) {
+        return false;
+    }
+
+    // Map the Canvas blend model to the Vulkan solid blend-mode indices.
+    auto mapBlend = [](DrawBlendMode mode) -> int {
+        switch (mode) {
+        case DrawBlendMode::Src:
+            return 1;
+        case DrawBlendMode::Add:
+            return 2;
+        case DrawBlendMode::Multiply:
+            return 3;
+        case DrawBlendMode::Screen:
+            return 4;
+        default:
+            return 0; // SrcOver
+        }
+    };
+
+    // Translate the real Command stream into backend-neutral primitives. Points
+    // are canvas-space triangle-list vertices; project them to Vulkan NDC with
+    // the same ortho(0,w,h,0) convention the OpenGL path uses.
+    wsc::DrawList list;
+    for (const std::unique_ptr<Command> &cmd : commands) {
+        if (!cmd || cmd->type() != Command::Type::Path) {
+            continue; // Slice 1: solid path fills only (other kinds are follow-ups).
+        }
+        const auto *pathCmd = static_cast<const DrawPathCommand *>(cmd.get());
+        const DrawPathData &d = pathCmd->data();
+        if (d.hasShaderGradient() || d.hasVertexColors() || d.clipMask.hasPaths()) {
+            continue;
+        }
+        const std::size_t vertexCount = d.getPointCount();
+        if (vertexCount < 3 || (vertexCount % 3) != 0) {
+            continue;
+        }
+        wsc::DrawPrimitive prim;
+        prim.kind = wsc::DrawPrimitiveKind::SolidTriangles;
+        prim.blendMode = mapBlend(d.blendMode);
+        prim.positions.reserve(vertexCount * 2);
+        for (std::size_t i = 0; i < vertexCount; ++i) {
+            const glm::vec4 p =
+                d.transform * glm::vec4(d.points[i * 2 + 0], d.points[i * 2 + 1], 0.0f, 1.0f);
+            prim.positions.push_back(p.x / w * 2.0f - 1.0f);
+            prim.positions.push_back(p.y / h * 2.0f - 1.0f);
+        }
+        prim.color[0] = d.color[0];
+        prim.color[1] = d.color[1];
+        prim.color[2] = d.color[2];
+        prim.color[3] = d.color[3];
+        list.push_back(std::move(prim));
+    }
+
+    if (list.empty()) {
+        return false;
+    }
+    return executeDrawList(target, list);
+#else
+    (void)target;
+    (void)commands;
+    (void)request;
     return false;
 #endif
 }
