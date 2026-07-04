@@ -14,6 +14,7 @@ namespace wsc {
 enum class DrawPrimitiveKind
 {
     SolidTriangles, ///< Triangle list, single solid color.
+    TexturedQuad,   ///< Full-target quad sampling an image resource.
 };
 
 /// One backend-neutral draw primitive.
@@ -30,6 +31,9 @@ struct DrawPrimitive
 
     /// SolidTriangles: RGBA fill color in [0,1].
     float color[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+
+    /// TexturedQuad: the image sampled across the full target.
+    SharedImageResource texture;
 };
 
 using DrawList = std::vector<DrawPrimitive>;
