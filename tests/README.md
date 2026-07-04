@@ -31,6 +31,7 @@ This directory is the top-level home for WhatsCanvas validation beyond ad-hoc lo
 - `scripts/api_reference_check.bat` / `scripts/api_reference_check.sh`: verifies that `doc/API_REFERENCE.md` matches the current `include/wsc/` public headers.
 - `scripts/version_consistency_check.bat` / `scripts/version_consistency_check.sh`: verifies version declarations are synchronized across CMake, public headers, docs, and release packaging.
 - `scripts/package_consumer_smoke.bat` / `scripts/package_consumer_smoke.sh`: builds `tests/package_consumer` against the installed package to verify `find_package(WhatsCanvas CONFIG REQUIRED)` and exported targets.
+- `scripts/release_preflight.bat` / `scripts/release_preflight.sh`: fast local release preflight that runs API reference freshness, version consistency, a Debug build, unit tests, and the registered API/version/package CTest gates.
 
 ## Intended Growth
 

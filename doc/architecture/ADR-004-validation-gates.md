@@ -80,6 +80,10 @@ WhatsCanvas will adopt a layered verification model.
 - `scripts/regression_smoke.bat` / `scripts/regression_smoke.sh`: strict local pixel-baseline gate that runs both the default smoke scene and the stacked non-rect `clipPath` smoke scene with expected hashes.
 - `scripts/examples_smoke.bat` / `scripts/examples_smoke.sh`: aggregated independent example build gate for Tetris, Racer, and Bubble Shooter.
 - `scripts/validation_scene_smoke.bat` / `scripts/validation_scene_smoke.sh`: fixed-time non-MSAA scene suite gate that runs text-heavy, image-heavy, gradient/effect, clipping, transform, and saveLayer scenes and requires pixel-hash output for each.
+- `scripts/release_preflight.bat` / `scripts/release_preflight.sh`: fast local pre-release gate for generated API reference freshness, version consistency, Debug unit tests, and package-consumer validation.
+- `scripts/api_reference_check.bat` / `scripts/api_reference_check.sh`: generated public API reference freshness gate for `doc/API_REFERENCE.md`.
+- `scripts/version_consistency_check.bat` / `scripts/version_consistency_check.sh`: release metadata consistency gate for CMake version, public version macros, docs, and package workflow naming.
+- `scripts/package_consumer_smoke.bat` / `scripts/package_consumer_smoke.sh`: external CMake consumer smoke for package/export validation.
 - `WhatsCanvasGraphicsStateStackTests`: lightweight unit-test executable, registered through `ctest`, that currently covers `GraphicsStateStack` save/restore semantics plus header-only `Path` behaviors such as even-odd contains, strokeContains, trim, and reversed traversal.
 - `ctest` registration: when `WHATSCANVAS_ENABLE_SCRIPT_TESTS=ON`, the root CMake project now exposes the existing smoke/example script gates through standard `ctest` entry points; the strict local regression gate is opt-in through `WHATSCANVAS_ENABLE_LOCAL_REGRESSION_TEST=ON`.
 - `tests/README.md` / `benchmarks/README.md`: top-level documentation and growth points for validation and benchmark work.

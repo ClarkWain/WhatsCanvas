@@ -29,6 +29,12 @@ ctest --test-dir build -C Debug -R "^(WhatsCanvasApiReferenceCheck|WhatsCanvasVe
 
 For rendering or text changes, also run the relevant smoke/pixel gates from `README.md` and `doc/REGRESSION_BASELINES.md`.
 
+For the common fast path, the metadata, Debug unit, and package-consumer checks can be run together:
+
+```bat
+cmd /c scripts\release_preflight.bat
+```
+
 ## Tagging
 
 Use a tag matching the package workflow pattern:
