@@ -88,10 +88,55 @@ int main()
     if (!pixelIs(pixels, width, width / 2, height / 2, 255, 0, 0, 255, "center red")) return 1;
     if (!pixelIs(pixels, width, 0, 0, 0, 0, 0, 0, "corner clear")) return 1;
 
+    // A points command: a large green point centered on the canvas.
+    DrawPointsData pointsData;
+    pointsData.points = {static_cast<float>(width) / 2.0f, static_cast<float>(height) / 2.0f};
+    pointsData.size = 10.0f;
+    pointsData.color[0] = 0.0f;
+    pointsData.color[1] = 1.0f;
+    pointsData.color[2] = 0.0f;
+    pointsData.color[3] = 1.0f;
+    std::vector<std::unique_ptr<Command>> pointCommands;
+    pointCommands.push_back(std::make_unique<DrawPointsCommand>(pointsData));
+    if (!device.executeCommands(target, pointCommands, request)) {
+        std::cerr << "[VulkanCommandTests] FAIL: executeCommands (points) returned false." << std::endl;
+        return 1;
+    }
+    if (!device.readPixelsRGBA(width, height, pixels)) {
+        std::cerr << "[VulkanCommandTests] FAIL: points readback failed." << std::endl;
+        return 1;
+    }
+    if (!pixelIs(pixels, width, width / 2, height / 2, 0, 255, 0, 255, "point center green")) return 1;
+    if (!pixelIs(pixels, width, 2, 2, 0, 0, 0, 0, "point off clear")) return 1;
+
+    // A lines command: a thick horizontal blue line across the middle row.
+    DrawLinesData linesData;
+    linesData.points = {8.0f, static_cast<float>(height) / 2.0f, static_cast<float>(width) - 8.0f,
+                        static_cast<float>(height) / 2.0f};
+    linesData.width = 8.0f;
+    linesData.color[0] = 0.0f;
+    linesData.color[1] = 0.0f;
+    linesData.color[2] = 1.0f;
+    linesData.color[3] = 1.0f;
+    std::vector<std::unique_ptr<Command>> lineCommands;
+    lineCommands.push_back(std::make_unique<DrawLinesCommand>(linesData));
+    if (!device.executeCommands(target, lineCommands, request)) {
+        std::cerr << "[VulkanCommandTests] FAIL: executeCommands (lines) returned false." << std::endl;
+        return 1;
+    }
+    if (!device.readPixelsRGBA(width, height, pixels)) {
+        std::cerr << "[VulkanCommandTests] FAIL: lines readback failed." << std::endl;
+        return 1;
+    }
+    if (!pixelIs(pixels, width, width / 2, height / 2, 0, 0, 255, 255, "line center blue")) return 1;
+    if (!pixelIs(pixels, width, width / 2, 2, 0, 0, 0, 0, "line off clear")) return 1;
+
     std::cout << "[VulkanCommandTests] PASS: translated a real Command stream on \"" << device.selectedDeviceName()
               << "\"." << std::endl;
 
     commands.clear();
+    pointCommands.clear();
+    lineCommands.clear();
     target.reset();
     device.finalizeBackend();
     return 0;

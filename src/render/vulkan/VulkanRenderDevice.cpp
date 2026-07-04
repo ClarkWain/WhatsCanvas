@@ -10,6 +10,7 @@
 
 #if defined(WHATSCANVAS_ENABLE_VULKAN)
 #include <array>
+#include <cmath>
 #include <cstring>
 #include <optional>
 
@@ -2812,38 +2813,125 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
         }
     };
 
-    // Translate the real Command stream into backend-neutral primitives. Points
-    // are canvas-space triangle-list vertices; project them to Vulkan NDC with
-    // the same ortho(0,w,h,0) convention the OpenGL path uses.
+    // Project a canvas-space point through a transform to Vulkan NDC using the
+    // same ortho(0,w,h,0) convention the OpenGL path uses.
+    auto toNdc = [&](const glm::mat4 &tf, float x, float y, float &ox, float &oy) {
+        const glm::vec4 p = tf * glm::vec4(x, y, 0.0f, 1.0f);
+        ox = p.x / w * 2.0f - 1.0f;
+        oy = p.y / h * 2.0f - 1.0f;
+    };
+
+    // Emit two triangles (a quad ABCD) into an NDC position list.
+    auto emitQuad = [&](std::vector<float> &out, const glm::mat4 &tf, float ax, float ay, float bx, float by,
+                        float cx, float cy, float dx, float dy) {
+        float n[8];
+        toNdc(tf, ax, ay, n[0], n[1]);
+        toNdc(tf, bx, by, n[2], n[3]);
+        toNdc(tf, cx, cy, n[4], n[5]);
+        toNdc(tf, dx, dy, n[6], n[7]);
+        const float tris[12] = {n[0], n[1], n[2], n[3], n[4], n[5], n[0], n[1], n[4], n[5], n[6], n[7]};
+        out.insert(out.end(), tris, tris + 12);
+    };
+
+    // Translate the real Command stream into backend-neutral primitives.
     wsc::DrawList list;
     for (const std::unique_ptr<Command> &cmd : commands) {
-        if (!cmd || cmd->type() != Command::Type::Path) {
-            continue; // Slice 1: solid path fills only (other kinds are follow-ups).
-        }
-        const auto *pathCmd = static_cast<const DrawPathCommand *>(cmd.get());
-        const DrawPathData &d = pathCmd->data();
-        if (d.hasShaderGradient() || d.hasVertexColors() || d.clipMask.hasPaths()) {
+        if (!cmd) {
             continue;
         }
-        const std::size_t vertexCount = d.getPointCount();
-        if (vertexCount < 3 || (vertexCount % 3) != 0) {
-            continue;
+
+        if (cmd->type() == Command::Type::Path) {
+            const auto *pathCmd = static_cast<const DrawPathCommand *>(cmd.get());
+            const DrawPathData &d = pathCmd->data();
+            if (d.hasShaderGradient() || d.hasVertexColors() || d.clipMask.hasPaths()) {
+                continue;
+            }
+            const std::size_t vertexCount = d.getPointCount();
+            if (vertexCount < 3 || (vertexCount % 3) != 0) {
+                continue;
+            }
+            wsc::DrawPrimitive prim;
+            prim.kind = wsc::DrawPrimitiveKind::SolidTriangles;
+            prim.blendMode = mapBlend(d.blendMode);
+            prim.positions.reserve(vertexCount * 2);
+            for (std::size_t i = 0; i < vertexCount; ++i) {
+                float nx = 0.0f, ny = 0.0f;
+                toNdc(d.transform, d.points[i * 2 + 0], d.points[i * 2 + 1], nx, ny);
+                prim.positions.push_back(nx);
+                prim.positions.push_back(ny);
+            }
+            prim.color[0] = d.color[0];
+            prim.color[1] = d.color[1];
+            prim.color[2] = d.color[2];
+            prim.color[3] = d.color[3];
+            list.push_back(std::move(prim));
+        } else if (cmd->type() == Command::Type::Points) {
+            const auto *pointsCmd = static_cast<const DrawPointsCommand *>(cmd.get());
+            const DrawPointsData &d = pointsCmd->data();
+            if (d.clipMask.hasPaths()) {
+                continue;
+            }
+            const std::size_t count = d.getPointCount();
+            if (count == 0) {
+                continue;
+            }
+            const float half = (d.size > 0.0f ? d.size : 1.0f) * 0.5f;
+            wsc::DrawPrimitive prim;
+            prim.kind = wsc::DrawPrimitiveKind::SolidTriangles;
+            prim.blendMode = mapBlend(d.blendMode);
+            prim.positions.reserve(count * 12);
+            for (std::size_t i = 0; i < count; ++i) {
+                const float cx = d.points[i * 2 + 0];
+                const float cy = d.points[i * 2 + 1];
+                emitQuad(prim.positions, d.transform, cx - half, cy - half, cx + half, cy - half, cx + half,
+                         cy + half, cx - half, cy + half);
+            }
+            prim.color[0] = d.color[0];
+            prim.color[1] = d.color[1];
+            prim.color[2] = d.color[2];
+            prim.color[3] = d.color[3];
+            list.push_back(std::move(prim));
+        } else if (cmd->type() == Command::Type::Lines) {
+            const auto *linesCmd = static_cast<const DrawLinesCommand *>(cmd.get());
+            const DrawLinesData &d = linesCmd->data();
+            if (d.clipMask.hasPaths()) {
+                continue;
+            }
+            const std::size_t lineCount = d.getLineCount();
+            if (lineCount == 0) {
+                continue;
+            }
+            const float halfWidth = (d.width > 0.0f ? d.width : 1.0f) * 0.5f;
+            wsc::DrawPrimitive prim;
+            prim.kind = wsc::DrawPrimitiveKind::SolidTriangles;
+            prim.blendMode = mapBlend(d.blendMode);
+            prim.positions.reserve(lineCount * 12);
+            for (std::size_t i = 0; i < lineCount; ++i) {
+                const float x0 = d.points[i * 4 + 0];
+                const float y0 = d.points[i * 4 + 1];
+                const float x1 = d.points[i * 4 + 2];
+                const float y1 = d.points[i * 4 + 3];
+                const float dx = x1 - x0;
+                const float dy = y1 - y0;
+                const float len = std::sqrt(dx * dx + dy * dy);
+                if (len < 1e-6f) {
+                    continue;
+                }
+                const float nx = -dy / len * halfWidth;
+                const float ny = dx / len * halfWidth;
+                emitQuad(prim.positions, d.transform, x0 + nx, y0 + ny, x1 + nx, y1 + ny, x1 - nx, y1 - ny,
+                         x0 - nx, y0 - ny);
+            }
+            if (prim.positions.empty()) {
+                continue;
+            }
+            prim.color[0] = d.color[0];
+            prim.color[1] = d.color[1];
+            prim.color[2] = d.color[2];
+            prim.color[3] = d.color[3];
+            list.push_back(std::move(prim));
         }
-        wsc::DrawPrimitive prim;
-        prim.kind = wsc::DrawPrimitiveKind::SolidTriangles;
-        prim.blendMode = mapBlend(d.blendMode);
-        prim.positions.reserve(vertexCount * 2);
-        for (std::size_t i = 0; i < vertexCount; ++i) {
-            const glm::vec4 p =
-                d.transform * glm::vec4(d.points[i * 2 + 0], d.points[i * 2 + 1], 0.0f, 1.0f);
-            prim.positions.push_back(p.x / w * 2.0f - 1.0f);
-            prim.positions.push_back(p.y / h * 2.0f - 1.0f);
-        }
-        prim.color[0] = d.color[0];
-        prim.color[1] = d.color[1];
-        prim.color[2] = d.color[2];
-        prim.color[3] = d.color[3];
-        list.push_back(std::move(prim));
+        // Other command kinds (image, text, gradients, clip) are ADR-006 follow-ups.
     }
 
     if (list.empty()) {
