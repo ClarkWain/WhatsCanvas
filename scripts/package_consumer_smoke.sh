@@ -8,7 +8,7 @@ CONSUMER_BUILD_DIR=${WHATSCANVAS_CONSUMER_BUILD_DIR:-"$ROOT_DIR/build-package-co
 
 if [ ! -f "$PACKAGE_DIR/lib/cmake/WhatsCanvas/WhatsCanvasConfig.cmake" ]; then
     echo "Package not found, building package first: $PACKAGE_DIR"
-    "$ROOT_DIR/build.sh" --release --package --no-run
+    sh "$ROOT_DIR/build.sh" --release --package --no-run
 fi
 
 rm -rf "$CONSUMER_BUILD_DIR"
