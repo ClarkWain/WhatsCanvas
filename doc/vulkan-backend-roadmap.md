@@ -1,6 +1,6 @@
 # Vulkan Backend Roadmap
 
-Status: **Draft / in progress** · Branch: `feature/vulkan-backend` · Done: M1, M2, M3 (solid fills), M4 (gradients + blend), M5 (images), M6 (layer composite), M7 (coverage-mask clip)
+Status: **Draft / in progress** · Branch: `feature/vulkan-backend` · Done: M1, M2, M3 (solid fills), M4 (gradients + blend), M5 (images), M6 (layer composite), M7 (coverage-mask clip), M8 (windowed present)
 
 This document tracks the work needed to bring the Vulkan render backend
 (`VulkanRenderDevice`) to functional parity with the existing OpenGL backend
@@ -170,13 +170,22 @@ Gate: fuzzy pixel-compare of the clip-path scene vs OpenGL. **Mechanism met** by
 `WhatsCanvasVulkanClipTests` (green fill clipped to a triangle mask: center
 green, corner clear) on NVIDIA RTX 2080 Ti.
 
-### M8 — Windowed presentation + external images
+### M8 — Windowed presentation + external images · **Present done (standalone)**
 Depends on: M2 (swapchain can proceed in parallel after M2).
 - GLFW Vulkan surface (`glfwCreateWindowSurface`) + swapchain + present queue.
+  **Done** as a standalone example (`examples/vulkan_present`): instance with the
+  GLFW surface extensions, surface, present-capable device, swapchain, and a
+  cleared frame acquired/submitted/presented with semaphores + a fence.
 - Frame loop: acquire/record/submit/present with proper synchronization + resize.
-- `wrapExternalImageResource` for externally-provided images.
-Gate: the showcase demo renders on-screen through Vulkan (manual + a headless
-first-frame smoke that presents to an offscreen image).
+  *Partial*: single-frame present; a continuous loop + resize/recreate is a
+  follow-up.
+- `wrapExternalImageResource` for externally-provided images. *Pending*: the
+  `ImageResourceHandle` is 32-bit and cannot carry a 64-bit `VkImage`; needs an
+  interface change.
+Note: presentation needs its own instance/device (surface extensions), so it is
+not wired into `VulkanRenderDevice` (whose instance is headless). Not a CTest gate
+(windowed present is environment dependent); verified manually on NVIDIA RTX 2080
+Ti (3 swapchain images, B8G8R8A8_UNORM).
 
 ### M9 — Integration, selection, and CI
 Depends on: M3+ (progressively).
