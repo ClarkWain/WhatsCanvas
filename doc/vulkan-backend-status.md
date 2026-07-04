@@ -68,7 +68,13 @@ documented gap; 2 remain.
   translate ``DrawPathData`` shader gradients, matching the OpenGL gradient
   shader. Verified by ``WhatsCanvasVulkanCommandTests``,
   ``WhatsCanvasVulkanImageColorTests``, and ``WhatsCanvasVulkanGradientTests``,
-  ASan-clean. Clip and text translation are follow-ups.
+  ASan-clean. **Text** is translated as vector triangle geometry: WhatsCanvas
+  tessellates glyph outlines into local-space triangles (there is no glyph
+  atlas), so text becomes a solid-color or shader-gradient fill using the same
+  pipelines as paths, with the gradient evaluated in raw local space to match the
+  OpenGL text shader (``WhatsCanvasVulkanTextTests``). Analytic-AA edge coverage
+  feathers solid fills to match OpenGL (``WhatsCanvasVulkanAATests``). Clip
+  translation is a follow-up.
 - **Analytic-AA feathering / multi-stop fragment gradients**: the mechanisms are
   in place (coverage mask, vertex-color gradients); true AA feathering and
   texel-buffer multi-stop gradients are refinements.
