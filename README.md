@@ -128,6 +128,7 @@ chmod +x build.sh
 ## 作为库接入
 
 如果你希望把 WhatsCanvas 当成库使用，推荐使用 `--package` 生成交付目录，再在你的项目中通过 CMake 包方式接入。
+完整接入 checklist 见 [Using WhatsCanvas as a Library](doc/GETTING_STARTED_AS_LIBRARY.md)。
 
 ```bat
 build.bat --release --package --no-run
@@ -247,6 +248,10 @@ python scripts\compare_ppm_fuzzy.py baseline.ppm candidate.ppm --max-channel-del
 
 ## 文档入口
 
+- [Using WhatsCanvas as a Library](doc/GETTING_STARTED_AS_LIBRARY.md)：从打包、`find_package`、OpenGL/GLES 上下文到字体注册的最短接入路径。
+- [API Stability](doc/API_STABILITY.md)：记录当前公开 API、CMake package target 和内部/实验边界。
+- [Public API Reference](doc/API_REFERENCE.md)：由 `scripts/generate_api_reference.py` 从 `include/wsc/` 自动生成的公开 API 索引。
+- [Regression Baseline Policy](doc/REGRESSION_BASELINES.md)：记录文本、效果、smoke 和 OpenGLES baseline 的更新规则。
 - [架构总览](doc/architecture/README.md)：适合先建立整体分层和模块边界认知。
 - [Text Feature Matrix](doc/TEXT_FEATURE_MATRIX.md)：定义文本、字体、fallback、layout、diagnostics 和后续 atlas 后端的能力边界。
 - [Shader Portability Notes](doc/SHADER_PORTABILITY.md)：记录桌面 OpenGL / OpenGLES shader 版本、precision、状态 guard 和 GLES-only build gate。
