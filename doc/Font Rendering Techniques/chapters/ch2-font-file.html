@@ -72,6 +72,36 @@
     本教程后续几乎每一章，其实都是在深入讲其中某几张表。
   </div>
 
+  <h2>字体族、字体面、样式是什么关系</h2>
+  <p>
+    在代码里写 <code>font-family: Inter</code> 或 <code>Paint::setFontFamily("Inter")</code> 时，
+    你指定的通常不是一个具体文件，而是一个<strong>字体族（font family）</strong>。
+    一个 family 下面会有多张具体的<strong>字体面（font face）</strong>，例如 Regular、Bold、Italic。
+    渲染器要根据 family、weight、slant/style 去挑出最合适的 face。
+  </p>
+
+  <table class="cmp">
+    <tr><th>概念</th><th>含义</th><th>例子</th></tr>
+    <tr><td><strong>Font family</strong><br>字体族</td><td>一组设计风格一致的字体集合，是 API 里最常指定的名字。</td><td><code>Inter</code>、<code>Roboto</code>、<code>Noto Sans CJK</code></td></tr>
+    <tr><td><strong>Font face</strong><br>字体面</td><td>family 里的某一个具体样式，通常对应一个文件或 TTC 里的一个 face index。</td><td><code>Inter Regular</code>、<code>Inter Bold</code>、<code>Inter Italic</code></td></tr>
+    <tr><td><strong>Weight</strong><br>字重</td><td>笔画粗细，常用 100-900 表示。</td><td>400 = Regular，700 = Bold</td></tr>
+    <tr><td><strong>Slant / Style</strong><br>倾斜/样式</td><td>正体、斜体或倾斜体；真斜体通常是重新设计的字形，伪斜体只是几何倾斜。</td><td>normal、italic、oblique</td></tr>
+    <tr><td><strong>Collection index</strong><br>集合索引</td><td><code>.ttc</code> / <code>.otc</code> 一个文件里装多个 face，需要 index 指定取哪一个。</td><td><code>PingFang.ttc</code> 里的不同字重/区域 face</td></tr>
+  </table>
+
+  <pre><code>Inter                  // font family
+├─ Inter-Regular.ttf   // face: weight 400, slant normal
+├─ Inter-Bold.ttf      // face: weight 700, slant normal
+├─ Inter-Italic.ttf    // face: weight 400, slant italic
+└─ Inter-BoldItalic.ttf// face: weight 700, slant italic</code></pre>
+
+  <div class="callout">
+    <div class="callout-title">为什么这件事会影响渲染</div>
+    同一个 family 下，不同 face 的字形轮廓、度量、kerning、OpenType feature 都可能不同。
+    所以“用粗体”不只是把像素描粗一点；正确做法是先匹配到 Bold face，再用它自己的
+    <code>cmap</code>、<code>GSUB/GPOS</code>、<code>glyf</code> 和 <code>hmtx</code> 参与后续渲染。
+  </div>
+
   <h2>那「字形」到底是什么</h2>
   <p>
     刚才反复出现了三个词：<code>cmap</code> 里被映射的叫「字符」，<code>glyf</code> 里存的叫「字形」，
