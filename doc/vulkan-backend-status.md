@@ -57,12 +57,15 @@ documented gap; 2 remain.
   AddressSanitizer to a test lifetime bug (a `DrawList` holding a texture ref must
   be released before `finalizeBackend`), not a rendering bug.
 - **Command translation (ADR-006)**: `executeCommands` reads a real WhatsCanvas
-  `Command` stream and translates path fills/strokes, points (sized), lines
-  (width), and images (`DrawImage` dest-rect + UVs + alpha) to Vulkan draws
-  (canvas->NDC via the same ortho the GL path uses), without touching the OpenGL
-  command execution. Verified by `WhatsCanvasVulkanCommandTests` (real Path,
-  Points, Lines, and Image commands), ASan-clean. Text, gradients/vertex-color,
-  clip, and `renderCommandsToImageResource` wrapping are follow-ups.
+  `Command` stream and translates path fills/strokes, vertex-color (baked
+  gradient) paths, points (sized), lines (width), and images (`DrawImage`
+  dest-rect + UVs + alpha) to Vulkan draws (canvas->NDC via the same ortho the GL
+  path uses), without touching the OpenGL command execution.
+  `renderCommandsToImageResource` renders a command stream into an offscreen
+  target and returns it as an owned sampled texture. Verified by
+  `WhatsCanvasVulkanCommandTests` (real Path, vertex-color Path, Points, Lines,
+  Image, and renderCommandsToImageResource), ASan-clean. Fragment shader
+  gradients, clip, and text translation are follow-ups.
 - **Analytic-AA feathering / multi-stop fragment gradients**: the mechanisms are
   in place (coverage mask, vertex-color gradients); true AA feathering and
   texel-buffer multi-stop gradients are refinements.
