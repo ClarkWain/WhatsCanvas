@@ -124,6 +124,7 @@ chmod +x build.sh
 - macOS / Linux：`out/package/Debug/` 或 `out/package/Release/`
 
 其中库文件在 `lib/`，公共头入口在 `include/wsc/`。
+为了让二进制包默认不依赖宿主机额外安装 FreeType，`--package` 默认关闭外部 FreeType 链接并使用内置 `stb_truetype` fallback；源码构建仍默认尝试启用 FreeType。确实需要发布带 FreeType 依赖的包时，可设置 `WHATSCANVAS_PACKAGE_ENABLE_FREETYPE=1` 后再运行 package 构建。
 
 ## 作为库接入
 
