@@ -330,10 +330,10 @@ struct VulkanRenderDevice::VulkanContext
 
         VkVertexInputBindingDescription binding{};
         binding.binding = 0;
-        binding.stride = 6 * sizeof(float);
+        binding.stride = 7 * sizeof(float);
         binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-        std::array<VkVertexInputAttributeDescription, 2> attrs{};
+        std::array<VkVertexInputAttributeDescription, 3> attrs{};
         attrs[0].location = 0;
         attrs[0].binding = 0;
         attrs[0].format = VK_FORMAT_R32G32_SFLOAT;
@@ -342,6 +342,10 @@ struct VulkanRenderDevice::VulkanContext
         attrs[1].binding = 0;
         attrs[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
         attrs[1].offset = 2 * sizeof(float);
+        attrs[2].location = 2;
+        attrs[2].binding = 0;
+        attrs[2].format = VK_FORMAT_R32_SFLOAT;
+        attrs[2].offset = 6 * sizeof(float);
 
         VkPipelineVertexInputStateCreateInfo vertexInput{};
         vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -1462,12 +1466,13 @@ bool recordSolidBatches(VulkanRenderDevice::VulkanContext *ctx, VulkanRenderTarg
     return true;
 }
 
-// Interleave positions + a single solid color into a batch vertex array.
+// Interleave positions + a single solid color into a batch vertex array
+// (x, y, r, g, b, a, coverage=1).
 std::vector<float> buildSolidVertices(const std::vector<float> &ndcPositions, float r, float g, float b, float a)
 {
     const std::size_t vertexCount = ndcPositions.size() / 2;
     std::vector<float> out;
-    out.reserve(vertexCount * 6);
+    out.reserve(vertexCount * 7);
     for (std::size_t i = 0; i < vertexCount; ++i) {
         out.push_back(ndcPositions[i * 2 + 0]);
         out.push_back(ndcPositions[i * 2 + 1]);
@@ -1475,6 +1480,7 @@ std::vector<float> buildSolidVertices(const std::vector<float> &ndcPositions, fl
         out.push_back(g);
         out.push_back(b);
         out.push_back(a);
+        out.push_back(1.0f);
     }
     return out;
 }
@@ -1978,7 +1984,7 @@ bool VulkanRenderDevice::renderGradientTriangles(const std::unique_ptr<IRenderTa
     SolidBatch batch;
     batch.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     batch.blendMode = 0; // SrcOver
-    batch.vertices.reserve(vertexCount * 6);
+    batch.vertices.reserve(vertexCount * 7);
     for (std::size_t i = 0; i < vertexCount; ++i) {
         batch.vertices.push_back(ndcPositions[i * 2 + 0]);
         batch.vertices.push_back(ndcPositions[i * 2 + 1]);
@@ -1986,6 +1992,7 @@ bool VulkanRenderDevice::renderGradientTriangles(const std::unique_ptr<IRenderTa
         batch.vertices.push_back(rgbaPerVertex[i * 4 + 1]);
         batch.vertices.push_back(rgbaPerVertex[i * 4 + 2]);
         batch.vertices.push_back(rgbaPerVertex[i * 4 + 3]);
+        batch.vertices.push_back(1.0f);
     }
     batch.vertexCount = static_cast<std::uint32_t>(vertexCount);
     return recordSolidBatches(context_.get(), rt, {batch});
@@ -2904,15 +2911,25 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
             }
             draw.pipeline = context_->ensureSolidPipeline(rt->renderPass(), VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
                                                           prim.blendMode);
-            if (prim.colors.size() == vertexCount * 4) {
-                vertices.reserve(vertexCount * 6);
+            const bool perVertexColor = prim.colors.size() == vertexCount * 4;
+            const bool perVertexCoverage = prim.coverage.size() == vertexCount;
+            if (perVertexColor || perVertexCoverage) {
+                vertices.reserve(vertexCount * 7);
                 for (std::size_t v = 0; v < vertexCount; ++v) {
                     vertices.push_back(prim.positions[v * 2 + 0]);
                     vertices.push_back(prim.positions[v * 2 + 1]);
-                    vertices.push_back(prim.colors[v * 4 + 0]);
-                    vertices.push_back(prim.colors[v * 4 + 1]);
-                    vertices.push_back(prim.colors[v * 4 + 2]);
-                    vertices.push_back(prim.colors[v * 4 + 3]);
+                    if (perVertexColor) {
+                        vertices.push_back(prim.colors[v * 4 + 0]);
+                        vertices.push_back(prim.colors[v * 4 + 1]);
+                        vertices.push_back(prim.colors[v * 4 + 2]);
+                        vertices.push_back(prim.colors[v * 4 + 3]);
+                    } else {
+                        vertices.push_back(prim.color[0]);
+                        vertices.push_back(prim.color[1]);
+                        vertices.push_back(prim.color[2]);
+                        vertices.push_back(prim.color[3]);
+                    }
+                    vertices.push_back(perVertexCoverage ? prim.coverage[v] : 1.0f);
                 }
             } else {
                 vertices = buildSolidVertices(prim.positions, prim.color[0], prim.color[1], prim.color[2],
@@ -3280,6 +3297,9 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
                 prim.kind = wsc::DrawPrimitiveKind::SolidTriangles;
                 if (d.hasVertexColors()) {
                     prim.colors = d.colors;
+                }
+                if (d.hasCoverage()) {
+                    prim.coverage = d.coverage; // analytic-AA edge feathering
                 }
                 prim.color[0] = d.color[0];
                 prim.color[1] = d.color[1];

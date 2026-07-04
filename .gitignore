@@ -21,3 +21,5 @@ task.md
 build-wsl-freetype/
 build-vendored-text/
 build-validation-win/
+build_stub/
+build_asan/
