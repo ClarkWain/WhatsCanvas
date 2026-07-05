@@ -3411,8 +3411,61 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
                 prim.uvs.push_back(vv[k]);
             }
             list.push_back(std::move(prim));
+        } else if (cmd->type() == Command::Type::Text) {
+            // Text is rendered as vector triangle geometry (no glyph atlas): the
+            // glyph outlines are tessellated into local-space triangles that are
+            // filled with a solid color or the same shader gradient as paths. The
+            // GL shader evaluates the gradient in raw (pre-transform) local space
+            // (vLocalPos = aPos), so we mirror that exactly.
+            const auto *textCmd = static_cast<const DrawTextCommand *>(cmd.get());
+            const DrawTextData &d = textCmd->data();
+            if (d.clipMask.hasPaths()) {
+                continue;
+            }
+            const std::size_t vertexCount = d.getVertexCount();
+            if (vertexCount < 3 || (vertexCount % 3) != 0) {
+                continue;
+            }
+            wsc::DrawPrimitive prim;
+            prim.blendMode = mapBlend(d.blendMode);
+            prim.positions.reserve(vertexCount * 2);
+            for (std::size_t i = 0; i < vertexCount; ++i) {
+                float nx = 0.0f, ny = 0.0f;
+                toNdc(d.transform, d.vertices[i * 2 + 0], d.vertices[i * 2 + 1], nx, ny);
+                prim.positions.push_back(nx);
+                prim.positions.push_back(ny);
+            }
+            if (d.hasShaderGradient()) {
+                prim.kind = wsc::DrawPrimitiveKind::GradientFill;
+                // Gradient is evaluated in raw local glyph space (vLocalPos = aPos).
+                prim.localPositions.assign(d.vertices.begin(),
+                                           d.vertices.begin() + static_cast<std::ptrdiff_t>(vertexCount * 2));
+                prim.gradientType = static_cast<int>(d.gradientType);
+                prim.gradientTileMode = static_cast<int>(d.gradientTileMode);
+                prim.linearStart[0] = d.gradientStart[0];
+                prim.linearStart[1] = d.gradientStart[1];
+                prim.linearEnd[0] = d.gradientEnd[0];
+                prim.linearEnd[1] = d.gradientEnd[1];
+                prim.radialCenter[0] = d.radialCenter[0];
+                prim.radialCenter[1] = d.radialCenter[1];
+                prim.radialRadius = d.radialRadius;
+                prim.gradientStopCount = d.gradientStopCount;
+                for (int i = 0; i < d.gradientStopCount && i < 8; ++i) {
+                    prim.gradientStopPositions[i] = d.gradientStopPositions[i];
+                    for (int c = 0; c < 4; ++c) {
+                        prim.gradientStopColors[i * 4 + c] = d.gradientStopColors[i * 4 + c];
+                    }
+                }
+            } else {
+                prim.kind = wsc::DrawPrimitiveKind::SolidTriangles;
+                prim.color[0] = d.color[0];
+                prim.color[1] = d.color[1];
+                prim.color[2] = d.color[2];
+                prim.color[3] = d.color[3];
+            }
+            list.push_back(std::move(prim));
         }
-        // Other command kinds (text, gradients, clip) are ADR-006 follow-ups.
+        // Other command kinds (gradients, clip) are ADR-006 follow-ups.
     }
 
     if (list.empty()) {
