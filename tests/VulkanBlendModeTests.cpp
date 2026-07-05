@@ -14,6 +14,7 @@
 #include "command/DrawData.h"
 #include "render/IRenderTarget.h"
 #include "render/IRenderer.h"
+#include "render/RenderTypes.h"
 #include "render/vulkan/VulkanRenderDevice.h"
 
 namespace {
@@ -189,6 +190,73 @@ int main()
             return 1;
         }
         gray.reset();
+    }
+
+    // --- Gradient draws honor blend modes (gradient pipeline is blend-aware). ---
+    {
+        auto target = device.createRenderTarget(width, height);
+        std::vector<std::unique_ptr<Command>> cmds;
+        cmds.push_back(std::make_unique<DrawPathCommand>(
+            solidQuad(width, height, 1.0f, 0.0f, 0.0f, 1.0f, DrawBlendMode::SrcOver)));
+        DrawPathData g;
+        g.points = fullQuad(width, height);
+        g.drawMode = PathDrawMode::Fill;
+        g.blendMode = DrawBlendMode::Multiply;
+        g.gradientType = DrawGradientType::Linear;
+        g.gradientTileMode = DrawGradientTileMode::Clamp;
+        g.gradientStart[0] = 0.0f;
+        g.gradientEnd[0] = static_cast<float>(width);
+        g.gradientStopCount = 2;
+        g.gradientStopPositions[0] = 0.0f;
+        g.gradientStopPositions[1] = 1.0f;
+        for (int s = 0; s < 2; ++s) { // uniform gray gradient
+            g.gradientStopColors[s * 4 + 0] = 0.5f;
+            g.gradientStopColors[s * 4 + 1] = 0.5f;
+            g.gradientStopColors[s * 4 + 2] = 0.5f;
+            g.gradientStopColors[s * 4 + 3] = 1.0f;
+        }
+        cmds.push_back(std::make_unique<DrawPathCommand>(g));
+        if (!device.executeCommands(target, cmds, request)) {
+            return 1;
+        }
+        std::vector<unsigned char> px;
+        if (!device.readPixelsRGBA(width, height, px)) {
+            return 1;
+        }
+        // gray gradient * red bg -> (128,0,0).
+        if (!near4(px, width, width / 2, height / 2, 128, 0, 0, 255, 8, "gradient Multiply")) return 1;
+        cmds.clear();
+        target.reset();
+    }
+
+    // --- Clipped draws honor blend modes (clip pipeline is blend-aware). ---
+    {
+        auto target = device.createRenderTarget(width, height);
+        ClipMaskPath maskPath;
+        maskPath.points = fullQuad(width, height);
+        maskPath.coverage.assign(maskPath.points.size() / 2, 1.0f);
+        SharedClipMaskResource clipRes = device.createClipMaskResource(maskPath);
+        if (!clipRes || !clipRes->isValid()) {
+            return 1;
+        }
+        std::vector<std::unique_ptr<Command>> cmds;
+        cmds.push_back(std::make_unique<DrawPathCommand>(
+            solidQuad(width, height, 1.0f, 0.0f, 0.0f, 1.0f, DrawBlendMode::SrcOver)));
+        DrawPathData c = solidQuad(width, height, 0.5f, 0.5f, 0.5f, 1.0f, DrawBlendMode::Multiply);
+        c.clipMask.resources.push_back(clipRes);
+        cmds.push_back(std::make_unique<DrawPathCommand>(c));
+        if (!device.executeCommands(target, cmds, request)) {
+            return 1;
+        }
+        std::vector<unsigned char> px;
+        if (!device.readPixelsRGBA(width, height, px)) {
+            return 1;
+        }
+        // gray fill * red bg, clipped to full canvas -> (128,0,0).
+        if (!near4(px, width, width / 2, height / 2, 128, 0, 0, 255, 8, "clipped Multiply")) return 1;
+        cmds.clear();
+        clipRes.reset();
+        target.reset();
     }
 
     std::cout << "[VulkanBlendModeTests] PASS: 9 Porter-Duff blend modes + textured blend on \""
