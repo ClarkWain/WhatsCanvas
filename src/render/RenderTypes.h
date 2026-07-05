@@ -10,7 +10,7 @@ class RenderContext;
 struct ScissorState;
 
 struct ImageResourceHandle {
-    std::uint32_t value = 0;
+    std::uint64_t value = 0;
 
     bool isValid() const { return value != 0; }
 };

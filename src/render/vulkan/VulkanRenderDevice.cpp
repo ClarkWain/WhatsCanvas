@@ -1028,7 +1028,8 @@ class VulkanTextureResource final : public ImageResource
 {
 public:
     VulkanTextureResource(VulkanRenderDevice::VulkanContext *context, VkImage image, VkDeviceMemory memory,
-                          VkImageView view, VkSampler sampler, int width, int height, int mipLevels = 1)
+                          VkImageView view, VkSampler sampler, int width, int height, int mipLevels = 1,
+                          bool ownsImage = true)
         : context_(context),
           image_(image),
           memory_(memory),
@@ -1036,7 +1037,8 @@ public:
           sampler_(sampler),
           width_(width),
           height_(height),
-          mipLevels_(mipLevels)
+          mipLevels_(mipLevels),
+          ownsImage_(ownsImage)
     {
         if (context_) {
             ++context_->imageTextureCount;
@@ -1051,8 +1053,11 @@ public:
         vkDeviceWaitIdle(context_->device);
         if (sampler_ != VK_NULL_HANDLE) vkDestroySampler(context_->device, sampler_, nullptr);
         if (view_ != VK_NULL_HANDLE) vkDestroyImageView(context_->device, view_, nullptr);
-        if (image_ != VK_NULL_HANDLE) vkDestroyImage(context_->device, image_, nullptr);
-        if (memory_ != VK_NULL_HANDLE) vkFreeMemory(context_->device, memory_, nullptr);
+        // A wrapped external image is not owned: leave its image/memory intact.
+        if (ownsImage_) {
+            if (image_ != VK_NULL_HANDLE) vkDestroyImage(context_->device, image_, nullptr);
+            if (memory_ != VK_NULL_HANDLE) vkFreeMemory(context_->device, memory_, nullptr);
+        }
         if (context_->imageTextureCount > 0) {
             --context_->imageTextureCount;
         }
@@ -1107,6 +1112,7 @@ public:
     VkImageView view() const { return view_; }
     VkSampler sampler() const { return sampler_; }
     int mipLevels() const { return mipLevels_; }
+    VkImage image() const { return image_; }
 
 private:
     VulkanRenderDevice::VulkanContext *context_ = nullptr;
@@ -1117,6 +1123,7 @@ private:
     int width_ = 0;
     int height_ = 0;
     int mipLevels_ = 1;
+    bool ownsImage_ = true;
 };
 
 // Create an owning sampled RGBA8 texture from tightly-packed pixels.
@@ -2672,10 +2679,67 @@ bool VulkanRenderDevice::renderTexturedQuad(const std::unique_ptr<IRenderTarget>
 #endif
 }
 
-SharedImageResource VulkanRenderDevice::wrapExternalImageResource(ImageResourceHandle /*handle*/) const
+SharedImageResource VulkanRenderDevice::wrapExternalImageResource(ImageResourceHandle handle) const
 {
-    // TODO(vulkan, M8): implement external image wrapping.
+#if defined(WHATSCANVAS_ENABLE_VULKAN)
+    if (!context_ || !context_->deviceReady || !handle.isValid()) {
+        return nullptr;
+    }
+    // The handle carries a foreign VkImage (assumed RGBA8, single mip level, and
+    // already in SHADER_READ_ONLY layout). We create a non-owning wrapper that
+    // owns only its view + sampler and never destroys the borrowed image.
+    VkImage image = reinterpret_cast<VkImage>(static_cast<std::uintptr_t>(handle.value));
+    VkDevice device = context_->device;
+
+    VkImageView view = VK_NULL_HANDLE;
+    VkImageViewCreateInfo viewInfo{};
+    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewInfo.image = image;
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.format = kRenderTargetFormat;
+    viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    viewInfo.subresourceRange.levelCount = 1;
+    viewInfo.subresourceRange.layerCount = 1;
+    if (vkCreateImageView(device, &viewInfo, nullptr, &view) != VK_SUCCESS) {
+        return nullptr;
+    }
+
+    VkSampler sampler = VK_NULL_HANDLE;
+    VkSamplerCreateInfo samplerInfo{};
+    samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    samplerInfo.magFilter = VK_FILTER_LINEAR;
+    samplerInfo.minFilter = VK_FILTER_LINEAR;
+    samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.maxLod = 0.0f;
+    if (vkCreateSampler(device, &samplerInfo, nullptr, &sampler) != VK_SUCCESS) {
+        vkDestroyImageView(device, view, nullptr);
+        return nullptr;
+    }
+
+    return std::make_shared<VulkanTextureResource>(context_.get(), image, VK_NULL_HANDLE, view, sampler,
+                                                   /*width=*/0, /*height=*/0, /*mipLevels=*/1,
+                                                   /*ownsImage=*/false);
+#else
+    (void)handle;
     return nullptr;
+#endif
+}
+
+ImageResourceHandle VulkanRenderDevice::nativeImageHandle(const SharedImageResource &resource) const
+{
+#if defined(WHATSCANVAS_ENABLE_VULKAN)
+    auto *tex = dynamic_cast<VulkanTextureResource *>(resource.get());
+    if (tex == nullptr || !tex->isValid()) {
+        return ImageResourceHandle{};
+    }
+    return ImageResourceHandle{static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(tex->image()))};
+#else
+    (void)resource;
+    return ImageResourceHandle{};
+#endif
 }
 
 bool VulkanRenderDevice::compositeLayer(const std::unique_ptr<IRenderTarget> &dstTarget,
