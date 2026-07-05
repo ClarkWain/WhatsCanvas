@@ -92,6 +92,10 @@ documented gap; 2 remain.
 - **Analytic-AA feathering / multi-stop fragment gradients**: the mechanisms are
   in place (coverage mask, vertex-color gradients); true AA feathering and
   texel-buffer multi-stop gradients are refinements.
+- **Mipmapped image sampling**: ``createImageResourceFromImageData`` generates a
+  full mip chain (blit) when requested, and ``DrawImageSampling::MipmapLinear``
+  selects a trilinear sampler, matching the OpenGL mipmap path
+  (``WhatsCanvasVulkanMipmapTests``).
 
 ## Next steps
 
