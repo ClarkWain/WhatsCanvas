@@ -80,8 +80,15 @@ documented gap; 2 remain.
   white silhouette is rendered offscreen, separable-Gaussian-blurred (CPU,
   identical kernel math to the GL passes), and composited as a tinted textured
   quad in stream order (``WhatsCanvasVulkanShadowTests``; both path silhouettes
-  -- shapes + vector text -- and bitmap/glyph-atlas image silhouettes). Clip
-  translation is a follow-up.
+  -- shapes + vector text -- and bitmap/glyph-atlas image silhouettes).
+  **Clipped fills** translate: the clip paths are rasterized (with their
+  analytic-AA coverage) into a coverage mask (nested clips intersect). Solid path
+  fills, vector text, points and lines are drawn through the M7 clip pipeline
+  (sampling the mask at each fragment's screen position). Clipped **gradient**
+  and **image** fills are rendered in isolation and clipped on the CPU (alpha
+  multiplied by the coverage) then composited -- mirroring the GL clip-mask
+  fragment path (``WhatsCanvasVulkanClipCommandTests`` covers fills, text,
+  points, gradient, and image).
 - **Analytic-AA feathering / multi-stop fragment gradients**: the mechanisms are
   in place (coverage mask, vertex-color gradients); true AA feathering and
   texel-buffer multi-stop gradients are refinements.
