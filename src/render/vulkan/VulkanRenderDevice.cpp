@@ -118,6 +118,7 @@ struct VulkanRenderDevice::VulkanContext
     {
         VkFilter filter;
         VkSamplerAddressMode addressMode;
+        bool mipmap;
         VkSampler sampler;
     };
     std::vector<CachedSampler> samplerCache;
@@ -590,10 +591,10 @@ struct VulkanRenderDevice::VulkanContext
     }
 
     // Return a cached sampler for the given filter and address mode.
-    VkSampler getSampler(VkFilter filter, VkSamplerAddressMode addressMode)
+    VkSampler getSampler(VkFilter filter, VkSamplerAddressMode addressMode, bool mipmap = false)
     {
         for (const CachedSampler &entry : samplerCache) {
-            if (entry.filter == filter && entry.addressMode == addressMode) {
+            if (entry.filter == filter && entry.addressMode == addressMode && entry.mipmap == mipmap) {
                 return entry.sampler;
             }
         }
@@ -601,17 +602,17 @@ struct VulkanRenderDevice::VulkanContext
         info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
         info.magFilter = filter;
         info.minFilter = filter;
-        info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+        info.mipmapMode = mipmap ? VK_SAMPLER_MIPMAP_MODE_LINEAR : VK_SAMPLER_MIPMAP_MODE_NEAREST;
         info.addressModeU = addressMode;
         info.addressModeV = addressMode;
         info.addressModeW = addressMode;
         info.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK; // decal
-        info.maxLod = 0.0f;
+        info.maxLod = mipmap ? VK_LOD_CLAMP_NONE : 0.0f;
         VkSampler sampler = VK_NULL_HANDLE;
         if (vkCreateSampler(device, &info, nullptr, &sampler) != VK_SUCCESS) {
             return VK_NULL_HANDLE;
         }
-        samplerCache.push_back({filter, addressMode, sampler});
+        samplerCache.push_back({filter, addressMode, mipmap, sampler});
         return sampler;
     }
 
@@ -1027,14 +1028,15 @@ class VulkanTextureResource final : public ImageResource
 {
 public:
     VulkanTextureResource(VulkanRenderDevice::VulkanContext *context, VkImage image, VkDeviceMemory memory,
-                          VkImageView view, VkSampler sampler, int width, int height)
+                          VkImageView view, VkSampler sampler, int width, int height, int mipLevels = 1)
         : context_(context),
           image_(image),
           memory_(memory),
           view_(view),
           sampler_(sampler),
           width_(width),
-          height_(height)
+          height_(height),
+          mipLevels_(mipLevels)
     {
         if (context_) {
             ++context_->imageTextureCount;
@@ -1104,6 +1106,7 @@ public:
 
     VkImageView view() const { return view_; }
     VkSampler sampler() const { return sampler_; }
+    int mipLevels() const { return mipLevels_; }
 
 private:
     VulkanRenderDevice::VulkanContext *context_ = nullptr;
@@ -1113,12 +1116,13 @@ private:
     VkSampler sampler_ = VK_NULL_HANDLE;
     int width_ = 0;
     int height_ = 0;
+    int mipLevels_ = 1;
 };
 
 // Create an owning sampled RGBA8 texture from tightly-packed pixels.
 std::shared_ptr<VulkanTextureResource> createSampledTexture(VulkanRenderDevice::VulkanContext *ctx, int width,
-                                                            int height, const unsigned char *pixels, bool nearest)
-{
+                                                            int height, const unsigned char *pixels, bool nearest,
+                                                            bool generateMips = false){
     if (ctx == nullptr || ctx->device == VK_NULL_HANDLE || width <= 0 || height <= 0 || pixels == nullptr) {
         return nullptr;
     }
@@ -1140,11 +1144,16 @@ std::shared_ptr<VulkanTextureResource> createSampledTexture(VulkanRenderDevice::
     imageInfo.imageType = VK_IMAGE_TYPE_2D;
     imageInfo.format = kRenderTargetFormat;
     imageInfo.extent = {static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height), 1};
-    imageInfo.mipLevels = 1;
+    const std::uint32_t mipLevels =
+        generateMips
+            ? (static_cast<std::uint32_t>(std::floor(std::log2(static_cast<double>(std::max(width, height))))) + 1u)
+            : 1u;
+    imageInfo.mipLevels = mipLevels;
     imageInfo.arrayLayers = 1;
     imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
     imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-    imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
+                      | (generateMips ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0u);
     imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     if (vkCreateImage(device, &imageInfo, nullptr, &image) != VK_SUCCESS) {
@@ -1189,11 +1198,83 @@ std::shared_ptr<VulkanTextureResource> createSampledTexture(VulkanRenderDevice::
     VkCommandBuffer cmd = ctx->beginSingleTimeCommands();
     bool uploaded = cmd != VK_NULL_HANDLE;
     if (uploaded) {
-        VulkanRenderDevice::VulkanContext::transitionImageLayout(cmd, image, VK_IMAGE_LAYOUT_UNDEFINED,
-                                                                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        // Transition all mip levels UNDEFINED -> TRANSFER_DST, then upload level 0.
+        VkImageMemoryBarrier toDst{};
+        toDst.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        toDst.image = image;
+        toDst.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        toDst.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        toDst.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        toDst.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        toDst.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        toDst.subresourceRange.baseMipLevel = 0;
+        toDst.subresourceRange.levelCount = mipLevels;
+        toDst.subresourceRange.baseArrayLayer = 0;
+        toDst.subresourceRange.layerCount = 1;
+        toDst.srcAccessMask = 0;
+        toDst.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr,
+                             0, nullptr, 1, &toDst);
         ctx->copyBufferToImage(cmd, staging, image, 0, 0, width, height);
-        VulkanRenderDevice::VulkanContext::transitionImageLayout(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                                                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+        auto barrierLevel = [&](std::uint32_t level, VkImageLayout oldL, VkImageLayout newL, VkAccessFlags srcA,
+                                VkAccessFlags dstA, VkPipelineStageFlags srcS, VkPipelineStageFlags dstS) {
+            VkImageMemoryBarrier b{};
+            b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+            b.image = image;
+            b.oldLayout = oldL;
+            b.newLayout = newL;
+            b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            b.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            b.subresourceRange.baseMipLevel = level;
+            b.subresourceRange.levelCount = 1;
+            b.subresourceRange.baseArrayLayer = 0;
+            b.subresourceRange.layerCount = 1;
+            b.srcAccessMask = srcA;
+            b.dstAccessMask = dstA;
+            vkCmdPipelineBarrier(cmd, srcS, dstS, 0, 0, nullptr, 0, nullptr, 1, &b);
+        };
+
+        if (mipLevels > 1) {
+            std::int32_t mipW = width;
+            std::int32_t mipH = height;
+            for (std::uint32_t i = 1; i < mipLevels; ++i) {
+                // Source level i-1: TRANSFER_DST -> TRANSFER_SRC, then blit to level i.
+                barrierLevel(i - 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                             VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+                const std::int32_t nw = mipW > 1 ? mipW / 2 : 1;
+                const std::int32_t nh = mipH > 1 ? mipH / 2 : 1;
+                VkImageBlit blit{};
+                blit.srcOffsets[1] = {mipW, mipH, 1};
+                blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                blit.srcSubresource.mipLevel = i - 1;
+                blit.srcSubresource.layerCount = 1;
+                blit.dstOffsets[1] = {nw, nh, 1};
+                blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                blit.dstSubresource.mipLevel = i;
+                blit.dstSubresource.layerCount = 1;
+                vkCmdBlitImage(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, image,
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+                mipW = nw;
+                mipH = nh;
+            }
+            // Levels 0..mipLevels-2 are TRANSFER_SRC; the last is TRANSFER_DST.
+            for (std::uint32_t i = 0; i + 1 < mipLevels; ++i) {
+                barrierLevel(i, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                             VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+            }
+            barrierLevel(mipLevels - 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT,
+                         VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+        } else {
+            barrierLevel(0, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                         VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+        }
         uploaded = ctx->endSingleTimeCommands(cmd);
     }
     vkDestroyBuffer(device, staging, nullptr);
@@ -1209,7 +1290,7 @@ std::shared_ptr<VulkanTextureResource> createSampledTexture(VulkanRenderDevice::
     viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
     viewInfo.format = kRenderTargetFormat;
     viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    viewInfo.subresourceRange.levelCount = 1;
+    viewInfo.subresourceRange.levelCount = mipLevels;
     viewInfo.subresourceRange.layerCount = 1;
     if (vkCreateImageView(device, &viewInfo, nullptr, &view) != VK_SUCCESS) {
         cleanup();
@@ -1220,17 +1301,18 @@ std::shared_ptr<VulkanTextureResource> createSampledTexture(VulkanRenderDevice::
     samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
     samplerInfo.magFilter = nearest ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
     samplerInfo.minFilter = nearest ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
-    samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    samplerInfo.mipmapMode = generateMips ? VK_SAMPLER_MIPMAP_MODE_LINEAR : VK_SAMPLER_MIPMAP_MODE_NEAREST;
     samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    samplerInfo.maxLod = 0.0f;
+    samplerInfo.maxLod = generateMips ? static_cast<float>(mipLevels) : 0.0f;
     if (vkCreateSampler(device, &samplerInfo, nullptr, &sampler) != VK_SUCCESS) {
         cleanup();
         return nullptr;
     }
 
-    return std::make_shared<VulkanTextureResource>(ctx, image, memory, view, sampler, width, height);
+    return std::make_shared<VulkanTextureResource>(ctx, image, memory, view, sampler, width, height,
+                                                   static_cast<int>(mipLevels));
 }
 
 // Clip-mask resource holding the analytic-AA path data. Application into a live
@@ -2384,7 +2466,7 @@ SharedImageResource VulkanRenderDevice::createImageResourceRGBA(int width, int h
 
 SharedImageResource VulkanRenderDevice::createImageResourceFromImageData(int width, int height, int channels,
                                                                          const unsigned char *pixels,
-                                                                         bool /*generateMipmaps*/) const
+                                                                         bool generateMipmaps) const
 {
 #if defined(WHATSCANVAS_ENABLE_VULKAN)
     if (!context_ || !context_->deviceReady || width <= 0 || height <= 0 || pixels == nullptr || channels < 1
@@ -2420,7 +2502,8 @@ SharedImageResource VulkanRenderDevice::createImageResourceFromImageData(int wid
             break;
         }
     }
-    return createSampledTexture(context_.get(), width, height, rgba.data(), /*nearest=*/false);
+    return createSampledTexture(context_.get(), width, height, rgba.data(), /*nearest=*/false,
+                                /*generateMips=*/generateMipmaps);
 #else
     (void)width;
     (void)height;
@@ -3017,7 +3100,8 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
                     addressMode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
                     break;
                 }
-                sampler = context_->getSampler(filter, addressMode);
+                sampler = context_->getSampler(filter, addressMode,
+                                               /*mipmap=*/prim.sampling == 2 && tex->mipLevels() > 1);
             }
             if (sampler == VK_NULL_HANDLE) {
                 ok = false;
