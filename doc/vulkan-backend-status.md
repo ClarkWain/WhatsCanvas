@@ -26,17 +26,20 @@ is covered by a real-hardware test under the CTest `vulkan` label (8 tests,
 
 ## `IRenderDevice` parity
 
-8 of 11 methods are implemented on Vulkan; 1 is a native mechanism with a
-documented gap; 2 remain.
+All 11 methods are implemented on Vulkan.
 
 - Implemented: `initializeBackend`, `finalizeBackend`, `createRenderTarget`,
   `readPixelsRGBA`, `createImageResourceRGBA`, `createImageResourceFromImageData`,
-  `updateImageResourceRGBA`, `createClipMaskResource`, `resourceStats`.
-- Partial / native mechanism: `renderCommandsToImageResource` — Vulkan-native
-  saveLayer via `compositeLayer`, but generic GL-`Command` replay is blocked (see
-  below).
-- Pending: `wrapExternalImageResource` — the `ImageResourceHandle` is 32-bit and
-  cannot carry a 64-bit `VkImage`; needs an interface change (M8).
+  `updateImageResourceRGBA`, `createClipMaskResource`, `resourceStats`,
+  `renderCommandsToImageResource`, `wrapExternalImageResource`.
+- `renderCommandsToImageResource` renders a `Command` stream into an offscreen
+  target and returns it as an owned sampled texture (via the backend-neutral
+  command translation).
+- `wrapExternalImageResource` wraps a foreign `VkImage` (carried by the now
+  64-bit `ImageResourceHandle`) in a non-owning texture resource (owns only its
+  view + sampler); the borrowed image is assumed RGBA8 in `SHADER_READ_ONLY`.
+  `VulkanRenderDevice::nativeImageHandle` returns an owned texture's `VkImage`
+  as a handle for round-tripping (``WhatsCanvasVulkanExternalImageTests``).
 
 ## Known gaps and why
 
