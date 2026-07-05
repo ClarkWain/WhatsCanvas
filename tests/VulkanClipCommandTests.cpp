@@ -229,6 +229,66 @@ int main()
         iTarget.reset();
     }
 
+    // --- Clipped image with a non-SrcOver blend mode (gray image, Multiply). ---
+    // Regression: the isolated layer render must stay SrcOver; only the composite
+    // uses the draw's blend mode.
+    {
+        auto iTarget = device.createRenderTarget(width, height);
+        std::vector<unsigned char> grayTex(2 * 2 * 4);
+        for (int i = 0; i < 4; ++i) {
+            grayTex[i * 4 + 0] = 128;
+            grayTex[i * 4 + 1] = 128;
+            grayTex[i * 4 + 2] = 128;
+            grayTex[i * 4 + 3] = 255;
+        }
+        SharedImageResource gimg = device.createImageResourceRGBA(2, 2, grayTex);
+        if (!gimg || !gimg->isValid()) {
+            return 1;
+        }
+        std::vector<std::unique_ptr<Command>> mCmds;
+        // Red background, then a gray image clipped-left with Multiply.
+        DrawPathData bg;
+        bg.points = {0.0f, 0.0f, fw, 0.0f, fw, fh, 0.0f, 0.0f, fw, fh, 0.0f, fh};
+        bg.color[0] = 1.0f;
+        bg.color[3] = 1.0f;
+        bg.drawMode = PathDrawMode::Fill;
+        mCmds.push_back(std::make_unique<DrawPathCommand>(bg));
+        DrawImageData mim;
+        mim.imageResource = gimg;
+        mim.x = 0.0f;
+        mim.y = 0.0f;
+        mim.width = fw;
+        mim.height = fh;
+        mim.u0 = 0.0f;
+        mim.v0 = 0.0f;
+        mim.u1 = 1.0f;
+        mim.v1 = 1.0f;
+        mim.alpha = 1.0f;
+        mim.blendMode = DrawBlendMode::Multiply;
+        mim.clipMask.resources.push_back(clipRes);
+        mCmds.push_back(std::make_unique<DrawImageCommand>(mim));
+        if (!device.executeCommands(iTarget, mCmds, request)) {
+            return 1;
+        }
+        std::vector<unsigned char> mpx;
+        if (!device.readPixelsRGBA(width, height, mpx)) return 1;
+        // Left (inside clip): the isolated image is captured straight (SrcOver) then
+        // composited with Multiply -> gray*red = (128,0,0) with full coverage. Before
+        // the isolation fix this was black. Outside the clip, coverage is removed
+        // (alpha ~0), matching GL's alpha-only clip masking.
+        if (!near4(mpx, width, width / 4, height / 2, 128, 0, 0, 255, 8, "clipped image Multiply left")) return 1;
+        const std::size_t rIdx = (static_cast<std::size_t>(height / 2) * width + (width * 3) / 4) * 4u;
+        if (mpx[rIdx + 3] > 10) {
+            std::cerr << "[VulkanClipCommandTests] FAIL: clipped image Multiply right alpha = "
+                      << (int)mpx[rIdx + 3] << ", expected ~0 (clipped out)." << std::endl;
+            return 1;
+        }
+        mCmds.clear();
+        mim.imageResource.reset();
+        gimg.reset();
+        iTarget.reset();
+    }
+
     std::cout << "[VulkanClipCommandTests] PASS: clipped solid fill on \"" << device.selectedDeviceName()
               << "\"." << std::endl;
 
