@@ -411,6 +411,27 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
         )
         set_tests_properties(WhatsCanvasVulkanBlendModeTests PROPERTIES LABELS "vulkan" TIMEOUT 60)
+
+        # Serialize all Vulkan GPU tests via a shared resource lock. Each test
+        # creates its own VkInstance/VkDevice; running them concurrently can race
+        # on driver/device creation on some drivers and cause spurious failures.
+        set_tests_properties(
+            WhatsCanvasVulkanDeviceTests
+            WhatsCanvasVulkanRenderTargetTests
+            WhatsCanvasVulkanSolidGeometryTests
+            WhatsCanvasVulkanPaintTests
+            WhatsCanvasVulkanTextureTests
+            WhatsCanvasVulkanLayerTests
+            WhatsCanvasVulkanClipTests
+            WhatsCanvasVulkanDrawListTests
+            WhatsCanvasVulkanCommandTests
+            WhatsCanvasVulkanImageColorTests
+            WhatsCanvasVulkanGradientTests
+            WhatsCanvasVulkanAATests
+            WhatsCanvasVulkanTextTests
+            WhatsCanvasVulkanBlendModeTests
+            PROPERTIES RESOURCE_LOCK "vulkan_gpu"
+        )
     endif()
 
     add_executable(WhatsCanvasTextLayoutTests
