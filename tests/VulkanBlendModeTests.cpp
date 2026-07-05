@@ -120,8 +120,79 @@ int main()
         target.reset();
     }
 
-    std::cout << "[VulkanBlendModeTests] PASS: 9 Porter-Duff blend modes on \"" << device.selectedDeviceName()
-              << "\"." << std::endl;
+    // --- Textured draws must honor blend modes too (not just solid fills). ---
+    {
+        std::vector<unsigned char> grayTex(2 * 2 * 4);
+        for (int i = 0; i < 4; ++i) {
+            grayTex[i * 4 + 0] = 128;
+            grayTex[i * 4 + 1] = 128;
+            grayTex[i * 4 + 2] = 128;
+            grayTex[i * 4 + 3] = 255;
+        }
+        SharedImageResource gray = device.createImageResourceRGBA(2, 2, grayTex);
+        if (!gray || !gray->isValid()) {
+            std::cerr << "[VulkanBlendModeTests] FAIL: could not create gray texture." << std::endl;
+            return 1;
+        }
+        auto drawGrayImage = [&](DrawBlendMode mode, int &r, int &g, int &b) -> bool {
+            auto target = device.createRenderTarget(width, height);
+            if (!target || !target->isValid()) {
+                return false;
+            }
+            std::vector<std::unique_ptr<Command>> cmds;
+            cmds.push_back(std::make_unique<DrawPathCommand>(
+                solidQuad(width, height, 1.0f, 0.0f, 0.0f, 1.0f, DrawBlendMode::SrcOver)));
+            DrawImageData im;
+            im.imageResource = gray;
+            im.x = 0.0f;
+            im.y = 0.0f;
+            im.width = static_cast<float>(width);
+            im.height = static_cast<float>(height);
+            im.u0 = 0.0f;
+            im.v0 = 0.0f;
+            im.u1 = 1.0f;
+            im.v1 = 1.0f;
+            im.alpha = 1.0f;
+            im.blendMode = mode;
+            cmds.push_back(std::make_unique<DrawImageCommand>(im));
+            if (!device.executeCommands(target, cmds, request)) {
+                return false;
+            }
+            std::vector<unsigned char> px;
+            if (!device.readPixelsRGBA(width, height, px)) {
+                return false;
+            }
+            const std::size_t c = (static_cast<std::size_t>(height / 2) * width + width / 2) * 4u;
+            r = px[c + 0];
+            g = px[c + 1];
+            b = px[c + 2];
+            cmds.clear();
+            im.imageResource.reset();
+            target.reset();
+            return true;
+        };
+        int sr = 0, sg = 0, sb = 0, mr = 0, mg = 0, mb = 0;
+        if (!drawGrayImage(DrawBlendMode::SrcOver, sr, sg, sb)
+            || !drawGrayImage(DrawBlendMode::Multiply, mr, mg, mb)) {
+            std::cerr << "[VulkanBlendModeTests] FAIL: image blend draw/readback failed." << std::endl;
+            return 1;
+        }
+        // SrcOver: gray replaces red -> ~(128,128,128). Multiply: gray*red -> ~(128,0,0).
+        if (std::abs(sr - 128) > 6 || std::abs(sg - 128) > 6 || std::abs(sb - 128) > 6) {
+            std::cerr << "[VulkanBlendModeTests] FAIL: image SrcOver = (" << sr << "," << sg << "," << sb
+                      << "), expected ~(128,128,128)." << std::endl;
+            return 1;
+        }
+        if (std::abs(mr - 128) > 6 || mg > 6 || mb > 6) {
+            std::cerr << "[VulkanBlendModeTests] FAIL: image Multiply = (" << mr << "," << mg << "," << mb
+                      << "), expected ~(128,0,0)." << std::endl;
+            return 1;
+        }
+        gray.reset();
+    }
+
+    std::cout << "[VulkanBlendModeTests] PASS: 9 Porter-Duff blend modes + textured blend on \""
+              << device.selectedDeviceName() << "\"." << std::endl;
     device.finalizeBackend();
     return 0;
 }
