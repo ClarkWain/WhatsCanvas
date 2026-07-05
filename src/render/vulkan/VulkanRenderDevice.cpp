@@ -2933,6 +2933,8 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
         VkBuffer buffer = VK_NULL_HANDLE;
         VkDeviceMemory memory = VK_NULL_HANDLE;
         std::uint32_t vertexCount = 0;
+        bool scissorEnabled = false;
+        VkRect2D scissor{};
         VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
         VkPipelineLayout descriptorLayout = VK_NULL_HANDLE;
         bool pushLayerAlpha = false;
@@ -2984,6 +2986,21 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
 
     for (const wsc::DrawPrimitive &prim : drawList) {
         RecordedDraw draw;
+        if (prim.scissorEnabled) {
+            const int maxW = rt->width();
+            const int maxH = rt->height();
+            const int x0 = std::max(0, prim.scissorX);
+            const int y0 = std::max(0, prim.scissorY);
+            const int x1 = std::min(maxW, prim.scissorX + std::max(0, prim.scissorWidth));
+            const int y1 = std::min(maxH, prim.scissorY + std::max(0, prim.scissorHeight));
+            if (x1 <= x0 || y1 <= y0) {
+                continue;
+            }
+            draw.scissorEnabled = true;
+            draw.scissor.offset = {x0, y0};
+            draw.scissor.extent = {static_cast<std::uint32_t>(x1 - x0),
+                                   static_cast<std::uint32_t>(y1 - y0)};
+        }
         std::vector<float> vertices;
         if (prim.kind == wsc::DrawPrimitiveKind::SolidTriangles) {
             const std::size_t vertexCount = prim.positions.size() / 2;
@@ -3225,12 +3242,14 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
         viewport.height = static_cast<float>(rt->height());
         viewport.maxDepth = 1.0f;
         vkCmdSetViewport(cmd, 0, 1, &viewport);
-        VkRect2D scissor{};
-        scissor.extent = {static_cast<std::uint32_t>(rt->width()), static_cast<std::uint32_t>(rt->height())};
-        vkCmdSetScissor(cmd, 0, 1, &scissor);
+        VkRect2D fullScissor{};
+        fullScissor.extent = {static_cast<std::uint32_t>(rt->width()), static_cast<std::uint32_t>(rt->height())};
+        vkCmdSetScissor(cmd, 0, 1, &fullScissor);
 
         const VkDeviceSize offset = 0;
         for (const RecordedDraw &d : draws) {
+            const VkRect2D activeScissor = d.scissorEnabled ? d.scissor : fullScissor;
+            vkCmdSetScissor(cmd, 0, 1, &activeScissor);
             vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, d.pipeline);
             if (d.descriptorSet != VK_NULL_HANDLE) {
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, d.descriptorLayout, 0, 1,
@@ -3330,6 +3349,19 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
         oy = p.y / h * 2.0f - 1.0f;
     };
 
+    auto applyScissor = [&](wsc::DrawPrimitive &prim, const ScissorState &scissor) {
+        if (!scissor.enabled) {
+            return;
+        }
+        const int resolvedX = scissor.x + request.scissorOffsetX;
+        const int resolvedY = scissor.y + request.scissorOffsetY;
+        prim.scissorEnabled = true;
+        prim.scissorX = resolvedX;
+        prim.scissorY = rt->height() - (resolvedY + scissor.height);
+        prim.scissorWidth = scissor.width;
+        prim.scissorHeight = scissor.height;
+    };
+
     // Emit two triangles (a quad ABCD) into an NDC position list.
     auto emitQuad = [&](std::vector<float> &out, const glm::mat4 &tf, float ax, float ay, float bx, float by,
                         float cx, float cy, float dx, float dy) {
@@ -3361,6 +3393,7 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
             }
             wsc::DrawPrimitive prim;
             prim.blendMode = mapBlend(d.blendMode);
+            applyScissor(prim, d.scissor);
             prim.positions.reserve(vertexCount * 2);
             for (std::size_t i = 0; i < vertexCount; ++i) {
                 float nx = 0.0f, ny = 0.0f;
@@ -3422,6 +3455,7 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
             wsc::DrawPrimitive prim;
             prim.kind = wsc::DrawPrimitiveKind::SolidTriangles;
             prim.blendMode = mapBlend(d.blendMode);
+            applyScissor(prim, d.scissor);
             prim.positions.reserve(count * 12);
             for (std::size_t i = 0; i < count; ++i) {
                 const float cx = d.points[i * 2 + 0];
@@ -3448,6 +3482,7 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
             wsc::DrawPrimitive prim;
             prim.kind = wsc::DrawPrimitiveKind::SolidTriangles;
             prim.blendMode = mapBlend(d.blendMode);
+            applyScissor(prim, d.scissor);
             prim.positions.reserve(lineCount * 12);
             for (std::size_t i = 0; i < lineCount; ++i) {
                 const float x0 = d.points[i * 4 + 0];
@@ -3489,6 +3524,7 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
             const int idx[6] = {0, 1, 2, 0, 2, 3};
             wsc::DrawPrimitive prim;
             prim.kind = wsc::DrawPrimitiveKind::TexturedQuad;
+            applyScissor(prim, d.scissor);
             prim.texture = d.imageResource;
             prim.layerAlpha = d.alpha;
             prim.tint[0] = d.tintColor[0];
@@ -3529,6 +3565,7 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
             }
             wsc::DrawPrimitive prim;
             prim.blendMode = mapBlend(d.blendMode);
+            applyScissor(prim, d.scissor);
             prim.positions.reserve(vertexCount * 2);
             for (std::size_t i = 0; i < vertexCount; ++i) {
                 float nx = 0.0f, ny = 0.0f;

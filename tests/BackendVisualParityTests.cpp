@@ -2,7 +2,7 @@
 // and Vulkan, read both images back, and compare fuzzy pixel metrics.
 // This is intentionally narrower than the full showcase scene so it stays
 // stable across drivers while still covering solid fills, gradients, alpha
-// blending, and text-geometry shader paths.
+// blending, scissor, and text-geometry shader paths.
 
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
@@ -106,6 +106,17 @@ DrawTextData textGeometryQuad(float x0, float y0, float x1, float y1)
     return d;
 }
 
+ScissorState scissorGL(int x, int y, int width, int height)
+{
+    ScissorState s;
+    s.enabled = true;
+    s.x = x;
+    s.y = y;
+    s.width = width;
+    s.height = height;
+    return s;
+}
+
 std::vector<std::unique_ptr<Command>> makeParityCommands()
 {
     std::vector<std::unique_ptr<Command>> commands;
@@ -117,6 +128,10 @@ std::vector<std::unique_ptr<Command>> makeParityCommands()
     commands.push_back(std::make_unique<DrawPathCommand>(
         solidQuad(24.0f, 18.0f, 56.0f, 42.0f, 0.10f, 0.72f, 0.95f, 0.58f)));
     commands.push_back(std::make_unique<DrawPathCommand>(gradientQuad(54.0f, 8.0f, 90.0f, 36.0f)));
+
+    DrawPathData clipped = solidQuad(10.0f, 42.0f, 50.0f, 58.0f, 0.97f, 0.74f, 0.18f, 1.0f);
+    clipped.scissor = scissorGL(18, 10, 22, 10);
+    commands.push_back(std::make_unique<DrawPathCommand>(clipped));
 
     commands.push_back(std::make_unique<DrawTextCommand>(textGeometryQuad(58.0f, 44.0f, 88.0f, 56.0f)));
     return commands;
