@@ -96,7 +96,14 @@ struct VulkanRenderDevice::VulkanContext
     VkShaderModule texFragModule = VK_NULL_HANDLE;
     VkDescriptorSetLayout texDescriptorSetLayout = VK_NULL_HANDLE;
     VkPipelineLayout texPipelineLayout = VK_NULL_HANDLE;
-    VkPipeline texPipeline = VK_NULL_HANDLE;
+    // Textured pipelines cached per blend mode (the layout + descriptor set
+    // layout are shared; only the baked blend state varies).
+    struct CachedBlendPipeline
+    {
+        int blendMode;
+        VkPipeline pipeline;
+    };
+    std::vector<CachedBlendPipeline> texPipelineCache;
 
     // M7 clip pipeline (position + color + mask UV; samples an R-channel mask).
     VkShaderModule clipVertModule = VK_NULL_HANDLE;
@@ -147,10 +154,13 @@ struct VulkanRenderDevice::VulkanContext
                 }
             }
             pipelineCache.clear();
-            if (texPipeline != VK_NULL_HANDLE) {
-                vkDestroyPipeline(device, texPipeline, nullptr);
-                texPipeline = VK_NULL_HANDLE;
+            for (CachedBlendPipeline &entry : texPipelineCache) {
+                if (entry.pipeline != VK_NULL_HANDLE) {
+                    vkDestroyPipeline(device, entry.pipeline, nullptr);
+                    entry.pipeline = VK_NULL_HANDLE;
+                }
             }
+            texPipelineCache.clear();
             if (texPipelineLayout != VK_NULL_HANDLE) {
                 vkDestroyPipelineLayout(device, texPipelineLayout, nullptr);
                 texPipelineLayout = VK_NULL_HANDLE;
@@ -618,44 +628,51 @@ struct VulkanRenderDevice::VulkanContext
 
     // Lazily build the textured-quad pipeline (combined image sampler at
     // binding 0), reused across compatible render passes.
-    bool ensureTexturePipeline(VkRenderPass renderPass)
+    // Lazily build (and cache) a textured pipeline for the given blend mode. The
+    // pipeline layout + descriptor set layout are created once and shared.
+    // Returns VK_NULL_HANDLE on failure.
+    VkPipeline ensureTexturePipeline(VkRenderPass renderPass, int blendMode)
     {
-        if (texPipeline != VK_NULL_HANDLE) {
-            return true;
+        for (const CachedBlendPipeline &entry : texPipelineCache) {
+            if (entry.blendMode == blendMode) {
+                return entry.pipeline;
+            }
         }
 
-        texVertModule = createShaderModule(kTexturedVertSpv, sizeof(kTexturedVertSpv));
-        texFragModule = createShaderModule(kTexturedFragSpv, sizeof(kTexturedFragSpv));
-        if (texVertModule == VK_NULL_HANDLE || texFragModule == VK_NULL_HANDLE) {
-            return false;
-        }
+        if (texPipelineLayout == VK_NULL_HANDLE) {
+            texVertModule = createShaderModule(kTexturedVertSpv, sizeof(kTexturedVertSpv));
+            texFragModule = createShaderModule(kTexturedFragSpv, sizeof(kTexturedFragSpv));
+            if (texVertModule == VK_NULL_HANDLE || texFragModule == VK_NULL_HANDLE) {
+                return VK_NULL_HANDLE;
+            }
 
-        VkDescriptorSetLayoutBinding samplerBinding{};
-        samplerBinding.binding = 0;
-        samplerBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        samplerBinding.descriptorCount = 1;
-        samplerBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+            VkDescriptorSetLayoutBinding samplerBinding{};
+            samplerBinding.binding = 0;
+            samplerBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            samplerBinding.descriptorCount = 1;
+            samplerBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
-        VkDescriptorSetLayoutCreateInfo dslInfo{};
-        dslInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        dslInfo.bindingCount = 1;
-        dslInfo.pBindings = &samplerBinding;
-        if (vkCreateDescriptorSetLayout(device, &dslInfo, nullptr, &texDescriptorSetLayout) != VK_SUCCESS) {
-            return false;
-        }
+            VkDescriptorSetLayoutCreateInfo dslInfo{};
+            dslInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+            dslInfo.bindingCount = 1;
+            dslInfo.pBindings = &samplerBinding;
+            if (vkCreateDescriptorSetLayout(device, &dslInfo, nullptr, &texDescriptorSetLayout) != VK_SUCCESS) {
+                return VK_NULL_HANDLE;
+            }
 
-        VkPipelineLayoutCreateInfo layoutInfo{};
-        layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        layoutInfo.setLayoutCount = 1;
-        layoutInfo.pSetLayouts = &texDescriptorSetLayout;
-        VkPushConstantRange pushRange{};
-        pushRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-        pushRange.offset = 0;
-        pushRange.size = sizeof(TexPushConstants);
-        layoutInfo.pushConstantRangeCount = 1;
-        layoutInfo.pPushConstantRanges = &pushRange;
-        if (vkCreatePipelineLayout(device, &layoutInfo, nullptr, &texPipelineLayout) != VK_SUCCESS) {
-            return false;
+            VkPipelineLayoutCreateInfo layoutInfo{};
+            layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+            layoutInfo.setLayoutCount = 1;
+            layoutInfo.pSetLayouts = &texDescriptorSetLayout;
+            VkPushConstantRange pushRange{};
+            pushRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+            pushRange.offset = 0;
+            pushRange.size = sizeof(TexPushConstants);
+            layoutInfo.pushConstantRangeCount = 1;
+            layoutInfo.pPushConstantRanges = &pushRange;
+            if (vkCreatePipelineLayout(device, &layoutInfo, nullptr, &texPipelineLayout) != VK_SUCCESS) {
+                return VK_NULL_HANDLE;
+            }
         }
 
         std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
@@ -710,7 +727,7 @@ struct VulkanRenderDevice::VulkanContext
         multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
         multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 
-        VkPipelineColorBlendAttachmentState blendAttachment = blendStateFor(0);
+        VkPipelineColorBlendAttachmentState blendAttachment = blendStateFor(blendMode);
 
         VkPipelineColorBlendStateCreateInfo colorBlend{};
         colorBlend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
@@ -738,10 +755,13 @@ struct VulkanRenderDevice::VulkanContext
         pipelineInfo.renderPass = renderPass;
         pipelineInfo.subpass = 0;
 
-        if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &texPipeline) != VK_SUCCESS) {
-            return false;
+        VkPipeline pipeline = VK_NULL_HANDLE;
+        if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline)
+            != VK_SUCCESS) {
+            return VK_NULL_HANDLE;
         }
-        return true;
+        texPipelineCache.push_back({blendMode, pipeline});
+        return pipeline;
     }
 
     // Lazily build the clip pipeline (position + color + mask UV; combined image
@@ -2553,7 +2573,8 @@ bool VulkanRenderDevice::renderTexturedQuad(const std::unique_ptr<IRenderTarget>
     if (rt == nullptr || tex == nullptr || !rt->isValid() || !tex->isValid()) {
         return false;
     }
-    if (!context_->ensureTexturePipeline(rt->renderPass())) {
+    VkPipeline texPipe = context_->ensureTexturePipeline(rt->renderPass(), /*SrcOver*/ 0);
+    if (texPipe == VK_NULL_HANDLE) {
         return false;
     }
 
@@ -2645,7 +2666,7 @@ bool VulkanRenderDevice::renderTexturedQuad(const std::unique_ptr<IRenderTarget>
         scissor.extent = {static_cast<std::uint32_t>(rt->width()), static_cast<std::uint32_t>(rt->height())};
         vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, context_->texPipeline);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, texPipe);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, context_->texPipelineLayout, 0, 1, &set, 0,
                                 nullptr);
         TexPushConstants push;
@@ -2755,7 +2776,8 @@ bool VulkanRenderDevice::compositeLayer(const std::unique_ptr<IRenderTarget> &ds
     if (dst == nullptr || layer == nullptr || !dst->isValid() || !layer->isValid()) {
         return false;
     }
-    if (!context_->ensureTexturePipeline(dst->renderPass())) {
+    VkPipeline layerTexPipe = context_->ensureTexturePipeline(dst->renderPass(), /*SrcOver*/ 0);
+    if (layerTexPipe == VK_NULL_HANDLE) {
         return false;
     }
     VkPipeline bgPipeline = context_->ensureSolidPipeline(dst->renderPass(), VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
@@ -2904,7 +2926,7 @@ bool VulkanRenderDevice::compositeLayer(const std::unique_ptr<IRenderTarget> &ds
         vkCmdBindVertexBuffers(cmd, 0, 1, &bgBuffer, &offset);
         vkCmdDraw(cmd, 6, 1, 0, 0);
         // Layer (textured, SrcOver, layer alpha).
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, context_->texPipeline);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layerTexPipe);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, context_->texPipelineLayout, 0, 1, &set, 0,
                                 nullptr);
         TexPushConstants push;
@@ -3005,7 +3027,7 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
         }
     }
 
-    if (texturedCount > 0 && !context_->ensureTexturePipeline(rt->renderPass())) {
+    if (texturedCount > 0 && context_->ensureTexturePipeline(rt->renderPass(), 0) == VK_NULL_HANDLE) {
         return false;
     }
     if (clipCount > 0 && !context_->ensureClipPipeline(rt->renderPass())) {
@@ -3133,7 +3155,11 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
                 ok = false;
                 break;
             }
-            draw.pipeline = context_->texPipeline;
+            draw.pipeline = context_->ensureTexturePipeline(rt->renderPass(), prim.blendMode);
+            if (draw.pipeline == VK_NULL_HANDLE) {
+                ok = false;
+                break;
+            }
             draw.descriptorLayout = context_->texPipelineLayout;
             draw.pushLayerAlpha = true;
             draw.push.layerAlpha = prim.layerAlpha;
@@ -3835,6 +3861,7 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
             const int idx[6] = {0, 1, 2, 0, 2, 3};
             wsc::DrawPrimitive prim;
             prim.kind = wsc::DrawPrimitiveKind::TexturedQuad;
+            prim.blendMode = mapBlend(d.blendMode);
             prim.texture = d.imageResource;
             prim.layerAlpha = d.alpha;
             prim.tint[0] = d.tintColor[0];
