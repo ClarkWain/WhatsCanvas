@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <iostream>
+#include <string>
 #include <vector>
 
 #include "render/IRenderTarget.h"
@@ -99,11 +100,19 @@ int main()
     if (!pixelIs(pixels, width, 16, 12, 255, 0, 255, 255, "updated top-left magenta")) return 1;
     if (!pixelIs(pixels, width, 48, 36, 255, 255, 0, 255, "bottom-right still yellow")) return 1;
 
-    std::cout << "[VulkanTextureTests] PASS: texture sample + partial update verified on \""
-              << device.selectedDeviceName() << "\"." << std::endl;
+    const std::string deviceName = device.selectedDeviceName();
+    auto survivorTexture = device.createImageResourceRGBA(2, 2, texels);
+    if (!survivorTexture || !survivorTexture->isValid()) {
+        std::cerr << "[VulkanTextureTests] FAIL: could not create survivor texture." << std::endl;
+        return 1;
+    }
+    device.finalizeBackend();
+    survivorTexture.reset();
+
+    std::cout << "[VulkanTextureTests] PASS: texture sample + partial update verified on \"" << deviceName << "\"."
+              << std::endl;
 
     texture.reset();
     target.reset();
-    device.finalizeBackend();
     return 0;
 }

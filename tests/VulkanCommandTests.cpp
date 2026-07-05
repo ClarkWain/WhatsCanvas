@@ -213,6 +213,23 @@ int main()
     if (!pixelNear(pixels, width, width - 1, height / 2, 0, 0, 255, 255, 10, "grad right blue")) return 1;
     if (!pixelNear(pixels, width, width / 2, height / 2, 128, 0, 128, 255, 10, "grad center purple")) return 1;
 
+    ClipMaskPath maskPath;
+    maskPath.points = {0.0f, 0.0f, 8.0f, 0.0f, 0.0f, 8.0f};
+    maskPath.coverage = {1.0f, 1.0f, 1.0f};
+    auto clipResource = device.createClipMaskResource(maskPath);
+    if (!clipResource || !clipResource->isValid()) {
+        std::cerr << "[VulkanCommandTests] FAIL: could not create clip resource." << std::endl;
+        return 1;
+    }
+    DrawPathData clippedPath = pathData;
+    clippedPath.clipMask.resources.push_back(clipResource);
+    std::vector<std::unique_ptr<Command>> clippedCommands;
+    clippedCommands.push_back(std::make_unique<DrawPathCommand>(clippedPath));
+    if (device.executeCommands(target, clippedCommands, request)) {
+        std::cerr << "[VulkanCommandTests] FAIL: clipped command was silently accepted." << std::endl;
+        return 1;
+    }
+
     // renderCommandsToImageResource: render a command stream into an owned,
     // sampleable texture, then composite that texture to verify its content.
     DrawPathData layerPath;
@@ -251,6 +268,8 @@ int main()
     imageData.imageResource.reset();
     imageCommands.clear();
     gradientCommands.clear();
+    clippedCommands.clear();
+    clipResource.reset();
     layerCommands.clear();
     layerImage.reset();
     image.reset();

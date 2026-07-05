@@ -13,6 +13,7 @@
 #include <cmath>
 #include <cstring>
 #include <optional>
+#include <utility>
 
 #include <vulkan/vulkan.h>
 
@@ -1024,9 +1025,9 @@ private:
 class VulkanTextureResource final : public ImageResource
 {
 public:
-    VulkanTextureResource(VulkanRenderDevice::VulkanContext *context, VkImage image, VkDeviceMemory memory,
+    VulkanTextureResource(std::shared_ptr<VulkanRenderDevice::VulkanContext> context, VkImage image, VkDeviceMemory memory,
                           VkImageView view, VkSampler sampler, int width, int height)
-        : context_(context),
+        : context_(std::move(context)),
           image_(image),
           memory_(memory),
           view_(view),
@@ -1104,7 +1105,7 @@ public:
     VkSampler sampler() const { return sampler_; }
 
 private:
-    VulkanRenderDevice::VulkanContext *context_ = nullptr;
+    std::shared_ptr<VulkanRenderDevice::VulkanContext> context_;
     VkImage image_ = VK_NULL_HANDLE;
     VkDeviceMemory memory_ = VK_NULL_HANDLE;
     VkImageView view_ = VK_NULL_HANDLE;
@@ -1114,7 +1115,8 @@ private:
 };
 
 // Create an owning sampled RGBA8 texture from tightly-packed pixels.
-std::shared_ptr<VulkanTextureResource> createSampledTexture(VulkanRenderDevice::VulkanContext *ctx, int width,
+std::shared_ptr<VulkanTextureResource> createSampledTexture(std::shared_ptr<VulkanRenderDevice::VulkanContext> ctx,
+                                                            int width,
                                                             int height, const unsigned char *pixels, bool nearest)
 {
     if (ctx == nullptr || ctx->device == VK_NULL_HANDLE || width <= 0 || height <= 0 || pixels == nullptr) {
@@ -1260,9 +1262,9 @@ private:
 class VulkanRenderTarget final : public IRenderTarget
 {
 public:
-    VulkanRenderTarget(VulkanRenderDevice::VulkanContext *context, int width, int height, VkImage image,
+    VulkanRenderTarget(std::shared_ptr<VulkanRenderDevice::VulkanContext> context, int width, int height, VkImage image,
                        VkDeviceMemory memory, VkImageView view, VkRenderPass renderPass, VkFramebuffer framebuffer)
-        : context_(context),
+        : context_(std::move(context)),
           width_(width),
           height_(height),
           image_(image),
@@ -1381,7 +1383,7 @@ public:
     void markReadbackReady() { activated_ = true; }
 
 private:
-    VulkanRenderDevice::VulkanContext *context_ = nullptr;
+    std::shared_ptr<VulkanRenderDevice::VulkanContext> context_;
     int width_ = 0;
     int height_ = 0;
     VkImage image_ = VK_NULL_HANDLE;
@@ -1583,7 +1585,7 @@ int scorePhysicalDevice(const VkPhysicalDeviceProperties &props)
 
 #if !defined(WHATSCANVAS_ENABLE_VULKAN)
 
-// Empty context so std::unique_ptr<VulkanContext> has a complete type even when
+// Empty context so std::shared_ptr<VulkanContext> has a complete type even when
 // Vulkan support is not compiled into this build.
 struct VulkanRenderDevice::VulkanContext
 {
@@ -1597,7 +1599,7 @@ struct VulkanRenderDevice::VulkanContext
 
 VulkanRenderDevice::VulkanRenderDevice()
 #if defined(WHATSCANVAS_ENABLE_VULKAN)
-    : context_(std::make_unique<VulkanContext>())
+    : context_(std::make_shared<VulkanContext>())
 #else
     : context_(nullptr)
 #endif
@@ -1620,6 +1622,11 @@ void VulkanRenderDevice::initializeBackend()
     }
 
 #if defined(WHATSCANVAS_ENABLE_VULKAN)
+    context_ = std::make_shared<VulkanContext>();
+    auto resetContextAfterFailure = [&]() {
+        context_ = std::make_shared<VulkanContext>();
+    };
+
     VkApplicationInfo appInfo{};
     appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
     appInfo.pApplicationName = "WhatsCanvas";
@@ -1634,6 +1641,7 @@ void VulkanRenderDevice::initializeBackend()
 
     if (vkCreateInstance(&instanceInfo, nullptr, &context_->instance) != VK_SUCCESS) {
         std::cerr << "[VulkanRenderDevice] Failed to create Vulkan instance." << std::endl;
+        resetContextAfterFailure();
         return;
     }
 
@@ -1641,6 +1649,7 @@ void VulkanRenderDevice::initializeBackend()
     vkEnumeratePhysicalDevices(context_->instance, &deviceCount, nullptr);
     if (deviceCount == 0) {
         std::cerr << "[VulkanRenderDevice] No Vulkan-capable physical devices found." << std::endl;
+        resetContextAfterFailure();
         return;
     }
 
@@ -1671,6 +1680,7 @@ void VulkanRenderDevice::initializeBackend()
 
     if (bestDevice == VK_NULL_HANDLE || !bestQueueFamily.has_value()) {
         std::cerr << "[VulkanRenderDevice] No physical device with a graphics queue was found." << std::endl;
+        resetContextAfterFailure();
         return;
     }
 
@@ -1695,6 +1705,7 @@ void VulkanRenderDevice::initializeBackend()
 
     if (vkCreateDevice(context_->physicalDevice, &deviceInfo, nullptr, &context_->device) != VK_SUCCESS) {
         std::cerr << "[VulkanRenderDevice] Failed to create Vulkan logical device." << std::endl;
+        resetContextAfterFailure();
         return;
     }
 
@@ -1707,6 +1718,7 @@ void VulkanRenderDevice::initializeBackend()
     poolInfo.queueFamilyIndex = context_->graphicsQueueFamily;
     if (vkCreateCommandPool(context_->device, &poolInfo, nullptr, &context_->commandPool) != VK_SUCCESS) {
         std::cerr << "[VulkanRenderDevice] Failed to create Vulkan command pool." << std::endl;
+        resetContextAfterFailure();
         return;
     }
 
@@ -1729,7 +1741,7 @@ void VulkanRenderDevice::finalizeBackend()
             vkDeviceWaitIdle(context_->device);
         }
         // Recreate a fresh, empty context so the device can be re-initialized.
-        context_ = std::make_unique<VulkanContext>();
+        context_ = std::make_shared<VulkanContext>();
     }
 #endif
     backendInitialized_ = false;
@@ -1878,7 +1890,7 @@ std::unique_ptr<IRenderTarget> VulkanRenderDevice::createRenderTarget(int width,
         return nullptr;
     }
 
-    return std::make_unique<VulkanRenderTarget>(context_.get(), width, height, image, memory, view, renderPass,
+    return std::make_unique<VulkanRenderTarget>(context_, width, height, image, memory, view, renderPass,
                                                 framebuffer);
 #else
     (void)width;
@@ -2367,7 +2379,7 @@ SharedImageResource VulkanRenderDevice::createImageResourceRGBA(int width, int h
         || pixels.size() < static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4u) {
         return nullptr;
     }
-    return createSampledTexture(context_.get(), width, height, pixels.data(), /*nearest=*/true);
+    return createSampledTexture(context_, width, height, pixels.data(), /*nearest=*/true);
 #else
     (void)width;
     (void)height;
@@ -2414,7 +2426,7 @@ SharedImageResource VulkanRenderDevice::createImageResourceFromImageData(int wid
             break;
         }
     }
-    return createSampledTexture(context_.get(), width, height, rgba.data(), /*nearest=*/false);
+    return createSampledTexture(context_, width, height, rgba.data(), /*nearest=*/false);
 #else
     (void)width;
     (void)height;
@@ -3309,7 +3321,7 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
             const auto *pathCmd = static_cast<const DrawPathCommand *>(cmd.get());
             const DrawPathData &d = pathCmd->data();
             if (d.clipMask.hasPaths()) {
-                continue;
+                return false;
             }
             const std::size_t vertexCount = d.getPointCount();
             if (vertexCount < 3 || (vertexCount % 3) != 0) {
@@ -3368,7 +3380,7 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
             const auto *pointsCmd = static_cast<const DrawPointsCommand *>(cmd.get());
             const DrawPointsData &d = pointsCmd->data();
             if (d.clipMask.hasPaths()) {
-                continue;
+                return false;
             }
             const std::size_t count = d.getPointCount();
             if (count == 0) {
@@ -3394,7 +3406,7 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
             const auto *linesCmd = static_cast<const DrawLinesCommand *>(cmd.get());
             const DrawLinesData &d = linesCmd->data();
             if (d.clipMask.hasPaths()) {
-                continue;
+                return false;
             }
             const std::size_t lineCount = d.getLineCount();
             if (lineCount == 0) {
@@ -3433,7 +3445,7 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
             const auto *imageCmd = static_cast<const DrawImageCommand *>(cmd.get());
             const DrawImageData &d = imageCmd->data();
             if (!d.imageResource || d.clipMask.hasPaths()) {
-                continue;
+                return false;
             }
             float nx[4], ny[4];
             toNdc(d.transform, d.x, d.y, nx[0], ny[0]);
@@ -3477,7 +3489,7 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
             const auto *textCmd = static_cast<const DrawTextCommand *>(cmd.get());
             const DrawTextData &d = textCmd->data();
             if (d.clipMask.hasPaths()) {
-                continue;
+                return false;
             }
             const std::size_t vertexCount = d.getVertexCount();
             if (vertexCount < 3 || (vertexCount % 3) != 0) {
@@ -3521,8 +3533,9 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
                 prim.color[3] = d.color[3];
             }
             list.push_back(std::move(prim));
+        } else {
+            return false;
         }
-        // Other command kinds (gradients, clip) are ADR-006 follow-ups.
     }
 
     if (list.empty()) {

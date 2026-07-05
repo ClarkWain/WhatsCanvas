@@ -54,7 +54,7 @@ endif()
 if (WHATSCANVAS_BUILD_DEMO AND TARGET WhatsCanvasOpenGL)
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/showcase")
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/aa_showcase")
-    if (WHATSCANVAS_ENABLE_VULKAN)
+    if (WHATSCANVAS_VULKAN_BACKEND_AVAILABLE)
         add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/vulkan_present")
     endif()
 endif()
@@ -91,7 +91,7 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     )
     set_tests_properties(WhatsCanvasGraphicsStateStackTests PROPERTIES LABELS "unit")
 
-    if (WHATSCANVAS_ENABLE_VULKAN)
+    if (WHATSCANVAS_VULKAN_BACKEND_AVAILABLE)
         add_executable(WhatsCanvasVulkanDeviceTests
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/VulkanDeviceTests.cpp"
         )

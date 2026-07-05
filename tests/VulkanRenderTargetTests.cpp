@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <iostream>
+#include <string>
 #include <vector>
 
 #include "render/IRenderTarget.h"
@@ -107,10 +108,18 @@ int main()
         return 1;
     }
 
-    std::cout << "[VulkanRenderTargetTests] PASS: render target + readback verified on \""
-              << device.selectedDeviceName() << "\"." << std::endl;
+    const std::string deviceName = device.selectedDeviceName();
+    auto survivorTarget = device.createRenderTarget(8, 8);
+    if (!survivorTarget || !survivorTarget->isValid()) {
+        std::cerr << "[VulkanRenderTargetTests] FAIL: could not create survivor render target." << std::endl;
+        return 1;
+    }
+    device.finalizeBackend();
+    survivorTarget.reset();
+
+    std::cout << "[VulkanRenderTargetTests] PASS: render target + readback verified on \"" << deviceName << "\"."
+              << std::endl;
 
     target.reset();
-    device.finalizeBackend();
     return 0;
 }

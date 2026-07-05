@@ -14,11 +14,9 @@
 /// the project is configured with `WHATSCANVAS_ENABLE_VULKAN` (which requires
 /// the Vulkan SDK to be available at configure time).
 ///
-/// The current milestone brings the device up to a usable logical-device state
-/// (instance creation, physical-device selection, queue-family discovery and
-/// logical-device creation). The command-execution and resource-creation
-/// entry points are intentional stubs that will be filled in by later
-/// milestones once the pipeline and memory management layers land.
+/// The current milestone includes offscreen render targets, image resources,
+/// draw-list execution, and a growing command translator. Unsupported command
+/// semantics fail explicitly instead of producing a partially rendered frame.
 class VulkanRenderDevice : public IRenderDevice
 {
 public:
@@ -145,8 +143,8 @@ public:
     /// ADR-006 command-translation slice: render a real WhatsCanvas `Command`
     /// stream into an offscreen target by reading each command's backend-neutral
     /// `DrawData` and translating it to Vulkan draws. This does NOT touch the
-    /// OpenGL command execution path. The current slice handles solid path
-    /// fills; other command kinds are skipped and are ADR-006 follow-ups.
+    /// OpenGL command execution path. Unsupported command semantics return
+    /// false so callers can fall back or report the missing coverage.
     /// `request` supplies the canvas size used for the ortho projection.
     bool executeCommands(const std::unique_ptr<IRenderTarget> &target,
                          const std::vector<std::unique_ptr<Command>> &commands,
@@ -156,6 +154,6 @@ public:
     struct VulkanContext;
 
 private:
-    std::unique_ptr<VulkanContext> context_;
+    std::shared_ptr<VulkanContext> context_;
     bool backendInitialized_ = false;
 };
