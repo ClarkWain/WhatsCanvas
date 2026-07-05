@@ -16,6 +16,7 @@ enum class DrawPrimitiveKind
     SolidTriangles, ///< Triangle list, single solid color.
     TexturedQuad,   ///< Full-target quad sampling an image resource.
     ClipFill,       ///< Full-target solid fill, clipped by a coverage mask (red channel).
+    GradientFill,   ///< Triangle list filled with a fragment-evaluated gradient.
 };
 
 /// One backend-neutral draw primitive.
@@ -65,6 +66,21 @@ struct DrawPrimitive
     /// TexturedQuad: when false, the texture's own sampler is used (backward
     /// compatible); when true, a sampler matching `sampling`/`tileMode` is used.
     bool useCustomSampler = false;
+
+    /// GradientFill: canvas-space local positions (x,y per vertex) matching the
+    /// NDC vertices in `positions`; used to evaluate the gradient parameter.
+    std::vector<float> localPositions;
+
+    /// GradientFill parameters (mirroring DrawPathData's gradient fields).
+    int gradientType = 0; ///< 1 = linear, 2 = radial.
+    int gradientTileMode = 0;
+    float linearStart[2] = {0.0f, 0.0f};
+    float linearEnd[2] = {1.0f, 0.0f};
+    float radialCenter[2] = {0.0f, 0.0f};
+    float radialRadius = 1.0f;
+    int gradientStopCount = 0;
+    float gradientStopPositions[8] = {};
+    float gradientStopColors[32] = {};
 
     /// TexturedQuad: the image sampled across the quad.
     /// ClipFill: the coverage mask; its red channel modulates the fill alpha.
