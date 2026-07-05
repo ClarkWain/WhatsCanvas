@@ -79,8 +79,8 @@ documented gap; 2 remain.
   (``WhatsCanvasVulkanBlendModeTests``). **Gaussian drop shadows** translate: the
   white silhouette is rendered offscreen, separable-Gaussian-blurred (CPU,
   identical kernel math to the GL passes), and composited as a tinted textured
-  quad in stream order (``WhatsCanvasVulkanShadowTests``; path silhouettes --
-  shapes + vector text; bitmap/atlas image silhouettes are a follow-up). Clip
+  quad in stream order (``WhatsCanvasVulkanShadowTests``; both path silhouettes
+  -- shapes + vector text -- and bitmap/glyph-atlas image silhouettes). Clip
   translation is a follow-up.
 - **Analytic-AA feathering / multi-stop fragment gradients**: the mechanisms are
   in place (coverage mask, vertex-color gradients); true AA feathering and

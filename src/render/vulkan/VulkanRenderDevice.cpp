@@ -3536,14 +3536,13 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
             const DrawShadowData &d = shadowCmd->data();
             const int sw = d.canvasWidth;
             const int sh = d.canvasHeight;
-            // Only path silhouettes are handled (shapes + vector text); bitmap /
-            // glyph-atlas image silhouettes are a follow-up.
-            if (sw <= 0 || sh <= 0 || !(d.blurRadius > 0.0f) || !d.imageSilhouette.empty()) {
+            if (sw <= 0 || sh <= 0 || !(d.blurRadius > 0.0f)) {
                 continue;
             }
+            const bool hasImageSilhouette = !d.imageSilhouette.empty();
             const DrawPathData &sil = d.silhouette;
             const std::size_t silCount = sil.getPointCount();
-            if (silCount < 3 || (silCount % 3) != 0) {
+            if (!hasImageSilhouette && (silCount < 3 || (silCount % 3) != 0)) {
                 continue;
             }
 
@@ -3552,20 +3551,58 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
             if (!covTarget || !covTarget->isValid()) {
                 continue;
             }
-            auto toNdcShadow = [&](float x, float y, float &ox, float &oy) {
-                const glm::vec4 p = sil.transform * glm::vec4(x, y, 0.0f, 1.0f);
+            auto toNdcS = [&](const glm::mat4 &tf, float x, float y, float &ox, float &oy) {
+                const glm::vec4 p = tf * glm::vec4(x, y, 0.0f, 1.0f);
                 ox = p.x / static_cast<float>(sw) * 2.0f - 1.0f;
                 oy = p.y / static_cast<float>(sh) * 2.0f - 1.0f;
             };
             wsc::DrawList silList;
-            {
+            if (hasImageSilhouette) {
+                // Bitmap / glyph-atlas text: the silhouette is a set of textured
+                // quads whose sampled alpha is the glyph coverage. Draw them so
+                // their alpha accumulates in the coverage target.
+                for (const DrawImageData &gi : d.imageSilhouette) {
+                    if (!gi.imageResource) {
+                        continue;
+                    }
+                    float gnx[4], gny[4];
+                    toNdcS(gi.transform, gi.x, gi.y, gnx[0], gny[0]);
+                    toNdcS(gi.transform, gi.x + gi.width, gi.y, gnx[1], gny[1]);
+                    toNdcS(gi.transform, gi.x + gi.width, gi.y + gi.height, gnx[2], gny[2]);
+                    toNdcS(gi.transform, gi.x, gi.y + gi.height, gnx[3], gny[3]);
+                    const float gu[4] = {gi.u0, gi.u1, gi.u1, gi.u0};
+                    const float gv[4] = {gi.v0, gi.v0, gi.v1, gi.v1};
+                    const int gidx[6] = {0, 1, 2, 0, 2, 3};
+                    wsc::DrawPrimitive gp;
+                    gp.kind = wsc::DrawPrimitiveKind::TexturedQuad;
+                    gp.blendMode = 0; // SrcOver over transparent
+                    gp.texture = gi.imageResource;
+                    gp.layerAlpha = gi.alpha;
+                    gp.tint[0] = 1.0f;
+                    gp.tint[1] = 1.0f;
+                    gp.tint[2] = 1.0f;
+                    gp.tint[3] = 1.0f;
+                    gp.sampling = static_cast<int>(gi.sampling);
+                    gp.tileMode = static_cast<int>(gi.tileMode);
+                    gp.useCustomSampler = true;
+                    gp.positions.reserve(12);
+                    gp.uvs.reserve(12);
+                    for (int k : gidx) {
+                        gp.positions.push_back(gnx[k]);
+                        gp.positions.push_back(gny[k]);
+                        gp.uvs.push_back(gu[k]);
+                        gp.uvs.push_back(gv[k]);
+                    }
+                    silList.push_back(std::move(gp));
+                }
+            } else {
                 wsc::DrawPrimitive sp;
                 sp.kind = wsc::DrawPrimitiveKind::SolidTriangles;
                 sp.blendMode = 0; // SrcOver over the cleared (transparent) target
                 sp.positions.reserve(silCount * 2);
                 for (std::size_t i = 0; i < silCount; ++i) {
                     float nx = 0.0f, ny = 0.0f;
-                    toNdcShadow(sil.points[i * 2 + 0], sil.points[i * 2 + 1], nx, ny);
+                    toNdcS(sil.transform, sil.points[i * 2 + 0], sil.points[i * 2 + 1], nx, ny);
                     sp.positions.push_back(nx);
                     sp.positions.push_back(ny);
                 }
@@ -3575,7 +3612,7 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
                 sp.color[3] = 1.0f;
                 silList.push_back(std::move(sp));
             }
-            if (!executeDrawList(covTarget, silList)) {
+            if (silList.empty() || !executeDrawList(covTarget, silList)) {
                 continue;
             }
 
