@@ -372,6 +372,29 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
         )
         set_tests_properties(WhatsCanvasVulkanBlendModeTests PROPERTIES LABELS "vulkan" TIMEOUT 60)
 
+        whatscanvas_add_glfw_dependency("${CMAKE_CURRENT_SOURCE_DIR}")
+        add_executable(WhatsCanvasBackendVisualParityTests
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/BackendVisualParityTests.cpp"
+        )
+        target_include_directories(WhatsCanvasBackendVisualParityTests PRIVATE
+            "${SRC_DIR}"
+        )
+        target_link_libraries(WhatsCanvasBackendVisualParityTests PRIVATE
+            WhatsCanvasOpenGL
+            WhatsCanvasGLAD
+            WhatsCanvasGLM
+        )
+        whatscanvas_link_gl_app(WhatsCanvasBackendVisualParityTests "${CMAKE_CURRENT_SOURCE_DIR}")
+        add_test(NAME WhatsCanvasBackendVisualParityTests
+            COMMAND ${CMAKE_COMMAND}
+                -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+                -DWHATSCANVAS_TEST_TARGET=WhatsCanvasBackendVisualParityTests
+                -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasBackendVisualParityTests>
+                -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+        )
+        set_tests_properties(WhatsCanvasBackendVisualParityTests PROPERTIES LABELS "vulkan;visual" TIMEOUT 60)
+
         # Serialize all Vulkan GPU tests via a shared resource lock. Each test
         # creates its own VkInstance/VkDevice; running them concurrently can race
         # on driver/device creation on some drivers and cause spurious failures.
@@ -390,6 +413,7 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
             WhatsCanvasVulkanAATests
             WhatsCanvasVulkanTextTests
             WhatsCanvasVulkanBlendModeTests
+            WhatsCanvasBackendVisualParityTests
             PROPERTIES RESOURCE_LOCK "vulkan_gpu"
         )
     endif()
