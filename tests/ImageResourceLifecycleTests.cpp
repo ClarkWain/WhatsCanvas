@@ -372,14 +372,24 @@ bool testExternalTextureLifecycle()
     ok = expect(renderer.lastResource && renderer.lastResource->handle() == 42,
                 "wrapped resource should preserve external handle") && ok;
 
-    ExternalImageDescriptor metalDescriptor;
-    metalDescriptor.backend = ExternalImageBackend::Metal;
-    metalDescriptor.width = 16;
-    metalDescriptor.height = 8;
-    metalDescriptor.metal.texture = reinterpret_cast<void *>(0x1234);
+    ExternalImageDescriptor metalDescriptor =
+        ExternalImageDescriptor::metalTexture(reinterpret_cast<void *>(0x1234), nullptr, nullptr, 16, 8);
     ok = expect(!wsc::ImageLifecycleTestAccess::wrapExternalImage(image, renderer, metalDescriptor),
                 "renderer should reject unsupported external image backend") && ok;
     ok = expect(!image.isTextureValid(), "failed typed external wrap should reset image") && ok;
+
+    ExternalImageDescriptor vulkanDescriptor = ExternalImageDescriptor::vulkanImage(
+        reinterpret_cast<void *>(0x10), reinterpret_cast<void *>(0x20), reinterpret_cast<void *>(0x30), 7, 32, 16,
+        true);
+    ok = expect(vulkanDescriptor.backend == ExternalImageBackend::Vulkan,
+                "vulkan helper should mark the backend") && ok;
+    ok = expect(vulkanDescriptor.vulkan.image == reinterpret_cast<void *>(0x10)
+                    && vulkanDescriptor.vulkan.imageView == reinterpret_cast<void *>(0x20)
+                    && vulkanDescriptor.vulkan.sampler == reinterpret_cast<void *>(0x30)
+                    && vulkanDescriptor.vulkan.imageLayout == 7,
+                "vulkan helper should preserve native handles") && ok;
+    ok = expect(vulkanDescriptor.width == 32 && vulkanDescriptor.height == 16 && vulkanDescriptor.mipmapsGenerated,
+                "vulkan helper should preserve shared metadata") && ok;
 
     ok = expect(!wsc::ImageLifecycleTestAccess::wrapExternalTexture(image, renderer, 0, 16, 8, false),
                 "zero external texture handle should fail") && ok;

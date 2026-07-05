@@ -59,6 +59,38 @@ struct WSC_API ExternalImageDescriptor
 		desc.openGL.textureId = textureId;
 		return desc;
 	}
+
+	static ExternalImageDescriptor vulkanImage(void *image, void *imageView, void *sampler, int imageLayout,
+	                                           int width, int height, bool mipmapsGenerated = false,
+	                                           bool ownsResource = false)
+	{
+		ExternalImageDescriptor desc;
+		desc.backend = ExternalImageBackend::Vulkan;
+		desc.width = width;
+		desc.height = height;
+		desc.mipmapsGenerated = mipmapsGenerated;
+		desc.ownsResource = ownsResource;
+		desc.vulkan.image = image;
+		desc.vulkan.imageView = imageView;
+		desc.vulkan.sampler = sampler;
+		desc.vulkan.imageLayout = imageLayout;
+		return desc;
+	}
+
+	static ExternalImageDescriptor metalTexture(void *texture, void *sampler, void *device, int width, int height,
+	                                            bool mipmapsGenerated = false, bool ownsResource = false)
+	{
+		ExternalImageDescriptor desc;
+		desc.backend = ExternalImageBackend::Metal;
+		desc.width = width;
+		desc.height = height;
+		desc.mipmapsGenerated = mipmapsGenerated;
+		desc.ownsResource = ownsResource;
+		desc.metal.texture = texture;
+		desc.metal.sampler = sampler;
+		desc.metal.device = device;
+		return desc;
+	}
 };
 
 } // namespace wsc

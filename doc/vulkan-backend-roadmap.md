@@ -179,9 +179,10 @@ Depends on: M2 (swapchain can proceed in parallel after M2).
 - Frame loop: acquire/record/submit/present with proper synchronization + resize.
   *Partial*: single-frame present; a continuous loop + resize/recreate is a
   follow-up.
-- `wrapExternalImageResource` for externally-provided images. *Pending*: the
-  `ImageResourceHandle` is 32-bit and cannot carry a 64-bit `VkImage`; needs an
-  interface change.
+- `wrapExternalImageResource` for externally-provided images. *API ready*: public
+  `ExternalImageDescriptor` can carry OpenGL, Vulkan, and Metal native handles.
+  *Backend pending*: Vulkan still needs layout, ownership, and synchronization
+  rules before accepting externally-provided `VkImage` objects.
 Note: presentation needs its own instance/device (surface extensions), so it is
 not wired into `VulkanRenderDevice` (whose instance is headless). Not a CTest gate
 (windowed present is environment dependent); verified manually on NVIDIA RTX 2080

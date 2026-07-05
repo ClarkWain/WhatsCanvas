@@ -35,14 +35,17 @@ documented gap; 2 remain.
 - Partial / native mechanism: `renderCommandsToImageResource` — Vulkan-native
   saveLayer via `compositeLayer`, but generic GL-`Command` replay is blocked (see
   below).
-- Pending: `wrapExternalImageResource` — the `ImageResourceHandle` is 32-bit and
-  cannot carry a 64-bit `VkImage`; needs an interface change (M8).
+- Pending backend implementation: `wrapExternalImageResource` now receives a
+  typed `ExternalImageDescriptor` that can carry Vulkan and Metal native handles.
+  Vulkan still rejects external images until layout, ownership, and synchronization
+  rules are implemented in the backend.
 
 ## Known gaps and why
 
-- **Generic command replay** (`renderCommandsToImageResource`): the WhatsCanvas
-  `Command` objects call OpenGL directly, so Vulkan cannot replay them. This is
-  the coupling recorded in ADR-006; the fix is the backend-neutral command layer.
+- **External image wrapping** (`wrapExternalImageResource`): the public API now
+  has `ExternalImageDescriptor::vulkanImage(...)`, but the Vulkan backend still
+  needs explicit ownership, layout, sampler, queue-family, and synchronization
+  rules before it can sample application-provided `VkImage` objects safely.
 - **Windowed presentation (M8 swapchain)**: a standalone windowed present example
   (`examples/vulkan_present`) creates a GLFW surface + swapchain and presents a
   cleared frame; verified on NVIDIA RTX 2080 Ti. It is standalone because
