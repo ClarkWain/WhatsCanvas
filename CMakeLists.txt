@@ -432,6 +432,26 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
         )
         set_tests_properties(WhatsCanvasVulkanMipmapTests PROPERTIES LABELS "vulkan" TIMEOUT 60)
 
+        add_executable(WhatsCanvasVulkanExternalImageTests
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/VulkanExternalImageTests.cpp"
+        )
+        target_include_directories(WhatsCanvasVulkanExternalImageTests PRIVATE
+            "${SRC_DIR}"
+        )
+        target_link_libraries(WhatsCanvasVulkanExternalImageTests PRIVATE
+            WhatsCanvasOpenGL
+            WhatsCanvasGLM
+        )
+        add_test(NAME WhatsCanvasVulkanExternalImageTests
+            COMMAND ${CMAKE_COMMAND}
+                -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+                -DWHATSCANVAS_TEST_TARGET=WhatsCanvasVulkanExternalImageTests
+                -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasVulkanExternalImageTests>
+                -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+        )
+        set_tests_properties(WhatsCanvasVulkanExternalImageTests PROPERTIES LABELS "vulkan" TIMEOUT 60)
+
         # Serialize all Vulkan GPU tests via a shared resource lock. Each test
         # creates its own VkInstance/VkDevice; running them concurrently can race
         # on driver/device creation on some drivers and cause spurious failures.
@@ -453,6 +473,7 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
             WhatsCanvasVulkanShadowTests
             WhatsCanvasVulkanClipCommandTests
             WhatsCanvasVulkanMipmapTests
+            WhatsCanvasVulkanExternalImageTests
             PROPERTIES RESOURCE_LOCK "vulkan_gpu"
         )
     endif()
