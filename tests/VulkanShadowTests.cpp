@@ -127,6 +127,71 @@ int main()
 
     commands.clear();
     target.reset();
+
+    // --- Bitmap / glyph-atlas silhouette shadow (imageSilhouette path). ---
+    {
+        auto target2 = device.createRenderTarget(width, height);
+        if (!target2 || !target2->isValid()) {
+            return 1;
+        }
+        // An opaque 2x2 white "glyph" texture; its alpha is the coverage.
+        std::vector<unsigned char> glyph(2 * 2 * 4, 255);
+        SharedImageResource glyphTex = device.createImageResourceRGBA(2, 2, glyph);
+        if (!glyphTex || !glyphTex->isValid()) {
+            std::cerr << "[VulkanShadowTests] FAIL: could not create glyph texture." << std::endl;
+            return 1;
+        }
+        DrawShadowData bshadow;
+        bshadow.canvasWidth = width;
+        bshadow.canvasHeight = height;
+        bshadow.blurRadius = 4.0f;
+        bshadow.color[0] = 0.0f; // blue shadow tint
+        bshadow.color[1] = 0.0f;
+        bshadow.color[2] = 1.0f;
+        bshadow.color[3] = 1.0f;
+        bshadow.blendMode = DrawBlendMode::SrcOver;
+        DrawImageData glyphQuad;
+        glyphQuad.imageResource = glyphTex;
+        glyphQuad.x = 18.0f;
+        glyphQuad.y = 18.0f;
+        glyphQuad.width = 12.0f;
+        glyphQuad.height = 12.0f;
+        glyphQuad.u0 = 0.0f;
+        glyphQuad.v0 = 0.0f;
+        glyphQuad.u1 = 1.0f;
+        glyphQuad.v1 = 1.0f;
+        glyphQuad.alpha = 1.0f;
+        bshadow.imageSilhouette.push_back(glyphQuad);
+
+        std::vector<std::unique_ptr<Command>> bcommands;
+        bcommands.push_back(std::make_unique<DrawShadowCommand>(bshadow));
+        if (!device.executeCommands(target2, bcommands, request)) {
+            std::cerr << "[VulkanShadowTests] FAIL: bitmap shadow executeCommands returned false." << std::endl;
+            return 1;
+        }
+        std::vector<unsigned char> bpx;
+        if (!device.readPixelsRGBA(width, height, bpx)) {
+            return 1;
+        }
+        // Center of the glyph footprint (~24,24): covered and blue-tinted.
+        const std::size_t bcenter = (24u * width + 24u) * 4u;
+        if (bpx[bcenter + 3] < 150 || bpx[bcenter + 2] < 120 || bpx[bcenter + 0] > 40) {
+            std::cerr << "[VulkanShadowTests] FAIL: bitmap shadow center not blue (" << (int)bpx[bcenter + 0]
+                      << "," << (int)bpx[bcenter + 1] << "," << (int)bpx[bcenter + 2] << ","
+                      << (int)bpx[bcenter + 3] << ")." << std::endl;
+            return 1;
+        }
+        if (alphaAt(bpx, width, 2, 2) > 12) {
+            std::cerr << "[VulkanShadowTests] FAIL: bitmap shadow far corner not clear." << std::endl;
+            return 1;
+        }
+        std::cout << "[VulkanShadowTests] PASS: bitmap/glyph-atlas shadow." << std::endl;
+        bcommands.clear();
+        glyphQuad.imageResource.reset();
+        glyphTex.reset();
+        target2.reset();
+    }
+
     device.finalizeBackend();
     return 0;
 }
