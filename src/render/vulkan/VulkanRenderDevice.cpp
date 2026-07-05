@@ -1021,19 +1021,23 @@ private:
     int height_ = 0;
 };
 
-// Owning sampled texture: image + memory + view + sampler.
+// Sampled texture: either owned by this backend, or a non-owning external
+// Vulkan image/view/sampler supplied through ExternalImageDescriptor.
 class VulkanTextureResource final : public ImageResource
 {
 public:
     VulkanTextureResource(std::shared_ptr<VulkanRenderDevice::VulkanContext> context, VkImage image, VkDeviceMemory memory,
-                          VkImageView view, VkSampler sampler, int width, int height)
+                          VkImageView view, VkSampler sampler, int width, int height,
+                          VkImageLayout layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, bool ownsResources = true)
         : context_(std::move(context)),
           image_(image),
           memory_(memory),
           view_(view),
           sampler_(sampler),
           width_(width),
-          height_(height)
+          height_(height),
+          layout_(layout),
+          ownsResources_(ownsResources)
     {
         if (context_) {
             ++context_->imageTextureCount;
@@ -1046,10 +1050,12 @@ public:
             return;
         }
         vkDeviceWaitIdle(context_->device);
-        if (sampler_ != VK_NULL_HANDLE) vkDestroySampler(context_->device, sampler_, nullptr);
-        if (view_ != VK_NULL_HANDLE) vkDestroyImageView(context_->device, view_, nullptr);
-        if (image_ != VK_NULL_HANDLE) vkDestroyImage(context_->device, image_, nullptr);
-        if (memory_ != VK_NULL_HANDLE) vkFreeMemory(context_->device, memory_, nullptr);
+        if (ownsResources_) {
+            if (sampler_ != VK_NULL_HANDLE) vkDestroySampler(context_->device, sampler_, nullptr);
+            if (view_ != VK_NULL_HANDLE) vkDestroyImageView(context_->device, view_, nullptr);
+            if (image_ != VK_NULL_HANDLE) vkDestroyImage(context_->device, image_, nullptr);
+            if (memory_ != VK_NULL_HANDLE) vkFreeMemory(context_->device, memory_, nullptr);
+        }
         if (context_->imageTextureCount > 0) {
             --context_->imageTextureCount;
         }
@@ -1065,6 +1071,9 @@ public:
     bool updateRGBA(int x, int y, int width, int height, const unsigned char *pixels,
                     bool /*regenerateMipmaps*/) override
     {
+        if (!ownsResources_) {
+            return false;
+        }
         if (!isValid() || pixels == nullptr || width <= 0 || height <= 0 || x < 0 || y < 0 || x + width > width_
             || y + height > height_) {
             return false;
@@ -1103,6 +1112,7 @@ public:
 
     VkImageView view() const { return view_; }
     VkSampler sampler() const { return sampler_; }
+    VkImageLayout layout() const { return layout_; }
 
 private:
     std::shared_ptr<VulkanRenderDevice::VulkanContext> context_;
@@ -1112,6 +1122,8 @@ private:
     VkSampler sampler_ = VK_NULL_HANDLE;
     int width_ = 0;
     int height_ = 0;
+    VkImageLayout layout_ = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    bool ownsResources_ = true;
 };
 
 // Create an owning sampled RGBA8 texture from tightly-packed pixels.
@@ -2597,12 +2609,28 @@ bool VulkanRenderDevice::renderTexturedQuad(const std::unique_ptr<IRenderTarget>
 
 SharedImageResource VulkanRenderDevice::wrapExternalImageResource(const ExternalImageDescriptor &descriptor) const
 {
+#if defined(WHATSCANVAS_ENABLE_VULKAN)
+    if (!context_ || !context_->deviceReady || descriptor.backend != ExternalImageBackend::Vulkan
+        || !descriptor.hasValidSize() || descriptor.ownsResource || descriptor.vulkan.image == nullptr
+        || descriptor.vulkan.imageView == nullptr || descriptor.vulkan.sampler == nullptr
+        || descriptor.vulkan.imageLayout == static_cast<int>(VK_IMAGE_LAYOUT_UNDEFINED)) {
+        return nullptr;
+    }
+
+    return std::make_shared<VulkanTextureResource>(
+        context_,
+        reinterpret_cast<VkImage>(descriptor.vulkan.image),
+        VK_NULL_HANDLE,
+        reinterpret_cast<VkImageView>(descriptor.vulkan.imageView),
+        reinterpret_cast<VkSampler>(descriptor.vulkan.sampler),
+        descriptor.width,
+        descriptor.height,
+        static_cast<VkImageLayout>(descriptor.vulkan.imageLayout),
+        /*ownsResources=*/false);
+#else
     (void)descriptor;
-    // Vulkan external images require a complete typed contract (VkImage,
-    // VkImageView, sampler/layout, ownership, and synchronization). The public
-    // descriptor now has room for those handles, but this backend rejects them
-    // until those lifetime and synchronization rules are implemented.
     return nullptr;
+#endif
 }
 
 bool VulkanRenderDevice::compositeLayer(const std::unique_ptr<IRenderTarget> &dstTarget,
@@ -2940,7 +2968,7 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
             return VK_NULL_HANDLE;
         }
         VkDescriptorImageInfo imageDescriptor{};
-        imageDescriptor.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        imageDescriptor.imageLayout = tex->layout();
         imageDescriptor.imageView = tex->view();
         imageDescriptor.sampler = sampler;
         VkWriteDescriptorSet write{};

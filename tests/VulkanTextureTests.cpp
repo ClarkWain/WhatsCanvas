@@ -69,6 +69,31 @@ int main()
         return 1;
     }
 
+    auto external = device.wrapExternalImageResource(ExternalImageDescriptor::vulkanImage(
+        reinterpret_cast<void *>(0x10),
+        reinterpret_cast<void *>(0x20),
+        reinterpret_cast<void *>(0x30),
+        5, // VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL without requiring Vulkan headers in public API tests.
+        2,
+        2));
+    if (!external || !external->isValid()) {
+        std::cerr << "[VulkanTextureTests] FAIL: valid external Vulkan descriptor was rejected." << std::endl;
+        return 1;
+    }
+    if (device.resourceStats().imageTextureCount != 2) {
+        std::cerr << "[VulkanTextureTests] FAIL: external texture was not counted." << std::endl;
+        return 1;
+    }
+    if (device.updateImageResourceRGBA(external, 0, 0, 1, 1, texels.data(), false)) {
+        std::cerr << "[VulkanTextureTests] FAIL: external texture update should be rejected." << std::endl;
+        return 1;
+    }
+    external.reset();
+    if (device.resourceStats().imageTextureCount != 1) {
+        std::cerr << "[VulkanTextureTests] FAIL: external texture was not released from stats." << std::endl;
+        return 1;
+    }
+
     if (!device.renderTexturedQuad(target, texture)) {
         std::cerr << "[VulkanTextureTests] FAIL: renderTexturedQuad returned false." << std::endl;
         return 1;

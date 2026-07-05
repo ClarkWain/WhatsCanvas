@@ -35,17 +35,18 @@ documented gap; 2 remain.
 - Partial / native mechanism: `renderCommandsToImageResource` — Vulkan-native
   saveLayer via `compositeLayer`, but generic GL-`Command` replay is blocked (see
   below).
-- Pending backend implementation: `wrapExternalImageResource` now receives a
-  typed `ExternalImageDescriptor` that can carry Vulkan and Metal native handles.
-  Vulkan still rejects external images until layout, ownership, and synchronization
-  rules are implemented in the backend.
+- Implemented with explicit ownership boundary: `wrapExternalImageResource` accepts
+  non-owning `ExternalImageDescriptor::vulkanImage(...)` resources with `VkImage`,
+  `VkImageView`, `VkSampler`, and current image layout. The caller keeps ownership
+  and synchronization responsibility; owned external import remains out of scope.
 
 ## Known gaps and why
 
-- **External image wrapping** (`wrapExternalImageResource`): the public API now
-  has `ExternalImageDescriptor::vulkanImage(...)`, but the Vulkan backend still
-  needs explicit ownership, layout, sampler, queue-family, and synchronization
-  rules before it can sample application-provided `VkImage` objects safely.
+- **External image wrapping** (`wrapExternalImageResource`): the Vulkan backend
+  accepts non-owning sampled external images through
+  `ExternalImageDescriptor::vulkanImage(...)`. Callers must provide a `VkImageView`,
+  `VkSampler`, and a shader-readable layout, and must keep the image alive and
+  synchronized for the duration of rendering.
 - **Windowed presentation (M8 swapchain)**: a standalone windowed present example
   (`examples/vulkan_present`) creates a GLFW surface + swapchain and presents a
   cleared frame; verified on NVIDIA RTX 2080 Ti. It is standalone because
