@@ -149,9 +149,9 @@ bool Renderer::updateImageResourceRGBA(const SharedImageResource &imageResource,
         && device_->updateImageResourceRGBA(imageResource, x, y, width, height, pixels, regenerateMipmaps);
 }
 
-SharedImageResource Renderer::wrapExternalImageResource(ImageResourceHandle handle) const
+SharedImageResource Renderer::wrapExternalImageResource(const ExternalImageDescriptor &descriptor) const
 {
-    return device_ == nullptr ? SharedImageResource() : device_->wrapExternalImageResource(handle);
+    return device_ == nullptr ? SharedImageResource() : device_->wrapExternalImageResource(descriptor);
 }
 
 RenderResourceStats Renderer::resourceStats() const

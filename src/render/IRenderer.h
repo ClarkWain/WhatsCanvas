@@ -39,7 +39,11 @@ public:
                                                                  const unsigned char *pixels, bool generateMipmaps) const = 0;
     virtual bool updateImageResourceRGBA(const SharedImageResource &imageResource, int x, int y, int width, int height,
                                          const unsigned char *pixels, bool regenerateMipmaps) const = 0;
-    virtual SharedImageResource wrapExternalImageResource(ImageResourceHandle handle) const = 0;
+    virtual SharedImageResource wrapExternalImageResource(const ExternalImageDescriptor &descriptor) const = 0;
+    SharedImageResource wrapExternalImageResource(ImageResourceHandle handle) const
+    {
+        return wrapExternalImageResource(ExternalImageDescriptor::openGLTexture(handle.value));
+    }
     virtual const FrameStats &frameStats() const = 0;
     virtual void resetFrameStats() = 0;
     virtual RenderResourceStats resourceStats() const = 0;

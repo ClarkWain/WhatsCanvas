@@ -409,9 +409,12 @@ bool OpenGLRenderDevice::updateImageResourceRGBA(const SharedImageResource &imag
         && imageResource->updateRGBA(x, y, width, height, pixels, regenerateMipmaps);
 }
 
-SharedImageResource OpenGLRenderDevice::wrapExternalImageResource(ImageResourceHandle handle) const
+SharedImageResource OpenGLRenderDevice::wrapExternalImageResource(const ExternalImageDescriptor &descriptor) const
 {
-    return createSharedOpenGLImageResource(handle, false);
+    if (descriptor.backend != ExternalImageBackend::OpenGL || descriptor.openGL.textureId == 0) {
+        return {};
+    }
+    return createSharedOpenGLImageResource(ImageResourceHandle{descriptor.openGL.textureId}, descriptor.ownsResource);
 }
 
 RenderResourceStats OpenGLRenderDevice::resourceStats() const

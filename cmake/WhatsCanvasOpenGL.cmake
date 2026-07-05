@@ -255,6 +255,7 @@ function(whatscanvas_add_gl_family_library target_name project_root)
 
     target_include_directories(${target_name}
         PRIVATE
+            "${project_root}/include"
             "${src_dir}"
             "${glad_path}/include"
         INTERFACE

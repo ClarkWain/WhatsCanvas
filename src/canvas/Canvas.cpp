@@ -3571,6 +3571,15 @@ bool Canvas::wrapExternalTexture(Image &image, std::uint32_t textureId, int widt
     return image.wrapExternalTexture(*impl_->renderer, textureId, width, height, mipmapsGenerated);
 }
 
+bool Canvas::wrapExternalImage(Image &image, const ExternalImageDescriptor &descriptor)
+{
+    if (!descriptor.hasValidSize() || !impl_->ensureRendererInitialized()) {
+        return false;
+    }
+
+    return image.wrapExternalImage(*impl_->renderer, descriptor);
+}
+
 void Canvas::drawText(const std::string &text, float x, float y, const Paint &paint)
 {
     if (!impl_->textBackend) {

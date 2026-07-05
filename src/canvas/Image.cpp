@@ -248,10 +248,21 @@ bool wsc::Image::wrapExternalTexture(Canvas &canvas, std::uint32_t textureId, in
     return canvas.wrapExternalTexture(*this, textureId, width, height, mipmapsGenerated);
 }
 
+bool wsc::Image::wrapExternalImage(Canvas &canvas, const ExternalImageDescriptor &descriptor)
+{
+    return canvas.wrapExternalImage(*this, descriptor);
+}
+
 bool wsc::Image::wrapExternalTexture(IRenderer &renderer, std::uint32_t textureId, int width, int height,
                                      bool mipmapsGenerated)
 {
-    if (textureId == 0 || width <= 0 || height <= 0) {
+    return wrapExternalImage(renderer, ExternalImageDescriptor::openGLTexture(textureId, width, height,
+                                                                              mipmapsGenerated));
+}
+
+bool wsc::Image::wrapExternalImage(IRenderer &renderer, const ExternalImageDescriptor &descriptor)
+{
+    if (!descriptor.hasValidSize()) {
         reset();
         return false;
     }
@@ -261,15 +272,15 @@ bool wsc::Image::wrapExternalTexture(IRenderer &renderer, std::uint32_t textureI
         storage_ = std::make_unique<Storage>();
     }
 
-    storage_->imageResource = renderer.wrapExternalImageResource(ImageResourceHandle{textureId});
+    storage_->imageResource = renderer.wrapExternalImageResource(descriptor);
     if (!storage_->imageResource || !storage_->imageResource->isValid()) {
         reset();
         return false;
     }
 
-    width_ = width;
-    height_ = height;
-    mipmapsGenerated_ = mipmapsGenerated;
+    width_ = descriptor.width;
+    height_ = descriptor.height;
+    mipmapsGenerated_ = descriptor.mipmapsGenerated;
     return true;
 }
 

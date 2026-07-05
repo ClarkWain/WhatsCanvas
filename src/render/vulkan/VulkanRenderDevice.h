@@ -43,7 +43,11 @@ public:
                                                          bool generateMipmaps) const override;
     bool updateImageResourceRGBA(const SharedImageResource &imageResource, int x, int y, int width, int height,
                                  const unsigned char *pixels, bool regenerateMipmaps) const override;
-    SharedImageResource wrapExternalImageResource(ImageResourceHandle handle) const override;
+    SharedImageResource wrapExternalImageResource(const ExternalImageDescriptor &descriptor) const override;
+    SharedImageResource wrapExternalImageResource(ImageResourceHandle handle) const
+    {
+        return IRenderDevice::wrapExternalImageResource(handle);
+    }
     RenderResourceStats resourceStats() const override;
     SharedImageResource renderCommandsToImageResource(const std::vector<std::unique_ptr<Command>> &commands,
                                                       const OffscreenRenderRequest &request) const override;

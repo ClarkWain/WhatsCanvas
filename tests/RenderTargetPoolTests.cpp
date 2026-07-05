@@ -81,7 +81,7 @@ public:
     {
         return false;
     }
-    SharedImageResource wrapExternalImageResource(ImageResourceHandle) const override { return {}; }
+    SharedImageResource wrapExternalImageResource(const ExternalImageDescriptor &) const override { return {}; }
     RenderResourceStats resourceStats() const override { return {}; }
     SharedImageResource renderCommandsToImageResource(const std::vector<std::unique_ptr<Command>> &,
                                                       const OffscreenRenderRequest &) const override

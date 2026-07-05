@@ -39,7 +39,11 @@ public:
                                                          const unsigned char *pixels, bool generateMipmaps) const override;
     bool updateImageResourceRGBA(const SharedImageResource &imageResource, int x, int y, int width, int height,
                                  const unsigned char *pixels, bool regenerateMipmaps) const override;
-    SharedImageResource wrapExternalImageResource(ImageResourceHandle handle) const override;
+    SharedImageResource wrapExternalImageResource(const ExternalImageDescriptor &descriptor) const override;
+    SharedImageResource wrapExternalImageResource(ImageResourceHandle handle) const
+    {
+        return IRenderer::wrapExternalImageResource(handle);
+    }
     const FrameStats &frameStats() const override { return stats_; }
     void resetFrameStats() override { stats_.reset(); }
     RenderResourceStats resourceStats() const override;

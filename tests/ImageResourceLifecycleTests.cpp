@@ -107,14 +107,15 @@ public:
         return imageResource && imageResource->updateRGBA(x, y, width, height, pixels, regenerateMipmaps);
     }
 
-    SharedImageResource wrapExternalImageResource(ImageResourceHandle handle) const override
+    SharedImageResource wrapExternalImageResource(const ExternalImageDescriptor &descriptor) const override
     {
-        if (!handle.isValid()) {
+        if (descriptor.backend != ExternalImageBackend::OpenGL || descriptor.openGL.textureId == 0) {
             return {};
         }
 
         ++wrappedCount;
-        auto resource = std::make_shared<FakeImageResource>(handle.value);
+        lastWrappedDescriptor = descriptor;
+        auto resource = std::make_shared<FakeImageResource>(descriptor.openGL.textureId);
         lastResource = resource;
         return resource;
     }
@@ -138,6 +139,7 @@ public:
     mutable int lastCreatedHeight = 0;
     mutable int lastCreatedChannels = 0;
     mutable bool lastCreateMipmaps = false;
+    mutable ExternalImageDescriptor lastWrappedDescriptor;
     mutable std::shared_ptr<FakeImageResource> lastResource;
 
 private:
@@ -203,6 +205,11 @@ public:
                                     bool mipmapsGenerated)
     {
         return image.wrapExternalTexture(renderer, textureId, width, height, mipmapsGenerated);
+    }
+
+    static bool wrapExternalImage(Image &image, IRenderer &renderer, const ExternalImageDescriptor &descriptor)
+    {
+        return image.wrapExternalImage(renderer, descriptor);
     }
 
     static void reset(Image &image)
@@ -356,8 +363,23 @@ bool testExternalTextureLifecycle()
     ok = expect(image.getWidth() == 16 && image.getHeight() == 8, "wrapped external texture should store size") && ok;
     ok = expect(image.hasMipmaps(), "wrapped external texture should store mipmap state") && ok;
     ok = expect(renderer.wrappedCount == 1, "valid external texture should call renderer wrap") && ok;
+    ok = expect(renderer.lastWrappedDescriptor.backend == ExternalImageBackend::OpenGL,
+                "legacy external texture should convert to an OpenGL descriptor") && ok;
+    ok = expect(renderer.lastWrappedDescriptor.openGL.textureId == 42,
+                "OpenGL descriptor should preserve texture id") && ok;
+    ok = expect(renderer.lastWrappedDescriptor.width == 16 && renderer.lastWrappedDescriptor.height == 8,
+                "OpenGL descriptor should preserve texture size") && ok;
     ok = expect(renderer.lastResource && renderer.lastResource->handle() == 42,
                 "wrapped resource should preserve external handle") && ok;
+
+    ExternalImageDescriptor metalDescriptor;
+    metalDescriptor.backend = ExternalImageBackend::Metal;
+    metalDescriptor.width = 16;
+    metalDescriptor.height = 8;
+    metalDescriptor.metal.texture = reinterpret_cast<void *>(0x1234);
+    ok = expect(!wsc::ImageLifecycleTestAccess::wrapExternalImage(image, renderer, metalDescriptor),
+                "renderer should reject unsupported external image backend") && ok;
+    ok = expect(!image.isTextureValid(), "failed typed external wrap should reset image") && ok;
 
     ok = expect(!wsc::ImageLifecycleTestAccess::wrapExternalTexture(image, renderer, 0, 16, 8, false),
                 "zero external texture handle should fail") && ok;

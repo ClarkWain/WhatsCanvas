@@ -9,6 +9,7 @@
 
 #include "Color.h"
 #include "Export.h"
+#include "ExternalImage.h"
 #include "Paint.h"
 #include "TextureSource.h"
 #include "base.h"
@@ -240,6 +241,7 @@ public:
 	                     int height, bool regenerateMipmaps = true);
 	bool wrapExternalTexture(Image &image, std::uint32_t textureId, int width, int height,
 	                         bool mipmapsGenerated = false);
+	bool wrapExternalImage(Image &image, const ExternalImageDescriptor &descriptor);
 
 	// Text drawing and measurement.
 	void drawText(const std::string &text, float x, float y, const Paint &paint);

@@ -6,6 +6,8 @@
 
 #include <glm/glm.hpp>
 
+#include "wsc/ExternalImage.h"
+
 class RenderContext;
 struct ScissorState;
 
@@ -29,6 +31,8 @@ public:
 using SharedImageResource = std::shared_ptr<ImageResource>;
 
 using TextureHandle = ImageResourceHandle;
+using ExternalImageDescriptor = wsc::ExternalImageDescriptor;
+using ExternalImageBackend = wsc::ExternalImageBackend;
 
 class ClipMaskResource
 {

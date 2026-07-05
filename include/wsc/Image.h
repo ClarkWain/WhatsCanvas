@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "Export.h"
+#include "ExternalImage.h"
 #include "TextureSource.h"
 
 class IRenderer;
@@ -44,6 +45,7 @@ public:
 	                      int height, bool regenerateMipmaps = true);
 	bool wrapExternalTexture(Canvas &canvas, std::uint32_t textureId, int width, int height,
 	                         bool mipmapsGenerated = false);
+	bool wrapExternalImage(Canvas &canvas, const ExternalImageDescriptor &descriptor);
 
 	// ITextureSource interface
 	int getTextureWidth() const override { return width_; }
@@ -69,6 +71,7 @@ private:
 	                bool regenerateMipmaps);
 	bool wrapExternalTexture(::IRenderer &renderer, std::uint32_t textureId, int width, int height,
 	                         bool mipmapsGenerated);
+	bool wrapExternalImage(::IRenderer &renderer, const ExternalImageDescriptor &descriptor);
 	std::shared_ptr<::ImageResource> getImageResource() const;
 	void reset();
 

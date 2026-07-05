@@ -110,7 +110,7 @@ public:
     {
         return false;
     }
-    SharedImageResource wrapExternalImageResource(ImageResourceHandle) const override { return {}; }
+    SharedImageResource wrapExternalImageResource(const ExternalImageDescriptor &) const override { return {}; }
     const FrameStats &frameStats() const override { return stats; }
     void resetFrameStats() override { stats.reset(); }
     RenderResourceStats resourceStats() const override { return {}; }

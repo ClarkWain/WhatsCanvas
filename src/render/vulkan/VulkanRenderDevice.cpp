@@ -2595,9 +2595,13 @@ bool VulkanRenderDevice::renderTexturedQuad(const std::unique_ptr<IRenderTarget>
 #endif
 }
 
-SharedImageResource VulkanRenderDevice::wrapExternalImageResource(ImageResourceHandle /*handle*/) const
+SharedImageResource VulkanRenderDevice::wrapExternalImageResource(const ExternalImageDescriptor &descriptor) const
 {
-    // TODO(vulkan, M8): implement external image wrapping.
+    (void)descriptor;
+    // Vulkan external images require a complete typed contract (VkImage,
+    // VkImageView, sampler/layout, ownership, and synchronization). The public
+    // descriptor now has room for those handles, but this backend rejects them
+    // until those lifetime and synchronization rules are implemented.
     return nullptr;
 }
 
