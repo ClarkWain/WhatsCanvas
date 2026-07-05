@@ -1,6 +1,6 @@
 # Vulkan Backend Roadmap
 
-Status: **Draft / in progress** · Branch: `feature/vulkan-backend` · Done: M1, M2, M3 (solid fills), M4 (gradients + blend), M5 (images), M6 (layer composite), M7 (coverage-mask clip), M8 (windowed present)
+Status: **Functional parity complete** · Done: M1, M2, M3 (solid fills), M4 (gradients + blend), M5 (images), M6 (layer composite), M7 (coverage-mask clip), M8 (windowed present), plus command-stream translation (path/points/lines/image/text/shadow), full 14-mode blend parity across all pipelines, analytic-AA coverage, mipmapped sampling, complete clip translation (all fill types), and `wrapExternalImageResource` (IRenderDevice 11/11).
 
 This document tracks the work needed to bring the Vulkan render backend
 (`VulkanRenderDevice`) to functional parity with the existing OpenGL backend
@@ -30,8 +30,11 @@ Completed on this branch:
 - `WhatsCanvasVulkanDeviceTests` (CTest label `vulkan`) validates bring-up on
   real hardware (verified on NVIDIA GeForce RTX 2080 Ti).
 
-Not started: everything that produces or reads pixels. Ten of the eleven
-`IRenderDevice` methods are stubs.
+All eleven `IRenderDevice` methods are implemented, and the full draw-command
+stream (path / points / lines / image / text / shadow) translates to Vulkan via
+the backend-neutral command layer (ADR-006). See
+[vulkan-backend-status.md](vulkan-backend-status.md) for the current capability
+matrix and test inventory.
 
 ### 2.1 Parity gap
 
@@ -43,11 +46,11 @@ Not started: everything that produces or reads pixels. Ten of the eleven
 | `createImageResourceRGBA` | GL texture | sampled VkImage + upload (M5) | M5 ✅ |
 | `createImageResourceFromImageData` | GL texture + mipmap | sampled VkImage (M5) | M5 ✅ |
 | `updateImageResourceRGBA` | partial texture update | staging copy (M5) | M5 ✅ |
-| `wrapExternalImageResource` | wrap handle | stub | M8 |
+| `wrapExternalImageResource` | wrap handle | non-owning wrapper over a foreign VkImage (64-bit handle) | ✅ |
 | `createClipMaskResource` | AA coverage mask | clip resource + coverage-mask draw (M7) | M7 ✅ |
 | `resourceStats` | live counts | render-target + texture counts | M2/M5 ✅ |
-| `renderCommandsToImageResource` | offscreen replay | native compositeLayer (M6); command replay pending §3 | M6 ◑ |
-| Draw commands (points/lines/path/image/text) | 5 GL programs | solid triangle pipeline (M3) | M3–M5 |
+| `renderCommandsToImageResource` | offscreen replay | command translation into an owned sampled texture | ✅ |
+| Draw commands (points/lines/path/image/text/shadow) | GL programs | command translation to solid/textured/gradient/clip pipelines | ✅ |
 
 ## 3. Architectural constraint (must decide before M3)
 
