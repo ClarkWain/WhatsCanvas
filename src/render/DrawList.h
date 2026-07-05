@@ -45,6 +45,10 @@ struct DrawPrimitive
     /// override the uniform `color` and are fragment-interpolated.
     std::vector<float> colors;
 
+    /// SolidTriangles: optional per-vertex analytic-AA coverage in [0,1] (1 per
+    /// vertex). When present, it modulates the fill alpha (edge feathering).
+    std::vector<float> coverage;
+
     /// TexturedQuad: alpha multiplier applied to the sampled texture.
     float layerAlpha = 1.0f;
 
