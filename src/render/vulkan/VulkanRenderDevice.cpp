@@ -1252,6 +1252,10 @@ public:
         // exercised directly via VulkanRenderDevice::renderClippedSolid().
     }
 
+    const std::vector<float> &points() const { return points_; }
+    const std::vector<float> &coverage() const { return coverage_; }
+    const glm::mat4 &transform() const { return transform_; }
+
 private:
     std::vector<float> points_;
     std::vector<float> coverage_;
@@ -3055,12 +3059,39 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
                 break;
             }
             const float r = prim.color[0], g = prim.color[1], b = prim.color[2], a = prim.color[3];
-            vertices = {
-                -1.0f, -1.0f, r, g, b, a, 0.0f, 0.0f, 1.0f, -1.0f, r, g, b, a, 1.0f, 0.0f,
-                1.0f,  1.0f,  r, g, b, a, 1.0f, 1.0f, -1.0f, -1.0f, r, g, b, a, 0.0f, 0.0f,
-                1.0f,  1.0f,  r, g, b, a, 1.0f, 1.0f, -1.0f, 1.0f,  r, g, b, a, 0.0f, 1.0f,
-            };
-            draw.vertexCount = 6;
+            if (!prim.positions.empty() && prim.uvs.size() == prim.positions.size()) {
+                // Arbitrary clipped geometry: the clip shader modulates each
+                // fragment's alpha by the mask sampled at its screen-space UV.
+                const std::size_t vc = prim.positions.size() / 2;
+                const bool perVertexColor = prim.colors.size() == vc * 4;
+                vertices.reserve(vc * 8);
+                for (std::size_t v = 0; v < vc; ++v) {
+                    vertices.push_back(prim.positions[v * 2 + 0]);
+                    vertices.push_back(prim.positions[v * 2 + 1]);
+                    if (perVertexColor) {
+                        vertices.push_back(prim.colors[v * 4 + 0]);
+                        vertices.push_back(prim.colors[v * 4 + 1]);
+                        vertices.push_back(prim.colors[v * 4 + 2]);
+                        vertices.push_back(prim.colors[v * 4 + 3]);
+                    } else {
+                        vertices.push_back(r);
+                        vertices.push_back(g);
+                        vertices.push_back(b);
+                        vertices.push_back(a);
+                    }
+                    vertices.push_back(prim.uvs[v * 2 + 0]);
+                    vertices.push_back(prim.uvs[v * 2 + 1]);
+                }
+                draw.vertexCount = static_cast<std::uint32_t>(vc);
+            } else {
+                // Full-target quad (fills the whole target, clipped to the mask).
+                vertices = {
+                    -1.0f, -1.0f, r, g, b, a, 0.0f, 0.0f, 1.0f, -1.0f, r, g, b, a, 1.0f, 0.0f,
+                    1.0f,  1.0f,  r, g, b, a, 1.0f, 1.0f, -1.0f, -1.0f, r, g, b, a, 0.0f, 0.0f,
+                    1.0f,  1.0f,  r, g, b, a, 1.0f, 1.0f, -1.0f, 1.0f,  r, g, b, a, 0.0f, 1.0f,
+                };
+                draw.vertexCount = 6;
+            }
         } else { // GradientFill
             const std::size_t vertexCount = prim.positions.size() / 2;
             if (vertexCount < 3 || (vertexCount % 3) != 0 || prim.localPositions.size() != prim.positions.size()) {
@@ -3300,8 +3331,185 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
         out.insert(out.end(), tris, tris + 12);
     };
 
-    // Translate the real Command stream into backend-neutral primitives.
+    // Build a clip coverage mask texture (red channel = coverage) for the given
+    // clip state. Each clip path is rasterized (white, with its analytic-AA
+    // coverage) into an offscreen target over black -- SrcOver leaves red ==
+    // coverage -- read back, and multiplied together (nested clips intersect).
+    // Returns null on failure. Mirrors the GL clip mask sampled as `.r`.
+    // Backend-neutral primitives accumulated for this command stream. Declared
+    // before the clip helpers so `emitClippedLayer` can append its composite.
     wsc::DrawList list;
+
+    const int maskW = static_cast<int>(w);
+    const int maskH = static_cast<int>(h);
+    const std::size_t maskPixelCount = static_cast<std::size_t>(maskW) * static_cast<std::size_t>(maskH);
+    auto buildClipCoverage = [&](const ClipMaskState &clip, std::vector<float> &outCoverage) -> bool {
+        if (maskW <= 0 || maskH <= 0 || clip.resources.empty()) {
+            return false;
+        }
+        outCoverage.assign(maskPixelCount, 1.0f);
+        for (const SharedClipMaskResource &res : clip.resources) {
+            auto *cmr = dynamic_cast<VulkanClipMaskResource *>(res.get());
+            if (cmr == nullptr || !cmr->isValid()) {
+                return false;
+            }
+            const std::vector<float> &pts = cmr->points();
+            const std::vector<float> &cov = cmr->coverage();
+            const glm::mat4 &tf = cmr->transform();
+            const std::size_t vc = pts.size() / 2;
+            if (vc < 3 || (vc % 3) != 0) {
+                return false;
+            }
+            std::unique_ptr<IRenderTarget> covTarget = createRenderTarget(maskW, maskH);
+            if (!covTarget || !covTarget->isValid()) {
+                return false;
+            }
+            wsc::DrawList ml;
+            wsc::DrawPrimitive mp;
+            mp.kind = wsc::DrawPrimitiveKind::SolidTriangles;
+            mp.blendMode = 0; // SrcOver over cleared black -> red == coverage
+            mp.positions.reserve(vc * 2);
+            for (std::size_t i = 0; i < vc; ++i) {
+                float nx = 0.0f, ny = 0.0f;
+                toNdc(tf, pts[i * 2 + 0], pts[i * 2 + 1], nx, ny);
+                mp.positions.push_back(nx);
+                mp.positions.push_back(ny);
+            }
+            mp.color[0] = 1.0f;
+            mp.color[1] = 1.0f;
+            mp.color[2] = 1.0f;
+            mp.color[3] = 1.0f;
+            if (cov.size() == vc) {
+                mp.coverage = cov;
+            }
+            ml.push_back(std::move(mp));
+            if (!executeDrawList(covTarget, ml)) {
+                return false;
+            }
+            std::vector<unsigned char> px;
+            if (!readPixelsRGBA(maskW, maskH, px)) {
+                return false;
+            }
+            for (std::size_t i = 0; i < maskPixelCount; ++i) {
+                outCoverage[i] *= static_cast<float>(px[i * 4 + 0]) / 255.0f;
+            }
+        }
+        return true;
+    };
+
+    // Build a clip coverage mask texture (red channel = coverage) for the given
+    // clip state. Mirrors the GL clip mask sampled as `.r`. Returns null on failure.
+    auto buildClipMaskTexture = [&](const ClipMaskState &clip) -> SharedImageResource {
+        std::vector<float> combined;
+        if (!buildClipCoverage(clip, combined)) {
+            return nullptr;
+        }
+        std::vector<unsigned char> maskPixels(maskPixelCount * 4, 0);
+        for (std::size_t i = 0; i < maskPixelCount; ++i) {
+            const unsigned char c = static_cast<unsigned char>(combined[i] * 255.0f + 0.5f);
+            maskPixels[i * 4 + 0] = c; // clip shader samples .r
+            maskPixels[i * 4 + 3] = 255;
+        }
+        return createSampledTexture(context_.get(), maskW, maskH, maskPixels.data(), /*nearest=*/false);
+    };
+
+    // Convert an already-built solid primitive (positions + color, and optional
+    // per-vertex colors) into a ClipFill against the given clip state: builds the
+    // clip mask and sets per-vertex screen-space UVs so the clip pipeline
+    // modulates the fill by the mask. Returns false if the mask could not be
+    // built (caller should drop the command).
+    auto emitClippedSolid = [&](wsc::DrawPrimitive &prim, const ClipMaskState &clip) -> bool {
+        SharedImageResource clipTex = buildClipMaskTexture(clip);
+        if (!clipTex) {
+            return false;
+        }
+        const std::size_t vc = prim.positions.size() / 2;
+        prim.kind = wsc::DrawPrimitiveKind::ClipFill;
+        prim.texture = clipTex;
+        prim.uvs.clear();
+        prim.uvs.reserve(vc * 2);
+        for (std::size_t i = 0; i < vc; ++i) {
+            // Screen-space UV: NDC [-1,1] -> mask texture [0,1].
+            prim.uvs.push_back(prim.positions[i * 2 + 0] * 0.5f + 0.5f);
+            prim.uvs.push_back(prim.positions[i * 2 + 1] * 0.5f + 0.5f);
+        }
+        return true;
+    };
+
+    // Clip an arbitrary primitive (gradient or textured image) that the clip
+    // pipeline cannot modulate directly: render it in isolation into an offscreen
+    // layer, un-premultiply, multiply its alpha by the clip coverage, and
+    // composite the result as a full-canvas textured quad in stream order. (The
+    // isolated layer is rendered SrcOver over transparent, so its RGB is
+    // premultiplied; un-premultiplying restores straight alpha for the composite.)
+    auto emitClippedLayer = [&](wsc::DrawPrimitive srcPrim, const ClipMaskState &clip, int compositeBlend) -> bool {
+        std::vector<float> cov;
+        if (!buildClipCoverage(clip, cov)) {
+            return false;
+        }
+        std::unique_ptr<IRenderTarget> layer = createRenderTarget(maskW, maskH);
+        if (!layer || !layer->isValid()) {
+            return false;
+        }
+        wsc::DrawList ll;
+        ll.push_back(std::move(srcPrim));
+        if (!executeDrawList(layer, ll)) {
+            return false;
+        }
+        std::vector<unsigned char> lpx;
+        if (!readPixelsRGBA(maskW, maskH, lpx)) {
+            return false;
+        }
+        std::vector<unsigned char> out(maskPixelCount * 4);
+        for (std::size_t i = 0; i < maskPixelCount; ++i) {
+            const float a = static_cast<float>(lpx[i * 4 + 3]) / 255.0f;
+            for (int c = 0; c < 3; ++c) {
+                const float pr = static_cast<float>(lpx[i * 4 + c]) / 255.0f;
+                const float straight = a > 0.0001f ? pr / a : 0.0f;
+                const float sc = straight < 0.0f ? 0.0f : (straight > 1.0f ? 1.0f : straight);
+                out[i * 4 + c] = static_cast<unsigned char>(sc * 255.0f + 0.5f);
+            }
+            const float ca = a * cov[i];
+            out[i * 4 + 3] = static_cast<unsigned char>(ca * 255.0f + 0.5f);
+        }
+        SharedImageResource layerTex =
+            createSampledTexture(context_.get(), maskW, maskH, out.data(), /*nearest=*/false);
+        if (!layerTex) {
+            return false;
+        }
+        float lnx[4], lny[4];
+        toNdc(glm::mat4(1.0f), 0.0f, 0.0f, lnx[0], lny[0]);
+        toNdc(glm::mat4(1.0f), w, 0.0f, lnx[1], lny[1]);
+        toNdc(glm::mat4(1.0f), w, h, lnx[2], lny[2]);
+        toNdc(glm::mat4(1.0f), 0.0f, h, lnx[3], lny[3]);
+        const float lu[4] = {0.0f, 1.0f, 1.0f, 0.0f};
+        const float lv[4] = {0.0f, 0.0f, 1.0f, 1.0f};
+        const int lidx[6] = {0, 1, 2, 0, 2, 3};
+        wsc::DrawPrimitive q;
+        q.kind = wsc::DrawPrimitiveKind::TexturedQuad;
+        q.blendMode = compositeBlend;
+        q.texture = layerTex;
+        q.layerAlpha = 1.0f;
+        q.tint[0] = 1.0f;
+        q.tint[1] = 1.0f;
+        q.tint[2] = 1.0f;
+        q.tint[3] = 1.0f;
+        q.sampling = static_cast<int>(DrawImageSampling::Linear);
+        q.tileMode = static_cast<int>(DrawImageTileMode::Clamp);
+        q.useCustomSampler = true;
+        q.positions.reserve(12);
+        q.uvs.reserve(12);
+        for (int k : lidx) {
+            q.positions.push_back(lnx[k]);
+            q.positions.push_back(lny[k]);
+            q.uvs.push_back(lu[k]);
+            q.uvs.push_back(lv[k]);
+        }
+        list.push_back(std::move(q));
+        return true;
+    };
+
+    // Translate the real Command stream into backend-neutral primitives.
     for (const std::unique_ptr<Command> &cmd : commands) {
         if (!cmd) {
             continue;
@@ -3310,9 +3518,7 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
         if (cmd->type() == Command::Type::Path) {
             const auto *pathCmd = static_cast<const DrawPathCommand *>(cmd.get());
             const DrawPathData &d = pathCmd->data();
-            if (d.clipMask.hasPaths()) {
-                continue;
-            }
+            const bool clipped = d.clipMask.hasPaths();
             const std::size_t vertexCount = d.getPointCount();
             if (vertexCount < 3 || (vertexCount % 3) != 0) {
                 continue;
@@ -3325,6 +3531,32 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
                 toNdc(d.transform, d.points[i * 2 + 0], d.points[i * 2 + 1], nx, ny);
                 prim.positions.push_back(nx);
                 prim.positions.push_back(ny);
+            }
+            if (clipped && !d.hasShaderGradient()) {
+                // Clipped solid fills: modulate the fill by a clip coverage mask
+                // sampled at each fragment's screen position (mirrors the GL
+                // clip-mask fragment path).
+                prim.color[0] = d.color[0];
+                prim.color[1] = d.color[1];
+                prim.color[2] = d.color[2];
+                prim.color[3] = d.color[3];
+                if (d.hasCoverage()) {
+                    // Bake the fill's own analytic-AA coverage into per-vertex alpha
+                    // (the clip pipeline has no coverage attribute); the clip shader
+                    // then multiplies by the mask coverage as well.
+                    prim.colors.resize(vertexCount * 4);
+                    for (std::size_t i = 0; i < vertexCount; ++i) {
+                        prim.colors[i * 4 + 0] = d.color[0];
+                        prim.colors[i * 4 + 1] = d.color[1];
+                        prim.colors[i * 4 + 2] = d.color[2];
+                        prim.colors[i * 4 + 3] = d.color[3] * d.coverage[i];
+                    }
+                }
+                if (!emitClippedSolid(prim, d.clipMask)) {
+                    continue;
+                }
+                list.push_back(std::move(prim));
+                continue;
             }
             if (d.hasShaderGradient()) {
                 prim.kind = wsc::DrawPrimitiveKind::GradientFill;
@@ -3365,13 +3597,18 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
                 prim.color[2] = d.color[2];
                 prim.color[3] = d.color[3];
             }
+            if (clipped) {
+                // Clipped gradient fill (solid clip is handled above): render the
+                // gradient in isolation and multiply its alpha by the clip mask.
+                if (!emitClippedLayer(std::move(prim), d.clipMask, mapBlend(d.blendMode))) {
+                    continue;
+                }
+                continue;
+            }
             list.push_back(std::move(prim));
         } else if (cmd->type() == Command::Type::Points) {
             const auto *pointsCmd = static_cast<const DrawPointsCommand *>(cmd.get());
             const DrawPointsData &d = pointsCmd->data();
-            if (d.clipMask.hasPaths()) {
-                continue;
-            }
             const std::size_t count = d.getPointCount();
             if (count == 0) {
                 continue;
@@ -3391,13 +3628,13 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
             prim.color[1] = d.color[1];
             prim.color[2] = d.color[2];
             prim.color[3] = d.color[3];
+            if (d.clipMask.hasPaths() && !emitClippedSolid(prim, d.clipMask)) {
+                continue;
+            }
             list.push_back(std::move(prim));
         } else if (cmd->type() == Command::Type::Lines) {
             const auto *linesCmd = static_cast<const DrawLinesCommand *>(cmd.get());
             const DrawLinesData &d = linesCmd->data();
-            if (d.clipMask.hasPaths()) {
-                continue;
-            }
             const std::size_t lineCount = d.getLineCount();
             if (lineCount == 0) {
                 continue;
@@ -3430,11 +3667,14 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
             prim.color[1] = d.color[1];
             prim.color[2] = d.color[2];
             prim.color[3] = d.color[3];
+            if (d.clipMask.hasPaths() && !emitClippedSolid(prim, d.clipMask)) {
+                continue;
+            }
             list.push_back(std::move(prim));
         } else if (cmd->type() == Command::Type::Image) {
             const auto *imageCmd = static_cast<const DrawImageCommand *>(cmd.get());
             const DrawImageData &d = imageCmd->data();
-            if (!d.imageResource || d.clipMask.hasPaths()) {
+            if (!d.imageResource) {
                 continue;
             }
             float nx[4], ny[4];
@@ -3469,6 +3709,14 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
                 prim.uvs.push_back(uu[k]);
                 prim.uvs.push_back(vv[k]);
             }
+            if (d.clipMask.hasPaths()) {
+                // Clipped image: render the textured quad in isolation, then
+                // multiply its alpha by the clip mask before compositing.
+                if (!emitClippedLayer(std::move(prim), d.clipMask, mapBlend(d.blendMode))) {
+                    continue;
+                }
+                continue;
+            }
             list.push_back(std::move(prim));
         } else if (cmd->type() == Command::Type::Text) {
             // Text is rendered as vector triangle geometry (no glyph atlas): the
@@ -3478,13 +3726,11 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
             // (vLocalPos = aPos), so we mirror that exactly.
             const auto *textCmd = static_cast<const DrawTextCommand *>(cmd.get());
             const DrawTextData &d = textCmd->data();
-            if (d.clipMask.hasPaths()) {
-                continue;
-            }
             const std::size_t vertexCount = d.getVertexCount();
             if (vertexCount < 3 || (vertexCount % 3) != 0) {
                 continue;
             }
+            const bool textClipped = d.clipMask.hasPaths();
             wsc::DrawPrimitive prim;
             prim.blendMode = mapBlend(d.blendMode);
             prim.positions.reserve(vertexCount * 2);
@@ -3521,6 +3767,19 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
                 prim.color[1] = d.color[1];
                 prim.color[2] = d.color[2];
                 prim.color[3] = d.color[3];
+            }
+            if (textClipped) {
+                if (d.hasShaderGradient()) {
+                    if (!emitClippedLayer(std::move(prim), d.clipMask, mapBlend(d.blendMode))) {
+                        continue;
+                    }
+                    continue;
+                }
+                if (!emitClippedSolid(prim, d.clipMask)) {
+                    continue;
+                }
+                list.push_back(std::move(prim));
+                continue;
             }
             list.push_back(std::move(prim));
         } else if (cmd->type() == Command::Type::Shadow) {
