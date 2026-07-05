@@ -47,6 +47,25 @@ struct DrawPrimitive
     /// TexturedQuad: alpha multiplier applied to the sampled texture.
     float layerAlpha = 1.0f;
 
+    /// TexturedQuad: RGBA tint multiplied into the sampled texture.
+    float tint[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+
+    /// TexturedQuad: optional 4x4 color matrix (+ offset) applied after tint.
+    bool hasColorMatrix = false;
+    float colorMatrix[16] = {1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f,
+                             0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f};
+    float colorMatrixOffset[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+
+    /// TexturedQuad: sampling filter (0 = linear, 1 = nearest, 2 = mipmap-linear).
+    int sampling = 0;
+
+    /// TexturedQuad: tile/address mode (0 = clamp, 1 = repeat, 2 = mirror, 3 = decal).
+    int tileMode = 0;
+
+    /// TexturedQuad: when false, the texture's own sampler is used (backward
+    /// compatible); when true, a sampler matching `sampling`/`tileMode` is used.
+    bool useCustomSampler = false;
+
     /// TexturedQuad: the image sampled across the quad.
     /// ClipFill: the coverage mask; its red channel modulates the fill alpha.
     SharedImageResource texture;

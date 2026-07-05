@@ -62,10 +62,11 @@ documented gap; 2 remain.
   dest-rect + UVs + alpha) to Vulkan draws (canvas->NDC via the same ortho the GL
   path uses), without touching the OpenGL command execution.
   `renderCommandsToImageResource` renders a command stream into an offscreen
-  target and returns it as an owned sampled texture. Verified by
-  `WhatsCanvasVulkanCommandTests` (real Path, vertex-color Path, Points, Lines,
-  Image, and renderCommandsToImageResource), ASan-clean. Fragment shader
-  gradients, clip, and text translation are follow-ups.
+  target and returns it as an owned sampled texture. Images also honor tint and a
+  4x4 color matrix (fragment push constants). Verified by
+  `WhatsCanvasVulkanCommandTests` and `WhatsCanvasVulkanImageColorTests`,
+  ASan-clean. Fragment shader gradients, clip, and text translation are
+  follow-ups.
 - **Analytic-AA feathering / multi-stop fragment gradients**: the mechanisms are
   in place (coverage mask, vertex-color gradients); true AA feathering and
   texel-buffer multi-stop gradients are refinements.
