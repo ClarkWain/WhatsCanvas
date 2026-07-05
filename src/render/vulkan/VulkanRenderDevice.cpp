@@ -3654,6 +3654,10 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
             return false;
         }
         wsc::DrawList ll;
+        // Render the primitive in isolation with SrcOver over the cleared
+        // (transparent) layer so its RGB is a well-defined premultiplied capture;
+        // the draw's actual blend mode is applied later at composite time.
+        srcPrim.blendMode = 0;
         ll.push_back(std::move(srcPrim));
         if (!executeDrawList(layer, ll)) {
             return false;
