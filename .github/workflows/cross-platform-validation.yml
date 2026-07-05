@@ -8,6 +8,22 @@ on:
   workflow_dispatch:
 
 jobs:
+  api-reference:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check generated API reference
+        run: |
+          chmod +x scripts/api_reference_check.sh
+          ./scripts/api_reference_check.sh
+
+      - name: Check version consistency
+        run: |
+          chmod +x scripts/version_consistency_check.sh
+          ./scripts/version_consistency_check.sh
+
   unit:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -68,6 +84,50 @@ jobs:
         run: |
           chmod +x scripts/opengles_build_smoke.sh
           ./scripts/opengles_build_smoke.sh
+
+  package-consumer:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Linux OpenGL dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
+
+      - name: Build package and verify external CMake consumer
+        run: |
+          chmod +x build.sh scripts/package_consumer_smoke.sh
+          ./build.sh --release --package --no-run
+          ./scripts/package_consumer_smoke.sh
+
+  cmake-release-targets:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Linux OpenGL dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
+
+      - name: Configure release validation targets
+        run: cmake -S . -B build-validation-release-targets -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Check API reference target
+        run: cmake --build build-validation-release-targets --target WhatsCanvasCheckApiReference
+
+      - name: Check version consistency target
+        run: cmake --build build-validation-release-targets --target WhatsCanvasCheckVersionConsistency
+
+      - name: Check package consumer target
+        run: cmake --build build-validation-release-targets --target WhatsCanvasCheckPackageConsumer
 
   optional-font-stack:
     runs-on: ubuntu-latest

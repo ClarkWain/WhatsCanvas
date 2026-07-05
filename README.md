@@ -124,10 +124,12 @@ chmod +x build.sh
 - macOS / Linux：`out/package/Debug/` 或 `out/package/Release/`
 
 其中库文件在 `lib/`，公共头入口在 `include/wsc/`。
+为了让二进制包默认不依赖宿主机额外安装 FreeType，`--package` 默认关闭外部 FreeType 链接并使用内置 `stb_truetype` fallback；源码构建仍默认尝试启用 FreeType。确实需要发布带 FreeType 依赖的包时，可设置 `WHATSCANVAS_PACKAGE_ENABLE_FREETYPE=1` 后再运行 package 构建。
 
 ## 作为库接入
 
 如果你希望把 WhatsCanvas 当成库使用，推荐使用 `--package` 生成交付目录，再在你的项目中通过 CMake 包方式接入。
+完整接入 checklist 见 [Using WhatsCanvas as a Library](doc/GETTING_STARTED_AS_LIBRARY.md)。
 
 ```bat
 build.bat --release --package --no-run
@@ -218,10 +220,15 @@ cmd /c scripts\text_pixel_regression.bat
 cmd /c scripts\examples_smoke.bat
 cmd /c scripts\validation_scene_smoke.bat
 cmd /c scripts\opengles_build_smoke.bat
+cmd /c scripts\package_consumer_smoke.bat
+cmd /c scripts\version_consistency_check.bat
+cmd /c scripts\release_preflight.bat
 ctest -C Debug -L smoke --output-on-failure
 ```
 
 如果只想跑核心单元测试，优先使用 `ctest -C Debug -L unit --output-on-failure`。当前单元测试覆盖 GraphicsState / Path、文本布局、UTF-8 工具、FontManager、文本后端契约、文本回归、RenderStats、RenderTargetPool、CanvasAdapter、矩阵与裁剪、Paint 状态、Image 生命周期、Canvas 上下文生命周期、GlyphAtlas 和弃用提示。
+
+发版前可以使用 `scripts\release_preflight.bat` 跑一组较快的本地预检：API reference freshness、版本一致性、Debug unit tests 和 package consumer smoke。它不会替代完整渲染回归，但可以覆盖最容易漏掉的公开 API、包消费和版本同步问题。
 
 字体像素回归只覆盖文本渲染路径，默认捕获 `font-regression` 和 `text-showcase` 两个场景后与 `tests/baselines/text/*.ppm` 做 fuzzy comparison。需要刷新本机字体基准时，先设置 `WHATSCANVAS_UPDATE_TEXT_BASELINES=1`，再运行 `scripts\text_pixel_regression.bat`；需要临时缩小范围时可设置 `WHATSCANVAS_TEXT_REGRESSION_SCENES=font-regression`。
 
@@ -247,6 +254,11 @@ python scripts\compare_ppm_fuzzy.py baseline.ppm candidate.ppm --max-channel-del
 
 ## 文档入口
 
+- [Using WhatsCanvas as a Library](doc/GETTING_STARTED_AS_LIBRARY.md)：从打包、`find_package`、OpenGL/GLES 上下文到字体注册的最短接入路径。
+- [API Stability](doc/API_STABILITY.md)：记录当前公开 API、CMake package target 和内部/实验边界。
+- [Public API Reference](doc/API_REFERENCE.md)：由 `scripts/generate_api_reference.py` 从 `include/wsc/` 自动生成的公开 API 索引。
+- [Regression Baseline Policy](doc/REGRESSION_BASELINES.md)：记录文本、效果、smoke 和 OpenGLES baseline 的更新规则。
+- [Release Checklist](doc/RELEASE_CHECKLIST.md)：记录版本同步、CI、artifact 和外部 consumer 验证步骤。
 - [架构总览](doc/architecture/README.md)：适合先建立整体分层和模块边界认知。
 - [Text Feature Matrix](doc/TEXT_FEATURE_MATRIX.md)：定义文本、字体、fallback、layout、diagnostics 和后续 atlas 后端的能力边界。
 - [Shader Portability Notes](doc/SHADER_PORTABILITY.md)：记录桌面 OpenGL / OpenGLES shader 版本、precision、状态 guard 和 GLES-only build gate。
@@ -261,6 +273,20 @@ python scripts\compare_ppm_fuzzy.py baseline.ppm candidate.ppm --max-channel-del
 - [字体渲染专题](doc/Font%20Rendering%20Techniques/index.html)：适合补字体渲染、排版和文本后端相关知识。
 - [功能演进记录](doc/CanvasEvaluation.md)：适合回看功能推进、验证方式和阶段性成果。
 - [测试说明](tests/README.md)：适合查看本地测试入口和 Unicode Bidi conformance 说明。
+
+公开 API 文档可通过 CMake target 刷新或检查：
+
+```bat
+cmake --build build --target WhatsCanvasGenerateApiReference
+cmake --build build --target WhatsCanvasCheckApiReference
+```
+
+版本和安装包消费面也提供了对应的 CMake 检查入口：
+
+```bat
+cmake --build build --target WhatsCanvasCheckVersionConsistency
+cmake --build build --target WhatsCanvasCheckPackageConsumer
+```
 
 ## 架构
 
