@@ -65,11 +65,41 @@ jobs:
           chmod +x build.sh
           ./build.sh --release --package --no-run
 
+      - name: Check version consistency on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cmd /c scripts\version_consistency_check.bat
+
+      - name: Check version consistency on Unix
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          chmod +x scripts/version_consistency_check.sh
+          ./scripts/version_consistency_check.sh
+
+      - name: Verify package consumer on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cmd /c scripts\package_consumer_smoke.bat
+
+      - name: Verify package consumer on Unix
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          chmod +x scripts/package_consumer_smoke.sh
+          ./scripts/package_consumer_smoke.sh
+
       - name: Archive package
         id: archive
         shell: pwsh
         run: |
-          $version = "0.1.11"
+          $cmake = Get-Content CMakeLists.txt -Raw
+          if ($cmake -notmatch 'project\s*\(\s*WhatsCanvas\s+VERSION\s+([0-9]+\.[0-9]+\.[0-9]+)') {
+            throw "Unable to read WhatsCanvas version from CMakeLists.txt"
+          }
+          $version = $Matches[1]
           $configLower = "${{ matrix.config }}".ToLowerInvariant()
           $artifactName = "whatscanvas-${{ matrix.os_id }}-$configLower-$version"
           $archivePath = Join-Path $PWD "$artifactName.zip"

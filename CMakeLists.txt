@@ -5,6 +5,7 @@ project(WhatsCanvas VERSION 0.1.11 LANGUAGES C CXX)
 include(CTest)
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
+find_package(Python3 COMPONENTS Interpreter QUIET)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -36,6 +37,45 @@ set(WHATSCANVAS_CMAKE_DIR ${CMAKE_CURRENT_LIST_DIR}/cmake)
 include(${WHATSCANVAS_CMAKE_DIR}/WhatsCanvasOpenGL.cmake)
 
 whatscanvas_add_common_dependencies(${CMAKE_CURRENT_LIST_DIR})
+
+if (Python3_Interpreter_FOUND)
+    add_custom_target(WhatsCanvasGenerateApiReference
+        COMMAND ${Python3_EXECUTABLE} scripts/generate_api_reference.py
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "Generating doc/API_REFERENCE.md from include/wsc"
+        VERBATIM
+    )
+    add_custom_target(WhatsCanvasCheckApiReference
+        COMMAND ${Python3_EXECUTABLE} scripts/generate_api_reference.py --check
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "Checking generated public API reference freshness"
+        VERBATIM
+    )
+    add_custom_target(WhatsCanvasCheckVersionConsistency
+        COMMAND ${Python3_EXECUTABLE} scripts/version_consistency_check.py
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "Checking release version metadata consistency"
+        VERBATIM
+    )
+else()
+    message(STATUS "Python3 interpreter not found; API reference and version consistency targets are disabled.")
+endif()
+
+if (WIN32)
+    add_custom_target(WhatsCanvasCheckPackageConsumer
+        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/package_consumer_smoke.bat
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "Checking external CMake package consumer"
+        VERBATIM
+    )
+else()
+    add_custom_target(WhatsCanvasCheckPackageConsumer
+        COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/scripts/package_consumer_smoke.sh
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "Checking external CMake package consumer"
+        VERBATIM
+    )
+endif()
 
 if (WHATSCANVAS_BUILD_OPENGL)
     whatscanvas_add_opengl_library(WhatsCanvasOpenGL ${CMAKE_CURRENT_LIST_DIR})
@@ -760,6 +800,24 @@ if (BUILD_TESTING AND WHATSCANVAS_ENABLE_SCRIPT_TESTS)
                 -DWHATSCANVAS_GATE_WORKDIR=${CMAKE_CURRENT_SOURCE_DIR}
                 -P ${WHATSCANVAS_TEST_WRAPPER}
         )
+        add_test(NAME WhatsCanvasApiReferenceCheck
+            COMMAND ${CMAKE_COMMAND}
+                -DWHATSCANVAS_GATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/api_reference_check.bat
+                -DWHATSCANVAS_GATE_WORKDIR=${CMAKE_CURRENT_SOURCE_DIR}
+                -P ${WHATSCANVAS_TEST_WRAPPER}
+        )
+        add_test(NAME WhatsCanvasVersionConsistencyCheck
+            COMMAND ${CMAKE_COMMAND}
+                -DWHATSCANVAS_GATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/version_consistency_check.bat
+                -DWHATSCANVAS_GATE_WORKDIR=${CMAKE_CURRENT_SOURCE_DIR}
+                -P ${WHATSCANVAS_TEST_WRAPPER}
+        )
+        add_test(NAME WhatsCanvasPackageConsumerSmoke
+            COMMAND ${CMAKE_COMMAND}
+                -DWHATSCANVAS_GATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/package_consumer_smoke.bat
+                -DWHATSCANVAS_GATE_WORKDIR=${CMAKE_CURRENT_SOURCE_DIR}
+                -P ${WHATSCANVAS_TEST_WRAPPER}
+        )
 
         if (WHATSCANVAS_ENABLE_LOCAL_REGRESSION_TEST)
             add_test(NAME WhatsCanvasRegressionSmoke
@@ -816,6 +874,27 @@ if (BUILD_TESTING AND WHATSCANVAS_ENABLE_SCRIPT_TESTS)
                 -DWHATSCANVAS_GATE_LAUNCHER=sh
                 -P ${WHATSCANVAS_TEST_WRAPPER}
         )
+        add_test(NAME WhatsCanvasApiReferenceCheck
+            COMMAND ${CMAKE_COMMAND}
+                -DWHATSCANVAS_GATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/api_reference_check.sh
+                -DWHATSCANVAS_GATE_WORKDIR=${CMAKE_CURRENT_SOURCE_DIR}
+                -DWHATSCANVAS_GATE_LAUNCHER=sh
+                -P ${WHATSCANVAS_TEST_WRAPPER}
+        )
+        add_test(NAME WhatsCanvasVersionConsistencyCheck
+            COMMAND ${CMAKE_COMMAND}
+                -DWHATSCANVAS_GATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/version_consistency_check.sh
+                -DWHATSCANVAS_GATE_WORKDIR=${CMAKE_CURRENT_SOURCE_DIR}
+                -DWHATSCANVAS_GATE_LAUNCHER=sh
+                -P ${WHATSCANVAS_TEST_WRAPPER}
+        )
+        add_test(NAME WhatsCanvasPackageConsumerSmoke
+            COMMAND ${CMAKE_COMMAND}
+                -DWHATSCANVAS_GATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/package_consumer_smoke.sh
+                -DWHATSCANVAS_GATE_WORKDIR=${CMAKE_CURRENT_SOURCE_DIR}
+                -DWHATSCANVAS_GATE_LAUNCHER=sh
+                -P ${WHATSCANVAS_TEST_WRAPPER}
+        )
 
         if (WHATSCANVAS_ENABLE_LOCAL_REGRESSION_TEST)
             add_test(NAME WhatsCanvasRegressionSmoke
@@ -846,6 +925,9 @@ if (BUILD_TESTING AND WHATSCANVAS_ENABLE_SCRIPT_TESTS)
         WhatsCanvasExamplesSmoke
         WhatsCanvasValidationSceneSmoke
         WhatsCanvasOpenGLESSmoke
+        WhatsCanvasApiReferenceCheck
+        WhatsCanvasVersionConsistencyCheck
+        WhatsCanvasPackageConsumerSmoke
         PROPERTIES
             WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
             TIMEOUT 1800
@@ -855,6 +937,9 @@ if (BUILD_TESTING AND WHATSCANVAS_ENABLE_SCRIPT_TESTS)
     set_tests_properties(WhatsCanvasExamplesSmoke PROPERTIES LABELS "smoke;examples")
     set_tests_properties(WhatsCanvasValidationSceneSmoke PROPERTIES LABELS "smoke;validation")
     set_tests_properties(WhatsCanvasOpenGLESSmoke PROPERTIES LABELS "smoke;opengles")
+    set_tests_properties(WhatsCanvasApiReferenceCheck PROPERTIES LABELS "smoke;api;docs")
+    set_tests_properties(WhatsCanvasVersionConsistencyCheck PROPERTIES LABELS "smoke;version;package")
+    set_tests_properties(WhatsCanvasPackageConsumerSmoke PROPERTIES LABELS "smoke;package")
 endif()
 
 if (WHATSCANVAS_INSTALL)

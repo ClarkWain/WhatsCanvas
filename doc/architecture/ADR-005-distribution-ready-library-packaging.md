@@ -2,18 +2,20 @@
 
 ## Status
 
-Proposed.
+Accepted. The first distribution-ready packaging slice is implemented; deeper target splitting remains future work.
 
 ## Context
 
-WhatsCanvas 已经走出了“只有 demo、没有库”的第一步：当前根工程可以先构建 `WhatsCanvasOpenGL`，再让 demo 和 example 复用它。这说明工程已经具备“被当作库组织”的雏形。
+WhatsCanvas 已经从“只有 demo 的源码工程”推进到可被外部 CMake 工程消费的库形态。当前已具备：
 
-但如果目标是后续在 GitHub 上直接发布动态库、静态库、头文件，并让使用者低成本接入，当前结构还存在几个明显障碍：
+- 稳定公共头目录 `include/wsc/`。
+- `WhatsCanvas::OpenGL` package target，以及启用 OpenGLES 时的 `WhatsCanvas::OpenGLES` target。
+- `install()`、export、`WhatsCanvasConfig.cmake` 和 `WhatsCanvasConfigVersion.cmake`。
+- `build.bat --package` / `build.sh --package` 生成 `out/package/<config>/`。
+- 外部 consumer smoke，验证 `find_package(WhatsCanvas CONFIG REQUIRED)` 和导出 target。
+- API reference、版本一致性、package consumer 和 release preflight gate。
 
-- 公开 API 头文件并没有真正独立成稳定的安装面，`Canvas.h`、`Paint.h`、`Image.h`、`Path.h` 等仍主要放在 `src/` 下。
-- 当前主库名 `WhatsCanvasOpenGL` 仍然把“引擎核心”和“OpenGL 后端”绑在一起，不利于多后端演进。
-- demo、example、tests、validation scripts 都围绕同一套源码组织，但还没有形成明确的“可安装库”与“仓库内部工具/样例”边界。
-- 没有 `install()`、`export()`、`WhatsCanvasConfig.cmake`、版本文件、发布产物布局等分发能力。
+剩余挑战不再是“能不能作为库分发”，而是继续把内部模块拆得更清楚，并让 release artifact 在真实 GitHub Actions 矩阵中持续通过。
 
 ## Decision
 
@@ -48,30 +50,29 @@ WhatsCanvas 后续应按“核心库 + 后端库 + 可选平台胶水 + 示例�
 
 ### 2. 公开头文件布局
 
-需要把真正的公共 API 从 `src/` 中抽离到明确的安装头目录，例如：
+当前公共 API 已经放在 `include/wsc/`，并通过安装包发布：
 
 ```text
 include/
-  whatscanvas/
+  wsc/
+    wsc.h
     Canvas.h
+    CanvasAdapter.h
     Paint.h
     Path.h
     Image.h
     Color.h
-    Geometry.h
-    TextTypes.h
+    Font.h
+    Matrix.h
+    TextureSource.h
     Version.h
-  whatscanvas/backend/
-    OpenGLRenderDevice.h        # 若确实需要对外暴露
-  whatscanvas/platform/
-    GLFWCanvasApp.h             # 若提供快速接入层
 ```
 
 对应原则：
 
-- 使用者只需要看 `include/whatscanvas/` 就能开始接入。
+- 使用者只需要看 `include/wsc/` 就能开始接入。
 - `src/` 下的头文件默认视为内部实现细节，不直接安装。
-- 任何未来希望稳定发布的类型，都必须先进入 `include/whatscanvas/`，再谈 ABI/API 兼容。
+- 任何未来希望稳定发布的类型，都必须先进入 `include/wsc/`，再谈 ABI/API 兼容。
 
 ### 3. 目录组织建议
 
@@ -89,9 +90,9 @@ src/
     glfw/
 
 include/
-  whatscanvas/
-  whatscanvas/backend/
-  whatscanvas/platform/
+  wsc/
+  wsc/backend/
+  wsc/platform/
 
 examples/
   game/
@@ -104,25 +105,24 @@ scripts/
 
 ### 4. CMake 选项与安装导出
 
-要让别人“直接拿来用”，CMake 至少要补齐这些开关与能力：
+当前已经具备这些核心开关和能力：
 
-- `WHATSCANVAS_BUILD_SHARED`
-- `WHATSCANVAS_BUILD_STATIC`
 - `WHATSCANVAS_BUILD_DEMO`
-- `WHATSCANVAS_BUILD_EXAMPLES`
-- `WHATSCANVAS_BUILD_TESTS`
-- `WHATSCANVAS_BUILD_TOOLS`
 - `WHATSCANVAS_INSTALL`
-- `WHATSCANVAS_USE_BUNDLED_DEPS`
+- `WHATSCANVAS_BUILD_OPENGL`
+- `WHATSCANVAS_BUILD_OPENGLES`
+- `WHATSCANVAS_BUILD_BENCHMARKS`
+- `WHATSCANVAS_ENABLE_OPENTYPE_SHAPING`
+- `WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER`
 
-同时补齐以下安装导出动作：
+当前已经补齐：
 
 - `install(TARGETS ...)` 安装动态库、静态库和导入库。
 - `install(DIRECTORY include/ DESTINATION include)` 安装公共头文件。
 - `install(EXPORT WhatsCanvasTargets ...)` 导出 target。
 - 生成并安装 `WhatsCanvasConfig.cmake`。
 - 生成并安装 `WhatsCanvasConfigVersion.cmake`。
-- 为 Windows、Linux、macOS 分别整理 `bin/`、`lib/`、`include/`、`cmake/` 布局。
+- 为 Windows、Linux、macOS package workflow 整理 `lib/`、`include/`、`lib/cmake/WhatsCanvas/` 布局。
 
 最终使用者应该可以直接这样接：
 
@@ -186,9 +186,9 @@ WhatsCanvas-<version>-win64-static.zip
 
 ## Follow-up
 
-1. 先把 `Canvas.h`、`Paint.h`、`Path.h`、`Image.h` 等公共头迁入 `include/whatscanvas/`，建立最小公共头集合。
-2. 把当前 `WhatsCanvasOpenGL` 拆成 `WhatsCanvas::Core` 与 `WhatsCanvas::BackendOpenGL` 两层。
-3. 为 demo 和 examples 改成链接公开 target，而不是直接假定源码布局。
-4. 补 `install()`、`export()`、`WhatsCanvasConfig.cmake` 与版本文件。
-5. 再决定是否提供 `WhatsCanvas::PlatformGLFW` 作为“快速接入层”。
-6. 最后接入 GitHub Actions / CPack / 自定义脚本，产出 release 二进制包。
+1. 把当前 `WhatsCanvasOpenGL` 继续拆成更清晰的 `Core` 与 `BackendOpenGL` 两层。
+2. 为 examples 继续保持独立构建 smoke，避免示例依赖未公开的内部路径。
+3. 视需要补 `WHATSCANVAS_BUILD_SHARED` / `WHATSCANVAS_BUILD_STATIC` 这类更明确的产物形态选项。
+4. 再决定是否提供 `WhatsCanvas::PlatformGLFW` 作为“快速接入层”。
+5. 在 GitHub Actions 实跑 package workflow 后，根据 artifact 结果调整 release 包布局。
+6. 长期评估 CPack 或自定义 release packager，减少平台包脚本分叉。
