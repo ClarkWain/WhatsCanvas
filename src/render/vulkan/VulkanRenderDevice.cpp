@@ -257,33 +257,71 @@ struct VulkanRenderDevice::VulkanContext
         blend.blendEnable = VK_TRUE;
         blend.colorBlendOp = VK_BLEND_OP_ADD;
         blend.alphaBlendOp = VK_BLEND_OP_ADD;
-        blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-        blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
         blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT
                                | VK_COLOR_COMPONENT_A_BIT;
+        // Mirror RenderContext::applyBlendMode's glBlendFuncSeparate exactly
+        // (GL_FUNC_ADD equation). Indices come from the executeCommands mapBlend
+        // lambda; keep 0 == SrcOver as the shared default for pipelines that do
+        // not translate a Command blend mode.
+        auto set = [&](VkBlendFactor srcC, VkBlendFactor dstC, VkBlendFactor srcA, VkBlendFactor dstA) {
+            blend.srcColorBlendFactor = srcC;
+            blend.dstColorBlendFactor = dstC;
+            blend.srcAlphaBlendFactor = srcA;
+            blend.dstAlphaBlendFactor = dstA;
+        };
         switch (blendMode) {
-        case 1: // Src
-            blend.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
-            blend.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;
-            blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-            blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+        case 1: // Src: (ONE, ZERO, ONE, ZERO)
+            set(VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ZERO, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ZERO);
             break;
-        case 2: // Add
-            blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-            blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+        case 2: // Add: (SRC_ALPHA, ONE, ONE, ONE)
+            set(VK_BLEND_FACTOR_SRC_ALPHA, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ONE);
             break;
-        case 3: // Multiply
-            blend.srcColorBlendFactor = VK_BLEND_FACTOR_DST_COLOR;
-            blend.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;
+        case 3: // Multiply: (DST_COLOR, ZERO, DST_ALPHA, ZERO)
+            set(VK_BLEND_FACTOR_DST_COLOR, VK_BLEND_FACTOR_ZERO, VK_BLEND_FACTOR_DST_ALPHA,
+                VK_BLEND_FACTOR_ZERO);
             break;
-        case 4: // Screen
-            blend.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
-            blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
+        case 4: // Screen: (ONE, ONE_MINUS_SRC_COLOR, ONE, ONE_MINUS_SRC_ALPHA)
+            set(VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR, VK_BLEND_FACTOR_ONE,
+                VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA);
             break;
-        case 0: // SrcOver
+        case 5: // Dst: (ZERO, ONE, ZERO, ONE)
+            set(VK_BLEND_FACTOR_ZERO, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ZERO, VK_BLEND_FACTOR_ONE);
+            break;
+        case 6: // Clear: (ZERO, ZERO, ZERO, ZERO)
+            set(VK_BLEND_FACTOR_ZERO, VK_BLEND_FACTOR_ZERO, VK_BLEND_FACTOR_ZERO, VK_BLEND_FACTOR_ZERO);
+            break;
+        case 7: // SrcIn: (DST_ALPHA, ZERO, DST_ALPHA, ZERO)
+            set(VK_BLEND_FACTOR_DST_ALPHA, VK_BLEND_FACTOR_ZERO, VK_BLEND_FACTOR_DST_ALPHA,
+                VK_BLEND_FACTOR_ZERO);
+            break;
+        case 8: // DstIn: (ZERO, SRC_ALPHA, ZERO, SRC_ALPHA)
+            set(VK_BLEND_FACTOR_ZERO, VK_BLEND_FACTOR_SRC_ALPHA, VK_BLEND_FACTOR_ZERO,
+                VK_BLEND_FACTOR_SRC_ALPHA);
+            break;
+        case 9: // SrcOut: (ONE_MINUS_DST_ALPHA, ZERO, ONE_MINUS_DST_ALPHA, ZERO)
+            set(VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA, VK_BLEND_FACTOR_ZERO,
+                VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA, VK_BLEND_FACTOR_ZERO);
+            break;
+        case 10: // DstOut: (ZERO, ONE_MINUS_SRC_ALPHA, ZERO, ONE_MINUS_SRC_ALPHA)
+            set(VK_BLEND_FACTOR_ZERO, VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA, VK_BLEND_FACTOR_ZERO,
+                VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA);
+            break;
+        case 11: // SrcAtop: (DST_ALPHA, ONE_MINUS_SRC_ALPHA, DST_ALPHA, ONE_MINUS_SRC_ALPHA)
+            set(VK_BLEND_FACTOR_DST_ALPHA, VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA, VK_BLEND_FACTOR_DST_ALPHA,
+                VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA);
+            break;
+        case 12: // DstAtop: (ONE_MINUS_DST_ALPHA, SRC_ALPHA, ONE_MINUS_DST_ALPHA, SRC_ALPHA)
+            set(VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA, VK_BLEND_FACTOR_SRC_ALPHA,
+                VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA, VK_BLEND_FACTOR_SRC_ALPHA);
+            break;
+        case 13: // Xor: (ONE_MINUS_DST_ALPHA, ONE_MINUS_SRC_ALPHA, ...)
+            set(VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA, VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+                VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA, VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA);
+            break;
+        case 0: // SrcOver: (SRC_ALPHA, ONE_MINUS_SRC_ALPHA, ONE, ONE_MINUS_SRC_ALPHA)
         default:
-            blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-            blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+            set(VK_BLEND_FACTOR_SRC_ALPHA, VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA, VK_BLEND_FACTOR_ONE,
+                VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA);
             break;
         }
         return blend;
@@ -3205,7 +3243,8 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
         return false;
     }
 
-    // Map the Canvas blend model to the Vulkan solid blend-mode indices.
+    // Map the Canvas blend model to the Vulkan solid blend-mode indices
+    // (see blendStateFor, which mirrors RenderContext::applyBlendMode exactly).
     auto mapBlend = [](DrawBlendMode mode) -> int {
         switch (mode) {
         case DrawBlendMode::Src:
@@ -3216,6 +3255,24 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
             return 3;
         case DrawBlendMode::Screen:
             return 4;
+        case DrawBlendMode::Dst:
+            return 5;
+        case DrawBlendMode::Clear:
+            return 6;
+        case DrawBlendMode::SrcIn:
+            return 7;
+        case DrawBlendMode::DstIn:
+            return 8;
+        case DrawBlendMode::SrcOut:
+            return 9;
+        case DrawBlendMode::DstOut:
+            return 10;
+        case DrawBlendMode::SrcAtop:
+            return 11;
+        case DrawBlendMode::DstAtop:
+            return 12;
+        case DrawBlendMode::Xor:
+            return 13;
         default:
             return 0; // SrcOver
         }
