@@ -16,10 +16,12 @@ namespace wsc::software {
 /// and is fully headless-testable — useful for server-side rendering,
 /// thumbnails, golden-image baselines and environments without a GPU.
 ///
-/// Milestone 1 scope: filled/stroked paths and geometry text (triangle lists
-/// with optional per-vertex color and analytic-AA coverage), SrcOver-family
-/// blending, and pixel readback. Gradients, images, clip masks, offscreen
-/// layers and blurred shadows are added in later milestones.
+/// Feature coverage: filled/stroked paths and geometry text (triangle lists
+/// with optional per-vertex color and analytic-AA coverage), all 14 blend
+/// modes, linear/radial gradients, points and lines, image sampling (tint,
+/// color matrix, sampling quality and tile modes), scissor plus anti-aliased
+/// path clipping, true separable-Gaussian shadows, saveLayer offscreen layers,
+/// optional gamma-correct linear-space blending, and pixel readback.
 class SoftwareRenderer final : public IRenderer
 {
 public:

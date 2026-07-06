@@ -93,8 +93,8 @@ if (WHATSCANVAS_BUILD_SOFTWARE)
     add_library(WhatsCanvas::Software ALIAS WhatsCanvasSoftware)
 endif()
 
-if (NOT TARGET WhatsCanvasOpenGL AND NOT TARGET WhatsCanvasOpenGLES)
-    message(FATAL_ERROR "At least one renderer target must be enabled: WHATSCANVAS_BUILD_OPENGL or WHATSCANVAS_BUILD_OPENGLES.")
+if (NOT TARGET WhatsCanvasOpenGL AND NOT TARGET WhatsCanvasOpenGLES AND NOT TARGET WhatsCanvasSoftware)
+    message(FATAL_ERROR "At least one renderer target must be enabled: WHATSCANVAS_BUILD_OPENGL, WHATSCANVAS_BUILD_OPENGLES or WHATSCANVAS_BUILD_SOFTWARE.")
 endif()
 
 if (WHATSCANVAS_BUILD_DEMO AND TARGET WhatsCanvasOpenGL)

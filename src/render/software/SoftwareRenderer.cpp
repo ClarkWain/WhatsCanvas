@@ -12,9 +12,9 @@
 namespace wsc::software {
 namespace {
 
-/// CPU-side image resource holding a straight-alpha RGBA8 buffer. Sampling is
-/// added in a later milestone; for now it just stores the pixels so image and
-/// bitmap-text resource creation succeeds.
+/// CPU-side image resource holding a straight-alpha RGBA8 buffer. sample()
+/// supports nearest/bilinear filtering and clamp/repeat/mirror/decal tile
+/// modes; it backs both image draws and bitmap-text atlas resources.
 class SoftwareImageResource final : public ImageResource
 {
 public:
@@ -765,8 +765,11 @@ void blurAlpha(std::vector<float> &buffer, int width, int height, const wsc::ren
 }
 
 /// True separable-Gaussian drop shadow: rasterize the silhouette coverage, blur
-/// it, then composite the tinted blurred coverage into the framebuffer.
-void rasterizeShadow(std::uint8_t *framebuffer, int width, int height, const DrawShadowData &data)
+/// it, then composite the tinted blurred coverage into the framebuffer. `extra`
+/// offsets the silhouette and scissor for offscreen layers; `canvasHeight` is
+/// the flip height for the GL bottom-up scissor.
+void rasterizeShadow(std::uint8_t *framebuffer, int width, int height, int canvasHeight,
+                     const glm::mat4 &extra, const DrawShadowData &data)
 {
     if (width <= 0 || height <= 0 || !(data.blurRadius > 0.0f)) {
         return;
@@ -775,7 +778,7 @@ void rasterizeShadow(std::uint8_t *framebuffer, int width, int height, const Dra
 
     if (!data.silhouette.points.empty()) {
         rasterizeCoverageTriangles(alpha.data(), width, height, data.silhouette.points,
-                                   data.silhouette.coverage, data.silhouette.transform);
+                                   data.silhouette.coverage, extra * data.silhouette.transform);
     }
     for (const DrawImageData &quad : data.imageSilhouette) {
         const auto *image = dynamic_cast<const SoftwareImageResource *>(quad.imageResource.get());
@@ -784,7 +787,7 @@ void rasterizeShadow(std::uint8_t *framebuffer, int width, int height, const Dra
         }
         struct IV { float x; float y; float u; float v; };
         auto corner = [&](float cx, float cy, float u, float v) {
-            const glm::vec4 d = quad.transform * glm::vec4(cx, cy, 0.0f, 1.0f);
+            const glm::vec4 d = extra * quad.transform * glm::vec4(cx, cy, 0.0f, 1.0f);
             return IV{d.x, d.y, u, v};
         };
         const IV c0 = corner(quad.x, quad.y, quad.u0, quad.v0);
@@ -832,11 +835,13 @@ void rasterizeShadow(std::uint8_t *framebuffer, int width, int height, const Dra
     RasterClip clip;
     clip.width = width;
     if (data.scissor.enabled) {
+        const int ox = static_cast<int>(std::lround(extra[3][0]));
+        const int oy = static_cast<int>(std::lround(extra[3][1]));
         clip.hasScissor = true;
-        clip.sx0 = data.scissor.x;
-        clip.sx1 = data.scissor.x + data.scissor.width;
-        clip.sy0 = height - data.scissor.y - data.scissor.height;
-        clip.sy1 = height - data.scissor.y;
+        clip.sx0 = data.scissor.x + ox;
+        clip.sx1 = data.scissor.x + data.scissor.width + ox;
+        clip.sy0 = canvasHeight - data.scissor.y - data.scissor.height + oy;
+        clip.sy1 = canvasHeight - data.scissor.y + oy;
     }
 
     for (int py = 0; py < height; ++py) {
@@ -972,7 +977,8 @@ void executeCommandList(std::uint8_t *framebuffer, int width, int height, int ca
             break;
         }
         case Command::Type::Shadow: {
-            rasterizeShadow(framebuffer, width, height, static_cast<const DrawShadowCommand &>(command).data());
+            rasterizeShadow(framebuffer, width, height, canvasHeight, extra,
+                            static_cast<const DrawShadowCommand &>(command).data());
             break;
         }
         default:
