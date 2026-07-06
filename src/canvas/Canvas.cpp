@@ -6,7 +6,9 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#ifndef WHATSCANVAS_SOFTWARE_ONLY
 #include <glad/glad.h>
+#endif
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <memory>
@@ -24,7 +26,10 @@
 #include "render/GraphicsStateStack.h"
 #include "render/IRenderer.h"
 #include "render/RenderTypes.h"
+#ifndef WHATSCANVAS_SOFTWARE_ONLY
 #include "render/Renderer.h"
+#endif
+#include "render/software/SoftwareRenderer.h"
 #include "text/BasicTextBackend.h"
 #include "text/ITextBackend.h"
 #include "text/NativeText.h"
@@ -32,7 +37,9 @@
 #include "text/TextUtils.h"
 #include "command/DrawData.h"
 #include "command/DrawCommand.h"
+#ifndef WHATSCANVAS_SOFTWARE_ONLY
 #include "opengl/AsyncReadback.h"
+#endif
 #include "render/AntiAlias.h"
 #include "render/LruCache.h"
 #include "render/GammaCorrect.h"
@@ -46,6 +53,7 @@ namespace wsc {
 namespace {
 void applyGammaFramebufferState()
 {
+#ifndef WHATSCANVAS_SOFTWARE_ONLY
     if (glad_glEnable == nullptr || glad_glDisable == nullptr) {
         return;
     }
@@ -56,6 +64,7 @@ void applyGammaFramebufferState()
     } else {
         glDisable(GL_FRAMEBUFFER_SRGB);
     }
+#endif
 #endif
 }
 
@@ -2084,7 +2093,9 @@ struct Canvas::Impl
     std::unique_ptr<IRenderer> renderer;
     std::unique_ptr<wsc::text::ITextBackend> textBackend;
     std::unique_ptr<GraphicsStateStack> graphicsStates;
+#ifndef WHATSCANVAS_SOFTWARE_ONLY
     AsyncReadback asyncReadback;
+#endif
     std::vector<LayerState> layerStack;
     // Retains transform-independent fill triangulations so repeated/static
     // shapes are not re-triangulated every frame.
@@ -2102,15 +2113,30 @@ struct Canvas::Impl
     std::shared_ptr<ImageResource> renderTargetImageResource;
 };
 
+#ifdef WHATSCANVAS_SOFTWARE_ONLY
+Canvas::Canvas()
+    : Canvas(std::make_unique<wsc::software::SoftwareRenderer>(0, 0))
+{
+}
+#else
 Canvas::Canvas()
     : Canvas(std::make_unique<Renderer>())
 {
 }
+#endif
 
 Canvas::Canvas(std::unique_ptr<IRenderer> renderer)
     : impl_(std::make_unique<Impl>(std::move(renderer), wsc::text::createBasicTextBackend()))
 {
     registerCanvasInstance(this);
+}
+
+std::unique_ptr<Canvas> Canvas::createSoftware(int width, int height)
+{
+    std::unique_ptr<Canvas> canvas(new Canvas(std::make_unique<wsc::software::SoftwareRenderer>(width, height)));
+    canvas->setSize(width, height);
+    canvas->initializeContext();
+    return canvas;
 }
 
 Canvas::~Canvas()
@@ -2139,17 +2165,26 @@ void Canvas::finalize()
 
 bool Canvas::loadOpenGL(OpenGLProcAddress loadProcAddress)
 {
+#ifdef WHATSCANVAS_SOFTWARE_ONLY
+    (void)loadProcAddress;
+    return false;
+#else
     if (loadProcAddress == nullptr) {
         return false;
     }
 
     return gladLoadGLLoader(reinterpret_cast<GLADloadproc>(loadProcAddress)) != 0;
+#endif
 }
 
 std::string Canvas::getOpenGLVersionString()
 {
+#ifdef WHATSCANVAS_SOFTWARE_ONLY
+    return std::string();
+#else
     const auto *version = glGetString(GL_VERSION);
     return version == nullptr ? std::string() : reinterpret_cast<const char *>(version);
+#endif
 }
 
 void Canvas::setGammaCorrect(bool enabled)
@@ -4737,20 +4772,33 @@ std::vector<unsigned char> Canvas::readPixelsRGBA() const
 
 bool Canvas::readPixelsRGBAAsync(ReadPixelsCallback callback)
 {
+#ifdef WHATSCANVAS_SOFTWARE_ONLY
+    (void)callback;
+    return false;
+#else
     if (!callback || impl_->width <= 0 || impl_->height <= 0 || !impl_->rendererInitialized) {
         return false;
     }
     return impl_->asyncReadback.submit(0, 0, impl_->width, impl_->height, std::move(callback));
+#endif
 }
 
 bool Canvas::pollReadPixelsRGBAAsync()
 {
+#ifdef WHATSCANVAS_SOFTWARE_ONLY
+    return false;
+#else
     return impl_->asyncReadback.checkCompletion();
+#endif
 }
 
 bool Canvas::hasPendingReadPixelsRGBAAsync() const
 {
+#ifdef WHATSCANVAS_SOFTWARE_ONLY
+    return false;
+#else
     return impl_->asyncReadback.isPending();
+#endif
 }
 
 bool Canvas::savePixelsPPM(const std::string &path) const

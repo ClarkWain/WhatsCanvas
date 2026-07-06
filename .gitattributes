@@ -1,0 +1,5 @@
+# Treat renderer baseline images as binary so their pixel payloads are never
+# mangled by end-of-line normalization.
+*.pam binary
+*.ppm binary
+*.png binary
