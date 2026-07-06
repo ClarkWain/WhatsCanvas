@@ -131,8 +131,22 @@ private:
 class SoftwareClipMaskResource final : public ClipMaskResource
 {
 public:
-    bool isValid() const override { return true; }
+    explicit SoftwareClipMaskResource(const ClipMaskPath &maskPath)
+        : points_(maskPath.points), coverage_(maskPath.coverage), transform_(maskPath.transform)
+    {
+    }
+
+    bool isValid() const override { return !points_.empty(); }
     void apply(const RenderContext &, const ScissorState &, std::size_t) const override {}
+
+    const std::vector<float> &points() const { return points_; }
+    const std::vector<float> &coverage() const { return coverage_; }
+    const glm::mat4 &transform() const { return transform_; }
+
+private:
+    std::vector<float> points_;
+    std::vector<float> coverage_;
+    glm::mat4 transform_ = glm::mat4(1.0f);
 };
 
 inline std::uint8_t toByte(float value)
@@ -295,6 +309,78 @@ inline float edge(float ax, float ay, float bx, float by, float cx, float cy)
     return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
 }
 
+/// Per-pixel clip: an optional canvas-sized coverage buffer (from clip paths)
+/// and an optional scissor rectangle (already converted to top-down pixels).
+struct RasterClip
+{
+    const float *coverage = nullptr; // width*height, or null
+    int width = 0;
+    bool hasScissor = false;
+    int sx0 = 0;
+    int sy0 = 0;
+    int sx1 = 0;
+    int sy1 = 0;
+
+    inline float at(int px, int py) const
+    {
+        if (hasScissor && (px < sx0 || px >= sx1 || py < sy0 || py >= sy1)) {
+            return 0.0f;
+        }
+        if (coverage != nullptr) {
+            return coverage[static_cast<std::size_t>(py) * width + px];
+        }
+        return 1.0f;
+    }
+};
+
+/// Rasterize a clip path's analytic-AA coverage triangles into `dst`, keeping
+/// the maximum coverage where interior and fringe triangles overlap.
+void rasterizeCoverageTriangles(float *dst, int width, int height, const std::vector<float> &points,
+                                const std::vector<float> &coverage, const glm::mat4 &transform)
+{
+    const std::size_t vertexCount = points.size() / 2;
+    if (vertexCount < 3) {
+        return;
+    }
+    const bool hasCoverage = coverage.size() >= vertexCount;
+
+    struct CV { float x; float y; float c; };
+    auto makeVertex = [&](std::size_t index) {
+        const glm::vec4 device = transform * glm::vec4(points[index * 2], points[index * 2 + 1], 0.0f, 1.0f);
+        return CV{device.x, device.y, hasCoverage ? coverage[index] : 1.0f};
+    };
+
+    for (std::size_t t = 0; t + 2 < vertexCount; t += 3) {
+        const CV v0 = makeVertex(t);
+        const CV v1 = makeVertex(t + 1);
+        const CV v2 = makeVertex(t + 2);
+        const float area = edge(v0.x, v0.y, v1.x, v1.y, v2.x, v2.y);
+        if (std::fabs(area) < 1e-7f) {
+            continue;
+        }
+        const float invArea = 1.0f / area;
+        int minX = std::max(0, static_cast<int>(std::floor(std::min({v0.x, v1.x, v2.x}))));
+        int maxX = std::min(width - 1, static_cast<int>(std::ceil(std::max({v0.x, v1.x, v2.x}))));
+        int minY = std::max(0, static_cast<int>(std::floor(std::min({v0.y, v1.y, v2.y}))));
+        int maxY = std::min(height - 1, static_cast<int>(std::ceil(std::max({v0.y, v1.y, v2.y}))));
+        for (int py = minY; py <= maxY; ++py) {
+            for (int px = minX; px <= maxX; ++px) {
+                const float sx = px + 0.5f;
+                const float sy = py + 0.5f;
+                const float b0 = edge(v1.x, v1.y, v2.x, v2.y, sx, sy) * invArea;
+                const float b1 = edge(v2.x, v2.y, v0.x, v0.y, sx, sy) * invArea;
+                const float b2 = edge(v0.x, v0.y, v1.x, v1.y, sx, sy) * invArea;
+                if (b0 < 0.0f || b1 < 0.0f || b2 < 0.0f) {
+                    continue;
+                }
+                const float cov = std::clamp(b0 * v0.c + b1 * v1.c + b2 * v2.c, 0.0f, 1.0f);
+                float &slot = dst[static_cast<std::size_t>(py) * width + px];
+                slot = std::max(slot, cov);
+            }
+        }
+    }
+}
+
 struct Vertex
 {
     float x;
@@ -316,7 +402,8 @@ struct Vertex
 void rasterizeTriangles(std::uint8_t *framebuffer, int width, int height,
                         const std::vector<float> &points, const std::vector<float> &colors,
                         const std::vector<float> &coverage, const float uniformColor[4],
-                        const glm::mat4 &transform, DrawBlendMode blendMode, const GradientDesc &grad)
+                        const glm::mat4 &transform, DrawBlendMode blendMode, const GradientDesc &grad,
+                        const RasterClip &clip)
 {
     const std::size_t vertexCount = points.size() / 2;
     if (vertexCount < 3) {
@@ -398,7 +485,11 @@ void rasterizeTriangles(std::uint8_t *framebuffer, int width, int height,
                     a = b0 * v0.a + b1 * v1.a + b2 * v2.a;
                 }
                 const float cov = std::clamp(b0 * v0.coverage + b1 * v1.coverage + b2 * v2.coverage, 0.0f, 1.0f);
-                const float srcA = a * cov;
+                const float clipCov = clip.at(px, py);
+                if (clipCov <= 0.0f) {
+                    continue;
+                }
+                const float srcA = a * cov * clipCov;
                 if (srcA <= 0.0f && blendMode != DrawBlendMode::Clear) {
                     continue;
                 }
@@ -435,7 +526,8 @@ GradientDesc makeGradientDesc(const DrawPathData &data)
 }
 
 /// Expand a solid line list into quads (matching DrawLinesProgram) and raster.
-void rasterizeLines(std::uint8_t *framebuffer, int width, int height, const DrawLinesData &data)
+void rasterizeLines(std::uint8_t *framebuffer, int width, int height, const DrawLinesData &data,
+                    const RasterClip &clip)
 {
     std::vector<float> quads;
     for (std::size_t i = 0; i + 3 < data.points.size(); i += 4) {
@@ -462,11 +554,12 @@ void rasterizeLines(std::uint8_t *framebuffer, int width, int height, const Draw
         }
     }
     rasterizeTriangles(framebuffer, width, height, quads, {}, {}, data.color, data.transform, data.blendMode,
-                       GradientDesc{});
+                       GradientDesc{}, clip);
 }
 
 /// Draw each point as a device-space square of side `size` (matching gl_PointSize).
-void rasterizePoints(std::uint8_t *framebuffer, int width, int height, const DrawPointsData &data)
+void rasterizePoints(std::uint8_t *framebuffer, int width, int height, const DrawPointsData &data,
+                     const RasterClip &clip)
 {
     const float half = std::max(data.size, 1.0f) * 0.5f;
     std::vector<float> quads;
@@ -484,12 +577,13 @@ void rasterizePoints(std::uint8_t *framebuffer, int width, int height, const Dra
     }
     // The square is already in device space, so raster with an identity transform.
     rasterizeTriangles(framebuffer, width, height, quads, {}, {}, data.color, glm::mat4(1.0f), data.blendMode,
-                       GradientDesc{});
+                       GradientDesc{}, clip);
 }
 
 /// Sample a textured quad (with tint, alpha, optional color matrix and the
 /// requested sampling/tile modes) matching DrawImageProgram.
-void rasterizeImage(std::uint8_t *framebuffer, int width, int height, const DrawImageData &data)
+void rasterizeImage(std::uint8_t *framebuffer, int width, int height, const DrawImageData &data,
+                    const RasterClip &clip)
 {
     const auto *image = dynamic_cast<const SoftwareImageResource *>(data.imageResource.get());
     if (image == nullptr || !image->isValid()) {
@@ -561,6 +655,11 @@ void rasterizeImage(std::uint8_t *framebuffer, int width, int height, const Draw
                     bch = std::clamp(nb, 0.0f, 1.0f);
                     a = std::clamp(na, 0.0f, 1.0f);
                 }
+                const float clipCov = clip.at(px, py);
+                if (clipCov <= 0.0f) {
+                    continue;
+                }
+                a *= clipCov;
                 if (a <= 0.0f && data.blendMode != DrawBlendMode::Clear) {
                     continue;
                 }
@@ -569,6 +668,26 @@ void rasterizeImage(std::uint8_t *framebuffer, int width, int height, const Draw
             }
         }
     }
+}
+
+/// Combine all active clip paths into a single coverage buffer (1 inside the
+/// intersection, 0 outside, with an anti-aliased ramp along every edge).
+std::vector<float> buildClipCoverage(const ClipMaskState &clip, int width, int height)
+{
+    std::vector<float> combined(static_cast<std::size_t>(width) * static_cast<std::size_t>(height), 1.0f);
+    std::vector<float> temp(combined.size());
+    for (const auto &res : clip.resources) {
+        const auto *mask = dynamic_cast<const SoftwareClipMaskResource *>(res.get());
+        if (mask == nullptr || !mask->isValid()) {
+            continue;
+        }
+        std::fill(temp.begin(), temp.end(), 0.0f);
+        rasterizeCoverageTriangles(temp.data(), width, height, mask->points(), mask->coverage(), mask->transform());
+        for (std::size_t i = 0; i < combined.size(); ++i) {
+            combined[i] *= temp[i];
+        }
+    }
+    return combined;
 }
 
 } // namespace
@@ -586,6 +705,7 @@ void SoftwareRenderer::setViewport(int width, int height)
 {
     width_ = std::max(0, width);
     height_ = std::max(0, height);
+    clipCacheValid_ = false;
     ensureFramebuffer();
 }
 
@@ -644,9 +764,9 @@ bool SoftwareRenderer::readPixelsRGBA(std::vector<unsigned char> &pixels) const
     return true;
 }
 
-SharedClipMaskResource SoftwareRenderer::createClipMaskResource(const ClipMaskPath &) const
+SharedClipMaskResource SoftwareRenderer::createClipMaskResource(const ClipMaskPath &maskPath) const
 {
-    return std::make_shared<SoftwareClipMaskResource>();
+    return std::make_shared<SoftwareClipMaskResource>(maskPath);
 }
 
 SharedImageResource SoftwareRenderer::createImageResourceRGBA(int width, int height,
@@ -722,32 +842,56 @@ void SoftwareRenderer::clear()
 
 void SoftwareRenderer::executeCommand(const Command &command)
 {
+    auto makeClip = [&](const ScissorState &scissor, const ClipMaskState &clipMask) -> RasterClip {
+        RasterClip rc;
+        rc.width = width_;
+        if (scissor.enabled) {
+            rc.hasScissor = true;
+            rc.sx0 = scissor.x;
+            rc.sx1 = scissor.x + scissor.width;
+            rc.sy0 = height_ - scissor.y - scissor.height;
+            rc.sy1 = height_ - scissor.y;
+        }
+        if (clipMask.hasPaths()) {
+            if (!clipCacheValid_ || clipCacheFingerprint_ != clipMask.fingerprint
+                || clipCacheCoverage_.size() != static_cast<std::size_t>(width_) * static_cast<std::size_t>(height_)) {
+                clipCacheCoverage_ = buildClipCoverage(clipMask, width_, height_);
+                clipCacheFingerprint_ = clipMask.fingerprint;
+                clipCacheValid_ = true;
+            }
+            rc.coverage = clipCacheCoverage_.data();
+        }
+        return rc;
+    };
+
     switch (command.type()) {
     case Command::Type::Path: {
         const DrawPathData &data = static_cast<const DrawPathCommand &>(command).data();
         rasterizeTriangles(framebuffer_.data(), width_, height_, data.points, data.colors, data.coverage,
-                           data.color, data.transform, data.blendMode, makeGradientDesc(data));
+                           data.color, data.transform, data.blendMode, makeGradientDesc(data),
+                           makeClip(data.scissor, data.clipMask));
         break;
     }
     case Command::Type::Text: {
         const DrawTextData &data = static_cast<const DrawTextCommand &>(command).data();
         rasterizeTriangles(framebuffer_.data(), width_, height_, data.vertices, {}, {},
-                           data.color, data.transform, data.blendMode, GradientDesc{});
+                           data.color, data.transform, data.blendMode, GradientDesc{},
+                           makeClip(data.scissor, data.clipMask));
         break;
     }
     case Command::Type::Points: {
-        rasterizePoints(framebuffer_.data(), width_, height_,
-                        static_cast<const DrawPointsCommand &>(command).data());
+        const DrawPointsData &data = static_cast<const DrawPointsCommand &>(command).data();
+        rasterizePoints(framebuffer_.data(), width_, height_, data, makeClip(data.scissor, data.clipMask));
         break;
     }
     case Command::Type::Lines: {
-        rasterizeLines(framebuffer_.data(), width_, height_,
-                       static_cast<const DrawLinesCommand &>(command).data());
+        const DrawLinesData &data = static_cast<const DrawLinesCommand &>(command).data();
+        rasterizeLines(framebuffer_.data(), width_, height_, data, makeClip(data.scissor, data.clipMask));
         break;
     }
     case Command::Type::Image: {
-        rasterizeImage(framebuffer_.data(), width_, height_,
-                       static_cast<const DrawImageCommand &>(command).data());
+        const DrawImageData &data = static_cast<const DrawImageCommand &>(command).data();
+        rasterizeImage(framebuffer_.data(), width_, height_, data, makeClip(data.scissor, data.clipMask));
         break;
     }
     default:

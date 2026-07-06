@@ -216,6 +216,71 @@ bool testDrawImage()
     return ok;
 }
 
+bool testClipRect()
+{
+    const int w = 32;
+    const int h = 32;
+    std::unique_ptr<Canvas> canvas = Canvas::createSoftware(w, h);
+    if (!canvas) {
+        return expect(false, "createSoftware should return a canvas");
+    }
+
+    canvas->beginFrame();
+    canvas->save();
+    canvas->clipRect(RectF(8.0f, 8.0f, 16.0f, 16.0f));
+    Paint fill;
+    fill.setStyle(Paint::Style::FILL);
+    fill.setColor(Color(255, 0, 0, 255));
+    fill.setAntiAlias(false);
+    canvas->drawRect(RectF(0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h)), fill);
+    canvas->restore();
+    canvas->flush();
+
+    std::vector<unsigned char> pixels;
+    if (!canvas->readPixelsRGBA(pixels) || pixels.size() != static_cast<std::size_t>(w) * h * 4u) {
+        return expect(false, "readPixelsRGBA should succeed with the right size");
+    }
+    auto pixelAt = [&](int x, int y) { return &pixels[(static_cast<std::size_t>(y) * w + x) * 4u]; };
+
+    bool ok = expect(pixelAt(16, 16)[0] == 255 && pixelAt(16, 16)[3] == 255, "inside clipRect should be red");
+    ok = expect(pixelAt(2, 2)[3] == 0, "outside clipRect should be untouched (transparent)") && ok;
+    ok = expect(pixelAt(28, 28)[3] == 0, "past the clipRect should be untouched") && ok;
+    return ok;
+}
+
+bool testClipPath()
+{
+    const int w = 40;
+    const int h = 40;
+    std::unique_ptr<Canvas> canvas = Canvas::createSoftware(w, h);
+    if (!canvas) {
+        return expect(false, "createSoftware should return a canvas");
+    }
+
+    canvas->beginFrame();
+    Path circle;
+    circle.addCircle(20.0f, 20.0f, 12.0f);
+    canvas->save();
+    canvas->clipPath(circle);
+    Paint fill;
+    fill.setStyle(Paint::Style::FILL);
+    fill.setColor(Color(0, 128, 255, 255));
+    fill.setAntiAlias(false);
+    canvas->drawRect(RectF(0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h)), fill);
+    canvas->restore();
+    canvas->flush();
+
+    std::vector<unsigned char> pixels;
+    if (!canvas->readPixelsRGBA(pixels) || pixels.size() != static_cast<std::size_t>(w) * h * 4u) {
+        return expect(false, "readPixelsRGBA should succeed with the right size");
+    }
+    auto pixelAt = [&](int x, int y) { return &pixels[(static_cast<std::size_t>(y) * w + x) * 4u]; };
+
+    bool ok = expect(pixelAt(20, 20)[2] == 255 && pixelAt(20, 20)[3] == 255, "circle center should be filled");
+    ok = expect(pixelAt(2, 2)[3] == 0, "corner outside the circle clip should be transparent") && ok;
+    return ok;
+}
+
 } // namespace
 
 int main()
@@ -226,5 +291,7 @@ int main()
     ok = testLinearGradient() && ok;
     ok = testDrawLine() && ok;
     ok = testDrawImage() && ok;
+    ok = testClipRect() && ok;
+    ok = testClipPath() && ok;
     return ok ? 0 : 1;
 }
