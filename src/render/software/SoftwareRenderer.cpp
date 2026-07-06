@@ -1084,10 +1084,20 @@ SharedImageResource SoftwareRenderer::createImageResourceFromImageData(int width
         for (std::size_t i = 0; i < pixelCount; ++i) {
             const unsigned char *src = pixels + i * static_cast<std::size_t>(channels);
             std::uint8_t *dst = rgba.data() + i * 4u;
-            dst[0] = src[0];
-            dst[1] = channels > 1 ? src[1] : src[0];
-            dst[2] = channels > 2 ? src[2] : src[0];
-            dst[3] = channels > 3 ? src[3] : 255;
+            if (channels == 1) {
+                // Grayscale: replicate luminance, opaque.
+                dst[0] = dst[1] = dst[2] = src[0];
+                dst[3] = 255;
+            } else if (channels == 2) {
+                // Grayscale + alpha (stbi semantics: channel 1 is alpha).
+                dst[0] = dst[1] = dst[2] = src[0];
+                dst[3] = src[1];
+            } else {
+                dst[0] = src[0];
+                dst[1] = src[1];
+                dst[2] = src[2];
+                dst[3] = channels > 3 ? src[3] : 255;
+            }
         }
     }
     return std::make_shared<SoftwareImageResource>(width, height, std::move(rgba));

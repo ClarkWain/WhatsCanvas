@@ -786,28 +786,6 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     )
     set_tests_properties(WhatsCanvasSoftwareGoldenTests PROPERTIES LABELS "unit;diagnostics")
 
-    # Standalone proof: the exact same head-less software tests, but linked
-    # against ONLY the dependency-free WhatsCanvasSoftware library (no OpenGL,
-    # no glad, no Vulkan). If this links and passes, GPU-free rendering works
-    # end to end through the public API with zero GPU dependencies.
-    if (TARGET WhatsCanvasSoftware)
-        add_executable(WhatsCanvasSoftwareLibTests
-            "${CMAKE_CURRENT_SOURCE_DIR}/tests/SoftwareRendererTests.cpp"
-        )
-        target_link_libraries(WhatsCanvasSoftwareLibTests PRIVATE
-            WhatsCanvasSoftware
-        )
-        add_test(NAME WhatsCanvasSoftwareLibTests
-            COMMAND ${CMAKE_COMMAND}
-                -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
-                -DWHATSCANVAS_TEST_TARGET=WhatsCanvasSoftwareLibTests
-                -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasSoftwareLibTests>
-                -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
-                -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
-        )
-        set_tests_properties(WhatsCanvasSoftwareLibTests PROPERTIES LABELS "unit;diagnostics")
-    endif()
-
     add_executable(WhatsCanvasRenderTargetPoolTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/RenderTargetPoolTests.cpp"
     )
@@ -960,6 +938,29 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
     )
     set_tests_properties(WhatsCanvasDeprecationTrackerTests PROPERTIES LABELS "unit;api")
+endif()
+
+# Standalone proof for the GPU-free path: the same head-less software tests
+# linked against ONLY the dependency-free WhatsCanvasSoftware library (no
+# OpenGL / glad / Vulkan). Guarded solely on WhatsCanvasSoftware so it is
+# available in a truly GPU-free configuration (WHATSCANVAS_BUILD_OPENGL=OFF,
+# WHATSCANVAS_BUILD_SOFTWARE=ON) as well as the default build.
+if (BUILD_TESTING AND TARGET WhatsCanvasSoftware)
+    add_executable(WhatsCanvasSoftwareLibTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/SoftwareRendererTests.cpp"
+    )
+    target_link_libraries(WhatsCanvasSoftwareLibTests PRIVATE
+        WhatsCanvasSoftware
+    )
+    add_test(NAME WhatsCanvasSoftwareLibTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasSoftwareLibTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasSoftwareLibTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasSoftwareLibTests PROPERTIES LABELS "unit;diagnostics")
 endif()
 
 if (WHATSCANVAS_BUILD_BENCHMARKS AND TARGET WhatsCanvasOpenGL)
