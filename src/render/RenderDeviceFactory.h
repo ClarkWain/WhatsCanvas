@@ -10,7 +10,7 @@ enum class RenderBackendType
 {
     OpenGL,   ///< Desktop OpenGL.
     OpenGLES, ///< OpenGL ES.
-    Vulkan,  ///< Vulkan (future)
+    Vulkan,  ///< Experimental Vulkan backend when built with Vulkan SDK support.
     Metal    ///< Metal on Apple platforms (future)
 };
 
@@ -28,7 +28,8 @@ inline const char *renderBackendTypeName(RenderBackendType type)
 
 /// Factory for creating render device backends.
 /// Creates render device backends. OpenGL and OpenGLES share the current
-/// GL-family render device implementation; Vulkan and Metal are reserved.
+/// GL-family render device implementation; Vulkan is available when compiled
+/// with `WHATSCANVAS_ENABLE_VULKAN`, while Metal remains reserved.
 class RenderDeviceFactory
 {
 public:

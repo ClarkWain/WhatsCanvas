@@ -1,92 +1,75 @@
-# Vulkan Backend — Progress Summary
+# Vulkan Backend Status
 
-Branch: `feature/vulkan-backend` · Validated on: NVIDIA GeForce RTX 2080 Ti ·
-Enable with: `cmake -S . -B build -DWHATSCANVAS_ENABLE_VULKAN=ON` (Vulkan SDK
-required). See [vulkan-backend-roadmap.md](vulkan-backend-roadmap.md) and
-[ADR-006](architecture/ADR-006-backend-neutral-command-layer.md).
+Branch: `fix/vulkan-review-hardening`
 
-## What works today
+Enable with:
 
-The Vulkan backend is compiled unconditionally as an inert stub and only performs
-real Vulkan work when `WHATSCANVAS_ENABLE_VULKAN` is set. Every capability below
-is covered by a real-hardware test under the CTest `vulkan` label (8 tests,
-`ctest -L vulkan`), and the default (Vulkan-off) build stays green.
+```bash
+cmake -S . -B build-vulkan -DWHATSCANVAS_ENABLE_VULKAN=ON
+```
 
-| Milestone | Capability | Test |
+The Vulkan backend is an **experimental selectable backend**. It is compiled as
+an inert stub by default and performs real Vulkan work only when the build is
+configured with `WHATSCANVAS_ENABLE_VULKAN=ON` and a Vulkan SDK is found.
+
+## Current Capability
+
+| Area | Status | Validation |
 | --- | --- | --- |
-| Bring-up | Instance, physical-device selection (discrete preferred), logical device + graphics queue | `WhatsCanvasVulkanDeviceTests` |
-| M1 | Command pool, single-time submit + fence, memory/buffer helpers | (exercised by M2) |
-| M2 | Offscreen render target (image + view + clear render pass + framebuffer); `readPixelsRGBA` via image→staging→host | `WhatsCanvasVulkanRenderTargetTests` |
-| M3 | Solid geometry through a real graphics pipeline; triangles / lines / points; SPIR-V shaders | `WhatsCanvasVulkanSolidGeometryTests` |
-| M4 | Per-vertex gradient interpolation; fixed-function blend modes (SrcOver/Src/Add/Multiply/Screen) | `WhatsCanvasVulkanPaintTests` |
-| M5 | Sampled textures (create/upload/partial update); textured-quad draw | `WhatsCanvasVulkanTextureTests` |
-| M6 | Offscreen-layer compositing with layer alpha (saveLayer mechanism) | `WhatsCanvasVulkanLayerTests` |
-| M7 | Coverage-mask path clipping | `WhatsCanvasVulkanClipTests` |
-| ADR-006 | Backend-neutral `DrawList` + Vulkan translator (solid + textured + clip primitives) | `WhatsCanvasVulkanDrawListTests` |
+| Device bring-up | Instance, physical-device selection, logical device, graphics queue, command pool | `WhatsCanvasVulkanDeviceTests` |
+| Render target / readback | Offscreen image, view, render pass, framebuffer, image-to-staging `readPixelsRGBA` | `WhatsCanvasVulkanRenderTargetTests` |
+| Solid geometry | Triangles, points, lines, path triangle command translation | `WhatsCanvasVulkanSolidGeometryTests`, `WhatsCanvasVulkanCommandTests` |
+| Paint / blend | Per-vertex color, shader gradients, SrcOver / Src / Add / Multiply / Screen and Porter-Duff subset | `WhatsCanvasVulkanPaintTests`, `WhatsCanvasVulkanBlendModeTests`, `WhatsCanvasVulkanGradientTests` |
+| Textures | RGBA upload, image-data upload, partial update, sampled draw, tint, color matrix | `WhatsCanvasVulkanTextureTests`, `WhatsCanvasVulkanImageColorTests` |
+| External images | Non-owning sampled `ExternalImageDescriptor::vulkanImage(...)` wrapping | `WhatsCanvasVulkanTextureTests` |
+| Layers | Native layer composite with layer alpha; command replay can render to sampled texture | `WhatsCanvasVulkanLayerTests` |
+| Clip | Coverage-mask clip mechanism and command scissor translation aligned with OpenGL | `WhatsCanvasVulkanClipTests`, `WhatsCanvasBackendVisualParityTests` |
+| Text commands | Vector text geometry translation, solid and shader-gradient fills | `WhatsCanvasVulkanTextTests`, `WhatsCanvasBackendVisualParityTests` |
+| Present | Standalone GLFW Vulkan surface + swapchain + one-frame present example | `examples/vulkan_present` manual smoke |
+| Visual parity | OpenGL and Vulkan render the same stable command stream and compare RGBA pixels | `WhatsCanvasBackendVisualParityTests` |
 
-## `IRenderDevice` parity
+Local hardware validation on the current review branch included `ctest` passing
+40/40 tests with Vulkan enabled, and the backend visual parity smoke reported
+zero pixel difference on the tested stable scene.
 
-8 of 11 methods are implemented on Vulkan; 1 is a native mechanism with a
-documented gap; 2 remain.
+## IRenderDevice Parity
 
-- Implemented: `initializeBackend`, `finalizeBackend`, `createRenderTarget`,
-  `readPixelsRGBA`, `createImageResourceRGBA`, `createImageResourceFromImageData`,
-  `updateImageResourceRGBA`, `createClipMaskResource`, `resourceStats`.
-- Partial / native mechanism: `renderCommandsToImageResource` — Vulkan-native
-  saveLayer via `compositeLayer`, but generic GL-`Command` replay is blocked (see
-  below).
-- Implemented with explicit ownership boundary: `wrapExternalImageResource` accepts
-  non-owning `ExternalImageDescriptor::vulkanImage(...)` resources with `VkImage`,
-  `VkImageView`, `VkSampler`, and current image layout. The caller keeps ownership
-  and synchronization responsibility; owned external import remains out of scope.
+| Method | Vulkan status |
+| --- | --- |
+| `initializeBackend` / `finalizeBackend` | Implemented |
+| `readPixelsRGBA` | Implemented |
+| `createRenderTarget` | Implemented |
+| `createImageResourceRGBA` | Implemented |
+| `createImageResourceFromImageData` | Implemented |
+| `updateImageResourceRGBA` | Implemented |
+| `wrapExternalImageResource` | Implemented for non-owning sampled Vulkan images |
+| `createClipMaskResource` | Implemented as Vulkan clip-mask resource |
+| `resourceStats` | Implemented for render targets and textures |
+| `renderCommandsToImageResource` | Implemented through Vulkan command translation and texture snapshot |
 
-## Known gaps and why
+## Remaining Gaps
 
-- **External image wrapping** (`wrapExternalImageResource`): the Vulkan backend
-  accepts non-owning sampled external images through
-  `ExternalImageDescriptor::vulkanImage(...)`. Callers must provide a `VkImageView`,
-  `VkSampler`, and a shader-readable layout, and must keep the image alive and
-  synchronized for the duration of rendering.
-- **Windowed presentation (M8 swapchain)**: a standalone windowed present example
-  (`examples/vulkan_present`) creates a GLFW surface + swapchain and presents a
-  cleared frame; verified on NVIDIA RTX 2080 Ti. It is standalone because
-  presentation needs surface extensions that `VulkanRenderDevice`'s headless
-  instance does not enable. A continuous frame loop, resize handling, and
-  integrating present into `VulkanRenderDevice` are follow-ups. Not a CTest gate
-  (windowed present is environment dependent).
-- **Textured/clip `DrawList` primitives (ADR-006 follow-up)**: solid, textured, and
-  clip-fill primitives now land (`executeDrawList` records them in one render
-  pass; clip-fill modulates the fill alpha by a coverage-mask texture's red
-  channel). A teardown crash during development was root-caused with
-  AddressSanitizer to a test lifetime bug (a `DrawList` holding a texture ref must
-  be released before `finalizeBackend`), not a rendering bug.
-- **Command translation (ADR-006)**: `executeCommands` reads a real WhatsCanvas
-  `Command` stream and translates path fills/strokes, vertex-color (baked
-  gradient) paths, points (sized), lines (width), and images (`DrawImage`
-  dest-rect + UVs + alpha) to Vulkan draws (canvas->NDC via the same ortho the GL
-  path uses), without touching the OpenGL command execution.
-  `renderCommandsToImageResource` renders a command stream into an offscreen
-  target and returns it as an owned sampled texture. Images also honor tint and a
-  4x4 color matrix (fragment push constants). Fragment-evaluated **gradients**
-  (linear/radial, up to 8 stops, clamp/repeat/mirror/decal tile modes via a UBO)
-  translate ``DrawPathData`` shader gradients, matching the OpenGL gradient
-  shader. Verified by ``WhatsCanvasVulkanCommandTests``,
-  ``WhatsCanvasVulkanImageColorTests``, and ``WhatsCanvasVulkanGradientTests``,
-  ASan-clean. **Text** is translated as vector triangle geometry: WhatsCanvas
-  tessellates glyph outlines into local-space triangles (there is no glyph
-  atlas), so text becomes a solid-color or shader-gradient fill using the same
-  pipelines as paths, with the gradient evaluated in raw local space to match the
-  OpenGL text shader (``WhatsCanvasVulkanTextTests``). Analytic-AA edge coverage
-  feathers solid fills to match OpenGL (``WhatsCanvasVulkanAATests``). Clip
-  translation is a follow-up.
-- **Analytic-AA feathering / multi-stop fragment gradients**: the mechanisms are
-  in place (coverage mask, vertex-color gradients); true AA feathering and
-  texel-buffer multi-stop gradients are refinements.
+- **Not the default backend**: normal builds still default to OpenGL or OpenGLES.
+- **Canvas swapchain present is not integrated**: `examples/vulkan_present` proves
+  real windowed present, but Canvas content is not yet rendered directly into a
+  Vulkan swapchain.
+- **Glyph atlas text path is not fully mirrored**: Vulkan text command support
+  currently covers vector text geometry; the OpenGL glyph-atlas text rendering
+  path still needs broader backend parity.
+- **Parity scene coverage is still small**: current visual parity covers solid
+  fills, alpha blend, shader gradient, scissor, and text geometry. It should grow
+  to cover textures, saveLayer, clip masks, radial gradients, image filters, and
+  larger Canvas validation scenes.
+- **Native platform backends remain separate work**: Metal is still reserved, and
+  DirectWrite/CoreText are text-backend adapter slots rather than render backends.
 
-## Next steps
+## Recommended Next Steps
 
-1. Execute ADR-006 in reviewable slices (freeze primitive set → OpenGL translator
-   validated by pixel-hash gates → Vulkan translator → `renderCommandsToImageResource`).
-2. Root-cause the textured `DrawList` teardown crash (ASan) and re-land textured/
-   clip primitives.
-3. M8 windowed swapchain present as a dedicated windowed example + smoke.
+1. Expand `WhatsCanvasBackendVisualParityTests` to include texture sampling,
+   saveLayer, radial gradients, image color matrix, and clip masks.
+2. Add a Vulkan Canvas-present path that renders real Canvas content into a
+   swapchain, with resize/recreate handling.
+3. Continue extracting the backend-neutral command layer so OpenGL, Vulkan, and
+   future backends consume the same primitive stream.
+4. Update README and release notes whenever a Vulkan capability moves from
+   experimental helper coverage into Canvas-level parity.

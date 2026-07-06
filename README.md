@@ -8,7 +8,7 @@ WhatsCanvas 是一个用 C++17 编写的轻量级二维渲染引擎项目，以 
 
 ## 项目定位
 
-- 当前以 OpenGL 路线最完整，并已提供 OpenGLES 编译目标；Vulkan、Metal 等后端仍保留扩展空间。
+- 当前以 OpenGL 路线最完整，并已提供 OpenGLES 编译目标；Vulkan 是可选实验后端，已覆盖离屏渲染、读回、基础命令翻译和 OpenGL/Vulkan 视觉一致性 smoke；Metal 仍保留扩展空间。
 - 对外提供的是 Canvas 风格 API，而不是底层图形接口的直接暴露。
 - 定位偏轻量，强调易接入、易阅读、易验证，适合中小型项目、工具型界面、2D 游戏和教学场景。
 - 项目自带根工程演示、游戏示例、跨平台 CI、冒烟脚本、像素回归钩子和专题文档，方便试用、学习和继续演进。
@@ -25,9 +25,26 @@ WhatsCanvas 的公开接口仍然是熟悉的 `Canvas` / `Paint` / `Path` / `Ima
 | Canvas 状态 | `save` / `restore`、矩阵变换、矩形裁剪、抗锯齿路径裁剪、`saveLayer` 离屏层、render-target canvas、clip 查询、quick reject。 | `save`、`restore`、`translate`、`scale`、`rotate`、`clipRect`、`clipPath`、`saveLayer`、`quickReject` |
 | 图像与纹理 | 文件解码、encoded memory、raw RGBA、OpenGL 外部纹理包装、Vulkan 非拥有外部 sampled image 包装、跨后端 typed external image descriptor、整图替换、局部更新、contain / cover / fill 布局、锚点、九宫格、圆角裁剪、圆形裁剪、平铺绘制。 | `Image`、`drawImage`、`drawImageFit`、`drawImageNinePatch`、`drawImageRounded`、`drawImageCircle`、`drawImageTiled`、`wrapExternalTexture`、`wrapExternalImage`、`ExternalImageDescriptor` |
 | 字体与文本 | 系统默认字体发现、默认 fallback chain、weight / slant face matching、跨平台 TrueType / TTC 注册、file / memory 字体、collection face index、FreeType glyph lookup / metrics / kerning / rasterization、stb fallback、HarfBuzz shaping、simple shaping fallback、多字体 fallback 分段、真实 ascent / descent / lineGap、字体资源 LRU cache 上限 / 释放 / 统计、GPU glyph atlas、atlas resize-before-evict、dirty rect atlas update、dirty rect count/area collapse stats、RGBA atlas、COLR/CPAL v0 color glyph、UTF-8 layout、CJK no-space wrapping、Unicode space、zero-width break、ellipsis、baseline、letter spacing、渐变文本、描边文本、文本阴影、text-on-path、缺字诊断、raster / shaper / atlas 回退诊断、Unicode UAX #9 全量通过。 | `FontSystem`、`FontFace`、`FontManager`、`FontFallbackChain`、`registerFontFace`、`setFontFallbackChain`、`drawText`、`drawTextBox`、`layoutTextBox`、`drawTextOnPath`、`measureTextMetrics` |
-| 渲染后端 | 桌面 OpenGL 主路径、OpenGLES 目标、共享 GL-family 后端、proc-address 注入、上下文生命周期、资源释放与重建、shader portability。 | `Canvas::loadOpenGL`、`WhatsCanvas::OpenGL`、`WhatsCanvas::OpenGLES`、`initializeContext`、`releaseResources` |
+| 渲染后端 | 桌面 OpenGL 主路径、OpenGLES 目标、共享 GL-family 后端、proc-address 注入、上下文生命周期、资源释放与重建、shader portability；实验 Vulkan 后端支持真实 device / render target / readback / texture / gradient / blend / clip / command translation / visual parity。 | `Canvas::loadOpenGL`、`WhatsCanvas::OpenGL`、`WhatsCanvas::OpenGLES`、`RenderDeviceFactory::create(RenderBackendType::Vulkan)`、`initializeContext`、`releaseResources` |
 | 性能与资源 | 流式顶点缓冲、图片命令同纹理合批、路径命令合批、全局 quad index buffer、离屏 render target 复用池、GPU glyph atlas 复用、indexed glyph lookup、填充三角化 / 描边网格 / 裁剪掩码 LRU 缓存、桌面 GL texel buffer 渐变 stop、OpenGLES fallback。 | `Renderer`、`RenderTargetPool`、`GlyphAtlas`、`LruCache`、`RenderStats` |
 | 诊断与验证 | 同步 / 异步像素回读、PPM 截图、像素哈希、fuzzy PPM 对比、固定时间首帧冒烟、OpenGLES 构建冒烟、示例构建冒烟、Unicode Bidi conformance、跨平台 CI。 | `readPixelsRGBA`、`readPixelsRGBAAsync`、`savePixelsPPM`、`computePixelsHashRGBA`、`ctest`、`scripts/*_smoke.*` |
+
+## 后端能力矩阵
+
+| 能力 | OpenGL | OpenGLES | Vulkan |
+| --- | --- | --- | --- |
+| 当前定位 | 主后端 | 可选 GL-family 后端 | 实验后端 |
+| 默认选择 | 桌面构建默认 | OpenGLES 构建默认 | 需要 `WHATSCANVAS_ENABLE_VULKAN=ON` 后显式选择 |
+| Canvas API 完整路径 | 完整主路径 | 复用 GL-family 主路径，受 GLES 状态 / shader 限制约束 | 部分命令翻译路径，仍在追 OpenGL parity |
+| Render target / readback | 支持 | 支持 | 支持，真实 Vulkan image → staging readback |
+| 基础几何 | 支持 | 支持 | 支持 points / lines / path triangle command translation |
+| 渐变 / blend | 支持 | 支持 | 支持 shader gradient、vertex color、主要 blend mode |
+| 图像纹理 | 支持 | 支持 | 支持 sampled texture、partial update、tint、color matrix、非拥有外部 sampled image |
+| 裁剪 | rect scissor、AA path clip | rect scissor、AA path clip | 支持 scissor、coverage-mask clip 机制，visual parity 已覆盖 scissor |
+| 文本 | 完整 glyph atlas 文本路径 | 完整 glyph atlas 文本路径 | 支持文本几何 command translation；glyph atlas 文本路径仍待补齐 |
+| saveLayer | 支持 | 支持 | 具备 layer composite 机制，完整 Canvas 语义仍需扩大 parity |
+| Window present | 由宿主 OpenGL context 提供 | 由宿主 OpenGLES context 提供 | 独立 Vulkan present 示例已验证；尚未接入 Canvas swapchain |
+| 自动验证 | unit / smoke / pixel regression | OpenGLES smoke | `ctest -L vulkan`、OpenGL/Vulkan visual parity smoke |
 
 ## 与常见 2D 图形库的能力参照
 
@@ -35,7 +52,7 @@ WhatsCanvas 的公开接口仍然是熟悉的 `Canvas` / `Paint` / `Path` / `Ima
 
 | 项目 | 主要定位 | 渲染后端 | 路径 / Canvas 状态 | 图片 / 纹理 | 字体与文本 | 工程化与验证 |
 | --- | --- | --- | --- | --- | --- | --- |
-| WhatsCanvas | 轻量 C++ Canvas 风格 2D 渲染库，兼顾 UI、工具界面、2D 游戏和学习。 | OpenGL 主路径，OpenGLES 目标，保留多后端扩展空间。 | `save/restore`、矩阵、裁剪、路径、离屏层、解析抗锯齿、真高斯阴影、渐变、命中测试。 | 图片解码、raw RGBA、OpenGL 外部纹理、Vulkan 非拥有外部 sampled image、typed external image descriptor、局部更新、九宫格、圆角 / 圆形裁剪、平铺、render-target canvas。 | FreeType / stb rasterizer、HarfBuzz shaping、fallback chain、glyph atlas、COLR/CPAL v0、UAX #9、像素回归。 | CTest、跨平台 CI、OpenGLES smoke、像素 hash / PPM / fuzzy diff、benchmark smoke、专题文档。 |
+| WhatsCanvas | 轻量 C++ Canvas 风格 2D 渲染库，兼顾 UI、工具界面、2D 游戏和学习。 | OpenGL 主路径，OpenGLES 目标，实验 Vulkan 后端，保留更多后端扩展空间。 | `save/restore`、矩阵、裁剪、路径、离屏层、解析抗锯齿、真高斯阴影、渐变、命中测试。 | 图片解码、raw RGBA、OpenGL 外部纹理、Vulkan 非拥有外部 sampled image、typed external image descriptor、局部更新、九宫格、圆角 / 圆形裁剪、平铺、render-target canvas。 | FreeType / stb rasterizer、HarfBuzz shaping、fallback chain、glyph atlas、COLR/CPAL v0、UAX #9、像素回归。 | CTest、跨平台 CI、OpenGLES smoke、像素 hash / PPM / fuzzy diff、benchmark smoke、专题文档。 |
 | Skia | 完整工业级 2D 图形引擎，覆盖浏览器、应用框架和复杂排版场景。 | CPU、GPU、多平台后端生态成熟。 | 路径、滤镜、着色器、文本和图像能力覆盖面很广。 | 图像编解码、颜色管理、滤镜和 GPU 资源体系完整。 | 高级文本和字体能力完整，常与 HarfBuzz / ICU 等生态协作。 | 成熟工程生态，体量和接入复杂度也更高。 |
 | Cairo | 稳定的 2D 矢量绘图库，偏文档、桌面和软件渲染场景。 | CPU surface、PDF / SVG / PS 等输出面强。 | 路径、stroke/fill、变换、裁剪成熟。 | 图像 surface 支持稳定，但不是游戏式纹理管线。 | 基本文字能力可用，复杂 shaping 通常依赖外部文本栈。 | 稳定、可移植，实时 GPU 特性不是重点。 |
 | NanoVG | 小型即时模式矢量绘制库，适合嵌入式 UI 和调试面板。 | 典型为 OpenGL 类后端。 | API 简洁，路径、渐变、阴影等 UI 绘制常用能力轻量。 | 支持基础图片绘制和纹理使用。 | 基本文本绘制为主，复杂排版、fallback 和字体诊断不是重点。 | 接入轻，但验证、排版和资源治理通常需要应用侧补齐。 |
@@ -256,6 +273,8 @@ python scripts\compare_ppm_fuzzy.py baseline.ppm candidate.ppm --max-channel-del
 - [Blend Mode Audit](doc/BLEND_MODE_AUDIT.md)：记录 `Paint::BlendMode` 到 GL-family blend state 的映射和限制。
 - [Performance Benchmarks](doc/PERFORMANCE_BENCHMARKS.md)：记录 core benchmark target、输出格式和当前覆盖范围。
 - [Effect Regression Matrix](doc/EFFECT_REGRESSION_MATRIX.md)：记录 gradients、shadows、blend modes、strokes 和 dashes 的回归覆盖入口。
+- [Vulkan Backend Status](doc/vulkan-backend-status.md)：记录实验 Vulkan 后端的已实现能力、验证入口和剩余差距。
+- [Vulkan Backend Roadmap](doc/vulkan-backend-roadmap.md)：记录 Vulkan 后端走向 OpenGL parity 的阶段计划。
 - [Polyline2D 互动教学](doc/polyline/polyline2d_interactive_tutorial.html)：适合理解路径描边、网格生成和相关几何细节。
 - [抗锯齿原理与实现互动教学](doc/anti_aliasing/anti_aliasing_interactive_tutorial.html)：适合理解什么是抗锯齿、不同实现方法和 WhatsCanvas 当前做法。
 - [字体渲染专题](doc/Font%20Rendering%20Techniques/index.html)：适合补字体渲染、排版和文本后端相关知识。
@@ -275,7 +294,7 @@ python scripts\compare_ppm_fuzzy.py baseline.ppm candidate.ppm --max-channel-del
 - `src/canvas/Canvas.cpp` 的 `Canvas::Impl` 持有 `std::unique_ptr<IRenderer>`、`std::unique_ptr<ITextBackend>`、`GraphicsStateStack`、`layerStack` 和 render-target image resource。
 - `src/command/DrawCommand.*` 定义 Points、Lines、Path、Image、Text 五类命令；命令执行时先通过 `RenderContext` 应用 blend、scissor、clip mask，再进入对应 `Draw*Program`。
 - `src/render/Renderer.*` 持有命令队列、`RenderContext` 和 `IRenderDevice`，并在 `flush()` 中执行命令，同时处理路径命令合批、像素回读、clip mask resource、image resource 和离屏渲染请求。
-- `src/render/RenderDeviceFactory.cpp` 当前会在桌面 OpenGL 构建中默认选择 `OpenGL`，在 OpenGLES 构建中默认选择 `OpenGLES`；二者复用 `OpenGLRenderDevice`，Vulkan 和 Metal 分支存在但返回 `nullptr`。
+- `src/render/RenderDeviceFactory.cpp` 当前会在桌面 OpenGL 构建中默认选择 `OpenGL`，在 OpenGLES 构建中默认选择 `OpenGLES`；二者复用 `OpenGLRenderDevice`。当构建启用 `WHATSCANVAS_ENABLE_VULKAN` 且找到 Vulkan SDK 时，`RenderBackendType::Vulkan` 可以创建实验 `VulkanRenderDevice`；Metal 仍是预留槽位。
 - `src/render/OpenGLRenderDevice.cpp` 负责初始化 Draw*Program、GlobalIndexBuffers、PixelFormatCaps，并创建 texture、FBO/render target、clip mask resource 和 readback；OpenGLES 目标通过编译定义切换 shader 版本和桌面 GL-only 状态。
 
 ## 学习路线
@@ -294,7 +313,7 @@ python scripts\compare_ppm_fuzzy.py baseline.ppm candidate.ppm --max-channel-del
 
 ## 项目结构
 
-- `src/`: 核心实现，包含 Canvas、命令、渲染器、OpenGL 后端和文本模块。
+- `src/`: 核心实现，包含 Canvas、命令、渲染器、OpenGL / OpenGLES GL-family 后端、实验 Vulkan 后端和文本模块。
 - `examples/game/`: 完整游戏示例工程。
 - `examples/showcase/`: 根演示程序，适合快速浏览公共 Canvas API 的综合使用方式。
 - `examples/snippets/`: 可复制的功能片段，覆盖 font fallback、multiline text、external texture 和 image pattern。

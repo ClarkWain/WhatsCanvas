@@ -2,30 +2,28 @@
 
 ## Status
 
-Proposed.
+Accepted / in progress.
 
 ## Context
 
-The Vulkan backend (`VulkanRenderDevice`, branch `feature/vulkan-backend`) now
-implements most of the `IRenderDevice` surface: device bring-up, offscreen
-render targets and readback, a graphics pipeline for solid/gradient/blended
-geometry, sampled textures, offscreen-layer compositing, and coverage-mask
-clipping. Each capability is validated on real hardware (see the Vulkan roadmap).
+The Vulkan backend (`VulkanRenderDevice`) now implements a useful experimental
+slice of the `IRenderDevice` surface: device bring-up, offscreen render targets
+and readback, solid/gradient/blended geometry, sampled textures, external sampled
+image wrapping, offscreen-layer compositing, coverage-mask clipping, command
+translation, and backend visual parity smoke coverage.
 
-One `IRenderDevice` entry point remains fundamentally blocked:
-`renderCommandsToImageResource(commands, request)`. It receives a list of
-`Command` objects (`DrawPoints`, `DrawLines`, `DrawPath`, `DrawImage`,
-`DrawText`) and is expected to replay them into an offscreen image. Today those
-commands execute OpenGL directly inside `Command::execute(RenderContext&)` —
-they bind GL programs, set GL state, and issue GL draw calls. They are not
-backend-neutral, so Vulkan cannot replay them.
+The remaining architectural problem is command ownership. The OpenGL path still
+executes the five draw commands (`DrawPoints`, `DrawLines`, `DrawPath`,
+`DrawImage`, `DrawText`) through `Command::execute(RenderContext&)`, where they
+bind GL programs, set GL state, and issue GL draw calls. Vulkan therefore uses a
+parallel translator that reads the same `DrawData` payloads and emits backend
+primitives. This has reached useful parity slices, including
+`renderCommandsToImageResource`, but it duplicates some command interpretation
+logic and can drift from the OpenGL path.
 
-This is the coupling identified in the Vulkan roadmap (section 3). Until it is
-resolved, the Vulkan backend can only be driven through Vulkan-specific helper
-methods (`renderSolidPrimitives`, `renderTexturedQuad`, `compositeLayer`,
-`renderClippedSolid`, ...), not through the same `Command` stream that the
-OpenGL path consumes. Full parity — selecting Vulkan and running the real Canvas
-command stream — depends on decoupling the command layer from OpenGL.
+Full long-term parity — selecting Vulkan, Metal, or a software backend and
+running the same Canvas command stream without duplicated interpretation —
+depends on completing the backend-neutral command layer.
 
 ## Decision
 
@@ -81,8 +79,8 @@ Vulkan `ctest -L vulkan` suite.
 
 ### Positive
 
-- Unblocks `renderCommandsToImageResource` (and therefore true `saveLayer`
-  command replay) on Vulkan, and any future backend (D3D, WebGPU, Metal).
+- Keeps `renderCommandsToImageResource` and `saveLayer` semantics portable across
+  Vulkan and any future backend (D3D, WebGPU, Metal).
 - Commands stop being OpenGL-specific, completing the direction started in
   ADR-002 (renderer abstraction) and ADR-003 (text architecture).
 - The Vulkan pipelines built in M3–M7 become the Vulkan translator, so little of
@@ -92,8 +90,8 @@ Vulkan `ctest -L vulkan` suite.
 
 - Adds an intermediate representation and a per-backend translator, i.e. one more
   layer to maintain.
-- The extraction spans many `Draw*` types; until it completes, Vulkan is driven
-  through Vulkan-specific helpers rather than the shared `Command` stream.
+- The extraction spans many `Draw*` types; until it completes, Vulkan uses a
+  parallel translator instead of a shared command encoder.
 - Some GL fast paths (e.g. direct stencil clip work) must be re-expressed as
   backend-neutral primitives without regressing OpenGL output.
 
