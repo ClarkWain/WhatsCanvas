@@ -281,6 +281,47 @@ bool testClipPath()
     return ok;
 }
 
+bool testGaussianShadow()
+{
+    const int w = 64;
+    const int h = 64;
+    std::unique_ptr<Canvas> canvas = Canvas::createSoftware(w, h);
+    if (!canvas) {
+        return expect(false, "createSoftware should return a canvas");
+    }
+
+    canvas->beginFrame();
+    Paint p;
+    p.setStyle(Paint::Style::FILL);
+    p.setFillColor(Color(255, 255, 255, 255));
+    p.setAntiAlias(false);
+    p.setShadowLayer(6.0f, 8.0f, 8.0f, Color(0, 0, 0, 200));
+    canvas->drawRect(RectF(16.0f, 16.0f, 20.0f, 20.0f), p);
+    canvas->flush();
+
+    std::vector<unsigned char> pixels;
+    if (!canvas->readPixelsRGBA(pixels) || pixels.size() != static_cast<std::size_t>(w) * h * 4u) {
+        return expect(false, "readPixelsRGBA should succeed with the right size");
+    }
+    auto pixelAt = [&](int x, int y) { return &pixels[(static_cast<std::size_t>(y) * w + x) * 4u]; };
+
+    bool ok = expect(pixelAt(26, 26)[0] == 255 && pixelAt(26, 26)[3] == 255, "the shape itself should be opaque white");
+
+    // The shadow is offset by (8,8) and blurred, so the region past the shape's
+    // bottom-right corner should contain soft, dark, semi-transparent pixels.
+    bool foundShadow = false;
+    for (int y = 37; y < 48 && !foundShadow; ++y) {
+        for (int x = 37; x < 48 && !foundShadow; ++x) {
+            const unsigned char *px = pixelAt(x, y);
+            if (px[3] > 10 && px[3] < 250 && px[0] < 90 && px[1] < 90 && px[2] < 90) {
+                foundShadow = true;
+            }
+        }
+    }
+    ok = expect(foundShadow, "there should be a soft dark Gaussian shadow offset from the shape") && ok;
+    return ok;
+}
+
 } // namespace
 
 int main()
@@ -293,5 +334,6 @@ int main()
     ok = testDrawImage() && ok;
     ok = testClipRect() && ok;
     ok = testClipPath() && ok;
+    ok = testGaussianShadow() && ok;
     return ok ? 0 : 1;
 }

@@ -6,6 +6,7 @@
 #include <glm/glm.hpp>
 
 #include "command/DrawCommand.h"
+#include "render/GaussianKernel.h"
 
 namespace wsc::software {
 namespace {
@@ -670,6 +671,130 @@ void rasterizeImage(std::uint8_t *framebuffer, int width, int height, const Draw
     }
 }
 
+/// Separable Gaussian blur of a single-channel (alpha) buffer, clamped at edges.
+void blurAlpha(std::vector<float> &buffer, int width, int height, const wsc::render::GaussianKernel &kernel)
+{
+    const int radius = kernel.radius();
+    if (radius <= 0) {
+        return;
+    }
+    std::vector<float> temp(buffer.size(), 0.0f);
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            float sum = buffer[static_cast<std::size_t>(y) * width + x] * kernel.weights[0];
+            for (int i = 1; i <= radius; ++i) {
+                const int xl = std::clamp(x - i, 0, width - 1);
+                const int xr = std::clamp(x + i, 0, width - 1);
+                sum += (buffer[static_cast<std::size_t>(y) * width + xl]
+                        + buffer[static_cast<std::size_t>(y) * width + xr])
+                       * kernel.weights[static_cast<std::size_t>(i)];
+            }
+            temp[static_cast<std::size_t>(y) * width + x] = sum;
+        }
+    }
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            float sum = temp[static_cast<std::size_t>(y) * width + x] * kernel.weights[0];
+            for (int i = 1; i <= radius; ++i) {
+                const int yl = std::clamp(y - i, 0, height - 1);
+                const int yr = std::clamp(y + i, 0, height - 1);
+                sum += (temp[static_cast<std::size_t>(yl) * width + x]
+                        + temp[static_cast<std::size_t>(yr) * width + x])
+                       * kernel.weights[static_cast<std::size_t>(i)];
+            }
+            buffer[static_cast<std::size_t>(y) * width + x] = sum;
+        }
+    }
+}
+
+/// True separable-Gaussian drop shadow: rasterize the silhouette coverage, blur
+/// it, then composite the tinted blurred coverage into the framebuffer.
+void rasterizeShadow(std::uint8_t *framebuffer, int width, int height, const DrawShadowData &data)
+{
+    if (width <= 0 || height <= 0 || !(data.blurRadius > 0.0f)) {
+        return;
+    }
+    std::vector<float> alpha(static_cast<std::size_t>(width) * static_cast<std::size_t>(height), 0.0f);
+
+    if (!data.silhouette.points.empty()) {
+        rasterizeCoverageTriangles(alpha.data(), width, height, data.silhouette.points,
+                                   data.silhouette.coverage, data.silhouette.transform);
+    }
+    for (const DrawImageData &quad : data.imageSilhouette) {
+        const auto *image = dynamic_cast<const SoftwareImageResource *>(quad.imageResource.get());
+        if (image == nullptr || !image->isValid()) {
+            continue;
+        }
+        struct IV { float x; float y; float u; float v; };
+        auto corner = [&](float cx, float cy, float u, float v) {
+            const glm::vec4 d = quad.transform * glm::vec4(cx, cy, 0.0f, 1.0f);
+            return IV{d.x, d.y, u, v};
+        };
+        const IV c0 = corner(quad.x, quad.y, quad.u0, quad.v0);
+        const IV c1 = corner(quad.x + quad.width, quad.y, quad.u1, quad.v0);
+        const IV c2 = corner(quad.x + quad.width, quad.y + quad.height, quad.u1, quad.v1);
+        const IV c3 = corner(quad.x, quad.y + quad.height, quad.u0, quad.v1);
+        const IV tris[6] = {c0, c1, c2, c0, c2, c3};
+        const int samplingMode = static_cast<int>(quad.sampling);
+        const int tileMode = static_cast<int>(quad.tileMode);
+        for (int t = 0; t < 6; t += 3) {
+            const IV &v0 = tris[t];
+            const IV &v1 = tris[t + 1];
+            const IV &v2 = tris[t + 2];
+            const float area = edge(v0.x, v0.y, v1.x, v1.y, v2.x, v2.y);
+            if (std::fabs(area) < 1e-7f) {
+                continue;
+            }
+            const float invArea = 1.0f / area;
+            int minX = std::max(0, static_cast<int>(std::floor(std::min({v0.x, v1.x, v2.x}))));
+            int maxX = std::min(width - 1, static_cast<int>(std::ceil(std::max({v0.x, v1.x, v2.x}))));
+            int minY = std::max(0, static_cast<int>(std::floor(std::min({v0.y, v1.y, v2.y}))));
+            int maxY = std::min(height - 1, static_cast<int>(std::ceil(std::max({v0.y, v1.y, v2.y}))));
+            for (int py = minY; py <= maxY; ++py) {
+                for (int px = minX; px <= maxX; ++px) {
+                    const float sx = px + 0.5f;
+                    const float sy = py + 0.5f;
+                    const float b0 = edge(v1.x, v1.y, v2.x, v2.y, sx, sy) * invArea;
+                    const float b1 = edge(v2.x, v2.y, v0.x, v0.y, sx, sy) * invArea;
+                    const float b2 = edge(v0.x, v0.y, v1.x, v1.y, sx, sy) * invArea;
+                    if (b0 < 0.0f || b1 < 0.0f || b2 < 0.0f) {
+                        continue;
+                    }
+                    float tex[4];
+                    image->sample(b0 * v0.u + b1 * v1.u + b2 * v2.u,
+                                  b0 * v0.v + b1 * v1.v + b2 * v2.v, samplingMode, tileMode, tex);
+                    float &slot = alpha[static_cast<std::size_t>(py) * width + px];
+                    slot = std::max(slot, tex[3]);
+                }
+            }
+        }
+    }
+
+    blurAlpha(alpha, width, height, wsc::render::computeGaussianKernel(data.blurRadius));
+
+    RasterClip clip;
+    clip.width = width;
+    if (data.scissor.enabled) {
+        clip.hasScissor = true;
+        clip.sx0 = data.scissor.x;
+        clip.sx1 = data.scissor.x + data.scissor.width;
+        clip.sy0 = height - data.scissor.y - data.scissor.height;
+        clip.sy1 = height - data.scissor.y;
+    }
+
+    for (int py = 0; py < height; ++py) {
+        for (int px = 0; px < width; ++px) {
+            const float coverage = alpha[static_cast<std::size_t>(py) * width + px];
+            const float srcA = coverage * data.color[3] * clip.at(px, py);
+            if (srcA <= 0.0f) {
+                continue;
+            }
+            std::uint8_t *dst = framebuffer + (static_cast<std::size_t>(py) * width + px) * 4u;
+            blendPixel(dst, data.color[0], data.color[1], data.color[2], srcA, data.blendMode);
+        }
+    }
+}
+
 /// Combine all active clip paths into a single coverage buffer (1 inside the
 /// intersection, 0 outside, with an anti-aliased ramp along every edge).
 std::vector<float> buildClipCoverage(const ClipMaskState &clip, int width, int height)
@@ -894,8 +1019,12 @@ void SoftwareRenderer::executeCommand(const Command &command)
         rasterizeImage(framebuffer_.data(), width_, height_, data, makeClip(data.scissor, data.clipMask));
         break;
     }
+    case Command::Type::Shadow: {
+        rasterizeShadow(framebuffer_.data(), width_, height_,
+                        static_cast<const DrawShadowCommand &>(command).data());
+        break;
+    }
     default:
-        // Shadow is handled in a later milestone.
         break;
     }
 }
