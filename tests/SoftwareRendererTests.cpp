@@ -174,6 +174,48 @@ bool testDrawLine()
     return ok;
 }
 
+bool testDrawImage()
+{
+    const int w = 16;
+    const int h = 16;
+    std::unique_ptr<Canvas> canvas = Canvas::createSoftware(w, h);
+    if (!canvas) {
+        return expect(false, "createSoftware should return a canvas");
+    }
+
+    // A 4x4 opaque green image.
+    std::vector<unsigned char> src(4 * 4 * 4, 0);
+    for (std::size_t i = 0; i < 4u * 4u; ++i) {
+        src[i * 4 + 0] = 0;
+        src[i * 4 + 1] = 255;
+        src[i * 4 + 2] = 0;
+        src[i * 4 + 3] = 255;
+    }
+    Image image;
+    bool ok = expect(image.loadFromRGBA(*canvas, src, 4, 4, false), "loadFromRGBA should succeed");
+    if (!ok) {
+        return false;
+    }
+
+    canvas->beginFrame();
+    Paint paint;
+    paint.setColor(Color(255, 255, 255, 255)); // white tint = show the image unchanged
+    canvas->drawImage(image, 4.0f, 4.0f, paint);
+    canvas->flush();
+
+    std::vector<unsigned char> pixels;
+    if (!canvas->readPixelsRGBA(pixels) || pixels.size() != static_cast<std::size_t>(w) * h * 4u) {
+        return expect(false, "readPixelsRGBA should succeed with the right size");
+    }
+    auto pixelAt = [&](int x, int y) { return &pixels[(static_cast<std::size_t>(y) * w + x) * 4u]; };
+
+    const unsigned char *inside = pixelAt(6, 6);
+    ok = expect(inside[1] > 240 && inside[0] < 20 && inside[3] > 240, "image interior should be opaque green") && ok;
+    const unsigned char *outside = pixelAt(0, 0);
+    ok = expect(outside[3] == 0, "outside the image should be transparent") && ok;
+    return ok;
+}
+
 } // namespace
 
 int main()
@@ -183,5 +225,6 @@ int main()
     ok = testSrcOverBlending() && ok;
     ok = testLinearGradient() && ok;
     ok = testDrawLine() && ok;
+    ok = testDrawImage() && ok;
     return ok ? 0 : 1;
 }
