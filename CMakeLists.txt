@@ -17,6 +17,7 @@ option(WHATSCANVAS_BUILD_DEMO "Build the root WhatsCanvas demo executable." ON)
 option(WHATSCANVAS_INSTALL "Enable install and package export rules." ON)
 option(WHATSCANVAS_BUILD_OPENGL "Build the desktop OpenGL renderer library target." ON)
 option(WHATSCANVAS_BUILD_OPENGLES "Build the OpenGL ES renderer library target." OFF)
+option(WHATSCANVAS_BUILD_SOFTWARE "Build the dependency-free CPU (software) renderer library target." ON)
 option(WHATSCANVAS_BUILD_BENCHMARKS "Build lightweight benchmark executables." ON)
 option(WHATSCANVAS_ENABLE_OPENTYPE_SHAPING "Enable optional OpenType text shaping adapter hooks when a supported shaper is available." OFF)
 option(WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER "Enable optional FreeType glyph rasterizer when FreeType is available." ON)
@@ -85,6 +86,11 @@ endif()
 if (WHATSCANVAS_BUILD_OPENGLES)
     whatscanvas_add_opengles_library(WhatsCanvasOpenGLES ${CMAKE_CURRENT_LIST_DIR})
     add_library(WhatsCanvas::OpenGLES ALIAS WhatsCanvasOpenGLES)
+endif()
+
+if (WHATSCANVAS_BUILD_SOFTWARE)
+    whatscanvas_add_software_library(WhatsCanvasSoftware ${CMAKE_CURRENT_LIST_DIR})
+    add_library(WhatsCanvas::Software ALIAS WhatsCanvasSoftware)
 endif()
 
 if (NOT TARGET WhatsCanvasOpenGL AND NOT TARGET WhatsCanvasOpenGLES)
@@ -779,6 +785,28 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
     )
     set_tests_properties(WhatsCanvasSoftwareGoldenTests PROPERTIES LABELS "unit;diagnostics")
+
+    # Standalone proof: the exact same head-less software tests, but linked
+    # against ONLY the dependency-free WhatsCanvasSoftware library (no OpenGL,
+    # no glad, no Vulkan). If this links and passes, GPU-free rendering works
+    # end to end through the public API with zero GPU dependencies.
+    if (TARGET WhatsCanvasSoftware)
+        add_executable(WhatsCanvasSoftwareLibTests
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/SoftwareRendererTests.cpp"
+        )
+        target_link_libraries(WhatsCanvasSoftwareLibTests PRIVATE
+            WhatsCanvasSoftware
+        )
+        add_test(NAME WhatsCanvasSoftwareLibTests
+            COMMAND ${CMAKE_COMMAND}
+                -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+                -DWHATSCANVAS_TEST_TARGET=WhatsCanvasSoftwareLibTests
+                -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasSoftwareLibTests>
+                -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+        )
+        set_tests_properties(WhatsCanvasSoftwareLibTests PROPERTIES LABELS "unit;diagnostics")
+    endif()
 
     add_executable(WhatsCanvasRenderTargetPoolTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/RenderTargetPoolTests.cpp"
