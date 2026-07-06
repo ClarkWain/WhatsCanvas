@@ -757,6 +757,29 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     )
     set_tests_properties(WhatsCanvasSoftwareRendererTests PROPERTIES LABELS "unit;diagnostics")
 
+    add_executable(WhatsCanvasSoftwareGoldenTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/SoftwareGoldenTests.cpp"
+    )
+    target_include_directories(WhatsCanvasSoftwareGoldenTests PRIVATE
+        "${SRC_DIR}"
+    )
+    target_compile_definitions(WhatsCanvasSoftwareGoldenTests PRIVATE
+        "WHATSCANVAS_SOFTWARE_BASELINE_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/tests/baselines/software\""
+    )
+    target_link_libraries(WhatsCanvasSoftwareGoldenTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasSoftwareGoldenTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasSoftwareGoldenTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasSoftwareGoldenTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasSoftwareGoldenTests PROPERTIES LABELS "unit;diagnostics")
+
     add_executable(WhatsCanvasRenderTargetPoolTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/RenderTargetPoolTests.cpp"
     )
