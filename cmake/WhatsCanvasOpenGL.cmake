@@ -227,6 +227,7 @@ function(whatscanvas_add_gl_family_library target_name project_root)
         "${src_dir}/render/RenderTargetPool.cpp"
         "${src_dir}/render/SpriteBatch.cpp"
         "${src_dir}/render/Renderer.cpp"
+        "${src_dir}/render/software/SoftwareRenderer.cpp"
         "${src_dir}/render/vulkan/VulkanRenderDevice.cpp"
     )
 
@@ -301,6 +302,63 @@ endfunction()
 
 function(whatscanvas_add_opengles_library target_name project_root)
     whatscanvas_add_gl_family_library(${target_name} "${project_root}" OPENGLES)
+endfunction()
+
+# A dependency-free, CPU-only rendering library. It contains the same public
+# Canvas API but is built with WHATSCANVAS_SOFTWARE_ONLY so every OpenGL /
+# Vulkan / glad code path is compiled out. The draw commands are reduced to
+# pure data carriers (SoftwareCommandStubs.cpp) consumed by the CPU
+# SoftwareRenderer, so the resulting binary links no GPU libraries and runs in
+# fully head-less environments. Text uses the built-in stb_truetype rasterizer.
+function(whatscanvas_add_software_library target_name project_root)
+    set(src_dir "${project_root}/src")
+
+    add_library(${target_name}
+        "${src_dir}/canvas/base.cpp"
+        "${src_dir}/canvas/Canvas.cpp"
+        "${src_dir}/canvas/Image.cpp"
+        "${src_dir}/canvas/Matrix.cpp"
+        "${src_dir}/canvas/Paint.cpp"
+        "${src_dir}/canvas/Path.cpp"
+        "${src_dir}/text/BasicTextBackend.cpp"
+        "${src_dir}/text/FontRasterizer.cpp"
+        "${src_dir}/text/GlyphAtlas.cpp"
+        "${src_dir}/text/NativeText.cpp"
+        "${src_dir}/text/TextShaper.cpp"
+        "${src_dir}/text/TextUtils.cpp"
+        "${src_dir}/text/UnicodeBidi.cpp"
+        "${src_dir}/command/SoftwareCommandStubs.cpp"
+        "${src_dir}/render/software/SoftwareRenderer.cpp"
+    )
+
+    target_compile_definitions(${target_name} PRIVATE WHATSCANVAS_SOFTWARE_ONLY)
+
+    target_include_directories(${target_name}
+        PRIVATE
+            "${src_dir}"
+        INTERFACE
+            "$<BUILD_INTERFACE:${project_root}/include>"
+            "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
+    )
+
+    target_link_libraries(${target_name}
+        PRIVATE
+            "$<BUILD_INTERFACE:WhatsCanvasGLM>"
+            "$<BUILD_INTERFACE:WhatsCanvasSTB>"
+            "$<BUILD_INTERFACE:WhatsCanvasPolyline2D>"
+    )
+
+    if (BUILD_SHARED_LIBS)
+        target_compile_definitions(${target_name} PRIVATE WSC_EXPORTS PUBLIC WSC_SHARED)
+        set_target_properties(${target_name} PROPERTIES
+            CXX_VISIBILITY_PRESET hidden
+            VISIBILITY_INLINES_HIDDEN YES
+        )
+    endif()
+
+    if (WIN32)
+        target_link_libraries(${target_name} PRIVATE gdi32)
+    endif()
 endfunction()
 
 function(whatscanvas_link_gl_app target_name project_root)
