@@ -6,6 +6,7 @@
 #include <glm/glm.hpp>
 
 #include "command/DrawCommand.h"
+#include "render/GammaCorrect.h"
 #include "render/GaussianKernel.h"
 
 namespace wsc::software {
@@ -157,13 +158,26 @@ inline std::uint8_t toByte(float value)
 
 /// Blend a straight-alpha source over the destination pixel, matching the GL
 /// backend's glBlendFuncSeparate settings (see RenderContext::applyBlendMode)
-/// for all 14 Porter-Duff / separable modes.
+/// for all 14 Porter-Duff / separable modes. When gamma-correct rendering is
+/// enabled the RGB channels are blended in linear space and the stored result
+/// is re-encoded to sRGB, mirroring the GL backend's sRGB source colors plus
+/// GL_FRAMEBUFFER_SRGB. Alpha is always linear and never gamma-converted.
 inline void blendPixel(std::uint8_t *dst, float sr, float sg, float sb, float sa, DrawBlendMode mode)
 {
-    const float dr = dst[0] / 255.0f;
-    const float dg = dst[1] / 255.0f;
-    const float db = dst[2] / 255.0f;
+    const bool gamma = GammaCorrect::enabled();
+    float dr = dst[0] / 255.0f;
+    float dg = dst[1] / 255.0f;
+    float db = dst[2] / 255.0f;
     const float da = dst[3] / 255.0f;
+
+    if (gamma) {
+        sr = GammaCorrect::srgbToLinear(sr);
+        sg = GammaCorrect::srgbToLinear(sg);
+        sb = GammaCorrect::srgbToLinear(sb);
+        dr = GammaCorrect::srgbToLinear(dr);
+        dg = GammaCorrect::srgbToLinear(dg);
+        db = GammaCorrect::srgbToLinear(db);
+    }
 
     float orr;
     float og;
@@ -220,6 +234,12 @@ inline void blendPixel(std::uint8_t *dst, float sr, float sg, float sb, float sa
         og = sg * sa + dg * (1.0f - sa);
         ob = sb * sa + db * (1.0f - sa);
         break;
+    }
+
+    if (gamma) {
+        orr = GammaCorrect::linearToSrgb(orr);
+        og = GammaCorrect::linearToSrgb(og);
+        ob = GammaCorrect::linearToSrgb(ob);
     }
 
     dst[0] = toByte(orr);

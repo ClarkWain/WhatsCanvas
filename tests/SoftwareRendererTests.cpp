@@ -402,6 +402,51 @@ bool testSaveLayerPartial()
     return ok;
 }
 
+// With gamma-correct rendering the software backend blends in linear space and
+// re-encodes to sRGB (mirroring the GL backend's linearized source color +
+// GL_FRAMEBUFFER_SRGB). A 50% red over opaque blue must land near the linear
+// result (R,B ~= 188/187) rather than the straight-sRGB result (~128/127).
+bool testGammaLinearBlend()
+{
+    const int w = 16;
+    const int h = 16;
+    std::unique_ptr<Canvas> canvas = Canvas::createSoftware(w, h);
+    if (!canvas) {
+        return expect(false, "createSoftware should return a canvas");
+    }
+
+    Canvas::setGammaCorrect(true);
+    canvas->beginFrame();
+    Paint bg;
+    bg.setStyle(Paint::Style::FILL);
+    bg.setAntiAlias(false);
+    bg.setColor(Color(0, 0, 255, 255));
+    canvas->drawRect(RectF(0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h)), bg);
+
+    Paint over;
+    over.setStyle(Paint::Style::FILL);
+    over.setAntiAlias(false);
+    over.setColor(Color(255, 0, 0, 128));
+    canvas->drawRect(RectF(0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h)), over);
+    canvas->flush();
+
+    std::vector<unsigned char> pixels;
+    const bool read = canvas->readPixelsRGBA(pixels) && pixels.size() == static_cast<std::size_t>(w) * h * 4u;
+    Canvas::setGammaCorrect(false); // restore global state for later tests
+    if (!read) {
+        return expect(false, "readPixelsRGBA should succeed with the right size");
+    }
+
+    const unsigned char *mid = &pixels[(8u * w + 8u) * 4u];
+    bool ok = expect(mid[0] > 178 && mid[0] < 198, "gamma linear blend red channel ~188");
+    ok = expect(mid[2] > 177 && mid[2] < 197, "gamma linear blend blue channel ~187") && ok;
+    ok = expect(mid[1] < 12, "gamma linear blend green channel ~0") && ok;
+    ok = expect(mid[3] == 255, "gamma blend alpha stays opaque") && ok;
+    // The linear blend must be clearly brighter than a straight-sRGB blend (~128).
+    ok = expect(mid[0] > 160, "gamma blend should differ from straight-sRGB blend") && ok;
+    return ok;
+}
+
 } // namespace
 
 int main()
@@ -417,5 +462,6 @@ int main()
     ok = testGaussianShadow() && ok;
     ok = testSaveLayerAlpha() && ok;
     ok = testSaveLayerPartial() && ok;
+    ok = testGammaLinearBlend() && ok;
     return ok ? 0 : 1;
 }

@@ -309,6 +309,32 @@ Bitmap sceneImageTint()
     return readback(*canvas);
 }
 
+// Gamma-correct rendering: a 50%-alpha red rectangle over an opaque blue
+// background. GL linearizes the source color and blends in linear space via
+// GL_FRAMEBUFFER_SRGB, so the mid pixel differs from a straight-sRGB blend.
+// This scene locks in the software backend's linear-space blend parity.
+Bitmap sceneGammaSrcOver()
+{
+    Canvas::setGammaCorrect(true);
+    auto canvas = Canvas::createSoftware(48, 48);
+    canvas->beginFrame();
+    Paint bg;
+    bg.setStyle(Paint::Style::FILL);
+    bg.setAntiAlias(false);
+    bg.setColor(Color(0, 0, 255, 255));
+    canvas->drawRect(RectF(0.0f, 0.0f, 48.0f, 48.0f), bg);
+
+    Paint over;
+    over.setStyle(Paint::Style::FILL);
+    over.setAntiAlias(false);
+    over.setColor(Color(255, 0, 0, 128));
+    canvas->drawRect(RectF(8.0f, 8.0f, 32.0f, 32.0f), over);
+    canvas->flush();
+    Bitmap out = readback(*canvas);
+    Canvas::setGammaCorrect(false);
+    return out;
+}
+
 struct Scene
 {
     const char *name;
@@ -324,6 +350,7 @@ const Scene kScenes[] = {
     {"save_layer", &sceneSaveLayer},
     {"blend_modes", &sceneBlendModes},
     {"image_tint", &sceneImageTint},
+    {"gamma_srcover", &sceneGammaSrcOver},
 };
 
 bool updateRequested()
