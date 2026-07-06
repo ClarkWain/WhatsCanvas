@@ -322,6 +322,41 @@ bool testGaussianShadow()
     return ok;
 }
 
+bool testSaveLayerAlpha()
+{
+    const int w = 32;
+    const int h = 32;
+    std::unique_ptr<Canvas> canvas = Canvas::createSoftware(w, h);
+    if (!canvas) {
+        return expect(false, "createSoftware should return a canvas");
+    }
+
+    canvas->beginFrame();
+    Paint layerPaint;
+    layerPaint.setColor(Color(255, 255, 255, 255)); // white so the layer isn't tinted
+    layerPaint.setAlpha(128);                        // composite the whole layer at ~50%
+    canvas->saveLayer(RectF(0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h)), layerPaint);
+    Paint red;
+    red.setStyle(Paint::Style::FILL);
+    red.setColor(Color(255, 0, 0, 255));
+    red.setAntiAlias(false);
+    canvas->drawRect(RectF(8.0f, 8.0f, 16.0f, 16.0f), red);
+    canvas->restore();
+    canvas->flush();
+
+    std::vector<unsigned char> pixels;
+    if (!canvas->readPixelsRGBA(pixels) || pixels.size() != static_cast<std::size_t>(w) * h * 4u) {
+        return expect(false, "readPixelsRGBA should succeed with the right size");
+    }
+    auto pixelAt = [&](int x, int y) { return &pixels[(static_cast<std::size_t>(y) * w + x) * 4u]; };
+
+    const unsigned char *inside = pixelAt(16, 16);
+    bool ok = expect(inside[0] > 150 && inside[1] < 40 && inside[2] < 40, "layer content should be red");
+    ok = expect(inside[3] > 90 && inside[3] < 250, "layer should be composited semi-transparently") && ok;
+    ok = expect(pixelAt(2, 2)[3] == 0, "outside the drawn content should stay transparent") && ok;
+    return ok;
+}
+
 } // namespace
 
 int main()
@@ -335,5 +370,6 @@ int main()
     ok = testClipRect() && ok;
     ok = testClipPath() && ok;
     ok = testGaussianShadow() && ok;
+    ok = testSaveLayerAlpha() && ok;
     return ok ? 0 : 1;
 }

@@ -797,7 +797,8 @@ void rasterizeShadow(std::uint8_t *framebuffer, int width, int height, const Dra
 
 /// Combine all active clip paths into a single coverage buffer (1 inside the
 /// intersection, 0 outside, with an anti-aliased ramp along every edge).
-std::vector<float> buildClipCoverage(const ClipMaskState &clip, int width, int height)
+/// `extra` is an additional device-space transform (used for offscreen layers).
+std::vector<float> buildClipCoverage(const ClipMaskState &clip, int width, int height, const glm::mat4 &extra)
 {
     std::vector<float> combined(static_cast<std::size_t>(width) * static_cast<std::size_t>(height), 1.0f);
     std::vector<float> temp(combined.size());
@@ -807,12 +808,114 @@ std::vector<float> buildClipCoverage(const ClipMaskState &clip, int width, int h
             continue;
         }
         std::fill(temp.begin(), temp.end(), 0.0f);
-        rasterizeCoverageTriangles(temp.data(), width, height, mask->points(), mask->coverage(), mask->transform());
+        rasterizeCoverageTriangles(temp.data(), width, height, mask->points(), mask->coverage(),
+                                   extra * mask->transform());
         for (std::size_t i = 0; i < combined.size(); ++i) {
             combined[i] *= temp[i];
         }
     }
     return combined;
+}
+
+/// Mutable clip-coverage cache keyed by clip fingerprint (+ target size).
+struct ClipCache
+{
+    std::vector<float> coverage;
+    std::uint64_t fingerprint = 0;
+    bool valid = false;
+};
+
+RasterClip makeRasterClip(const ScissorState &scissor, const ClipMaskState &clipMask, int width, int height,
+                          const glm::mat4 &extra, ClipCache *cache)
+{
+    RasterClip rc;
+    rc.width = width;
+    if (scissor.enabled) {
+        rc.hasScissor = true;
+        rc.sx0 = scissor.x;
+        rc.sx1 = scissor.x + scissor.width;
+        rc.sy0 = height - scissor.y - scissor.height;
+        rc.sy1 = height - scissor.y;
+    }
+    if (clipMask.hasPaths()) {
+        if (cache != nullptr) {
+            if (!cache->valid || cache->fingerprint != clipMask.fingerprint
+                || cache->coverage.size() != static_cast<std::size_t>(width) * static_cast<std::size_t>(height)) {
+                cache->coverage = buildClipCoverage(clipMask, width, height, extra);
+                cache->fingerprint = clipMask.fingerprint;
+                cache->valid = true;
+            }
+            rc.coverage = cache->coverage.data();
+        } else {
+            // No caching (offscreen path): the caller owns the returned storage.
+            rc.coverage = nullptr;
+        }
+    }
+    return rc;
+}
+
+/// Execute a command list into a target framebuffer. `extra` offsets geometry
+/// (for offscreen layers); `cache` (optional) reuses clip coverage across
+/// consecutive commands that share a clip.
+void executeCommandList(std::uint8_t *framebuffer, int width, int height, const glm::mat4 &extra,
+                        const std::vector<std::unique_ptr<Command>> &commands, ClipCache *cache)
+{
+    std::vector<float> localClip; // owns clip coverage when no cache is provided
+    auto clipFor = [&](const ScissorState &scissor, const ClipMaskState &clipMask) -> RasterClip {
+        RasterClip rc = makeRasterClip(scissor, clipMask, width, height, extra, cache);
+        if (cache == nullptr && clipMask.hasPaths()) {
+            localClip = buildClipCoverage(clipMask, width, height, extra);
+            rc.coverage = localClip.data();
+        }
+        return rc;
+    };
+
+    for (const auto &commandPtr : commands) {
+        if (!commandPtr) {
+            continue;
+        }
+        const Command &command = *commandPtr;
+        switch (command.type()) {
+        case Command::Type::Path: {
+            const DrawPathData &data = static_cast<const DrawPathCommand &>(command).data();
+            rasterizeTriangles(framebuffer, width, height, data.points, data.colors, data.coverage, data.color,
+                               extra * data.transform, data.blendMode, makeGradientDesc(data),
+                               clipFor(data.scissor, data.clipMask));
+            break;
+        }
+        case Command::Type::Text: {
+            const DrawTextData &data = static_cast<const DrawTextCommand &>(command).data();
+            rasterizeTriangles(framebuffer, width, height, data.vertices, {}, {}, data.color,
+                               extra * data.transform, data.blendMode, GradientDesc{},
+                               clipFor(data.scissor, data.clipMask));
+            break;
+        }
+        case Command::Type::Points: {
+            DrawPointsData data = static_cast<const DrawPointsCommand &>(command).data();
+            data.transform = extra * data.transform;
+            rasterizePoints(framebuffer, width, height, data, clipFor(data.scissor, data.clipMask));
+            break;
+        }
+        case Command::Type::Lines: {
+            DrawLinesData data = static_cast<const DrawLinesCommand &>(command).data();
+            data.transform = extra * data.transform;
+            rasterizeLines(framebuffer, width, height, data, clipFor(data.scissor, data.clipMask));
+            break;
+        }
+        case Command::Type::Image: {
+            DrawImageData data = static_cast<const DrawImageCommand &>(command).data();
+            data.transform = extra * data.transform;
+            rasterizeImage(framebuffer, width, height, data, clipFor(data.scissor, data.clipMask));
+            break;
+        }
+        case Command::Type::Shadow: {
+            rasterizeShadow(framebuffer, width, height, static_cast<const DrawShadowCommand &>(command).data());
+            break;
+        }
+        default:
+            break;
+        }
+    }
 }
 
 } // namespace
@@ -830,7 +933,6 @@ void SoftwareRenderer::setViewport(int width, int height)
 {
     width_ = std::max(0, width);
     height_ = std::max(0, height);
-    clipCacheValid_ = false;
     ensureFramebuffer();
 }
 
@@ -951,11 +1053,26 @@ RenderResourceStats SoftwareRenderer::resourceStats() const
     return {};
 }
 
-SharedImageResource SoftwareRenderer::renderCommandsToImageResource(const std::vector<std::unique_ptr<Command>> &,
-                                                                    const OffscreenRenderRequest &) const
+SharedImageResource SoftwareRenderer::renderCommandsToImageResource(const std::vector<std::unique_ptr<Command>> &commands,
+                                                                    const OffscreenRenderRequest &request) const
 {
-    // Offscreen layers/shadows are a later milestone.
-    return {};
+    if (commands.empty() || request.canvasWidth <= 0 || request.canvasHeight <= 0
+        || request.targetWidth <= 0 || request.targetHeight <= 0) {
+        return {};
+    }
+    const int tw = request.targetWidth;
+    const int th = request.targetHeight;
+    std::vector<std::uint8_t> target(static_cast<std::size_t>(tw) * static_cast<std::size_t>(th) * 4u, 0);
+
+    // Position the canvas-space content within the (possibly bounds-sized)
+    // target. The GL backend uses glViewport(viewportX, viewportY, canvasW,
+    // canvasH); the equivalent top-down translation is derived below.
+    glm::mat4 extra(1.0f);
+    extra[3][0] = static_cast<float>(request.viewportX);
+    extra[3][1] = static_cast<float>(th - request.viewportY - request.canvasHeight);
+    executeCommandList(target.data(), tw, th, extra, commands, nullptr);
+
+    return std::make_shared<SoftwareImageResource>(tw, th, std::move(target));
 }
 
 void SoftwareRenderer::resetRenderState() {}
@@ -963,70 +1080,6 @@ void SoftwareRenderer::resetRenderState() {}
 void SoftwareRenderer::clear()
 {
     commands_.clear();
-}
-
-void SoftwareRenderer::executeCommand(const Command &command)
-{
-    auto makeClip = [&](const ScissorState &scissor, const ClipMaskState &clipMask) -> RasterClip {
-        RasterClip rc;
-        rc.width = width_;
-        if (scissor.enabled) {
-            rc.hasScissor = true;
-            rc.sx0 = scissor.x;
-            rc.sx1 = scissor.x + scissor.width;
-            rc.sy0 = height_ - scissor.y - scissor.height;
-            rc.sy1 = height_ - scissor.y;
-        }
-        if (clipMask.hasPaths()) {
-            if (!clipCacheValid_ || clipCacheFingerprint_ != clipMask.fingerprint
-                || clipCacheCoverage_.size() != static_cast<std::size_t>(width_) * static_cast<std::size_t>(height_)) {
-                clipCacheCoverage_ = buildClipCoverage(clipMask, width_, height_);
-                clipCacheFingerprint_ = clipMask.fingerprint;
-                clipCacheValid_ = true;
-            }
-            rc.coverage = clipCacheCoverage_.data();
-        }
-        return rc;
-    };
-
-    switch (command.type()) {
-    case Command::Type::Path: {
-        const DrawPathData &data = static_cast<const DrawPathCommand &>(command).data();
-        rasterizeTriangles(framebuffer_.data(), width_, height_, data.points, data.colors, data.coverage,
-                           data.color, data.transform, data.blendMode, makeGradientDesc(data),
-                           makeClip(data.scissor, data.clipMask));
-        break;
-    }
-    case Command::Type::Text: {
-        const DrawTextData &data = static_cast<const DrawTextCommand &>(command).data();
-        rasterizeTriangles(framebuffer_.data(), width_, height_, data.vertices, {}, {},
-                           data.color, data.transform, data.blendMode, GradientDesc{},
-                           makeClip(data.scissor, data.clipMask));
-        break;
-    }
-    case Command::Type::Points: {
-        const DrawPointsData &data = static_cast<const DrawPointsCommand &>(command).data();
-        rasterizePoints(framebuffer_.data(), width_, height_, data, makeClip(data.scissor, data.clipMask));
-        break;
-    }
-    case Command::Type::Lines: {
-        const DrawLinesData &data = static_cast<const DrawLinesCommand &>(command).data();
-        rasterizeLines(framebuffer_.data(), width_, height_, data, makeClip(data.scissor, data.clipMask));
-        break;
-    }
-    case Command::Type::Image: {
-        const DrawImageData &data = static_cast<const DrawImageCommand &>(command).data();
-        rasterizeImage(framebuffer_.data(), width_, height_, data, makeClip(data.scissor, data.clipMask));
-        break;
-    }
-    case Command::Type::Shadow: {
-        rasterizeShadow(framebuffer_.data(), width_, height_,
-                        static_cast<const DrawShadowCommand &>(command).data());
-        break;
-    }
-    default:
-        break;
-    }
 }
 
 void SoftwareRenderer::flush()
@@ -1037,12 +1090,9 @@ void SoftwareRenderer::flush()
     }
     clearFramebuffer();
     stats_.commandCount += commands_.size();
-    for (const auto &command : commands_) {
-        if (command) {
-            executeCommand(*command);
-            ++stats_.drawCallCount;
-        }
-    }
+    stats_.drawCallCount += commands_.size();
+    ClipCache cache;
+    executeCommandList(framebuffer_.data(), width_, height_, glm::mat4(1.0f), commands_, &cache);
 }
 
 } // namespace wsc::software

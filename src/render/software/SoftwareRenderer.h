@@ -58,18 +58,12 @@ public:
 private:
     void ensureFramebuffer();
     void clearFramebuffer();
-    void executeCommand(const Command &command);
 
     int width_ = 0;
     int height_ = 0;
     std::vector<std::uint8_t> framebuffer_; // RGBA8, row 0 = top (canvas y = 0)
     std::vector<std::unique_ptr<Command>> commands_;
     FrameStats stats_;
-
-    // Cache of the last built clip coverage buffer, keyed by clip fingerprint.
-    mutable std::vector<float> clipCacheCoverage_;
-    mutable std::uint64_t clipCacheFingerprint_ = 0;
-    mutable bool clipCacheValid_ = false;
 };
 
 } // namespace wsc::software
