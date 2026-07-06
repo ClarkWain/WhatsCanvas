@@ -109,6 +109,71 @@ bool testSrcOverBlending()
     return ok;
 }
 
+bool testLinearGradient()
+{
+    const int w = 64;
+    const int h = 16;
+    std::unique_ptr<Canvas> canvas = Canvas::createSoftware(w, h);
+    if (!canvas) {
+        return expect(false, "createSoftware should return a canvas");
+    }
+
+    canvas->beginFrame();
+    Paint grad;
+    grad.setStyle(Paint::Style::FILL);
+    grad.setAntiAlias(false);
+    grad.setLinearGradient(0.0f, 0.0f, static_cast<float>(w), 0.0f,
+                           {Paint::ColorStop(0.0f, Color(255, 0, 0, 255)),
+                            Paint::ColorStop(1.0f, Color(0, 0, 255, 255))});
+    canvas->drawRect(RectF(0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h)), grad);
+    canvas->flush();
+
+    std::vector<unsigned char> pixels;
+    if (!canvas->readPixelsRGBA(pixels) || pixels.size() != static_cast<std::size_t>(w) * h * 4u) {
+        return expect(false, "readPixelsRGBA should succeed with the right size");
+    }
+    auto pixelAt = [&](int x, int y) { return &pixels[(static_cast<std::size_t>(y) * w + x) * 4u]; };
+
+    const unsigned char *left = pixelAt(1, 8);
+    const unsigned char *right = pixelAt(62, 8);
+    bool ok = expect(left[0] > 220 && left[2] < 40, "gradient left edge should be mostly red");
+    ok = expect(right[2] > 220 && right[0] < 40, "gradient right edge should be mostly blue") && ok;
+    const unsigned char *mid = pixelAt(32, 8);
+    ok = expect(mid[0] > 80 && mid[0] < 200 && mid[2] > 80 && mid[2] < 200, "gradient midpoint should be mixed") && ok;
+    return ok;
+}
+
+bool testDrawLine()
+{
+    const int w = 32;
+    const int h = 32;
+    std::unique_ptr<Canvas> canvas = Canvas::createSoftware(w, h);
+    if (!canvas) {
+        return expect(false, "createSoftware should return a canvas");
+    }
+
+    canvas->beginFrame();
+    Paint stroke;
+    stroke.setStyle(Paint::Style::STROKE);
+    stroke.setStrokeWidth(4.0f);
+    stroke.setAntiAlias(false);
+    stroke.setStrokeColor(Color(0, 255, 0, 255));
+    canvas->drawLine(0.0f, 16.0f, 32.0f, 16.0f, stroke);
+    canvas->flush();
+
+    std::vector<unsigned char> pixels;
+    if (!canvas->readPixelsRGBA(pixels) || pixels.size() != static_cast<std::size_t>(w) * h * 4u) {
+        return expect(false, "readPixelsRGBA should succeed with the right size");
+    }
+    auto pixelAt = [&](int x, int y) { return &pixels[(static_cast<std::size_t>(y) * w + x) * 4u]; };
+
+    const unsigned char *onLine = pixelAt(16, 16);
+    bool ok = expect(onLine[1] == 255 && onLine[3] == 255, "pixel on the line should be opaque green");
+    const unsigned char *offLine = pixelAt(16, 2);
+    ok = expect(offLine[3] == 0, "pixel far from the line should be transparent") && ok;
+    return ok;
+}
+
 } // namespace
 
 int main()
@@ -116,5 +181,7 @@ int main()
     bool ok = testCreateSoftwareCanvas();
     ok = testSolidFillRasterizes() && ok;
     ok = testSrcOverBlending() && ok;
+    ok = testLinearGradient() && ok;
+    ok = testDrawLine() && ok;
     return ok ? 0 : 1;
 }
