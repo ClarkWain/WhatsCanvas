@@ -169,6 +169,7 @@ Public members:
 - `~Canvas();`
 - `Canvas(const Canvas &) = delete;`
 - `Canvas &operator=(const Canvas &) = delete;`
+- `static std::unique_ptr<Canvas> createSoftware(int width, int height);`
 - `int getTextureWidth() const override;`
 - `int getTextureHeight() const override;`
 - `bool isTextureValid() const override;`
