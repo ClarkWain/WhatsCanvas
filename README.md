@@ -8,7 +8,7 @@ WhatsCanvas 是一个用 C++17 编写的轻量级二维渲染引擎项目，以 
 
 ## 项目定位
 
-- 当前以 OpenGL 路线最完整，并已提供 OpenGLES 编译目标；Vulkan、Metal 等后端仍保留扩展空间。
+- 当前以 OpenGL 路线最完整，并已提供 OpenGLES 编译目标；另有纯 CPU 的软件渲染后端（不依赖任何 GPU），Vulkan、Metal 等后端仍保留扩展空间。
 - 对外提供的是 Canvas 风格 API，而不是底层图形接口的直接暴露。
 - 定位偏轻量，强调易接入、易阅读、易验证，适合中小型项目、工具型界面、2D 游戏和教学场景。
 - 项目自带根工程演示、游戏示例、跨平台 CI、冒烟脚本、像素回归钩子和专题文档，方便试用、学习和继续演进。
@@ -25,9 +25,9 @@ WhatsCanvas 的公开接口仍然是熟悉的 `Canvas` / `Paint` / `Path` / `Ima
 | Canvas 状态 | `save` / `restore`、矩阵变换、矩形裁剪、抗锯齿路径裁剪、`saveLayer` 离屏层、render-target canvas、clip 查询、quick reject。 | `save`、`restore`、`translate`、`scale`、`rotate`、`clipRect`、`clipPath`、`saveLayer`、`quickReject` |
 | 图像与纹理 | 文件解码、encoded memory、raw RGBA、外部纹理包装、整图替换、局部更新、contain / cover / fill 布局、锚点、九宫格、圆角裁剪、圆形裁剪、平铺绘制。 | `Image`、`drawImage`、`drawImageFit`、`drawImageNinePatch`、`drawImageRounded`、`drawImageCircle`、`drawImageTiled`、`wrapExternalTexture` |
 | 字体与文本 | 系统默认字体发现、默认 fallback chain、weight / slant face matching、跨平台 TrueType / TTC 注册、file / memory 字体、collection face index、FreeType glyph lookup / metrics / kerning / rasterization、stb fallback、HarfBuzz shaping、simple shaping fallback、多字体 fallback 分段、真实 ascent / descent / lineGap、字体资源 LRU cache 上限 / 释放 / 统计、GPU glyph atlas、atlas resize-before-evict、dirty rect atlas update、dirty rect count/area collapse stats、RGBA atlas、COLR/CPAL v0 color glyph、UTF-8 layout、CJK no-space wrapping、Unicode space、zero-width break、ellipsis、baseline、letter spacing、渐变文本、描边文本、文本阴影、text-on-path、缺字诊断、raster / shaper / atlas 回退诊断、Unicode UAX #9 全量通过。 | `FontSystem`、`FontFace`、`FontManager`、`FontFallbackChain`、`registerFontFace`、`setFontFallbackChain`、`drawText`、`drawTextBox`、`layoutTextBox`、`drawTextOnPath`、`measureTextMetrics` |
-| 渲染后端 | 桌面 OpenGL 主路径、OpenGLES 目标、共享 GL-family 后端、proc-address 注入、上下文生命周期、资源释放与重建、shader portability。 | `Canvas::loadOpenGL`、`WhatsCanvas::OpenGL`、`WhatsCanvas::OpenGLES`、`initializeContext`、`releaseResources` |
+| 渲染后端 | 桌面 OpenGL 主路径、OpenGLES 目标、纯 CPU 软件后端（零 GPU 依赖、可在无图形栈环境运行）、共享 GL-family 后端、proc-address 注入、上下文生命周期、资源释放与重建、shader portability。 | `Canvas::loadOpenGL`、`Canvas::createSoftware`、`WhatsCanvas::OpenGL`、`WhatsCanvas::OpenGLES`、`WhatsCanvas::Software`、`initializeContext`、`releaseResources` |
 | 性能与资源 | 流式顶点缓冲、图片命令同纹理合批、路径命令合批、全局 quad index buffer、离屏 render target 复用池、GPU glyph atlas 复用、indexed glyph lookup、填充三角化 / 描边网格 / 裁剪掩码 LRU 缓存、桌面 GL texel buffer 渐变 stop、OpenGLES fallback。 | `Renderer`、`RenderTargetPool`、`GlyphAtlas`、`LruCache`、`RenderStats` |
-| 诊断与验证 | 同步 / 异步像素回读、PPM 截图、像素哈希、fuzzy PPM 对比、固定时间首帧冒烟、OpenGLES 构建冒烟、示例构建冒烟、Unicode Bidi conformance、跨平台 CI。 | `readPixelsRGBA`、`readPixelsRGBAAsync`、`savePixelsPPM`、`computePixelsHashRGBA`、`ctest`、`scripts/*_smoke.*` |
+| 诊断与验证 | 同步 / 异步像素回读、PPM 截图、像素哈希、fuzzy PPM 对比、软件后端 golden-image 回归（确定性、无需 GPU）、固定时间首帧冒烟、OpenGLES 构建冒烟、示例构建冒烟、Unicode Bidi conformance、跨平台 CI。 | `readPixelsRGBA`、`readPixelsRGBAAsync`、`savePixelsPPM`、`computePixelsHashRGBA`、`ctest`、`scripts/*_smoke.*` |
 
 ## 与常见 2D 图形库的能力参照
 
@@ -166,6 +166,29 @@ target_link_libraries(MyApp PRIVATE WhatsCanvas::OpenGLES)
 ```
 
 当前 OpenGLES 目标复用 GL-family 渲染设备实现，会启用 GLES shader 版本并跳过桌面 OpenGL-only 状态，例如 `GL_FRAMEBUFFER_SRGB` 和 `GL_PROGRAM_POINT_SIZE`。
+
+### 纯 CPU 软件后端（零 GPU 依赖）
+
+除了 GL 路线，WhatsCanvas 还提供一个完全在 CPU 上光栅化的软件后端，使用同一套 Canvas API，但**不链接任何 OpenGL / Vulkan / glad**，因此可以在没有图形栈的无头环境（CI 容器、服务器、嵌入式）里直接运行。入口是一个静态工厂：
+
+```cpp
+auto canvas = Canvas::createSoftware(width, height); // 无需 GL 上下文、无需 loadOpenGL
+canvas->beginFrame();
+canvas->drawRoundRect(RectF(8, 8, 200, 120), 16.0f, paint);
+canvas->flush();
+std::vector<unsigned char> rgba = canvas->readPixelsRGBA(); // 顶部朝下的 RGBA8
+```
+
+软件后端覆盖填充 / 描边 / 文本三角形光栅化、14 种混合模式、线性 / 径向渐变、点 / 线、图片采样（tint、颜色矩阵、采样质量、tile mode）、scissor 与解析抗锯齿路径裁剪、真高斯阴影、`saveLayer` 离屏层，以及可选的 gamma-correct 线性空间混合（`Canvas::setGammaCorrect(true)`，与 GL 的 `GL_FRAMEBUFFER_SRGB` 行为一致）。它默认编进 `WhatsCanvas::OpenGL`，运行时即可无 GPU 使用。
+
+若需要一个**物理上不含任何 GPU 依赖**的库，打开 `WHATSCANVAS_BUILD_SOFTWARE` 会额外产出独立的 `WhatsCanvas::Software` 目标（文本走内置 `stb_truetype`）：
+
+```cmake
+cmake -S . -B build -DWHATSCANVAS_BUILD_SOFTWARE=ON
+target_link_libraries(MyApp PRIVATE WhatsCanvas::Software)
+```
+
+软件后端是确定性的，因此附带 golden-image 回归测试（`WhatsCanvasSoftwareGoldenTests`，基线在 `tests/baselines/software/*.pam`，用 `WHATSCANVAS_UPDATE_SOFTWARE_BASELINES=1` 重新生成），并有一个只链接 `WhatsCanvas::Software` 的测试（`WhatsCanvasSoftwareLibTests`）证明整条链路零 GPU 依赖。
 
 ## 可选字体依赖
 
