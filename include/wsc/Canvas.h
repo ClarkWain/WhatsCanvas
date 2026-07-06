@@ -123,6 +123,11 @@ public:
 	Canvas(const Canvas &) = delete;
 	Canvas &operator=(const Canvas &) = delete;
 
+	/// Create a Canvas backed by the pure-CPU software rasterizer (no GPU or
+	/// graphics context required). The returned canvas is sized and its context
+	/// initialized; render a frame, then read the result with `readPixelsRGBA`.
+	static std::unique_ptr<Canvas> createSoftware(int width, int height);
+
 	// ITextureSource interface
 	int getTextureWidth() const override { return getWidth(); }
 	int getTextureHeight() const override { return getHeight(); }

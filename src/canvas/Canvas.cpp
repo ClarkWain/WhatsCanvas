@@ -25,6 +25,7 @@
 #include "render/IRenderer.h"
 #include "render/RenderTypes.h"
 #include "render/Renderer.h"
+#include "render/software/SoftwareRenderer.h"
 #include "text/BasicTextBackend.h"
 #include "text/ITextBackend.h"
 #include "text/NativeText.h"
@@ -2111,6 +2112,14 @@ Canvas::Canvas(std::unique_ptr<IRenderer> renderer)
     : impl_(std::make_unique<Impl>(std::move(renderer), wsc::text::createBasicTextBackend()))
 {
     registerCanvasInstance(this);
+}
+
+std::unique_ptr<Canvas> Canvas::createSoftware(int width, int height)
+{
+    std::unique_ptr<Canvas> canvas(new Canvas(std::make_unique<wsc::software::SoftwareRenderer>(width, height)));
+    canvas->setSize(width, height);
+    canvas->initializeContext();
+    return canvas;
 }
 
 Canvas::~Canvas()

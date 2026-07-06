@@ -227,6 +227,7 @@ function(whatscanvas_add_gl_family_library target_name project_root)
         "${src_dir}/render/RenderTargetPool.cpp"
         "${src_dir}/render/SpriteBatch.cpp"
         "${src_dir}/render/Renderer.cpp"
+        "${src_dir}/render/software/SoftwareRenderer.cpp"
         "${src_dir}/render/vulkan/VulkanRenderDevice.cpp"
     )
 
