@@ -360,6 +360,48 @@ bool testSaveLayerAlpha()
     return ok;
 }
 
+// A layer smaller than the canvas renders into an offscreen target that is
+// offset from the canvas origin. The layer's bounds-clip (an axis-aligned
+// scissor in canvas space) must be translated into that target so content is
+// clipped to the layer rectangle and nothing leaks outside it.
+bool testSaveLayerPartial()
+{
+    const int w = 32;
+    const int h = 32;
+    std::unique_ptr<Canvas> canvas = Canvas::createSoftware(w, h);
+    if (!canvas) {
+        return expect(false, "createSoftware should return a canvas");
+    }
+
+    canvas->beginFrame();
+    Paint layerPaint;
+    layerPaint.setColor(Color(255, 255, 255, 255));
+    layerPaint.setAlpha(128);
+    canvas->saveLayer(RectF(8.0f, 8.0f, 16.0f, 16.0f), layerPaint);
+    Paint red;
+    red.setStyle(Paint::Style::FILL);
+    red.setColor(Color(255, 0, 0, 255));
+    red.setAntiAlias(false);
+    // Fill the whole canvas; only the part inside the layer bounds must survive.
+    canvas->drawRect(RectF(0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h)), red);
+    canvas->restore();
+    canvas->flush();
+
+    std::vector<unsigned char> pixels;
+    if (!canvas->readPixelsRGBA(pixels) || pixels.size() != static_cast<std::size_t>(w) * h * 4u) {
+        return expect(false, "readPixelsRGBA should succeed with the right size");
+    }
+    auto pixelAt = [&](int x, int y) { return &pixels[(static_cast<std::size_t>(y) * w + x) * 4u]; };
+
+    const unsigned char *inside = pixelAt(16, 16);
+    bool ok = expect(inside[0] > 100 && inside[1] < 20 && inside[2] < 20, "inside the layer should be red");
+    ok = expect(inside[3] >= 118 && inside[3] <= 138, "inside the layer should be ~50% alpha") && ok;
+    // Just outside the layer rect (x<8) must be clipped away entirely.
+    ok = expect(pixelAt(4, 16)[3] == 0, "content left of the layer bounds should be clipped") && ok;
+    ok = expect(pixelAt(28, 16)[3] == 0, "content right of the layer bounds should be clipped") && ok;
+    return ok;
+}
+
 } // namespace
 
 int main()
@@ -374,5 +416,6 @@ int main()
     ok = testClipPath() && ok;
     ok = testGaussianShadow() && ok;
     ok = testSaveLayerAlpha() && ok;
+    ok = testSaveLayerPartial() && ok;
     return ok ? 0 : 1;
 }

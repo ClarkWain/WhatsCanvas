@@ -863,16 +863,22 @@ struct ClipCache
 };
 
 RasterClip makeRasterClip(const ScissorState &scissor, const ClipMaskState &clipMask, int width, int height,
-                          const glm::mat4 &extra, ClipCache *cache)
+                          int flipHeight, const glm::mat4 &extra, ClipCache *cache)
 {
     RasterClip rc;
     rc.width = width;
     if (scissor.enabled) {
+        // The scissor is a GL bottom-up rectangle in canvas space; flip it with
+        // the canvas height, then apply the same device-space offset as the
+        // geometry (identity for the main framebuffer, a translation for an
+        // offscreen layer target) so partial layers clip in target space.
+        const int ox = static_cast<int>(std::lround(extra[3][0]));
+        const int oy = static_cast<int>(std::lround(extra[3][1]));
         rc.hasScissor = true;
-        rc.sx0 = scissor.x;
-        rc.sx1 = scissor.x + scissor.width;
-        rc.sy0 = height - scissor.y - scissor.height;
-        rc.sy1 = height - scissor.y;
+        rc.sx0 = scissor.x + ox;
+        rc.sx1 = scissor.x + scissor.width + ox;
+        rc.sy0 = flipHeight - scissor.y - scissor.height + oy;
+        rc.sy1 = flipHeight - scissor.y + oy;
     }
     if (clipMask.hasPaths()) {
         if (cache != nullptr) {
@@ -894,12 +900,12 @@ RasterClip makeRasterClip(const ScissorState &scissor, const ClipMaskState &clip
 /// Execute a command list into a target framebuffer. `extra` offsets geometry
 /// (for offscreen layers); `cache` (optional) reuses clip coverage across
 /// consecutive commands that share a clip.
-void executeCommandList(std::uint8_t *framebuffer, int width, int height, const glm::mat4 &extra,
+void executeCommandList(std::uint8_t *framebuffer, int width, int height, int canvasHeight, const glm::mat4 &extra,
                         const std::vector<std::unique_ptr<Command>> &commands, ClipCache *cache)
 {
     std::vector<float> localClip; // owns clip coverage when no cache is provided
     auto clipFor = [&](const ScissorState &scissor, const ClipMaskState &clipMask) -> RasterClip {
-        RasterClip rc = makeRasterClip(scissor, clipMask, width, height, extra, cache);
+        RasterClip rc = makeRasterClip(scissor, clipMask, width, height, canvasHeight, extra, cache);
         if (cache == nullptr && clipMask.hasPaths()) {
             localClip = buildClipCoverage(clipMask, width, height, extra);
             rc.coverage = localClip.data();
@@ -1107,7 +1113,7 @@ SharedImageResource SoftwareRenderer::renderCommandsToImageResource(const std::v
     glm::mat4 extra(1.0f);
     extra[3][0] = static_cast<float>(request.viewportX);
     extra[3][1] = static_cast<float>(th - request.viewportY - request.canvasHeight);
-    executeCommandList(target.data(), tw, th, extra, commands, nullptr);
+    executeCommandList(target.data(), tw, th, request.canvasHeight, extra, commands, nullptr);
 
     return std::make_shared<SoftwareImageResource>(tw, th, std::move(target));
 }
@@ -1129,7 +1135,7 @@ void SoftwareRenderer::flush()
     stats_.commandCount += commands_.size();
     stats_.drawCallCount += commands_.size();
     ClipCache cache;
-    executeCommandList(framebuffer_.data(), width_, height_, glm::mat4(1.0f), commands_, &cache);
+    executeCommandList(framebuffer_.data(), width_, height_, height_, glm::mat4(1.0f), commands_, &cache);
 }
 
 } // namespace wsc::software
