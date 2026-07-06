@@ -350,9 +350,12 @@ bool testSaveLayerAlpha()
     }
     auto pixelAt = [&](int x, int y) { return &pixels[(static_cast<std::size_t>(y) * w + x) * 4u]; };
 
+    // The whole layer is composited at ~50% alpha (128). The interior pixel sits
+    // exactly on the shared diagonal of the layer image quad's two triangles, so
+    // the top-left fill rule must ensure it is composited exactly once.
     const unsigned char *inside = pixelAt(16, 16);
-    bool ok = expect(inside[0] > 150 && inside[1] < 40 && inside[2] < 40, "layer content should be red");
-    ok = expect(inside[3] > 90 && inside[3] < 250, "layer should be composited semi-transparently") && ok;
+    bool ok = expect(inside[0] > 100 && inside[1] < 20 && inside[2] < 20, "layer content should be red");
+    ok = expect(inside[3] >= 118 && inside[3] <= 138, "layer should be composited at ~50% alpha (single pass)") && ok;
     ok = expect(pixelAt(2, 2)[3] == 0, "outside the drawn content should stay transparent") && ok;
     return ok;
 }

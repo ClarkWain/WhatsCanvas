@@ -310,6 +310,17 @@ inline float edge(float ax, float ay, float bx, float by, float cx, float cy)
     return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
 }
 
+/// Top-left fill rule for an edge A->B (triangle wound so area > 0, y-down).
+/// A pixel exactly on an edge is covered only if the edge is top-left, so a
+/// boundary shared by two triangles is rasterized by exactly one of them and
+/// never double-composited.
+inline bool edgeIsTopLeft(float ax, float ay, float bx, float by)
+{
+    const float dx = bx - ax;
+    const float dy = by - ay;
+    return dy < 0.0f || (dy == 0.0f && dx > 0.0f);
+}
+
 /// Per-pixel clip: an optional canvas-sized coverage buffer (from clip paths)
 /// and an optional scissor rectangle (already converted to top-down pixels).
 struct RasterClip
@@ -436,15 +447,22 @@ void rasterizeTriangles(std::uint8_t *framebuffer, int width, int height,
     };
 
     for (std::size_t t = 0; t + 2 < vertexCount; t += 3) {
-        const Vertex v0 = makeVertex(t);
-        const Vertex v1 = makeVertex(t + 1);
-        const Vertex v2 = makeVertex(t + 2);
+        Vertex v0 = makeVertex(t);
+        Vertex v1 = makeVertex(t + 1);
+        Vertex v2 = makeVertex(t + 2);
 
-        const float area = edge(v0.x, v0.y, v1.x, v1.y, v2.x, v2.y);
+        float area = edge(v0.x, v0.y, v1.x, v1.y, v2.x, v2.y);
         if (std::fabs(area) < 1e-7f) {
             continue;
         }
+        if (area < 0.0f) {
+            std::swap(v1, v2);
+            area = -area;
+        }
         const float invArea = 1.0f / area;
+        const bool tl0 = edgeIsTopLeft(v1.x, v1.y, v2.x, v2.y);
+        const bool tl1 = edgeIsTopLeft(v2.x, v2.y, v0.x, v0.y);
+        const bool tl2 = edgeIsTopLeft(v0.x, v0.y, v1.x, v1.y);
 
         int minX = static_cast<int>(std::floor(std::min({v0.x, v1.x, v2.x})));
         int maxX = static_cast<int>(std::ceil(std::max({v0.x, v1.x, v2.x})));
@@ -459,12 +477,18 @@ void rasterizeTriangles(std::uint8_t *framebuffer, int width, int height,
             for (int px = minX; px <= maxX; ++px) {
                 const float sx = px + 0.5f;
                 const float sy = py + 0.5f;
-                const float b0 = edge(v1.x, v1.y, v2.x, v2.y, sx, sy) * invArea;
-                const float b1 = edge(v2.x, v2.y, v0.x, v0.y, sx, sy) * invArea;
-                const float b2 = edge(v0.x, v0.y, v1.x, v1.y, sx, sy) * invArea;
-                if (b0 < 0.0f || b1 < 0.0f || b2 < 0.0f) {
+                const float e0 = edge(v1.x, v1.y, v2.x, v2.y, sx, sy);
+                const float e1 = edge(v2.x, v2.y, v0.x, v0.y, sx, sy);
+                const float e2 = edge(v0.x, v0.y, v1.x, v1.y, sx, sy);
+                const bool in0 = e0 > 0.0f || (e0 == 0.0f && tl0);
+                const bool in1 = e1 > 0.0f || (e1 == 0.0f && tl1);
+                const bool in2 = e2 > 0.0f || (e2 == 0.0f && tl2);
+                if (!(in0 && in1 && in2)) {
                     continue;
                 }
+                const float b0 = e0 * invArea;
+                const float b1 = e1 * invArea;
+                const float b2 = e2 * invArea;
 
                 float r;
                 float g;
@@ -612,14 +636,21 @@ void rasterizeImage(std::uint8_t *framebuffer, int width, int height, const Draw
     const int tileMode = static_cast<int>(data.tileMode);
 
     for (int t = 0; t < 6; t += 3) {
-        const IV &v0 = tris[t];
-        const IV &v1 = tris[t + 1];
-        const IV &v2 = tris[t + 2];
-        const float area = edge(v0.x, v0.y, v1.x, v1.y, v2.x, v2.y);
+        IV v0 = tris[t];
+        IV v1 = tris[t + 1];
+        IV v2 = tris[t + 2];
+        float area = edge(v0.x, v0.y, v1.x, v1.y, v2.x, v2.y);
         if (std::fabs(area) < 1e-7f) {
             continue;
         }
+        if (area < 0.0f) {
+            std::swap(v1, v2);
+            area = -area;
+        }
         const float invArea = 1.0f / area;
+        const bool tl0 = edgeIsTopLeft(v1.x, v1.y, v2.x, v2.y);
+        const bool tl1 = edgeIsTopLeft(v2.x, v2.y, v0.x, v0.y);
+        const bool tl2 = edgeIsTopLeft(v0.x, v0.y, v1.x, v1.y);
 
         int minX = std::max(0, static_cast<int>(std::floor(std::min({v0.x, v1.x, v2.x}))));
         int maxX = std::min(width - 1, static_cast<int>(std::ceil(std::max({v0.x, v1.x, v2.x}))));
@@ -630,12 +661,18 @@ void rasterizeImage(std::uint8_t *framebuffer, int width, int height, const Draw
             for (int px = minX; px <= maxX; ++px) {
                 const float sx = px + 0.5f;
                 const float sy = py + 0.5f;
-                const float b0 = edge(v1.x, v1.y, v2.x, v2.y, sx, sy) * invArea;
-                const float b1 = edge(v2.x, v2.y, v0.x, v0.y, sx, sy) * invArea;
-                const float b2 = edge(v0.x, v0.y, v1.x, v1.y, sx, sy) * invArea;
-                if (b0 < 0.0f || b1 < 0.0f || b2 < 0.0f) {
+                const float e0 = edge(v1.x, v1.y, v2.x, v2.y, sx, sy);
+                const float e1 = edge(v2.x, v2.y, v0.x, v0.y, sx, sy);
+                const float e2 = edge(v0.x, v0.y, v1.x, v1.y, sx, sy);
+                const bool in0 = e0 > 0.0f || (e0 == 0.0f && tl0);
+                const bool in1 = e1 > 0.0f || (e1 == 0.0f && tl1);
+                const bool in2 = e2 > 0.0f || (e2 == 0.0f && tl2);
+                if (!(in0 && in1 && in2)) {
                     continue;
                 }
+                const float b0 = e0 * invArea;
+                const float b1 = e1 * invArea;
+                const float b2 = e2 * invArea;
                 const float u = b0 * v0.u + b1 * v1.u + b2 * v2.u;
                 const float v = b0 * v0.v + b1 * v1.v + b2 * v2.v;
                 float tex[4];
