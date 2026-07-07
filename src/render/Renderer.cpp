@@ -7,6 +7,7 @@
 #include "SpriteBatch.h"
 
 #include <cmath>
+#include <iostream>
 #include <glm/glm.hpp>
 
 #include "render/GammaCorrect.h"
@@ -205,7 +206,9 @@ void Renderer::flush()
     // render target rather than executing each command against a GL context.
     // Never fall through to the GL execute path for these backends.
     if (device_ != nullptr && device_->usesDeviceCommandExecution()) {
-        flushViaDeviceCommands();
+        if (!flushViaDeviceCommands()) {
+            std::cerr << "[Renderer] Device command execution failed; frame not rendered." << std::endl;
+        }
         return;
     }
 
