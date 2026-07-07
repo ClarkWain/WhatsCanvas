@@ -156,7 +156,10 @@ public:
     /// `request` supplies the canvas size used for the ortho projection.
     bool executeCommands(const std::unique_ptr<IRenderTarget> &target,
                          const std::vector<std::unique_ptr<Command>> &commands,
-                         const OffscreenRenderRequest &request) const;
+                         const OffscreenRenderRequest &request) const override;
+
+    /// Vulkan drives its main-target frame through executeCommands().
+    bool usesDeviceCommandExecution() const override { return true; }
 
     /// Opaque backend context, defined in the implementation file.
     struct VulkanContext;

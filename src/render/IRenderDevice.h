@@ -31,4 +31,18 @@ public:
     virtual RenderResourceStats resourceStats() const = 0;
     virtual SharedImageResource renderCommandsToImageResource(const std::vector<std::unique_ptr<Command>> &commands,
                                                               const OffscreenRenderRequest &request) const = 0;
+
+    /// Whether this device drives its main-target frame by rendering a recorded
+    /// command stream through executeCommands() (e.g. Vulkan) rather than the
+    /// OpenGL-style per-command execute() path. When true, Renderer flushes the
+    /// frame via executeCommands() into a device render target and reads it back
+    /// with readPixelsRGBA().
+    virtual bool usesDeviceCommandExecution() const { return false; }
+
+    /// Render a command stream into the given render target, leaving it ready
+    /// for readPixelsRGBA(). Only meaningful when usesDeviceCommandExecution()
+    /// is true; the default returns false (unsupported).
+    virtual bool executeCommands(const std::unique_ptr<IRenderTarget> & /*target*/,
+                                 const std::vector<std::unique_ptr<Command>> & /*commands*/,
+                                 const OffscreenRenderRequest & /*request*/) const { return false; }
 };

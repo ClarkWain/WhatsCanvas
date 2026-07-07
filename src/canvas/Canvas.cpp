@@ -28,6 +28,7 @@
 #include "render/RenderTypes.h"
 #ifndef WHATSCANVAS_SOFTWARE_ONLY
 #include "render/Renderer.h"
+#include "render/RenderDeviceFactory.h"
 #endif
 #include "render/software/SoftwareRenderer.h"
 #include "text/BasicTextBackend.h"
@@ -2137,6 +2138,33 @@ std::unique_ptr<Canvas> Canvas::createSoftware(int width, int height)
     canvas->setSize(width, height);
     canvas->initializeContext();
     return canvas;
+}
+
+bool Canvas::isVulkanAvailable()
+{
+#ifdef WHATSCANVAS_SOFTWARE_ONLY
+    return false;
+#else
+    return RenderDeviceFactory::isBackendSupported(RenderBackendType::Vulkan);
+#endif
+}
+
+std::unique_ptr<Canvas> Canvas::createVulkan(int width, int height)
+{
+#ifdef WHATSCANVAS_SOFTWARE_ONLY
+    (void)width;
+    (void)height;
+    return nullptr;
+#else
+    auto device = RenderDeviceFactory::create(RenderBackendType::Vulkan);
+    if (device == nullptr) {
+        return nullptr;
+    }
+    std::unique_ptr<Canvas> canvas(new Canvas(std::make_unique<Renderer>(std::move(device))));
+    canvas->setSize(width, height);
+    canvas->initializeContext();
+    return canvas;
+#endif
 }
 
 Canvas::~Canvas()

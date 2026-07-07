@@ -50,9 +50,20 @@ public:
     void flush() override;
 
 private:
+    // Renders the recorded frame through the device's command-execution path
+    // (used by devices such as Vulkan that render a command stream into a device
+    // render target). Returns true when the device handled the flush.
+    bool flushViaDeviceCommands();
+
     std::vector<std::unique_ptr<Command>> commands_;
     std::unique_ptr<IRenderDevice> device_;
     RenderContext context_;
     bool backendInitialized_ = false;
     mutable FrameStats stats_;
+
+    // Main render target for devices that render command streams into a target
+    // (usesDeviceCommandExecution()); unused by the OpenGL execute() path.
+    std::unique_ptr<IRenderTarget> mainTarget_;
+    int mainTargetWidth_ = 0;
+    int mainTargetHeight_ = 0;
 };

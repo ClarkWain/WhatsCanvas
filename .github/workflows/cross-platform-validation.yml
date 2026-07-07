@@ -153,3 +153,37 @@ jobs:
 
       - name: Font benchmark smoke
         run: WHATSCANVAS_BENCHMARK_ITERATIONS=20 ./build-validation-font-stack/WhatsCanvasCoreBenchmarks
+
+  vulkan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Vulkan loader, headers, and software driver
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+                                  libvulkan-dev vulkan-tools mesa-vulkan-drivers
+
+      - name: Configure with the Vulkan backend enabled
+        run: cmake -S . -B build-validation-vulkan -DCMAKE_BUILD_TYPE=Debug -DWHATSCANVAS_ENABLE_VULKAN=ON
+
+      # Build gate: the embedded SPIR-V shaders and Vulkan translation must
+      # compile and link. This catches Vulkan-side regressions in every PR
+      # without requiring GPU hardware.
+      - name: Build the Vulkan backend
+        run: cmake --build build-validation-vulkan --config Debug
+
+      # Best-effort execution on the Mesa "lavapipe" software Vulkan device.
+      # Non-blocking: software-rasterizer limitations must not fail the gate,
+      # but a green run gives real render coverage on the hosted runner.
+      - name: Run Vulkan tests on lavapipe (informational)
+        continue-on-error: true
+        run: |
+          export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+          vulkaninfo --summary || true
+          ctest --test-dir build-validation-vulkan -C Debug -L vulkan --output-on-failure
+

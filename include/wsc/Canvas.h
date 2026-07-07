@@ -128,6 +128,18 @@ public:
 	/// initialized; render a frame, then read the result with `readPixelsRGBA`.
 	static std::unique_ptr<Canvas> createSoftware(int width, int height);
 
+	/// Whether the Vulkan render backend is available in this build (compiled
+	/// with a Vulkan SDK) and a compatible device is present. Safe to call
+	/// without a GPU; returns false when Vulkan is unavailable.
+	static bool isVulkanAvailable();
+
+	/// Create a Canvas backed by the Vulkan render backend. Renders off-screen
+	/// (no window or surface required); the returned canvas is sized and its
+	/// context initialized. Returns nullptr when Vulkan is unavailable
+	/// (`isVulkanAvailable()` is false) — callers should fall back to another
+	/// backend such as `createSoftware`.
+	static std::unique_ptr<Canvas> createVulkan(int width, int height);
+
 	// ITextureSource interface
 	int getTextureWidth() const override { return getWidth(); }
 	int getTextureHeight() const override { return getHeight(); }
