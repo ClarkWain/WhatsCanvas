@@ -1,6 +1,6 @@
 #include "GLProgram.h"
-#include <iostream>
 #include <utility>
+#include "core/LogInternal.h"
 
 // Move constructor
 GLProgram::GLProgram(GLProgram &&other) noexcept
@@ -117,8 +117,7 @@ void GLProgram::checkCompileErrors(GLuint shader, const std::string &type)
     if (!success)
     {
         glGetShaderInfoLog(shader, 1024, NULL, infoLog);
-        std::cerr << "ERROR::SHADER_COMPILATION_ERROR of type: " << type << "\n"
-                  << infoLog << std::endl;
+        WSC_LOG_ERROR("GLProgram", "Shader compilation error of type " << type << ": " << infoLog);
     }
 }
 
@@ -131,7 +130,7 @@ void GLProgram::checkLinkErrors()
     if (!success)
     {
         glGetProgramInfoLog(program_, 1024, NULL, infoLog);
-        // std::cerr << "ERROR::PROGRAM_LINKING_ERROR：" << infoLog << std::endl;
+        WSC_LOG_ERROR("GLProgram", "Shader program linking error: " << infoLog);
     }
 }
 
@@ -158,8 +157,7 @@ GLuint GLProgram::compileShader(GLenum type, const std::string &source)
     {
         char infoLog[512];
         glGetShaderInfoLog(shader, 512, NULL, infoLog);
-        std::cerr << "ERROR::SHADER::COMPILATION_FAILED\n"
-                  << infoLog << std::endl;
+        WSC_LOG_ERROR("GLProgram", "Shader compilation failed: " << infoLog);
     }
 
     return shader;

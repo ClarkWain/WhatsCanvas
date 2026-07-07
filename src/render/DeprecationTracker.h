@@ -1,8 +1,9 @@
 #pragma once
 
-#include <iostream>
 #include <set>
 #include <string>
+
+#include "core/LogInternal.h"
 
 /// Tracks deprecated API usage and logs warnings once per call site.
 /// Prevents repeated warnings from flooding the console.
@@ -27,12 +28,14 @@ public:
         }
         warned_.insert(key);
 
-        std::cerr << "[Deprecation] " << function << "() at " << file << ":" << line
-                  << " is deprecated.";
+        std::string message = std::string(function) + "() at " + file + ":" +
+                              std::to_string(line) + " is deprecated.";
         if (replacement) {
-            std::cerr << " Use " << replacement << " instead.";
+            message += " Use ";
+            message += replacement;
+            message += " instead.";
         }
-        std::cerr << std::endl;
+        WSC_LOG_WARN("Deprecation", message);
     }
 
     /// Get the number of unique deprecation warnings emitted.

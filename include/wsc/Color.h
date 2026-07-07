@@ -10,6 +10,7 @@ namespace wsc {
 class WSC_API Color
 {
 public:
+    /// Predefined opaque colors.
     static const Color RED;
     static const Color GREEN;
     static const Color BLUE;
@@ -19,7 +20,9 @@ public:
     static const Color CYAN;
     static const Color MAGENTA;
 
+    /// Default-constructs opaque black.
     Color();
+    /// Construct from 0-255 integer channels.
     Color(int r, int g, int b, int a = 255);
 
     /// Construct from float RGBA values in [0.0, 1.0] range.
@@ -29,17 +32,21 @@ public:
     /// Factory from float RGBA values in [0.0, 1.0] range.
     static Color fromFloat(float r, float g, float b, float a = 1.0f);
 
+    /// Parse a hex string such as "#RRGGBB" or "#RRGGBBAA".
     static Color fromHex(const std::string &hex);
 
+    /// Channel accessors as 0-255 integers.
     int getR() const;
     int getG() const;
     int getB() const;
     int getA() const;
 
+    /// Channel accessors as normalized [0.0, 1.0] floats.
     float a() const;
     float r() const;
     float g() const;
     float b() const;
+    /// Write the four normalized channels into rgba[0..3].
     void getNormalized(float *rgba) const;
 
 private:

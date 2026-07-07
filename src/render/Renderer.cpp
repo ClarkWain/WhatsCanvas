@@ -10,6 +10,8 @@
 #include <iostream>
 #include <glm/glm.hpp>
 
+#include "core/LogInternal.h"
+
 #include "render/GammaCorrect.h"
 #include "render/PathMerge.h"
 
@@ -207,7 +209,7 @@ void Renderer::flush()
     // Never fall through to the GL execute path for these backends.
     if (device_ != nullptr && device_->usesDeviceCommandExecution()) {
         if (!flushViaDeviceCommands()) {
-            std::cerr << "[Renderer] Device command execution failed; frame not rendered." << std::endl;
+            WSC_LOG_ERROR("Renderer", "Device command execution failed; frame not rendered.");
         }
         return;
     }

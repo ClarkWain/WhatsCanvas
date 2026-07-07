@@ -30,18 +30,23 @@ public:
 	int getHeight() const { return height_; }
 	bool hasMipmaps() const { return mipmapsGenerated_; }
 
+	/// Decode an in-memory image file (PNG/JPG/...) into a GPU texture.
 	bool loadFromEncodedMemory(Canvas &canvas, const unsigned char *data, int size, bool generateMipmaps = true);
+	/// Upload raw 8-bit RGBA pixels (width*height*4 bytes) as a GPU texture.
 	bool loadFromRGBA(Canvas &canvas, const unsigned char *pixels, int width, int height, bool generateMipmaps = false);
 	bool loadFromRGBA(Canvas &canvas, const std::vector<unsigned char> &pixels, int width, int height,
 	                  bool generateMipmaps = false);
+	/// Replace the entire image contents with new RGBA pixels (may resize).
 	bool replacePixelsRGBA(Canvas &canvas, const unsigned char *pixels, int width, int height,
 	                       bool generateMipmaps = false);
 	bool replacePixelsRGBA(Canvas &canvas, const std::vector<unsigned char> &pixels, int width, int height,
 	                       bool generateMipmaps = false);
+	/// Update a sub-rectangle of the existing image with new RGBA pixels.
 	bool updatePixelsRGBA(Canvas &canvas, const unsigned char *pixels, int x, int y, int width, int height,
 	                      bool regenerateMipmaps = true);
 	bool updatePixelsRGBA(Canvas &canvas, const std::vector<unsigned char> &pixels, int x, int y, int width,
 	                      int height, bool regenerateMipmaps = true);
+	/// Wrap an externally-owned GL texture id as an Image (no ownership transfer).
 	bool wrapExternalTexture(Canvas &canvas, std::uint32_t textureId, int width, int height,
 	                         bool mipmapsGenerated = false);
 
