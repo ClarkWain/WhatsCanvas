@@ -1,9 +1,9 @@
-// Text command translation: WhatsCanvas renders text as vector triangle
-// geometry (glyph outlines tessellated into local-space triangles) filled with a
-// solid color or the same shader gradient as paths -- there is no glyph atlas.
-// This test drives DrawTextCommand through executeCommands and reads back pixels.
+// Text command translation: vector triangle text and glyph-atlas textured text.
+// Glyph-atlas text reaches Vulkan as DrawImageCommand quads, matching the Canvas
+// text path after shaping/raster/atlas upload.
 // Only built with -DWHATSCANVAS_ENABLE_VULKAN=ON.
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <iostream>
@@ -15,9 +15,12 @@
 
 #include "command/DrawCommand.h"
 #include "command/DrawData.h"
+#include "canvas/Paint.h"
 #include "render/IRenderTarget.h"
 #include "render/IRenderer.h"
 #include "render/vulkan/VulkanRenderDevice.h"
+#include "text/BasicTextBackend.h"
+#include "text/ITextBackend.h"
 
 namespace {
 
@@ -42,6 +45,51 @@ bool near4(const std::vector<unsigned char> &px, int width, int x, int y, int r,
 std::vector<float> quad(float x0, float y0, float x1, float y1)
 {
     return {x0, y0, x1, y0, x1, y1, x0, y0, x1, y1, x0, y1};
+}
+
+std::vector<unsigned char> makeAtlasRgba(const wsc::text::TextRenderResult &rendered)
+{
+    const std::size_t atlasSize =
+        static_cast<std::size_t>(rendered.atlasWidth) * static_cast<std::size_t>(rendered.atlasHeight);
+    if (rendered.atlasPixelFormat == wsc::text::GlyphAtlasPixelFormat::RGBA
+        && rendered.atlasRgbaPixels.size() >= atlasSize * 4u) {
+        return rendered.atlasRgbaPixels;
+    }
+    std::vector<unsigned char> rgba(atlasSize * 4u, 255u);
+    for (std::size_t i = 0; i < atlasSize && i < rendered.atlasAlphaPixels.size(); ++i) {
+        rgba[i * 4u + 0u] = 255u;
+        rgba[i * 4u + 1u] = 255u;
+        rgba[i * 4u + 2u] = 255u;
+        rgba[i * 4u + 3u] = rendered.atlasAlphaPixels[i];
+    }
+    return rgba;
+}
+
+std::vector<unsigned char> makeAtlasRgbaRect(const wsc::text::TextRenderResult &rendered,
+                                             const wsc::text::TextRenderResult::GlyphAtlasDirtyRect &rect)
+{
+    const std::vector<unsigned char> rgba = makeAtlasRgba(rendered);
+    std::vector<unsigned char> subrect(static_cast<std::size_t>(rect.width) * static_cast<std::size_t>(rect.height) * 4u);
+    for (int row = 0; row < rect.height; ++row) {
+        const std::size_t src = (static_cast<std::size_t>(rect.y + row)
+                                * static_cast<std::size_t>(rendered.atlasWidth)
+                                + static_cast<std::size_t>(rect.x)) * 4u;
+        const std::size_t dst = static_cast<std::size_t>(row) * static_cast<std::size_t>(rect.width) * 4u;
+        std::copy(rgba.begin() + static_cast<std::ptrdiff_t>(src),
+                  rgba.begin() + static_cast<std::ptrdiff_t>(src + static_cast<std::size_t>(rect.width) * 4u),
+                  subrect.begin() + static_cast<std::ptrdiff_t>(dst));
+    }
+    return subrect;
+}
+
+bool hasVisiblePixel(const std::vector<unsigned char> &px)
+{
+    for (std::size_t i = 0; i + 3u < px.size(); i += 4u) {
+        if (px[i + 3u] > 0u && (px[i] > 0u || px[i + 1u] > 0u || px[i + 2u] > 0u)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 } // namespace
@@ -149,7 +197,130 @@ int main()
         target.reset();
     }
 
-    std::cout << "[VulkanTextTests] PASS: text geometry (solid + gradient) on \"" << device.selectedDeviceName()
+    // --- Case 3: real glyph-atlas text as textured image quads. ---
+    {
+        std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createBasicTextBackend();
+        Paint paint;
+        paint.setTextSize(18.0f);
+        const wsc::text::TextRenderResult rendered = backend->renderText("Atlas", 4.0f, 18.0f, paint);
+        if (rendered.kind != wsc::text::TextRenderKind::GlyphAtlas || rendered.glyphAtlasQuads.empty()
+            || rendered.atlasWidth <= 0 || rendered.atlasHeight <= 0 || rendered.atlasAlphaPixels.empty()) {
+            std::cout << "[VulkanTextTests] SKIP: system glyph-atlas text backend unavailable." << std::endl;
+        } else {
+            auto target = device.createRenderTarget(width, height);
+            if (!target || !target->isValid()) {
+                return 1;
+            }
+            const std::vector<unsigned char> atlasPixels = makeAtlasRgba(rendered);
+            SharedImageResource atlas =
+                device.createImageResourceRGBA(rendered.atlasWidth, rendered.atlasHeight, atlasPixels);
+            if (!atlas || !atlas->isValid()) {
+                std::cerr << "[VulkanTextTests] FAIL: could not create glyph atlas texture." << std::endl;
+                return 1;
+            }
+
+            std::vector<std::unique_ptr<Command>> commands;
+            for (const auto &quad : rendered.glyphAtlasQuads) {
+                DrawImageData d;
+                d.imageResource = atlas;
+                d.x = quad.x;
+                d.y = quad.y;
+                d.width = quad.width;
+                d.height = quad.height;
+                d.u0 = quad.u0;
+                d.v0 = quad.v0;
+                d.u1 = quad.u1;
+                d.v1 = quad.v1;
+                d.tintColor[0] = 0.95f;
+                d.tintColor[1] = 0.85f;
+                d.tintColor[2] = 0.20f;
+                d.tintColor[3] = 1.0f;
+                d.alpha = 1.0f;
+                d.sampling = DrawImageSampling::Linear;
+                d.tileMode = DrawImageTileMode::Clamp;
+                commands.push_back(std::make_unique<DrawImageCommand>(d));
+            }
+            if (!device.executeCommands(target, commands, request)) {
+                std::cerr << "[VulkanTextTests] FAIL: glyph atlas executeCommands returned false." << std::endl;
+                return 1;
+            }
+            std::vector<unsigned char> px;
+            if (!device.readPixelsRGBA(width, height, px)) {
+                return 1;
+            }
+            if (!hasVisiblePixel(px)) {
+                std::cerr << "[VulkanTextTests] FAIL: glyph atlas text produced no visible pixels." << std::endl;
+                return 1;
+            }
+            commands.clear();
+
+            const wsc::text::TextRenderResult updated = backend->renderText("Atlas W", 4.0f, 18.0f, paint);
+            if (updated.kind != wsc::text::TextRenderKind::GlyphAtlas || updated.glyphAtlasQuads.empty()
+                || updated.atlasWidth <= 0 || updated.atlasHeight <= 0 || updated.atlasDirtyRects.empty()) {
+                std::cerr << "[VulkanTextTests] FAIL: second glyph-atlas render did not report dirty rects."
+                          << std::endl;
+                return 1;
+            }
+            if (updated.atlasWidth != rendered.atlasWidth || updated.atlasHeight != rendered.atlasHeight) {
+                const std::vector<unsigned char> updatedPixels = makeAtlasRgba(updated);
+                atlas = device.createImageResourceRGBA(updated.atlasWidth, updated.atlasHeight, updatedPixels);
+            } else {
+                for (const auto &rect : updated.atlasDirtyRects) {
+                    const std::vector<unsigned char> rectPixels = makeAtlasRgbaRect(updated, rect);
+                    if (!device.updateImageResourceRGBA(atlas, rect.x, rect.y, rect.width, rect.height,
+                                                        rectPixels.data(), false)) {
+                        std::cerr << "[VulkanTextTests] FAIL: glyph atlas dirty rect update failed." << std::endl;
+                        return 1;
+                    }
+                }
+            }
+            if (!atlas || !atlas->isValid()) {
+                std::cerr << "[VulkanTextTests] FAIL: updated glyph atlas texture is invalid." << std::endl;
+                return 1;
+            }
+
+            auto dirtyTarget = device.createRenderTarget(width, height);
+            if (!dirtyTarget || !dirtyTarget->isValid()) {
+                return 1;
+            }
+            std::vector<std::unique_ptr<Command>> dirtyCommands;
+            for (const auto &quad : updated.glyphAtlasQuads) {
+                DrawImageData d;
+                d.imageResource = atlas;
+                d.x = quad.x;
+                d.y = quad.y;
+                d.width = quad.width;
+                d.height = quad.height;
+                d.u0 = quad.u0;
+                d.v0 = quad.v0;
+                d.u1 = quad.u1;
+                d.v1 = quad.v1;
+                d.tintColor[0] = 0.20f;
+                d.tintColor[1] = 0.95f;
+                d.tintColor[2] = 0.55f;
+                d.tintColor[3] = 1.0f;
+                d.alpha = 1.0f;
+                d.sampling = DrawImageSampling::Linear;
+                d.tileMode = DrawImageTileMode::Clamp;
+                dirtyCommands.push_back(std::make_unique<DrawImageCommand>(d));
+            }
+            if (!device.executeCommands(dirtyTarget, dirtyCommands, request)) {
+                std::cerr << "[VulkanTextTests] FAIL: dirty glyph atlas executeCommands returned false." << std::endl;
+                return 1;
+            }
+            if (!device.readPixelsRGBA(width, height, px) || !hasVisiblePixel(px)) {
+                std::cerr << "[VulkanTextTests] FAIL: dirty glyph atlas text produced no visible pixels."
+                          << std::endl;
+                return 1;
+            }
+            dirtyCommands.clear();
+            dirtyTarget.reset();
+            atlas.reset();
+            target.reset();
+        }
+    }
+
+    std::cout << "[VulkanTextTests] PASS: text geometry and glyph atlas path on \"" << device.selectedDeviceName()
               << "\"." << std::endl;
     device.finalizeBackend();
     return 0;

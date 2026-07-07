@@ -221,6 +221,7 @@ function(whatscanvas_add_gl_family_library target_name project_root)
         "${src_dir}/command/DrawPath.cpp"
         "${src_dir}/command/DrawImage.cpp"
         "${src_dir}/command/DrawText.cpp"
+        "${src_dir}/render/CommandDrawListEncoder.cpp"
         "${src_dir}/render/RenderContext.cpp"
         "${src_dir}/render/OpenGLRenderDevice.cpp"
         "${src_dir}/render/RenderDeviceFactory.cpp"

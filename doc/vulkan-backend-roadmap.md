@@ -173,6 +173,12 @@ Gate: fuzzy pixel-compare of the clip-path scene vs OpenGL. **Mechanism met** by
 `WhatsCanvasVulkanClipTests` (green fill clipped to a triangle mask: center
 green, corner clear) on NVIDIA RTX 2080 Ti.
 
+Vulkan covers text as vector geometry and can render glyph-atlas text quads
+through the sampled texture pipeline. Dirty-rect atlas texture updates are
+covered by `WhatsCanvasVulkanTextTests`; broader Canvas-level glyph-atlas text
+parity, text shadows, clipped atlas text, and larger text scenes remain good
+hardening targets.
+
 ### M8 — Windowed presentation + external images · **Present done (standalone)**
 Depends on: M2 (swapchain can proceed in parallel after M2).
 - GLFW Vulkan surface (`glfwCreateWindowSurface`) + swapchain + present queue.
