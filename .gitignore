@@ -28,3 +28,7 @@ build_asan/
 # MkDocs site build output
 site/
 _site/
+
+# Python
+__pycache__/
+*.pyc

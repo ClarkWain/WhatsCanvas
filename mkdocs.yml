@@ -69,6 +69,7 @@ exclude_docs: |
 nav:
   - Home: index.md
   - Get Started: GETTING_STARTED_AS_LIBRARY.md
+  - Troubleshooting & FAQ: TROUBLESHOOTING.md
   - Reference:
       - API Reference: API_REFERENCE.md
       - API Stability: API_STABILITY.md

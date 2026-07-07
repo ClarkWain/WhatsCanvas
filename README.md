@@ -1,5 +1,10 @@
 # WhatsCanvas
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-0.1.11-informational.svg)](CHANGELOG.md)
+[![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C.svg)](CMakeLists.txt)
+[![Backends](https://img.shields.io/badge/backends-OpenGL%20%7C%20GLES%20%7C%20Software%20%7C%20Vulkan-success.svg)](doc/GETTING_STARTED_AS_LIBRARY.md)
+
 WhatsCanvas 是一个用 C++17 编写的轻量级二维渲染引擎项目，以 Canvas 的使用方式对外呈现。
 
 它不是要取代 Skia 这类成熟的大型框架，也不是只停留在 NanoVG 这类极简轻量绘制层。它更像是介于两者之间的一种选择：比大型框架更轻、更容易接入和阅读，比极简绘图库更完整，既能拿来做 UI 和 2D 游戏项目，也适合作为学习 Canvas 渲染原理的工程样本。
@@ -171,11 +176,17 @@ ctest -C Debug -L smoke --output-on-failure
 ## 文档入口
 
 - [Using WhatsCanvas as a Library](doc/GETTING_STARTED_AS_LIBRARY.md)：从打包、`find_package`、OpenGL/GLES 上下文到字体注册的最短接入路径。
+- [Troubleshooting & FAQ](doc/TROUBLESHOOTING.md)：常见坑（黑图 tint、上下文未 current、后端回退、gamma、readback 方向）的排查。
 - [API Stability](doc/API_STABILITY.md)：记录当前公开 API、CMake package target 和内部/实验边界。
 - [Public API Reference](doc/API_REFERENCE.md)：由 `scripts/generate_api_reference.py` 从 `include/wsc/` 自动生成的公开 API 索引。
 - [Regression Baseline Policy](doc/REGRESSION_BASELINES.md)：记录文本、效果、smoke 和 OpenGLES baseline 的更新规则。
 - [Release Checklist](doc/RELEASE_CHECKLIST.md)：记录版本同步、CI、artifact 和外部 consumer 验证步骤。
 - [架构总览](doc/architecture/README.md)：适合先建立整体分层和模块边界认知。
+- [Contributing](CONTRIBUTING.md)：本地构建、测试、PR 前校验（API reference / 版本一致性 / 单测）与仓库约定。
+
+## 许可证
+
+WhatsCanvas 以 [MIT License](LICENSE) 发布。`third_party/` 下的组件（FreeType、HarfBuzz、GLFW、stb、polyline2d 等）各自遵循其原始许可证。版本变更见 [CHANGELOG](CHANGELOG.md)。
 - [Text Feature Matrix](doc/TEXT_FEATURE_MATRIX.md)：定义文本、字体、fallback、layout、diagnostics 和后续 atlas 后端的能力边界。
 - [Shader Portability Notes](doc/SHADER_PORTABILITY.md)：记录桌面 OpenGL / OpenGLES shader 版本、precision、状态 guard 和 GLES-only build gate。
 - [iOS Build Notes](doc/IOS_BUILD_NOTES.md)：记录当前 OpenGLES target 在 iOS 宿主中的构建、上下文生命周期和验证边界。
