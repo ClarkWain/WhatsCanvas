@@ -24,3 +24,7 @@ build-validation-win/
 build-vulkan/
 build_stub/
 build_asan/
+
+# MkDocs site build output
+site/
+_site/
