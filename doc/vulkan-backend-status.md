@@ -43,9 +43,10 @@ All 11 methods are implemented on Vulkan.
 
 ## Known gaps and why
 
-- **Generic command replay** (`renderCommandsToImageResource`): the WhatsCanvas
-  `Command` objects call OpenGL directly, so Vulkan cannot replay them. This is
-  the coupling recorded in ADR-006; the fix is the backend-neutral command layer.
+- **Shared command layer still has room to grow**: Vulkan can replay real command
+  streams, and OpenGL uses the shared command encoder for offscreen snapshots.
+  The remaining architecture work is moving more regular OpenGL flush paths onto
+  the same primitive stream without regressing the production renderer.
 - **Windowed presentation (M8 swapchain)**: a standalone windowed present example
   (`examples/vulkan_present`) creates a GLFW surface + swapchain and presents a
   cleared frame; verified on NVIDIA RTX 2080 Ti. It is standalone because
@@ -102,8 +103,8 @@ All 11 methods are implemented on Vulkan.
 
 ## Next steps
 
-1. Execute ADR-006 in reviewable slices (freeze primitive set → OpenGL translator
-   validated by pixel-hash gates → Vulkan translator → `renderCommandsToImageResource`).
-2. Root-cause the textured `DrawList` teardown crash (ASan) and re-land textured/
-   clip primitives.
-3. M8 windowed swapchain present as a dedicated windowed example + smoke.
+1. Expand representative Canvas-level validation scenes for Vulkan/OpenGL parity.
+2. Continue migrating OpenGL execution paths to the shared command encoder in
+   small, testable slices.
+3. Turn the windowed Vulkan present path from a bridge into a GPU-only or
+   surface-aware render path.

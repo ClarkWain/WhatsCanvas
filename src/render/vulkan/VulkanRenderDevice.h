@@ -128,9 +128,9 @@ public:
 
     /// Vulkan-specific M6 capability: composite an already-rendered offscreen
     /// layer onto a destination target over a solid background, using a layer
-    /// alpha. Demonstrates the saveLayer composite-back step. Note: the generic
-    /// renderCommandsToImageResource() remains pending a backend-neutral command
-    /// layer (see the Vulkan roadmap, M6 / section 3).
+    /// alpha. Demonstrates the saveLayer composite-back step. The generic
+    /// renderCommandsToImageResource() path is now implemented through command
+    /// translation into an owned sampled texture.
     bool compositeLayer(const std::unique_ptr<IRenderTarget> &dstTarget,
                         const std::unique_ptr<IRenderTarget> &layerTarget, float bgR, float bgG, float bgB, float bgA,
                         float layerAlpha) const;
@@ -151,9 +151,8 @@ public:
 
     /// ADR-006 command-translation slice: render a real WhatsCanvas `Command`
     /// stream into an offscreen target by reading each command's backend-neutral
-    /// `DrawData` and translating it to Vulkan draws. This does NOT touch the
-    /// OpenGL command execution path. The current slice handles solid path
-    /// fills; other command kinds are skipped and are ADR-006 follow-ups.
+    /// `DrawData` and translating it to Vulkan draws. Unsupported command
+    /// semantics return false so callers can fall back or report missing coverage.
     /// `request` supplies the canvas size used for the ortho projection.
     bool executeCommands(const std::unique_ptr<IRenderTarget> &target,
                          const std::vector<std::unique_ptr<Command>> &commands,
