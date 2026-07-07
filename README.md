@@ -6,9 +6,21 @@ WhatsCanvas 是一个用 C++17 编写的轻量级二维渲染引擎项目，以 
 
 本项目在设计时参考了 love2d 的 Canvas 风格和 Skia 的渲染抽象。
 
-## 快速接入
+## 快速开始
 
-最快的方式是纯 CPU 软件后端——不需要窗口、GL 上下文或 GPU，画完直接读像素：
+**本地构建**（需要 CMake 3.16+ 与 C++17 编译器；Windows 用 VS 2022 桌面 C++ 工作负载，macOS / Linux 需 OpenGL 与可编译 GLFW 示例的系统图形开发库）：
+
+```bat
+build.bat            :: Windows：构建并运行 demo（--no-run 只构建，--package 生成交付目录）
+```
+
+```bash
+./build.sh           # macOS / Linux（同样支持 --no-run / --package）
+```
+
+产物在 `build/<Config>/`；加 `--package` 会额外整理出 `out/package/<Config>/`（`lib/` 库文件 + `include/wsc/` 公共头）。
+
+**最快接入**——纯 CPU 软件后端，不需要窗口、GL 上下文或 GPU，画完直接读像素：
 
 ```cpp
 #include <wsc/wsc.h>
@@ -22,14 +34,14 @@ canvas->flush();
 canvas->savePixelsPPM("first.ppm");
 ```
 
-用 CMake 接入（预编译 Release 包或 `--package` 生成的目录）：
+**用 CMake 接入**（预编译 Release 包或 `--package` 生成的目录）：
 
 ```cmake
 find_package(WhatsCanvas 0.1.11 CONFIG REQUIRED)
-target_link_libraries(MyApp PRIVATE WhatsCanvas::OpenGL)   # 或 ::Software / ::OpenGLES
+target_link_libraries(MyApp PRIVATE WhatsCanvas::OpenGL)   # 或 ::Software / ::OpenGLES / Vulkan（可选）
 ```
 
-> 完整接入路径（选后端、窗口/上下文、GitHub Release、Vulkan、常见任务）见
+> 选后端、窗口/上下文、GitHub Release、OpenGLES、软件后端、Vulkan、常见任务——完整接入路径见
 > **[接入指南 › Using WhatsCanvas as a Library](doc/GETTING_STARTED_AS_LIBRARY.md)**。
 
 ## 项目定位
@@ -71,152 +83,33 @@ WhatsCanvas 的公开接口仍然是熟悉的 `Canvas` / `Paint` / `Path` / `Ima
 
 ## 字体与文本
 
-字体系统已经从早期演示型文字绘制推进到一条完整链路：字体注册、fallback、shaping、glyph rasterization、atlas upload、Canvas 绘制和诊断验证都已经打通。
+**文本栈是 WhatsCanvas 最突出的优势。** 同级别的轻量 2D 库（NanoVG、Cairo、多数嵌入式渲染器）通常只做基础 `stb_truetype` 文字，把复杂排版、fallback、shaping 甩给应用层；WhatsCanvas 把一条**逼近 Skia、远超 NanoVG** 的完整文本链路直接内建：
+
+- **真正的 shaping**：HarfBuzz OpenType shaping（不可用时回退 simple shaping + kerning），而不是只按字形宽度堆字。
+- **多字体 fallback 分段**：`FontFallbackChain` 按 resolved face 把混排文本自动分段，CJK / 拉丁 / 符号各取其字体——不是"找不到就豆腐块"。
+- **完整 Unicode 双向文本**：内置 Unicode 17.0.0 数据，UAX #9 exhaustive conformance **861,948 cases、0 失败**，这是多数同级库根本没有的。
+- **彩色字形**：COLR/CPAL v0 分层字形解码、合成到 RGBA glyph atlas。
+- **生产级字形管线**：FreeType（不可用回退 stb）栅格化 + GPU glyph atlas（dirty-rect 更新、resize-before-evict、LRU 上限与统计）+ 系统字体发现 + weight/slant 匹配 + 文件/内存/TTC 字体。
+- **排版细节**：UTF-8 布局、CJK 无空格折行、省略号、baseline、letter spacing、渐变/描边/阴影文本、text-on-path，以及缺字与回退诊断。
 
 ![字体与文本渲染能力效果图](images/text-rendering-showcase.png)
 
-上图由 `WhatsCanvasDemo` 的 `text-showcase` 场景通过 `savePixelsPPM` 捕获后转换生成，展示的是当前 Canvas 文本渲染路径的真实输出。
-
-- `FontSystem` 会发现常见平台系统字体，并为 `createBasicTextBackend()` 提供默认 primary / fallback chain；需要完全手动控制时可使用 portable backend 或手动注册字体。
-- `Paint::setFontWeight` 和 `Paint::setFontSlant` 会参与同 family 多 face 选择，优先匹配 slant，再选择最接近的 weight。
-- 跨平台字体路径支持文件字体、内存字体、TrueType Collection 和 collection face index。
-- `FontRasterizer` 的 loaded face 资源有默认 LRU 上限，可显式调整容量、清理缓存，并查询 face count、hit / miss 和 eviction 统计；共享缓存访问已加互斥保护，覆盖并发查询和容量调整场景。
-- FreeType 可用时优先用于 glyph lookup、metrics、kerning 和 alpha glyph rasterization；不可用时自动回退到内置 `stb_truetype`。
-- HarfBuzz 作为可选 OpenType shaping implementation 接入；未启用或不可用时保留 simple shaping 和 kerning fallback。
-- `FontFace`、`FontDescriptor`、`FontFallbackChain`、`FontManager` 和后端契约已经成型，文本会按 resolved font face 分段后再 shaping/raster/render。
-- `GlyphAtlas` 管理 glyph allocation、indexed lookup、dirty rect count/area collapse stats、context rebuild keys 和 atlas stats；Canvas 侧拥有持久 GPU atlas resource，并支持局部更新、resize-before-evict 和 atlas 文本阴影采样。
-- 已支持 color font table detection，COLR/CPAL v0 layered glyph 可以解码、合成到 RGBA glyph bitmap，并通过 RGBA atlas 管线绘制。
-- UTF-8-safe layout、CJK no-space wrapping、Unicode spaces、zero-width break、ellipsis、baseline、line height、text box layout、渐变文本、text-on-path、缺字诊断和 raster / shaper / atlas 回退诊断已经纳入统一文本路径。
-- 内置 Unicode 17.0.0 `BidiTest.txt` / `BidiCharacterTest.txt` 数据和 conformance target；exhaustive conformance 已通过 861,948 cases、0 skips、0 failures。CI 矩阵包含 HarfBuzz + FreeType 联合字体栈 text tests 和字体 benchmark smoke。
-
-更多细节见 [Text Feature Matrix](doc/TEXT_FEATURE_MATRIX.md) 和 [字体渲染专题](doc/Font%20Rendering%20Techniques/index.html)。
+上图由 `WhatsCanvasDemo` 的 `text-showcase` 场景真实捕获。更多细节见 [Text Feature Matrix](doc/TEXT_FEATURE_MATRIX.md) 与 [字体渲染专题](doc/Font%20Rendering%20Techniques/index.html)。
 
 ## 画质与渲染
 
-填充与描边支持逐 `Paint` 的**解析抗锯齿**：沿轮廓生成一圈跨骑真实边缘的 ~1px 羽化带，由片元着色器按覆盖度调制 alpha。它是分辨率无关的，不依赖 MSAA，且对所有渲染目标含离屏 FBO 生效；细描边还会做亚像素淡化处理。默认关闭，按需逐 `Paint` 开启：
+WhatsCanvas 在"好看"上做了成体系的深耕，且都是**分辨率无关、不依赖 MSAA、对离屏目标同样生效**的实现：
 
-```cpp
-Paint paint;
-paint.setAntiAlias(true);
-```
+- **解析抗锯齿**：沿轮廓生成跨骑真实边缘的 ~1px 羽化带，片元着色器按覆盖度调制 alpha（细描边额外做亚像素淡化）。逐 `Paint` 开启：`paint.setAntiAlias(true)`。
+- **片元级渐变**：多 stop 线性 / 径向渐变逐片元求值，避免顶点色在大三角上的分带。
+- **真高斯模糊阴影**：剪影离屏 → 可分离横 / 纵两趟高斯 → 按阴影色合成；填充、描边、文本同一条路径（`setShadowLayer`，半径 0 回退偏移近似）。
+- **抗锯齿路径裁剪**：`clipPath` 用与填充相同的解析 AA 覆盖度掩码求交集，逐片元调制 alpha，取代 1-bit stencil 硬边（矩形裁剪仍走 scissor 快路径）。
 
-下图左侧关闭、右侧开启抗锯齿：
+下图在同一场景里同时呈现这四项——抗锯齿边缘、片元级渐变、柔和高斯阴影、平滑路径裁剪：
 
-![抗锯齿对比：左关右开](images/aa/aa_comparison.png)
+![画质综合展示：抗锯齿 / 渐变 / 高斯阴影 / 路径裁剪](images/aa/quality_showcase.png)
 
-渐变为片元级求值，支持多 stop 的线性 / 径向渐变，避免顶点色在大三角上的分带：
-
-![渐变画质对比：左分带右片元级](images/aa/gradient_comparison.png)
-
-阴影为**真高斯模糊**：先把形状剪影渲到离屏目标，做可分离的横 / 纵两趟高斯模糊，再按阴影色合成，取代了早期的多趟偏移环形近似。填充、描边，以及几何文本与贴图（字形图集 / 位图）文本都走同一条路径；`setShadowLayer` 半径为 0 时回退到偏移近似。下图左半径 8、右半径 24：
-
-![真高斯阴影对比：左半径 8 右半径 24](images/aa/shadow_comparison.png)
-
-路径裁剪（`clipPath`）为**抗锯齿覆盖度掩码**：裁剪路径带与填充相同的解析式 AA 羽化，光栅化进 R8 掩码并按层相乘求交集，绘制时每个片元按覆盖度调制 alpha，取代了原来的 1-bit stencil 硬边（矩形裁剪仍走 scissor 快路径）。下图为星形 / 圆 / 椭圆裁剪的平滑边缘：
-
-![抗锯齿路径裁剪](images/aa/clip_comparison.png)
-
-对比图可用示例 `WhatsCanvasAAShowcase` 复现：`WhatsCanvasAAShowcase <输出路径>` 会在同目录生成 `aa_comparison.png`、`gradient_comparison.png`、`shadow_comparison.png` 与 `clip_comparison.png`。
-
-## 快速开始
-
-环境要求：
-
-- CMake 3.16 或更新版本。
-- 支持 C++17 的编译器。
-- Windows：Visual Studio 2022 + 桌面 C++ 工作负载。
-- macOS / Linux：OpenGL 开发环境，以及可编译 GLFW 示例的系统图形开发库。
-
-Windows：
-
-```bat
-build.bat --no-run
-build.bat
-build.bat --package --no-run
-```
-
-macOS / Linux：
-
-```bash
-chmod +x build.sh
-./build.sh --no-run
-./build.sh
-./build.sh --package --no-run
-```
-
-默认构建产物位于 `build/Debug/` 或 `build/Release/`。如果加上 `--package`，脚本会额外整理出一份更适合交付的目录：
-
-- Windows：`out\package\Debug\` 或 `out\package\Release\`
-- macOS / Linux：`out/package/Debug/` 或 `out/package/Release/`
-
-其中库文件在 `lib/`，公共头入口在 `include/wsc/`。
-为了让二进制包默认不依赖宿主机额外安装 FreeType，`--package` 默认关闭外部 FreeType 链接并使用内置 `stb_truetype` fallback；源码构建仍默认尝试启用 FreeType。确实需要发布带 FreeType 依赖的包时，可设置 `WHATSCANVAS_PACKAGE_ENABLE_FREETYPE=1` 后再运行 package 构建。
-
-## 作为库接入
-
-如果你希望把 WhatsCanvas 当成库使用，推荐使用 `--package` 生成交付目录，再在你的项目中通过 CMake 包方式接入。
-完整接入 checklist 见 [Using WhatsCanvas as a Library](doc/GETTING_STARTED_AS_LIBRARY.md)。
-
-```bat
-build.bat --release --package --no-run
-```
-
-```cmake
-find_package(WhatsCanvas 0.1.11 CONFIG REQUIRED)
-
-add_executable(MyApp main.cpp)
-target_link_libraries(MyApp PRIVATE WhatsCanvas::OpenGL)
-```
-
-最常见的头文件入口：
-
-```cpp
-#include <wsc/wsc.h>
-```
-
-如果你只想按模块引入，也可以分别包含 `wsc/Canvas.h`、`wsc/Paint.h`、`wsc/Path.h`、`wsc/Image.h`、`wsc/Font.h` 和 `wsc/base.h`。
-
-安装包的消费面默认暴露 `WhatsCanvas::OpenGL` 和 `include/wsc/`。如果构建时打开 `WHATSCANVAS_BUILD_OPENGLES`，也会额外导出 `WhatsCanvas::OpenGLES`。GLFW 只用于仓库内 examples 的窗口与事件循环，GLAD 被编进 GL-family 后端，GLM 只作为内部数学实现依赖；普通消费者不需要 include 或链接这三者。
-
-如果你的应用自己创建 OpenGL 上下文，需要在使用 Canvas 前把平台的 proc-address 函数交给库：
-
-```cpp
-Canvas::loadOpenGL(reinterpret_cast<Canvas::OpenGLProcAddress>(glfwGetProcAddress));
-```
-
-OpenGLES 后端使用同一套 Canvas API 和 proc-address 加载入口，适合由宿主应用自行创建 EGL / 平台 OpenGLES 上下文后接入：
-
-```cmake
-cmake -S . -B build-gles -DWHATSCANVAS_BUILD_OPENGLES=ON
-target_link_libraries(MyApp PRIVATE WhatsCanvas::OpenGLES)
-```
-
-当前 OpenGLES 目标复用 GL-family 渲染设备实现，会启用 GLES shader 版本并跳过桌面 OpenGL-only 状态，例如 `GL_FRAMEBUFFER_SRGB` 和 `GL_PROGRAM_POINT_SIZE`。
-
-### 纯 CPU 软件后端（零 GPU 依赖）
-
-`Canvas::createSoftware(w, h)` 用同一套 Canvas API 在 CPU 上光栅化，**不链接任何 OpenGL / Vulkan / glad**，可在无图形栈的无头环境（CI、服务器、嵌入式）直接运行；覆盖填充 / 描边 / 文本、14 种混合、线性 / 径向渐变、点 / 线、图片采样、scissor 与解析 AA 路径裁剪、真高斯阴影、`saveLayer`，以及可选 gamma-correct 混合。它默认编进 `WhatsCanvas::OpenGL`，运行时即可无 GPU 使用。
-
-需要**物理上零 GPU 依赖**的库时，打开 `WHATSCANVAS_BUILD_SOFTWARE` 会额外产出独立的 `WhatsCanvas::Software` 目标（确定性输出，附带 golden-image 回归与只链接该库的测试）：
-
-```cmake
-cmake -S . -B build -DWHATSCANVAS_BUILD_SOFTWARE=ON
-target_link_libraries(MyApp PRIVATE WhatsCanvas::Software)
-```
-
-### 可选 Vulkan 后端
-
-Vulkan 是**手动 opt-in**（`-DWHATSCANVAS_ENABLE_VULKAN=ON` + Vulkan SDK），编进同一个 `WhatsCanvas::OpenGL` 库、与 OpenGL **共存**并在运行时选择，通过同一套 Canvas API **离屏**渲染：
-
-```cpp
-if (Canvas::isVulkanAvailable()) {
-    auto canvas = Canvas::createVulkan(width, height); // 不可用时返回 nullptr，回退 createSoftware
-    canvas->flush();
-    auto rgba = canvas->readPixelsRGBA();
-}
-```
-
-为什么手动、为什么共存于一个库、为什么只离屏、与 OpenGL 有何差异——详见[接入指南的 Vulkan 一节](doc/GETTING_STARTED_AS_LIBRARY.md#4-the-vulkan-backend-explained)。
+各项的独立左右对比图可用示例 `WhatsCanvasAAShowcase <输出路径>` 复现，会在同目录生成 `aa_comparison.png`、`gradient_comparison.png`、`shadow_comparison.png`、`clip_comparison.png` 与综合图 `quality_showcase.png`。
 
 ## 可选字体依赖
 
@@ -328,35 +221,6 @@ cmake --build build --target WhatsCanvasCheckPackageConsumer
 - `src/render/Renderer.*` 持有命令队列、`RenderContext` 和 `IRenderDevice`，并在 `flush()` 中执行命令，同时处理路径命令合批、像素回读、clip mask resource、image resource 和离屏渲染请求。
 - `src/render/RenderDeviceFactory.cpp` 当前会在桌面 OpenGL 构建中默认选择 `OpenGL`，在 OpenGLES 构建中默认选择 `OpenGLES`；二者复用 `OpenGLRenderDevice`，Vulkan 和 Metal 分支存在但返回 `nullptr`。
 - `src/render/OpenGLRenderDevice.cpp` 负责初始化 Draw*Program、GlobalIndexBuffers、PixelFormatCaps，并创建 texture、FBO/render target、clip mask resource 和 readback；OpenGLES 目标通过编译定义切换 shader 版本和桌面 GL-only 状态。
-
-## 学习路线
-
-如果你是第一次读这个仓库，建议按这个顺序：
-
-1. 先跑根工程，确认你能看到 `WhatsCanvasDemo` 正常启动。
-2. 阅读 [doc/architecture/README.md](doc/architecture/README.md)，先建立整体分层认识。
-3. 打开 [doc/polyline/polyline2d_interactive_tutorial.html](doc/polyline/polyline2d_interactive_tutorial.html)，补一遍描边网格和 Path 相关原理。
-4. 打开 [doc/anti_aliasing/anti_aliasing_interactive_tutorial.html](doc/anti_aliasing/anti_aliasing_interactive_tutorial.html)，理解抗锯齿的原理、实现方法和仓库内做法。
-5. 阅读 [doc/Font Rendering Techniques/index.html](doc/Font%20Rendering%20Techniques/index.html)，把字体与文本渲染相关知识补完整。
-6. 查看 [examples/showcase/main.cpp](examples/showcase/main.cpp)，理解演示程序是怎样驱动 `Canvas` 的。
-7. 进入 `src/canvas`、`src/render`、`src/opengl`，顺着绘制请求一路往下读。
-8. 结合 [tests/README.md](tests/README.md) 和 `scripts/` 目录，看这个仓库如何做本地验证。
-9. 最后再读 [doc/CanvasEvaluation.md](doc/CanvasEvaluation.md)，回看功能演进和验证轨迹。
-
-## 项目结构
-
-- `src/`: 核心实现，包含 Canvas、命令、渲染器、OpenGL 后端和文本模块。
-- `examples/game/`: 完整游戏示例工程。
-- `examples/showcase/`: 根演示程序，适合快速浏览公共 Canvas API 的综合使用方式。
-- `examples/snippets/`: 可复制的功能片段，覆盖 font fallback、multiline text、external texture 和 image pattern。
-- `tests/`: 单元测试入口与测试说明。
-- `benchmarks/`: core benchmark 入口，覆盖文本、图片、命令录制和 flush 等成本观察点。
-- `scripts/`: 冒烟、clip-path、回归、示例构建、validation scene 和 OpenGLES 构建验证脚本。
-- `doc/polyline/`: 偏原理和互动演示导向的教学材料。
-- `doc/Font Rendering Techniques/`: 字体渲染与文本专题材料。
-- `doc/architecture/`: ADR 和架构文档，适合系统性阅读。
-- `doc/CanvasEvaluation.md`: 功能演进与验证记录。
-- `third_party/`: 内部实现和示例构建使用的第三方源码。
 
 ## 后续方向
 

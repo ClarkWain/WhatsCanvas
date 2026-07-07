@@ -293,6 +293,62 @@ void drawClipScene(Canvas &canvas, float ox, bool strong)
     }
 }
 
+// A single full-canvas composition combining the four quality features
+// (analytic AA, fragment-level gradients, true Gaussian shadow, AA path clip)
+// for the README hero image.
+void drawQualityScene(Canvas &canvas)
+{
+    const Color shadow(20, 20, 30, 150);
+
+    // Rounded rect: linear gradient fill + AA + Gaussian shadow.
+    {
+        Paint p;
+        p.setStyle(Paint::Style::FILL);
+        p.setAntiAlias(true);
+        p.setLinearGradient(70.0f, 120.0f, 300.0f, 330.0f,
+            { Paint::ColorStop(0.0f, Color(80, 150, 240, 255)),
+              Paint::ColorStop(1.0f, Color(140, 70, 210, 255)) });
+        p.setShadowLayer(22.0f, 8.0f, 12.0f, shadow);
+        canvas.drawRoundRect(RectF(70.0f, 120.0f, 230.0f, 210.0f), 28.0f, p);
+    }
+
+    // Circle: radial gradient fill + AA + Gaussian shadow.
+    {
+        Paint p;
+        p.setStyle(Paint::Style::FILL);
+        p.setAntiAlias(true);
+        p.setRadialGradient(455.0f, 210.0f, 115.0f, Color(255, 220, 90, 255), Color(230, 110, 60, 255));
+        p.setShadowLayer(22.0f, 8.0f, 12.0f, shadow);
+        canvas.drawCircle(455.0f, 220.0f, 112.0f, p);
+    }
+
+    // Star used as an anti-aliased clip over a multi-stop linear gradient.
+    {
+        canvas.save();
+        canvas.clipPath(makeStar(730.0f, 225.0f, 120.0f, 50.0f));
+        Paint g;
+        g.setStyle(Paint::Style::FILL);
+        g.setAntiAlias(true);
+        g.setLinearGradient(610.0f, 105.0f, 850.0f, 345.0f,
+            { Paint::ColorStop(0.0f, Color(90, 220, 160, 255)),
+              Paint::ColorStop(0.5f, Color(60, 170, 230, 255)),
+              Paint::ColorStop(1.0f, Color(150, 90, 220, 255)) });
+        canvas.drawRect(RectF(600.0f, 95.0f, 260.0f, 260.0f), g);
+        canvas.restore();
+    }
+
+    // Thin AA stroke ring with a Gaussian shadow (stroke AA + shadow).
+    {
+        Paint p;
+        p.setStyle(Paint::Style::STROKE);
+        p.setStrokeWidth(10.0f);
+        p.setAntiAlias(true);
+        p.setStrokeColor(Color(40, 60, 90, 255));
+        p.setShadowLayer(14.0f, 5.0f, 7.0f, shadow);
+        canvas.drawRoundRect(RectF(300.0f, 300.0f, 320.0f, 110.0f), 40.0f, p);
+    }
+}
+
 std::string getEnv(const char *name)
 {
 #ifdef _MSC_VER
@@ -396,6 +452,30 @@ int main(int argc, char **argv)
             return true;
         };
 
+        // Renders a single full-canvas composition (no two-panel split) to `path`.
+        auto renderAndSaveSingle = [&](const std::string &path,
+                                       const std::function<void(Canvas &)> &scene,
+                                       const char *label) -> bool {
+            canvas.beginFrame();
+            glClearColor(0.92f, 0.93f, 0.95f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT);
+            scene(canvas);
+            canvas.endFrame();
+
+            std::vector<unsigned char> pixels;
+            if (!canvas.readPixelsRGBA(pixels)
+                || pixels.size() != static_cast<size_t>(fbWidth) * static_cast<size_t>(fbHeight) * 4) {
+                std::cerr << "Pixel readback failed" << std::endl;
+                return false;
+            }
+            if (stbi_write_png(path.c_str(), fbWidth, fbHeight, 4, pixels.data(), fbWidth * 4) == 0) {
+                std::cerr << "Failed to write PNG: " << path << std::endl;
+                return false;
+            }
+            std::cout << "Wrote " << path << " (" << fbWidth << "x" << fbHeight << ") — " << label << std::endl;
+            return true;
+        };
+
         // Derive a sibling path for the gradient image next to the AA image.
         std::string gradientPath = outputPath;
         const size_t slash = gradientPath.find_last_of("/\\");
@@ -410,6 +490,9 @@ int main(int argc, char **argv)
         const std::string clipPath = dir + "clip_comparison.png";
         ok = renderAndSave(clipPath, drawClipScene,
                            "anti-aliased path clipping (star / circle / oval masks)", true) && ok;
+        const std::string qualityPath = dir + "quality_showcase.png";
+        ok = renderAndSaveSingle(qualityPath, drawQualityScene,
+                                 "combined quality showcase (AA + gradients + Gaussian shadow + AA clip)") && ok;
         if (!ok) {
             glfwTerminate();
             return 1;
