@@ -6,6 +6,32 @@ WhatsCanvas 是一个用 C++17 编写的轻量级二维渲染引擎项目，以 
 
 本项目在设计时参考了 love2d 的 Canvas 风格和 Skia 的渲染抽象。
 
+## 快速接入
+
+最快的方式是纯 CPU 软件后端——不需要窗口、GL 上下文或 GPU，画完直接读像素：
+
+```cpp
+#include <wsc/wsc.h>
+
+auto canvas = wsc::Canvas::createSoftware(256, 256);   // 已初始化，直接画
+wsc::Paint fill;
+fill.setColor(wsc::Color(40, 120, 240, 255));
+fill.setAntiAlias(true);
+canvas->drawRoundRect(wsc::RectF(40, 40, 176, 176), 24.0f, fill);
+canvas->flush();
+canvas->savePixelsPPM("first.ppm");
+```
+
+用 CMake 接入（预编译 Release 包或 `--package` 生成的目录）：
+
+```cmake
+find_package(WhatsCanvas 0.1.11 CONFIG REQUIRED)
+target_link_libraries(MyApp PRIVATE WhatsCanvas::OpenGL)   # 或 ::Software / ::OpenGLES
+```
+
+> 完整接入路径（选后端、窗口/上下文、GitHub Release、Vulkan、常见任务）见
+> **[接入指南 › Using WhatsCanvas as a Library](doc/GETTING_STARTED_AS_LIBRARY.md)**。
+
 ## 项目定位
 
 - 当前以 OpenGL 路线最完整，并已提供 OpenGLES 编译目标；另有纯 CPU 的软件渲染后端（不依赖任何 GPU），Vulkan、Metal 等后端仍保留扩展空间。
@@ -24,7 +50,7 @@ WhatsCanvas 的公开接口仍然是熟悉的 `Canvas` / `Paint` / `Path` / `Ima
 | 绘制样式 | 填充、描边、透明度、逐 `Paint` 解析抗锯齿、线性 / 径向 / 多 stop 渐变、混合模式、真高斯模糊阴影（填充 / 描边 / 文本）、采样质量、图像 tile mode、颜色矩阵。 | `Paint`、`setAntiAlias`、`setLinearGradient`、`setRadialGradient`、`setBlendMode`、`setShadowLayer`、`setColorMatrix` |
 | Canvas 状态 | `save` / `restore`、矩阵变换、矩形裁剪、抗锯齿路径裁剪、`saveLayer` 离屏层、render-target canvas、clip 查询、quick reject。 | `save`、`restore`、`translate`、`scale`、`rotate`、`clipRect`、`clipPath`、`saveLayer`、`quickReject` |
 | 图像与纹理 | 文件解码、encoded memory、raw RGBA、外部纹理包装、整图替换、局部更新、contain / cover / fill 布局、锚点、九宫格、圆角裁剪、圆形裁剪、平铺绘制。 | `Image`、`drawImage`、`drawImageFit`、`drawImageNinePatch`、`drawImageRounded`、`drawImageCircle`、`drawImageTiled`、`wrapExternalTexture` |
-| 字体与文本 | 系统默认字体发现、默认 fallback chain、weight / slant face matching、跨平台 TrueType / TTC 注册、file / memory 字体、collection face index、FreeType glyph lookup / metrics / kerning / rasterization、stb fallback、HarfBuzz shaping、simple shaping fallback、多字体 fallback 分段、真实 ascent / descent / lineGap、字体资源 LRU cache 上限 / 释放 / 统计、GPU glyph atlas、atlas resize-before-evict、dirty rect atlas update、dirty rect count/area collapse stats、RGBA atlas、COLR/CPAL v0 color glyph、UTF-8 layout、CJK no-space wrapping、Unicode space、zero-width break、ellipsis、baseline、letter spacing、渐变文本、描边文本、文本阴影、text-on-path、缺字诊断、raster / shaper / atlas 回退诊断、Unicode UAX #9 全量通过。 | `FontSystem`、`FontFace`、`FontManager`、`FontFallbackChain`、`registerFontFace`、`setFontFallbackChain`、`drawText`、`drawTextBox`、`layoutTextBox`、`drawTextOnPath`、`measureTextMetrics` |
+| 字体与文本 | 系统字体发现 + fallback chain、weight/slant 匹配、TrueType/TTC/内存字体与 collection face index、FreeType（不可用回退 stb）glyph lookup/metrics/kerning/栅格化、HarfBuzz shaping（回退 simple shaping）、多字体 fallback 分段、GPU glyph atlas（dirty-rect 更新 + resize-before-evict + 统计）、COLR/CPAL v0 彩色字形、UTF-8 布局 + CJK 无空格折行 + 省略号 + baseline + letter spacing、渐变/描边/阴影文本、text-on-path、缺字与回退诊断、Unicode UAX #9 全量通过。 | `FontSystem`、`FontFace`、`FontManager`、`FontFallbackChain`、`registerFontFace`、`setFontFallbackChain`、`drawText`、`drawTextBox`、`layoutTextBox`、`drawTextOnPath`、`measureTextMetrics` |
 | 渲染后端 | 桌面 OpenGL 主路径、OpenGLES 目标、纯 CPU 软件后端（零 GPU 依赖、可在无图形栈环境运行）、可选 Vulkan 后端（离屏、可选择）、共享 GL-family 后端、proc-address 注入、上下文生命周期、资源释放与重建、shader portability。 | `Canvas::loadOpenGL`、`Canvas::createSoftware`、`Canvas::createVulkan`、`WhatsCanvas::OpenGL`、`WhatsCanvas::OpenGLES`、`WhatsCanvas::Software`、`initializeContext`、`releaseResources` |
 | 性能与资源 | 流式顶点缓冲、图片命令同纹理合批、路径命令合批、全局 quad index buffer、离屏 render target 复用池、GPU glyph atlas 复用、indexed glyph lookup、填充三角化 / 描边网格 / 裁剪掩码 LRU 缓存、桌面 GL texel buffer 渐变 stop、OpenGLES fallback。 | `Renderer`、`RenderTargetPool`、`GlyphAtlas`、`LruCache`、`RenderStats` |
 | 诊断与验证 | 同步 / 异步像素回读、PPM 截图、像素哈希、fuzzy PPM 对比、软件后端 golden-image 回归（确定性、无需 GPU）、固定时间首帧冒烟、OpenGLES 构建冒烟、示例构建冒烟、Unicode Bidi conformance、跨平台 CI。 | `readPixelsRGBA`、`readPixelsRGBAAsync`、`savePixelsPPM`、`computePixelsHashRGBA`、`ctest`、`scripts/*_smoke.*` |
@@ -169,42 +195,28 @@ target_link_libraries(MyApp PRIVATE WhatsCanvas::OpenGLES)
 
 ### 纯 CPU 软件后端（零 GPU 依赖）
 
-除了 GL 路线，WhatsCanvas 还提供一个完全在 CPU 上光栅化的软件后端，使用同一套 Canvas API，但**不链接任何 OpenGL / Vulkan / glad**，因此可以在没有图形栈的无头环境（CI 容器、服务器、嵌入式）里直接运行。入口是一个静态工厂：
+`Canvas::createSoftware(w, h)` 用同一套 Canvas API 在 CPU 上光栅化，**不链接任何 OpenGL / Vulkan / glad**，可在无图形栈的无头环境（CI、服务器、嵌入式）直接运行；覆盖填充 / 描边 / 文本、14 种混合、线性 / 径向渐变、点 / 线、图片采样、scissor 与解析 AA 路径裁剪、真高斯阴影、`saveLayer`，以及可选 gamma-correct 混合。它默认编进 `WhatsCanvas::OpenGL`，运行时即可无 GPU 使用。
 
-```cpp
-auto canvas = Canvas::createSoftware(width, height); // 无需 GL 上下文、无需 loadOpenGL
-canvas->beginFrame();
-canvas->drawRoundRect(RectF(8, 8, 200, 120), 16.0f, paint);
-canvas->flush();
-std::vector<unsigned char> rgba = canvas->readPixelsRGBA(); // 顶部朝下的 RGBA8
-```
-
-软件后端覆盖填充 / 描边 / 文本三角形光栅化、14 种混合模式、线性 / 径向渐变、点 / 线、图片采样（tint、颜色矩阵、采样质量、tile mode）、scissor 与解析抗锯齿路径裁剪、真高斯阴影、`saveLayer` 离屏层，以及可选的 gamma-correct 线性空间混合（`Canvas::setGammaCorrect(true)`，与 GL 的 `GL_FRAMEBUFFER_SRGB` 行为一致）。它默认编进 `WhatsCanvas::OpenGL`，运行时即可无 GPU 使用。
-
-若需要一个**物理上不含任何 GPU 依赖**的库，打开 `WHATSCANVAS_BUILD_SOFTWARE` 会额外产出独立的 `WhatsCanvas::Software` 目标（文本走内置 `stb_truetype`）：
+需要**物理上零 GPU 依赖**的库时，打开 `WHATSCANVAS_BUILD_SOFTWARE` 会额外产出独立的 `WhatsCanvas::Software` 目标（确定性输出，附带 golden-image 回归与只链接该库的测试）：
 
 ```cmake
 cmake -S . -B build -DWHATSCANVAS_BUILD_SOFTWARE=ON
 target_link_libraries(MyApp PRIVATE WhatsCanvas::Software)
 ```
 
-软件后端是确定性的，因此附带 golden-image 回归测试（`WhatsCanvasSoftwareGoldenTests`，基线在 `tests/baselines/software/*.pam`，用 `WHATSCANVAS_UPDATE_SOFTWARE_BASELINES=1` 重新生成），并有一个只链接 `WhatsCanvas::Software` 的测试（`WhatsCanvasSoftwareLibTests`）证明整条链路零 GPU 依赖。
-
 ### 可选 Vulkan 后端
 
-打开 `-DWHATSCANVAS_ENABLE_VULKAN=ON`（需要 Vulkan SDK）后，Vulkan 成为一个可选择的一等后端，通过同一套 Canvas API 离屏渲染（无需窗口或 surface）：
+Vulkan 是**手动 opt-in**（`-DWHATSCANVAS_ENABLE_VULKAN=ON` + Vulkan SDK），编进同一个 `WhatsCanvas::OpenGL` 库、与 OpenGL **共存**并在运行时选择，通过同一套 Canvas API **离屏**渲染：
 
 ```cpp
 if (Canvas::isVulkanAvailable()) {
-    auto canvas = Canvas::createVulkan(width, height); // 不可用时返回 nullptr，可回退到 createSoftware
-    canvas->beginFrame();
-    canvas->drawPath(path, paint);
+    auto canvas = Canvas::createVulkan(width, height); // 不可用时返回 nullptr，回退 createSoftware
     canvas->flush();
     auto rgba = canvas->readPixelsRGBA();
 }
 ```
 
-Vulkan 后端复用后端中立的命令层（`CommandDrawListEncoder` / ADR-006），把录制的命令流翻译成 Vulkan 绘制，与 OpenGL 路径像素等价；未编入 Vulkan 时 `isVulkanAvailable()` 返回 false、`createVulkan` 返回 nullptr，便于优雅回退。CI 会在启用 Vulkan 的配置下构建门禁校验，并在 Mesa lavapipe 软件设备上尽力运行 `vulkan` 标签测试。
+为什么手动、为什么共存于一个库、为什么只离屏、与 OpenGL 有何差异——详见[接入指南的 Vulkan 一节](doc/GETTING_STARTED_AS_LIBRARY.md#4-the-vulkan-backend-explained)。
 
 ## 可选字体依赖
 
@@ -222,27 +234,19 @@ cmake -S . -B build -DWHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=ON
 
 ## 示例
 
-### Tetris
+仓库自带两个可运行的游戏示例，演示布局、文本面板、滚动场景、裁剪区域与 HUD：
 
-位于 [examples/game/tetris](examples/game/tetris)。这是一个很适合学习布局、文本面板、方块绘制和游戏状态叠加的示例。
+<table>
+<tr>
+<td width="50%" align="center"><a href="examples/game/tetris"><img src="images/tetris.jpg" alt="Tetris example built with WhatsCanvas" width="100%"></a><br><b>Tetris</b> — 布局、文本面板、方块绘制与状态叠加</td>
+<td width="50%" align="center"><a href="examples/game/racer"><img src="images/racer.png" alt="Racer example built with WhatsCanvas" width="100%"></a><br><b>Racer</b> — 滚动场景、裁剪、HUD 与动画驱动</td>
+</tr>
+</table>
 
-![Tetris example built with WhatsCanvas](images/tetris.jpg)
-
-### Racer
-
-位于 [examples/game/racer](examples/game/racer)。这个示例更强调滚动场景、裁剪区域、HUD，以及节奏明确的动画驱动。
-
-![Racer example built with WhatsCanvas](images/racer.png)
-
-示例单独构建：
+单独构建（racer 同理）：
 
 ```bat
 cd examples\game\tetris
-build.bat --no-run
-```
-
-```bat
-cd examples\game\racer
 build.bat --no-run
 ```
 
@@ -271,25 +275,7 @@ ctest -C Debug -L smoke --output-on-failure
 
 字体像素回归只覆盖文本渲染路径，默认捕获 `font-regression` 和 `text-showcase` 两个场景后与 `tests/baselines/text/*.ppm` 做 fuzzy comparison。需要刷新本机字体基准时，先设置 `WHATSCANVAS_UPDATE_TEXT_BASELINES=1`，再运行 `scripts\text_pixel_regression.bat`；需要临时缩小范围时可设置 `WHATSCANVAS_TEXT_REGRESSION_SCENES=font-regression`。
 
-根 demo 支持以下环境变量：
-
-```bat
-WHATSCANVAS_CAPTURE_PPM=build\capture.ppm .\build\Debug\WhatsCanvasDemo.exe
-WHATSCANVAS_PRINT_PIXEL_HASH=1 .\build\Debug\WhatsCanvasDemo.exe
-WHATSCANVAS_EXPECT_PIXEL_HASH=<uint64> .\build\Debug\WhatsCanvasDemo.exe
-WHATSCANVAS_EXIT_AFTER_FIRST_FRAME=1 .\build\Debug\WhatsCanvasDemo.exe
-WHATSCANVAS_FIXED_TIME_SECONDS=1.25 .\build\Debug\WhatsCanvasDemo.exe
-WHATSCANVAS_DISABLE_MSAA=1 .\build\Debug\WhatsCanvasDemo.exe
-WHATSCANVAS_EXERCISE_CLIP_PATH=1 .\build\Debug\WhatsCanvasDemo.exe
-WHATSCANVAS_VALIDATION_SCENE=text-heavy .\build\Debug\WhatsCanvasDemo.exe
-WHATSCANVAS_VALIDATION_SCENE=font-regression .\build\Debug\WhatsCanvasDemo.exe
-```
-
-Driver-sensitive 场景可以用 PPM 容差比较：
-
-```powershell
-python scripts\compare_ppm_fuzzy.py baseline.ppm candidate.ppm --max-channel-delta 3 --max-mean-delta 0.75 --max-changed-percent 5
-```
+根 demo 支持一组捕获/回归环境变量（`WHATSCANVAS_CAPTURE_PPM`、`WHATSCANVAS_PRINT_PIXEL_HASH`、`WHATSCANVAS_EXIT_AFTER_FIRST_FRAME`、`WHATSCANVAS_FIXED_TIME_SECONDS`、`WHATSCANVAS_DISABLE_MSAA`、`WHATSCANVAS_VALIDATION_SCENE` 等），用于确定性截图与像素哈希校验。driver-sensitive 场景可用 `python scripts\compare_ppm_fuzzy.py baseline.ppm candidate.ppm` 做容差比较。
 
 ## 文档入口
 
