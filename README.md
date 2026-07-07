@@ -2,54 +2,14 @@
 
 WhatsCanvas 是一个用 C++17 编写的轻量级二维渲染引擎项目，以 Canvas 的使用方式对外呈现。
 
-它不是要取代 Skia、Cocos2d 这类成熟的大型框架，也不是只停留在极简轻量绘制层。它更像是介于两者之间的一种选择：比大型框架更轻、更容易接入和阅读，比极简绘图库更完整，既能拿来做 UI、工具界面和 2D 游戏项目，也适合作为学习 Canvas 渲染原理的工程样本。
-
-本项目在设计时参考了 love2d 的 Canvas 风格和 Skia 的渲染抽象。
-
-## 快速开始
-
-**本地构建**（需要 CMake 3.16+ 与 C++17 编译器；Windows 用 VS 2022 桌面 C++ 工作负载，macOS / Linux 需 OpenGL 与可编译 GLFW 示例的系统图形开发库）：
-
-```bat
-build.bat            :: Windows：构建并运行 demo（--no-run 只构建，--package 生成交付目录）
-```
-
-```bash
-./build.sh           # macOS / Linux（同样支持 --no-run / --package）
-```
-
-产物在 `build/<Config>/`；加 `--package` 会额外整理出 `out/package/<Config>/`（`lib/` 库文件 + `include/wsc/` 公共头）。
-
-**最快接入**——纯 CPU 软件后端，不需要窗口、GL 上下文或 GPU，画完直接读像素：
-
-```cpp
-#include <wsc/wsc.h>
-
-auto canvas = wsc::Canvas::createSoftware(256, 256);   // 已初始化，直接画
-wsc::Paint fill;
-fill.setColor(wsc::Color(40, 120, 240, 255));
-fill.setAntiAlias(true);
-canvas->drawRoundRect(wsc::RectF(40, 40, 176, 176), 24.0f, fill);
-canvas->flush();
-canvas->savePixelsPPM("first.ppm");
-```
-
-**用 CMake 接入**（预编译 Release 包或 `--package` 生成的目录）：
-
-```cmake
-find_package(WhatsCanvas 0.1.11 CONFIG REQUIRED)
-target_link_libraries(MyApp PRIVATE WhatsCanvas::OpenGL)   # 或 ::Software / ::OpenGLES / Vulkan（可选）
-```
-
-> 选后端、窗口/上下文、GitHub Release、OpenGLES、软件后端、Vulkan、常见任务——完整接入路径见
-> **[接入指南 › Using WhatsCanvas as a Library](doc/GETTING_STARTED_AS_LIBRARY.md)**。
+它不是要取代 Skia 这类成熟的大型框架，也不是只停留在 NanoVG 这类极简轻量绘制层。它更像是介于两者之间的一种选择：比大型框架更轻、更容易接入和阅读，比极简绘图库更完整，既能拿来做 UI 和 2D 游戏项目，也适合作为学习 Canvas 渲染原理的工程样本。
 
 ## 项目定位
 
-- 当前以 OpenGL 路线最完整，并已提供 OpenGLES 编译目标；另有纯 CPU 的软件渲染后端（不依赖任何 GPU），Vulkan、Metal 等后端仍保留扩展空间。
 - 对外提供的是 Canvas 风格 API，而不是底层图形接口的直接暴露。
 - 定位偏轻量，强调易接入、易阅读、易验证，适合中小型项目、工具型界面、2D 游戏和教学场景。
 - 项目自带根工程演示、游戏示例、跨平台 CI、冒烟脚本、像素回归钩子和专题文档，方便试用、学习和继续演进。
+- 当前提供四个可选渲染后端：桌面 OpenGL、OpenGLES、纯 CPU 软件后端（不依赖任何 GPU），以及可选的 Vulkan 后端；Metal / Direct3D / WebGPU 等仍保留扩展空间。
 
 ## 能力总览
 
@@ -73,7 +33,7 @@ WhatsCanvas 的公开接口仍然是熟悉的 `Canvas` / `Paint` / `Path` / `Ima
 
 | 项目 | 主要定位 | 渲染后端 | 路径 / Canvas 状态 | 图片 / 纹理 | 字体与文本 | 工程化与验证 |
 | --- | --- | --- | --- | --- | --- | --- |
-| WhatsCanvas | 轻量 C++ Canvas 风格 2D 渲染库，兼顾 UI、工具界面、2D 游戏和学习。 | OpenGL 主路径，OpenGLES 目标，保留多后端扩展空间。 | `save/restore`、矩阵、裁剪、路径、离屏层、解析抗锯齿、真高斯阴影、渐变、命中测试。 | 图片解码、raw RGBA、外部纹理、局部更新、九宫格、圆角 / 圆形裁剪、平铺、render-target canvas。 | FreeType / stb rasterizer、HarfBuzz shaping、fallback chain、glyph atlas、COLR/CPAL v0、UAX #9、像素回归。 | CTest、跨平台 CI、OpenGLES smoke、像素 hash / PPM / fuzzy diff、benchmark smoke、专题文档。 |
+| WhatsCanvas | 轻量 C++ Canvas 风格 2D 渲染库，兼顾 UI、工具界面、2D 游戏和学习。 | OpenGL / OpenGLES / 纯 CPU 软件 / 可选 Vulkan，保留 Metal 等扩展空间。 | `save/restore`、矩阵、裁剪、路径、离屏层、解析抗锯齿、真高斯阴影、渐变、命中测试。 | 图片解码、raw RGBA、外部纹理、局部更新、九宫格、圆角 / 圆形裁剪、平铺、render-target canvas。 | FreeType / stb rasterizer、HarfBuzz shaping、fallback chain、glyph atlas、COLR/CPAL v0、UAX #9、像素回归。 | CTest、跨平台 CI、OpenGLES smoke、像素 hash / PPM / fuzzy diff、benchmark smoke、专题文档。 |
 | Skia | 完整工业级 2D 图形引擎，覆盖浏览器、应用框架和复杂排版场景。 | CPU、GPU、多平台后端生态成熟。 | 路径、滤镜、着色器、文本和图像能力覆盖面很广。 | 图像编解码、颜色管理、滤镜和 GPU 资源体系完整。 | 高级文本和字体能力完整，常与 HarfBuzz / ICU 等生态协作。 | 成熟工程生态，体量和接入复杂度也更高。 |
 | Cairo | 稳定的 2D 矢量绘图库，偏文档、桌面和软件渲染场景。 | CPU surface、PDF / SVG / PS 等输出面强。 | 路径、stroke/fill、变换、裁剪成熟。 | 图像 surface 支持稳定，但不是游戏式纹理管线。 | 基本文字能力可用，复杂 shaping 通常依赖外部文本栈。 | 稳定、可移植，实时 GPU 特性不是重点。 |
 | NanoVG | 小型即时模式矢量绘制库，适合嵌入式 UI 和调试面板。 | 典型为 OpenGL 类后端。 | API 简洁，路径、渐变、阴影等 UI 绘制常用能力轻量。 | 支持基础图片绘制和纹理使用。 | 基本文本绘制为主，复杂排版、fallback 和字体诊断不是重点。 | 接入轻，但验证、排版和资源治理通常需要应用侧补齐。 |
@@ -111,20 +71,6 @@ WhatsCanvas 在"好看"上做了成体系的深耕，且都是**分辨率无关�
 
 各项的独立左右对比图可用示例 `WhatsCanvasAAShowcase <输出路径>` 复现，会在同目录生成 `aa_comparison.png`、`gradient_comparison.png`、`shadow_comparison.png`、`clip_comparison.png` 与综合图 `quality_showcase.png`。
 
-## 可选字体依赖
-
-OpenType shaping implementation 可以通过 CMake option 打开。CMake 会优先使用 `third_party/harfbuzz`，如果子模块未初始化再查找系统 HarfBuzz；如果没有可用 adapter，会自动回退到 simple shaping，并在文本后端 diagnostics 中报告：
-
-```cmake
-cmake -S . -B build -DWHATSCANVAS_ENABLE_OPENTYPE_SHAPING=ON
-```
-
-字体栅格化默认会尝试启用 FreeType。CMake 会优先使用 `third_party/freetype`，如果子模块未初始化再查找系统 FreeType；找到 FreeType 时，注册字体的 glyph index、metrics、kerning 和 alpha glyph rasterization 会优先走 FreeType；找不到时自动回退到内置 `stb_truetype` 路径：
-
-```cmake
-cmake -S . -B build -DWHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=ON
-```
-
 ## 示例
 
 仓库自带两个可运行的游戏示例，演示布局、文本面板、滚动场景、裁剪区域与 HUD：
@@ -141,6 +87,58 @@ cmake -S . -B build -DWHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=ON
 ```bat
 cd examples\game\tetris
 build.bat --no-run
+```
+
+## 快速开始
+
+**本地构建**（需要 CMake 3.16+ 与 C++17 编译器；Windows 用 VS 2022 桌面 C++ 工作负载，macOS / Linux 需 OpenGL 与可编译 GLFW 示例的系统图形开发库）：
+
+```bat
+build.bat            :: Windows：构建并运行 demo（--no-run 只构建，--package 生成交付目录）
+```
+
+```bash
+./build.sh           # macOS / Linux（同样支持 --no-run / --package）
+```
+
+产物在 `build/<Config>/`；加 `--package` 会额外整理出 `out/package/<Config>/`（`lib/` 库文件 + `include/wsc/` 公共头）。
+
+**最快接入**——纯 CPU 软件后端，不需要窗口、GL 上下文或 GPU，画完直接读像素：
+
+```cpp
+#include <wsc/wsc.h>
+
+auto canvas = wsc::Canvas::createSoftware(256, 256);   // 已初始化，直接画
+wsc::Paint fill;
+fill.setColor(wsc::Color(40, 120, 240, 255));
+fill.setAntiAlias(true);
+canvas->drawRoundRect(wsc::RectF(40, 40, 176, 176), 24.0f, fill);
+canvas->flush();
+canvas->savePixelsPPM("first.ppm");
+```
+
+**用 CMake 接入**（预编译 Release 包或 `--package` 生成的目录）：
+
+```cmake
+find_package(WhatsCanvas 0.1.11 CONFIG REQUIRED)
+target_link_libraries(MyApp PRIVATE WhatsCanvas::OpenGL)   # 或 ::Software / ::OpenGLES（Vulkan 编入 ::OpenGL，运行时选择）
+```
+
+> 选后端、窗口/上下文、GitHub Release、OpenGLES、软件后端、Vulkan、常见任务——完整接入路径见
+> **[接入指南 › Using WhatsCanvas as a Library](doc/GETTING_STARTED_AS_LIBRARY.md)**。
+
+## 可选字体依赖
+
+OpenType shaping implementation 可以通过 CMake option 打开。CMake 会优先使用 `third_party/harfbuzz`，如果子模块未初始化再查找系统 HarfBuzz；如果没有可用 adapter，会自动回退到 simple shaping，并在文本后端 diagnostics 中报告：
+
+```cmake
+cmake -S . -B build -DWHATSCANVAS_ENABLE_OPENTYPE_SHAPING=ON
+```
+
+字体栅格化默认会尝试启用 FreeType。CMake 会优先使用 `third_party/freetype`，如果子模块未初始化再查找系统 FreeType；找到 FreeType 时，注册字体的 glyph index、metrics、kerning 和 alpha glyph rasterization 会优先走 FreeType；找不到时自动回退到内置 `stb_truetype` 路径：
+
+```cmake
+cmake -S . -B build -DWHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=ON
 ```
 
 ## 验证
@@ -219,13 +217,12 @@ cmake --build build --target WhatsCanvasCheckPackageConsumer
 - `src/canvas/Canvas.cpp` 的 `Canvas::Impl` 持有 `std::unique_ptr<IRenderer>`、`std::unique_ptr<ITextBackend>`、`GraphicsStateStack`、`layerStack` 和 render-target image resource。
 - `src/command/DrawCommand.*` 定义 Points、Lines、Path、Image、Text 五类命令；命令执行时先通过 `RenderContext` 应用 blend、scissor、clip mask，再进入对应 `Draw*Program`。
 - `src/render/Renderer.*` 持有命令队列、`RenderContext` 和 `IRenderDevice`，并在 `flush()` 中执行命令，同时处理路径命令合批、像素回读、clip mask resource、image resource 和离屏渲染请求。
-- `src/render/RenderDeviceFactory.cpp` 当前会在桌面 OpenGL 构建中默认选择 `OpenGL`，在 OpenGLES 构建中默认选择 `OpenGLES`；二者复用 `OpenGLRenderDevice`，Vulkan 和 Metal 分支存在但返回 `nullptr`。
+- `src/render/RenderDeviceFactory.cpp` 在桌面 OpenGL 构建中默认选择 `OpenGL`，OpenGLES 构建中默认选择 `OpenGLES`（二者复用 `OpenGLRenderDevice`）；启用 Vulkan 且设备可用时构造 `VulkanRenderDevice`，Metal 分支仍为 `nullptr` stub。纯 CPU 软件后端走独立的 `SoftwareRenderer`（`Canvas::createSoftware`），不经过该工厂。
 - `src/render/OpenGLRenderDevice.cpp` 负责初始化 Draw*Program、GlobalIndexBuffers、PixelFormatCaps，并创建 texture、FBO/render target、clip mask resource 和 readback；OpenGLES 目标通过编译定义切换 shader 版本和桌面 GL-only 状态。
 
 ## 后续方向
 
-- 持续完善文档、ADR 和学习路径。
-- 继续把 Canvas 核心抽成更清晰的可复用库目标。
-- 继续推进 CBDT/CBLC / SBIX / SVG / COLR paint graph 等 color glyph 解码、更高质量的文本渲染策略，以及 DirectWrite/CoreText 等 native text adapter 实现。
-- 增强自动化验证、渲染回归和性能基准能力。
-- 为更多图形后端保留清晰的扩展边界。
+- 持续完善接入文档、专题文档与文档站点。
+- 推进 CBDT/CBLC / SBIX / SVG / COLR paint graph 等 color glyph 解码、更高质量文本渲染，以及 DirectWrite/CoreText native text adapter。
+- 增强自动化验证、跨后端像素对齐与性能基准。
+- 在已有 OpenGL / OpenGLES / 软件 / Vulkan 后端之上，为 Metal / WebGPU 等保留清晰扩展边界。
