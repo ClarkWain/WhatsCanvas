@@ -196,13 +196,25 @@ not wired into `VulkanRenderDevice` (whose instance is headless). Not a CTest ga
 (windowed present is environment dependent); verified manually on NVIDIA RTX 2080
 Ti (3 swapchain images, B8G8R8A8_UNORM).
 
-### M9 — Integration, selection, and CI
+### M9 — Integration, selection, and CI · **Done**
 Depends on: M3+ (progressively).
 - Allow selecting the Vulkan backend at runtime/build (factory + demo wiring).
+  **Done**: public `Canvas::isVulkanAvailable()` / `Canvas::createVulkan(w, h)`
+  create a Vulkan-backed Canvas that renders off-screen through the shared
+  command layer; `Renderer` routes its main-target flush to
+  `IRenderDevice::executeCommands` for devices that report
+  `usesDeviceCommandExecution()`. Returns null / false when Vulkan is not
+  compiled in, so callers fall back cleanly (`WhatsCanvasVulkanBackendSelectionTests`,
+  label `unit;vulkan`).
 - Add a Vulkan smoke gate to CI where a Vulkan-capable runner exists (or software
-  Vulkan / lavapipe as a fallback).
+  Vulkan / lavapipe as a fallback). **Done**: the `vulkan` CI job builds the
+  Vulkan-enabled configuration (hard gate — embedded SPIR-V + translation must
+  compile/link) and runs `ctest -L vulkan` on Mesa lavapipe as a best-effort
+  step.
 - Documentation: update README backend section from "reserved" to "experimental".
-Gate: `ctest -L vulkan` green; CI job green.
+  **Done**: README documents `Canvas::createVulkan` and the Vulkan CI gate.
+Gate: `ctest -L vulkan` green; CI job green. **Met** (hardware-verified on an
+NVIDIA GTX 1060; CI build gate + lavapipe best-effort run).
 
 ## 5. Ordering and dependencies
 
