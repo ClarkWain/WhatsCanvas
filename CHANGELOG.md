@@ -10,6 +10,13 @@ For releases and downloadable artifacts, see the
 ## [Unreleased]
 
 ### Added
+- Built-in diagnostics/logging facility (`wsc/Log.h`): severity levels, an
+  adjustable threshold (`Log::setLevel`), and a pluggable sink
+  (`Log::setHandler`) so applications can route WhatsCanvas messages into their
+  own logging system. Existing ad-hoc `stderr` diagnostics now flow through it
+  with consistent categories.
+- Concise API doc comments across the public headers (`Canvas`, `Paint`, `Path`,
+  `Image`, `Color`, `Font`, `Log`) for in-editor hover documentation.
 - MIT `LICENSE`.
 - `CONTRIBUTING.md` with the local build/test/validation workflow and repository
   conventions.

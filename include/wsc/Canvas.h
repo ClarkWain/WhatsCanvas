@@ -101,9 +101,11 @@ public:
 		PIE     ///< Arc with lines from center to start and end points.
 	};
 
+	/// Process-wide initialization/teardown of shared WhatsCanvas resources.
 	static void initialize();
 	static void finalize();
 	using OpenGLProcAddress = void *(*)(const char *name);
+	/// Provide the platform's GL function loader before using a GL-backed Canvas.
 	static bool loadOpenGL(OpenGLProcAddress loadProcAddress);
 	static std::string getOpenGLVersionString();
 
@@ -164,14 +166,18 @@ protected:
 
 public:
 	// Canvas lifetime and state.
+	/// Resize the drawing surface. Must be called before initializeContext for
+	/// GL-backed canvases; software/Vulkan canvases are pre-sized by their factory.
 	void setSize(int width, int height);
 	int getWidth() const;
 	int getHeight() const;
+	/// Convenience current color used by the parameterless draw* helpers.
 	void setColor(Color color);
 	void setColor(float r, float g, float b, float a = 1.0f);
 	Color getColor() const;
 	void setBlendMode(Paint::BlendMode blendMode);
 	Paint::BlendMode getBlendMode() const;
+	/// Fill the entire canvas with a color (ignores clip when clearing).
 	void drawColor(const Color &color);
 	void drawColor(float r, float g, float b, float a = 1.0f);
 	void drawPaint(const Paint &paint);
@@ -259,7 +265,10 @@ public:
 	                         bool mipmapsGenerated = false);
 
 	// Text drawing and measurement.
+	/// Draw a single line of text with its baseline anchored per the paint.
 	void drawText(const std::string &text, float x, float y, const Paint &paint);
+	/// Draw wrapped text inside a rectangle, optionally limiting lines and
+	/// ellipsizing overflow.
 	void drawTextBox(const std::string &text, const RectF &bounds, const Paint &paint);
 	void drawTextBox(const std::string &text, const RectF &bounds, float lineHeight, const Paint &paint);
 	void drawTextBox(const std::string &text, const RectF &bounds, float lineHeight, int maxLines, bool ellipsize, const Paint &paint);
@@ -272,18 +281,24 @@ public:
 	float measureText(const std::string &text, const Paint &paint) const;
 	RectF measureTextBounds(const std::string &text, const Paint &paint) const;
 	TextMetrics measureTextMetrics(const std::string &text, const Paint &paint) const;
+	/// Register a font face so its family can be selected via Paint::setFontFamily.
 	bool registerFontFace(const FontFace &face);
+	/// Set the fallback chain used to resolve glyphs missing from the primary font.
 	bool setFontFallbackChain(const FontFallbackChain &chain);
 
 	// Save stack and offscreen layering.
+	/// Push the current matrix/clip state; returns the new save count.
 	int save();
+	/// Begin an offscreen layer composited back with the given paint on restore.
 	int saveLayer(const RectF &bounds, const Paint &paint);
 	int saveLayer(const Rect &bounds, const Paint &paint);
+	/// Pop the most recent saved state.
 	void restore();
 	int getSaveCount() const;
 	void restoreToCount(int saveCount);
 
 	// Transform and hit-test helpers.
+	/// Current total transform matrix (local space to device space).
 	Matrix4 getMatrix() const;
 	PointF mapPoint(const PointF &point) const;
 	RectF mapRect(const RectF &rect) const;
@@ -299,20 +314,27 @@ public:
 	bool quickReject(const Rect &rect) const;
 	bool quickReject(const Path &path, const Paint &paint) const;
 	void clipPath(const Path &path);
+	/// Intersect the current clip with a rectangle.
 	void clipRect(const RectF &rect);
 	void clipRect(const Rect &rect);
 	void setMatrix(const Matrix4 &matrix);
 	void resetMatrix();
+	/// Post-multiply the current matrix by another transform.
 	void concat(const Matrix4 &matrix);
+	/// Translate/scale/rotate the current transform.
 	void translate(float dx, float dy);
 	void scale(float sx, float sy);
 	void rotate(float radians);
 
 	// Frame and pixel readback helpers.
+	/// Begin a frame of drawing (optional; draws auto-begin a frame).
 	void beginFrame();
+	/// Submit all recorded drawing to the backend. Required before reading pixels
+	/// or using this Canvas as a texture source.
 	void flush();
 	void endFrame();
 	void shutdown();
+	/// Read the rendered image back as top-left-origin RGBA bytes.
 	bool readPixelsRGBA(std::vector<unsigned char> &pixels) const;
 	std::vector<unsigned char> readPixelsRGBA() const;
 	bool readPixelsRGBAAsync(ReadPixelsCallback callback);

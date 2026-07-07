@@ -132,6 +132,47 @@ No. GLFW is only for the in-repo example windows, GLAD is compiled into the
 GL-family backend, and GLM is an internal math dependency. Consumers include and
 link only `WhatsCanvas::OpenGL` (or `::Software` / `::OpenGLES`) and `include/wsc/`.
 
+## Diagnostics & logging
+
+WhatsCanvas has a built-in logging facility (`wsc/Log.h`) that reports
+recoverable problems and failures. By default only `Warning` and `Error`
+messages are written to `stderr`.
+
+### See more detail while debugging
+
+Lower the threshold to surface informational and debug messages:
+
+```cpp
+#include <wsc/Log.h>
+
+wsc::Log::setLevel(wsc::LogLevel::Debug); // Trace/Debug/Info/Warning/Error
+```
+
+### Route logs into your own system
+
+Install a handler to forward every message (level, category, text) wherever you
+want — a file, an in-game console, spdlog, etc.:
+
+```cpp
+wsc::Log::setHandler([](const wsc::LogMessage &m) {
+    myLogger.log(m.level, m.category, m.message);
+});
+```
+
+Pass `nullptr` to restore the default `stderr` sink. Use
+`wsc::Log::setLevel(wsc::LogLevel::Off)` to silence all output.
+
+### Common messages
+
+| Category | Meaning |
+|---|---|
+| `Image` | An image failed to decode or its texture could not be created. |
+| `DrawValidation` | A draw call was skipped (empty vertices, bad dimensions, invalid resource). |
+| `GLProgram` / `OpenGL` | Shader compile/link failure or a GL error was detected. |
+| `RenderDeviceFactory` | No usable render backend was found. |
+| `VulkanRenderDevice` | Vulkan device/instance setup failed, or Vulkan is not compiled in. |
+| `Deprecation` | A deprecated API was called (emitted once per call site). |
+
 ## Still stuck?
 
 - Skim the [Get Started guide](GETTING_STARTED_AS_LIBRARY.md) and the runnable

@@ -190,6 +190,7 @@ function(whatscanvas_add_gl_family_library target_name project_root)
 
     add_library(${target_name}
         "${glad_path}/src/glad.c"
+        "${src_dir}/core/Log.cpp"
         "${src_dir}/canvas/base.cpp"
         "${src_dir}/canvas/Canvas.cpp"
         "${src_dir}/canvas/Image.cpp"
@@ -256,6 +257,7 @@ function(whatscanvas_add_gl_family_library target_name project_root)
     target_include_directories(${target_name}
         PRIVATE
             "${src_dir}"
+            "${project_root}/include"
             "${glad_path}/include"
         INTERFACE
             "$<BUILD_INTERFACE:${project_root}/include>"
@@ -315,6 +317,7 @@ function(whatscanvas_add_software_library target_name project_root)
     set(src_dir "${project_root}/src")
 
     add_library(${target_name}
+        "${src_dir}/core/Log.cpp"
         "${src_dir}/canvas/base.cpp"
         "${src_dir}/canvas/Canvas.cpp"
         "${src_dir}/canvas/Image.cpp"
@@ -337,6 +340,7 @@ function(whatscanvas_add_software_library target_name project_root)
     target_include_directories(${target_name}
         PRIVATE
             "${src_dir}"
+            "${project_root}/include"
         INTERFACE
             "$<BUILD_INTERFACE:${project_root}/include>"
             "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"

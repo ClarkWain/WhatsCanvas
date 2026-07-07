@@ -1,7 +1,8 @@
 #pragma once
 
-#include <iostream>
 #include <string>
+
+#include "core/LogInternal.h"
 
 /// Centralized draw-state validation utilities.
 /// Provides runtime checks that catch common errors early
@@ -13,7 +14,7 @@ namespace DrawValidation {
 inline bool validateVertexData(std::size_t vertexCount, const char *caller)
 {
     if (vertexCount == 0) {
-        std::cerr << "[DrawValidation] " << caller << ": vertex data is empty, draw call skipped." << std::endl;
+        WSC_LOG_WARN("DrawValidation", caller << ": vertex data is empty, draw call skipped.");
         return false;
     }
     return true;
@@ -24,9 +25,8 @@ inline bool validateVertexData(std::size_t vertexCount, const char *caller)
 inline bool validateImageDimensions(float width, float height, const char *caller)
 {
     if (width <= 0.0f || height <= 0.0f) {
-        std::cerr << "[DrawValidation] " << caller
-                  << ": image dimensions non-positive (w=" << width
-                  << ", h=" << height << "), draw call skipped." << std::endl;
+        WSC_LOG_WARN("DrawValidation", caller << ": image dimensions non-positive (w=" << width
+                                              << ", h=" << height << "), draw call skipped.");
         return false;
     }
     return true;
@@ -38,8 +38,7 @@ template<typename T>
 bool validateResource(const T &resource, const char *name, const char *caller)
 {
     if (!resource || !resource->isValid()) {
-        std::cerr << "[DrawValidation] " << caller << ": "
-                  << name << " is null or invalid, draw call skipped." << std::endl;
+        WSC_LOG_WARN("DrawValidation", caller << ": " << name << " is null or invalid, draw call skipped.");
         return false;
     }
     return true;
@@ -50,9 +49,8 @@ bool validateResource(const T &resource, const char *name, const char *caller)
 inline bool validateBlendMode(int mode, int maxMode, const char *caller)
 {
     if (mode < 0 || mode > maxMode) {
-        std::cerr << "[DrawValidation] " << caller
-                  << ": blend mode " << mode << " out of range [0, "
-                  << maxMode << "]." << std::endl;
+        WSC_LOG_WARN("DrawValidation", caller << ": blend mode " << mode << " out of range [0, "
+                                              << maxMode << "].");
         return false;
     }
     return true;
@@ -63,8 +61,7 @@ inline bool validateBlendMode(int mode, int maxMode, const char *caller)
 inline bool validateProgram(bool initialized, const char *caller)
 {
     if (!initialized) {
-        std::cerr << "[DrawValidation] " << caller
-                  << ": shader program not initialized, draw call skipped." << std::endl;
+        WSC_LOG_WARN("DrawValidation", caller << ": shader program not initialized, draw call skipped.");
         return false;
     }
     return true;

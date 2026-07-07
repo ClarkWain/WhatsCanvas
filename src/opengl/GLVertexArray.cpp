@@ -1,5 +1,6 @@
 #include "GLVertexArray.h"
 #include <iostream>
+#include "core/LogInternal.h"
 
 GLVertexArray::GLVertexArray() {
     glGenVertexArrays(1, &vaoID);
@@ -8,7 +9,7 @@ GLVertexArray::GLVertexArray() {
 
     GLenum err = glGetError();
     if (err != GL_NO_ERROR) {
-        std::cerr << "OpenGL error in constructor: " << err << std::endl;
+        WSC_LOG_ERROR("OpenGL", "OpenGL error in GLVertexArray constructor: " << err);
     }
 }
 

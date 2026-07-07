@@ -4,6 +4,7 @@
 #include "vulkan/VulkanRenderDevice.h"
 
 #include <iostream>
+#include "core/LogInternal.h"
 
 // Track the currently active backend type.
 namespace {
@@ -28,7 +29,7 @@ std::unique_ptr<IRenderDevice> RenderDeviceFactory::createBestAvailable()
         return device;
     }
 
-    std::cerr << "[RenderDeviceFactory] No render backend available!" << std::endl;
+    WSC_LOG_ERROR("RenderDeviceFactory", "No render backend available!");
     return nullptr;
 }
 
