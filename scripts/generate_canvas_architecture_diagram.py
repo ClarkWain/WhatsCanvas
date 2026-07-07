@@ -123,7 +123,7 @@ def main() -> None:
     centered_text(
         draw,
         (900, 92),
-        "当前事实：WhatsCanvasOpenGL / WhatsCanvasOpenGLES 是 GL-family 库目标；对外暴露 include/wsc；内部包含 canvas / text / command / render / opengl",
+        "当前事实：核心 canvas / text / command / render 后端无关；GL-family（WhatsCanvasOpenGL/ES）内含可选 Vulkan，另有独立的纯 CPU WhatsCanvas::Software 目标；对外暴露 include/wsc",
         SUBTITLE,
         "#475569",
     )
@@ -151,7 +151,7 @@ def main() -> None:
         Box("command", (310, 815, 1180, 124), "#ffedd5", "#f97316", "命令录制层", "src/command", ("DrawData + DrawCommand", "Points / Lines / Path / Image / Text")),
         Box("renderer", (310, 995, 570, 144), "#ede9fe", "#7c3aed", "Renderer", "src/render/Renderer.*", ("命令队列 / 路径合批 / flush", "readPixels / offscreen")),
         Box("device", (980, 995, 510, 144), "#ede9fe", "#7c3aed", "Render Device Boundary", "src/render", ("RenderContext / IRenderDevice", "IRenderTarget / 状态应用")),
-        Box("opengl", (310, 1185, 1180, 104), "#fee2e2", "#dc2626", "OpenGL / OpenGLES Backend", "OpenGLRenderDevice + src/opengl", ("Draw*Program / GLProgram / textures / buffers / FBO / stencil / readback",)),
+        Box("opengl", (310, 1185, 1180, 104), "#fee2e2", "#dc2626", "渲染后端（运行时可选择）", "OpenGLRenderDevice · VulkanRenderDevice · SoftwareRenderer", ("OpenGL / OpenGLES · 可选 Vulkan（离屏）· 纯 CPU 软件后端（零 GPU）",)),
     ]
 
     all_boxes = external + boxes

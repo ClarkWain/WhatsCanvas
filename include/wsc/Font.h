@@ -13,6 +13,7 @@
 
 namespace wsc {
 
+/// Slant style of a font face.
 enum class FontSlant
 {
     NORMAL,
@@ -20,12 +21,14 @@ enum class FontSlant
     OBLIQUE
 };
 
+/// Whether a font face is backed by a file path or an in-memory buffer.
 enum class FontSourceType
 {
     FILE,
     MEMORY
 };
 
+/// Identifies a desired font by family name, weight and slant.
 struct FontDescriptor
 {
     std::string family;
@@ -45,6 +48,7 @@ struct FontDescriptor
     }
 };
 
+/// An inclusive range of Unicode code points, used to scope a font face.
 struct FontCodepointRange
 {
     std::uint32_t first = 0;
@@ -63,9 +67,11 @@ struct FontCodepointRange
     }
 };
 
+/// A concrete font face loaded from a file or memory, registered on a Canvas.
 class FontFace
 {
 public:
+    /// Load a face from a font file on disk (optionally a specific face index).
     static FontFace fromFile(FontDescriptor descriptor, std::string path, int faceIndex = 0)
     {
         FontFace face;

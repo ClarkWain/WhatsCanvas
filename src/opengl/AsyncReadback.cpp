@@ -2,6 +2,7 @@
 
 #include <cstring>
 #include <iostream>
+#include "core/LogInternal.h"
 
 AsyncReadback::~AsyncReadback()
 {
@@ -14,7 +15,7 @@ bool AsyncReadback::submit(int x, int y, int width, int height, Callback callbac
         // A readback is already in progress — wait for it first.
         checkCompletion();
         if (pending_) {
-            std::cerr << "[AsyncReadback] Previous readback still pending, skipping new request." << std::endl;
+            WSC_LOG_WARN("AsyncReadback", "Previous readback still pending, skipping new request.");
             return false;
         }
     }
@@ -96,7 +97,7 @@ bool AsyncReadback::checkCompletion()
             callback_(std::move(pixels), width_, height_);
         }
     } else {
-        std::cerr << "[AsyncReadback] Failed to map PBO for readback." << std::endl;
+        WSC_LOG_ERROR("AsyncReadback", "Failed to map PBO for readback.");
     }
 
     glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);

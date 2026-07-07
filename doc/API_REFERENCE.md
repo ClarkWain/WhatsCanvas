@@ -14,6 +14,7 @@ It is meant to stay close to the current C++ API; behavioral contracts remain do
 - `wsc/Color.h`
 - `wsc/Font.h`
 - `wsc/Image.h`
+- `wsc/Log.h`
 - `wsc/Matrix.h`
 - `wsc/Paint.h`
 - `wsc/Path.h`
@@ -480,6 +481,26 @@ Public members:
 - `int getTextureHeight() const override;`
 - `bool isTextureValid() const override;`
 - `bool isRenderTarget() const override;`
+
+## `wsc/Log.h`
+
+Enums:
+- `LogLevel`
+
+### `struct LogMessage`
+
+_No public methods detected by the lightweight generator._
+
+### `class Log`
+
+Public members:
+
+- `static void setLevel(LogLevel level);`
+- `static LogLevel level();`
+- `static bool isEnabled(LogLevel level);`
+- `static void setHandler(LogHandler handler);`
+- `static void write(LogLevel level, const char *category, std::string message);`
+- `static const char *levelName(LogLevel level);`
 
 ## `wsc/Matrix.h`
 

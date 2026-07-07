@@ -8,6 +8,7 @@
 #include <glm/glm.hpp>
 
 #include <iostream>
+#include "core/LogInternal.h"
 #include <vector>
 
 #if defined(WHATSCANVAS_ENABLE_VULKAN)
@@ -1791,14 +1792,14 @@ void VulkanRenderDevice::initializeBackend()
     instanceInfo.pApplicationInfo = &appInfo;
 
     if (vkCreateInstance(&instanceInfo, nullptr, &context_->instance) != VK_SUCCESS) {
-        std::cerr << "[VulkanRenderDevice] Failed to create Vulkan instance." << std::endl;
+        WSC_LOG_ERROR("VulkanRenderDevice", "Failed to create Vulkan instance.");
         return;
     }
 
     std::uint32_t deviceCount = 0;
     vkEnumeratePhysicalDevices(context_->instance, &deviceCount, nullptr);
     if (deviceCount == 0) {
-        std::cerr << "[VulkanRenderDevice] No Vulkan-capable physical devices found." << std::endl;
+        WSC_LOG_ERROR("VulkanRenderDevice", "No Vulkan-capable physical devices found.");
         return;
     }
 
@@ -1828,7 +1829,7 @@ void VulkanRenderDevice::initializeBackend()
     }
 
     if (bestDevice == VK_NULL_HANDLE || !bestQueueFamily.has_value()) {
-        std::cerr << "[VulkanRenderDevice] No physical device with a graphics queue was found." << std::endl;
+        WSC_LOG_ERROR("VulkanRenderDevice", "No physical device with a graphics queue was found.");
         return;
     }
 
@@ -1852,7 +1853,7 @@ void VulkanRenderDevice::initializeBackend()
     deviceInfo.pEnabledFeatures = &deviceFeatures;
 
     if (vkCreateDevice(context_->physicalDevice, &deviceInfo, nullptr, &context_->device) != VK_SUCCESS) {
-        std::cerr << "[VulkanRenderDevice] Failed to create Vulkan logical device." << std::endl;
+        WSC_LOG_ERROR("VulkanRenderDevice", "Failed to create Vulkan logical device.");
         return;
     }
 
@@ -1864,18 +1865,17 @@ void VulkanRenderDevice::initializeBackend()
     poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     poolInfo.queueFamilyIndex = context_->graphicsQueueFamily;
     if (vkCreateCommandPool(context_->device, &poolInfo, nullptr, &context_->commandPool) != VK_SUCCESS) {
-        std::cerr << "[VulkanRenderDevice] Failed to create Vulkan command pool." << std::endl;
+        WSC_LOG_ERROR("VulkanRenderDevice", "Failed to create Vulkan command pool.");
         return;
     }
 
     context_->deviceReady = true;
     backendInitialized_ = true;
 
-    std::cout << "[VulkanRenderDevice] Initialized on device: " << context_->physicalDeviceName << std::endl;
+    WSC_LOG_INFO("VulkanRenderDevice", "Initialized on device: " << context_->physicalDeviceName);
 #else
-    std::cerr << "[VulkanRenderDevice] Vulkan support is not compiled into this build. "
-                 "Reconfigure with -DWHATSCANVAS_ENABLE_VULKAN=ON and a Vulkan SDK to enable it."
-              << std::endl;
+    WSC_LOG_ERROR("VulkanRenderDevice", "Vulkan support is not compiled into this build. "
+                                        "Reconfigure with -DWHATSCANVAS_ENABLE_VULKAN=ON and a Vulkan SDK to enable it.");
 #endif
 }
 

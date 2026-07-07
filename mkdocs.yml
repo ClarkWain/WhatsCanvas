@@ -1,0 +1,85 @@
+site_name: WhatsCanvas
+site_description: A lightweight, embeddable, verifiable C++17 2D Canvas renderer — OpenGL / OpenGL ES / pure-CPU software / optional Vulkan.
+site_url: https://clarkwain.github.io/WhatsCanvas/
+repo_url: https://github.com/ClarkWain/WhatsCanvas
+repo_name: ClarkWain/WhatsCanvas
+copyright: Documentation built from the WhatsCanvas repository docs.
+
+# Reuse the existing repository docs in place (no duplication). Internal notes
+# are kept out of the site via exclude_docs below; the public pages are curated
+# in nav. Root-level images/ are staged into the site by mkdocs_hooks.py.
+docs_dir: doc
+
+theme:
+  name: material
+  language: en
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.tracking
+    - content.code.copy
+    - search.suggest
+    - search.highlight
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+
+hooks:
+  - mkdocs_hooks.py
+
+# Keep internal engineering notes (ADRs, TODO lists, roadmaps, regression logs)
+# and the large standalone HTML tutorials out of the published site.
+exclude_docs: |
+  architecture/
+  anti_aliasing/
+  polyline/
+  Font Rendering Techniques/
+  *_TODO.md
+  CanvasEvaluation.md
+  CROSS_PLATFORM_VALIDATION_MATRIX.md
+  EFFECT_REGRESSION_MATRIX.md
+  REGRESSION_BASELINES.md
+  RELEASE_CHECKLIST.md
+  VISUAL_REGRESSION.md
+  vulkan-backend-roadmap.md
+
+nav:
+  - Home: index.md
+  - Get Started: GETTING_STARTED_AS_LIBRARY.md
+  - Troubleshooting & FAQ: TROUBLESHOOTING.md
+  - Reference:
+      - API Reference: API_REFERENCE.md
+      - API Stability: API_STABILITY.md
+  - Guides:
+      - Text & Fonts: TEXT_FEATURE_MATRIX.md
+      - Shadows: SHADOW_MODEL.md
+      - Blend Modes: BLEND_MODE_AUDIT.md
+      - Shader Portability: SHADER_PORTABILITY.md
+      - iOS Build Notes: IOS_BUILD_NOTES.md
+  - Backends:
+      - Vulkan Status: vulkan-backend-status.md
+  - Project:
+      - Performance Benchmarks: PERFORMANCE_BENCHMARKS.md

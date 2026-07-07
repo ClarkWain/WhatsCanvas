@@ -1,0 +1,3 @@
+# Documentation site dependencies (MkDocs Material). Dev-only; not part of the
+# WhatsCanvas library. Build locally with: mkdocs serve
+mkdocs-material>=9.5

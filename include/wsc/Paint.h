@@ -14,6 +14,7 @@ namespace wsc {
 class WSC_API Paint
 {
 public:
+    /// A single color stop for a gradient, at a normalized position in [0, 1].
     struct ColorStop
     {
         float position = 0.0f;
@@ -23,6 +24,7 @@ public:
         ColorStop(float position, const Color &color);
     };
 
+    /// Whether geometry is filled, stroked (outlined), or both.
     enum class Style
     {
         FILL,
@@ -30,6 +32,7 @@ public:
         FILL_AND_STROKE
     };
 
+    /// Shape of the ends of an open stroked path.
     enum class StrokeCap
     {
         BUTT,
@@ -37,6 +40,7 @@ public:
         SQUARE
     };
 
+    /// How two stroked segments are joined at a corner.
     enum class StrokeJoin
     {
         MITER,
@@ -44,6 +48,7 @@ public:
         BEVEL
     };
 
+    /// Active shader: a solid color or a linear/radial gradient.
     enum class ShaderType
     {
         SOLID,
@@ -51,6 +56,7 @@ public:
         RADIAL_GRADIENT
     };
 
+    /// How a gradient/image repeats outside its defined range.
     enum class ShaderTileMode
     {
         CLAMP,
@@ -59,6 +65,7 @@ public:
         DECAL
     };
 
+    /// Horizontal alignment of text relative to its draw position.
     enum class TextAlign
     {
         LEFT,
@@ -66,6 +73,7 @@ public:
         RIGHT
     };
 
+    /// Vertical anchor of text relative to its draw position.
     enum class TextBaseline
     {
         TOP,
@@ -73,6 +81,7 @@ public:
         BOTTOM
     };
 
+    /// Porter-Duff and separable blend modes for compositing.
     enum class BlendMode
     {
         SRC_OVER,
@@ -91,6 +100,7 @@ public:
         SCREEN
     };
 
+    /// Texture sampling filter used when drawing images.
     enum class ImageSampling
     {
         LINEAR,
@@ -98,6 +108,7 @@ public:
         MIPMAP_LINEAR
     };
 
+    /// How an image repeats outside its source rectangle.
     enum class ImageTileMode
     {
         CLAMP,
@@ -113,27 +124,36 @@ public:
     Paint &operator=(Paint &&other) noexcept;
     ~Paint();
 
+    /// Enable or disable anti-aliasing for edges drawn with this paint.
     void setAntiAlias(bool aa);
     bool isAntiAlias() const;
 
+    /// Fill color (RGBA). Also used to tint images; use Color::WHITE to draw an
+    /// image untinted. The default color is opaque black.
     void setColor(const Color &color);
     void setColor(int r, int g, int b, int a = 255);
     void setColor(float r, float g, float b, float a = 1.0f);
     void setFillColor(const Color &color);
+    /// Overall opacity multiplier (0-255 / 0.0-1.0) applied on top of the color.
     void setAlpha(int alpha);
     void setAlpha(float alpha);
     int getAlpha() const;
     float getAlphaF() const;
     Color getFillColor() const;
 
+    /// Configure a linear gradient fill between two points, with two colors or a
+    /// list of color stops. Replaces any solid color/shader.
     void setLinearGradient(float startX, float startY, float endX, float endY,
                            const Color &startColor, const Color &endColor);
     void setLinearGradient(float startX, float startY, float endX, float endY,
                            const std::vector<ColorStop> &stops);
+    /// Configure a radial gradient fill centered at a point, with two colors or
+    /// a list of color stops.
     void setRadialGradient(float centerX, float centerY, float radius,
                            const Color &startColor, const Color &endColor);
     void setRadialGradient(float centerX, float centerY, float radius,
                            const std::vector<ColorStop> &stops);
+    /// Remove any gradient and return to solid-color fill.
     void clearShader();
     ShaderType getShaderType() const;
     void setShaderTileMode(ShaderTileMode tileMode);
@@ -153,6 +173,8 @@ public:
     Color getRadialStartColor() const;
     Color getRadialEndColor() const;
 
+    /// Attach a blurred drop shadow drawn beneath the shape (blur radius, offset
+    /// and color). Applies to subsequent draws using this paint.
     void setShadowLayer(float radius, float dx, float dy, const Color &color);
     void clearShadowLayer();
     bool hasShadowLayer() const;
@@ -162,13 +184,16 @@ public:
     Color getShadowColor() const;
 
     Color getColor() const;
+    /// Stroke (outline) width in pixels; used when Style includes STROKE.
     void setStrokeWidth(float width);
     float getStrokeWidth() const;
     void setStrokeMiterLimit(float limit);
     float getStrokeMiterLimit() const;
 
+    /// Text size in pixels for drawText / drawTextBox.
     void setTextSize(float size);
     float getTextSize() const;
+    /// Preferred font family name (must be registered on the Canvas).
     void setFontFamily(const std::string &family);
     void setFont(const std::string &family);
     const std::string &getFontFamily() const;
@@ -187,26 +212,31 @@ public:
     void setTextBaseline(TextBaseline baseline);
     TextBaseline getTextBaseline() const;
 
+    /// Compositing blend mode for subsequent draws.
     void setBlendMode(BlendMode blendMode);
     BlendMode getBlendMode() const;
     void setImageSampling(ImageSampling sampling);
     ImageSampling getImageSampling() const;
     void setImageTileMode(ImageTileMode tileMode);
     ImageTileMode getImageTileMode() const;
+    /// Round the corners of stroked/filled paths by the given radius.
     void setCornerPathEffect(float radius);
     void clearCornerPathEffect();
     bool hasCornerPathEffect() const;
     float getCornerPathEffectRadius() const;
+    /// Dash a stroked path using on/off interval lengths and a starting phase.
     void setDashPathEffect(const std::vector<float> &intervals, float phase = 0.0f);
     void clearDashPathEffect();
     bool hasDashPathEffect() const;
     const std::vector<float> &getDashIntervals() const;
     float getDashPhase() const;
+    /// Apply a 4x5 color matrix to filter drawn colors (e.g. tint, grayscale).
     void setColorMatrix(const std::array<float, 20> &matrix);
     void clearColorMatrix();
     bool hasColorMatrix() const;
     const std::array<float, 20> &getColorMatrix() const;
 
+    /// Separate stroke color (defaults to black); used when stroking.
     void setStrokeColor(const Color &color);
     void setStrokeColor(int r, int g, int b, int a = 255);
     void setStrokeColor(float r, float g, float b, float a = 1.0f);

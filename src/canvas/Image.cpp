@@ -9,6 +9,7 @@
 
 #include <memory>
 #include <iostream>
+#include "core/LogInternal.h"
 
 struct wsc::Image::Storage {
     SharedImageResource imageResource;
@@ -87,7 +88,7 @@ bool wsc::Image::load(IRenderer &renderer, const char *imagePath)
 
         if (!storage_ || !storage_->imageResource || !storage_->imageResource->isValid()) {
             reset();
-            std::cerr << "Failed to create texture for image: " << imagePath << std::endl;
+            WSC_LOG_ERROR("Image", "Failed to create texture for image: " << imagePath);
             return false;
         }
 
@@ -101,7 +102,7 @@ bool wsc::Image::load(IRenderer &renderer, const char *imagePath)
         reset();
 
         // Handle image load failure
-        std::cerr << "Failed to load image: " << imagePath << std::endl;
+        WSC_LOG_ERROR("Image", "Failed to load image: " << imagePath);
         return false;
     }
 }
