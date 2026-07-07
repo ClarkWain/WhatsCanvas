@@ -23,6 +23,8 @@ is covered by a real-hardware test under the CTest `vulkan` label (8 tests,
 | M6 | Offscreen-layer compositing with layer alpha (saveLayer mechanism) | `WhatsCanvasVulkanLayerTests` |
 | M7 | Coverage-mask path clipping | `WhatsCanvasVulkanClipTests` |
 | ADR-006 | Backend-neutral `DrawList` + Vulkan translator (solid + textured + clip primitives) | `WhatsCanvasVulkanDrawListTests` |
+| Text / glyph atlas | Vector text geometry, shader-gradient text, glyph-atlas textured quads, and dirty-rect atlas texture updates | `WhatsCanvasVulkanTextTests` |
+| OpenGL offscreen snapshots | `renderCommandsToImageResource` uses the shared `CommandDrawListEncoder` for layer/snapshot replay | `WhatsCanvasRenderTargetPoolTests` |
 
 ## `IRenderDevice` parity
 
@@ -43,9 +45,10 @@ All 11 methods are implemented on Vulkan.
 
 ## Known gaps and why
 
-- **Generic command replay** (`renderCommandsToImageResource`): the WhatsCanvas
-  `Command` objects call OpenGL directly, so Vulkan cannot replay them. This is
-  the coupling recorded in ADR-006; the fix is the backend-neutral command layer.
+- **Shared command layer still has room to grow**: Vulkan can replay real command
+  streams, and OpenGL uses the shared command encoder for offscreen snapshots.
+  The remaining architecture work is moving more regular OpenGL flush paths onto
+  the same primitive stream without regressing the production renderer.
 - **Windowed presentation (M8 swapchain)**: a standalone windowed present example
   (`examples/vulkan_present`) creates a GLFW surface + swapchain and presents a
   cleared frame; verified on NVIDIA RTX 2080 Ti. It is standalone because
@@ -99,11 +102,24 @@ All 11 methods are implemented on Vulkan.
   full mip chain (blit) when requested, and ``DrawImageSampling::MipmapLinear``
   selects a trilinear sampler, matching the OpenGL mipmap path
   (``WhatsCanvasVulkanMipmapTests``).
+- **Glyph atlas text path needs broader scenes**: Vulkan can render glyph-atlas
+  text quads through the sampled texture pipeline and validates dirty-rect atlas
+  texture updates, but text shadows, clipped atlas text, and larger text
+  pixel-parity scenes still need coverage.
+- **Not the default backend**: normal builds still default to OpenGL or OpenGLES.
+- **Direct Canvas swapchain present is not integrated**: `examples/vulkan_present`
+  uses a standalone windowed present path; a surface-aware Canvas Vulkan render
+  device remains future work.
+- **Larger Canvas validation scenes remain**: the visual parity smoke now covers
+  the core P0 Vulkan paths, but it should still grow into larger representative
+  Canvas scenes and more text / image-effect combinations.
+- **Native platform backends remain separate work**: Metal is still reserved, and
+  DirectWrite/CoreText are text-backend adapter slots rather than render backends.
 
 ## Next steps
 
-1. Execute ADR-006 in reviewable slices (freeze primitive set → OpenGL translator
-   validated by pixel-hash gates → Vulkan translator → `renderCommandsToImageResource`).
-2. Root-cause the textured `DrawList` teardown crash (ASan) and re-land textured/
-   clip primitives.
-3. M8 windowed swapchain present as a dedicated windowed example + smoke.
+1. Expand representative Canvas-level validation scenes for Vulkan/OpenGL parity.
+2. Continue migrating OpenGL execution paths to the shared command encoder in
+   small, testable slices.
+3. Turn the windowed Vulkan present path from a bridge into a GPU-only or
+   surface-aware render path.

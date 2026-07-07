@@ -1,6 +1,7 @@
 #include "render/OpenGLRenderDevice.h"
 
 #include <algorithm>
+#include <cstring>
 
 #include <glad/glad.h>
 
@@ -14,6 +15,7 @@
 #include "opengl/GLTextureUtils.h"
 #include "opengl/PixelFormatCaps.h"
 #include "opengl/ClipCoverageProgram.h"
+#include "render/CommandDrawListEncoder.h"
 #include "render/IRenderer.h"
 #include "render/IRenderTarget.h"
 #include "render/RenderContext.h"
@@ -275,14 +277,47 @@ void finalizeSharedRenderBackend()
     GlobalIndexBuffers::finalize();
 }
 
-void executeCommandList(const std::vector<std::unique_ptr<Command>> &commands, int width, int height,
-                        int scissorOffsetX = 0, int scissorOffsetY = 0)
+float fromNdcX(float x, int width)
 {
-    RenderContext context;
-    context.setSize(width, height);
-    context.setScissorOffset(scissorOffsetX, scissorOffsetY);
-    for (const auto &command : commands) {
-        command->execute(context);
+    return (x + 1.0f) * 0.5f * static_cast<float>(width);
+}
+
+float fromNdcY(float y, int height)
+{
+    return (y + 1.0f) * 0.5f * static_cast<float>(height);
+}
+
+DrawBlendMode blendModeFromDrawListIndex(int mode)
+{
+    switch (mode) {
+    case 1:
+        return DrawBlendMode::Src;
+    case 2:
+        return DrawBlendMode::Add;
+    case 3:
+        return DrawBlendMode::Multiply;
+    case 4:
+        return DrawBlendMode::Screen;
+    case 5:
+        return DrawBlendMode::Dst;
+    case 6:
+        return DrawBlendMode::Clear;
+    case 7:
+        return DrawBlendMode::SrcIn;
+    case 8:
+        return DrawBlendMode::DstIn;
+    case 9:
+        return DrawBlendMode::SrcOut;
+    case 10:
+        return DrawBlendMode::DstOut;
+    case 11:
+        return DrawBlendMode::SrcAtop;
+    case 12:
+        return DrawBlendMode::DstAtop;
+    case 13:
+        return DrawBlendMode::Xor;
+    default:
+        return DrawBlendMode::SrcOver;
     }
 }
 
@@ -422,6 +457,118 @@ RenderResourceStats OpenGLRenderDevice::resourceStats() const
     return stats;
 }
 
+bool OpenGLRenderDevice::executeDrawList(const wsc::DrawList &drawList, int width, int height,
+                                         int scissorOffsetX, int scissorOffsetY) const
+{
+    if (width <= 0 || height <= 0) {
+        return false;
+    }
+
+    RenderContext context;
+    context.setSize(width, height);
+    context.setScissorOffset(scissorOffsetX, scissorOffsetY);
+
+    for (const wsc::DrawPrimitive &prim : drawList) {
+        ScissorState scissor;
+        if (prim.scissorEnabled) {
+            scissor.enabled = true;
+            scissor.x = prim.scissorX;
+            scissor.y = height - (prim.scissorY + prim.scissorHeight);
+            scissor.width = prim.scissorWidth;
+            scissor.height = prim.scissorHeight;
+        }
+        const DrawBlendMode blendMode = blendModeFromDrawListIndex(prim.blendMode);
+        context.applyBlendMode(blendMode);
+
+        if (prim.kind == wsc::DrawPrimitiveKind::SolidTriangles || prim.kind == wsc::DrawPrimitiveKind::GradientFill) {
+            const std::size_t vertexCount = prim.positions.size() / 2u;
+            if (vertexCount < 3 || (vertexCount % 3u) != 0u) {
+                return false;
+            }
+            DrawPathData data;
+            data.points.reserve(prim.positions.size());
+            for (std::size_t i = 0; i < vertexCount; ++i) {
+                data.points.push_back(fromNdcX(prim.positions[i * 2u + 0u], width));
+                data.points.push_back(fromNdcY(prim.positions[i * 2u + 1u], height));
+            }
+            data.colors = prim.colors;
+            data.coverage = prim.coverage;
+            data.color[0] = prim.color[0];
+            data.color[1] = prim.color[1];
+            data.color[2] = prim.color[2];
+            data.color[3] = prim.color[3];
+            data.drawMode = PathDrawMode::Fill;
+            data.capStyle = PathCapStyle::Round;
+            data.scissor = scissor;
+            data.blendMode = blendMode;
+            if (prim.kind == wsc::DrawPrimitiveKind::GradientFill) {
+                data.gradientType = static_cast<DrawGradientType>(prim.gradientType);
+                data.gradientTileMode = static_cast<DrawGradientTileMode>(prim.gradientTileMode);
+                data.gradientStart[0] = prim.linearStart[0];
+                data.gradientStart[1] = prim.linearStart[1];
+                data.gradientEnd[0] = prim.linearEnd[0];
+                data.gradientEnd[1] = prim.linearEnd[1];
+                data.radialCenter[0] = prim.radialCenter[0];
+                data.radialCenter[1] = prim.radialCenter[1];
+                data.radialRadius = prim.radialRadius;
+                data.gradientStopCount = prim.gradientStopCount;
+                std::memcpy(data.gradientStopPositions, prim.gradientStopPositions, sizeof(data.gradientStopPositions));
+                std::memcpy(data.gradientStopColors, prim.gradientStopColors, sizeof(data.gradientStopColors));
+            }
+            DrawPathProgram::getInstance()->draw(context, data);
+        } else if (prim.kind == wsc::DrawPrimitiveKind::TexturedQuad) {
+            if (!prim.texture || prim.positions.size() < 12u || prim.uvs.size() != prim.positions.size()) {
+                return false;
+            }
+            DrawImageData data;
+            data.imageResource = prim.texture;
+            data.x = fromNdcX(prim.positions[0], width);
+            data.y = fromNdcY(prim.positions[1], height);
+            const float x1 = fromNdcX(prim.positions[4], width);
+            const float y1 = fromNdcY(prim.positions[5], height);
+            data.width = x1 - data.x;
+            data.height = y1 - data.y;
+            data.u0 = prim.uvs[0];
+            data.v0 = prim.uvs[1];
+            data.u1 = prim.uvs[4];
+            data.v1 = prim.uvs[5];
+            data.alpha = prim.layerAlpha;
+            data.tintColor[0] = prim.tint[0];
+            data.tintColor[1] = prim.tint[1];
+            data.tintColor[2] = prim.tint[2];
+            data.tintColor[3] = prim.tint[3];
+            data.hasColorMatrix = prim.hasColorMatrix;
+            if (prim.hasColorMatrix) {
+                std::memcpy(data.colorMatrix, prim.colorMatrix, sizeof(data.colorMatrix));
+                std::memcpy(data.colorMatrixOffset, prim.colorMatrixOffset, sizeof(data.colorMatrixOffset));
+            }
+            data.sampling = static_cast<DrawImageSampling>(prim.sampling);
+            data.tileMode = static_cast<DrawImageTileMode>(prim.tileMode);
+            data.scissor = scissor;
+            data.blendMode = blendMode;
+            if (prim.gradientType != 0 && prim.gradientStopCount > 0) {
+                data.gradientType = static_cast<DrawGradientType>(prim.gradientType);
+                data.gradientTileMode = static_cast<DrawGradientTileMode>(prim.gradientTileMode);
+                data.gradientStart[0] = prim.linearStart[0];
+                data.gradientStart[1] = prim.linearStart[1];
+                data.gradientEnd[0] = prim.linearEnd[0];
+                data.gradientEnd[1] = prim.linearEnd[1];
+                data.radialCenter[0] = prim.radialCenter[0];
+                data.radialCenter[1] = prim.radialCenter[1];
+                data.radialRadius = prim.radialRadius;
+                data.gradientStopCount = prim.gradientStopCount;
+                std::memcpy(data.gradientStopPositions, prim.gradientStopPositions, sizeof(data.gradientStopPositions));
+                std::memcpy(data.gradientStopColors, prim.gradientStopColors, sizeof(data.gradientStopColors));
+            }
+            DrawImageProgram::getInstance()->draw(context, data);
+        } else {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 SharedImageResource OpenGLRenderDevice::renderCommandsToImageResource(const std::vector<std::unique_ptr<Command>> &commands,
                                                                       const OffscreenRenderRequest &request) const
 {
@@ -439,10 +586,26 @@ SharedImageResource OpenGLRenderDevice::renderCommandsToImageResource(const std:
         return {};
     }
 
-    // Lazy activation: only bind FBO when we know there are commands to execute.
+    CommandDrawListEncodeRequest encodeRequest;
+    encodeRequest.canvasWidth = request.canvasWidth;
+    encodeRequest.canvasHeight = request.canvasHeight;
+    encodeRequest.targetHeight = request.targetHeight;
+    encodeRequest.scissorOffsetX = request.scissorOffsetX;
+    encodeRequest.scissorOffsetY = request.scissorOffsetY;
+    wsc::DrawList drawList;
+    if (!encodeCommandsToDrawList(commands, encodeRequest, drawList) || drawList.empty()) {
+        renderTarget->end();
+        renderTargetPool_->release(std::move(renderTarget));
+        return {};
+    }
+
+    // Lazy activation: only bind FBO when we know there are primitives to execute.
     renderTarget->activate();
-    executeCommandList(commands, request.canvasWidth, request.canvasHeight,
-                       request.scissorOffsetX, request.scissorOffsetY);
+    if (!executeDrawList(drawList, request.canvasWidth, request.canvasHeight,
+                         request.scissorOffsetX, request.scissorOffsetY)) {
+        renderTarget->end();
+        return {};
+    }
     renderTarget->end();
     SharedImageResource imageResource = renderTarget->getImageResource();
     renderTargetPool_->release(std::move(renderTarget));

@@ -4,11 +4,10 @@
 
 #include "RenderTypes.h"
 
-// Backend-neutral draw representation (first slice of ADR-006). Commands will
-// eventually emit these primitives instead of calling a graphics API directly,
-// and each backend translates them into its own draw calls. For now only the
-// Vulkan backend consumes them (VulkanRenderDevice::executeDrawList), which
-// keeps the shipping OpenGL command path untouched.
+// Backend-neutral draw representation (ADR-006). The shared command encoder
+// emits these primitives for portable offscreen command replay; Vulkan consumes
+// them as its main command path, and OpenGL consumes them for layer/snapshot
+// rendering while the shipping onscreen OpenGL command path remains direct.
 namespace wsc {
 
 enum class DrawPrimitiveKind
@@ -26,6 +25,14 @@ struct DrawPrimitive
 
     /// Fixed-function blend mode index (matches VulkanRenderDevice::SolidBlendMode).
     int blendMode = 0;
+
+    /// Optional scissor rectangle in framebuffer top-left coordinates. Backends
+    /// should use a full-target scissor when disabled.
+    bool scissorEnabled = false;
+    int scissorX = 0;
+    int scissorY = 0;
+    int scissorWidth = 0;
+    int scissorHeight = 0;
 
     /// SolidTriangles: interleaved x,y vertex positions in normalized device
     /// coordinates (3 vertices per triangle).
