@@ -2,6 +2,7 @@
 
 #include <memory>
 
+#include "DrawList.h"
 #include "IRenderDevice.h"
 #include "RenderTargetPool.h"
 
@@ -27,6 +28,8 @@ public:
     RenderResourceStats resourceStats() const override;
     SharedImageResource renderCommandsToImageResource(const std::vector<std::unique_ptr<Command>> &commands,
                                                       const OffscreenRenderRequest &request) const override;
+    bool executeDrawList(const wsc::DrawList &drawList, int width, int height,
+                         int scissorOffsetX = 0, int scissorOffsetY = 0) const;
 
 private:
     bool backendInitialized_ = false;

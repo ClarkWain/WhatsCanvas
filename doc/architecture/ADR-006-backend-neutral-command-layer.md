@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Accepted / in progress.
 
 ## Context
 
@@ -12,20 +12,13 @@ render targets and readback, a graphics pipeline for solid/gradient/blended
 geometry, sampled textures, offscreen-layer compositing, and coverage-mask
 clipping. Each capability is validated on real hardware (see the Vulkan roadmap).
 
-One `IRenderDevice` entry point remains fundamentally blocked:
-`renderCommandsToImageResource(commands, request)`. It receives a list of
-`Command` objects (`DrawPoints`, `DrawLines`, `DrawPath`, `DrawImage`,
-`DrawText`) and is expected to replay them into an offscreen image. Today those
-commands execute OpenGL directly inside `Command::execute(RenderContext&)` —
-they bind GL programs, set GL state, and issue GL draw calls. They are not
-backend-neutral, so Vulkan cannot replay them.
-
-This is the coupling identified in the Vulkan roadmap (section 3). Until it is
-resolved, the Vulkan backend can only be driven through Vulkan-specific helper
-methods (`renderSolidPrimitives`, `renderTexturedQuad`, `compositeLayer`,
-`renderClippedSolid`, ...), not through the same `Command` stream that the
-OpenGL path consumes. Full parity — selecting Vulkan and running the real Canvas
-command stream — depends on decoupling the command layer from OpenGL.
+The command layer is being decoupled from OpenGL in reviewable slices. Vulkan
+already translates the real WhatsCanvas `Command` stream into backend-neutral
+draw primitives for its offscreen execution path, and OpenGL now uses the shared
+`CommandDrawListEncoder` for `renderCommandsToImageResource` layer/snapshot
+replay. The regular onscreen OpenGL flush path still executes commands directly
+through `Command::execute(RenderContext&)`, which keeps the production path
+stable while the shared primitive stream is hardened.
 
 ## Decision
 
@@ -62,8 +55,9 @@ We adopt a phased path that starts like **B** and converges to **A**:
 - The Vulkan-specific helper methods already added (M3–M7) are the initial
   translator surface and de-risk the pipeline shapes.
 - We then extract the backend-neutral primitive set from the existing
-  `DrawData` structures, route the OpenGL commands through it (keeping GL green),
-  and finally point the Vulkan translator at the same primitives.
+  `DrawData` structures. Vulkan uses this direction for command execution, and
+  OpenGL now consumes the shared encoder for offscreen layer/snapshot replay
+  while the regular onscreen GL path remains direct.
 
 This keeps the shipping OpenGL path working at every step and avoids a large,
 risky simultaneous rewrite.
@@ -92,17 +86,19 @@ Vulkan `ctest -L vulkan` suite.
 
 - Adds an intermediate representation and a per-backend translator, i.e. one more
   layer to maintain.
-- The extraction spans many `Draw*` types; until it completes, Vulkan is driven
-  through Vulkan-specific helpers rather than the shared `Command` stream.
+- The extraction spans many `Draw*` types; until it completes, regular onscreen
+  OpenGL flushing still uses its direct command execution path.
 - Some GL fast paths (e.g. direct stencil clip work) must be re-expressed as
   backend-neutral primitives without regressing OpenGL output.
 
 ## Follow-up
 
-1. Freeze the backend-neutral primitive set from the existing `DrawData` shapes.
-2. Add a draw-list/encoder sink and an OpenGL translator that reproduces current
-   behavior (validated by the existing pixel-hash gates).
-3. Point the Vulkan translator at the same primitives (reusing M3–M7 pipelines).
-4. Implement `renderCommandsToImageResource` on both backends via the draw list.
-5. Wire backend selection so the demo/tests can run the real Canvas command
-   stream on Vulkan, then add a Vulkan parity gate to CI.
+1. Keep growing the backend-neutral primitive set from the existing `DrawData`
+   shapes.
+2. Continue hardening the OpenGL translator beyond offscreen layer/snapshot
+   replay, validated by existing smoke and visual gates.
+3. Keep Vulkan command execution aligned with the shared primitive semantics.
+4. Expand `renderCommandsToImageResource` coverage on both backends as new
+   command semantics are added.
+5. Keep backend selection, demo coverage, and CI gates aligned with the supported
+   backend matrix.
