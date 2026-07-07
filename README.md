@@ -25,7 +25,7 @@ WhatsCanvas 的公开接口仍然是熟悉的 `Canvas` / `Paint` / `Path` / `Ima
 | Canvas 状态 | `save` / `restore`、矩阵变换、矩形裁剪、抗锯齿路径裁剪、`saveLayer` 离屏层、render-target canvas、clip 查询、quick reject。 | `save`、`restore`、`translate`、`scale`、`rotate`、`clipRect`、`clipPath`、`saveLayer`、`quickReject` |
 | 图像与纹理 | 文件解码、encoded memory、raw RGBA、外部纹理包装、整图替换、局部更新、contain / cover / fill 布局、锚点、九宫格、圆角裁剪、圆形裁剪、平铺绘制。 | `Image`、`drawImage`、`drawImageFit`、`drawImageNinePatch`、`drawImageRounded`、`drawImageCircle`、`drawImageTiled`、`wrapExternalTexture` |
 | 字体与文本 | 系统默认字体发现、默认 fallback chain、weight / slant face matching、跨平台 TrueType / TTC 注册、file / memory 字体、collection face index、FreeType glyph lookup / metrics / kerning / rasterization、stb fallback、HarfBuzz shaping、simple shaping fallback、多字体 fallback 分段、真实 ascent / descent / lineGap、字体资源 LRU cache 上限 / 释放 / 统计、GPU glyph atlas、atlas resize-before-evict、dirty rect atlas update、dirty rect count/area collapse stats、RGBA atlas、COLR/CPAL v0 color glyph、UTF-8 layout、CJK no-space wrapping、Unicode space、zero-width break、ellipsis、baseline、letter spacing、渐变文本、描边文本、文本阴影、text-on-path、缺字诊断、raster / shaper / atlas 回退诊断、Unicode UAX #9 全量通过。 | `FontSystem`、`FontFace`、`FontManager`、`FontFallbackChain`、`registerFontFace`、`setFontFallbackChain`、`drawText`、`drawTextBox`、`layoutTextBox`、`drawTextOnPath`、`measureTextMetrics` |
-| 渲染后端 | 桌面 OpenGL 主路径、OpenGLES 目标、纯 CPU 软件后端（零 GPU 依赖、可在无图形栈环境运行）、共享 GL-family 后端、proc-address 注入、上下文生命周期、资源释放与重建、shader portability。 | `Canvas::loadOpenGL`、`Canvas::createSoftware`、`WhatsCanvas::OpenGL`、`WhatsCanvas::OpenGLES`、`WhatsCanvas::Software`、`initializeContext`、`releaseResources` |
+| 渲染后端 | 桌面 OpenGL 主路径、OpenGLES 目标、纯 CPU 软件后端（零 GPU 依赖、可在无图形栈环境运行）、可选 Vulkan 后端（离屏、可选择）、共享 GL-family 后端、proc-address 注入、上下文生命周期、资源释放与重建、shader portability。 | `Canvas::loadOpenGL`、`Canvas::createSoftware`、`Canvas::createVulkan`、`WhatsCanvas::OpenGL`、`WhatsCanvas::OpenGLES`、`WhatsCanvas::Software`、`initializeContext`、`releaseResources` |
 | 性能与资源 | 流式顶点缓冲、图片命令同纹理合批、路径命令合批、全局 quad index buffer、离屏 render target 复用池、GPU glyph atlas 复用、indexed glyph lookup、填充三角化 / 描边网格 / 裁剪掩码 LRU 缓存、桌面 GL texel buffer 渐变 stop、OpenGLES fallback。 | `Renderer`、`RenderTargetPool`、`GlyphAtlas`、`LruCache`、`RenderStats` |
 | 诊断与验证 | 同步 / 异步像素回读、PPM 截图、像素哈希、fuzzy PPM 对比、软件后端 golden-image 回归（确定性、无需 GPU）、固定时间首帧冒烟、OpenGLES 构建冒烟、示例构建冒烟、Unicode Bidi conformance、跨平台 CI。 | `readPixelsRGBA`、`readPixelsRGBAAsync`、`savePixelsPPM`、`computePixelsHashRGBA`、`ctest`、`scripts/*_smoke.*` |
 
@@ -189,6 +189,22 @@ target_link_libraries(MyApp PRIVATE WhatsCanvas::Software)
 ```
 
 软件后端是确定性的，因此附带 golden-image 回归测试（`WhatsCanvasSoftwareGoldenTests`，基线在 `tests/baselines/software/*.pam`，用 `WHATSCANVAS_UPDATE_SOFTWARE_BASELINES=1` 重新生成），并有一个只链接 `WhatsCanvas::Software` 的测试（`WhatsCanvasSoftwareLibTests`）证明整条链路零 GPU 依赖。
+
+### 可选 Vulkan 后端
+
+打开 `-DWHATSCANVAS_ENABLE_VULKAN=ON`（需要 Vulkan SDK）后，Vulkan 成为一个可选择的一等后端，通过同一套 Canvas API 离屏渲染（无需窗口或 surface）：
+
+```cpp
+if (Canvas::isVulkanAvailable()) {
+    auto canvas = Canvas::createVulkan(width, height); // 不可用时返回 nullptr，可回退到 createSoftware
+    canvas->beginFrame();
+    canvas->drawPath(path, paint);
+    canvas->flush();
+    auto rgba = canvas->readPixelsRGBA();
+}
+```
+
+Vulkan 后端复用后端中立的命令层（`CommandDrawListEncoder` / ADR-006），把录制的命令流翻译成 Vulkan 绘制，与 OpenGL 路径像素等价；未编入 Vulkan 时 `isVulkanAvailable()` 返回 false、`createVulkan` 返回 nullptr，便于优雅回退。CI 会在启用 Vulkan 的配置下构建门禁校验，并在 Mesa lavapipe 软件设备上尽力运行 `vulkan` 标签测试。
 
 ## 可选字体依赖
 

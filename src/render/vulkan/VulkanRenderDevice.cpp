@@ -31,7 +31,31 @@
 bool VulkanRenderDevice::isAvailable()
 {
 #if defined(WHATSCANVAS_ENABLE_VULKAN)
-    return true;
+    // Probe once at runtime: Vulkan is only "available" if the loader can create
+    // an instance AND at least one physical device is present. A compile-time-
+    // only check would report Vulkan as available on machines that were built
+    // with the SDK but have no Vulkan-capable GPU/driver, breaking the public
+    // Canvas::isVulkanAvailable() / createVulkan() fallback contract.
+    static const bool available = []() -> bool {
+        VkApplicationInfo appInfo{};
+        appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+        appInfo.apiVersion = VK_API_VERSION_1_0;
+
+        VkInstanceCreateInfo instanceInfo{};
+        instanceInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+        instanceInfo.pApplicationInfo = &appInfo;
+
+        VkInstance instance = VK_NULL_HANDLE;
+        if (vkCreateInstance(&instanceInfo, nullptr, &instance) != VK_SUCCESS
+            || instance == VK_NULL_HANDLE) {
+            return false;
+        }
+        uint32_t deviceCount = 0;
+        vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
+        vkDestroyInstance(instance, nullptr);
+        return deviceCount > 0;
+    }();
+    return available;
 #else
     return false;
 #endif

@@ -3,9 +3,11 @@
 
 #include "command/DrawCommand.h"
 #include "RenderDeviceFactory.h"
+#include "IRenderTarget.h"
 #include "SpriteBatch.h"
 
 #include <cmath>
+#include <iostream>
 #include <glm/glm.hpp>
 
 #include "render/GammaCorrect.h"
@@ -72,6 +74,13 @@ void Renderer::finalizeBackend()
     if (!backendInitialized_ || device_ == nullptr) {
         return;
     }
+
+    // Release device-owned render targets before the backend (and its GPU
+    // device) is torn down, so their handles are not destroyed against a dead
+    // device.
+    mainTarget_.reset();
+    mainTargetWidth_ = 0;
+    mainTargetHeight_ = 0;
 
     device_->finalizeBackend();
     backendInitialized_ = false;
@@ -177,6 +186,10 @@ SharedImageResource Renderer::renderCommandsToImageResource(const std::vector<st
 
 void Renderer::resetRenderState()
 {
+    // No GL context to reset for devices that render through executeCommands().
+    if (device_ != nullptr && device_->usesDeviceCommandExecution()) {
+        return;
+    }
     context_.resetRenderState();
 }
 
@@ -188,6 +201,17 @@ void Renderer::clear()
 void Renderer::flush()
 {
     stats_.commandCount += commands_.size();
+
+    // Devices such as Vulkan render the recorded command stream into a device
+    // render target rather than executing each command against a GL context.
+    // Never fall through to the GL execute path for these backends.
+    if (device_ != nullptr && device_->usesDeviceCommandExecution()) {
+        if (!flushViaDeviceCommands()) {
+            std::cerr << "[Renderer] Device command execution failed; frame not rendered." << std::endl;
+        }
+        return;
+    }
+
     auto executeCommand = [&](const std::unique_ptr<Command> &command) {
         command->execute(context_);
         ++stats_.drawCallCount;
@@ -307,4 +331,34 @@ void Renderer::flush()
             ++i;
         }
     }
+}
+
+bool Renderer::flushViaDeviceCommands()
+{
+    const int width = context_.getWidth();
+    const int height = context_.getHeight();
+    if (device_ == nullptr || width <= 0 || height <= 0) {
+        return false;
+    }
+
+    if (!mainTarget_ || mainTargetWidth_ != width || mainTargetHeight_ != height) {
+        mainTarget_ = device_->createRenderTarget(width, height);
+        mainTargetWidth_ = width;
+        mainTargetHeight_ = height;
+    }
+    if (!mainTarget_) {
+        return false;
+    }
+
+    OffscreenRenderRequest request;
+    request.canvasWidth = width;
+    request.canvasHeight = height;
+    request.targetWidth = width;
+    request.targetHeight = height;
+
+    const bool ok = device_->executeCommands(mainTarget_, commands_, request);
+    if (ok) {
+        stats_.drawCallCount += commands_.size();
+    }
+    return ok;
 }
