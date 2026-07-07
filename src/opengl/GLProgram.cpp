@@ -1,5 +1,4 @@
 #include "GLProgram.h"
-#include <iostream>
 #include <utility>
 #include "core/LogInternal.h"
 
@@ -158,8 +157,7 @@ GLuint GLProgram::compileShader(GLenum type, const std::string &source)
     {
         char infoLog[512];
         glGetShaderInfoLog(shader, 512, NULL, infoLog);
-        std::cerr << "ERROR::SHADER::COMPILATION_FAILED\n"
-                  << infoLog << std::endl;
+        WSC_LOG_ERROR("GLProgram", "Shader compilation failed: " << infoLog);
     }
 
     return shader;
