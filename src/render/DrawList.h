@@ -26,6 +26,14 @@ struct DrawPrimitive
     /// Fixed-function blend mode index (matches VulkanRenderDevice::SolidBlendMode).
     int blendMode = 0;
 
+    /// Optional scissor rectangle in framebuffer top-left coordinates. Backends
+    /// should use a full-target scissor when disabled.
+    bool scissorEnabled = false;
+    int scissorX = 0;
+    int scissorY = 0;
+    int scissorWidth = 0;
+    int scissorHeight = 0;
+
     /// SolidTriangles: interleaved x,y vertex positions in normalized device
     /// coordinates (3 vertices per triangle).
     /// TexturedQuad: optional explicit NDC quad as a triangle list (x,y pairs);
