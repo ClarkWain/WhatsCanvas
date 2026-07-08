@@ -170,6 +170,16 @@ RenderResourceStats Renderer::resourceStats() const
     return device_ == nullptr ? RenderResourceStats() : device_->resourceStats();
 }
 
+bool Renderer::supportsPresentation() const
+{
+    return device_ != nullptr && device_->supportsPresentation();
+}
+
+std::unique_ptr<ISwapchain> Renderer::createSwapchain(const NativeSurface &surface, const SwapchainConfig &config)
+{
+    return device_ == nullptr ? nullptr : device_->createSwapchain(surface, config);
+}
+
 SharedImageResource Renderer::renderCommandsToImageResource(const std::vector<std::unique_ptr<Command>> &commands,
                                                             const OffscreenRenderRequest &request) const
 {
