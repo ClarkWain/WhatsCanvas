@@ -4782,7 +4782,7 @@ void Canvas::beginFrame()
     impl_->renderer->clear();
 }
 
-void Canvas::flush()
+void Canvas::endFrame()
 {
     if (impl_->renderer == nullptr || !impl_->rendererInitialized) {
         return;
@@ -4813,11 +4813,6 @@ void Canvas::flush()
         impl_->renderer->clear();
         impl_->renderer->resetRenderState();
     }
-}
-
-void Canvas::endFrame()
-{
-    flush();
 }
 
 void Canvas::shutdown()

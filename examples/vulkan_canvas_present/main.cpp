@@ -106,7 +106,7 @@ int main()
 		labelPaint.setTextSize(26.0f);
 		canvas->drawText("WhatsCanvas - Vulkan Present", 24.0f, 40.0f, labelPaint);
 
-		canvas->flush();
+		canvas->endFrame();
 		canvas->present();
 
 		if (maxFrames > 0 && ++frame >= maxFrames) {

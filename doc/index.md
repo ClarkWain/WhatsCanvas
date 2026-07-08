@@ -20,14 +20,14 @@ The software backend needs no window, GL context, or GPU:
 
 int main()
 {
-    auto canvas = wsc::Canvas::create(wsc::Canvas::Backend::Software, 256, 256);   // sized; flush initializes
+    auto canvas = wsc::Canvas::create(wsc::Canvas::Backend::Software, 256, 256);   // sized; endFrame initializes
 
     wsc::Paint fill;
     fill.setColor(wsc::Color(40, 120, 240, 255));
     fill.setAntiAlias(true);
     canvas->drawRoundRect(wsc::RectF(40, 40, 176, 176), 24.0f, fill);
 
-    canvas->flush();
+    canvas->endFrame();
     canvas->savePixelsPPM("first.ppm");
     return 0;
 }

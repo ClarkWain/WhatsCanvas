@@ -480,7 +480,7 @@ void benchmarkFrameFlush(int iterations)
     const double ms = timeMilliseconds([&]() {
         for (int i = 0; i < iterations; ++i) {
             canvas->drawRect(wsc::RectF(0.0f, 0.0f, 24.0f, 18.0f), paint);
-            canvas->flush();
+            canvas->endFrame();
         }
     });
 

@@ -109,7 +109,7 @@ int main()
 		labelPaint.setTextSize(26.0f);
 		canvas.drawText("WhatsCanvas - GL Present", 24.0f, 40.0f, labelPaint);
 
-		canvas.flush();
+		canvas.endFrame();
 		if (present) {
 			canvas.present();
 		} else {

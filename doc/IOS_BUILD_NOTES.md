@@ -45,7 +45,7 @@ The host should follow this order:
 2. Make the context current on the render thread.
 3. Call `wsc::Canvas::loadOpenGL` with the platform proc-address loader used by the app.
 4. Create `wsc::Canvas`, call `setSize`, and call `initializeContext`.
-5. Render frames through `beginFrame`, draw calls, and `endFrame` or `flush`.
+5. Render frames through `beginFrame`, draw calls, and `endFrame`.
 6. Call `releaseResources` before context loss, background teardown, or view destruction.
 7. Call `finalizeContext` after resource release and before destroying the native GL context.
 8. Recreate or reinitialize the native GL context, call `loadOpenGL` if required by the loader, then call `initializeContext` again before drawing.

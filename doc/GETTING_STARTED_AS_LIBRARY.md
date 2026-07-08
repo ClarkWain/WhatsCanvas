@@ -24,7 +24,7 @@ back — ideal for a first test, servers, CI, or thumbnails.
 int main()
 {
     // Sized and ready to draw — no GL context, no window.
-    // The first draw/flush initializes the backend lazily.
+    // The first draw/endFrame initializes the backend lazily.
     auto canvas = wsc::Canvas::create(wsc::Canvas::Backend::Software, 256, 256);
 
     wsc::Paint bg;
@@ -36,42 +36,43 @@ int main()
     fill.setAntiAlias(true);
     canvas->drawRoundRect(wsc::RectF(40, 40, 176, 176), 24.0f, fill);
 
-    canvas->flush();
+    canvas->endFrame();
     canvas->savePixelsPPM("first.ppm"); // open in an image viewer / convert to PNG
     return 0;
 }
 ```
 
 That is a complete, runnable program. No `loadOpenGL`, and no explicit
-`initializeContext` — the first `flush()` initializes the software backend
+`initializeContext` — the first `endFrame()` initializes the software backend
 lazily.
 
 > `Canvas::create(...)` returns a `std::unique_ptr<wsc::Canvas>` that is already
 > sized. Use `->` to call methods. It is *not* pre-initialized: drawing and
-> `flush()` initialize it lazily, or call `initializeContext()` yourself if you
+> `endFrame()` initialize it lazily, or call `initializeContext()` yourself if you
 > need to read pixels before drawing.
 
-### The frame lifecycle (and why you don't call `endFrame()` before reading pixels)
+### The frame lifecycle: `beginFrame` / `endFrame`
 
-The minimal offscreen flow is exactly four steps:
+Drawing is bracketed by a matching pair. The minimal offscreen flow is exactly
+four steps:
 
 ```cpp
 canvas->beginFrame();                       // optional — draws auto-begin a frame
 canvas->drawRect(/* ... */, paint);         // record draws
-canvas->flush();                            // render + make readable
+canvas->endFrame();                         // render + make readable (pairs with beginFrame)
 canvas->readPixelsRGBA(pixels);             // or savePixelsPPM("out.ppm")
 ```
 
-`flush()` renders the recorded commands onto a **freshly-cleared** framebuffer
-and then **consumes** them. Because of that:
+`endFrame()` renders the recorded commands onto a **freshly-cleared** framebuffer
+and then **consumes** them. So call it **exactly once per frame**, right before
+reading back or presenting:
 
-- **Do not call `endFrame()` before reading pixels.** `endFrame()` is just an
-  alias for `flush()`. A second flush with no new draws re-clears the buffer and
-  renders nothing, so you'd read back an all-zero (black/transparent) image.
+- **Do not call `endFrame()` twice** in a row — a second end with no new draws
+  re-clears the buffer and renders nothing, so you'd read back an all-zero
+  (black/transparent) image. This is the usual cause of a "black screen".
 - **Do not call `beginFrame()` after drawing** — it clears the framebuffer.
 
-So `beginFrame → draw → flush → read` is correct; adding `endFrame()` after
-`flush()` is the common cause of a "black screen" on readback.
+One `beginFrame`, your draws, one `endFrame`, then read/present.
 
 ---
 
@@ -94,7 +95,7 @@ new API, just a new `Backend` value.
 using Backend = wsc::Canvas::Backend;
 
 // Explicit backend (sized; call initializeContext() before drawing — the first
-// flush also initializes lazily):
+// endFrame also initializes lazily):
 auto canvas = wsc::Canvas::create(Backend::Software, 256, 256);
 canvas->initializeContext();
 
@@ -139,7 +140,7 @@ int main()
         p.setColor(wsc::Color(40, 120, 240, 255));
         p.setAntiAlias(true);
         canvas.drawRoundRect(wsc::RectF(80, 80, 320, 180), 16.0f, p);
-        canvas.flush();
+        canvas.endFrame();
 
         glfwSwapBuffers(window);
         glfwPollEvents();
@@ -156,12 +157,12 @@ The lifecycle contract for the GL/GLES backends:
 
 1. `Canvas::loadOpenGL(loader)` once, after a context is current.
 2. `canvas.setSize(w, h)` then `canvas.initializeContext()`.
-3. Draw + `canvas.flush()` per frame (with your context current).
+3. Draw + `canvas.endFrame()` per frame (with your context current).
 4. `canvas.releaseResources()` before tearing down the context. On context loss
    (e.g. Android background), call `releaseResources()` and re-`initializeContext()`.
 
 > The software and Vulkan backends need no `loadOpenGL`. They initialize lazily
-> on the first draw/flush; call `initializeContext()` explicitly only if you read
+> on the first draw/endFrame; call `initializeContext()` explicitly only if you read
 > pixels before drawing.
 
 ---
@@ -442,7 +443,7 @@ canvas->drawLine(20, 40, 236, 40, dash);
 
 ```cpp
 std::vector<unsigned char> rgba;
-canvas->flush();
+canvas->endFrame();
 canvas->readPixelsRGBA(rgba);        // tightly-packed, top-left-origin RGBA8
 canvas->savePixelsPPM("frame.ppm");  // or feed `rgba` to your own PNG encoder
 ```
@@ -451,7 +452,7 @@ canvas->savePixelsPPM("frame.ppm");  // or feed `rgba` to your own PNG encoder
 
 A single "output axis" decides where a canvas delivers each frame. Set it once
 with `setOutputTarget`, then use one frame loop everywhere:
-`beginFrame → draw → flush → present`. `present()` swaps/blits for a **Window**
+`beginFrame → draw → endFrame → present`. `present()` swaps/blits for a **Window**
 target and is a no-op for the others; read pixels with `readPixelsRGBA`.
 
 | `OutputTarget` | Where the frame goes | Deliver with |
@@ -482,7 +483,7 @@ if (canvas->setOutputTarget(wsc::OutputTarget::ToWindow(surface))) {  // false i
     while (running) {
         canvas->beginFrame();
         /* draw ... */
-        canvas->flush();
+        canvas->endFrame();
         canvas->present();                 // swaps/blits to the window; resizeOutput(w,h) on resize
     }
 }
@@ -506,7 +507,7 @@ canvas.setOutputTarget(wsc::OutputTarget::GLFramebuffer(myFbo, width, height));
 while (running) {
     canvas.beginFrame();
     /* draw ... */
-    canvas.flush();                 // rendered into myFbo; your engine uses/presents it
+    canvas.endFrame();                 // rendered into myFbo; your engine uses/presents it
 }
 ```
 
@@ -524,7 +525,7 @@ canvas->setOutputTarget(
 while (running) {
     canvas->beginFrame();
     /* draw ... */
-    canvas->flush();                // hostImage now holds the rendered frame
+    canvas->endFrame();                // hostImage now holds the rendered frame
 }
 ```
 

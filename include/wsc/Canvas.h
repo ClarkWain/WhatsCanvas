@@ -248,11 +248,11 @@ public:
 	void drawImageTiled(const Image &image, const RectF &dst, float tileWidth, float tileHeight, const Paint &paint);
 
 	// Texture-source drawing (supports Canvas-as-texture when render-target mode is active).
-	/// NOTE: The source Canvas must have been flushed (or endFrame'd) before
-	/// passing it to drawImage. Drawing an unflushed Canvas is a silent no-op.
+	/// NOTE: The source Canvas must have been ended (`endFrame()`) before
+	/// passing it to drawImage. Drawing an unfinished Canvas is a silent no-op.
 	void drawImage(const ITextureSource &source, float x, float y, const Paint &paint);
-	/// NOTE: The source Canvas must have been flushed (or endFrame'd) before
-	/// passing it to drawImage. Drawing an unflushed Canvas is a silent no-op.
+	/// NOTE: The source Canvas must have been ended (`endFrame()`) before
+	/// passing it to drawImage. Drawing an unfinished Canvas is a silent no-op.
 	void drawImage(const ITextureSource &source, const RectF &dst, const Paint &paint);
 	bool loadImage(Image &image, const char *imagePath);
 	bool loadImageFromEncodedMemory(Image &image, const unsigned char *data, int size, bool generateMipmaps = true);
@@ -338,17 +338,15 @@ public:
 	/// framebuffer to transparent, so only call it before recording a frame's
 	/// draws — never after, or you will wipe what you just drew.
 	void beginFrame();
-	/// Submit all recorded drawing to the backend and make it readable. Required
-	/// before reading pixels or using this Canvas as a texture source. flush()
-	/// renders the recorded commands onto a freshly-cleared framebuffer and then
-	/// consumes them, so calling it again with no new draws yields an empty frame.
-	void flush();
-	/// Alias for flush() that marks the end of a frame. It is NOT an extra
-	/// required step: for offscreen readback use
-	/// `beginFrame -> draw -> flush -> readPixelsRGBA` and do NOT call endFrame()
-	/// afterwards — a second flush with no new draws re-clears the framebuffer,
-	/// so you would read back an empty (transparent/black) image. Use it only as
-	/// an explicit boundary right before drawing the next frame.
+	/// End the current frame: submit all recorded drawing to the backend and make
+	/// it readable. This is the paired counterpart of `beginFrame()` and is
+	/// required before reading pixels or using this Canvas as a texture source.
+	///
+	/// The offscreen flow is `beginFrame -> draw -> endFrame -> readPixelsRGBA`.
+	/// endFrame() renders the recorded commands onto a freshly-cleared framebuffer
+	/// and then consumes them, so calling it twice with no new draws re-clears the
+	/// buffer and yields an empty (transparent/black) image — call it exactly once
+	/// per frame, right before reading back or presenting.
 	void endFrame();
 	void shutdown();
 	/// Read the rendered image back as top-left-origin RGBA bytes.

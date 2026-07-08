@@ -26,12 +26,12 @@ GLFW/SDL/Qt) does. The required order is:
 1. Create a GL context and **make it current**.
 2. `wsc::Canvas::loadOpenGL(loader)` — hand over your platform's proc loader.
 3. `canvas.setSize(w, h)` then `canvas.initializeContext()`.
-4. Draw + `canvas.flush()` **with the context current**.
+4. Draw + `canvas.endFrame()` **with the context current**.
 
 If you skip step 1–2 or draw without a current context, GL calls fail. The
 software and Vulkan backends (`Canvas::create(Backend::Software, ...)` /
 `Canvas::create(Backend::Vulkan, ...)`) need none of this — they initialize
-lazily on the first draw/flush.
+lazily on the first draw/endFrame.
 
 ### Colors look washed out / semi-transparent blends look wrong
 
@@ -53,22 +53,21 @@ double flip. Don't flip again.
 
 ### `readPixelsRGBA` returns all zeros (black / empty image)
 
-Almost always this is an extra `flush()` / `endFrame()` **after** you already
-flushed. `flush()` renders the recorded commands onto a freshly-cleared
-framebuffer and then consumes them, and `endFrame()` is simply an alias for
-`flush()`. A second flush with no new draws re-clears the buffer and renders
-nothing, so the read-back is all zeros.
+Almost always this is a **second** `endFrame()` **after** you already ended the
+frame. `endFrame()` renders the recorded commands onto a freshly-cleared
+framebuffer and then consumes them, so calling it twice with no new draws
+re-clears the buffer and renders nothing — the read-back is all zeros.
 
 The correct offscreen sequence is:
 
 ```cpp
 canvas->beginFrame();               // optional; draws auto-begin a frame
 canvas->drawRect(/* ... */, paint);
-canvas->flush();                    // <- one flush, right before reading
+canvas->endFrame();                 // <- exactly once, right before reading
 canvas->readPixelsRGBA(pixels);     // or savePixelsPPM("out.ppm")
 ```
 
-Do **not** call `endFrame()` before reading, and do **not** call `beginFrame()`
+Call `endFrame()` exactly once per frame, and do **not** call `beginFrame()`
 after drawing (it clears the framebuffer). Also confirm you actually drew inside
 the canvas bounds with a non-transparent paint color.
 
@@ -155,7 +154,7 @@ GDI + Linux X11), OpenGL (WGL; GLX on Linux), and Vulkan (Windows). Checklist:
 - Create the window **without** a GL context for the software or Vulkan backend
   (`glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API)`); for the OpenGL backend, make
   the GL context current and call `Canvas::loadOpenGL` first.
-- Present each frame **after** `flush()`: `beginFrame → draw → flush → present`.
+- Present each frame **after** `endFrame()`: `beginFrame → draw → endFrame → present`.
 - If you include `<windows.h>` (or a native GLFW header) in the same file,
   include the `wsc/` headers **first** and define `NOMINMAX`, so the `min`/`max`
   macros do not break WhatsCanvas headers.
