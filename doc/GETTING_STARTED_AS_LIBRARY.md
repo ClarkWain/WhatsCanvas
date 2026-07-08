@@ -51,24 +51,39 @@ That is a complete, runnable program. No `initializeContext`, no `loadOpenGL`.
 ## 2. Pick a backend
 
 WhatsCanvas separates the **Canvas API** (what you draw) from the **backend**
-(where it renders). Pick the backend that matches your environment:
+(where it renders). One factory selects the backend:
+`Canvas::create(Backend, width, height)` — returns `nullptr` if that backend is
+unavailable in your build/host. Adding a future backend (Metal, D3D) needs no
+new API, just a new `Backend` value.
 
-| Backend | Create with | Needs a GL context / window? | Use when |
+| Backend | `Backend` value | Needs a GL context / window? | Use when |
 | --- | --- | --- | --- |
-| **Software (CPU)** | `Canvas::createSoftware(w, h)` | No | Headless, servers, tests, thumbnails, "just works" everywhere |
-| **OpenGL** | `Canvas()` + `loadOpenGL(...)` | Yes (you own it) | Desktop apps/games with a window (GLFW, SDL, Qt, your engine) |
-| **OpenGL ES** | `WhatsCanvas::OpenGLES` target + `loadOpenGL(...)` | Yes (you own it) | Mobile / embedded GLES 3.0 |
-| **Vulkan** (optional) | `Canvas::createVulkan(w, h)` | No (off-screen) | Vulkan pipelines; falls back gracefully when unavailable |
-
-Backend selection is a **link-time** choice (which library target you link) plus a
-**runtime** choice (which factory you call).
+| **Software (CPU)** | `Backend::Software` | No | Headless, servers, tests, thumbnails, "just works" everywhere |
+| **OpenGL** | `Backend::OpenGL` | Yes (you own it) | Desktop apps/games with a window (GLFW, SDL, Qt, your engine) |
+| **OpenGL ES** | `Backend::OpenGLES` | Yes (you own it) | Mobile / embedded GLES 3.0 |
+| **Vulkan** (optional) | `Backend::Vulkan` | No (off-screen) | Vulkan pipelines; `nullptr` when unavailable |
 
 ```cpp
-// Runtime fallback pattern: prefer Vulkan, else CPU.
-std::unique_ptr<wsc::Canvas> canvas =
-    wsc::Canvas::isVulkanAvailable() ? wsc::Canvas::createVulkan(256, 256)
-                                     : wsc::Canvas::createSoftware(256, 256);
+using Backend = wsc::Canvas::Backend;
+
+// Explicit backend (sized; call initializeContext() before drawing — the first
+// flush also initializes lazily):
+auto canvas = wsc::Canvas::create(Backend::Software, 256, 256);
+canvas->initializeContext();
+
+// Or let WhatsCanvas pick the first available from a preference list:
+auto best = wsc::Canvas::create({Backend::Vulkan, Backend::OpenGL, Backend::Software}, 256, 256);
+
+// Query support / which backend you got:
+bool hasVk = wsc::Canvas::isBackendAvailable(Backend::Vulkan);
+Backend chosen = best->backend();
 ```
+
+`Canvas::createSoftware(w, h)` / `createVulkan(w, h)` remain as convenience
+shortcuts (equivalent to `create(...)` + `initializeContext()`), and the default
+`Canvas()` constructor makes an unsized OpenGL canvas for the "I already have a
+GL context" case. Backend selection is a **link-time** choice (which library
+target you link) plus this **runtime** choice.
 
 ### OpenGL: you own the window and context
 
