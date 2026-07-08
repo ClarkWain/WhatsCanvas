@@ -108,8 +108,12 @@ bool testSupportFlag()
 #if defined(_WIN32)
     return expect(wsc::software::softwarePresentSupported(), "software present should be supported on Windows");
 #else
-    return expect(!wsc::software::softwarePresentSupported(),
-                  "software present should be unsupported off Windows");
+    // Off Windows, support is build-dependent: the Linux/X11 path is compiled in
+    // only when X11 is found at configure time (WHATSCANVAS_HAS_X11, private to
+    // the library and not visible here). Either value is valid — just ensure the
+    // query is callable without crashing.
+    (void)wsc::software::softwarePresentSupported();
+    return true;
 #endif
 }
 
