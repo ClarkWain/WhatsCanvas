@@ -199,7 +199,8 @@ Ti (3 swapchain images, B8G8R8A8_UNORM).
 ### M9 — Integration, selection, and CI · **Done**
 Depends on: M3+ (progressively).
 - Allow selecting the Vulkan backend at runtime/build (factory + demo wiring).
-  **Done**: public `Canvas::isVulkanAvailable()` / `Canvas::createVulkan(w, h)`
+  **Done**: public `Canvas::isBackendAvailable(Backend::Vulkan)` /
+  `Canvas::create(Backend::Vulkan, w, h)`
   create a Vulkan-backed Canvas that renders off-screen through the shared
   command layer; `Renderer` routes its main-target flush to
   `IRenderDevice::executeCommands` for devices that report
@@ -212,7 +213,7 @@ Depends on: M3+ (progressively).
   compile/link) and runs `ctest -L vulkan` on Mesa lavapipe as a best-effort
   step.
 - Documentation: update README backend section from "reserved" to "experimental".
-  **Done**: README documents `Canvas::createVulkan` and the Vulkan CI gate.
+  **Done**: README documents `Canvas::create(Backend::Vulkan, ...)` and the Vulkan CI gate.
 Gate: `ctest -L vulkan` green; CI job green. **Met** (hardware-verified on an
 NVIDIA GTX 1060; CI build gate + lavapipe best-effort run).
 

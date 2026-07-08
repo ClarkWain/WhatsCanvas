@@ -2158,6 +2158,13 @@ bool Canvas::isBackendAvailable(Backend backend)
 
 std::unique_ptr<Canvas> Canvas::create(Backend backend, int width, int height)
 {
+    if (backend == Backend::Auto) {
+        return create({Backend::Vulkan, Backend::OpenGL, Backend::OpenGLES, Backend::Software}, width, height);
+    }
+    if (!isBackendAvailable(backend)) {
+        return nullptr;
+    }
+
     std::unique_ptr<IRenderer> renderer;
 
     switch (backend) {

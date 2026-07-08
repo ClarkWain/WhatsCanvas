@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(WhatsCanvas VERSION 0.1.11 LANGUAGES C CXX)
+project(WhatsCanvas VERSION 0.1.12 LANGUAGES C CXX)
 
 include(CTest)
 include(GNUInstallDirs)
@@ -907,6 +907,23 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
     )
     set_tests_properties(WhatsCanvasMatrixClipTests PROPERTIES LABELS "unit;matrix;clip")
+
+    add_executable(WhatsCanvasBackendCreateTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/BackendCreateTests.cpp"
+    )
+    target_link_libraries(WhatsCanvasBackendCreateTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasBackendCreateTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasBackendCreateTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasBackendCreateTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasBackendCreateTests PROPERTIES LABELS "unit;backend")
 
     add_executable(WhatsCanvasPaintStateTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/PaintStateTests.cpp"
