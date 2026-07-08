@@ -119,23 +119,26 @@ canvas.initializeContext();
 
 ### `present()` returns false / nothing shows in my window
 
-On-screen presentation is **experimental and currently software + Windows only**
-(GDI blit). Checklist:
+On-screen presentation is **experimental**. Supported today: software (Windows
+GDI + Linux X11), OpenGL (WGL; GLX on Linux), and Vulkan (Windows). Checklist:
 
 - Call `attachPresentSurface(surface)` once and check its return value — it is
-  `false` when presentation is unsupported (non-Windows, or a non-software
-  backend) or the surface has no window handle.
+  `false` when presentation is unsupported for the current backend/platform or
+  the surface has no window handle. Fall back accordingly (e.g. `glfwSwapBuffers`
+  for GL, or `readPixelsRGBA` off-screen).
 - Fill the surface correctly: `platform = NativeSurface::Platform::Win32` and
   `window = <HWND>` (e.g. `glfwGetWin32Window(window)`).
-- Create the window **without** a GL context for the software backend
-  (`glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API)`).
+- Create the window **without** a GL context for the software or Vulkan backend
+  (`glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API)`); for the OpenGL backend, make
+  the GL context current and call `Canvas::loadOpenGL` first.
 - Present each frame **after** `flush()`: `beginFrame → draw → flush → present`.
 - If you include `<windows.h>` (or a native GLFW header) in the same file,
   include the `wsc/` headers **first** and define `NOMINMAX`, so the `min`/`max`
   macros do not break WhatsCanvas headers.
 
-See [`examples/software_present`](https://github.com/ClarkWain/WhatsCanvas/tree/master/examples/software_present)
-for a working setup.
+See the `software_present`, `gl_present`, and `vulkan_canvas_present`
+[examples](https://github.com/ClarkWain/WhatsCanvas/tree/master/examples) for
+working setups.
 
 ## Build & packaging
 
