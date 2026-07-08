@@ -5,6 +5,7 @@
 
 #include "render/FrameStats.h"
 #include "render/RenderTypes.h"
+#include "render/Surface.h"
 
 class Command;
 
@@ -48,4 +49,14 @@ public:
     virtual void resetRenderState() = 0;
     virtual void clear() = 0;
     virtual void flush() = 0;
+
+    /// Whether this renderer's backend can present to an on-screen window.
+    /// Default false (offscreen-only). See doc/windowed-presentation-design.md.
+    virtual bool supportsPresentation() const { return false; }
+
+    /// Create an on-screen presentation target for the given OS window, or
+    /// nullptr when unsupported / setup failed. Scaffolding: no backend wires a
+    /// real swapchain yet.
+    virtual std::unique_ptr<ISwapchain> createSwapchain(const NativeSurface & /*surface*/,
+                                                        const SwapchainConfig & /*config*/) { return nullptr; }
 };

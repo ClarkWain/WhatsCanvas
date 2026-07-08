@@ -49,6 +49,11 @@ public:
     void clear() override;
     void flush() override;
 
+    // Presentation: forwarded to the underlying render device (GL/Vulkan).
+    bool supportsPresentation() const override;
+    std::unique_ptr<ISwapchain> createSwapchain(const NativeSurface &surface,
+                                                const SwapchainConfig &config) override;
+
 private:
     // Renders the recorded frame through the device's command-execution path
     // (used by devices such as Vulkan that render a command stream into a device
