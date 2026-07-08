@@ -11,10 +11,13 @@ For releases and downloadable artifacts, see the
 
 ### Added
 - Experimental on-screen presentation layer: backend-neutral `NativeSurface` /
-  `ISwapchain`, public `Canvas::attachPresentSurface` / `present` /
-  `resizePresentSurface`, and a software (CPU) window path on Windows via GDI
-  (`examples/software_present`). Other backends remain off-screen for now. See
-  `doc/windowed-presentation-design.md`.
+  `ISwapchain` / `BackendRenderTarget`, public `Canvas::attachPresentSurface` /
+  `present` / `resizePresentSurface` / `wrapBackendRenderTarget`. Backends:
+  software (Windows GDI + Linux X11), OpenGL host-owned present (WGL; guarded
+  GLX) and wrap-external into a host GL framebuffer, and **Vulkan windowed
+  present** (present-ready instance/device + swapchain, validated under the
+  Khronos validation layer). Examples: `software_present`, `gl_present`,
+  `vulkan_canvas_present`. See `doc/windowed-presentation-design.md`.
 - Built-in diagnostics/logging facility (`wsc/Log.h`): severity levels, an
   adjustable threshold (`Log::setLevel`), and a pluggable sink
   (`Log::setHandler`) so applications can route WhatsCanvas messages into their

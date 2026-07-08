@@ -1,12 +1,15 @@
 # Windowed Presentation & Backend Selection — Design Discussion
 
-Status: **Proposal / Discussion.** Core direction agreed; first slices landed.
-**Implemented:** the backend-neutral scaffolding (§3–§6), the public
-`Canvas::attachPresentSurface`/`present`/`resizePresentSurface` API, and the
-**software backend's on-screen path on Windows (GDI)** with a headless blit test
-and a runnable `examples/software_present` demo. **Not yet:** Vulkan/GL/Metal/D3D
-swapchains, the Skia-style `wrapBackendRenderTarget` core, and mobile surface
-lifecycle. Remaining API sketches are marked "sketch".
+Status: **Proposal / Discussion.** Core direction agreed; multiple slices landed.
+**Implemented & validated:** the backend-neutral scaffolding (§3–§6), the public
+`Canvas::attachPresentSurface`/`present`/`resizePresentSurface` + `wrapBackendRenderTarget`
+API, **software present on Windows (GDI)** and **Linux/X11**, **OpenGL host-owned
+present (WGL; guarded GLX)**, **Vulkan windowed present** (present-ready
+instance/device + swapchain, blitting the rendered image into the acquired
+swapchain image; validated clean under the Khronos validation layer), and
+**wrap-external into a host GL framebuffer**. **Not yet:** Metal/D3D swapchains,
+wrap-external for Vulkan/Metal/D3D, and mobile surface lifecycle. Remaining API
+sketches are marked "sketch".
 
 This is the source of truth for *why* and *how* WhatsCanvas would gain on-screen
 window presentation across backends, and how that stays forward-compatible with
@@ -276,18 +279,17 @@ is **already at parity and needs no change**.
    since it needs no Vulkan SDK and validates the whole seam end-to-end
    (`SoftwareSwapchain`, GDI, Windows). Backend-neutral scaffolding + the public
    `Canvas` present API + `examples/software_present` also landed.
-2. **Vulkan `ISwapchain`** reusing the proven M8 swapchain path (desktop, GLFW).
-   The `IRenderDevice`/`IRenderer`/`Canvas` hooks are already in place;
-   `VulkanRenderDevice::supportsPresentation()` returns false and
-   `createSwapchain()` is a logged stub because the remaining work is
-   restructuring the **headless** instance/device into a **present-ready** one
-   (surface + `VK_KHR_swapchain` extensions, a present-capable queue) and
-   rendering the command stream into the acquired swapchain image. This must be
-   implemented and validated on a machine with a Vulkan SDK.
+2. ~~**Vulkan `ISwapchain`**~~ **done** — the instance/device are made
+   present-ready (surface + `VK_KHR_swapchain` extensions, present-capable
+   graphics queue) and present blits the render device's offscreen image
+   (`readbackImage`) into the acquired swapchain image. Validated on hardware
+   via `examples/vulkan_canvas_present` (clean under the Khronos validation
+   layer). Reuses the entire existing offscreen renderer.
 3. **Vulkan `wrapBackendRenderTarget`** core path (embeddable target).
-4. **OpenGL** host-owned thin-shell `ISwapchain` (delegates swap).
+4. ~~**OpenGL** host-owned thin-shell `ISwapchain`~~ **done** (WGL swap; GLX
+   guarded/unverified) and **wrap-external into a host GL framebuffer** done.
 5. Future: **D3D / Metal** against the same interface; mobile surface-lifecycle
-   handling; Linux/X11 software blit.
+   handling; verify the Linux X11/GLX paths.
 
 ## 14. Open questions
 
