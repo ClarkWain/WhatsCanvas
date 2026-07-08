@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <vector>
 
@@ -64,4 +65,7 @@ public:
     /// (Skia-style wrap-external). Returns false when unsupported. Scaffolding:
     /// no backend accepts an external target yet.
     virtual bool wrapBackendRenderTarget(const BackendRenderTarget & /*target*/) { return false; }
+
+    /// Raw native handle accessor for advanced interop; backend-specific.
+    virtual std::uintptr_t nativeHandle(int /*which*/) const { return 0; }
 };

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <vector>
 
@@ -61,4 +62,8 @@ public:
     /// Draw subsequent frames into a host-owned backend render target
     /// (Skia-style wrap-external). Returns false when unsupported (the default).
     virtual bool wrapBackendRenderTarget(const BackendRenderTarget & /*target*/) { return false; }
+
+    /// Raw native handle accessor for advanced interop. Meaning of `which` is
+    /// backend-specific; returns 0 by default.
+    virtual std::uintptr_t nativeHandle(int /*which*/) const { return 0; }
 };

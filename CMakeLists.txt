@@ -828,6 +828,32 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     )
     set_tests_properties(WhatsCanvasVulkanBackendSelectionTests PROPERTIES LABELS "unit;vulkan")
 
+    if (WHATSCANVAS_ENABLE_VULKAN)
+        find_package(Vulkan QUIET)
+        if (Vulkan_FOUND)
+            add_executable(WhatsCanvasVulkanWrapExternalTests
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/VulkanWrapExternalTests.cpp"
+            )
+            target_include_directories(WhatsCanvasVulkanWrapExternalTests PRIVATE
+                "${SRC_DIR}"
+            )
+            target_link_libraries(WhatsCanvasVulkanWrapExternalTests PRIVATE
+                WhatsCanvasOpenGL
+                WhatsCanvasGLM
+                Vulkan::Vulkan
+            )
+            add_test(NAME WhatsCanvasVulkanWrapExternalTests
+                COMMAND ${CMAKE_COMMAND}
+                    -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+                    -DWHATSCANVAS_TEST_TARGET=WhatsCanvasVulkanWrapExternalTests
+                    -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasVulkanWrapExternalTests>
+                    -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+                    -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+            )
+            set_tests_properties(WhatsCanvasVulkanWrapExternalTests PROPERTIES LABELS "unit;vulkan")
+        endif()
+    endif()
+
     add_executable(WhatsCanvasRenderTargetPoolTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/RenderTargetPoolTests.cpp"
     )
