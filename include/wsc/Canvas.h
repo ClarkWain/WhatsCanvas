@@ -358,6 +358,10 @@ public:
 	bool present();
 	/// Notify the presentation surface of a new drawable size (window resize).
 	void resizePresentSurface(int width, int height);
+	/// Draw subsequent frames into a host-owned backend render target
+	/// (Skia-style wrap-external), instead of an owned swapchain. Returns false
+	/// when the backend does not support external targets.
+	bool wrapBackendRenderTarget(const BackendRenderTarget &target);
 
 private:
 	friend class CanvasLifecycleTestAccess;

@@ -4828,6 +4828,11 @@ void Canvas::resizePresentSurface(int width, int height)
     }
 }
 
+bool Canvas::wrapBackendRenderTarget(const BackendRenderTarget &target)
+{
+    return impl_->renderer && impl_->renderer->wrapBackendRenderTarget(target);
+}
+
 bool Canvas::readPixelsRGBAAsync(ReadPixelsCallback callback)
 {
 #ifdef WHATSCANVAS_SOFTWARE_ONLY

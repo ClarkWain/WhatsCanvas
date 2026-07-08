@@ -12,6 +12,7 @@
 
 using NativeSurface = wsc::NativeSurface;
 using SwapchainConfig = wsc::SwapchainConfig;
+using BackendRenderTarget = wsc::BackendRenderTarget;
 
 /// The render target for the current frame, as handed back by a swapchain. The
 /// handle is backend-specific (e.g. a VkImage, a GL framebuffer id, or an

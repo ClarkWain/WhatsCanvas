@@ -313,6 +313,7 @@ Public members:
 - `bool attachPresentSurface(const NativeSurface &surface, const SwapchainConfig &config = SwapchainConfig());`
 - `bool present();`
 - `void resizePresentSurface(int width, int height);`
+- `bool wrapBackendRenderTarget(const BackendRenderTarget &target);`
 
 ## `wsc/CanvasAdapter.h`
 
@@ -680,6 +681,10 @@ Public members:
 _No public methods detected by the lightweight generator._
 
 ### `struct SwapchainConfig`
+
+_No public methods detected by the lightweight generator._
+
+### `struct BackendRenderTarget`
 
 _No public methods detected by the lightweight generator._
 
