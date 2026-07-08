@@ -9,6 +9,8 @@ For releases and downloadable artifacts, see the
 
 ## [Unreleased]
 
+## [0.1.14] - 2026-07-08
+
 ### Removed
 - **Breaking (pre-1.0):** the public `Canvas::flush()` method. Use `endFrame()`
   instead — drawing is now a symmetric `beginFrame() / endFrame()` pair.
@@ -98,7 +100,8 @@ For releases and downloadable artifacts, see the
 For changes prior to 0.1.11, see the
 [GitHub Releases](https://github.com/ClarkWain/WhatsCanvas/releases) history.
 
-[Unreleased]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.13...HEAD
+[Unreleased]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.14...HEAD
+[0.1.14]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.13...v0.1.14
 [0.1.13]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.12...v0.1.13
 [0.1.12]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.11...v0.1.12
 [0.1.11]: https://github.com/ClarkWain/WhatsCanvas/releases/tag/v0.1.11
