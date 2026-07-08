@@ -28,6 +28,18 @@ set(WHATSCANVAS_CLIP_SMOKE_HASH "7173893163224947210" CACHE STRING "Default loca
 if (MSVC)
     # Globally disable warning C4819
     add_compile_options(/wd4819)
+
+    # Prebuilt-binary portability across MSVC toolset versions.
+    #
+    # Newer MSVC STL updates dispatch std::min_element / max_element / find (etc.)
+    # on trivial types to out-of-line, ABI-versioned SIMD helpers such as
+    # __std_min_element_f_. Object files compiled with a newer toolset reference
+    # symbols that older STL runtimes/import libs do not provide, so a library
+    # built on a newer CI toolchain fails to link on a consumer's older VS
+    # (LNK2019 __std_*_element_*). Forcing the scalar path keeps our compiled
+    # objects free of these version-specific symbols, so the released binaries
+    # link against any VS 2022 STL. See doc/TROUBLESHOOTING.md.
+    add_compile_definitions(_USE_STD_VECTOR_ALGORITHMS=0)
 endif()
 
 set(THIRD_PARTY_DIR ${CMAKE_CURRENT_LIST_DIR}/third_party)

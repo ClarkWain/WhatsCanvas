@@ -158,6 +158,31 @@ No. GLFW is only for the in-repo example windows, GLAD is compiled into the
 GL-family backend, and GLM is an internal math dependency. Consumers include and
 link only `WhatsCanvas::OpenGL` (or `::Software` / `::OpenGLES`) and `include/wsc/`.
 
+### Windows: `LNK2019 unresolved external symbol __std_min_element_f_` (or `__std_max_element_f_`)
+
+This is an MSVC standard-library (STL) **toolset-version mismatch** when linking a
+prebuilt binary. Newer MSVC toolsets dispatch `std::min_element` / `max_element`
+(etc.) on trivial types to out-of-line, ABI-versioned SIMD helpers whose symbols
+older STL runtimes do not provide, so a library compiled with a newer toolset
+fails to link on an older Visual Studio.
+
+WhatsCanvas builds its own binaries with `_USE_STD_VECTOR_ALGORITHMS=0` (scalar
+path), so the shipped libraries do **not** reference these version-specific
+symbols and link against any VS 2022 STL. If you still hit this — e.g. building
+WhatsCanvas yourself, or linking another prebuilt library — fix it by any of:
+
+- Update Visual Studio 2022 so your toolset is at least as new as the one that
+  built the binary (VS Installer -> Update), then rebuild.
+- Build the offending library from source with your own toolset (identical STL
+  on both sides).
+- When building a library for redistribution, compile it with
+  `-D_USE_STD_VECTOR_ALGORITHMS=0` (MSVC) so its objects avoid the versioned
+  helpers.
+
+There is no way to "use a different STL" here: on MSVC the standard library *is*
+the MSVC STL. The mismatch is a general C++ binary-compatibility (ABI) issue, not
+specific to WhatsCanvas.
+
 ## Diagnostics & logging
 
 WhatsCanvas has a built-in logging facility (`wsc/Log.h`) that reports
