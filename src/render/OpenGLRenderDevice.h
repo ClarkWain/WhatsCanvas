@@ -36,6 +36,9 @@ public:
     std::unique_ptr<ISwapchain> createSwapchain(const NativeSurface &surface,
                                                 const SwapchainConfig &config) override;
 
+    // Skia-style wrap-external: render into a host-provided GL framebuffer.
+    bool wrapBackendRenderTarget(const BackendRenderTarget &target) override;
+
 private:
     bool backendInitialized_ = false;
     mutable std::unique_ptr<RenderTargetPool> renderTargetPool_;

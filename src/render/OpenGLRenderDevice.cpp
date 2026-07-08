@@ -581,6 +581,21 @@ std::unique_ptr<ISwapchain> OpenGLRenderDevice::createSwapchain(const NativeSurf
     return wsc::gl::makeGLSwapchain(surface, config);
 }
 
+bool OpenGLRenderDevice::wrapBackendRenderTarget(const BackendRenderTarget &target)
+{
+    if (target.kind != BackendRenderTarget::Kind::OpenGLFramebuffer) {
+        return false;
+    }
+    // Direct subsequent drawing into the host's framebuffer. WhatsCanvas draws
+    // into the currently-bound FBO; offscreen passes (saveLayer/blur/clip) save
+    // and restore GL_FRAMEBUFFER_BINDING, so this binding is honored throughout.
+    glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(target.glFramebuffer));
+    if (target.width > 0 && target.height > 0) {
+        glViewport(0, 0, target.width, target.height);
+    }
+    return true;
+}
+
 SharedImageResource OpenGLRenderDevice::renderCommandsToImageResource(const std::vector<std::unique_ptr<Command>> &commands,
                                                                       const OffscreenRenderRequest &request) const
 {
