@@ -73,7 +73,8 @@ wsc::Paint makeTextPaint()
 
 bool testParagraphRanges()
 {
-    wsc::Canvas canvas;
+    auto canvasOwner = wsc::Canvas::create(wsc::Canvas::Backend::OpenGL, 0, 0);
+    wsc::Canvas &canvas = *canvasOwner;
     wsc::Paint paint = makeTextPaint();
     const std::vector<wsc::Canvas::TextLine> lines =
         canvas.layoutTextBox("alpha beta\ngamma", wsc::RectF(10.0f, 20.0f, 400.0f, 120.0f), 18.0f, paint);
@@ -92,7 +93,8 @@ bool testParagraphRanges()
 
 bool testCrLfParagraphRanges()
 {
-    wsc::Canvas canvas;
+    auto canvasOwner = wsc::Canvas::create(wsc::Canvas::Backend::OpenGL, 0, 0);
+    wsc::Canvas &canvas = *canvasOwner;
     wsc::Paint paint = makeTextPaint();
     const std::vector<wsc::Canvas::TextLine> lines =
         canvas.layoutTextBox("alpha\r\nbeta", wsc::RectF(10.0f, 20.0f, 400.0f, 120.0f), 18.0f, paint);
@@ -108,7 +110,8 @@ bool testCrLfParagraphRanges()
 
 bool testAlignAndEllipsis()
 {
-    wsc::Canvas canvas;
+    auto canvasOwner = wsc::Canvas::create(wsc::Canvas::Backend::OpenGL, 0, 0);
+    wsc::Canvas &canvas = *canvasOwner;
     wsc::Paint paint = makeTextPaint();
     paint.setTextAlign(wsc::Paint::TextAlign::CENTER);
     const std::vector<wsc::Canvas::TextLine> centered =
@@ -123,7 +126,8 @@ bool testAlignAndEllipsis()
 
 bool testCjkWrappingWithoutSpaces()
 {
-    wsc::Canvas canvas;
+    auto canvasOwner = wsc::Canvas::create(wsc::Canvas::Backend::OpenGL, 0, 0);
+    wsc::Canvas &canvas = *canvasOwner;
     wsc::Paint paint;
     paint.setTextSize(12.0f);
     const std::vector<wsc::Canvas::TextLine> lines =
@@ -140,7 +144,8 @@ bool testCjkWrappingWithoutSpaces()
 
 bool testLongWordWrappingWithoutSpaces()
 {
-    wsc::Canvas canvas;
+    auto canvasOwner = wsc::Canvas::create(wsc::Canvas::Backend::OpenGL, 0, 0);
+    wsc::Canvas &canvas = *canvasOwner;
     wsc::Paint paint;
     paint.setTextSize(12.0f);
     const std::string text = "supercalifragilistic";
@@ -158,7 +163,8 @@ bool testLongWordWrappingWithoutSpaces()
 
 bool testCjkEllipsisKeepsValidUtf8()
 {
-    wsc::Canvas canvas;
+    auto canvasOwner = wsc::Canvas::create(wsc::Canvas::Backend::OpenGL, 0, 0);
+    wsc::Canvas &canvas = *canvasOwner;
     wsc::Paint paint;
     paint.setTextSize(12.0f);
     const std::vector<wsc::Canvas::TextLine> lines =
@@ -178,7 +184,8 @@ bool testCjkEllipsisKeepsValidUtf8()
 
 bool testInvalidInputs()
 {
-    wsc::Canvas canvas;
+    auto canvasOwner = wsc::Canvas::create(wsc::Canvas::Backend::OpenGL, 0, 0);
+    wsc::Canvas &canvas = *canvasOwner;
     wsc::Paint paint = makeTextPaint();
     return expect(canvas.layoutTextBox("", wsc::RectF(0.0f, 0.0f, 100.0f, 40.0f), paint).empty(),
                   "empty text should not layout")

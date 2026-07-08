@@ -1185,7 +1185,8 @@ int main()
     glViewport(0, 0, framebufferWidth, framebufferHeight);
     glEnable(kOpenGLMultisample);
 
-    Canvas canvas;
+    auto canvasOwner = Canvas::create(Canvas::Backend::OpenGL, 0, 0);
+    Canvas &canvas = *canvasOwner;
     canvas.setSize(framebufferWidth, framebufferHeight);
 
     BubbleShooterGame game;

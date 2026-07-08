@@ -31,25 +31,26 @@ bool expect(bool condition, const std::string &message)
 
 bool testVulkanBackendSelection()
 {
-    const bool available = Canvas::isVulkanAvailable();
+    const bool available = Canvas::isBackendAvailable(Canvas::Backend::Vulkan);
 
     if (!available) {
         // Contract when Vulkan is unavailable: creation returns null so callers
         // can fall back to another backend.
-        std::unique_ptr<Canvas> canvas = Canvas::createVulkan(32, 32);
+        std::unique_ptr<Canvas> canvas = Canvas::create(Canvas::Backend::Vulkan, 32, 32);
         bool ok = expect(canvas == nullptr,
-                         "createVulkan should return null when Vulkan is unavailable");
+                         "create(Vulkan) should return null when Vulkan is unavailable");
         std::cout << "Vulkan unavailable in this build: graceful fallback contract verified.\n";
         return ok;
     }
 
     const int w = 64;
     const int h = 64;
-    std::unique_ptr<Canvas> canvas = Canvas::createVulkan(w, h);
-    bool ok = expect(canvas != nullptr, "createVulkan should return a canvas when Vulkan is available");
+    std::unique_ptr<Canvas> canvas = Canvas::create(Canvas::Backend::Vulkan, w, h);
+    bool ok = expect(canvas != nullptr, "create(Vulkan) should return a canvas when Vulkan is available");
     if (!canvas) {
         return false;
     }
+    canvas->initializeContext();
     ok = expect(canvas->getWidth() == w && canvas->getHeight() == h,
                 "Vulkan canvas should keep its requested size") && ok;
 

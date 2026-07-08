@@ -25,7 +25,8 @@ bool expect(bool condition, const std::string &message)
 
 bool testMapAndInverseMap()
 {
-    wsc::Canvas canvas;
+    auto canvasOwner = wsc::Canvas::create(wsc::Canvas::Backend::OpenGL, 0, 0);
+    wsc::Canvas &canvas = *canvasOwner;
     canvas.setSize(400, 300);
     canvas.translate(10.0f, 20.0f);
     canvas.scale(2.0f, 3.0f);
@@ -48,7 +49,8 @@ bool testMapAndInverseMap()
 
 bool testClipBoundsAndQuickReject()
 {
-    wsc::Canvas canvas;
+    auto canvasOwner = wsc::Canvas::create(wsc::Canvas::Backend::OpenGL, 0, 0);
+    wsc::Canvas &canvas = *canvasOwner;
     canvas.setSize(320, 240);
     wsc::RectF clipBounds;
     const bool initialClip = canvas.getClipBounds(clipBounds);
@@ -73,7 +75,8 @@ bool testClipBoundsAndQuickReject()
 
 bool testHitTestingWithTransformAndClip()
 {
-    wsc::Canvas canvas;
+    auto canvasOwner = wsc::Canvas::create(wsc::Canvas::Backend::OpenGL, 0, 0);
+    wsc::Canvas &canvas = *canvasOwner;
     canvas.setSize(300, 220);
     canvas.clipRect(wsc::RectF(0.0f, 0.0f, 180.0f, 180.0f));
     canvas.translate(40.0f, 30.0f);

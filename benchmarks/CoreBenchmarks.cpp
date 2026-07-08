@@ -228,7 +228,8 @@ std::string findBenchmarkFontPath()
 
 void benchmarkTextLayout(int iterations)
 {
-    wsc::Canvas canvas;
+    auto canvasOwner = wsc::Canvas::create(wsc::Canvas::Backend::OpenGL, 0, 0);
+    wsc::Canvas &canvas = *canvasOwner;
     wsc::Paint paint;
     paint.setTextSize(16.0f);
     paint.setLetterSpacing(0.5f);
@@ -418,7 +419,8 @@ void benchmarkPixelHash(int iterations)
 
 void benchmarkCommandRecording(int iterations)
 {
-    wsc::Canvas canvas;
+    auto canvasOwner = wsc::Canvas::create(wsc::Canvas::Backend::OpenGL, 0, 0);
+    wsc::Canvas &canvas = *canvasOwner;
     canvas.setSize(800, 600);
 
     wsc::Paint paint;

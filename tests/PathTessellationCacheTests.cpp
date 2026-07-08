@@ -53,7 +53,8 @@ Path makeSquare(float x, float y, float s)
 
 bool testIdenticalFillReusesTessellation()
 {
-    Canvas canvas;
+    auto canvasOwner = Canvas::create(Canvas::Backend::OpenGL, 0, 0);
+    Canvas &canvas = *canvasOwner;
     canvas.setSize(256, 256);
 
     Paint fill;
@@ -78,7 +79,8 @@ bool testIdenticalFillReusesTessellation()
 
 bool testTransformDoesNotInvalidateTessellation()
 {
-    Canvas canvas;
+    auto canvasOwner = Canvas::create(Canvas::Backend::OpenGL, 0, 0);
+    Canvas &canvas = *canvasOwner;
     canvas.setSize(256, 256);
 
     Paint fill;
@@ -103,7 +105,8 @@ bool testTransformDoesNotInvalidateTessellation()
 
 bool testDistinctShapesUseDistinctEntries()
 {
-    Canvas canvas;
+    auto canvasOwner = Canvas::create(Canvas::Backend::OpenGL, 0, 0);
+    Canvas &canvas = *canvasOwner;
     canvas.setSize(256, 256);
 
     Paint fill;
@@ -120,7 +123,8 @@ bool testDistinctShapesUseDistinctEntries()
 
 bool testStrokeOnlyDoesNotPopulateFillCache()
 {
-    Canvas canvas;
+    auto canvasOwner = Canvas::create(Canvas::Backend::OpenGL, 0, 0);
+    Canvas &canvas = *canvasOwner;
     canvas.setSize(256, 256);
 
     Paint stroke;
@@ -137,7 +141,8 @@ bool testStrokeOnlyDoesNotPopulateFillCache()
 
 bool testIdenticalStrokeReusesMesh()
 {
-    Canvas canvas;
+    auto canvasOwner = Canvas::create(Canvas::Backend::OpenGL, 0, 0);
+    Canvas &canvas = *canvasOwner;
     canvas.setSize(256, 256);
 
     Paint stroke;
@@ -174,7 +179,8 @@ bool testIdenticalStrokeReusesMesh()
 
 bool testClipMaskSharesFillTessellationCache()
 {
-    Canvas canvas;
+    auto canvasOwner = Canvas::create(Canvas::Backend::OpenGL, 0, 0);
+    Canvas &canvas = *canvasOwner;
     canvas.setSize(256, 256);
 
     Paint fill;

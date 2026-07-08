@@ -30,7 +30,8 @@ int main()
         return 2;
     }
 
-    wsc::Canvas canvas;
+    auto canvasOwner = wsc::Canvas::create(wsc::Canvas::Backend::OpenGL, 0, 0);
+    wsc::Canvas &canvas = *canvasOwner;
     canvas.setSize(64, 64);
     (void)canvas.getWidth();
     (void)paint;

@@ -10,6 +10,11 @@ For releases and downloadable artifacts, see the
 ## [Unreleased]
 
 ### Added
+- Unified backend creation: `Canvas::create(Backend, width, height)` (plus a
+  preference-list overload `Canvas::create({...}, w, h)`), `Backend backend()`,
+  and `Canvas::isBackendAvailable(Backend)`. `Backend` is an enum
+  (`Auto`, `OpenGL`, `OpenGLES`, `Software`, `Vulkan`, ...). The returned canvas
+  is sized but initializes lazily on the first draw/flush.
 - Experimental presentation / output-target layer: a single `Canvas::setOutputTarget`
   chooses where frames go — `OutputTarget::Offscreen` / `OffscreenTexture` /
   `ToWindow` / `GLFramebuffer` / `VulkanImageTarget` — with a unified frame loop
@@ -38,6 +43,15 @@ For releases and downloadable artifacts, see the
 ### Changed
 - Reworked `README.md` into an evaluation → onboarding funnel with a capability
   overview, comparison table, and combined quality showcase image.
+
+### Removed
+- **Breaking:** the old creation API — the default `Canvas()` constructor,
+  `Canvas::createSoftware`, `Canvas::createVulkan`, and
+  `Canvas::isVulkanAvailable`. Use `Canvas::create(Backend, w, h)` and
+  `Canvas::isBackendAvailable(Backend)` instead. Migration:
+  `Canvas::createSoftware(w, h)` → `Canvas::create(Backend::Software, w, h)`;
+  `Canvas::createVulkan(w, h)` → `Canvas::create(Backend::Vulkan, w, h)`;
+  `Canvas c;` → `auto c = Canvas::create(Backend::OpenGL, w, h);`.
 
 ### Fixed
 - Corrected stale documentation and the architecture diagram that described the

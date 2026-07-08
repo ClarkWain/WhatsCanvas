@@ -1,0 +1,3 @@
+E:/Team_Bass/WhatsCanvas2/build-package-consumer/CMakeFiles/WhatsCanvasPackageConsumer.dir
+E:/Team_Bass/WhatsCanvas2/build-package-consumer/CMakeFiles/ALL_BUILD.dir
+E:/Team_Bass/WhatsCanvas2/build-package-consumer/CMakeFiles/ZERO_CHECK.dir

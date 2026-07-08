@@ -139,11 +139,6 @@ public:
 	Canvas(const Canvas &) = delete;
 	Canvas &operator=(const Canvas &) = delete;
 
-	/// Convenience: default-construct a canvas on the build's default backend
-	/// (OpenGL, or Software in a software-only build), unsized and uninitialized.
-	/// Prefer `create(Backend, w, h)` for explicit backend selection.
-	Canvas();
-
 	/// Create a canvas on `backend`, sized to width×height. Returns nullptr when
 	/// the backend is unavailable in this build/host. The canvas is sized but
 	/// NOT initialized — call `initializeContext()` before drawing. For the
@@ -160,13 +155,6 @@ public:
 
 	/// The backend this canvas was created with.
 	Backend backend() const;
-
-	// Convenience shortcuts over `create` for the two context-free backends,
-	// equivalent to `create(Backend::X, w, h)` then `initializeContext()`.
-	static std::unique_ptr<Canvas> createSoftware(int width, int height);
-	static std::unique_ptr<Canvas> createVulkan(int width, int height);
-	/// Whether the Vulkan backend is available (== isBackendAvailable(Backend::Vulkan)).
-	static bool isVulkanAvailable();
 
 	// ITextureSource interface
 	int getTextureWidth() const override { return getWidth(); }

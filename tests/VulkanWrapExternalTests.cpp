@@ -40,17 +40,18 @@ std::optional<std::uint32_t> findMemoryType(VkPhysicalDevice pd, std::uint32_t t
 
 int main()
 {
-    if (!Canvas::isVulkanAvailable()) {
+    if (!Canvas::isBackendAvailable(Canvas::Backend::Vulkan)) {
         std::cout << "VulkanWrapExternalTests: Vulkan unavailable; skipping." << std::endl;
         return 0;
     }
 
     const int W = 64;
     const int H = 48;
-    std::unique_ptr<Canvas> canvas = Canvas::createVulkan(W, H);
+    std::unique_ptr<Canvas> canvas = Canvas::create(Canvas::Backend::Vulkan, W, H);
     if (!canvas) {
-        return expect(false, "createVulkan should succeed") ? 0 : 1;
+        return expect(false, "create(Vulkan) should succeed") ? 0 : 1;
     }
+    canvas->initializeContext();
 
     auto pd = static_cast<VkPhysicalDevice>(canvas->vulkanPhysicalDevice());
     auto dev = static_cast<VkDevice>(canvas->vulkanDevice());

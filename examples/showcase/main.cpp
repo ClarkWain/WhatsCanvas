@@ -793,7 +793,8 @@ int main() {
 
     // Set the clear color
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-    Canvas canvas;
+    auto canvasOwner = Canvas::create(Canvas::Backend::OpenGL, 0, 0);
+    Canvas &canvas = *canvasOwner;
         canvas.setSize(framebufferWidth, framebufferHeight);
         glfwSetWindowUserPointer(window, &canvas);
         glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);

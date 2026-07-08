@@ -1,0 +1,10 @@
+^E:\TEAM_BASS\WHATSCANVAS2\TESTS\PACKAGE_CONSUMER\CMAKELISTS.TXT
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SE:/Team_Bass/WhatsCanvas2/tests/package_consumer -BE:/Team_Bass/WhatsCanvas2/build-package-consumer --check-stamp-file E:/Team_Bass/WhatsCanvas2/build-package-consumer/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
