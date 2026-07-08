@@ -9,6 +9,8 @@ For releases and downloadable artifacts, see the
 
 ## [Unreleased]
 
+## [0.1.13] - 2026-07-08
+
 ### Fixed
 - Windows prebuilt-binary portability: compile with `_USE_STD_VECTOR_ALGORITHMS=0`
   so the shipped libraries do not reference toolset-version-specific MSVC STL
@@ -80,6 +82,7 @@ For releases and downloadable artifacts, see the
 For changes prior to 0.1.11, see the
 [GitHub Releases](https://github.com/ClarkWain/WhatsCanvas/releases) history.
 
-[Unreleased]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.12...HEAD
+[Unreleased]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.13...HEAD
+[0.1.13]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.12...v0.1.13
 [0.1.12]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.11...v0.1.12
 [0.1.11]: https://github.com/ClarkWain/WhatsCanvas/releases/tag/v0.1.11

@@ -1,7 +1,7 @@
 # WhatsCanvas
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.1.12-informational.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.1.13-informational.svg)](CHANGELOG.md)
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C.svg)](CMakeLists.txt)
 [![Backends](https://img.shields.io/badge/backends-OpenGL%20%7C%20GLES%20%7C%20Software%20%7C%20Vulkan-success.svg)](doc/GETTING_STARTED_AS_LIBRARY.md)
 
@@ -125,7 +125,7 @@ canvas->savePixelsPPM("first.ppm");
 **用 CMake 接入**（预编译 Release 包或 `--package` 生成的目录）：
 
 ```cmake
-find_package(WhatsCanvas 0.1.12 CONFIG REQUIRED)
+find_package(WhatsCanvas 0.1.13 CONFIG REQUIRED)
 target_link_libraries(MyApp PRIVATE WhatsCanvas::OpenGL)   # 或 ::Software / ::OpenGLES（Vulkan 编入 ::OpenGL，运行时选择）
 ```
 
