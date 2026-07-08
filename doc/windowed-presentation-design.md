@@ -277,6 +277,13 @@ is **already at parity and needs no change**.
    (`SoftwareSwapchain`, GDI, Windows). Backend-neutral scaffolding + the public
    `Canvas` present API + `examples/software_present` also landed.
 2. **Vulkan `ISwapchain`** reusing the proven M8 swapchain path (desktop, GLFW).
+   The `IRenderDevice`/`IRenderer`/`Canvas` hooks are already in place;
+   `VulkanRenderDevice::supportsPresentation()` returns false and
+   `createSwapchain()` is a logged stub because the remaining work is
+   restructuring the **headless** instance/device into a **present-ready** one
+   (surface + `VK_KHR_swapchain` extensions, a present-capable queue) and
+   rendering the command stream into the acquired swapchain image. This must be
+   implemented and validated on a machine with a Vulkan SDK.
 3. **Vulkan `wrapBackendRenderTarget`** core path (embeddable target).
 4. **OpenGL** host-owned thin-shell `ISwapchain` (delegates swap).
 5. Future: **D3D / Metal** against the same interface; mobile surface-lifecycle
