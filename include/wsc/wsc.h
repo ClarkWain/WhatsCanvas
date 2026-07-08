@@ -13,5 +13,6 @@
 #include "Matrix.h"
 #include "Paint.h"
 #include "Path.h"
+#include "Surface.h"
 #include "TextureSource.h"
 #include "base.h"

@@ -18,6 +18,7 @@ It is meant to stay close to the current C++ API; behavioral contracts remain do
 - `wsc/Matrix.h`
 - `wsc/Paint.h`
 - `wsc/Path.h`
+- `wsc/Surface.h`
 - `wsc/TextureSource.h`
 - `wsc/Version.h`
 
@@ -308,6 +309,10 @@ Public members:
 - `bool savePixelsPPM(const std::string &path) const;`
 - `static std::uint64_t hashPixelsRGBA(const std::vector<unsigned char> &pixels);`
 - `std::uint64_t computePixelsHashRGBA() const;`
+- `bool isPresentable() const;`
+- `bool attachPresentSurface(const NativeSurface &surface, const SwapchainConfig &config = SwapchainConfig());`
+- `bool present();`
+- `void resizePresentSurface(int width, int height);`
 
 ## `wsc/CanvasAdapter.h`
 
@@ -667,6 +672,16 @@ Public members:
 - `void addRoundRect(const RectF &rect, float radius);`
 - `void addRoundRect(const RectF &rect, float topLeftRadius, float topRightRadius, float bottomRightRadius, float bottomLeftRadius);`
 - `void addCircle(float x, float y, float radius);`
+
+## `wsc/Surface.h`
+
+### `struct NativeSurface`
+
+_No public methods detected by the lightweight generator._
+
+### `struct SwapchainConfig`
+
+_No public methods detected by the lightweight generator._
 
 ## `wsc/TextureSource.h`
 

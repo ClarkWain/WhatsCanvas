@@ -22,6 +22,7 @@ PUBLIC_HEADERS = [
     "Matrix.h",
     "Paint.h",
     "Path.h",
+    "Surface.h",
     "TextureSource.h",
     "Version.h",
 ]

@@ -2,45 +2,16 @@
 
 #include <memory>
 
+#include "wsc/Surface.h"
+
 // Backend-neutral presentation abstraction (design: windowed-presentation).
 //
-// This is the internal seam that lets each render backend present to an
-// on-screen window without WhatsCanvas owning the OS window or the main loop.
-// The public convenience layer (Canvas::createWindowed / present) and the
-// Skia-style wrap-external core will be built on top of these types.
-//
-// NOTE: This is scaffolding. No backend implements a real swapchain yet; the
-// default IRenderDevice hooks report "not supported" so existing offscreen/GL
-// behavior is unchanged.
+// The public window/config types (NativeSurface, SwapchainConfig) live in
+// include/wsc/Surface.h; the aliases below let existing internal code reference
+// them unqualified. The swapchain interface itself is internal.
 
-/// A neutral operating-system window handle. The only input common to every
-/// graphics backend is the OS window itself; each backend builds its own
-/// surface/swapchain from this. Convenience adapters (fromGlfw, fromHWND, ...)
-/// will populate it without the core taking a window-library dependency.
-struct NativeSurface
-{
-    enum class Platform
-    {
-        Win32,
-        Xlib,
-        Xcb,
-        Wayland,
-        Cocoa,
-        Android,
-    };
-
-    Platform platform{Platform::Win32};
-    void *window = nullptr;  ///< HWND / NSView* / xcb_window / ANativeWindow* / CAMetalLayer*
-    void *display = nullptr; ///< HINSTANCE / Display* / wl_display* (when the platform needs it)
-};
-
-/// Neutral swapchain preferences. Backends map these to their own concepts and
-/// gracefully degrade features they cannot honor.
-struct SwapchainConfig
-{
-    bool vsync = true;
-    int imageCount = 3;
-};
+using NativeSurface = wsc::NativeSurface;
+using SwapchainConfig = wsc::SwapchainConfig;
 
 /// The render target for the current frame, as handed back by a swapchain. The
 /// handle is backend-specific (e.g. a VkImage, a GL framebuffer id, or an
