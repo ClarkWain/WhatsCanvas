@@ -1906,6 +1906,25 @@ bool VulkanRenderDevice::isDeviceReady() const
 #endif
 }
 
+bool VulkanRenderDevice::supportsPresentation() const
+{
+    // Windowed present is not yet integrated. This device creates a HEADLESS
+    // instance (no surface/swapchain extensions) and renders off-screen. Wiring
+    // a swapchain requires a present-ready instance/device and rendering the
+    // command stream into the acquired swapchain image. The swapchain mechanics
+    // are proven in examples/vulkan_present; see doc/windowed-presentation-design.md.
+    return false;
+}
+
+std::unique_ptr<ISwapchain> VulkanRenderDevice::createSwapchain(const NativeSurface & /*surface*/,
+                                                                const SwapchainConfig & /*config*/)
+{
+    WSC_LOG_INFO("VulkanRenderDevice",
+                 "Vulkan windowed present is not yet integrated (headless instance). "
+                 "See examples/vulkan_present and doc/windowed-presentation-design.md.");
+    return nullptr;
+}
+
 const std::string &VulkanRenderDevice::selectedDeviceName() const
 {
     static const std::string kEmpty;

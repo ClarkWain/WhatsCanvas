@@ -57,6 +57,13 @@ public:
     SharedImageResource renderCommandsToImageResource(const std::vector<std::unique_ptr<Command>> &commands,
                                                       const OffscreenRenderRequest &request) const override;
 
+    // On-screen presentation. Not yet integrated: this device's instance is
+    // headless (no surface extensions). See createSwapchain() and
+    // doc/windowed-presentation-design.md for the integration plan.
+    bool supportsPresentation() const override;
+    std::unique_ptr<ISwapchain> createSwapchain(const NativeSurface &surface,
+                                                const SwapchainConfig &config) override;
+
     /// True once a Vulkan logical device has been created successfully.
     bool isDeviceReady() const;
 
