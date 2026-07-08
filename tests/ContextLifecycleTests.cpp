@@ -279,7 +279,7 @@ bool testResizeInvalidatesRenderTargetTexture()
 
     bool ok = expect(canvas->initializeContext(), "initializeContext should succeed");
     canvas->setSize(128, 64);
-    canvas->setRenderTargetMode(true);
+    canvas->setOutputTarget(wsc::OutputTarget::OffscreenTexture());
 
     wsc::Paint paint;
     paint.setColor(wsc::Color::WHITE);

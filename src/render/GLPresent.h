@@ -8,7 +8,7 @@
 // creates the window and GL context and makes it current; WhatsCanvas renders
 // into the default framebuffer. The GL swapchain is a thin shell whose
 // present() performs the platform buffer swap (WGL/GLX), so GL can use the same
-// Canvas::attachPresentSurface/present() API as other backends.
+// Canvas::setOutputTarget(ToWindow) / present() API as other backends.
 
 namespace wsc::gl {
 

@@ -2,7 +2,7 @@
 //
 // GL is host-owned: this example creates the window and GL context (GLFW),
 // makes it current, and lets WhatsCanvas render into the default framebuffer.
-// It then presents through the unified Canvas::attachPresentSurface/present()
+// It then presents through the unified Canvas::setOutputTarget / present() API
 // API (WGL SwapBuffers on Windows). Where the native handle is not wired
 // (non-Windows here), it falls back to glfwSwapBuffers, so the demo still runs.
 
@@ -57,7 +57,7 @@ int main()
 	surface.platform = NativeSurface::Platform::Win32;
 	surface.window = glfwGetWin32Window(window);
 #endif
-	const bool present = canvas.attachPresentSurface(surface);
+	const bool present = canvas.setOutputTarget(OutputTarget::ToWindow(surface));
 	if (!present) {
 		std::cout << "[GLPresent] Note: unified present unavailable here; using glfwSwapBuffers." << std::endl;
 	}
@@ -71,7 +71,7 @@ int main()
 		glfwGetFramebufferSize(window, &fbw, &fbh);
 		if (fbw > 0 && fbh > 0 && (fbw != canvas.getWidth() || fbh != canvas.getHeight())) {
 			canvas.setSize(fbw, fbh);
-			canvas.resizePresentSurface(fbw, fbh);
+			canvas.resizeOutput(fbw, fbh);
 		}
 
 		const float t = static_cast<float>(glfwGetTime() - start);

@@ -10,17 +10,16 @@ For releases and downloadable artifacts, see the
 ## [Unreleased]
 
 ### Added
-- Experimental on-screen presentation layer: backend-neutral `NativeSurface` /
-  `ISwapchain` / `BackendRenderTarget`, public `Canvas::attachPresentSurface` /
-  `present` / `resizePresentSurface` / `wrapBackendRenderTarget`. Backends:
-  software (Windows GDI + Linux X11), OpenGL host-owned present (WGL; guarded
-  GLX) and wrap-external into a host GL framebuffer, and **Vulkan windowed
-  present** (present-ready instance/device + swapchain, validated under the
-  Khronos validation layer). Examples: `software_present`, `gl_present`,
-  `vulkan_canvas_present`. See `doc/windowed-presentation-design.md`.
-- Vulkan wrap-external: `Canvas::wrapBackendRenderTarget` renders into a
-  host-owned `VkImage`, plus `Canvas::vulkanInstance/PhysicalDevice/Device/Queue/
-  QueueFamily` interop accessors and OpenGL FBO wrap-external.
+- Experimental presentation / output-target layer: a single `Canvas::setOutputTarget`
+  chooses where frames go — `OutputTarget::Offscreen` / `OffscreenTexture` /
+  `ToWindow` / `GLFramebuffer` / `VulkanImageTarget` — with a unified frame loop
+  (`beginFrame → draw → flush → present`; `present()` is a no-op for non-window
+  targets). Backends: software (Windows GDI + Linux X11), OpenGL (WGL; guarded
+  GLX), and **Vulkan windowed present** (present-ready instance/device +
+  swapchain, validated under the Khronos validation layer). Plus GL/Vulkan
+  wrap-external and `Canvas::vulkan*` interop accessors. Examples:
+  `software_present`, `gl_present`, `vulkan_canvas_present`. See
+  `doc/windowed-presentation-design.md`.
 - Built-in diagnostics/logging facility (`wsc/Log.h`): severity levels, an
   adjustable threshold (`Log::setLevel`), and a pluggable sink
   (`Log::setHandler`) so applications can route WhatsCanvas messages into their

@@ -1,7 +1,7 @@
 // Vulkan on-screen presentation example.
 //
 // Renders an animated WhatsCanvas frame on the Vulkan backend (off-screen) and
-// presents it to a GLFW window via Canvas::attachPresentSurface/present(), which
+// presents it to a GLFW window via Canvas::setOutputTarget(ToWindow) + present(),
 // blits the rendered image into the swapchain. Set WHATSCANVAS_MAX_FRAMES to run
 // a fixed number of frames and exit (used for automated verification).
 
@@ -58,8 +58,8 @@ int main()
 	surface.platform = NativeSurface::Platform::Win32;
 	surface.window = glfwGetWin32Window(window);
 #endif
-	if (!canvas->attachPresentSurface(surface)) {
-		std::cerr << "[VulkanPresent] FAIL: attachPresentSurface failed." << std::endl;
+	if (!canvas->setOutputTarget(OutputTarget::ToWindow(surface))) {
+		std::cerr << "[VulkanPresent] FAIL: setOutputTarget(Window) failed." << std::endl;
 		glfwTerminate();
 		return 1;
 	}

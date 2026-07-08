@@ -178,8 +178,6 @@ Public members:
 - `int getTextureHeight() const override;`
 - `bool isTextureValid() const override;`
 - `bool isRenderTarget() const override;`
-- `void setRenderTargetMode(bool enabled);`
-- `bool isRenderTargetMode() const;`
 - `RenderStats getRenderStats() const;`
 - `bool initializeContext();`
 - `void finalizeContext();`
@@ -309,11 +307,10 @@ Public members:
 - `bool savePixelsPPM(const std::string &path) const;`
 - `static std::uint64_t hashPixelsRGBA(const std::vector<unsigned char> &pixels);`
 - `std::uint64_t computePixelsHashRGBA() const;`
-- `bool isPresentable() const;`
-- `bool attachPresentSurface(const NativeSurface &surface, const SwapchainConfig &config = SwapchainConfig());`
+- `bool setOutputTarget(const OutputTarget &target);`
 - `bool present();`
-- `void resizePresentSurface(int width, int height);`
-- `bool wrapBackendRenderTarget(const BackendRenderTarget &target);`
+- `void resizeOutput(int width, int height);`
+- `bool isPresentable() const;`
 - `void *vulkanInstance() const;`
 - `void *vulkanPhysicalDevice() const;`
 - `void *vulkanDevice() const;`
@@ -689,9 +686,15 @@ _No public methods detected by the lightweight generator._
 
 _No public methods detected by the lightweight generator._
 
-### `struct BackendRenderTarget`
+### `struct OutputTarget`
 
-_No public methods detected by the lightweight generator._
+Public members:
+
+- `static OutputTarget Offscreen();`
+- `static OutputTarget OffscreenTexture();`
+- `static OutputTarget ToWindow(const NativeSurface &surface, const SwapchainConfig &config = SwapchainConfig());`
+- `static OutputTarget GLFramebuffer(unsigned int framebuffer, int width, int height);`
+- `static OutputTarget VulkanImageTarget(void *image, unsigned long long format, int width, int height);`
 
 ## `wsc/TextureSource.h`
 

@@ -59,7 +59,7 @@ int main()
 	surface.window = glfwGetWin32Window(window);
 #endif
 
-	if (!canvas->attachPresentSurface(surface)) {
+	if (!canvas->setOutputTarget(OutputTarget::ToWindow(surface))) {
 		std::cerr << "[SoftwarePresent] FAIL: attachPresentSurface failed "
 		             "(software presentation is currently Windows-only)."
 		          << std::endl;
