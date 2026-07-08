@@ -65,6 +65,7 @@ exclude_docs: |
   RELEASE_CHECKLIST.md
   VISUAL_REGRESSION.md
   vulkan-backend-roadmap.md
+  windowed-presentation-design.md
 
 nav:
   - Home: index.md
