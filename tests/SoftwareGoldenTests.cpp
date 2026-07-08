@@ -175,7 +175,7 @@ Bitmap sceneOverlapTranslucent()
     b.setAntiAlias(false);
     b.setColor(Color(0, 0, 255, 128));
     canvas->drawRect(RectF(18.0f, 18.0f, 24.0f, 24.0f), b);
-    canvas->flush();
+    canvas->endFrame();
     return readback(*canvas);
 }
 
@@ -191,7 +191,7 @@ Bitmap sceneLinearGradient()
                             Paint::ColorStop(0.5f, Color(0, 255, 0, 255)),
                             Paint::ColorStop(1.0f, Color(0, 0, 255, 255))});
     canvas->drawRect(RectF(0.0f, 0.0f, 64.0f, 32.0f), grad);
-    canvas->flush();
+    canvas->endFrame();
     return readback(*canvas);
 }
 
@@ -206,7 +206,7 @@ Bitmap sceneRadialGradient()
                            {Paint::ColorStop(0.0f, Color(255, 255, 0, 255)),
                             Paint::ColorStop(1.0f, Color(255, 0, 128, 255))});
     canvas->drawRect(RectF(0.0f, 0.0f, 48.0f, 48.0f), grad);
-    canvas->flush();
+    canvas->endFrame();
     return readback(*canvas);
 }
 
@@ -224,7 +224,7 @@ Bitmap sceneClipCircleAA()
     fill.setAntiAlias(true);
     canvas->drawRect(RectF(0.0f, 0.0f, 48.0f, 48.0f), fill);
     canvas->restore();
-    canvas->flush();
+    canvas->endFrame();
     return readback(*canvas);
 }
 
@@ -238,7 +238,7 @@ Bitmap sceneDropShadow()
     p.setAntiAlias(false);
     p.setShadowLayer(6.0f, 8.0f, 8.0f, Color(0, 0, 0, 200));
     canvas->drawRect(RectF(16.0f, 16.0f, 20.0f, 20.0f), p);
-    canvas->flush();
+    canvas->endFrame();
     return readback(*canvas);
 }
 
@@ -262,7 +262,7 @@ Bitmap sceneSaveLayer()
     red.setColor(Color(255, 0, 0, 255));
     canvas->drawRect(RectF(0.0f, 0.0f, 48.0f, 48.0f), red);
     canvas->restore();
-    canvas->flush();
+    canvas->endFrame();
     return readback(*canvas);
 }
 
@@ -286,7 +286,7 @@ Bitmap sceneBlendModes()
         p.setBlendMode(modes[i]);
         canvas->drawRect(RectF(4.0f + i * 20.0f, 6.0f, 18.0f, 20.0f), p);
     }
-    canvas->flush();
+    canvas->endFrame();
     return readback(*canvas);
 }
 
@@ -312,7 +312,7 @@ Bitmap sceneImageTint()
     Paint paint;
     paint.setColor(Color(120, 200, 255, 255)); // tint
     canvas->drawImage(image, RectF(4.0f, 4.0f, 24.0f, 24.0f), paint);
-    canvas->flush();
+    canvas->endFrame();
     return readback(*canvas);
 }
 
@@ -336,7 +336,7 @@ Bitmap sceneGammaSrcOver()
     over.setAntiAlias(false);
     over.setColor(Color(255, 0, 0, 128));
     canvas->drawRect(RectF(8.0f, 8.0f, 32.0f, 32.0f), over);
-    canvas->flush();
+    canvas->endFrame();
     Bitmap out = readback(*canvas);
     Canvas::setGammaCorrect(false);
     return out;

@@ -217,7 +217,7 @@ bool testReleaseResourcesClearsQueuedWork()
     canvas->drawRect(wsc::RectF(0.0f, 0.0f, 50.0f, 40.0f), paint);
     ok = expect(rawRenderer->commandCount() > 0, "drawRect should queue renderer work") && ok;
 
-    canvas->flush();
+    canvas->endFrame();
     ok = expect(canvas->getRenderStats().commandCount > 0, "flush should update command stats") && ok;
 
     canvas->drawRect(wsc::RectF(10.0f, 10.0f, 20.0f, 20.0f), paint);
@@ -284,7 +284,7 @@ bool testResizeInvalidatesRenderTargetTexture()
     wsc::Paint paint;
     paint.setColor(wsc::Color::WHITE);
     canvas->drawRect(wsc::RectF(0.0f, 0.0f, 32.0f, 24.0f), paint);
-    canvas->flush();
+    canvas->endFrame();
 
     ok = expect(canvas->isTextureValid(), "render target should be valid after offscreen flush") && ok;
     canvas->setSize(256, 128);

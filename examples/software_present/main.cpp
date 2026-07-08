@@ -105,7 +105,7 @@ int main()
 		label.setTextSize(26.0f);
 		canvas->drawText("WhatsCanvas - Software Present", 24.0f, 40.0f, label);
 
-		canvas->flush();
+		canvas->endFrame();
 		canvas->present();
 	}
 

@@ -9,14 +9,21 @@ For releases and downloadable artifacts, see the
 
 ## [Unreleased]
 
+### Removed
+- **Breaking (pre-1.0):** the public `Canvas::flush()` method. Use `endFrame()`
+  instead — drawing is now a symmetric `beginFrame() / endFrame()` pair.
+  `endFrame()` renders the recorded commands onto a freshly-cleared framebuffer,
+  makes them readable, and consumes them (call it exactly once per frame, right
+  before `readPixelsRGBA` / `present`). Migration: replace every `canvas.flush()`
+  with `canvas.endFrame()`.
+
 ### Changed
 - Documented the offscreen frame lifecycle to avoid a "black readback" pitfall:
-  `beginFrame → draw → flush → readPixelsRGBA` is the complete flow. `flush()`
-  renders onto a freshly-cleared framebuffer and consumes the commands, and
-  `endFrame()` is only an alias for `flush()` — calling it (a second flush) before
-  reading pixels re-clears the buffer and yields an empty image. Clarified the
-  `beginFrame`/`flush`/`endFrame` API comments and added a Get Started section and
-  a Troubleshooting entry.
+  `beginFrame → draw → endFrame → readPixelsRGBA` is the complete flow. Because
+  `endFrame()` re-clears the framebuffer before rendering the (now consumed)
+  commands, calling it twice yields an empty image. Clarified the
+  `beginFrame`/`endFrame` API comments and added a Get Started section and a
+  Troubleshooting entry.
 
 ## [0.1.13] - 2026-07-08
 

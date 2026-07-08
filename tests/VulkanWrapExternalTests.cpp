@@ -107,7 +107,7 @@ int main()
     fill.setColor(Color(255, 0, 0, 255));
     fill.setAntiAlias(false);
     canvas->drawRect(RectF(0.0f, 0.0f, static_cast<float>(W), static_cast<float>(H)), fill);
-    canvas->flush();
+    canvas->endFrame();
 
     std::vector<unsigned char> pixels;
     ok = expect(canvas->readPixelsRGBA(pixels), "readPixelsRGBA from external image") && ok;

@@ -296,7 +296,6 @@ Public members:
 - `void scale(float sx, float sy);`
 - `void rotate(float radians);`
 - `void beginFrame();`
-- `void flush();`
 - `void endFrame();`
 - `void shutdown();`
 - `bool readPixelsRGBA(std::vector<unsigned char> &pixels) const;`

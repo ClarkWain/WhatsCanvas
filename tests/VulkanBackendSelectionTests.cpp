@@ -60,7 +60,7 @@ bool testVulkanBackendSelection()
     fill.setColor(Color(255, 0, 0, 255));
     fill.setAntiAlias(false);
     canvas->drawRect(RectF(16.0f, 16.0f, 32.0f, 32.0f), fill);
-    canvas->flush();
+    canvas->endFrame();
 
     std::vector<unsigned char> pixels;
     ok = expect(canvas->readPixelsRGBA(pixels) && pixels.size() == static_cast<std::size_t>(w) * h * 4u,

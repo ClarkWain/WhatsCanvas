@@ -56,7 +56,7 @@ bool testSolidFillRasterizes()
     fill.setColor(Color(255, 0, 0, 255));
     fill.setAntiAlias(false); // crisp edges so we can assert exact colors
     canvas->drawRect(RectF(16.0f, 16.0f, 32.0f, 32.0f), fill);
-    canvas->flush();
+    canvas->endFrame();
 
     std::vector<unsigned char> pixels;
     bool ok = expect(canvas->readPixelsRGBA(pixels), "readPixelsRGBA should succeed");
@@ -101,7 +101,7 @@ bool testSrcOverBlending()
     overlay.setColor(Color(255, 0, 0, 128));
     overlay.setAntiAlias(false);
     canvas->drawRect(RectF(8.0f, 8.0f, 16.0f, 16.0f), overlay);
-    canvas->flush();
+    canvas->endFrame();
 
     std::vector<unsigned char> pixels;
     if (!canvas->readPixelsRGBA(pixels) || pixels.size() != static_cast<std::size_t>(w) * h * 4u) {
@@ -133,7 +133,7 @@ bool testLinearGradient()
                            {Paint::ColorStop(0.0f, Color(255, 0, 0, 255)),
                             Paint::ColorStop(1.0f, Color(0, 0, 255, 255))});
     canvas->drawRect(RectF(0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h)), grad);
-    canvas->flush();
+    canvas->endFrame();
 
     std::vector<unsigned char> pixels;
     if (!canvas->readPixelsRGBA(pixels) || pixels.size() != static_cast<std::size_t>(w) * h * 4u) {
@@ -166,7 +166,7 @@ bool testDrawLine()
     stroke.setAntiAlias(false);
     stroke.setStrokeColor(Color(0, 255, 0, 255));
     canvas->drawLine(0.0f, 16.0f, 32.0f, 16.0f, stroke);
-    canvas->flush();
+    canvas->endFrame();
 
     std::vector<unsigned char> pixels;
     if (!canvas->readPixelsRGBA(pixels) || pixels.size() != static_cast<std::size_t>(w) * h * 4u) {
@@ -208,7 +208,7 @@ bool testDrawImage()
     Paint paint;
     paint.setColor(Color(255, 255, 255, 255)); // white tint = show the image unchanged
     canvas->drawImage(image, 4.0f, 4.0f, paint);
-    canvas->flush();
+    canvas->endFrame();
 
     std::vector<unsigned char> pixels;
     if (!canvas->readPixelsRGBA(pixels) || pixels.size() != static_cast<std::size_t>(w) * h * 4u) {
@@ -241,7 +241,7 @@ bool testClipRect()
     fill.setAntiAlias(false);
     canvas->drawRect(RectF(0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h)), fill);
     canvas->restore();
-    canvas->flush();
+    canvas->endFrame();
 
     std::vector<unsigned char> pixels;
     if (!canvas->readPixelsRGBA(pixels) || pixels.size() != static_cast<std::size_t>(w) * h * 4u) {
@@ -275,7 +275,7 @@ bool testClipPath()
     fill.setAntiAlias(false);
     canvas->drawRect(RectF(0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h)), fill);
     canvas->restore();
-    canvas->flush();
+    canvas->endFrame();
 
     std::vector<unsigned char> pixels;
     if (!canvas->readPixelsRGBA(pixels) || pixels.size() != static_cast<std::size_t>(w) * h * 4u) {
@@ -304,7 +304,7 @@ bool testGaussianShadow()
     p.setAntiAlias(false);
     p.setShadowLayer(6.0f, 8.0f, 8.0f, Color(0, 0, 0, 200));
     canvas->drawRect(RectF(16.0f, 16.0f, 20.0f, 20.0f), p);
-    canvas->flush();
+    canvas->endFrame();
 
     std::vector<unsigned char> pixels;
     if (!canvas->readPixelsRGBA(pixels) || pixels.size() != static_cast<std::size_t>(w) * h * 4u) {
@@ -349,7 +349,7 @@ bool testSaveLayerAlpha()
     red.setAntiAlias(false);
     canvas->drawRect(RectF(8.0f, 8.0f, 16.0f, 16.0f), red);
     canvas->restore();
-    canvas->flush();
+    canvas->endFrame();
 
     std::vector<unsigned char> pixels;
     if (!canvas->readPixelsRGBA(pixels) || pixels.size() != static_cast<std::size_t>(w) * h * 4u) {
@@ -392,7 +392,7 @@ bool testSaveLayerPartial()
     // Fill the whole canvas; only the part inside the layer bounds must survive.
     canvas->drawRect(RectF(0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h)), red);
     canvas->restore();
-    canvas->flush();
+    canvas->endFrame();
 
     std::vector<unsigned char> pixels;
     if (!canvas->readPixelsRGBA(pixels) || pixels.size() != static_cast<std::size_t>(w) * h * 4u) {
@@ -435,7 +435,7 @@ bool testGammaLinearBlend()
     over.setAntiAlias(false);
     over.setColor(Color(255, 0, 0, 128));
     canvas->drawRect(RectF(0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h)), over);
-    canvas->flush();
+    canvas->endFrame();
 
     std::vector<unsigned char> pixels;
     const bool read = canvas->readPixelsRGBA(pixels) && pixels.size() == static_cast<std::size_t>(w) * h * 4u;

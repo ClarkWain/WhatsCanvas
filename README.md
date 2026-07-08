@@ -113,12 +113,12 @@ build.bat            :: Windows：构建并运行 demo（--no-run 只构建，--
 ```cpp
 #include <wsc/wsc.h>
 
-auto canvas = wsc::Canvas::create(wsc::Canvas::Backend::Software, 256, 256);   // 已尺寸就绪，flush 时自动初始化
+auto canvas = wsc::Canvas::create(wsc::Canvas::Backend::Software, 256, 256);   // 已尺寸就绪，endFrame 时自动初始化
 wsc::Paint fill;
 fill.setColor(wsc::Color(40, 120, 240, 255));
 fill.setAntiAlias(true);
 canvas->drawRoundRect(wsc::RectF(40, 40, 176, 176), 24.0f, fill);
-canvas->flush();
+canvas->endFrame();
 canvas->savePixelsPPM("first.ppm");
 ```
 

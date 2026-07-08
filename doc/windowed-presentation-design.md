@@ -91,7 +91,7 @@ VkImage img = myEngine.acquireSwapchainImage();
 canvas->wrapBackendRenderTarget(wsc::VulkanImageTarget{ img, format, w, h });
 canvas->beginFrame();
 /* draw */
-canvas->flush();
+canvas->endFrame();
 myEngine.presentSwapchainImage(img);   // present is the host's job
 ```
 
@@ -124,7 +124,7 @@ auto canvas = wsc::Canvas::createWindowed(
 while (running) {
     canvas->beginFrame();
     /* draw */
-    canvas->flush();
+    canvas->endFrame();
     canvas->present();          // resize: canvas->resize(w, h)
 }
 ```
@@ -156,7 +156,7 @@ header-only so the core library takes no hard window-library dependency.
 
 ## 6. Frame model — `present()` is a new output step, not a replacement
 
-`beginFrame` / `flush` / `endFrame` stay unchanged. `present()` is a **new step
+`beginFrame` / `endFrame` stay unchanged. `present()` is a **new step
 peer to `readPixelsRGBA`** — both answer "where does this frame's result go":
 
 | Step | Role | Offscreen | Windowed |
