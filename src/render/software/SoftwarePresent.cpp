@@ -10,6 +10,12 @@
 #include <windows.h>
 #endif
 
+#if defined(__linux__) && defined(WHATSCANVAS_HAS_X11)
+#include <cstdint>
+#include <X11/Xlib.h>
+#include <X11/Xutil.h>
+#endif
+
 namespace wsc::software {
 
 #if defined(_WIN32)
@@ -134,7 +140,123 @@ std::unique_ptr<ISwapchain> makeSoftwareSwapchain(const NativeSurface &surface, 
 	return std::make_unique<SoftwareSwapchain>(static_cast<HWND>(surface.window), std::move(source));
 }
 
-#else // !_WIN32
+#elif defined(__linux__) && defined(WHATSCANVAS_HAS_X11)
+
+// NOTE: This X11 path has NOT been compiled/validated in the current
+// development environment (Windows, no X11). It mirrors the Win32 GDI path and
+// should be verified on Linux before relying on it.
+
+bool softwarePresentSupported()
+{
+	return true;
+}
+
+bool blitRgbaTopDownToHdc(void *, const unsigned char *, int, int, int, int)
+{
+	// GDI-specific; not meaningful on X11 (the swapchain blits via XPutImage).
+	return false;
+}
+
+namespace {
+
+/// Presents a software renderer's CPU framebuffer to an X11 window via XPutImage.
+class X11SoftwareSwapchain final : public ISwapchain
+{
+public:
+	X11SoftwareSwapchain(Display *display, Window window, PixelSource source)
+		: display_(display), window_(window), source_(std::move(source))
+	{
+		gc_ = XCreateGC(display_, window_, 0, nullptr);
+		screen_ = DefaultScreen(display_);
+		visual_ = DefaultVisual(display_, screen_);
+		depth_ = static_cast<unsigned int>(DefaultDepth(display_, screen_));
+	}
+
+	~X11SoftwareSwapchain() override
+	{
+		if (gc_ != nullptr) {
+			XFreeGC(display_, gc_);
+		}
+	}
+
+	AcquiredImage acquire() override
+	{
+		return AcquiredImage{nullptr, width_, height_, true};
+	}
+
+	bool present() override
+	{
+		std::vector<unsigned char> pixels;
+		int w = 0;
+		int h = 0;
+		if (!source_ || !source_(pixels, w, h) || w <= 0 || h <= 0) {
+			return false;
+		}
+		width_ = w;
+		height_ = h;
+
+		// Convert top-left RGBA to the 32-bit BGRX layout X11 TrueColor expects
+		// on little-endian displays.
+		const std::size_t pixelCount = static_cast<std::size_t>(w) * static_cast<std::size_t>(h);
+		scratch_.resize(pixelCount * 4u);
+		for (std::size_t i = 0; i < pixelCount; ++i) {
+			scratch_[i * 4u + 0u] = pixels[i * 4u + 2u]; // B
+			scratch_[i * 4u + 1u] = pixels[i * 4u + 1u]; // G
+			scratch_[i * 4u + 2u] = pixels[i * 4u + 0u]; // R
+			scratch_[i * 4u + 3u] = 0;                   // X
+		}
+
+		XImage *image = XCreateImage(display_, visual_, depth_, ZPixmap, 0,
+		                             reinterpret_cast<char *>(scratch_.data()), static_cast<unsigned int>(w),
+		                             static_cast<unsigned int>(h), 32, 0);
+		if (image == nullptr) {
+			return false;
+		}
+		XPutImage(display_, window_, gc_, image, 0, 0, 0, 0, static_cast<unsigned int>(w),
+		          static_cast<unsigned int>(h));
+		image->data = nullptr; // scratch_ owns the buffer; don't let XDestroyImage free it
+		XDestroyImage(image);
+		XFlush(display_);
+		return true;
+	}
+
+	void resize(int width, int height) override
+	{
+		if (width > 0 && height > 0) {
+			width_ = width;
+			height_ = height;
+		}
+	}
+
+private:
+	Display *display_ = nullptr;
+	Window window_ = 0;
+	GC gc_ = nullptr;
+	int screen_ = 0;
+	Visual *visual_ = nullptr;
+	unsigned int depth_ = 24;
+	PixelSource source_;
+	std::vector<unsigned char> scratch_;
+	int width_ = 0;
+	int height_ = 0;
+};
+
+} // namespace
+
+std::unique_ptr<ISwapchain> makeSoftwareSwapchain(const NativeSurface &surface, const SwapchainConfig & /*config*/,
+                                                  PixelSource source)
+{
+	if (surface.platform != NativeSurface::Platform::Xlib || surface.display == nullptr ||
+	    surface.window == nullptr) {
+		WSC_LOG_WARN("SoftwarePresent", "X11 software presentation requires an Xlib display and window.");
+		return nullptr;
+	}
+	Display *display = static_cast<Display *>(surface.display);
+	Window window = static_cast<Window>(reinterpret_cast<std::uintptr_t>(surface.window));
+	return std::make_unique<X11SoftwareSwapchain>(display, window, std::move(source));
+}
+
+#else // unsupported platform
 
 bool softwarePresentSupported()
 {
