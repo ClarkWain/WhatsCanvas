@@ -45,13 +45,14 @@ int main()
 		return 1;
 	}
 
-	std::unique_ptr<Canvas> canvas = Canvas::createSoftware(width, height);
+	std::unique_ptr<Canvas> canvas = Canvas::create(Canvas::Backend::Software, width, height);
 	if (!canvas) {
-		std::cerr << "[SoftwarePresent] FAIL: createSoftware returned null." << std::endl;
+		std::cerr << "[SoftwarePresent] FAIL: create(Software) returned null." << std::endl;
 		glfwDestroyWindow(window);
 		glfwTerminate();
 		return 1;
 	}
+	canvas->initializeContext();
 
 	NativeSurface surface;
 #if defined(_WIN32)

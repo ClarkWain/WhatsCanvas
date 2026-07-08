@@ -2113,19 +2113,10 @@ struct Canvas::Impl
     // Render-target mode support
     bool renderTargetMode = false;
     std::shared_ptr<ImageResource> renderTargetImageResource;
-};
 
-#ifdef WHATSCANVAS_SOFTWARE_ONLY
-Canvas::Canvas()
-    : Canvas(std::make_unique<wsc::software::SoftwareRenderer>(0, 0))
-{
-}
-#else
-Canvas::Canvas()
-    : Canvas(std::make_unique<Renderer>())
-{
-}
-#endif
+    // Backend this canvas was created with (for Canvas::backend()).
+    Canvas::Backend backend = Canvas::Backend::OpenGL;
+};
 
 Canvas::Canvas(std::unique_ptr<IRenderer> renderer)
     : impl_(std::make_unique<Impl>(std::move(renderer), wsc::text::createBasicTextBackend()))
@@ -2133,39 +2124,136 @@ Canvas::Canvas(std::unique_ptr<IRenderer> renderer)
     registerCanvasInstance(this);
 }
 
+#ifdef WHATSCANVAS_SOFTWARE_ONLY
+Canvas::Canvas()
+    : Canvas(std::make_unique<wsc::software::SoftwareRenderer>(0, 0))
+{
+    impl_->backend = Backend::Software;
+}
+#else
+Canvas::Canvas()
+    : Canvas(std::make_unique<Renderer>())
+{
+    impl_->backend = Backend::OpenGL;
+}
+#endif
+
+bool Canvas::isBackendAvailable(Backend backend)
+{
+    switch (backend) {
+    case Backend::Software:
+        return true;
+#ifdef WHATSCANVAS_SOFTWARE_ONLY
+    default:
+        return false;
+#else
+    case Backend::OpenGL:
+#if defined(WHATSCANVAS_OPENGL_ES)
+        return false;
+#else
+        return true;
+#endif
+    case Backend::OpenGLES:
+#if defined(WHATSCANVAS_OPENGL_ES)
+        return true;
+#else
+        return false;
+#endif
+    case Backend::Vulkan:
+        return RenderDeviceFactory::isBackendSupported(RenderBackendType::Vulkan);
+    case Backend::Auto:
+    case Backend::Metal:
+    case Backend::Direct3D:
+    default:
+        return false;
+#endif
+    }
+}
+
+std::unique_ptr<Canvas> Canvas::create(Backend backend, int width, int height)
+{
+    std::unique_ptr<IRenderer> renderer;
+
+    switch (backend) {
+    case Backend::Auto:
+        return create({Backend::Vulkan, Backend::OpenGL, Backend::OpenGLES, Backend::Software}, width, height);
+    case Backend::Software:
+        renderer = std::make_unique<wsc::software::SoftwareRenderer>(width, height);
+        break;
+#ifndef WHATSCANVAS_SOFTWARE_ONLY
+    case Backend::OpenGL:
+    case Backend::OpenGLES: {
+        auto device = RenderDeviceFactory::create(backend == Backend::OpenGLES ? RenderBackendType::OpenGLES
+                                                                               : RenderBackendType::OpenGL);
+        if (device == nullptr) {
+            return nullptr;
+        }
+        renderer = std::make_unique<Renderer>(std::move(device));
+        break;
+    }
+    case Backend::Vulkan: {
+        auto device = RenderDeviceFactory::create(RenderBackendType::Vulkan);
+        if (device == nullptr) {
+            return nullptr;
+        }
+        renderer = std::make_unique<Renderer>(std::move(device));
+        break;
+    }
+#endif
+    default: // Metal / Direct3D (unimplemented), or GL family in a software-only build
+        return nullptr;
+    }
+
+    if (renderer == nullptr) {
+        return nullptr;
+    }
+
+    // Strategy A: sized but NOT initialized — the caller calls initializeContext().
+    std::unique_ptr<Canvas> canvas(new Canvas(std::move(renderer)));
+    canvas->impl_->backend = backend;
+    canvas->setSize(width, height);
+    return canvas;
+}
+
+std::unique_ptr<Canvas> Canvas::create(std::initializer_list<Backend> preferred, int width, int height)
+{
+    for (Backend backend : preferred) {
+        if (backend == Backend::Auto || !isBackendAvailable(backend)) {
+            continue;
+        }
+        if (auto canvas = create(backend, width, height)) {
+            return canvas;
+        }
+    }
+    return nullptr;
+}
+
+Canvas::Backend Canvas::backend() const
+{
+    return impl_->backend;
+}
+
 std::unique_ptr<Canvas> Canvas::createSoftware(int width, int height)
 {
-    std::unique_ptr<Canvas> canvas(new Canvas(std::make_unique<wsc::software::SoftwareRenderer>(width, height)));
-    canvas->setSize(width, height);
-    canvas->initializeContext();
+    auto canvas = create(Backend::Software, width, height);
+    if (canvas) {
+        canvas->initializeContext();
+    }
+    return canvas;
+}
+
+std::unique_ptr<Canvas> Canvas::createVulkan(int width, int height)
+{
+    auto canvas = create(Backend::Vulkan, width, height);
+    if (canvas) {
+        canvas->initializeContext();
+    }
     return canvas;
 }
 
 bool Canvas::isVulkanAvailable()
 {
-#ifdef WHATSCANVAS_SOFTWARE_ONLY
-    return false;
-#else
-    return RenderDeviceFactory::isBackendSupported(RenderBackendType::Vulkan);
-#endif
-}
-
-std::unique_ptr<Canvas> Canvas::createVulkan(int width, int height)
-{
-#ifdef WHATSCANVAS_SOFTWARE_ONLY
-    (void)width;
-    (void)height;
-    return nullptr;
-#else
-    auto device = RenderDeviceFactory::create(RenderBackendType::Vulkan);
-    if (device == nullptr) {
-        return nullptr;
-    }
-    std::unique_ptr<Canvas> canvas(new Canvas(std::make_unique<Renderer>(std::move(device))));
-    canvas->setSize(width, height);
-    canvas->initializeContext();
-    return canvas;
-#endif
+    return isBackendAvailable(Backend::Vulkan);
 }
 
 Canvas::~Canvas()

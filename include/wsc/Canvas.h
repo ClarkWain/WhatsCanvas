@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <initializer_list>
 #include <memory>
 #include <string>
 #include <vector>
@@ -120,28 +121,52 @@ public:
 	static bool isGammaCorrect();
 
 public:
-	Canvas();
+	/// Render backend selection for `create`. `Auto` picks the first available
+	/// of Vulkan → OpenGL/OpenGLES → Software.
+	enum class Backend
+	{
+		Auto,
+		OpenGL,
+		OpenGLES,
+		Software,
+		Vulkan,
+		Metal,
+		Direct3D,
+	};
+
 	~Canvas();
 
 	Canvas(const Canvas &) = delete;
 	Canvas &operator=(const Canvas &) = delete;
 
-	/// Create a Canvas backed by the pure-CPU software rasterizer (no GPU or
-	/// graphics context required). The returned canvas is sized and its context
-	/// initialized; render a frame, then read the result with `readPixelsRGBA`.
+	/// Convenience: default-construct a canvas on the build's default backend
+	/// (OpenGL, or Software in a software-only build), unsized and uninitialized.
+	/// Prefer `create(Backend, w, h)` for explicit backend selection.
+	Canvas();
+
+	/// Create a canvas on `backend`, sized to width×height. Returns nullptr when
+	/// the backend is unavailable in this build/host. The canvas is sized but
+	/// NOT initialized — call `initializeContext()` before drawing. For the
+	/// OpenGL backends, make your GL context current and call `loadOpenGL`
+	/// first; software/Vulkan need no external context.
+	static std::unique_ptr<Canvas> create(Backend backend, int width, int height);
+
+	/// Create a canvas on the first available backend from `preferred`, or
+	/// nullptr if none are available.
+	static std::unique_ptr<Canvas> create(std::initializer_list<Backend> preferred, int width, int height);
+
+	/// Whether `backend` can be created in this build/host.
+	static bool isBackendAvailable(Backend backend);
+
+	/// The backend this canvas was created with.
+	Backend backend() const;
+
+	// Convenience shortcuts over `create` for the two context-free backends,
+	// equivalent to `create(Backend::X, w, h)` then `initializeContext()`.
 	static std::unique_ptr<Canvas> createSoftware(int width, int height);
-
-	/// Whether the Vulkan render backend is available in this build (compiled
-	/// with a Vulkan SDK) and a compatible device is present. Safe to call
-	/// without a GPU; returns false when Vulkan is unavailable.
-	static bool isVulkanAvailable();
-
-	/// Create a Canvas backed by the Vulkan render backend. Renders off-screen
-	/// (no window or surface required); the returned canvas is sized and its
-	/// context initialized. Returns nullptr when Vulkan is unavailable
-	/// (`isVulkanAvailable()` is false) — callers should fall back to another
-	/// backend such as `createSoftware`.
 	static std::unique_ptr<Canvas> createVulkan(int width, int height);
+	/// Whether the Vulkan backend is available (== isBackendAvailable(Backend::Vulkan)).
+	static bool isVulkanAvailable();
 
 	// ITextureSource interface
 	int getTextureWidth() const override { return getWidth(); }

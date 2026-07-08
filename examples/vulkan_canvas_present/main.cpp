@@ -26,7 +26,7 @@ using namespace wsc;
 
 int main()
 {
-	if (!Canvas::isVulkanAvailable()) {
+	if (!Canvas::isBackendAvailable(Canvas::Backend::Vulkan)) {
 		std::cout << "[VulkanPresent] Vulkan not available on this machine; skipping." << std::endl;
 		return 0;
 	}
@@ -46,12 +46,13 @@ int main()
 		return 1;
 	}
 
-	std::unique_ptr<Canvas> canvas = Canvas::createVulkan(width, height);
+	std::unique_ptr<Canvas> canvas = Canvas::create(Canvas::Backend::Vulkan, width, height);
 	if (!canvas) {
-		std::cerr << "[VulkanPresent] FAIL: createVulkan returned null." << std::endl;
+		std::cerr << "[VulkanPresent] FAIL: create(Vulkan) returned null." << std::endl;
 		glfwTerminate();
 		return 1;
 	}
+	canvas->initializeContext();
 
 	NativeSurface surface;
 #if defined(_WIN32)
