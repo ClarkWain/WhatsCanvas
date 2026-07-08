@@ -53,6 +53,7 @@ public:
     bool supportsPresentation() const override;
     std::unique_ptr<ISwapchain> createSwapchain(const NativeSurface &surface,
                                                 const SwapchainConfig &config) override;
+    bool wrapBackendRenderTarget(const BackendRenderTarget &target) override;
 
 private:
     // Renders the recorded frame through the device's command-execution path

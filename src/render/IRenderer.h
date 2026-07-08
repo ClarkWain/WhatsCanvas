@@ -59,4 +59,9 @@ public:
     /// real swapchain yet.
     virtual std::unique_ptr<ISwapchain> createSwapchain(const NativeSurface & /*surface*/,
                                                         const SwapchainConfig & /*config*/) { return nullptr; }
+
+    /// Draw subsequent frames into a host-owned backend render target
+    /// (Skia-style wrap-external). Returns false when unsupported. Scaffolding:
+    /// no backend accepts an external target yet.
+    virtual bool wrapBackendRenderTarget(const BackendRenderTarget & /*target*/) { return false; }
 };

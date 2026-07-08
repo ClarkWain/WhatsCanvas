@@ -180,6 +180,11 @@ std::unique_ptr<ISwapchain> Renderer::createSwapchain(const NativeSurface &surfa
     return device_ == nullptr ? nullptr : device_->createSwapchain(surface, config);
 }
 
+bool Renderer::wrapBackendRenderTarget(const BackendRenderTarget &target)
+{
+    return device_ != nullptr && device_->wrapBackendRenderTarget(target);
+}
+
 SharedImageResource Renderer::renderCommandsToImageResource(const std::vector<std::unique_ptr<Command>> &commands,
                                                             const OffscreenRenderRequest &request) const
 {

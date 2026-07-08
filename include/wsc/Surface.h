@@ -33,4 +33,27 @@ struct SwapchainConfig
 	int imageCount = 3;
 };
 
+/// A host-owned backend render target to draw into directly (Skia-style
+/// wrap-external). Lets an existing engine hand WhatsCanvas the current frame's
+/// target instead of the library owning a swapchain. Only the fields for the
+/// active `kind` are meaningful.
+struct BackendRenderTarget
+{
+	enum class Kind
+	{
+		None,
+		OpenGLFramebuffer, ///< `glFramebuffer` is a GL FBO name (0 = default).
+		VulkanImage,       ///< `nativeHandle` is a VkImage; `nativeFormat` a VkFormat.
+		MetalTexture,      ///< `nativeHandle` is an id<MTLTexture>.
+		D3DTexture,        ///< `nativeHandle` is an ID3D11Texture2D* / D3D12 resource.
+	};
+
+	Kind kind = Kind::None;
+	unsigned int glFramebuffer = 0;         ///< OpenGLFramebuffer.
+	void *nativeHandle = nullptr;           ///< VkImage / id<MTLTexture> / D3D texture.
+	unsigned long long nativeFormat = 0;    ///< Backend format enum (e.g. VkFormat).
+	int width = 0;
+	int height = 0;
+};
+
 } // namespace wsc
