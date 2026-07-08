@@ -786,6 +786,26 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     )
     set_tests_properties(WhatsCanvasSoftwareGoldenTests PROPERTIES LABELS "unit;diagnostics")
 
+    add_executable(WhatsCanvasSoftwarePresentTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/SoftwarePresentTests.cpp"
+    )
+    target_include_directories(WhatsCanvasSoftwarePresentTests PRIVATE
+        "${SRC_DIR}"
+    )
+    target_link_libraries(WhatsCanvasSoftwarePresentTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasSoftwarePresentTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasSoftwarePresentTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasSoftwarePresentTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasSoftwarePresentTests PROPERTIES LABELS "unit;diagnostics")
+
     add_executable(WhatsCanvasVulkanBackendSelectionTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/VulkanBackendSelectionTests.cpp"
     )

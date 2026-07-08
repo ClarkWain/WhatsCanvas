@@ -8,6 +8,7 @@
 #include "command/DrawCommand.h"
 #include "render/GammaCorrect.h"
 #include "render/GaussianKernel.h"
+#include "render/software/SoftwarePresent.h"
 
 namespace wsc::software {
 namespace {
@@ -1172,6 +1173,27 @@ void SoftwareRenderer::flush()
     stats_.drawCallCount += commands_.size();
     ClipCache cache;
     executeCommandList(framebuffer_.data(), width_, height_, height_, glm::mat4(1.0f), commands_, &cache);
+}
+
+bool SoftwareRenderer::supportsPresentation() const
+{
+    return softwarePresentSupported();
+}
+
+std::unique_ptr<ISwapchain> SoftwareRenderer::createSwapchain(const NativeSurface &surface,
+                                                             const SwapchainConfig &config)
+{
+    // The swapchain must not outlive this renderer; it reads the CPU framebuffer
+    // on demand via readPixelsRGBA.
+    PixelSource source = [this](std::vector<unsigned char> &pixels, int &w, int &h) -> bool {
+        if (!readPixelsRGBA(pixels)) {
+            return false;
+        }
+        w = width_;
+        h = height_;
+        return true;
+    };
+    return makeSoftwareSwapchain(surface, config, std::move(source));
 }
 
 } // namespace wsc::software
