@@ -9,6 +9,8 @@ For releases and downloadable artifacts, see the
 
 ## [Unreleased]
 
+## [0.1.12] - 2026-07-08
+
 ### Added
 - Unified backend creation: `Canvas::create(Backend, width, height)` (plus a
   preference-list overload `Canvas::create({...}, w, h)`), `Backend backend()`,
@@ -70,5 +72,6 @@ For releases and downloadable artifacts, see the
 For changes prior to 0.1.11, see the
 [GitHub Releases](https://github.com/ClarkWain/WhatsCanvas/releases) history.
 
-[Unreleased]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.11...HEAD
+[Unreleased]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.12...HEAD
+[0.1.12]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.11...v0.1.12
 [0.1.11]: https://github.com/ClarkWain/WhatsCanvas/releases/tag/v0.1.11
