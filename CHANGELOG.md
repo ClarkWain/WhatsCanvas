@@ -9,6 +9,15 @@ For releases and downloadable artifacts, see the
 
 ## [Unreleased]
 
+### Changed
+- Documented the offscreen frame lifecycle to avoid a "black readback" pitfall:
+  `beginFrame → draw → flush → readPixelsRGBA` is the complete flow. `flush()`
+  renders onto a freshly-cleared framebuffer and consumes the commands, and
+  `endFrame()` is only an alias for `flush()` — calling it (a second flush) before
+  reading pixels re-clears the buffer and yields an empty image. Clarified the
+  `beginFrame`/`flush`/`endFrame` API comments and added a Get Started section and
+  a Troubleshooting entry.
+
 ## [0.1.13] - 2026-07-08
 
 ### Fixed

@@ -334,11 +334,21 @@ public:
 	void rotate(float radians);
 
 	// Frame and pixel readback helpers.
-	/// Begin a frame of drawing (optional; draws auto-begin a frame).
+	/// Begin a frame of drawing (optional; draws auto-begin a frame). Clears the
+	/// framebuffer to transparent, so only call it before recording a frame's
+	/// draws — never after, or you will wipe what you just drew.
 	void beginFrame();
-	/// Submit all recorded drawing to the backend. Required before reading pixels
-	/// or using this Canvas as a texture source.
+	/// Submit all recorded drawing to the backend and make it readable. Required
+	/// before reading pixels or using this Canvas as a texture source. flush()
+	/// renders the recorded commands onto a freshly-cleared framebuffer and then
+	/// consumes them, so calling it again with no new draws yields an empty frame.
 	void flush();
+	/// Alias for flush() that marks the end of a frame. It is NOT an extra
+	/// required step: for offscreen readback use
+	/// `beginFrame -> draw -> flush -> readPixelsRGBA` and do NOT call endFrame()
+	/// afterwards — a second flush with no new draws re-clears the framebuffer,
+	/// so you would read back an empty (transparent/black) image. Use it only as
+	/// an explicit boundary right before drawing the next frame.
 	void endFrame();
 	void shutdown();
 	/// Read the rendered image back as top-left-origin RGBA bytes.
