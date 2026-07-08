@@ -9,6 +9,14 @@ For releases and downloadable artifacts, see the
 
 ## [Unreleased]
 
+### Fixed
+- Windows prebuilt-binary portability: compile with `_USE_STD_VECTOR_ALGORITHMS=0`
+  so the shipped libraries do not reference toolset-version-specific MSVC STL
+  helpers (`__std_min_element_f_` / `__std_max_element_f_`). Previously a package
+  built on a newer CI toolchain failed to link on a consumer's older Visual
+  Studio with `LNK2019`. The Windows packaging job is pinned to `windows-2022`,
+  and `doc/TROUBLESHOOTING.md` documents the symptom and fixes.
+
 ## [0.1.12] - 2026-07-08
 
 ### Added
