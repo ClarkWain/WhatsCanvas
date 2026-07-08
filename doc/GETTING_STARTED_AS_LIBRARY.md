@@ -441,14 +441,60 @@ Runnable demos:
 ### Embed into an existing renderer (wrap-external)
 
 If your app already owns a GPU context, let WhatsCanvas draw into *your* render
-target instead of owning a swapchain:
+target instead of owning a swapchain. Call `wrapBackendRenderTarget` before each
+frame; there is no `present()` — your engine composites/presents its own target.
 
-- **OpenGL:** pass your framebuffer object —
-  `canvas.wrapBackendRenderTarget({ /*kind*/ OpenGLFramebuffer, /*glFramebuffer*/ fbo, w, h })`,
-  then draw; WhatsCanvas renders into your FBO.
-- **Vulkan:** allocate an `R8G8B8A8_UNORM` `VkImage` (with `COLOR_ATTACHMENT`
-  usage) on the canvas's device — obtained via `canvas.vulkanDevice()` /
-  `canvas.vulkanPhysicalDevice()` — and pass it as a `VulkanImage` target.
+**OpenGL** — pass your framebuffer object (your GL context must be current, and
+`Canvas::loadOpenGL` called once, as in section 2):
+
+```cpp
+wsc::Canvas canvas;                 // default = OpenGL backend
+canvas.setSize(width, height);
+canvas.initializeContext();
+
+wsc::BackendRenderTarget target;
+target.kind          = wsc::BackendRenderTarget::Kind::OpenGLFramebuffer;
+target.glFramebuffer = myFbo;       // your GL framebuffer object (0 = default)
+target.width         = width;
+target.height        = height;
+
+while (running) {
+    canvas.wrapBackendRenderTarget(target);   // draw into your FBO this frame
+    canvas.beginFrame();
+    /* draw ... */
+    canvas.flush();                           // your engine then uses/presents myFbo
+}
+```
+
+**Vulkan** — allocate an `R8G8B8A8_UNORM` `VkImage` (with `COLOR_ATTACHMENT`
+usage) on the canvas's Vulkan device, obtained via the interop accessors:
+
+```cpp
+auto canvas = wsc::Canvas::createVulkan(width, height);
+
+// Host code: create the image on the canvas's device.
+VkDevice         dev = static_cast<VkDevice>(canvas->vulkanDevice());
+VkPhysicalDevice pd  = static_cast<VkPhysicalDevice>(canvas->vulkanPhysicalDevice());
+VkImage hostImage = /* vkCreateImage(dev, ... R8G8B8A8_UNORM, COLOR_ATTACHMENT ...) + bind memory */;
+
+wsc::BackendRenderTarget target;
+target.kind         = wsc::BackendRenderTarget::Kind::VulkanImage;
+target.nativeHandle = reinterpret_cast<void *>(hostImage);
+target.nativeFormat = VK_FORMAT_R8G8B8A8_UNORM;
+target.width        = width;
+target.height       = height;
+
+while (running) {
+    canvas->wrapBackendRenderTarget(target);
+    canvas->beginFrame();
+    /* draw ... */
+    canvas->flush();                          // hostImage now holds the rendered frame
+}
+```
+
+See [`tests/VulkanWrapExternalTests.cpp`](../tests/VulkanWrapExternalTests.cpp)
+for a complete, runnable Vulkan wrap-external example (image allocation +
+readback verification).
 
 ---
 
