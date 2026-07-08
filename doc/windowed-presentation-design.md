@@ -285,7 +285,11 @@ is **already at parity and needs no change**.
    (`readbackImage`) into the acquired swapchain image. Validated on hardware
    via `examples/vulkan_canvas_present` (clean under the Khronos validation
    layer). Reuses the entire existing offscreen renderer.
-3. **Vulkan `wrapBackendRenderTarget`** core path (embeddable target).
+3. ~~**Vulkan `wrapBackendRenderTarget`**~~ **done** — renders into a host-owned
+   `VkImage` allocated on the canvas's Vulkan device (exposed via
+   `Canvas::vulkanDevice()` etc.). `executeCommands` redirects into the external
+   target. Verified via `tests/VulkanWrapExternalTests` (validation-clean).
+   Importing a *foreign* host device is a further step.
 4. ~~**OpenGL** host-owned thin-shell `ISwapchain`~~ **done** (WGL swap; GLX
    guarded/unverified) and **wrap-external into a host GL framebuffer** done.
 5. Future: **D3D / Metal** against the same interface; mobile surface-lifecycle

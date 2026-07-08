@@ -314,6 +314,11 @@ Public members:
 - `bool present();`
 - `void resizePresentSurface(int width, int height);`
 - `bool wrapBackendRenderTarget(const BackendRenderTarget &target);`
+- `void *vulkanInstance() const;`
+- `void *vulkanPhysicalDevice() const;`
+- `void *vulkanDevice() const;`
+- `void *vulkanQueue() const;`
+- `unsigned int vulkanQueueFamily() const;`
 
 ## `wsc/CanvasAdapter.h`
 

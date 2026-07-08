@@ -4836,6 +4836,31 @@ bool Canvas::wrapBackendRenderTarget(const BackendRenderTarget &target)
     return impl_->renderer && impl_->renderer->wrapBackendRenderTarget(target);
 }
 
+void *Canvas::vulkanInstance() const
+{
+    return impl_->renderer ? reinterpret_cast<void *>(impl_->renderer->nativeHandle(0)) : nullptr;
+}
+
+void *Canvas::vulkanPhysicalDevice() const
+{
+    return impl_->renderer ? reinterpret_cast<void *>(impl_->renderer->nativeHandle(1)) : nullptr;
+}
+
+void *Canvas::vulkanDevice() const
+{
+    return impl_->renderer ? reinterpret_cast<void *>(impl_->renderer->nativeHandle(2)) : nullptr;
+}
+
+void *Canvas::vulkanQueue() const
+{
+    return impl_->renderer ? reinterpret_cast<void *>(impl_->renderer->nativeHandle(3)) : nullptr;
+}
+
+unsigned int Canvas::vulkanQueueFamily() const
+{
+    return impl_->renderer ? static_cast<unsigned int>(impl_->renderer->nativeHandle(4)) : 0u;
+}
+
 bool Canvas::readPixelsRGBAAsync(ReadPixelsCallback callback)
 {
 #ifdef WHATSCANVAS_SOFTWARE_ONLY

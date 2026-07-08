@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -63,6 +64,16 @@ public:
     bool supportsPresentation() const override;
     std::unique_ptr<ISwapchain> createSwapchain(const NativeSurface &surface,
                                                 const SwapchainConfig &config) override;
+
+    // Skia-style wrap-external: render into a host-owned VkImage (created on this
+    // device; format must be VK_FORMAT_R8G8B8A8_UNORM with COLOR_ATTACHMENT usage).
+    bool wrapBackendRenderTarget(const BackendRenderTarget &target) override;
+
+    /// Raw Vulkan handle accessor for advanced interop (e.g. allocating a
+    /// wrap-external image on this device). `which`: 0=instance, 1=physical
+    /// device, 2=device, 3=graphics queue, 4=graphics queue family. Returns 0
+    /// when Vulkan is unavailable.
+    std::uintptr_t nativeHandle(int which) const override;
 
     /// True once a Vulkan logical device has been created successfully.
     bool isDeviceReady() const;

@@ -185,6 +185,11 @@ bool Renderer::wrapBackendRenderTarget(const BackendRenderTarget &target)
     return device_ != nullptr && device_->wrapBackendRenderTarget(target);
 }
 
+std::uintptr_t Renderer::nativeHandle(int which) const
+{
+    return device_ == nullptr ? 0 : device_->nativeHandle(which);
+}
+
 SharedImageResource Renderer::renderCommandsToImageResource(const std::vector<std::unique_ptr<Command>> &commands,
                                                             const OffscreenRenderRequest &request) const
 {

@@ -363,6 +363,15 @@ public:
 	/// when the backend does not support external targets.
 	bool wrapBackendRenderTarget(const BackendRenderTarget &target);
 
+	// Advanced Vulkan interop. These return the raw handles of the Vulkan
+	// backend (as opaque pointers), or null / 0 for non-Vulkan canvases. Useful
+	// e.g. to allocate a wrap-external image on this canvas's Vulkan device.
+	void *vulkanInstance() const;
+	void *vulkanPhysicalDevice() const;
+	void *vulkanDevice() const;
+	void *vulkanQueue() const;
+	unsigned int vulkanQueueFamily() const;
+
 private:
 	friend class CanvasLifecycleTestAccess;
 	explicit Canvas(std::unique_ptr<::IRenderer> renderer);

@@ -174,10 +174,17 @@ struct VulkanRenderDevice::VulkanContext
 
     std::size_t renderTargetCount = 0;
 
+    // Host-owned external render target (wrap-external). When set, executeCommands
+    // renders into it instead of the device-created main target.
+    std::unique_ptr<IRenderTarget> externalRenderTarget;
+
     ~VulkanContext() { destroy(); }
 
     void destroy()
     {
+        // Release the external render target first (it owns view/renderpass/
+        // framebuffer on this device, but not the host's image).
+        externalRenderTarget.reset();
         if (device != VK_NULL_HANDLE) {
             vkDeviceWaitIdle(device);
             for (CachedPipeline &entry : pipelineCache) {
@@ -1428,7 +1435,8 @@ class VulkanRenderTarget final : public IRenderTarget
 {
 public:
     VulkanRenderTarget(VulkanRenderDevice::VulkanContext *context, int width, int height, VkImage image,
-                       VkDeviceMemory memory, VkImageView view, VkRenderPass renderPass, VkFramebuffer framebuffer)
+                       VkDeviceMemory memory, VkImageView view, VkRenderPass renderPass, VkFramebuffer framebuffer,
+                       bool ownsImage = true)
         : context_(context),
           width_(width),
           height_(height),
@@ -1437,6 +1445,7 @@ public:
           view_(view),
           renderPass_(renderPass),
           framebuffer_(framebuffer),
+          ownsImage_(ownsImage),
           imageResource_(std::make_shared<VulkanImageResource>(image, width, height))
     {
         if (context_) {
@@ -1465,7 +1474,7 @@ public:
         if (view_ != VK_NULL_HANDLE) {
             vkDestroyImageView(context_->device, view_, nullptr);
         }
-        if (image_ != VK_NULL_HANDLE) {
+        if (ownsImage_ && image_ != VK_NULL_HANDLE) {
             vkDestroyImage(context_->device, image_, nullptr);
         }
         if (memory_ != VK_NULL_HANDLE) {
@@ -1557,6 +1566,7 @@ private:
     VkRenderPass renderPass_ = VK_NULL_HANDLE;
     VkFramebuffer framebuffer_ = VK_NULL_HANDLE;
     VkImageLayout layout_ = VK_IMAGE_LAYOUT_UNDEFINED;
+    bool ownsImage_ = true;
     SharedImageResource imageResource_;
     bool begun_ = false;
     bool activated_ = false;
@@ -2296,6 +2306,118 @@ std::unique_ptr<ISwapchain> VulkanRenderDevice::createSwapchain(const NativeSurf
 #endif
 }
 
+bool VulkanRenderDevice::wrapBackendRenderTarget(const BackendRenderTarget &target)
+{
+    if (!context_ || !context_->deviceReady) {
+        return false;
+    }
+    if (target.kind == BackendRenderTarget::Kind::None) {
+        context_->externalRenderTarget.reset();
+        return true;
+    }
+    if (target.kind != BackendRenderTarget::Kind::VulkanImage || target.nativeHandle == nullptr ||
+        target.width <= 0 || target.height <= 0) {
+        WSC_LOG_WARN("VulkanRenderDevice", "wrapBackendRenderTarget requires a VulkanImage target.");
+        return false;
+    }
+
+    VkDevice device = context_->device;
+    VkImage image = reinterpret_cast<VkImage>(target.nativeHandle);
+    VkImageView view = VK_NULL_HANDLE;
+    VkRenderPass renderPass = VK_NULL_HANDLE;
+    VkFramebuffer framebuffer = VK_NULL_HANDLE;
+
+    auto cleanup = [&]() {
+        if (framebuffer != VK_NULL_HANDLE) vkDestroyFramebuffer(device, framebuffer, nullptr);
+        if (renderPass != VK_NULL_HANDLE) vkDestroyRenderPass(device, renderPass, nullptr);
+        if (view != VK_NULL_HANDLE) vkDestroyImageView(device, view, nullptr);
+    };
+
+    VkImageViewCreateInfo viewInfo{};
+    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewInfo.image = image;
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.format = kRenderTargetFormat; // host image must be R8G8B8A8_UNORM
+    viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    viewInfo.subresourceRange.levelCount = 1;
+    viewInfo.subresourceRange.layerCount = 1;
+    if (vkCreateImageView(device, &viewInfo, nullptr, &view) != VK_SUCCESS) {
+        WSC_LOG_ERROR("VulkanRenderDevice", "wrapBackendRenderTarget: vkCreateImageView failed.");
+        return false;
+    }
+
+    VkAttachmentDescription colorAttachment{};
+    colorAttachment.format = kRenderTargetFormat;
+    colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    colorAttachment.finalLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+
+    VkAttachmentReference colorRef{};
+    colorRef.attachment = 0;
+    colorRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    VkSubpassDescription subpass{};
+    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.colorAttachmentCount = 1;
+    subpass.pColorAttachments = &colorRef;
+
+    VkRenderPassCreateInfo renderPassInfo{};
+    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    renderPassInfo.attachmentCount = 1;
+    renderPassInfo.pAttachments = &colorAttachment;
+    renderPassInfo.subpassCount = 1;
+    renderPassInfo.pSubpasses = &subpass;
+    if (vkCreateRenderPass(device, &renderPassInfo, nullptr, &renderPass) != VK_SUCCESS) {
+        cleanup();
+        WSC_LOG_ERROR("VulkanRenderDevice", "wrapBackendRenderTarget: vkCreateRenderPass failed.");
+        return false;
+    }
+
+    VkFramebufferCreateInfo framebufferInfo{};
+    framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+    framebufferInfo.renderPass = renderPass;
+    framebufferInfo.attachmentCount = 1;
+    framebufferInfo.pAttachments = &view;
+    framebufferInfo.width = static_cast<std::uint32_t>(target.width);
+    framebufferInfo.height = static_cast<std::uint32_t>(target.height);
+    framebufferInfo.layers = 1;
+    if (vkCreateFramebuffer(device, &framebufferInfo, nullptr, &framebuffer) != VK_SUCCESS) {
+        cleanup();
+        WSC_LOG_ERROR("VulkanRenderDevice", "wrapBackendRenderTarget: vkCreateFramebuffer failed.");
+        return false;
+    }
+
+    context_->externalRenderTarget = std::make_unique<VulkanRenderTarget>(
+        context_.get(), target.width, target.height, image, VK_NULL_HANDLE, view, renderPass, framebuffer,
+        /*ownsImage=*/false);
+    return true;
+}
+
+std::uintptr_t VulkanRenderDevice::nativeHandle(int which) const
+{
+    if (!context_ || !context_->deviceReady) {
+        return 0;
+    }
+    switch (which) {
+    case 0:
+        return reinterpret_cast<std::uintptr_t>(context_->instance);
+    case 1:
+        return reinterpret_cast<std::uintptr_t>(context_->physicalDevice);
+    case 2:
+        return reinterpret_cast<std::uintptr_t>(context_->device);
+    case 3:
+        return reinterpret_cast<std::uintptr_t>(context_->graphicsQueue);
+    case 4:
+        return static_cast<std::uintptr_t>(context_->graphicsQueueFamily);
+    default:
+        return 0;
+    }
+}
+
 #else // !WHATSCANVAS_ENABLE_VULKAN
 
 bool VulkanRenderDevice::supportsPresentation() const
@@ -2307,6 +2429,16 @@ std::unique_ptr<ISwapchain> VulkanRenderDevice::createSwapchain(const NativeSurf
                                                                 const SwapchainConfig & /*config*/)
 {
     return nullptr;
+}
+
+bool VulkanRenderDevice::wrapBackendRenderTarget(const BackendRenderTarget & /*target*/)
+{
+    return false;
+}
+
+std::uintptr_t VulkanRenderDevice::nativeHandle(int /*which*/) const
+{
+    return 0;
 }
 
 #endif
@@ -3892,10 +4024,13 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
                                          const OffscreenRenderRequest &request) const
 {
 #if defined(WHATSCANVAS_ENABLE_VULKAN)
-    if (!context_ || !context_->deviceReady || !target) {
+    if (!context_ || !context_->deviceReady) {
         return false;
     }
-    auto *rt = dynamic_cast<VulkanRenderTarget *>(target.get());
+    // Redirect into a host-owned external target when wrap-external is active.
+    auto *rt = context_->externalRenderTarget
+                   ? dynamic_cast<VulkanRenderTarget *>(context_->externalRenderTarget.get())
+                   : (target ? dynamic_cast<VulkanRenderTarget *>(target.get()) : nullptr);
     if (rt == nullptr || !rt->isValid()) {
         return false;
     }

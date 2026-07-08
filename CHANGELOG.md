@@ -18,6 +18,9 @@ For releases and downloadable artifacts, see the
   present** (present-ready instance/device + swapchain, validated under the
   Khronos validation layer). Examples: `software_present`, `gl_present`,
   `vulkan_canvas_present`. See `doc/windowed-presentation-design.md`.
+- Vulkan wrap-external: `Canvas::wrapBackendRenderTarget` renders into a
+  host-owned `VkImage`, plus `Canvas::vulkanInstance/PhysicalDevice/Device/Queue/
+  QueueFamily` interop accessors and OpenGL FBO wrap-external.
 - Built-in diagnostics/logging facility (`wsc/Log.h`): severity levels, an
   adjustable threshold (`Log::setLevel`), and a pluggable sink
   (`Log::setHandler`) so applications can route WhatsCanvas messages into their
