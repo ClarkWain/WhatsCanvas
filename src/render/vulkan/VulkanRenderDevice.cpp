@@ -17,6 +17,13 @@
 #include <cstring>
 #include <optional>
 
+#if defined(_WIN32)
+#define VK_USE_PLATFORM_WIN32_KHR
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#endif
+
 #include <vulkan/vulkan.h>
 
 #include "shaders/SolidShaderSpv.h"
@@ -102,6 +109,7 @@ struct VulkanRenderDevice::VulkanContext
     VkCommandPool commandPool = VK_NULL_HANDLE;
     std::string physicalDeviceName;
     bool deviceReady = false;
+    bool presentCapable = false; // surface + swapchain extensions enabled
 
     // M3/M4 solid-color graphics pipelines (lazily created against a render
     // pass), cached per (topology, blend mode).
@@ -1787,9 +1795,38 @@ void VulkanRenderDevice::initializeBackend()
     appInfo.engineVersion = VK_MAKE_VERSION(0, 1, 0);
     appInfo.apiVersion = VK_API_VERSION_1_1;
 
+    // Enable surface extensions when available so the device can present to a
+    // window; their absence keeps the instance headless (offscreen only).
+    std::vector<const char *> instanceExtensions;
+    {
+        std::uint32_t count = 0;
+        vkEnumerateInstanceExtensionProperties(nullptr, &count, nullptr);
+        std::vector<VkExtensionProperties> available(count);
+        if (count > 0) {
+            vkEnumerateInstanceExtensionProperties(nullptr, &count, available.data());
+        }
+        auto has = [&](const char *name) {
+            for (const auto &e : available) {
+                if (std::strcmp(e.extensionName, name) == 0) {
+                    return true;
+                }
+            }
+            return false;
+        };
+#if defined(_WIN32)
+        if (has(VK_KHR_SURFACE_EXTENSION_NAME) && has(VK_KHR_WIN32_SURFACE_EXTENSION_NAME)) {
+            instanceExtensions.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
+            instanceExtensions.push_back(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
+        }
+#endif
+    }
+    const bool instanceHasSurface = !instanceExtensions.empty();
+
     VkInstanceCreateInfo instanceInfo{};
     instanceInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     instanceInfo.pApplicationInfo = &appInfo;
+    instanceInfo.enabledExtensionCount = static_cast<std::uint32_t>(instanceExtensions.size());
+    instanceInfo.ppEnabledExtensionNames = instanceExtensions.empty() ? nullptr : instanceExtensions.data();
 
     if (vkCreateInstance(&instanceInfo, nullptr, &context_->instance) != VK_SUCCESS) {
         WSC_LOG_ERROR("VulkanRenderDevice", "Failed to create Vulkan instance.");
@@ -1846,11 +1883,35 @@ void VulkanRenderDevice::initializeBackend()
 
     VkPhysicalDeviceFeatures deviceFeatures{};
 
+    // Enable the swapchain extension when the instance is surface-capable and the
+    // device supports it, so this device can present to a window.
+    std::vector<const char *> deviceExtensions;
+    bool deviceHasSwapchain = false;
+    if (instanceHasSurface) {
+        std::uint32_t count = 0;
+        vkEnumerateDeviceExtensionProperties(context_->physicalDevice, nullptr, &count, nullptr);
+        std::vector<VkExtensionProperties> available(count);
+        if (count > 0) {
+            vkEnumerateDeviceExtensionProperties(context_->physicalDevice, nullptr, &count, available.data());
+        }
+        for (const auto &e : available) {
+            if (std::strcmp(e.extensionName, VK_KHR_SWAPCHAIN_EXTENSION_NAME) == 0) {
+                deviceHasSwapchain = true;
+                break;
+            }
+        }
+        if (deviceHasSwapchain) {
+            deviceExtensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+        }
+    }
+
     VkDeviceCreateInfo deviceInfo{};
     deviceInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     deviceInfo.queueCreateInfoCount = 1;
     deviceInfo.pQueueCreateInfos = &queueInfo;
     deviceInfo.pEnabledFeatures = &deviceFeatures;
+    deviceInfo.enabledExtensionCount = static_cast<std::uint32_t>(deviceExtensions.size());
+    deviceInfo.ppEnabledExtensionNames = deviceExtensions.empty() ? nullptr : deviceExtensions.data();
 
     if (vkCreateDevice(context_->physicalDevice, &deviceInfo, nullptr, &context_->device) != VK_SUCCESS) {
         WSC_LOG_ERROR("VulkanRenderDevice", "Failed to create Vulkan logical device.");
@@ -1870,6 +1931,7 @@ void VulkanRenderDevice::initializeBackend()
     }
 
     context_->deviceReady = true;
+    context_->presentCapable = instanceHasSurface && deviceHasSwapchain;
     backendInitialized_ = true;
 
     WSC_LOG_INFO("VulkanRenderDevice", "Initialized on device: " << context_->physicalDeviceName);
@@ -1906,24 +1968,348 @@ bool VulkanRenderDevice::isDeviceReady() const
 #endif
 }
 
+#if defined(WHATSCANVAS_ENABLE_VULKAN)
+
+// Presents the render device's most-recently-rendered offscreen image
+// (context_->readbackImage) to a window by blitting it into the acquired
+// swapchain image. Reuses the entire existing Vulkan renderer; only adds the
+// surface/swapchain and a per-frame blit.
+class VulkanRenderDevice::VulkanSwapchain : public ISwapchain
+{
+public:
+    VulkanSwapchain(VulkanRenderDevice *owner, VkSurfaceKHR surface) : owner_(owner), surface_(surface)
+    {
+        createSyncAndCommandBuffer();
+        recreate();
+    }
+
+    ~VulkanSwapchain() override { destroy(); }
+
+    bool valid() const { return swapchain_ != VK_NULL_HANDLE; }
+
+    AcquiredImage acquire() override
+    {
+        return AcquiredImage{nullptr, static_cast<int>(extent_.width), static_cast<int>(extent_.height), valid()};
+    }
+
+    bool present() override { return presentFrame(); }
+
+    void resize(int /*width*/, int /*height*/) override { recreate(); }
+
+private:
+    VulkanContext *ctx() const { return owner_->context_.get(); }
+
+    static void barrier(VkCommandBuffer cmd, VkImage image, VkImageLayout oldL, VkImageLayout newL,
+                        VkAccessFlags srcA, VkAccessFlags dstA, VkPipelineStageFlags srcS,
+                        VkPipelineStageFlags dstS)
+    {
+        VkImageMemoryBarrier b{};
+        b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        b.oldLayout = oldL;
+        b.newLayout = newL;
+        b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.image = image;
+        b.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        b.subresourceRange.levelCount = 1;
+        b.subresourceRange.layerCount = 1;
+        b.srcAccessMask = srcA;
+        b.dstAccessMask = dstA;
+        vkCmdPipelineBarrier(cmd, srcS, dstS, 0, 0, nullptr, 0, nullptr, 1, &b);
+    }
+
+    void createSyncAndCommandBuffer()
+    {
+        VkDevice dev = ctx()->device;
+        VkSemaphoreCreateInfo si{};
+        si.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+        vkCreateSemaphore(dev, &si, nullptr, &imageAvailable_);
+        vkCreateSemaphore(dev, &si, nullptr, &renderFinished_);
+        VkFenceCreateInfo fi{};
+        fi.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        fi.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+        vkCreateFence(dev, &fi, nullptr, &inFlight_);
+        VkCommandBufferAllocateInfo ai{};
+        ai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        ai.commandPool = ctx()->commandPool;
+        ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        ai.commandBufferCount = 1;
+        vkAllocateCommandBuffers(dev, &ai, &cmd_);
+    }
+
+    void recreate()
+    {
+        VulkanContext *c = ctx();
+        VkDevice dev = c->device;
+        vkDeviceWaitIdle(dev);
+        VkSwapchainKHR old = swapchain_;
+
+        VkSurfaceCapabilitiesKHR caps{};
+        vkGetPhysicalDeviceSurfaceCapabilitiesKHR(c->physicalDevice, surface_, &caps);
+
+        std::uint32_t formatCount = 0;
+        vkGetPhysicalDeviceSurfaceFormatsKHR(c->physicalDevice, surface_, &formatCount, nullptr);
+        std::vector<VkSurfaceFormatKHR> formats(formatCount);
+        if (formatCount > 0) {
+            vkGetPhysicalDeviceSurfaceFormatsKHR(c->physicalDevice, surface_, &formatCount, formats.data());
+        }
+        VkSurfaceFormatKHR chosen{VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR};
+        if (!formats.empty()) {
+            chosen = formats[0];
+            for (const auto &f : formats) {
+                if (f.format == VK_FORMAT_B8G8R8A8_UNORM && f.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+                    chosen = f;
+                    break;
+                }
+            }
+        }
+        format_ = chosen.format;
+
+        extent_ = caps.currentExtent;
+        if (extent_.width == 0xFFFFFFFFu) {
+            extent_ = caps.minImageExtent;
+        }
+        if (extent_.width == 0 || extent_.height == 0) {
+            swapchain_ = VK_NULL_HANDLE;
+            if (old != VK_NULL_HANDLE) {
+                vkDestroySwapchainKHR(dev, old, nullptr);
+            }
+            return;
+        }
+
+        std::uint32_t imageCount = caps.minImageCount + 1;
+        if (caps.maxImageCount > 0 && imageCount > caps.maxImageCount) {
+            imageCount = caps.maxImageCount;
+        }
+
+        VkSwapchainCreateInfoKHR info{};
+        info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+        info.surface = surface_;
+        info.minImageCount = imageCount;
+        info.imageFormat = format_;
+        info.imageColorSpace = chosen.colorSpace;
+        info.imageExtent = extent_;
+        info.imageArrayLayers = 1;
+        info.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+        info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        info.preTransform = caps.currentTransform;
+        info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+        info.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+        info.clipped = VK_TRUE;
+        info.oldSwapchain = old;
+
+        VkSwapchainKHR created = VK_NULL_HANDLE;
+        const VkResult r = vkCreateSwapchainKHR(dev, &info, nullptr, &created);
+        if (old != VK_NULL_HANDLE) {
+            vkDestroySwapchainKHR(dev, old, nullptr);
+        }
+        if (r != VK_SUCCESS) {
+            WSC_LOG_ERROR("VulkanRenderDevice", "vkCreateSwapchainKHR failed.");
+            swapchain_ = VK_NULL_HANDLE;
+            return;
+        }
+        swapchain_ = created;
+
+        std::uint32_t count = 0;
+        vkGetSwapchainImagesKHR(dev, swapchain_, &count, nullptr);
+        images_.resize(count);
+        vkGetSwapchainImagesKHR(dev, swapchain_, &count, images_.data());
+    }
+
+    bool presentFrame()
+    {
+        if (!valid()) {
+            recreate();
+            if (!valid()) {
+                return false;
+            }
+        }
+        VulkanContext *c = ctx();
+        if (c->readbackImage == VK_NULL_HANDLE || c->readbackWidth <= 0 || c->readbackHeight <= 0) {
+            return false;
+        }
+        VkDevice dev = c->device;
+
+        vkWaitForFences(dev, 1, &inFlight_, VK_TRUE, UINT64_MAX);
+
+        std::uint32_t idx = 0;
+        const VkResult acq = vkAcquireNextImageKHR(dev, swapchain_, UINT64_MAX, imageAvailable_, VK_NULL_HANDLE, &idx);
+        if (acq == VK_ERROR_OUT_OF_DATE_KHR) {
+            recreate();
+            return false;
+        }
+        if (acq != VK_SUCCESS && acq != VK_SUBOPTIMAL_KHR) {
+            return false;
+        }
+
+        vkResetFences(dev, 1, &inFlight_);
+        vkResetCommandBuffer(cmd_, 0);
+
+        VkCommandBufferBeginInfo bi{};
+        bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(cmd_, &bi);
+
+        VkImage dst = images_[idx];
+        VkImage src = c->readbackImage;
+        const VkImageLayout srcLayout = c->readbackLayout;
+
+        barrier(cmd_, src, srcLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_MEMORY_WRITE_BIT,
+                VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+        barrier(cmd_, dst, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0,
+                VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+        VkImageBlit region{};
+        region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        region.srcSubresource.layerCount = 1;
+        region.srcOffsets[1] = VkOffset3D{c->readbackWidth, c->readbackHeight, 1};
+        region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        region.dstSubresource.layerCount = 1;
+        region.dstOffsets[1] = VkOffset3D{static_cast<int>(extent_.width), static_cast<int>(extent_.height), 1};
+        vkCmdBlitImage(cmd_, src, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+                       &region, VK_FILTER_LINEAR);
+
+        barrier(cmd_, dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                VK_ACCESS_TRANSFER_WRITE_BIT, 0, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+        barrier(cmd_, src, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, srcLayout, VK_ACCESS_TRANSFER_READ_BIT,
+                VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+
+        vkEndCommandBuffer(cmd_);
+
+        VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+        VkSubmitInfo submit{};
+        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submit.waitSemaphoreCount = 1;
+        submit.pWaitSemaphores = &imageAvailable_;
+        submit.pWaitDstStageMask = &waitStage;
+        submit.commandBufferCount = 1;
+        submit.pCommandBuffers = &cmd_;
+        submit.signalSemaphoreCount = 1;
+        submit.pSignalSemaphores = &renderFinished_;
+        if (vkQueueSubmit(c->graphicsQueue, 1, &submit, inFlight_) != VK_SUCCESS) {
+            return false;
+        }
+
+        VkPresentInfoKHR present{};
+        present.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+        present.waitSemaphoreCount = 1;
+        present.pWaitSemaphores = &renderFinished_;
+        present.swapchainCount = 1;
+        present.pSwapchains = &swapchain_;
+        present.pImageIndices = &idx;
+        const VkResult pr = vkQueuePresentKHR(c->graphicsQueue, &present);
+        if (pr == VK_ERROR_OUT_OF_DATE_KHR || pr == VK_SUBOPTIMAL_KHR) {
+            recreate();
+        } else if (pr != VK_SUCCESS) {
+            return false;
+        }
+        return true;
+    }
+
+    void destroy()
+    {
+        if (owner_ == nullptr || !owner_->context_) {
+            return;
+        }
+        VkDevice dev = owner_->context_->device;
+        if (dev != VK_NULL_HANDLE) {
+            vkDeviceWaitIdle(dev);
+            if (cmd_ != VK_NULL_HANDLE) {
+                vkFreeCommandBuffers(dev, owner_->context_->commandPool, 1, &cmd_);
+            }
+            if (inFlight_ != VK_NULL_HANDLE) {
+                vkDestroyFence(dev, inFlight_, nullptr);
+            }
+            if (renderFinished_ != VK_NULL_HANDLE) {
+                vkDestroySemaphore(dev, renderFinished_, nullptr);
+            }
+            if (imageAvailable_ != VK_NULL_HANDLE) {
+                vkDestroySemaphore(dev, imageAvailable_, nullptr);
+            }
+            if (swapchain_ != VK_NULL_HANDLE) {
+                vkDestroySwapchainKHR(dev, swapchain_, nullptr);
+            }
+        }
+        if (surface_ != VK_NULL_HANDLE && owner_->context_->instance != VK_NULL_HANDLE) {
+            vkDestroySurfaceKHR(owner_->context_->instance, surface_, nullptr);
+        }
+    }
+
+    VulkanRenderDevice *owner_ = nullptr;
+    VkSurfaceKHR surface_ = VK_NULL_HANDLE;
+    VkSwapchainKHR swapchain_ = VK_NULL_HANDLE;
+    VkFormat format_ = VK_FORMAT_B8G8R8A8_UNORM;
+    VkExtent2D extent_{};
+    std::vector<VkImage> images_;
+    VkSemaphore imageAvailable_ = VK_NULL_HANDLE;
+    VkSemaphore renderFinished_ = VK_NULL_HANDLE;
+    VkFence inFlight_ = VK_NULL_HANDLE;
+    VkCommandBuffer cmd_ = VK_NULL_HANDLE;
+};
+
 bool VulkanRenderDevice::supportsPresentation() const
 {
-    // Windowed present is not yet integrated. This device creates a HEADLESS
-    // instance (no surface/swapchain extensions) and renders off-screen. Wiring
-    // a swapchain requires a present-ready instance/device and rendering the
-    // command stream into the acquired swapchain image. The swapchain mechanics
-    // are proven in examples/vulkan_present; see doc/windowed-presentation-design.md.
+    return isDeviceReady() && context_ && context_->presentCapable;
+}
+
+std::unique_ptr<ISwapchain> VulkanRenderDevice::createSwapchain(const NativeSurface &surface,
+                                                                const SwapchainConfig & /*config*/)
+{
+    if (!isDeviceReady() || !context_ || !context_->presentCapable) {
+        WSC_LOG_WARN("VulkanRenderDevice",
+                     "Vulkan present unavailable (headless instance/device or unsupported).");
+        return nullptr;
+    }
+#if defined(_WIN32)
+    if (surface.platform != NativeSurface::Platform::Win32 || surface.window == nullptr) {
+        WSC_LOG_WARN("VulkanRenderDevice", "Vulkan present requires a Win32 window handle.");
+        return nullptr;
+    }
+    VkWin32SurfaceCreateInfoKHR surfaceInfo{};
+    surfaceInfo.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
+    surfaceInfo.hinstance = GetModuleHandle(nullptr);
+    surfaceInfo.hwnd = static_cast<HWND>(surface.window);
+    VkSurfaceKHR vkSurface = VK_NULL_HANDLE;
+    if (vkCreateWin32SurfaceKHR(context_->instance, &surfaceInfo, nullptr, &vkSurface) != VK_SUCCESS) {
+        WSC_LOG_ERROR("VulkanRenderDevice", "vkCreateWin32SurfaceKHR failed.");
+        return nullptr;
+    }
+    VkBool32 presentSupported = VK_FALSE;
+    vkGetPhysicalDeviceSurfaceSupportKHR(context_->physicalDevice, context_->graphicsQueueFamily, vkSurface,
+                                         &presentSupported);
+    if (presentSupported != VK_TRUE) {
+        WSC_LOG_ERROR("VulkanRenderDevice", "Graphics queue cannot present to this surface.");
+        vkDestroySurfaceKHR(context_->instance, vkSurface, nullptr);
+        return nullptr;
+    }
+    auto swapchain = std::make_unique<VulkanSwapchain>(this, vkSurface);
+    if (!swapchain->valid()) {
+        return nullptr;
+    }
+    return swapchain;
+#else
+    (void)surface;
+    WSC_LOG_WARN("VulkanRenderDevice", "Vulkan present is only wired for Win32 in this build.");
+    return nullptr;
+#endif
+}
+
+#else // !WHATSCANVAS_ENABLE_VULKAN
+
+bool VulkanRenderDevice::supportsPresentation() const
+{
     return false;
 }
 
 std::unique_ptr<ISwapchain> VulkanRenderDevice::createSwapchain(const NativeSurface & /*surface*/,
                                                                 const SwapchainConfig & /*config*/)
 {
-    WSC_LOG_INFO("VulkanRenderDevice",
-                 "Vulkan windowed present is not yet integrated (headless instance). "
-                 "See examples/vulkan_present and doc/windowed-presentation-design.md.");
     return nullptr;
 }
+
+#endif
 
 const std::string &VulkanRenderDevice::selectedDeviceName() const
 {

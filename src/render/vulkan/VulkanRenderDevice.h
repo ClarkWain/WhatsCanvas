@@ -172,6 +172,10 @@ public:
     struct VulkanContext;
 
 private:
+    /// On-screen presentation swapchain, defined in the implementation file.
+    /// Nested so it can access VulkanContext and the private device handles.
+    class VulkanSwapchain;
+
     std::unique_ptr<VulkanContext> context_;
     bool backendInitialized_ = false;
 };

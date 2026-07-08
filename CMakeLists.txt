@@ -106,6 +106,7 @@ if (WHATSCANVAS_BUILD_DEMO AND TARGET WhatsCanvasOpenGL)
     endif()
     if (WHATSCANVAS_ENABLE_VULKAN)
         add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/vulkan_present")
+        add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/vulkan_canvas_present")
     endif()
 endif()
 

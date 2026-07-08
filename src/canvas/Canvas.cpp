@@ -2389,6 +2389,9 @@ SharedImageResource Canvas::Impl::getOrUpdateGlyphAtlasResource(const wsc::text:
 
 void Canvas::Impl::finalizeRenderer()
 {
+    // Release presentation objects (surface/swapchain/sync) before the backend
+    // device/instance are destroyed, so no child objects outlive them.
+    swapchain.reset();
     if (renderer == nullptr || !rendererInitialized) {
         return;
     }
