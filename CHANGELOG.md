@@ -10,6 +10,11 @@ For releases and downloadable artifacts, see the
 ## [Unreleased]
 
 ### Added
+- Experimental on-screen presentation layer: backend-neutral `NativeSurface` /
+  `ISwapchain`, public `Canvas::attachPresentSurface` / `present` /
+  `resizePresentSurface`, and a software (CPU) window path on Windows via GDI
+  (`examples/software_present`). Other backends remain off-screen for now. See
+  `doc/windowed-presentation-design.md`.
 - Built-in diagnostics/logging facility (`wsc/Log.h`): severity levels, an
   adjustable threshold (`Log::setLevel`), and a pluggable sink
   (`Log::setHandler`) so applications can route WhatsCanvas messages into their

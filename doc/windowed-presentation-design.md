@@ -1,8 +1,12 @@
 # Windowed Presentation & Backend Selection — Design Discussion
 
-Status: **Proposal / Discussion — NOT implemented.** This document captures a
-design direction agreed during exploration. All APIs shown here are illustrative
-sketches (marked "sketch"), not shipped code.
+Status: **Proposal / Discussion.** Core direction agreed; first slices landed.
+**Implemented:** the backend-neutral scaffolding (§3–§6), the public
+`Canvas::attachPresentSurface`/`present`/`resizePresentSurface` API, and the
+**software backend's on-screen path on Windows (GDI)** with a headless blit test
+and a runnable `examples/software_present` demo. **Not yet:** Vulkan/GL/Metal/D3D
+swapchains, the Skia-style `wrapBackendRenderTarget` core, and mobile surface
+lifecycle. Remaining API sketches are marked "sketch".
 
 This is the source of truth for *why* and *how* WhatsCanvas would gain on-screen
 window presentation across backends, and how that stays forward-compatible with
@@ -268,12 +272,15 @@ is **already at parity and needs no change**.
 
 ## 13. Suggested implementation order
 
-1. **Vulkan `ISwapchain`** reusing the proven M8 swapchain path (desktop, GLFW).
-2. **Vulkan `wrapBackendRenderTarget`** core path (embeddable target).
-3. **Software** blit present.
+1. ~~**Vulkan `ISwapchain`**~~ / **Software `ISwapchain`** — done first instead,
+   since it needs no Vulkan SDK and validates the whole seam end-to-end
+   (`SoftwareSwapchain`, GDI, Windows). Backend-neutral scaffolding + the public
+   `Canvas` present API + `examples/software_present` also landed.
+2. **Vulkan `ISwapchain`** reusing the proven M8 swapchain path (desktop, GLFW).
+3. **Vulkan `wrapBackendRenderTarget`** core path (embeddable target).
 4. **OpenGL** host-owned thin-shell `ISwapchain` (delegates swap).
 5. Future: **D3D / Metal** against the same interface; mobile surface-lifecycle
-   handling.
+   handling; Linux/X11 software blit.
 
 ## 14. Open questions
 
