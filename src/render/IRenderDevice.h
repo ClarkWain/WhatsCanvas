@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "RenderTypes.h"
+#include "Surface.h"
 
 class Command;
 class IRenderTarget;
@@ -45,4 +46,15 @@ public:
     virtual bool executeCommands(const std::unique_ptr<IRenderTarget> & /*target*/,
                                  const std::vector<std::unique_ptr<Command>> & /*commands*/,
                                  const OffscreenRenderRequest & /*request*/) const { return false; }
+
+    /// Whether this backend can present to an on-screen window (build a
+    /// swapchain from a NativeSurface). Default false: the device is
+    /// offscreen-only. See doc/windowed-presentation-design.md.
+    virtual bool supportsPresentation() const { return false; }
+
+    /// Create an on-screen presentation target for the given OS window. Returns
+    /// nullptr when presentation is unsupported (the default) or setup failed.
+    /// Scaffolding: no backend wires a real swapchain yet.
+    virtual std::unique_ptr<ISwapchain> createSwapchain(const NativeSurface & /*surface*/,
+                                                        const SwapchainConfig & /*config*/) { return nullptr; }
 };
