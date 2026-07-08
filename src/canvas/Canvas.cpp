@@ -2092,6 +2092,7 @@ struct Canvas::Impl
     int height = 0;
     Color color;
     std::unique_ptr<IRenderer> renderer;
+    std::unique_ptr<ISwapchain> swapchain;
     std::unique_ptr<wsc::text::ITextBackend> textBackend;
     std::unique_ptr<GraphicsStateStack> graphicsStates;
 #ifndef WHATSCANVAS_SOFTWARE_ONLY
@@ -4796,6 +4797,35 @@ std::vector<unsigned char> Canvas::readPixelsRGBA() const
     std::vector<unsigned char> pixels;
     readPixelsRGBA(pixels);
     return pixels;
+}
+
+bool Canvas::isPresentable() const
+{
+    return impl_->renderer && impl_->renderer->supportsPresentation();
+}
+
+bool Canvas::attachPresentSurface(const NativeSurface &surface, const SwapchainConfig &config)
+{
+    if (!impl_->renderer) {
+        return false;
+    }
+    impl_->swapchain = impl_->renderer->createSwapchain(surface, config);
+    return impl_->swapchain != nullptr;
+}
+
+bool Canvas::present()
+{
+    if (!impl_->swapchain) {
+        return false;
+    }
+    return impl_->swapchain->present();
+}
+
+void Canvas::resizePresentSurface(int width, int height)
+{
+    if (impl_->swapchain) {
+        impl_->swapchain->resize(width, height);
+    }
 }
 
 bool Canvas::readPixelsRGBAAsync(ReadPixelsCallback callback)

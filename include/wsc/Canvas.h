@@ -10,6 +10,7 @@
 #include "Color.h"
 #include "Export.h"
 #include "Paint.h"
+#include "Surface.h"
 #include "TextureSource.h"
 #include "base.h"
 
@@ -343,6 +344,20 @@ public:
 	bool savePixelsPPM(const std::string &path) const;
 	static std::uint64_t hashPixelsRGBA(const std::vector<unsigned char> &pixels);
 	std::uint64_t computePixelsHashRGBA() const;
+
+	// On-screen presentation (see doc/windowed-presentation-design.md).
+	/// Whether this canvas's backend can present to a window (e.g. the software
+	/// backend on Windows). Offscreen-only backends return false.
+	bool isPresentable() const;
+	/// Bind an OS window as this canvas's presentation target, building a
+	/// swapchain. Returns false when unsupported or setup failed. Call once
+	/// before `present()`.
+	bool attachPresentSurface(const NativeSurface &surface, const SwapchainConfig &config = SwapchainConfig());
+	/// Present the current frame to the attached window. Call after `flush()`.
+	/// Returns false when no surface is attached or the surface is out of date.
+	bool present();
+	/// Notify the presentation surface of a new drawable size (window resize).
+	void resizePresentSurface(int width, int height);
 
 private:
 	friend class CanvasLifecycleTestAccess;
