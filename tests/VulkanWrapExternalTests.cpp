@@ -97,13 +97,9 @@ int main()
 
     bool ok = true;
 
-    BackendRenderTarget target;
-    target.kind = BackendRenderTarget::Kind::VulkanImage;
-    target.nativeHandle = reinterpret_cast<void *>(image);
-    target.nativeFormat = static_cast<unsigned long long>(VK_FORMAT_R8G8B8A8_UNORM);
-    target.width = W;
-    target.height = H;
-    ok = expect(canvas->wrapBackendRenderTarget(target), "wrapBackendRenderTarget(VulkanImage)") && ok;
+    const OutputTarget target = OutputTarget::VulkanImageTarget(
+        reinterpret_cast<void *>(image), static_cast<unsigned long long>(VK_FORMAT_R8G8B8A8_UNORM), W, H);
+    ok = expect(canvas->setOutputTarget(target), "setOutputTarget(VulkanImage)") && ok;
 
     canvas->beginFrame();
     Paint fill;
@@ -122,9 +118,8 @@ int main()
         ok = expect(false, "readback size should be W*H*4") && ok;
     }
 
-    // Unwrap and clean up the host image.
-    BackendRenderTarget none;
-    canvas->wrapBackendRenderTarget(none);
+    // Detach the external target and clean up the host image.
+    canvas->setOutputTarget(OutputTarget::Offscreen());
     vkDeviceWaitIdle(dev);
     vkDestroyImage(dev, image, nullptr);
     vkFreeMemory(dev, memory, nullptr);

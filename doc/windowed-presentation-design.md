@@ -1,15 +1,16 @@
 # Windowed Presentation & Backend Selection — Design Discussion
 
 Status: **Proposal / Discussion.** Core direction agreed; multiple slices landed.
-**Implemented & validated:** the backend-neutral scaffolding (§3–§6), the public
-`Canvas::attachPresentSurface`/`present`/`resizePresentSurface` + `wrapBackendRenderTarget`
-API, **software present on Windows (GDI)** and **Linux/X11**, **OpenGL host-owned
+**Implemented & validated:** the backend-neutral scaffolding (§3–§6), a unified
+public `Canvas::setOutputTarget` (`Offscreen` / `OffscreenTexture` / `ToWindow` /
+`GLFramebuffer` / `VulkanImageTarget`) + `present` / `resizeOutput`,
+**software present on Windows (GDI)** and **Linux/X11**, **OpenGL host-owned
 present (WGL; guarded GLX)**, **Vulkan windowed present** (present-ready
 instance/device + swapchain, blitting the rendered image into the acquired
 swapchain image; validated clean under the Khronos validation layer), and
-**wrap-external into a host GL framebuffer**. **Not yet:** Metal/D3D swapchains,
-wrap-external for Vulkan/Metal/D3D, and mobile surface lifecycle. Remaining API
-sketches are marked "sketch".
+**wrap-external into a host GL framebuffer or VkImage**. **Not yet:** Metal/D3D
+swapchains and mobile surface lifecycle. Remaining API sketches are marked
+"sketch".
 
 This is the source of truth for *why* and *how* WhatsCanvas would gain on-screen
 window presentation across backends, and how that stays forward-compatible with

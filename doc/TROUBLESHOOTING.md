@@ -122,10 +122,10 @@ canvas.initializeContext();
 On-screen presentation is **experimental**. Supported today: software (Windows
 GDI + Linux X11), OpenGL (WGL; GLX on Linux), and Vulkan (Windows). Checklist:
 
-- Call `attachPresentSurface(surface)` once and check its return value — it is
-  `false` when presentation is unsupported for the current backend/platform or
-  the surface has no window handle. Fall back accordingly (e.g. `glfwSwapBuffers`
-  for GL, or `readPixelsRGBA` off-screen).
+- Call `setOutputTarget(OutputTarget::ToWindow(surface))` and check its return
+  value — it is `false` when presentation is unsupported for the current
+  backend/platform or the surface has no window handle. Fall back accordingly
+  (e.g. `glfwSwapBuffers` for GL, or off-screen + `readPixelsRGBA`).
 - Fill the surface correctly: `platform = NativeSurface::Platform::Win32` and
   `window = <HWND>` (e.g. `glfwGetWin32Window(window)`).
 - Create the window **without** a GL context for the software or Vulkan backend

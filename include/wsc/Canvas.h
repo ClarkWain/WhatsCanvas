@@ -149,13 +149,6 @@ public:
 	bool isTextureValid() const override;
 	bool isRenderTarget() const override;
 
-	/// Enable or disable render-target mode. When enabled, all drawing is
-	/// redirected to an offscreen FBO. The result can then be used as a
-	/// texture via ITextureSource (e.g. passed to drawImage).
-	void setRenderTargetMode(bool enabled);
-
-	/// Check whether render-target mode is currently active.
-	bool isRenderTargetMode() const;
 	RenderStats getRenderStats() const;
 	bool initializeContext();
 	void finalizeContext();
@@ -344,28 +337,24 @@ public:
 	bool savePixelsPPM(const std::string &path) const;
 	static std::uint64_t hashPixelsRGBA(const std::vector<unsigned char> &pixels);
 	std::uint64_t computePixelsHashRGBA() const;
-
-	// On-screen presentation (see doc/windowed-presentation-design.md).
-	/// Whether this canvas's backend can present to a window (e.g. the software
-	/// backend on Windows). Offscreen-only backends return false.
-	bool isPresentable() const;
-	/// Bind an OS window as this canvas's presentation target, building a
-	/// swapchain. Returns false when unsupported or setup failed. Call once
-	/// before `present()`.
-	bool attachPresentSurface(const NativeSurface &surface, const SwapchainConfig &config = SwapchainConfig());
-	/// Present the current frame to the attached window. Call after `flush()`.
-	/// Returns false when no surface is attached or the surface is out of date.
+	// Output target — where this canvas delivers rendered frames.
+	// See doc/windowed-presentation-design.md.
+	/// Set where frames go: off-screen, an on-screen window, or a host-owned
+	/// GL/Vulkan render target. Returns false when the target is unsupported for
+	/// this backend/platform. Default is `OutputTarget::Offscreen()`.
+	bool setOutputTarget(const OutputTarget &target);
+	/// Deliver the current frame to the output target. Call after `flush()`.
+	/// For a Window target this swaps/blits to the window; for off-screen and
+	/// wrap-external targets it is a no-op returning true.
 	bool present();
-	/// Notify the presentation surface of a new drawable size (window resize).
-	void resizePresentSurface(int width, int height);
-	/// Draw subsequent frames into a host-owned backend render target
-	/// (Skia-style wrap-external), instead of an owned swapchain. Returns false
-	/// when the backend does not support external targets.
-	bool wrapBackendRenderTarget(const BackendRenderTarget &target);
+	/// Notify a Window output target of a new drawable size (window resize).
+	void resizeOutput(int width, int height);
+	/// Whether the current backend/platform can present to a window.
+	bool isPresentable() const;
 
 	// Advanced Vulkan interop. These return the raw handles of the Vulkan
 	// backend (as opaque pointers), or null / 0 for non-Vulkan canvases. Useful
-	// e.g. to allocate a wrap-external image on this canvas's Vulkan device.
+	// e.g. to allocate a VulkanImage output target on this canvas's device.
 	void *vulkanInstance() const;
 	void *vulkanPhysicalDevice() const;
 	void *vulkanDevice() const;

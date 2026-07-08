@@ -405,16 +405,28 @@ canvas->readPixelsRGBA(rgba);        // tightly-packed, top-left-origin RGBA8
 canvas->savePixelsPPM("frame.ppm");  // or feed `rgba` to your own PNG encoder
 ```
 
-### Show it in a window (experimental)
+### Choose where frames go — `setOutputTarget`
 
-WhatsCanvas does not own a window — you create one (GLFW, SDL, Win32, …) and
-hand its native handle to the canvas via `attachPresentSurface`, then call
-`present()` each frame. On-screen presentation is implemented for **software
-(Windows GDI + Linux X11)**, **OpenGL (WGL; GLX on Linux)** and **Vulkan**
-(Windows, validated). `attachPresentSurface` returns `false` where a backend/
-platform is unsupported, so you can fall back (e.g. to `glfwSwapBuffers` for GL,
-or `readPixelsRGBA` off-screen). See
-[windowed-presentation-design.md](windowed-presentation-design.md) for status.
+A single "output axis" decides where a canvas delivers each frame. Set it once
+with `setOutputTarget`, then use one frame loop everywhere:
+`beginFrame → draw → flush → present`. `present()` swaps/blits for a **Window**
+target and is a no-op for the others; read pixels with `readPixelsRGBA`.
+
+| `OutputTarget` | Where the frame goes | Deliver with |
+|---|---|---|
+| `Offscreen()` *(default)* | canvas-owned image | `readPixelsRGBA` |
+| `OffscreenTexture()` | canvas-owned image, usable as a texture (`drawImage`) | `readPixelsRGBA` / as `ITextureSource` |
+| `ToWindow(surface)` | an OS window (library owns the swapchain/blit) | `present()` |
+| `GLFramebuffer(fbo, w, h)` | a host-owned GL framebuffer (embed) | your engine |
+| `VulkanImageTarget(image, fmt, w, h)` | a host-owned `VkImage` (embed) | your engine |
+
+`setOutputTarget` returns `false` when a target is unsupported for the current
+backend/platform, so you can fall back. On-screen present is implemented for
+**software (Windows GDI + Linux X11)**, **OpenGL (WGL; GLX on Linux)** and
+**Vulkan** (Windows, validated).
+
+**Present to a window** (WhatsCanvas does not own the window — you create it and
+hand over the native handle):
 
 ```cpp
 auto canvas = wsc::Canvas::createSoftware(width, height);   // or default GL / createVulkan
@@ -423,12 +435,12 @@ wsc::NativeSurface surface;
 surface.platform = wsc::NativeSurface::Platform::Win32;
 surface.window   = /* HWND, e.g. glfwGetWin32Window(window) */;
 
-if (canvas->attachPresentSurface(surface)) {      // false if unsupported here
+if (canvas->setOutputTarget(wsc::OutputTarget::ToWindow(surface))) {  // false if unsupported
     while (running) {
         canvas->beginFrame();
         /* draw ... */
         canvas->flush();
-        canvas->present();                        // present to the window
+        canvas->present();                 // swaps/blits to the window; resizeOutput(w,h) on resize
     }
 }
 ```
@@ -438,63 +450,43 @@ Runnable demos:
 [`gl_present`](../examples/gl_present),
 [`vulkan_canvas_present`](../examples/vulkan_canvas_present).
 
-### Embed into an existing renderer (wrap-external)
-
-If your app already owns a GPU context, let WhatsCanvas draw into *your* render
-target instead of owning a swapchain. Call `wrapBackendRenderTarget` before each
-frame; there is no `present()` — your engine composites/presents its own target.
-
-**OpenGL** — pass your framebuffer object (your GL context must be current, and
-`Canvas::loadOpenGL` called once, as in section 2):
+**Embed into an existing renderer** — draw into *your* GPU target instead of a
+window (no `present()`; your engine composites/presents its own target):
 
 ```cpp
+// OpenGL: your context must be current and Canvas::loadOpenGL called (section 2).
 wsc::Canvas canvas;                 // default = OpenGL backend
 canvas.setSize(width, height);
 canvas.initializeContext();
-
-wsc::BackendRenderTarget target;
-target.kind          = wsc::BackendRenderTarget::Kind::OpenGLFramebuffer;
-target.glFramebuffer = myFbo;       // your GL framebuffer object (0 = default)
-target.width         = width;
-target.height        = height;
+canvas.setOutputTarget(wsc::OutputTarget::GLFramebuffer(myFbo, width, height));
 
 while (running) {
-    canvas.wrapBackendRenderTarget(target);   // draw into your FBO this frame
     canvas.beginFrame();
     /* draw ... */
-    canvas.flush();                           // your engine then uses/presents myFbo
+    canvas.flush();                 // rendered into myFbo; your engine uses/presents it
 }
 ```
 
-**Vulkan** — allocate an `R8G8B8A8_UNORM` `VkImage` (with `COLOR_ATTACHMENT`
-usage) on the canvas's Vulkan device, obtained via the interop accessors:
-
 ```cpp
+// Vulkan: allocate an R8G8B8A8_UNORM VkImage (COLOR_ATTACHMENT usage) on the
+// canvas's device, obtained via the interop accessors.
 auto canvas = wsc::Canvas::createVulkan(width, height);
+VkDevice dev = static_cast<VkDevice>(canvas->vulkanDevice());
+VkImage  hostImage = /* vkCreateImage(dev, ... R8G8B8A8_UNORM, COLOR_ATTACHMENT ...) + bind memory */;
 
-// Host code: create the image on the canvas's device.
-VkDevice         dev = static_cast<VkDevice>(canvas->vulkanDevice());
-VkPhysicalDevice pd  = static_cast<VkPhysicalDevice>(canvas->vulkanPhysicalDevice());
-VkImage hostImage = /* vkCreateImage(dev, ... R8G8B8A8_UNORM, COLOR_ATTACHMENT ...) + bind memory */;
-
-wsc::BackendRenderTarget target;
-target.kind         = wsc::BackendRenderTarget::Kind::VulkanImage;
-target.nativeHandle = reinterpret_cast<void *>(hostImage);
-target.nativeFormat = VK_FORMAT_R8G8B8A8_UNORM;
-target.width        = width;
-target.height       = height;
+canvas->setOutputTarget(
+    wsc::OutputTarget::VulkanImageTarget(reinterpret_cast<void *>(hostImage),
+                                         VK_FORMAT_R8G8B8A8_UNORM, width, height));
 
 while (running) {
-    canvas->wrapBackendRenderTarget(target);
     canvas->beginFrame();
     /* draw ... */
-    canvas->flush();                          // hostImage now holds the rendered frame
+    canvas->flush();                // hostImage now holds the rendered frame
 }
 ```
 
 See [`tests/VulkanWrapExternalTests.cpp`](../tests/VulkanWrapExternalTests.cpp)
-for a complete, runnable Vulkan wrap-external example (image allocation +
-readback verification).
+for a complete, runnable Vulkan example (image allocation + readback check).
 
 ---
 

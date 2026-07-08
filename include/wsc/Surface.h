@@ -33,27 +33,74 @@ struct SwapchainConfig
 	int imageCount = 3;
 };
 
-/// A host-owned backend render target to draw into directly (Skia-style
-/// wrap-external). Lets an existing engine hand WhatsCanvas the current frame's
-/// target instead of the library owning a swapchain. Only the fields for the
-/// active `kind` are meaningful.
-struct BackendRenderTarget
+/// Where a canvas delivers its rendered frames. A single "output axis":
+/// off-screen (read back / use as a texture), an on-screen window, or a
+/// host-owned backend render target (embed into an existing GL/Vulkan renderer).
+/// Construct via the static factories. See doc/windowed-presentation-design.md.
+struct OutputTarget
 {
 	enum class Kind
 	{
-		None,
-		OpenGLFramebuffer, ///< `glFramebuffer` is a GL FBO name (0 = default).
-		VulkanImage,       ///< `nativeHandle` is a VkImage; `nativeFormat` a VkFormat.
-		MetalTexture,      ///< `nativeHandle` is an id<MTLTexture>.
-		D3DTexture,        ///< `nativeHandle` is an ID3D11Texture2D* / D3D12 resource.
+		Offscreen,         ///< Render into a canvas-owned target; read back with readPixelsRGBA.
+		OffscreenTexture,  ///< Like Offscreen, but also usable as a texture (ITextureSource).
+		Window,            ///< Present to an OS window (library owns the swapchain/blit).
+		OpenGLFramebuffer, ///< Render into a host-owned GL framebuffer (wrap-external).
+		VulkanImage,       ///< Render into a host-owned VkImage (wrap-external).
 	};
 
-	Kind kind = Kind::None;
-	unsigned int glFramebuffer = 0;         ///< OpenGLFramebuffer.
-	void *nativeHandle = nullptr;           ///< VkImage / id<MTLTexture> / D3D texture.
-	unsigned long long nativeFormat = 0;    ///< Backend format enum (e.g. VkFormat).
-	int width = 0;
-	int height = 0;
+	Kind kind = Kind::Offscreen;
+	NativeSurface window;                ///< Window
+	SwapchainConfig config;              ///< Window
+	unsigned int glFramebuffer = 0;      ///< OpenGLFramebuffer (0 = default framebuffer)
+	void *vulkanImage = nullptr;         ///< VulkanImage (a VkImage)
+	unsigned long long vulkanFormat = 0; ///< VulkanImage (a VkFormat)
+	int width = 0;                       ///< OpenGLFramebuffer / VulkanImage
+	int height = 0;                      ///< OpenGLFramebuffer / VulkanImage
+
+	/// Off-screen: render internally, read back with readPixelsRGBA.
+	static OutputTarget Offscreen() { return OutputTarget{}; }
+
+	/// Off-screen but also usable as a texture in another canvas (drawImage).
+	static OutputTarget OffscreenTexture()
+	{
+		OutputTarget t;
+		t.kind = Kind::OffscreenTexture;
+		return t;
+	}
+
+	/// Present to an OS window (the library builds the swapchain / blit).
+	static OutputTarget ToWindow(const NativeSurface &surface, const SwapchainConfig &config = SwapchainConfig())
+	{
+		OutputTarget t;
+		t.kind = Kind::Window;
+		t.window = surface;
+		t.config = config;
+		return t;
+	}
+
+	/// Render into a host-owned OpenGL framebuffer object.
+	static OutputTarget GLFramebuffer(unsigned int framebuffer, int width, int height)
+	{
+		OutputTarget t;
+		t.kind = Kind::OpenGLFramebuffer;
+		t.glFramebuffer = framebuffer;
+		t.width = width;
+		t.height = height;
+		return t;
+	}
+
+	/// Render into a host-owned VkImage (created on this canvas's Vulkan device,
+	/// R8G8B8A8_UNORM with COLOR_ATTACHMENT usage). `format` is a VkFormat.
+	static OutputTarget VulkanImageTarget(void *image, unsigned long long format, int width, int height)
+	{
+		OutputTarget t;
+		t.kind = Kind::VulkanImage;
+		t.vulkanImage = image;
+		t.vulkanFormat = format;
+		t.width = width;
+		t.height = height;
+		return t;
+	}
 };
 
 } // namespace wsc

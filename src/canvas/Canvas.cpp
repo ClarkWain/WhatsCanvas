@@ -2487,20 +2487,6 @@ bool Canvas::isRenderTarget() const
     return impl_->renderTargetMode;
 }
 
-void Canvas::setRenderTargetMode(bool enabled)
-{
-    if (impl_->renderTargetMode == enabled) {
-        return;
-    }
-    impl_->renderTargetMode = enabled;
-    impl_->renderTargetImageResource.reset();
-}
-
-bool Canvas::isRenderTargetMode() const
-{
-    return impl_->renderTargetMode;
-}
-
 Canvas::RenderStats Canvas::getRenderStats() const
 {
     RenderStats stats;
@@ -4807,33 +4793,62 @@ bool Canvas::isPresentable() const
     return impl_->renderer && impl_->renderer->supportsPresentation();
 }
 
-bool Canvas::attachPresentSurface(const NativeSurface &surface, const SwapchainConfig &config)
+bool Canvas::setOutputTarget(const OutputTarget &target)
 {
     if (!impl_->renderer) {
         return false;
     }
-    impl_->swapchain = impl_->renderer->createSwapchain(surface, config);
-    return impl_->swapchain != nullptr;
+
+    // Reset any previous output configuration (swapchain / external target /
+    // render-to-texture) so output destinations are mutually exclusive.
+    impl_->swapchain.reset();
+    impl_->renderer->wrapBackendRenderTarget(BackendRenderTarget{}); // kind None => clear external
+    impl_->renderTargetMode = false;
+    impl_->renderTargetImageResource.reset();
+
+    switch (target.kind) {
+    case OutputTarget::Kind::Offscreen:
+        return true;
+    case OutputTarget::Kind::OffscreenTexture:
+        impl_->renderTargetMode = true;
+        return true;
+    case OutputTarget::Kind::Window:
+        impl_->swapchain = impl_->renderer->createSwapchain(target.window, target.config);
+        return impl_->swapchain != nullptr;
+    case OutputTarget::Kind::OpenGLFramebuffer: {
+        BackendRenderTarget brt;
+        brt.kind = BackendRenderTarget::Kind::OpenGLFramebuffer;
+        brt.glFramebuffer = target.glFramebuffer;
+        brt.width = target.width;
+        brt.height = target.height;
+        return impl_->renderer->wrapBackendRenderTarget(brt);
+    }
+    case OutputTarget::Kind::VulkanImage: {
+        BackendRenderTarget brt;
+        brt.kind = BackendRenderTarget::Kind::VulkanImage;
+        brt.nativeHandle = target.vulkanImage;
+        brt.nativeFormat = target.vulkanFormat;
+        brt.width = target.width;
+        brt.height = target.height;
+        return impl_->renderer->wrapBackendRenderTarget(brt);
+    }
+    }
+    return false;
 }
 
 bool Canvas::present()
 {
-    if (!impl_->swapchain) {
-        return false;
+    if (impl_->swapchain) {
+        return impl_->swapchain->present();
     }
-    return impl_->swapchain->present();
+    return true; // no-op for off-screen / wrap-external targets
 }
 
-void Canvas::resizePresentSurface(int width, int height)
+void Canvas::resizeOutput(int width, int height)
 {
     if (impl_->swapchain) {
         impl_->swapchain->resize(width, height);
     }
-}
-
-bool Canvas::wrapBackendRenderTarget(const BackendRenderTarget &target)
-{
-    return impl_->renderer && impl_->renderer->wrapBackendRenderTarget(target);
 }
 
 void *Canvas::vulkanInstance() const
