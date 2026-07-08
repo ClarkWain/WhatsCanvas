@@ -51,6 +51,28 @@ lazily.
 > `flush()` initialize it lazily, or call `initializeContext()` yourself if you
 > need to read pixels before drawing.
 
+### The frame lifecycle (and why you don't call `endFrame()` before reading pixels)
+
+The minimal offscreen flow is exactly four steps:
+
+```cpp
+canvas->beginFrame();                       // optional — draws auto-begin a frame
+canvas->drawRect(/* ... */, paint);         // record draws
+canvas->flush();                            // render + make readable
+canvas->readPixelsRGBA(pixels);             // or savePixelsPPM("out.ppm")
+```
+
+`flush()` renders the recorded commands onto a **freshly-cleared** framebuffer
+and then **consumes** them. Because of that:
+
+- **Do not call `endFrame()` before reading pixels.** `endFrame()` is just an
+  alias for `flush()`. A second flush with no new draws re-clears the buffer and
+  renders nothing, so you'd read back an all-zero (black/transparent) image.
+- **Do not call `beginFrame()` after drawing** — it clears the framebuffer.
+
+So `beginFrame → draw → flush → read` is correct; adding `endFrame()` after
+`flush()` is the common cause of a "black screen" on readback.
+
 ---
 
 ## 2. Pick a backend

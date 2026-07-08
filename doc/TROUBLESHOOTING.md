@@ -51,6 +51,27 @@ backends.
 also flips vertically (e.g. `stbi_flip_vertically_on_write(1)`), you get a
 double flip. Don't flip again.
 
+### `readPixelsRGBA` returns all zeros (black / empty image)
+
+Almost always this is an extra `flush()` / `endFrame()` **after** you already
+flushed. `flush()` renders the recorded commands onto a freshly-cleared
+framebuffer and then consumes them, and `endFrame()` is simply an alias for
+`flush()`. A second flush with no new draws re-clears the buffer and renders
+nothing, so the read-back is all zeros.
+
+The correct offscreen sequence is:
+
+```cpp
+canvas->beginFrame();               // optional; draws auto-begin a frame
+canvas->drawRect(/* ... */, paint);
+canvas->flush();                    // <- one flush, right before reading
+canvas->readPixelsRGBA(pixels);     // or savePixelsPPM("out.ppm")
+```
+
+Do **not** call `endFrame()` before reading, and do **not** call `beginFrame()`
+after drawing (it clears the framebuffer). Also confirm you actually drew inside
+the canvas bounds with a non-transparent paint color.
+
 ## Text
 
 ### Text doesn't appear
