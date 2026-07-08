@@ -32,3 +32,4 @@ _site/
 # Python
 __pycache__/
 *.pyc
+build-package-consumer/
