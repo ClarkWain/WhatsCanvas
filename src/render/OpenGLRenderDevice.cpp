@@ -21,6 +21,7 @@
 #include "render/RenderContext.h"
 #include "render/GammaCorrect.h"
 #include "render/RenderTargetPool.h"
+#include "render/GLPresent.h"
 
 namespace {
 
@@ -567,6 +568,17 @@ bool OpenGLRenderDevice::executeDrawList(const wsc::DrawList &drawList, int widt
     }
 
     return true;
+}
+
+bool OpenGLRenderDevice::supportsPresentation() const
+{
+    return wsc::gl::glPresentSupported();
+}
+
+std::unique_ptr<ISwapchain> OpenGLRenderDevice::createSwapchain(const NativeSurface &surface,
+                                                               const SwapchainConfig &config)
+{
+    return wsc::gl::makeGLSwapchain(surface, config);
 }
 
 SharedImageResource OpenGLRenderDevice::renderCommandsToImageResource(const std::vector<std::unique_ptr<Command>> &commands,

@@ -31,6 +31,11 @@ public:
     bool executeDrawList(const wsc::DrawList &drawList, int width, int height,
                          int scissorOffsetX = 0, int scissorOffsetY = 0) const;
 
+    // Host-owned on-screen presentation (WGL/GLX buffer swap).
+    bool supportsPresentation() const override;
+    std::unique_ptr<ISwapchain> createSwapchain(const NativeSurface &surface,
+                                                const SwapchainConfig &config) override;
+
 private:
     bool backendInitialized_ = false;
     mutable std::unique_ptr<RenderTargetPool> renderTargetPool_;
