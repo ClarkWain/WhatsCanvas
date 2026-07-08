@@ -409,7 +409,8 @@ int main(int argc, char **argv)
     glViewport(0, 0, fbWidth, fbHeight);
 
     {
-        Canvas canvas;
+        auto canvasOwner = Canvas::create(Canvas::Backend::OpenGL, 0, 0);
+        Canvas &canvas = *canvasOwner;
         canvas.setSize(fbWidth, fbHeight);
 
         // Canvas::readPixelsRGBA already returns top-left-origin rows, so the

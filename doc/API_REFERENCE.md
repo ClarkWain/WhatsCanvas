@@ -167,13 +167,17 @@ Public members:
 - `static std::string getOpenGLVersionString();`
 - `static void setGammaCorrect(bool enabled);`
 - `static bool isGammaCorrect();`
-- `Canvas();`
 - `~Canvas();`
 - `Canvas(const Canvas &) = delete;`
 - `Canvas &operator=(const Canvas &) = delete;`
+- `Canvas();`
+- `static std::unique_ptr<Canvas> create(Backend backend, int width, int height);`
+- `static std::unique_ptr<Canvas> create(std::initializer_list<Backend> preferred, int width, int height);`
+- `static bool isBackendAvailable(Backend backend);`
+- `Backend backend() const;`
 - `static std::unique_ptr<Canvas> createSoftware(int width, int height);`
-- `static bool isVulkanAvailable();`
 - `static std::unique_ptr<Canvas> createVulkan(int width, int height);`
+- `static bool isVulkanAvailable();`
 - `int getTextureWidth() const override;`
 - `int getTextureHeight() const override;`
 - `bool isTextureValid() const override;`
