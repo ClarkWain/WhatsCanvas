@@ -405,6 +405,35 @@ canvas->readPixelsRGBA(rgba);        // tightly-packed, top-left-origin RGBA8
 canvas->savePixelsPPM("frame.ppm");  // or feed `rgba` to your own PNG encoder
 ```
 
+### Show it in a window (experimental)
+
+WhatsCanvas does not own a window — you create one (GLFW, SDL, Win32, …) and
+hand its native handle to the canvas. On-screen presentation is currently
+implemented for the **software backend on Windows** (GDI blit); other backends
+render off-screen (read back with `readPixelsRGBA`). See
+[windowed-presentation-design.md](windowed-presentation-design.md) for the
+roadmap.
+
+```cpp
+auto canvas = wsc::Canvas::createSoftware(width, height);
+
+wsc::NativeSurface surface;
+surface.platform = wsc::NativeSurface::Platform::Win32;
+surface.window   = /* HWND, e.g. glfwGetWin32Window(window) */;
+
+if (canvas->attachPresentSurface(surface)) {      // false if unsupported here
+    while (running) {
+        canvas->beginFrame();
+        /* draw ... */
+        canvas->flush();
+        canvas->present();                        // blit to the window
+    }
+}
+```
+
+A full runnable demo is in
+[`examples/software_present`](../examples/software_present).
+
 ---
 
 ## 6. Verify before shipping

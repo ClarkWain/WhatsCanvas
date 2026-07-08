@@ -117,6 +117,26 @@ canvas.releaseResources();
 canvas.initializeContext();
 ```
 
+### `present()` returns false / nothing shows in my window
+
+On-screen presentation is **experimental and currently software + Windows only**
+(GDI blit). Checklist:
+
+- Call `attachPresentSurface(surface)` once and check its return value — it is
+  `false` when presentation is unsupported (non-Windows, or a non-software
+  backend) or the surface has no window handle.
+- Fill the surface correctly: `platform = NativeSurface::Platform::Win32` and
+  `window = <HWND>` (e.g. `glfwGetWin32Window(window)`).
+- Create the window **without** a GL context for the software backend
+  (`glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API)`).
+- Present each frame **after** `flush()`: `beginFrame → draw → flush → present`.
+- If you include `<windows.h>` (or a native GLFW header) in the same file,
+  include the `wsc/` headers **first** and define `NOMINMAX`, so the `min`/`max`
+  macros do not break WhatsCanvas headers.
+
+See [`examples/software_present`](https://github.com/ClarkWain/WhatsCanvas/tree/master/examples/software_present)
+for a working setup.
+
 ## Build & packaging
 
 ### `find_package(WhatsCanvas ...)` can't be found
