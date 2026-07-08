@@ -408,14 +408,16 @@ canvas->savePixelsPPM("frame.ppm");  // or feed `rgba` to your own PNG encoder
 ### Show it in a window (experimental)
 
 WhatsCanvas does not own a window — you create one (GLFW, SDL, Win32, …) and
-hand its native handle to the canvas. On-screen presentation is currently
-implemented for the **software backend on Windows** (GDI blit); other backends
-render off-screen (read back with `readPixelsRGBA`). See
-[windowed-presentation-design.md](windowed-presentation-design.md) for the
-roadmap.
+hand its native handle to the canvas via `attachPresentSurface`, then call
+`present()` each frame. On-screen presentation is implemented for **software
+(Windows GDI + Linux X11)**, **OpenGL (WGL; GLX on Linux)** and **Vulkan**
+(Windows, validated). `attachPresentSurface` returns `false` where a backend/
+platform is unsupported, so you can fall back (e.g. to `glfwSwapBuffers` for GL,
+or `readPixelsRGBA` off-screen). See
+[windowed-presentation-design.md](windowed-presentation-design.md) for status.
 
 ```cpp
-auto canvas = wsc::Canvas::createSoftware(width, height);
+auto canvas = wsc::Canvas::createSoftware(width, height);   // or default GL / createVulkan
 
 wsc::NativeSurface surface;
 surface.platform = wsc::NativeSurface::Platform::Win32;
@@ -426,13 +428,27 @@ if (canvas->attachPresentSurface(surface)) {      // false if unsupported here
         canvas->beginFrame();
         /* draw ... */
         canvas->flush();
-        canvas->present();                        // blit to the window
+        canvas->present();                        // present to the window
     }
 }
 ```
 
-A full runnable demo is in
-[`examples/software_present`](../examples/software_present).
+Runnable demos:
+[`software_present`](../examples/software_present),
+[`gl_present`](../examples/gl_present),
+[`vulkan_canvas_present`](../examples/vulkan_canvas_present).
+
+### Embed into an existing renderer (wrap-external)
+
+If your app already owns a GPU context, let WhatsCanvas draw into *your* render
+target instead of owning a swapchain:
+
+- **OpenGL:** pass your framebuffer object —
+  `canvas.wrapBackendRenderTarget({ /*kind*/ OpenGLFramebuffer, /*glFramebuffer*/ fbo, w, h })`,
+  then draw; WhatsCanvas renders into your FBO.
+- **Vulkan:** allocate an `R8G8B8A8_UNORM` `VkImage` (with `COLOR_ATTACHMENT`
+  usage) on the canvas's device — obtained via `canvas.vulkanDevice()` /
+  `canvas.vulkanPhysicalDevice()` — and pass it as a `VulkanImage` target.
 
 ---
 
