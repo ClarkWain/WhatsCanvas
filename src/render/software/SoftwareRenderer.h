@@ -54,6 +54,11 @@ public:
     void clear() override;
     void flush() override;
 
+    // On-screen presentation (Windows/GDI). Offscreen-only elsewhere.
+    bool supportsPresentation() const override;
+    std::unique_ptr<ISwapchain> createSwapchain(const NativeSurface &surface,
+                                                const SwapchainConfig &config) override;
+
     int width() const { return width_; }
     int height() const { return height_; }
 

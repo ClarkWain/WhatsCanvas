@@ -230,6 +230,7 @@ function(whatscanvas_add_gl_family_library target_name project_root)
         "${src_dir}/render/SpriteBatch.cpp"
         "${src_dir}/render/Renderer.cpp"
         "${src_dir}/render/software/SoftwareRenderer.cpp"
+        "${src_dir}/render/software/SoftwarePresent.cpp"
         "${src_dir}/render/vulkan/VulkanRenderDevice.cpp"
     )
 
@@ -295,7 +296,7 @@ function(whatscanvas_add_gl_family_library target_name project_root)
     endif()
 
     if (WIN32)
-        target_link_libraries(${target_name} PRIVATE gdi32)
+        target_link_libraries(${target_name} PRIVATE gdi32 user32)
     endif()
 endfunction()
 
@@ -333,6 +334,7 @@ function(whatscanvas_add_software_library target_name project_root)
         "${src_dir}/text/UnicodeBidi.cpp"
         "${src_dir}/command/SoftwareCommandStubs.cpp"
         "${src_dir}/render/software/SoftwareRenderer.cpp"
+        "${src_dir}/render/software/SoftwarePresent.cpp"
     )
 
     target_compile_definitions(${target_name} PRIVATE WHATSCANVAS_SOFTWARE_ONLY)
@@ -362,7 +364,7 @@ function(whatscanvas_add_software_library target_name project_root)
     endif()
 
     if (WIN32)
-        target_link_libraries(${target_name} PRIVATE gdi32)
+        target_link_libraries(${target_name} PRIVATE gdi32 user32)
     endif()
 endfunction()
 
