@@ -60,7 +60,7 @@ int main()
 #endif
 
 	if (!canvas->setOutputTarget(OutputTarget::ToWindow(surface))) {
-		std::cerr << "[SoftwarePresent] FAIL: attachPresentSurface failed "
+		std::cerr << "[SoftwarePresent] FAIL: setOutputTarget(Window) failed "
 		             "(software presentation is currently Windows-only)."
 		          << std::endl;
 		glfwDestroyWindow(window);
