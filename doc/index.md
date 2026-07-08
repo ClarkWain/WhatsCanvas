@@ -20,7 +20,7 @@ The software backend needs no window, GL context, or GPU:
 
 int main()
 {
-    auto canvas = wsc::Canvas::createSoftware(256, 256);   // sized & initialized
+    auto canvas = wsc::Canvas::create(wsc::Canvas::Backend::Software, 256, 256);   // sized; flush initializes
 
     wsc::Paint fill;
     fill.setColor(wsc::Color(40, 120, 240, 255));
@@ -47,10 +47,10 @@ windowed OpenGL, GitHub Release consumption, Vulkan, and common tasks.
 
 | Backend | Create with | Needs a GL context / window? | Use when |
 | --- | --- | --- | --- |
-| **Software (CPU)** | `Canvas::createSoftware(w, h)` | No | Headless, servers, tests, thumbnails |
-| **OpenGL** | `Canvas()` + `loadOpenGL(...)` | Yes (you own it) | Desktop apps/games with a window |
-| **OpenGL ES** | `WhatsCanvas::OpenGLES` + `loadOpenGL(...)` | Yes (you own it) | Mobile / embedded GLES 3.0 |
-| **Vulkan** (optional) | `Canvas::createVulkan(w, h)` | No (off-screen) | Vulkan pipelines; degrades gracefully |
+| **Software (CPU)** | `Canvas::create(Backend::Software, w, h)` | No | Headless, servers, tests, thumbnails |
+| **OpenGL** | `Canvas::create(Backend::OpenGL, w, h)` + `loadOpenGL(...)` | Yes (you own it) | Desktop apps/games with a window |
+| **OpenGL ES** | `Canvas::create(Backend::OpenGLES, w, h)` + `loadOpenGL(...)` | Yes (you own it) | Mobile / embedded GLES 3.0 |
+| **Vulkan** (optional) | `Canvas::create(Backend::Vulkan, w, h)` | No (off-screen) | Vulkan pipelines; degrades gracefully |
 
 ## What makes it stand out
 

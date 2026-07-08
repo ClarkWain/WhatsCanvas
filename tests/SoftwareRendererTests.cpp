@@ -11,6 +11,13 @@ using namespace wsc;
 
 namespace {
 
+std::unique_ptr<Canvas> makeSoftwareCanvas(int w, int h)
+{
+    auto c = Canvas::create(Canvas::Backend::Software, w, h);
+    if (c) c->initializeContext();
+    return c;
+}
+
 bool expect(bool condition, const std::string &message)
 {
     if (!condition) {
@@ -21,7 +28,7 @@ bool expect(bool condition, const std::string &message)
 
 bool testCreateSoftwareCanvas()
 {
-    std::unique_ptr<Canvas> canvas = Canvas::createSoftware(32, 24);
+    std::unique_ptr<Canvas> canvas = makeSoftwareCanvas(32, 24);
     bool ok = expect(canvas != nullptr, "createSoftware should return a canvas");
     if (!canvas) {
         return false;
@@ -38,7 +45,7 @@ bool testSolidFillRasterizes()
 {
     const int w = 64;
     const int h = 64;
-    std::unique_ptr<Canvas> canvas = Canvas::createSoftware(w, h);
+    std::unique_ptr<Canvas> canvas = makeSoftwareCanvas(w, h);
     if (!canvas) {
         return expect(false, "createSoftware should return a canvas");
     }
@@ -76,7 +83,7 @@ bool testSrcOverBlending()
 {
     const int w = 32;
     const int h = 32;
-    std::unique_ptr<Canvas> canvas = Canvas::createSoftware(w, h);
+    std::unique_ptr<Canvas> canvas = makeSoftwareCanvas(w, h);
     if (!canvas) {
         return expect(false, "createSoftware should return a canvas");
     }
@@ -113,7 +120,7 @@ bool testLinearGradient()
 {
     const int w = 64;
     const int h = 16;
-    std::unique_ptr<Canvas> canvas = Canvas::createSoftware(w, h);
+    std::unique_ptr<Canvas> canvas = makeSoftwareCanvas(w, h);
     if (!canvas) {
         return expect(false, "createSoftware should return a canvas");
     }
@@ -147,7 +154,7 @@ bool testDrawLine()
 {
     const int w = 32;
     const int h = 32;
-    std::unique_ptr<Canvas> canvas = Canvas::createSoftware(w, h);
+    std::unique_ptr<Canvas> canvas = makeSoftwareCanvas(w, h);
     if (!canvas) {
         return expect(false, "createSoftware should return a canvas");
     }
@@ -178,7 +185,7 @@ bool testDrawImage()
 {
     const int w = 16;
     const int h = 16;
-    std::unique_ptr<Canvas> canvas = Canvas::createSoftware(w, h);
+    std::unique_ptr<Canvas> canvas = makeSoftwareCanvas(w, h);
     if (!canvas) {
         return expect(false, "createSoftware should return a canvas");
     }
@@ -220,7 +227,7 @@ bool testClipRect()
 {
     const int w = 32;
     const int h = 32;
-    std::unique_ptr<Canvas> canvas = Canvas::createSoftware(w, h);
+    std::unique_ptr<Canvas> canvas = makeSoftwareCanvas(w, h);
     if (!canvas) {
         return expect(false, "createSoftware should return a canvas");
     }
@@ -252,7 +259,7 @@ bool testClipPath()
 {
     const int w = 40;
     const int h = 40;
-    std::unique_ptr<Canvas> canvas = Canvas::createSoftware(w, h);
+    std::unique_ptr<Canvas> canvas = makeSoftwareCanvas(w, h);
     if (!canvas) {
         return expect(false, "createSoftware should return a canvas");
     }
@@ -285,7 +292,7 @@ bool testGaussianShadow()
 {
     const int w = 64;
     const int h = 64;
-    std::unique_ptr<Canvas> canvas = Canvas::createSoftware(w, h);
+    std::unique_ptr<Canvas> canvas = makeSoftwareCanvas(w, h);
     if (!canvas) {
         return expect(false, "createSoftware should return a canvas");
     }
@@ -326,7 +333,7 @@ bool testSaveLayerAlpha()
 {
     const int w = 32;
     const int h = 32;
-    std::unique_ptr<Canvas> canvas = Canvas::createSoftware(w, h);
+    std::unique_ptr<Canvas> canvas = makeSoftwareCanvas(w, h);
     if (!canvas) {
         return expect(false, "createSoftware should return a canvas");
     }
@@ -368,7 +375,7 @@ bool testSaveLayerPartial()
 {
     const int w = 32;
     const int h = 32;
-    std::unique_ptr<Canvas> canvas = Canvas::createSoftware(w, h);
+    std::unique_ptr<Canvas> canvas = makeSoftwareCanvas(w, h);
     if (!canvas) {
         return expect(false, "createSoftware should return a canvas");
     }
@@ -410,7 +417,7 @@ bool testGammaLinearBlend()
 {
     const int w = 16;
     const int h = 16;
-    std::unique_ptr<Canvas> canvas = Canvas::createSoftware(w, h);
+    std::unique_ptr<Canvas> canvas = makeSoftwareCanvas(w, h);
     if (!canvas) {
         return expect(false, "createSoftware should return a canvas");
     }

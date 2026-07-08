@@ -17,7 +17,8 @@ bool expect(bool condition, const std::string &message)
 
 bool testStateSetters()
 {
-    wsc::Canvas canvas;
+    auto canvasOwner = wsc::Canvas::create(wsc::Canvas::Backend::OpenGL, 0, 0);
+    wsc::Canvas &canvas = *canvasOwner;
     wsc::CanvasAdapter adapter(canvas);
     adapter.setFillColor(wsc::Color(20, 40, 60, 200));
     adapter.setStrokeColor(wsc::Color(220, 200, 180, 160));
@@ -36,7 +37,8 @@ bool testStateSetters()
 
 bool testCurrentPath()
 {
-    wsc::Canvas canvas;
+    auto canvasOwner = wsc::Canvas::create(wsc::Canvas::Backend::OpenGL, 0, 0);
+    wsc::Canvas &canvas = *canvasOwner;
     wsc::CanvasAdapter adapter(canvas);
     adapter.beginPath();
     adapter.moveTo(0.0f, 0.0f);
@@ -50,7 +52,8 @@ bool testCurrentPath()
 
 bool testImageHandles()
 {
-    wsc::Canvas canvas;
+    auto canvasOwner = wsc::Canvas::create(wsc::Canvas::Backend::OpenGL, 0, 0);
+    wsc::Canvas &canvas = *canvasOwner;
     wsc::CanvasAdapter adapter(canvas);
     wsc::Image image;
     const std::uint32_t handle = adapter.registerImage(image);

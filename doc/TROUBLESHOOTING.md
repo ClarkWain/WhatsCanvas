@@ -29,8 +29,9 @@ GLFW/SDL/Qt) does. The required order is:
 4. Draw + `canvas.flush()` **with the context current**.
 
 If you skip step 1–2 or draw without a current context, GL calls fail. The
-software (`createSoftware`) and Vulkan (`createVulkan`) factories return an
-already-initialized canvas and need none of this.
+software and Vulkan backends (`Canvas::create(Backend::Software, ...)` /
+`Canvas::create(Backend::Vulkan, ...)`) need none of this — they initialize
+lazily on the first draw/flush.
 
 ### Colors look washed out / semi-transparent blends look wrong
 
@@ -90,13 +91,15 @@ and compiles **into** `WhatsCanvas::OpenGL` (there is no separate `::Vulkan`
 target). Probe at runtime and fall back:
 
 ```cpp
+using Backend = wsc::Canvas::Backend;
 std::unique_ptr<wsc::Canvas> canvas =
-    wsc::Canvas::isVulkanAvailable() ? wsc::Canvas::createVulkan(w, h)
-                                     : wsc::Canvas::createSoftware(w, h);
+    wsc::Canvas::isBackendAvailable(Backend::Vulkan)
+        ? wsc::Canvas::create(Backend::Vulkan, w, h)
+        : wsc::Canvas::create(Backend::Software, w, h);
 ```
 
-`createVulkan` renders **off-screen** (no window/surface) — read the result with
-`readPixelsRGBA`.
+The Vulkan backend renders **off-screen** (no window/surface) — read the result
+with `readPixelsRGBA`.
 
 ### I want a binary that links no GPU libraries at all
 

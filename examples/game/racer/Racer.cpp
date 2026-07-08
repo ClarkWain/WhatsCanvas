@@ -1303,7 +1303,8 @@ int main() {
         glEnable(kOpenGLMultisample);
     }
 
-    Canvas canvas;
+    auto canvasOwner = Canvas::create(Canvas::Backend::OpenGL, 0, 0);
+    Canvas &canvas = *canvasOwner;
     canvas.setSize(fbw, fbh);
 
     RacerGame game;

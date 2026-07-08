@@ -32,6 +32,13 @@ using namespace wsc;
 
 namespace {
 
+std::unique_ptr<Canvas> makeSoftwareCanvas(int w, int h)
+{
+    auto c = Canvas::create(Canvas::Backend::Software, w, h);
+    if (c) c->initializeContext();
+    return c;
+}
+
 struct Bitmap
 {
     int width = 0;
@@ -156,7 +163,7 @@ bool compare(const std::string &name, const Bitmap &actual, const Bitmap &expect
 // diagonal; guards the top-left fill rule against double-compositing.
 Bitmap sceneOverlapTranslucent()
 {
-    auto canvas = Canvas::createSoftware(48, 48);
+    auto canvas = makeSoftwareCanvas(48, 48);
     canvas->beginFrame();
     Paint a;
     a.setStyle(Paint::Style::FILL);
@@ -174,7 +181,7 @@ Bitmap sceneOverlapTranslucent()
 
 Bitmap sceneLinearGradient()
 {
-    auto canvas = Canvas::createSoftware(64, 32);
+    auto canvas = makeSoftwareCanvas(64, 32);
     canvas->beginFrame();
     Paint grad;
     grad.setStyle(Paint::Style::FILL);
@@ -190,7 +197,7 @@ Bitmap sceneLinearGradient()
 
 Bitmap sceneRadialGradient()
 {
-    auto canvas = Canvas::createSoftware(48, 48);
+    auto canvas = makeSoftwareCanvas(48, 48);
     canvas->beginFrame();
     Paint grad;
     grad.setStyle(Paint::Style::FILL);
@@ -205,7 +212,7 @@ Bitmap sceneRadialGradient()
 
 Bitmap sceneClipCircleAA()
 {
-    auto canvas = Canvas::createSoftware(48, 48);
+    auto canvas = makeSoftwareCanvas(48, 48);
     canvas->beginFrame();
     Path circle;
     circle.addCircle(24.0f, 24.0f, 18.0f);
@@ -223,7 +230,7 @@ Bitmap sceneClipCircleAA()
 
 Bitmap sceneDropShadow()
 {
-    auto canvas = Canvas::createSoftware(64, 64);
+    auto canvas = makeSoftwareCanvas(64, 64);
     canvas->beginFrame();
     Paint p;
     p.setStyle(Paint::Style::FILL);
@@ -237,7 +244,7 @@ Bitmap sceneDropShadow()
 
 Bitmap sceneSaveLayer()
 {
-    auto canvas = Canvas::createSoftware(48, 48);
+    auto canvas = makeSoftwareCanvas(48, 48);
     canvas->beginFrame();
     Paint bg;
     bg.setStyle(Paint::Style::FILL);
@@ -261,7 +268,7 @@ Bitmap sceneSaveLayer()
 
 Bitmap sceneBlendModes()
 {
-    auto canvas = Canvas::createSoftware(64, 32);
+    auto canvas = makeSoftwareCanvas(64, 32);
     canvas->beginFrame();
     Paint bg;
     bg.setStyle(Paint::Style::FILL);
@@ -285,7 +292,7 @@ Bitmap sceneBlendModes()
 
 Bitmap sceneImageTint()
 {
-    auto canvas = Canvas::createSoftware(32, 32);
+    auto canvas = makeSoftwareCanvas(32, 32);
 
     std::vector<unsigned char> src(8 * 8 * 4, 0);
     for (int y = 0; y < 8; ++y) {
@@ -316,7 +323,7 @@ Bitmap sceneImageTint()
 Bitmap sceneGammaSrcOver()
 {
     Canvas::setGammaCorrect(true);
-    auto canvas = Canvas::createSoftware(48, 48);
+    auto canvas = makeSoftwareCanvas(48, 48);
     canvas->beginFrame();
     Paint bg;
     bg.setStyle(Paint::Style::FILL);

@@ -24,7 +24,8 @@ back — ideal for a first test, servers, CI, or thumbnails.
 int main()
 {
     // Sized and ready to draw — no GL context, no window.
-    auto canvas = wsc::Canvas::createSoftware(256, 256);
+    // The first draw/flush initializes the backend lazily.
+    auto canvas = wsc::Canvas::create(wsc::Canvas::Backend::Software, 256, 256);
 
     wsc::Paint bg;
     bg.setColor(wsc::Color(18, 20, 24, 255));
@@ -41,10 +42,14 @@ int main()
 }
 ```
 
-That is a complete, runnable program. No `initializeContext`, no `loadOpenGL`.
+That is a complete, runnable program. No `loadOpenGL`, and no explicit
+`initializeContext` — the first `flush()` initializes the software backend
+lazily.
 
-> `createSoftware` returns a `std::unique_ptr<wsc::Canvas>` that is already sized
-> and initialized. Use `->` to call methods.
+> `Canvas::create(...)` returns a `std::unique_ptr<wsc::Canvas>` that is already
+> sized. Use `->` to call methods. It is *not* pre-initialized: drawing and
+> `flush()` initialize it lazily, or call `initializeContext()` yourself if you
+> need to read pixels before drawing.
 
 ---
 
@@ -79,11 +84,11 @@ bool hasVk = wsc::Canvas::isBackendAvailable(Backend::Vulkan);
 Backend chosen = best->backend();
 ```
 
-`Canvas::createSoftware(w, h)` / `createVulkan(w, h)` remain as convenience
-shortcuts (equivalent to `create(...)` + `initializeContext()`), and the default
-`Canvas()` constructor makes an unsized OpenGL canvas for the "I already have a
-GL context" case. Backend selection is a **link-time** choice (which library
-target you link) plus this **runtime** choice.
+`Canvas::create(...)` is the single entry point for every backend. For the
+"I already have a GL context" case, create an OpenGL canvas with size `0, 0` and
+set the size yourself: `auto c = Canvas::create(Backend::OpenGL, 0, 0);`. Backend
+selection is a **link-time** choice (which library target you link) plus this
+**runtime** choice.
 
 ### OpenGL: you own the window and context
 
@@ -103,8 +108,8 @@ int main()
     // Hand WhatsCanvas your platform's GL loader.
     wsc::Canvas::loadOpenGL(reinterpret_cast<wsc::Canvas::OpenGLProcAddress>(glfwGetProcAddress));
 
-    wsc::Canvas canvas;
-    canvas.setSize(800, 600);
+    auto canvasOwner = wsc::Canvas::create(wsc::Canvas::Backend::OpenGL, 800, 600);
+    wsc::Canvas &canvas = *canvasOwner;
     canvas.initializeContext();
 
     while (!glfwWindowShouldClose(window)) {
@@ -133,9 +138,9 @@ The lifecycle contract for the GL/GLES backends:
 4. `canvas.releaseResources()` before tearing down the context. On context loss
    (e.g. Android background), call `releaseResources()` and re-`initializeContext()`.
 
-> The software and Vulkan factories (`createSoftware` / `createVulkan`) return an
-> already-initialized canvas — you do **not** call `loadOpenGL` / `initializeContext`
-> for them.
+> The software and Vulkan backends need no `loadOpenGL`. They initialize lazily
+> on the first draw/flush; call `initializeContext()` explicitly only if you read
+> pixels before drawing.
 
 ---
 
@@ -238,7 +243,7 @@ cmake -S . -B build -DWHATSCANVAS_ENABLE_VULKAN=ON
 
 If the flag is off, there is no Vulkan code path. If the flag is on but no SDK is
 found, it compiles as an **inert stub** (so the build still succeeds), and
-`Canvas::isVulkanAvailable()` returns `false`.
+`Canvas::isBackendAvailable(Canvas::Backend::Vulkan)` returns `false`.
 
 **It coexists with OpenGL — it is not "either/or".** Vulkan is **not** a separate
 library; its code is compiled **into the same `WhatsCanvas::OpenGL` target**. When
@@ -246,19 +251,19 @@ enabled, one library contains **both** the OpenGL and Vulkan backends, and you
 choose between them **at runtime**:
 
 ```cpp
-wsc::Canvas gl;                        // OpenGL: gl.loadOpenGL(...) + initializeContext()
-auto vk = wsc::Canvas::createVulkan(w, h);   // Vulkan: off-screen, already initialized
+using Backend = wsc::Canvas::Backend;
+auto gl = wsc::Canvas::create(Backend::OpenGL, 0, 0);   // OpenGL: loadOpenGL(...) + initializeContext()
+auto vk = wsc::Canvas::create(Backend::Vulkan, w, h);   // Vulkan: off-screen
 ```
 
 Always guard the Vulkan path so it degrades gracefully:
 
 ```cpp
-if (wsc::Canvas::isVulkanAvailable()) {
-    auto canvas = wsc::Canvas::createVulkan(512, 512);   // may still return nullptr
-    // ... render, then canvas->readPixelsRGBA(...)
-} else {
-    auto canvas = wsc::Canvas::createSoftware(512, 512); // fallback
-}
+using Backend = wsc::Canvas::Backend;
+auto canvas = wsc::Canvas::isBackendAvailable(Backend::Vulkan)
+                  ? wsc::Canvas::create(Backend::Vulkan, 512, 512)   // may still return nullptr
+                  : wsc::Canvas::create(Backend::Software, 512, 512); // fallback
+// ... render, then canvas->readPixelsRGBA(...)
 ```
 
 **Why is Vulkan off-screen only (unlike OpenGL)?** Because the difference is
@@ -444,7 +449,8 @@ backend/platform, so you can fall back. On-screen present is implemented for
 hand over the native handle):
 
 ```cpp
-auto canvas = wsc::Canvas::createSoftware(width, height);   // or default GL / createVulkan
+using Backend = wsc::Canvas::Backend;
+auto canvas = wsc::Canvas::create(Backend::Software, width, height);   // or Backend::OpenGL / Backend::Vulkan
 
 wsc::NativeSurface surface;
 surface.platform = wsc::NativeSurface::Platform::Win32;
@@ -470,8 +476,8 @@ window (no `present()`; your engine composites/presents its own target):
 
 ```cpp
 // OpenGL: your context must be current and Canvas::loadOpenGL called (section 2).
-wsc::Canvas canvas;                 // default = OpenGL backend
-canvas.setSize(width, height);
+auto canvasOwner = wsc::Canvas::create(wsc::Canvas::Backend::OpenGL, width, height);
+wsc::Canvas &canvas = *canvasOwner;
 canvas.initializeContext();
 canvas.setOutputTarget(wsc::OutputTarget::GLFramebuffer(myFbo, width, height));
 
@@ -485,7 +491,7 @@ while (running) {
 ```cpp
 // Vulkan: allocate an R8G8B8A8_UNORM VkImage (COLOR_ATTACHMENT usage) on the
 // canvas's device, obtained via the interop accessors.
-auto canvas = wsc::Canvas::createVulkan(width, height);
+auto canvas = wsc::Canvas::create(wsc::Canvas::Backend::Vulkan, width, height);
 VkDevice dev = static_cast<VkDevice>(canvas->vulkanDevice());
 VkImage  hostImage = /* vkCreateImage(dev, ... R8G8B8A8_UNORM, COLOR_ATTACHMENT ...) + bind memory */;
 

@@ -69,7 +69,8 @@ public:
 
 bool testDefaultStatsAreReadable()
 {
-    wsc::Canvas canvas;
+    auto canvasOwner = wsc::Canvas::create(wsc::Canvas::Backend::OpenGL, 0, 0);
+    wsc::Canvas &canvas = *canvasOwner;
     const wsc::Canvas::RenderStats stats = canvas.getRenderStats();
     return expect(stats.commandCount == 0, "default command count should be zero")
         && expect(stats.drawCallCount == 0, "default draw call count should be zero")

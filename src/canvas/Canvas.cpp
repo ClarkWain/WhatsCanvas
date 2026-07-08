@@ -2124,20 +2124,6 @@ Canvas::Canvas(std::unique_ptr<IRenderer> renderer)
     registerCanvasInstance(this);
 }
 
-#ifdef WHATSCANVAS_SOFTWARE_ONLY
-Canvas::Canvas()
-    : Canvas(std::make_unique<wsc::software::SoftwareRenderer>(0, 0))
-{
-    impl_->backend = Backend::Software;
-}
-#else
-Canvas::Canvas()
-    : Canvas(std::make_unique<Renderer>())
-{
-    impl_->backend = Backend::OpenGL;
-}
-#endif
-
 bool Canvas::isBackendAvailable(Backend backend)
 {
     switch (backend) {
@@ -2231,29 +2217,6 @@ std::unique_ptr<Canvas> Canvas::create(std::initializer_list<Backend> preferred,
 Canvas::Backend Canvas::backend() const
 {
     return impl_->backend;
-}
-
-std::unique_ptr<Canvas> Canvas::createSoftware(int width, int height)
-{
-    auto canvas = create(Backend::Software, width, height);
-    if (canvas) {
-        canvas->initializeContext();
-    }
-    return canvas;
-}
-
-std::unique_ptr<Canvas> Canvas::createVulkan(int width, int height)
-{
-    auto canvas = create(Backend::Vulkan, width, height);
-    if (canvas) {
-        canvas->initializeContext();
-    }
-    return canvas;
-}
-
-bool Canvas::isVulkanAvailable()
-{
-    return isBackendAvailable(Backend::Vulkan);
 }
 
 Canvas::~Canvas()

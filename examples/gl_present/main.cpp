@@ -48,7 +48,8 @@ int main()
 		return 1;
 	}
 
-	Canvas canvas; // default = OpenGL backend, renders into the window's default FBO
+	auto canvasOwner = Canvas::create(Canvas::Backend::OpenGL, width, height); // renders into the window's default FBO
+	Canvas &canvas = *canvasOwner;
 	canvas.setSize(width, height);
 	canvas.initializeContext();
 

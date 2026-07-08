@@ -75,7 +75,8 @@ bool externalTextureSnippet(wsc::Canvas &canvas, std::uint32_t nativeTextureId)
 
 int main()
 {
-    wsc::Canvas canvas;
+    auto canvasOwner = wsc::Canvas::create(wsc::Canvas::Backend::OpenGL, 0, 0);
+    wsc::Canvas &canvas = *canvasOwner;
     canvas.setSize(480, 320);
 
     fontFallbackSnippet();
