@@ -30,7 +30,16 @@ int main()
         return 2;
     }
 
-    auto canvasOwner = wsc::Canvas::create(wsc::Canvas::Backend::OpenGL, 0, 0);
+    const auto backend =
+#if defined(WHATSCANVAS_PACKAGE_USE_SOFTWARE)
+        wsc::Canvas::Backend::Software;
+#else
+        wsc::Canvas::Backend::OpenGL;
+#endif
+    auto canvasOwner = wsc::Canvas::create(backend, 0, 0);
+    if (!canvasOwner) {
+        return 3;
+    }
     wsc::Canvas &canvas = *canvasOwner;
     canvas.setSize(64, 64);
     (void)canvas.getWidth();
