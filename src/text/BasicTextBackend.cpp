@@ -24,7 +24,12 @@ using wsc::text::TextRenderKind;
 using wsc::text::TextRenderResult;
 
 constexpr size_t kMaxNativeTextCacheEntries = 128;
-constexpr int kDefaultGlyphAtlasSize = 1024;
+// Windows application UI commonly combines several text sizes, weights and
+// structural branches in one deferred Software frame.  Starting at 1024 can
+// force an atlas resize while that frame still owns commands referencing the
+// first texture.  A 2048 atlas keeps a normal desktop scene stable and avoids
+// replacing the shared resource during command recording.
+constexpr int kDefaultGlyphAtlasSize = 4096;
 
 const char *backendName(wsc::text::TextBackendKind kind)
 {
