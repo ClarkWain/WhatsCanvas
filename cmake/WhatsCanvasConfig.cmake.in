@@ -20,6 +20,10 @@ if (TARGET WhatsCanvas::WhatsCanvasOpenGLES AND NOT TARGET WhatsCanvas::OpenGLES
     add_library(WhatsCanvas::OpenGLES ALIAS WhatsCanvas::WhatsCanvasOpenGLES)
 endif()
 
+if (TARGET WhatsCanvas::WhatsCanvasSoftware AND NOT TARGET WhatsCanvas::Software)
+    add_library(WhatsCanvas::Software ALIAS WhatsCanvas::WhatsCanvasSoftware)
+endif()
+
 if (TARGET WhatsCanvas::WhatsCanvasOpenGL AND NOT "@WHATSCANVAS_OPENGL_PACKAGE_IMPLIB@" STREQUAL "")
     set_target_properties(WhatsCanvas::WhatsCanvasOpenGL PROPERTIES
         IMPORTED_IMPLIB "${_WHATSCANVAS_PREFIX}/@WHATSCANVAS_OPENGL_PACKAGE_IMPLIB@"

@@ -1132,6 +1132,12 @@ if (BUILD_TESTING AND WHATSCANVAS_ENABLE_SCRIPT_TESTS)
                 -DWHATSCANVAS_GATE_WORKDIR=${CMAKE_CURRENT_SOURCE_DIR}
                 -P ${WHATSCANVAS_TEST_WRAPPER}
         )
+        add_test(NAME WhatsCanvasSoftwarePackageConsumerSmoke
+            COMMAND ${CMAKE_COMMAND}
+                -DWHATSCANVAS_PACKAGE_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+                -DWHATSCANVAS_PACKAGE_WORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/software-package-consumer-smoke
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifySoftwarePackageConsumer.cmake
+        )
 
         if (WHATSCANVAS_ENABLE_LOCAL_REGRESSION_TEST)
             add_test(NAME WhatsCanvasRegressionSmoke
@@ -1209,6 +1215,12 @@ if (BUILD_TESTING AND WHATSCANVAS_ENABLE_SCRIPT_TESTS)
                 -DWHATSCANVAS_GATE_LAUNCHER=sh
                 -P ${WHATSCANVAS_TEST_WRAPPER}
         )
+        add_test(NAME WhatsCanvasSoftwarePackageConsumerSmoke
+            COMMAND ${CMAKE_COMMAND}
+                -DWHATSCANVAS_PACKAGE_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+                -DWHATSCANVAS_PACKAGE_WORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/software-package-consumer-smoke
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifySoftwarePackageConsumer.cmake
+        )
 
         if (WHATSCANVAS_ENABLE_LOCAL_REGRESSION_TEST)
             add_test(NAME WhatsCanvasRegressionSmoke
@@ -1242,6 +1254,7 @@ if (BUILD_TESTING AND WHATSCANVAS_ENABLE_SCRIPT_TESTS)
         WhatsCanvasApiReferenceCheck
         WhatsCanvasVersionConsistencyCheck
         WhatsCanvasPackageConsumerSmoke
+        WhatsCanvasSoftwarePackageConsumerSmoke
         PROPERTIES
             WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
             TIMEOUT 1800
@@ -1254,6 +1267,7 @@ if (BUILD_TESTING AND WHATSCANVAS_ENABLE_SCRIPT_TESTS)
     set_tests_properties(WhatsCanvasApiReferenceCheck PROPERTIES LABELS "smoke;api;docs")
     set_tests_properties(WhatsCanvasVersionConsistencyCheck PROPERTIES LABELS "smoke;version;package")
     set_tests_properties(WhatsCanvasPackageConsumerSmoke PROPERTIES LABELS "smoke;package")
+    set_tests_properties(WhatsCanvasSoftwarePackageConsumerSmoke PROPERTIES LABELS "smoke;package;software")
 endif()
 
 if (WHATSCANVAS_INSTALL)
@@ -1283,6 +1297,13 @@ if (WHATSCANVAS_INSTALL)
     endif()
     if (TARGET WhatsCanvasOpenGLES)
         list(APPEND WHATSCANVAS_INSTALL_TARGETS WhatsCanvasOpenGLES)
+    endif()
+    # The CPU renderer is dependency-free at package-consumer link time (its
+    # private build helpers are compiled into the archive), so export it just
+    # like the GL targets. This makes a Windows static Software-only package
+    # usable by an external find_package consumer without pulling OpenGL.
+    if (TARGET WhatsCanvasSoftware)
+        list(APPEND WHATSCANVAS_INSTALL_TARGETS WhatsCanvasSoftware)
     endif()
 
     if (WHATSCANVAS_INSTALL_TARGETS)
