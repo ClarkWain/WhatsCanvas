@@ -1146,6 +1146,44 @@ glm::mat4 makeOffsetTransform(const glm::mat4 &transform, float dx, float dy)
     return glm::translate(transform, glm::vec3(dx, dy, 0.0f));
 }
 
+// Text sharpness: glyphs are rasterized at an integer pixel size, so their atlas
+// texels map 1:1 to device pixels ONLY when the glyph quad lands on an integer
+// pixel boundary. When the quad origin is at a fractional position, GL_LINEAR
+// sampling averages neighbouring texels and a solid vertical stem loses 20-49%
+// of its coverage — the classic "blurry text" look. When the current transform
+// is a pure axis-aligned unit-scale transform (identity / integer or fractional
+// translation, the overwhelmingly common UI case), snap each glyph quad's device
+// origin to the pixel grid so texels align 1:1 with pixels. Rotated / scaled
+// text is left untouched (snapping would be wrong, and magnified text is blurry
+// for unrelated reasons).
+bool pixelSnappableTransform(const glm::mat4 &m, float &tx, float &ty)
+{
+    constexpr float eps = 1e-3f;
+    if (std::abs(m[0][0] - 1.0f) > eps || std::abs(m[1][1] - 1.0f) > eps
+        || std::abs(m[0][1]) > eps || std::abs(m[1][0]) > eps) {
+        return false;
+    }
+    tx = m[3][0];
+    ty = m[3][1];
+    return true;
+}
+
+void snapGlyphQuadsToPixelGrid(std::vector<wsc::text::TextRenderResult::GlyphAtlasQuad> &quads,
+                               const glm::mat4 &matrix)
+{
+    float tx = 0.0f;
+    float ty = 0.0f;
+    if (!pixelSnappableTransform(matrix, tx, ty)) {
+        return;
+    }
+    for (wsc::text::TextRenderResult::GlyphAtlasQuad &quad : quads) {
+        // Snap the DEVICE-space origin (quad + translation) to whole pixels, then
+        // map back into local space so the in-shader transform reproduces it.
+        quad.x = std::round(quad.x + tx) - tx;
+        quad.y = std::round(quad.y + ty) - ty;
+    }
+}
+
 // Builds a true (separable Gaussian) blurred shadow from an already-tessellated
 // set of triangles (interleaved x,y). The shape is rendered white and offset by
 // the paint's shadow delta, blurred on the GPU, then composited tinted with the
@@ -3687,7 +3725,6 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
     if (!impl_->textBackend) {
         return;
     }
-
     const auto renderedText = impl_->textBackend->renderText(text, x, y, paint);
     if (renderedText.kind == wsc::text::TextRenderKind::None) {
         return;
@@ -3711,10 +3748,15 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
             return;
         }
 
+        // Align glyph quads to the device pixel grid for crisp (non-blurry) text.
+        std::vector<wsc::text::TextRenderResult::GlyphAtlasQuad> atlasQuads =
+            renderedText.glyphAtlasQuads;
+        snapGlyphQuadsToPixelGrid(atlasQuads, impl_->currentState().matrix);
+
         const ScissorState scissor = impl_->makeCurrentScissorState();
         const ClipMaskState clipMask = impl_->makeCurrentClipMaskState();
         const auto submitAtlasText = [&](const Color &textColor, const glm::mat4 &transform, bool useFillShader = false) {
-            for (const auto &quad : renderedText.glyphAtlasQuads) {
+            for (const auto &quad : atlasQuads) {
                 DrawImageData data;
                 data.imageResource = imageResource;
                 data.x = quad.x;
@@ -3745,12 +3787,12 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
 
         bool blurredAtlasShadow = false;
         if (paint.hasShadowLayer() && std::max(0.0f, paint.getShadowRadius()) > 0.0f
-            && impl_->width > 0 && impl_->height > 0 && !renderedText.glyphAtlasQuads.empty()) {
+            && impl_->width > 0 && impl_->height > 0 && !atlasQuads.empty()) {
             const glm::mat4 offset = makeOffsetTransform(impl_->currentState().matrix,
                                                          paint.getShadowDx(), paint.getShadowDy());
             std::vector<DrawImageData> silhouette;
-            silhouette.reserve(renderedText.glyphAtlasQuads.size());
-            for (const auto &quad : renderedText.glyphAtlasQuads) {
+            silhouette.reserve(atlasQuads.size());
+            for (const auto &quad : atlasQuads) {
                 DrawImageData d;
                 d.imageResource = imageResource;
                 d.x = quad.x;

@@ -782,6 +782,26 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     )
     set_tests_properties(WhatsCanvasSoftwareRendererTests PROPERTIES LABELS "unit;diagnostics")
 
+    add_executable(WhatsCanvasTextPixelAlignmentTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/TextPixelAlignmentTests.cpp"
+    )
+    target_include_directories(WhatsCanvasTextPixelAlignmentTests PRIVATE
+        "${SRC_DIR}"
+    )
+    target_link_libraries(WhatsCanvasTextPixelAlignmentTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasTextPixelAlignmentTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasTextPixelAlignmentTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasTextPixelAlignmentTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasTextPixelAlignmentTests PROPERTIES LABELS "unit;text")
+
     add_executable(WhatsCanvasSoftwareGoldenTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/SoftwareGoldenTests.cpp"
     )
