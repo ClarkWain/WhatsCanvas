@@ -2162,6 +2162,7 @@ struct Canvas::Impl
 
     int width = 0;
     int height = 0;
+    float devicePixelRatio = 1.0f;
     Color color;
     std::unique_ptr<IRenderer> renderer;
     std::unique_ptr<ISwapchain> swapchain;
@@ -4746,7 +4747,24 @@ void Canvas::setMatrix(const Matrix4 &matrix)
 
 void Canvas::resetMatrix()
 {
-    impl_->currentState().matrix = glm::mat4(1.0f);
+    impl_->currentState().matrix =
+        glm::scale(glm::mat4(1.0f), glm::vec3(impl_->devicePixelRatio, impl_->devicePixelRatio, 1.0f));
+}
+
+void Canvas::setDevicePixelRatio(float ratio)
+{
+    // A HiDPI / content scale folded into the root transform: drawing in logical
+    // coordinates then renders at `ratio`x physical resolution. Because it lives
+    // in the transform, text automatically rasterizes at device resolution (see
+    // drawText's effective-scale path) and stays crisp; all other content scales
+    // up too. The canvas size is expected to be the physical framebuffer size.
+    impl_->devicePixelRatio = (ratio > 0.0f && std::isfinite(ratio)) ? ratio : 1.0f;
+    resetMatrix();
+}
+
+float Canvas::devicePixelRatio() const
+{
+    return impl_->devicePixelRatio;
 }
 
 void Canvas::concat(const Matrix4 &matrix)
