@@ -124,11 +124,96 @@ bool testFractionalTextStaysCrisp()
     return ok;
 }
 
+// Count solidly-inked (near-black) pixels produced by black text rendered with
+// a given logical text size under a given uniform canvas scale, placed so the
+// on-screen size is the same for every (size, scale) pair.
+int nearBlackCount(float textSize, float scale, const std::string &fontPath)
+{
+    const int w = 320;
+    const int h = 128;
+    auto canvas = Canvas::create(Canvas::Backend::Software, w, h);
+    if (!canvas) {
+        return -1;
+    }
+    canvas->initializeContext();
+    canvas->registerFontFace(FontFace::fromFile(FontDescriptor("ScaleProbe"), fontPath));
+
+    canvas->beginFrame();
+    Paint bg;
+    bg.setStyle(Paint::Style::FILL);
+    bg.setColor(Color(255, 255, 255, 255));
+    bg.setAntiAlias(false);
+    canvas->drawRect(RectF(0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h)), bg);
+
+    Paint text;
+    text.setColor(Color(0, 0, 0, 255));
+    text.setFontFamily("ScaleProbe");
+    text.setTextSize(textSize);
+    text.setAntiAlias(true);
+
+    // Same device-space origin (16, 72) and device text height regardless of the
+    // (size, scale) split, so the two renders are directly comparable.
+    canvas->save();
+    canvas->scale(scale, scale);
+    canvas->drawText("HHHH", 16.0f / scale, 72.0f / scale, text);
+    canvas->restore();
+    canvas->endFrame();
+
+    std::vector<unsigned char> px;
+    if (!canvas->readPixelsRGBA(px) || px.size() != static_cast<std::size_t>(w) * h * 4u) {
+        return -1;
+    }
+
+    int count = 0;
+    for (int i = 0; i < w * h; ++i) {
+        const int r = px[i * 4 + 0];
+        const int g = px[i * 4 + 1];
+        const int b = px[i * 4 + 2];
+        const int luma = (r * 30 + g * 59 + b * 11) / 100;
+        if (luma < 30) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+bool testScaledTextRasterizedAtDeviceResolution()
+{
+    const std::string fontPath = findSystemFont();
+    if (fontPath.empty()) {
+        std::cout << "Skipping scaled-text test; no system font found." << std::endl;
+        return true;
+    }
+
+    // Reference: a natively large glyph at scale 1 (true device resolution).
+    const int reference = nearBlackCount(64.0f, 1.0f, fontPath);
+    // Under test: a small glyph magnified 4x to the same on-screen size. With
+    // device-resolution rasterization this rasterizes at ~64px and matches the
+    // reference. Without it, the 16px bitmap is bilinearly magnified into a
+    // washed-out blur with far fewer solidly-inked pixels.
+    const int scaledUp = nearBlackCount(16.0f, 4.0f, fontPath);
+
+    bool ok = expect(reference > 0 && scaledUp > 0,
+                     "both reference and scaled text should render solid ink");
+    if (!ok) {
+        return false;
+    }
+
+    ok = expect(scaledUp >= reference * 6 / 10,
+                "4x-scaled text should keep >=60% of the native-resolution solid ink (crisp, not magnified blur)")
+         && ok;
+
+    std::cout << "[TextPixelAlignmentTests] reference nearBlack=" << reference
+              << " scaledUp nearBlack=" << scaledUp << std::endl;
+    return ok;
+}
+
 } // namespace
 
 int main()
 {
-    const bool ok = testFractionalTextStaysCrisp();
+    bool ok = testFractionalTextStaysCrisp();
+    ok = testScaledTextRasterizedAtDeviceResolution() && ok;
     if (ok) {
         std::cout << "[TextPixelAlignmentTests] PASS" << std::endl;
         return 0;

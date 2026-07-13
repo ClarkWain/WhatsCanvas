@@ -1184,6 +1184,40 @@ void snapGlyphQuadsToPixelGrid(std::vector<wsc::text::TextRenderResult::GlyphAtl
     }
 }
 
+// Effective device-space scale of a transform: the larger of the two axis
+// magnitudes. Rotation-invariant (basis vector lengths are preserved). Used to
+// rasterize glyphs at device resolution so scaled / zoomed / rotated / HiDPI
+// text stays crisp instead of being a magnified low-resolution bitmap.
+float effectiveTransformScale(const glm::mat4 &m)
+{
+    const float sx = std::sqrt(m[0][0] * m[0][0] + m[0][1] * m[0][1]);
+    const float sy = std::sqrt(m[1][0] * m[1][0] + m[1][1] * m[1][1]);
+    return std::max(sx, sy);
+}
+
+// Divide a text result's positional geometry back into logical space after it
+// was rasterized at `scale`x device resolution. Atlas / bitmap TEXTURE data and
+// UVs stay at high resolution; only the on-screen placement is scaled down so
+// the existing (unchanged) transform magnifies the high-res glyph back to a 1:1
+// device-pixel mapping — i.e. crisp text under scale.
+void scaleTextResultGeometryDown(wsc::text::TextRenderResult &result, float scale)
+{
+    if (scale <= 0.0f) {
+        return;
+    }
+    const float inv = 1.0f / scale;
+    result.drawX *= inv;
+    result.drawY *= inv;
+    result.width *= inv;
+    result.height *= inv;
+    for (wsc::text::TextRenderResult::GlyphAtlasQuad &quad : result.glyphAtlasQuads) {
+        quad.x *= inv;
+        quad.y *= inv;
+        quad.width *= inv;
+        quad.height *= inv;
+    }
+}
+
 // Builds a true (separable Gaussian) blurred shadow from an already-tessellated
 // set of triangles (interleaved x,y). The shape is rendered white and offset by
 // the paint's shadow delta, blurred on the GPU, then composited tinted with the
@@ -3725,7 +3759,32 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
     if (!impl_->textBackend) {
         return;
     }
-    const auto renderedText = impl_->textBackend->renderText(text, x, y, paint);
+    const auto renderedText = [&]() -> wsc::text::TextRenderResult {
+        // Rasterize glyphs at the transform's effective device-space scale so
+        // zoomed / scaled / HiDPI text stays crisp instead of being a magnified
+        // low-resolution bitmap. Quantize to an integer effective pixel size to
+        // bound glyph-atlas cache growth during continuous resizes, and cap it so
+        // a pathological zoom cannot request an enormous glyph.
+        const float baseSize = paint.getTextSize();
+        const float scale = effectiveTransformScale(impl_->currentState().matrix);
+        if (baseSize > 0.0f && scale > 1.01f) {
+            float effectivePx = std::round(baseSize * scale);
+            effectivePx = std::min(effectivePx, 512.0f);
+            const float appliedScale = effectivePx / baseSize;
+            if (appliedScale > 1.01f) {
+                Paint scaledPaint = paint;
+                scaledPaint.setTextSize(baseSize * appliedScale);
+                if (std::isfinite(paint.getLetterSpacing())) {
+                    scaledPaint.setLetterSpacing(paint.getLetterSpacing() * appliedScale);
+                }
+                auto scaled = impl_->textBackend->renderText(text, x * appliedScale,
+                                                             y * appliedScale, scaledPaint);
+                scaleTextResultGeometryDown(scaled, appliedScale);
+                return scaled;
+            }
+        }
+        return impl_->textBackend->renderText(text, x, y, paint);
+    }();
     if (renderedText.kind == wsc::text::TextRenderKind::None) {
         return;
     }
