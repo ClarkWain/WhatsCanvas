@@ -201,6 +201,7 @@ function(whatscanvas_add_gl_family_library target_name project_root)
         "${src_dir}/text/FontRasterizer.cpp"
         "${src_dir}/text/GlyphAtlas.cpp"
         "${src_dir}/text/NativeText.cpp"
+        "${src_dir}/text/DirectWriteTextBackend.cpp"
         "${src_dir}/text/TextShaper.cpp"
         "${src_dir}/text/TextUtils.cpp"
         "${src_dir}/text/UnicodeBidi.cpp"
@@ -297,7 +298,7 @@ function(whatscanvas_add_gl_family_library target_name project_root)
     endif()
 
     if (WIN32)
-        target_link_libraries(${target_name} PRIVATE gdi32 user32)
+        target_link_libraries(${target_name} PRIVATE gdi32 user32 dwrite d2d1 windowscodecs ole32)
     endif()
 
     if (UNIX AND NOT APPLE)
@@ -339,6 +340,7 @@ function(whatscanvas_add_software_library target_name project_root)
         "${src_dir}/text/FontRasterizer.cpp"
         "${src_dir}/text/GlyphAtlas.cpp"
         "${src_dir}/text/NativeText.cpp"
+        "${src_dir}/text/DirectWriteTextBackend.cpp"
         "${src_dir}/text/TextShaper.cpp"
         "${src_dir}/text/TextUtils.cpp"
         "${src_dir}/text/UnicodeBidi.cpp"
@@ -374,7 +376,7 @@ function(whatscanvas_add_software_library target_name project_root)
     endif()
 
     if (WIN32)
-        target_link_libraries(${target_name} PRIVATE gdi32 user32)
+        target_link_libraries(${target_name} PRIVATE gdi32 user32 dwrite d2d1 windowscodecs ole32)
     endif()
 
     if (UNIX AND NOT APPLE)
