@@ -291,6 +291,8 @@ Public members:
 - `void clipRect(const Rect &rect);`
 - `void setMatrix(const Matrix4 &matrix);`
 - `void resetMatrix();`
+- `void setDevicePixelRatio(float ratio);`
+- `float devicePixelRatio() const;`
 - `void concat(const Matrix4 &matrix);`
 - `void translate(float dx, float dy);`
 - `void scale(float sx, float sy);`
