@@ -15,10 +15,12 @@ option(WHATSCANVAS_ENABLE_SCRIPT_TESTS "Register existing smoke/example script g
 option(WHATSCANVAS_ENABLE_LOCAL_REGRESSION_TEST "Register the strict local pixel-hash regression gate with CTest." OFF)
 option(WHATSCANVAS_BUILD_DEMO "Build the root WhatsCanvas demo executable." ON)
 option(WHATSCANVAS_INSTALL "Enable install and package export rules." ON)
+option(WHATSCANVAS_INSTALL_TEXT_DEPENDENCIES "Install bundled FreeType/HarfBuzz when an exported renderer links them." ON)
 option(WHATSCANVAS_BUILD_OPENGL "Build the desktop OpenGL renderer library target." ON)
 option(WHATSCANVAS_BUILD_OPENGLES "Build the OpenGL ES renderer library target." OFF)
 option(WHATSCANVAS_BUILD_SOFTWARE "Build the dependency-free CPU (software) renderer library target." ON)
 option(WHATSCANVAS_BUILD_BENCHMARKS "Build lightweight benchmark executables." ON)
+option(WHATSCANVAS_INSTALL_GLFW "Install GLFW when WhatsCanvas is embedded by a package that exports a GLFW-dependent target." OFF)
 option(WHATSCANVAS_ENABLE_OPENTYPE_SHAPING "Enable optional OpenType text shaping adapter hooks when a supported shaper is available." OFF)
 option(WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER "Enable optional FreeType glyph rasterizer when FreeType is available." ON)
 option(WHATSCANVAS_ENABLE_VULKAN "Enable the experimental Vulkan render backend when a Vulkan SDK is available." OFF)
@@ -801,6 +803,26 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     )
     set_tests_properties(WhatsCanvasSoftwareRendererTests PROPERTIES LABELS "unit;diagnostics")
 
+    add_executable(WhatsCanvasTextPixelAlignmentTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/TextPixelAlignmentTests.cpp"
+    )
+    target_include_directories(WhatsCanvasTextPixelAlignmentTests PRIVATE
+        "${SRC_DIR}"
+    )
+    target_link_libraries(WhatsCanvasTextPixelAlignmentTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasTextPixelAlignmentTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasTextPixelAlignmentTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasTextPixelAlignmentTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasTextPixelAlignmentTests PROPERTIES LABELS "unit;text")
+
     add_executable(WhatsCanvasSoftwareGoldenTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/SoftwareGoldenTests.cpp"
     )
@@ -1153,6 +1175,12 @@ if (BUILD_TESTING AND WHATSCANVAS_ENABLE_SCRIPT_TESTS)
                 -DWHATSCANVAS_GATE_WORKDIR=${CMAKE_CURRENT_SOURCE_DIR}
                 -P ${WHATSCANVAS_TEST_WRAPPER}
         )
+        add_test(NAME WhatsCanvasSoftwarePackageConsumerSmoke
+            COMMAND ${CMAKE_COMMAND}
+                -DWHATSCANVAS_PACKAGE_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+                -DWHATSCANVAS_PACKAGE_WORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/software-package-consumer-smoke
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifySoftwarePackageConsumer.cmake
+        )
 
         if (WHATSCANVAS_ENABLE_LOCAL_REGRESSION_TEST)
             add_test(NAME WhatsCanvasRegressionSmoke
@@ -1230,6 +1258,12 @@ if (BUILD_TESTING AND WHATSCANVAS_ENABLE_SCRIPT_TESTS)
                 -DWHATSCANVAS_GATE_LAUNCHER=sh
                 -P ${WHATSCANVAS_TEST_WRAPPER}
         )
+        add_test(NAME WhatsCanvasSoftwarePackageConsumerSmoke
+            COMMAND ${CMAKE_COMMAND}
+                -DWHATSCANVAS_PACKAGE_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+                -DWHATSCANVAS_PACKAGE_WORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/software-package-consumer-smoke
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifySoftwarePackageConsumer.cmake
+        )
 
         if (WHATSCANVAS_ENABLE_LOCAL_REGRESSION_TEST)
             add_test(NAME WhatsCanvasRegressionSmoke
@@ -1263,6 +1297,7 @@ if (BUILD_TESTING AND WHATSCANVAS_ENABLE_SCRIPT_TESTS)
         WhatsCanvasApiReferenceCheck
         WhatsCanvasVersionConsistencyCheck
         WhatsCanvasPackageConsumerSmoke
+        WhatsCanvasSoftwarePackageConsumerSmoke
         PROPERTIES
             WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
             TIMEOUT 1800
@@ -1275,11 +1310,14 @@ if (BUILD_TESTING AND WHATSCANVAS_ENABLE_SCRIPT_TESTS)
     set_tests_properties(WhatsCanvasApiReferenceCheck PROPERTIES LABELS "smoke;api;docs")
     set_tests_properties(WhatsCanvasVersionConsistencyCheck PROPERTIES LABELS "smoke;version;package")
     set_tests_properties(WhatsCanvasPackageConsumerSmoke PROPERTIES LABELS "smoke;package")
+    set_tests_properties(WhatsCanvasSoftwarePackageConsumerSmoke PROPERTIES LABELS "smoke;package;software")
 endif()
 
 if (WHATSCANVAS_INSTALL)
     set(WHATSCANVAS_OPENGL_PACKAGE_IMPLIB "")
     set(WHATSCANVAS_PACKAGE_REQUIRES_OPENGL OFF)
+    set(WHATSCANVAS_PACKAGE_REQUIRES_FREETYPE OFF)
+    set(WHATSCANVAS_PACKAGE_REQUIRES_HARFBUZZ OFF)
 
     if (TARGET WhatsCanvasOpenGL)
         get_target_property(WHATSCANVAS_OPENGL_OUTPUT_NAME WhatsCanvasOpenGL OUTPUT_NAME)
@@ -1296,6 +1334,12 @@ if (WHATSCANVAS_INSTALL)
             set(WHATSCANVAS_OPENGL_PACKAGE_LOCATION "${CMAKE_INSTALL_BINDIR}/${WHATSCANVAS_OPENGL_OUTPUT_NAME}${CMAKE_SHARED_LIBRARY_SUFFIX}")
             set(WHATSCANVAS_OPENGL_PACKAGE_IMPLIB "${CMAKE_INSTALL_LIBDIR}/${CMAKE_IMPORT_LIBRARY_PREFIX}${WHATSCANVAS_OPENGL_OUTPUT_NAME}${CMAKE_IMPORT_LIBRARY_SUFFIX}")
         endif()
+        if (WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER AND TARGET Freetype::Freetype)
+            set(WHATSCANVAS_PACKAGE_REQUIRES_FREETYPE ON)
+        endif()
+        if (WHATSCANVAS_ENABLE_OPENTYPE_SHAPING AND TARGET harfbuzz::harfbuzz)
+            set(WHATSCANVAS_PACKAGE_REQUIRES_HARFBUZZ ON)
+        endif()
     endif()
 
     set(WHATSCANVAS_INSTALL_TARGETS)
@@ -1304,6 +1348,13 @@ if (WHATSCANVAS_INSTALL)
     endif()
     if (TARGET WhatsCanvasOpenGLES)
         list(APPEND WHATSCANVAS_INSTALL_TARGETS WhatsCanvasOpenGLES)
+    endif()
+    # The CPU renderer is dependency-free at package-consumer link time (its
+    # private build helpers are compiled into the archive), so export it just
+    # like the GL targets. This makes a Windows static Software-only package
+    # usable by an external find_package consumer without pulling OpenGL.
+    if (TARGET WhatsCanvasSoftware)
+        list(APPEND WHATSCANVAS_INSTALL_TARGETS WhatsCanvasSoftware)
     endif()
 
     if (WHATSCANVAS_INSTALL_TARGETS)
