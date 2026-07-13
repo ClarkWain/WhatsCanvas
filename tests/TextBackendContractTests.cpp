@@ -557,14 +557,19 @@ bool testTextBackendCapabilityMatrix()
                 && capability.supportsGlyphAtlas
                 && capability.supportsColorGlyphAtlas;
         } else if (capability.kind == wsc::text::TextBackendKind::DirectWrite) {
+#ifdef _WIN32
+            // DirectWrite is a real, available native adapter on Windows.
+            sawDirectWrite = capability.nativePlatformAdapter && capability.available;
+#else
             sawDirectWrite = capability.nativePlatformAdapter && !capability.available;
+#endif
         } else if (capability.kind == wsc::text::TextBackendKind::CoreText) {
             sawCoreText = capability.nativePlatformAdapter && !capability.available;
         }
     }
 
     return expect(sawPortable, "portable text backend capability should be advertised")
-        && expect(sawDirectWrite, "DirectWrite adapter slot should be advertised as unavailable")
+        && expect(sawDirectWrite, "DirectWrite adapter slot should be advertised")
         && expect(sawCoreText, "CoreText adapter slot should be advertised as unavailable");
 }
 
@@ -575,13 +580,40 @@ bool testUnavailableNativeTextAdaptersFallback()
     std::unique_ptr<wsc::text::ITextBackend> coreText =
         wsc::text::createTextBackend(wsc::text::TextBackendKind::CoreText);
 
-    const std::vector<wsc::text::TextBackendDiagnostic> directWriteDiagnostics = directWrite->diagnostics();
     const std::vector<wsc::text::TextBackendDiagnostic> coreTextDiagnostics = coreText->diagnostics();
 
-    return expect(!directWriteDiagnostics.empty(),
-                  "DirectWrite backend request should add an unavailable-adapter diagnostic")
-        && expect(directWriteDiagnostics.front().message.find("directwrite") != std::string::npos,
-                  "DirectWrite diagnostic should name the adapter")
+    bool directWriteOk = false;
+#ifdef _WIN32
+    // On Windows DirectWrite is a real backend: it must construct, measure a
+    // positive width for ASCII text, and NOT emit an unavailable-adapter
+    // diagnostic.
+    if (directWrite != nullptr) {
+        wsc::Paint paint;
+        paint.setFontFamily("Segoe UI");
+        paint.setTextSize(16.0f);
+        const float width = directWrite->measureTextWidth("Ag", paint);
+        bool sawUnavailable = false;
+        for (const auto &d : directWrite->diagnostics()) {
+            if (d.message.find("not available") != std::string::npos
+                || d.message.find("unavailable") != std::string::npos) {
+                sawUnavailable = true;
+            }
+        }
+        directWriteOk = expect(width > 0.0f, "DirectWrite backend should measure a positive width on Windows")
+                        && expect(!sawUnavailable, "DirectWrite backend should not report unavailable on Windows");
+    } else {
+        directWriteOk = expect(false, "DirectWrite backend should be constructible on Windows");
+    }
+#else
+    const std::vector<wsc::text::TextBackendDiagnostic> directWriteDiagnostics = directWrite->diagnostics();
+    directWriteOk = expect(!directWriteDiagnostics.empty(),
+                           "DirectWrite backend request should add an unavailable-adapter diagnostic")
+                    && expect(directWriteDiagnostics.front().message.find("DirectWrite") != std::string::npos
+                                  || directWriteDiagnostics.front().message.find("directwrite") != std::string::npos,
+                              "DirectWrite diagnostic should name the adapter");
+#endif
+
+    return directWriteOk
         && expect(!coreTextDiagnostics.empty(),
                   "CoreText backend request should add an unavailable-adapter diagnostic")
         && expect(coreTextDiagnostics.front().message.find("coretext") != std::string::npos,
