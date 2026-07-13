@@ -67,6 +67,14 @@ struct TextRenderResult
     int atlasWidth = 0;
     int atlasHeight = 0;
     GlyphAtlasPixelFormat atlasPixelFormat = GlyphAtlasPixelFormat::Alpha;
+    // Backends that retain their glyph atlas may expose a non-owning view
+    // instead of copying a multi-megabyte texture for every drawText call.
+    // The backend owns these vectors and guarantees they outlive this result.
+    const std::vector<unsigned char> *atlasAlphaPixelsView = nullptr;
+    const std::vector<unsigned char> *atlasRgbaPixelsView = nullptr;
+    // Monotonically changes whenever the viewed atlas contents change. A
+    // renderer can then skip re-hashing the complete atlas for every label.
+    std::uint64_t atlasRevision = 0;
     std::vector<unsigned char> atlasAlphaPixels;
     std::vector<unsigned char> atlasRgbaPixels;
     std::vector<GlyphAtlasDirtyRect> atlasDirtyRects;

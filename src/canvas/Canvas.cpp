@@ -1080,13 +1080,25 @@ std::uint64_t hashBytes(const std::vector<unsigned char> &bytes)
     return hash;
 }
 
+const std::vector<unsigned char> &glyphAtlasAlphaPixels(const wsc::text::TextRenderResult &renderedText)
+{
+    return renderedText.atlasAlphaPixelsView != nullptr
+        ? *renderedText.atlasAlphaPixelsView : renderedText.atlasAlphaPixels;
+}
+
+const std::vector<unsigned char> &glyphAtlasRgbaPixels(const wsc::text::TextRenderResult &renderedText)
+{
+    return renderedText.atlasRgbaPixelsView != nullptr
+        ? *renderedText.atlasRgbaPixelsView : renderedText.atlasRgbaPixels;
+}
+
 std::vector<unsigned char> makeGlyphAtlasRgba(const wsc::text::TextRenderResult &renderedText)
 {
     const std::size_t expectedAtlasSize = static_cast<std::size_t>(std::max(0, renderedText.atlasWidth))
         * static_cast<std::size_t>(std::max(0, renderedText.atlasHeight));
     if (renderedText.atlasPixelFormat == wsc::text::GlyphAtlasPixelFormat::RGBA
-        && renderedText.atlasRgbaPixels.size() >= expectedAtlasSize * 4u) {
-        return renderedText.atlasRgbaPixels;
+        && glyphAtlasRgbaPixels(renderedText).size() >= expectedAtlasSize * 4u) {
+        return glyphAtlasRgbaPixels(renderedText);
     }
 
     std::vector<unsigned char> atlasPixels(expectedAtlasSize * 4, 255);
@@ -1094,7 +1106,7 @@ std::vector<unsigned char> makeGlyphAtlasRgba(const wsc::text::TextRenderResult 
         atlasPixels[i * 4 + 0] = 255;
         atlasPixels[i * 4 + 1] = 255;
         atlasPixels[i * 4 + 2] = 255;
-        atlasPixels[i * 4 + 3] = renderedText.atlasAlphaPixels[i];
+        atlasPixels[i * 4 + 3] = glyphAtlasAlphaPixels(renderedText)[i];
     }
     return atlasPixels;
 }
@@ -1113,18 +1125,18 @@ std::vector<unsigned char> makeGlyphAtlasRgbaRect(const wsc::text::TextRenderRes
             const std::size_t dst = (static_cast<std::size_t>(row) * static_cast<std::size_t>(rect.width)
                 + static_cast<std::size_t>(col)) * 4u;
             if (renderedText.atlasPixelFormat == wsc::text::GlyphAtlasPixelFormat::RGBA
-                && renderedText.atlasRgbaPixels.size() >= static_cast<std::size_t>(renderedText.atlasWidth)
+                && glyphAtlasRgbaPixels(renderedText).size() >= static_cast<std::size_t>(renderedText.atlasWidth)
                     * static_cast<std::size_t>(renderedText.atlasHeight) * 4u) {
                 const std::size_t srcRgba = src * 4u;
-                pixels[dst + 0] = renderedText.atlasRgbaPixels[srcRgba + 0];
-                pixels[dst + 1] = renderedText.atlasRgbaPixels[srcRgba + 1];
-                pixels[dst + 2] = renderedText.atlasRgbaPixels[srcRgba + 2];
-                pixels[dst + 3] = renderedText.atlasRgbaPixels[srcRgba + 3];
+                pixels[dst + 0] = glyphAtlasRgbaPixels(renderedText)[srcRgba + 0];
+                pixels[dst + 1] = glyphAtlasRgbaPixels(renderedText)[srcRgba + 1];
+                pixels[dst + 2] = glyphAtlasRgbaPixels(renderedText)[srcRgba + 2];
+                pixels[dst + 3] = glyphAtlasRgbaPixels(renderedText)[srcRgba + 3];
             } else {
                 pixels[dst + 0] = 255;
                 pixels[dst + 1] = 255;
                 pixels[dst + 2] = 255;
-                pixels[dst + 3] = renderedText.atlasAlphaPixels[src];
+                pixels[dst + 3] = glyphAtlasAlphaPixels(renderedText)[src];
             }
         }
     }
@@ -2183,6 +2195,7 @@ struct Canvas::Impl
     int glyphAtlasWidth = 0;
     int glyphAtlasHeight = 0;
     std::uint64_t glyphAtlasContentHash = 0;
+    std::uint64_t glyphAtlasRevision = 0;
 
     // Render-target mode support
     bool renderTargetMode = false;
@@ -2418,6 +2431,7 @@ void Canvas::Impl::releaseResources()
     glyphAtlasWidth = 0;
     glyphAtlasHeight = 0;
     glyphAtlasContentHash = 0;
+    glyphAtlasRevision = 0;
     releaseSizeDependentResources();
     if (renderer != nullptr) {
         renderer->clear();
@@ -2441,7 +2455,9 @@ SharedImageResource Canvas::Impl::getOrUpdateGlyphAtlasResource(const wsc::text:
 
     const std::size_t expectedAtlasSize = static_cast<std::size_t>(renderedText.atlasWidth)
         * static_cast<std::size_t>(renderedText.atlasHeight);
-    if (renderedText.atlasAlphaPixels.size() < expectedAtlasSize) {
+    const auto &alphaPixels = glyphAtlasAlphaPixels(renderedText);
+    const auto &rgbaPixels = glyphAtlasRgbaPixels(renderedText);
+    if (alphaPixels.size() < expectedAtlasSize) {
         return {};
     }
 
@@ -2449,13 +2465,19 @@ SharedImageResource Canvas::Impl::getOrUpdateGlyphAtlasResource(const wsc::text:
         * static_cast<std::size_t>(renderedText.atlasHeight);
     const bool hasCompleteRgbaAtlas =
         renderedText.atlasPixelFormat == wsc::text::GlyphAtlasPixelFormat::RGBA
-        && renderedText.atlasRgbaPixels.size() >= expectedAtlasPixels * 4u;
-    const std::uint64_t contentHash =
-        hasCompleteRgbaAtlas ? hashBytes(renderedText.atlasRgbaPixels) : hashBytes(renderedText.atlasAlphaPixels);
+        && rgbaPixels.size() >= expectedAtlasPixels * 4u;
+    // A backend-owned atlas view carries a revision, avoiding a full 16 MB
+    // checksum for every text command. Third-party backends that return owned
+    // vectors keep the conservative content-hash behaviour.
+    const bool hasAtlasRevision = renderedText.atlasRevision != 0
+        && renderedText.atlasAlphaPixelsView != nullptr;
+    const std::uint64_t contentHash = hasAtlasRevision ? 0u
+        : (hasCompleteRgbaAtlas ? hashBytes(rgbaPixels) : hashBytes(alphaPixels));
     if (glyphAtlasImageResource && glyphAtlasImageResource->isValid()
         && glyphAtlasWidth == renderedText.atlasWidth
         && glyphAtlasHeight == renderedText.atlasHeight
-        && glyphAtlasContentHash == contentHash) {
+        && (hasAtlasRevision ? glyphAtlasRevision == renderedText.atlasRevision
+                             : glyphAtlasContentHash == contentHash)) {
         return glyphAtlasImageResource;
     }
 
@@ -2487,7 +2509,8 @@ SharedImageResource Canvas::Impl::getOrUpdateGlyphAtlasResource(const wsc::text:
                     break;
                 }
             }
-        } else if (glyphAtlasContentHash != contentHash) {
+        } else if ((hasAtlasRevision && glyphAtlasRevision != renderedText.atlasRevision)
+                   || (!hasAtlasRevision && glyphAtlasContentHash != contentHash)) {
             const std::vector<unsigned char> atlasPixels = makeGlyphAtlasRgba(renderedText);
             updated = renderer->updateImageResourceRGBA(glyphAtlasImageResource,
                                                         0,
@@ -2510,12 +2533,14 @@ SharedImageResource Canvas::Impl::getOrUpdateGlyphAtlasResource(const wsc::text:
         glyphAtlasWidth = 0;
         glyphAtlasHeight = 0;
         glyphAtlasContentHash = 0;
+        glyphAtlasRevision = 0;
         return {};
     }
 
     glyphAtlasWidth = renderedText.atlasWidth;
     glyphAtlasHeight = renderedText.atlasHeight;
     glyphAtlasContentHash = contentHash;
+    glyphAtlasRevision = renderedText.atlasRevision;
     return glyphAtlasImageResource;
 }
 
@@ -3799,7 +3824,7 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
         const std::size_t expectedAtlasSize = static_cast<std::size_t>(std::max(0, renderedText.atlasWidth))
             * static_cast<std::size_t>(std::max(0, renderedText.atlasHeight));
         if (renderedText.atlasWidth <= 0 || renderedText.atlasHeight <= 0
-            || renderedText.atlasAlphaPixels.size() < expectedAtlasSize
+            || glyphAtlasAlphaPixels(renderedText).size() < expectedAtlasSize
             || renderedText.glyphAtlasQuads.empty()) {
             return;
         }
