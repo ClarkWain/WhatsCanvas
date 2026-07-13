@@ -107,6 +107,157 @@ DWRITE_FONT_WEIGHT mapFontWeight(int weight)
 // IDWriteTextLayout directly.
 
 // -----------------------------------------------------------------------
+// Custom font collection (registerFontFace with on-disk font files)
+// -----------------------------------------------------------------------
+
+// Key passed to CreateCustomFontCollection. `paths` points at the backend's live
+// path list; `generation` busts DirectWrite's (loader,key) collection cache so a
+// rebuild after registering a new font produces a fresh collection.
+struct CustomFontCollectionKey
+{
+    const std::vector<std::wstring> *paths = nullptr;
+    unsigned int generation = 0;
+};
+
+// Enumerates on-disk font files for a custom collection.
+class CustomFontFileEnumerator final : public IDWriteFontFileEnumerator
+{
+public:
+    CustomFontFileEnumerator(IDWriteFactory *factory, std::vector<std::wstring> paths)
+        : factory_(factory), paths_(std::move(paths))
+    {
+        if (factory_ != nullptr) {
+            factory_->AddRef();
+        }
+    }
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void **ppv) override
+    {
+        if (ppv == nullptr) {
+            return E_POINTER;
+        }
+        if (iid == __uuidof(IUnknown) || iid == __uuidof(IDWriteFontFileEnumerator)) {
+            *ppv = this;
+            AddRef();
+            return S_OK;
+        }
+        *ppv = nullptr;
+        return E_NOINTERFACE;
+    }
+
+    ULONG STDMETHODCALLTYPE AddRef() override { return ++refCount_; }
+
+    ULONG STDMETHODCALLTYPE Release() override
+    {
+        const ULONG count = --refCount_;
+        if (count == 0) {
+            delete this;
+        }
+        return count;
+    }
+
+    HRESULT STDMETHODCALLTYPE MoveNext(BOOL *hasCurrentFile) override
+    {
+        if (hasCurrentFile == nullptr) {
+            return E_POINTER;
+        }
+        *hasCurrentFile = FALSE;
+        safeRelease(currentFile_);
+        if (index_ + 1 >= static_cast<int>(paths_.size())) {
+            return S_OK;
+        }
+        ++index_;
+        IDWriteFontFile *file = nullptr;
+        const HRESULT hr = factory_->CreateFontFileReference(paths_[index_].c_str(), nullptr, &file);
+        if (FAILED(hr) || file == nullptr) {
+            return hr;
+        }
+        currentFile_ = file;
+        *hasCurrentFile = TRUE;
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE GetCurrentFontFile(IDWriteFontFile **fontFile) override
+    {
+        if (fontFile == nullptr) {
+            return E_POINTER;
+        }
+        *fontFile = currentFile_;
+        if (currentFile_ != nullptr) {
+            currentFile_->AddRef();
+            return S_OK;
+        }
+        return E_FAIL;
+    }
+
+private:
+    ~CustomFontFileEnumerator()
+    {
+        safeRelease(currentFile_);
+        if (factory_ != nullptr) {
+            factory_->Release();
+        }
+    }
+
+    ULONG refCount_ = 1;
+    IDWriteFactory *factory_ = nullptr;
+    std::vector<std::wstring> paths_;
+    int index_ = -1;
+    IDWriteFontFile *currentFile_ = nullptr;
+};
+
+// Collection loader that builds enumerators from a CustomFontCollectionKey.
+class CustomFontCollectionLoader final : public IDWriteFontCollectionLoader
+{
+public:
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void **ppv) override
+    {
+        if (ppv == nullptr) {
+            return E_POINTER;
+        }
+        if (iid == __uuidof(IUnknown) || iid == __uuidof(IDWriteFontCollectionLoader)) {
+            *ppv = this;
+            AddRef();
+            return S_OK;
+        }
+        *ppv = nullptr;
+        return E_NOINTERFACE;
+    }
+
+    ULONG STDMETHODCALLTYPE AddRef() override { return ++refCount_; }
+
+    ULONG STDMETHODCALLTYPE Release() override
+    {
+        const ULONG count = --refCount_;
+        if (count == 0) {
+            delete this;
+        }
+        return count;
+    }
+
+    HRESULT STDMETHODCALLTYPE CreateEnumeratorFromKey(IDWriteFactory *factory, const void *collectionKey,
+                                                      UINT32 collectionKeySize,
+                                                      IDWriteFontFileEnumerator **enumerator) override
+    {
+        if (enumerator == nullptr) {
+            return E_POINTER;
+        }
+        *enumerator = nullptr;
+        if (collectionKey == nullptr || collectionKeySize != sizeof(CustomFontCollectionKey)) {
+            return E_INVALIDARG;
+        }
+        const auto *key = static_cast<const CustomFontCollectionKey *>(collectionKey);
+        std::vector<std::wstring> paths = key->paths != nullptr ? *key->paths : std::vector<std::wstring>{};
+        *enumerator = new CustomFontFileEnumerator(factory, std::move(paths));
+        return S_OK;
+    }
+
+private:
+    ~CustomFontCollectionLoader() = default;
+    ULONG refCount_ = 1;
+};
+
+// -----------------------------------------------------------------------
 // DirectWriteTextBackend
 // -----------------------------------------------------------------------
 
@@ -124,11 +275,21 @@ public:
         // IDWriteTextLayout applies the system font fallback resolver
         // automatically for characters not covered by the requested family, so
         // no explicit IDWriteFontFallback wiring is required here.
+        dwriteFactory_->GetSystemFontCollection(&systemFontCollection_, FALSE);
         available_ = true;
     }
 
     ~DirectWriteTextBackend() override
     {
+        safeRelease(customFontCollection_);
+        safeRelease(systemFontCollection_);
+        if (collectionLoader_ != nullptr) {
+            if (dwriteFactory_ != nullptr) {
+                dwriteFactory_->UnregisterFontCollectionLoader(collectionLoader_);
+            }
+            collectionLoader_->Release();
+            collectionLoader_ = nullptr;
+        }
         safeRelease(dwriteFactory_);
     }
 
@@ -136,11 +297,15 @@ public:
 
     // -- ITextBackend --------------------------------------------------------
 
-    bool registerFontFace(const FontFace & /*face*/) override
+    bool registerFontFace(const FontFace &face) override
     {
-        // DirectWrite uses the system font collection; custom font file
-        // registration is a follow-up (IDWriteFontCollection + custom loader).
-        return false;
+        // Register an on-disk font file so its family can be resolved by name.
+        // Memory-backed faces are a further follow-up (in-memory file loader).
+        if (!available_ || !face.isValid() || face.sourceType() != wsc::FontSourceType::FILE) {
+            return false;
+        }
+        customFontPaths_.push_back(toWideString(face.path()));
+        return rebuildCustomFontCollection();
     }
 
     bool setFontFallbackChain(const FontFallbackChain & /*chain*/) override
@@ -217,11 +382,10 @@ public:
             return false;
         }
         // Check the requested (or default) family first.
-        ComPtr<IDWriteFontCollection> fontCollection;
-        dwriteFactory_->GetSystemFontCollection(&fontCollection, false);
+        const std::wstring family = toWideString(paint.hasFontFamily() ? paint.getFontFamily()
+                                                                        : std::string("Segoe UI"));
+        IDWriteFontCollection *fontCollection = chooseFontCollection(family);
         if (fontCollection != nullptr) {
-            const std::wstring family = toWideString(paint.hasFontFamily() ? paint.getFontFamily()
-                                                                            : std::string("Segoe UI"));
             UINT32 index = 0;
             BOOL exists = FALSE;
             fontCollection->FindFamilyName(family.c_str(), &index, &exists);
@@ -311,11 +475,10 @@ public:
         m.bounds = {0.0f, 0.0f, metrics.width, metrics.height};
 
         // Get font metrics for ascent/descent/lineGap.
-        ComPtr<IDWriteFontCollection> fontCollection;
-        dwriteFactory_->GetSystemFontCollection(&fontCollection, false);
+        const std::wstring family = toWideString(paint.hasFontFamily() ? paint.getFontFamily()
+                                                                        : "Segoe UI");
+        IDWriteFontCollection *fontCollection = chooseFontCollection(family);
         if (fontCollection != nullptr) {
-            const std::wstring family = toWideString(paint.hasFontFamily() ? paint.getFontFamily()
-                                                                            : "Segoe UI");
             UINT32 index = 0;
             BOOL exists = FALSE;
             fontCollection->FindFamilyName(family.c_str(), &index, &exists);
@@ -437,6 +600,49 @@ private:
         T *ptr_ = nullptr;
     };
 
+    // Rebuild the custom font collection from the registered on-disk fonts. The
+    // generation counter busts DirectWrite's (loader,key) collection cache.
+    bool rebuildCustomFontCollection()
+    {
+        if (dwriteFactory_ == nullptr) {
+            return false;
+        }
+        if (collectionLoader_ == nullptr) {
+            collectionLoader_ = new CustomFontCollectionLoader();
+            if (FAILED(dwriteFactory_->RegisterFontCollectionLoader(collectionLoader_))) {
+                collectionLoader_->Release();
+                collectionLoader_ = nullptr;
+                return false;
+            }
+        }
+        safeRelease(customFontCollection_);
+        ++collectionGeneration_;
+        CustomFontCollectionKey key{&customFontPaths_, collectionGeneration_};
+        IDWriteFontCollection *collection = nullptr;
+        const HRESULT hr = dwriteFactory_->CreateCustomFontCollection(collectionLoader_, &key,
+                                                                      sizeof(key), &collection);
+        if (FAILED(hr) || collection == nullptr) {
+            return false;
+        }
+        customFontCollection_ = collection;
+        return true;
+    }
+
+    // Prefer a registered custom font whose family matches, else the system font
+    // collection (which also drives automatic fallback).
+    IDWriteFontCollection *chooseFontCollection(const std::wstring &family) const
+    {
+        if (customFontCollection_ != nullptr) {
+            UINT32 index = 0;
+            BOOL exists = FALSE;
+            if (SUCCEEDED(customFontCollection_->FindFamilyName(family.c_str(), &index, &exists))
+                && exists) {
+                return customFontCollection_;
+            }
+        }
+        return systemFontCollection_;
+    }
+
     ComPtr<IDWriteTextLayout> createLayout(const std::wstring &wide, const Paint &paint,
                                            float maxWidth) const
     {
@@ -444,19 +650,18 @@ private:
             return nullptr;
         }
 
-        ComPtr<IDWriteFontCollection> fontCollection;
-        dwriteFactory_->GetSystemFontCollection(&fontCollection, false);
+        const std::wstring family = toWideString(paint.hasFontFamily() ? paint.getFontFamily()
+                                                                       : "Segoe UI");
+        IDWriteFontCollection *fontCollection = chooseFontCollection(family);
         if (fontCollection == nullptr) {
             return nullptr;
         }
 
-        const std::wstring family = toWideString(paint.hasFontFamily() ? paint.getFontFamily()
-                                                                       : "Segoe UI");
         const float fontSize = paint.getTextSize() > 0.0f ? paint.getTextSize() : 16.0f;
 
         ComPtr<IDWriteTextFormat> format;
         HRESULT hr = dwriteFactory_->CreateTextFormat(
-            family.c_str(), fontCollection.Get(), mapFontWeight(paint.getFontWeight()),
+            family.c_str(), fontCollection, mapFontWeight(paint.getFontWeight()),
             mapFontSlant(paint.getFontSlant()), DWRITE_FONT_STRETCH_NORMAL, fontSize, L"", &format);
         if (FAILED(hr) || format == nullptr) {
             return nullptr;
@@ -625,6 +830,11 @@ private:
 
     DirectWriteBackendOptions options_;
     IDWriteFactory *dwriteFactory_ = nullptr;
+    IDWriteFontCollection *systemFontCollection_ = nullptr;
+    IDWriteFontCollection *customFontCollection_ = nullptr;
+    CustomFontCollectionLoader *collectionLoader_ = nullptr;
+    std::vector<std::wstring> customFontPaths_;
+    unsigned int collectionGeneration_ = 0;
     bool available_ = false;
     mutable std::vector<TextBackendDiagnostic> diagnostics_;
 };
