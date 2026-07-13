@@ -149,9 +149,16 @@ NativeTextBitmap renderNativeTextBitmap(const std::string &text, const Paint &pa
         return bitmap;
     }
 
+    // TextOutW may touch the pixel immediately past its logical advance due
+    // to ClearType/antialias overhang. A one-pixel transparent apron prevents
+    // the final glyph (notably the S in compact all-caps labels) from being
+    // cut off by the temporary DIB while preserving the measured advance.
+    constexpr int kHorizontalPadding = 1;
+    const int bitmapWidth = measure.pixelWidth + kHorizontalPadding * 2;
+
     BITMAPINFO bitmapInfo = {};
     bitmapInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    bitmapInfo.bmiHeader.biWidth = measure.pixelWidth;
+    bitmapInfo.bmiHeader.biWidth = bitmapWidth;
     bitmapInfo.bmiHeader.biHeight = -measure.pixelHeight;
     bitmapInfo.bmiHeader.biPlanes = 1;
     bitmapInfo.bmiHeader.biBitCount = 32;
@@ -168,7 +175,7 @@ NativeTextBitmap renderNativeTextBitmap(const std::string &text, const Paint &pa
         return bitmap;
     }
 
-    std::memset(bits, 0, static_cast<size_t>(measure.pixelWidth) * static_cast<size_t>(measure.pixelHeight) * 4);
+    std::memset(bits, 0, static_cast<size_t>(bitmapWidth) * static_cast<size_t>(measure.pixelHeight) * 4);
     HGDIOBJ previousBitmap = SelectObject(dc, dib);
     HGDIOBJ previousFont = SelectObject(dc, font);
     SetBkMode(dc, TRANSPARENT);
@@ -177,9 +184,9 @@ NativeTextBitmap renderNativeTextBitmap(const std::string &text, const Paint &pa
 
     const float letterSpacing = std::isfinite(paint.getLetterSpacing()) ? paint.getLetterSpacing() : 0.0f;
     if (std::abs(letterSpacing) <= kPointEpsilon) {
-        TextOutW(dc, 0, 0, wideText.c_str(), static_cast<int>(wideText.size()));
+        TextOutW(dc, kHorizontalPadding, 0, wideText.c_str(), static_cast<int>(wideText.size()));
     } else {
-        float cursorX = 0.0f;
+        float cursorX = static_cast<float>(kHorizontalPadding);
         for (wchar_t character : wideText) {
             TextOutW(dc, static_cast<int>(std::round(cursorX)), 0, &character, 1);
             SIZE glyphSize = {0, 0};
@@ -188,8 +195,10 @@ NativeTextBitmap renderNativeTextBitmap(const std::string &text, const Paint &pa
         }
     }
 
-    bitmap.width = measure.pixelWidth;
+    bitmap.width = bitmapWidth;
     bitmap.height = measure.pixelHeight;
+    bitmap.leftPadding = kHorizontalPadding;
+    bitmap.rightPadding = kHorizontalPadding;
     bitmap.pixels.resize(static_cast<size_t>(bitmap.width) * static_cast<size_t>(bitmap.height) * 4);
     const unsigned char *src = static_cast<const unsigned char *>(bits);
     for (size_t i = 0; i < static_cast<size_t>(bitmap.width) * static_cast<size_t>(bitmap.height); ++i) {

@@ -453,9 +453,9 @@ public:
                     }
 
                     result.kind = TextRenderKind::Bitmap;
-                    result.drawX = alignedX;
+                    result.drawX = alignedX - static_cast<float>(bitmap.leftPadding);
                     result.drawY = y + wsc::text::textBaselineOffset(paint.getTextBaseline(), nativeMeasure.height);
-                    result.width = nativeMeasure.width;
+                    result.width = nativeMeasure.width + static_cast<float>(bitmap.leftPadding + bitmap.rightPadding);
                     result.height = nativeMeasure.height;
                     result.bitmapWidth = bitmap.width;
                     result.bitmapHeight = bitmap.height;

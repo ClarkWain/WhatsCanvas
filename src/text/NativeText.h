@@ -20,6 +20,11 @@ struct NativeTextBitmap
 {
     int width = 0;
     int height = 0;
+    // GDI's logical advance can end exactly at the final ink pixel. Keep the
+    // bitmap allocation wider without changing layout measurement, and let
+    // the renderer offset the transparent safety pixels back out.
+    int leftPadding = 0;
+    int rightPadding = 0;
     std::vector<unsigned char> pixels;
 };
 
