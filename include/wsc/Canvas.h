@@ -326,6 +326,14 @@ public:
 	void clipRect(const Rect &rect);
 	void setMatrix(const Matrix4 &matrix);
 	void resetMatrix();
+	/// Set the device pixel ratio (HiDPI / content scale). Folded into the root
+	/// transform so `resetMatrix()` restores a `ratio`x base scale: draw in
+	/// logical coordinates and content — including crisp, device-resolution
+	/// text — renders at `ratio`x physical pixels. The canvas size is expected to
+	/// be the physical framebuffer size. Default 1.0.
+	void setDevicePixelRatio(float ratio);
+	/// The current device pixel ratio (default 1.0).
+	float devicePixelRatio() const;
 	/// Post-multiply the current matrix by another transform.
 	void concat(const Matrix4 &matrix);
 	/// Translate/scale/rotate the current transform.
