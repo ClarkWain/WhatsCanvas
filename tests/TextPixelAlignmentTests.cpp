@@ -292,6 +292,41 @@ bool testDevicePixelRatioScalesAndStaysCrisp()
     return ok;
 }
 
+// setMatrix must not drop the device pixel ratio: it is a device-space factor,
+// and getMatrix must round-trip the logical matrix the caller set.
+bool testSetMatrixPreservesDevicePixelRatio()
+{
+    auto canvas = Canvas::create(Canvas::Backend::Software, 64, 64);
+    if (!canvas) {
+        return expect(false, "software canvas should be created");
+    }
+    canvas->initializeContext();
+    canvas->setDevicePixelRatio(2.0f);
+
+    // Set an absolute (logical) transform via setMatrix.
+    Matrix4 logical = Matrix4::identity();
+    logical.set(3, 0, 10.0f); // column 3, row 0 = translate x
+    logical.set(3, 1, 4.0f);  // column 3, row 1 = translate y
+    canvas->setMatrix(logical);
+
+    // getMatrix returns the logical transform, not the device-scaled one.
+    const Matrix4 readback = canvas->getMatrix();
+    bool ok = expect(std::abs(readback.at(3, 0) - 10.0f) < 0.01f
+                         && std::abs(readback.at(3, 1) - 4.0f) < 0.01f,
+                     "getMatrix should round-trip the logical translation set via setMatrix");
+
+    // mapPoint applies the device pixel ratio: logical (0,0) -> device (20, 8).
+    const PointF mapped = canvas->mapPoint(PointF(0.0f, 0.0f));
+    ok = expect(std::abs(mapped.getX() - 20.0f) < 0.01f && std::abs(mapped.getY() - 8.0f) < 0.01f,
+                "setMatrix should keep the 2x device pixel ratio (logical 10,4 -> device 20,8)")
+         && ok;
+
+    std::cout << "[TextPixelAlignmentTests] setMatrix readback=(" << readback.at(3, 0) << ","
+              << readback.at(3, 1) << ") mapped=(" << mapped.getX() << "," << mapped.getY() << ")"
+              << std::endl;
+    return ok;
+}
+
 } // namespace
 
 int main()
@@ -299,6 +334,7 @@ int main()
     bool ok = testFractionalTextStaysCrisp();
     ok = testScaledTextRasterizedAtDeviceResolution() && ok;
     ok = testDevicePixelRatioScalesAndStaysCrisp() && ok;
+    ok = testSetMatrixPreservesDevicePixelRatio() && ok;
     if (ok) {
         std::cout << "[TextPixelAlignmentTests] PASS" << std::endl;
         return 0;
