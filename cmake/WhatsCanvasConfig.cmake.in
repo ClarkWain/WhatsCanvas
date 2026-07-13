@@ -10,6 +10,17 @@ set(WhatsCanvas_VERSION "@PROJECT_VERSION@")
 set(WhatsCanvas_INCLUDE_DIR "${_WHATSCANVAS_PREFIX}/include")
 set(WhatsCanvas_LIBRARY_DIR "${_WHATSCANVAS_PREFIX}/@CMAKE_INSTALL_LIBDIR@")
 
+# FreeType and HarfBuzz are bundled only when the installed renderer was
+# configured to use them. Their upstream projects export targets but not a
+# uniform find_package config name, so load the version-pinned export files
+# directly from this package prefix before importing WhatsCanvas targets.
+if (@WHATSCANVAS_PACKAGE_REQUIRES_FREETYPE@)
+    include("${_WHATSCANVAS_PREFIX}/@CMAKE_INSTALL_LIBDIR@/cmake/freetype/freetype-config.cmake")
+endif()
+if (@WHATSCANVAS_PACKAGE_REQUIRES_HARFBUZZ@)
+    include("${_WHATSCANVAS_PREFIX}/@CMAKE_INSTALL_LIBDIR@/cmake/harfbuzz/harfbuzzConfig.cmake")
+endif()
+
 include("${CMAKE_CURRENT_LIST_DIR}/WhatsCanvasTargets.cmake")
 
 if (TARGET WhatsCanvas::WhatsCanvasOpenGL AND NOT TARGET WhatsCanvas::OpenGL)
@@ -18,6 +29,10 @@ endif()
 
 if (TARGET WhatsCanvas::WhatsCanvasOpenGLES AND NOT TARGET WhatsCanvas::OpenGLES)
     add_library(WhatsCanvas::OpenGLES ALIAS WhatsCanvas::WhatsCanvasOpenGLES)
+endif()
+
+if (TARGET WhatsCanvas::WhatsCanvasSoftware AND NOT TARGET WhatsCanvas::Software)
+    add_library(WhatsCanvas::Software ALIAS WhatsCanvas::WhatsCanvasSoftware)
 endif()
 
 if (TARGET WhatsCanvas::WhatsCanvasOpenGL AND NOT "@WHATSCANVAS_OPENGL_PACKAGE_IMPLIB@" STREQUAL "")

@@ -35,8 +35,7 @@ GlyphAtlas::GlyphAtlas(int width, int height, int padding)
     : width_(std::max(0, width)),
       height_(std::max(0, height)),
       padding_(std::max(0, padding)),
-      pixels_(static_cast<std::size_t>(std::max(0, width)) * static_cast<std::size_t>(std::max(0, height)), 0),
-      rgbaPixels_(static_cast<std::size_t>(std::max(0, width)) * static_cast<std::size_t>(std::max(0, height)) * 4u, 0)
+      pixels_(static_cast<std::size_t>(std::max(0, width)) * static_cast<std::size_t>(std::max(0, height)), 0)
 {
     resetPacking();
 }
@@ -105,7 +104,7 @@ void GlyphAtlas::clear()
     entries_.clear();
     entryIndex_.clear();
     std::fill(pixels_.begin(), pixels_.end(), 0);
-    std::fill(rgbaPixels_.begin(), rgbaPixels_.end(), 0);
+    rgbaPixels_.clear();
     hasColorPixels_ = false;
     resetPacking();
     markFullDirty();
@@ -221,7 +220,7 @@ bool GlyphAtlas::growToFit(int width, int height)
     width_ = nextWidth;
     height_ = nextHeight;
     pixels_.assign(static_cast<std::size_t>(width_) * static_cast<std::size_t>(height_), 0);
-    rgbaPixels_.assign(static_cast<std::size_t>(width_) * static_cast<std::size_t>(height_) * 4u, 0);
+    rgbaPixels_.clear();
     entries_.clear();
     entryIndex_.clear();
     hasColorPixels_ = false;
@@ -306,6 +305,16 @@ bool GlyphAtlas::hasFullDirtyRect() const
 void GlyphAtlas::writeGlyphPixels(const GlyphAtlasEntry &entry, const GlyphBitmap &bitmap)
 {
     if (bitmap.format == GlyphBitmapFormat::RGBA) {
+        // Most UI text is alpha-only. Delay the 4x atlas allocation until a
+        // colour glyph actually arrives; a larger atlas is needed to avoid a
+        // deferred-frame resize, but it must not impose that cost on every
+        // text-only Windows window.
+        if (!hasColorPixels_) {
+            rgbaPixels_.assign(pixels_.size() * 4u, 255);
+            for (std::size_t index = 0; index < pixels_.size(); ++index) {
+                rgbaPixels_[index * 4u + 3u] = pixels_[index];
+            }
+        }
         hasColorPixels_ = true;
     }
 
@@ -328,13 +337,15 @@ void GlyphAtlas::writeGlyphPixels(const GlyphAtlasEntry &entry, const GlyphBitma
             std::copy(bitmap.alphaPixels.begin() + static_cast<std::ptrdiff_t>(src),
                       bitmap.alphaPixels.begin() + static_cast<std::ptrdiff_t>(src + bitmap.width),
                       pixels_.begin() + static_cast<std::ptrdiff_t>(dst));
-            for (int col = 0; col < bitmap.width; ++col) {
-                const std::size_t dstPixel = dst + static_cast<std::size_t>(col);
-                const std::size_t dstRgba = dstPixel * 4u;
-                rgbaPixels_[dstRgba + 0] = 255;
-                rgbaPixels_[dstRgba + 1] = 255;
-                rgbaPixels_[dstRgba + 2] = 255;
-                rgbaPixels_[dstRgba + 3] = bitmap.alphaPixels[src + static_cast<std::size_t>(col)];
+            if (hasColorPixels_) {
+                for (int col = 0; col < bitmap.width; ++col) {
+                    const std::size_t dstPixel = dst + static_cast<std::size_t>(col);
+                    const std::size_t dstRgba = dstPixel * 4u;
+                    rgbaPixels_[dstRgba + 0] = 255;
+                    rgbaPixels_[dstRgba + 1] = 255;
+                    rgbaPixels_[dstRgba + 2] = 255;
+                    rgbaPixels_[dstRgba + 3] = bitmap.alphaPixels[src + static_cast<std::size_t>(col)];
+                }
             }
         }
     }

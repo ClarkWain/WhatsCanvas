@@ -1146,6 +1146,78 @@ glm::mat4 makeOffsetTransform(const glm::mat4 &transform, float dx, float dy)
     return glm::translate(transform, glm::vec3(dx, dy, 0.0f));
 }
 
+// Text sharpness: glyphs are rasterized at an integer pixel size, so their atlas
+// texels map 1:1 to device pixels ONLY when the glyph quad lands on an integer
+// pixel boundary. When the quad origin is at a fractional position, GL_LINEAR
+// sampling averages neighbouring texels and a solid vertical stem loses 20-49%
+// of its coverage — the classic "blurry text" look. When the current transform
+// is a pure axis-aligned unit-scale transform (identity / integer or fractional
+// translation, the overwhelmingly common UI case), snap each glyph quad's device
+// origin to the pixel grid so texels align 1:1 with pixels. Rotated / scaled
+// text is left untouched (snapping would be wrong, and magnified text is blurry
+// for unrelated reasons).
+bool pixelSnappableTransform(const glm::mat4 &m, float &tx, float &ty)
+{
+    constexpr float eps = 1e-3f;
+    if (std::abs(m[0][0] - 1.0f) > eps || std::abs(m[1][1] - 1.0f) > eps
+        || std::abs(m[0][1]) > eps || std::abs(m[1][0]) > eps) {
+        return false;
+    }
+    tx = m[3][0];
+    ty = m[3][1];
+    return true;
+}
+
+void snapGlyphQuadsToPixelGrid(std::vector<wsc::text::TextRenderResult::GlyphAtlasQuad> &quads,
+                               const glm::mat4 &matrix)
+{
+    float tx = 0.0f;
+    float ty = 0.0f;
+    if (!pixelSnappableTransform(matrix, tx, ty)) {
+        return;
+    }
+    for (wsc::text::TextRenderResult::GlyphAtlasQuad &quad : quads) {
+        // Snap the DEVICE-space origin (quad + translation) to whole pixels, then
+        // map back into local space so the in-shader transform reproduces it.
+        quad.x = std::round(quad.x + tx) - tx;
+        quad.y = std::round(quad.y + ty) - ty;
+    }
+}
+
+// Effective device-space scale of a transform: the larger of the two axis
+// magnitudes. Rotation-invariant (basis vector lengths are preserved). Used to
+// rasterize glyphs at device resolution so scaled / zoomed / rotated / HiDPI
+// text stays crisp instead of being a magnified low-resolution bitmap.
+float effectiveTransformScale(const glm::mat4 &m)
+{
+    const float sx = std::sqrt(m[0][0] * m[0][0] + m[0][1] * m[0][1]);
+    const float sy = std::sqrt(m[1][0] * m[1][0] + m[1][1] * m[1][1]);
+    return std::max(sx, sy);
+}
+
+// Divide a text result's positional geometry back into logical space after it
+// was rasterized at `scale`x device resolution. Atlas / bitmap TEXTURE data and
+// UVs stay at high resolution; only the on-screen placement is scaled down so
+// the existing (unchanged) transform magnifies the high-res glyph back to a 1:1
+// device-pixel mapping — i.e. crisp text under scale.
+void scaleTextResultGeometryDown(wsc::text::TextRenderResult &result, float scale)
+{
+    if (scale <= 0.0f) {
+        return;
+    }
+    const float inv = 1.0f / scale;
+    result.drawX *= inv;
+    result.drawY *= inv;
+    result.width *= inv;
+    result.height *= inv;
+    for (wsc::text::TextRenderResult::GlyphAtlasQuad &quad : result.glyphAtlasQuads) {
+        quad.x *= inv;
+        quad.y *= inv;
+        quad.width *= inv;
+        quad.height *= inv;
+    }
+}
+
 // Builds a true (separable Gaussian) blurred shadow from an already-tessellated
 // set of triangles (interleaved x,y). The shape is rendered white and offset by
 // the paint's shadow delta, blurred on the GPU, then composited tinted with the
@@ -2090,6 +2162,7 @@ struct Canvas::Impl
 
     int width = 0;
     int height = 0;
+    float devicePixelRatio = 1.0f;
     Color color;
     std::unique_ptr<IRenderer> renderer;
     std::unique_ptr<ISwapchain> swapchain;
@@ -3687,8 +3760,32 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
     if (!impl_->textBackend) {
         return;
     }
-
-    const auto renderedText = impl_->textBackend->renderText(text, x, y, paint);
+    const auto renderedText = [&]() -> wsc::text::TextRenderResult {
+        // Rasterize glyphs at the transform's effective device-space scale so
+        // zoomed / scaled / HiDPI text stays crisp instead of being a magnified
+        // low-resolution bitmap. Quantize to an integer effective pixel size to
+        // bound glyph-atlas cache growth during continuous resizes, and cap it so
+        // a pathological zoom cannot request an enormous glyph.
+        const float baseSize = paint.getTextSize();
+        const float scale = effectiveTransformScale(impl_->currentState().matrix);
+        if (baseSize > 0.0f && scale > 1.01f) {
+            float effectivePx = std::round(baseSize * scale);
+            effectivePx = std::min(effectivePx, 512.0f);
+            const float appliedScale = effectivePx / baseSize;
+            if (appliedScale > 1.01f) {
+                Paint scaledPaint = paint;
+                scaledPaint.setTextSize(baseSize * appliedScale);
+                if (std::isfinite(paint.getLetterSpacing())) {
+                    scaledPaint.setLetterSpacing(paint.getLetterSpacing() * appliedScale);
+                }
+                auto scaled = impl_->textBackend->renderText(text, x * appliedScale,
+                                                             y * appliedScale, scaledPaint);
+                scaleTextResultGeometryDown(scaled, appliedScale);
+                return scaled;
+            }
+        }
+        return impl_->textBackend->renderText(text, x, y, paint);
+    }();
     if (renderedText.kind == wsc::text::TextRenderKind::None) {
         return;
     }
@@ -3711,10 +3808,15 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
             return;
         }
 
+        // Align glyph quads to the device pixel grid for crisp (non-blurry) text.
+        std::vector<wsc::text::TextRenderResult::GlyphAtlasQuad> atlasQuads =
+            renderedText.glyphAtlasQuads;
+        snapGlyphQuadsToPixelGrid(atlasQuads, impl_->currentState().matrix);
+
         const ScissorState scissor = impl_->makeCurrentScissorState();
         const ClipMaskState clipMask = impl_->makeCurrentClipMaskState();
         const auto submitAtlasText = [&](const Color &textColor, const glm::mat4 &transform, bool useFillShader = false) {
-            for (const auto &quad : renderedText.glyphAtlasQuads) {
+            for (const auto &quad : atlasQuads) {
                 DrawImageData data;
                 data.imageResource = imageResource;
                 data.x = quad.x;
@@ -3745,12 +3847,12 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
 
         bool blurredAtlasShadow = false;
         if (paint.hasShadowLayer() && std::max(0.0f, paint.getShadowRadius()) > 0.0f
-            && impl_->width > 0 && impl_->height > 0 && !renderedText.glyphAtlasQuads.empty()) {
+            && impl_->width > 0 && impl_->height > 0 && !atlasQuads.empty()) {
             const glm::mat4 offset = makeOffsetTransform(impl_->currentState().matrix,
                                                          paint.getShadowDx(), paint.getShadowDy());
             std::vector<DrawImageData> silhouette;
-            silhouette.reserve(renderedText.glyphAtlasQuads.size());
-            for (const auto &quad : renderedText.glyphAtlasQuads) {
+            silhouette.reserve(atlasQuads.size());
+            for (const auto &quad : atlasQuads) {
                 DrawImageData d;
                 d.imageResource = imageResource;
                 d.x = quad.x;
@@ -4305,7 +4407,14 @@ int Canvas::getSaveCount() const
 
 Matrix4 Canvas::getMatrix() const
 {
-    return toPublicMatrix(impl_->currentState().matrix);
+    // The public matrix is LOGICAL. The device pixel ratio is a device-space
+    // factor carried in the stored CTM (so it applies to every draw / clip /
+    // mapPoint and can never be dropped by setMatrix); strip it back out here so
+    // callers see exactly the logical transform they built.
+    const float inv = 1.0f / impl_->devicePixelRatio;
+    const glm::mat4 logical =
+        glm::scale(glm::mat4(1.0f), glm::vec3(inv, inv, 1.0f)) * impl_->currentState().matrix;
+    return toPublicMatrix(logical);
 }
 
 PointF Canvas::mapPoint(const PointF &point) const
@@ -4640,12 +4749,34 @@ void Canvas::clipRect(const Rect &rect)
 
 void Canvas::setMatrix(const Matrix4 &matrix)
 {
-    impl_->currentState().matrix = toGlmMatrix(matrix);
+    // `matrix` is a LOGICAL transform. Compose it onto the device pixel ratio
+    // base so the ratio is preserved even for absolute setMatrix calls (it lives
+    // in device space, not in the logical matrix the caller manages).
+    const float dpr = impl_->devicePixelRatio;
+    impl_->currentState().matrix =
+        glm::scale(glm::mat4(1.0f), glm::vec3(dpr, dpr, 1.0f)) * toGlmMatrix(matrix);
 }
 
 void Canvas::resetMatrix()
 {
-    impl_->currentState().matrix = glm::mat4(1.0f);
+    impl_->currentState().matrix =
+        glm::scale(glm::mat4(1.0f), glm::vec3(impl_->devicePixelRatio, impl_->devicePixelRatio, 1.0f));
+}
+
+void Canvas::setDevicePixelRatio(float ratio)
+{
+    // A HiDPI / content scale folded into the root transform: drawing in logical
+    // coordinates then renders at `ratio`x physical resolution. Because it lives
+    // in the transform, text automatically rasterizes at device resolution (see
+    // drawText's effective-scale path) and stays crisp; all other content scales
+    // up too. The canvas size is expected to be the physical framebuffer size.
+    impl_->devicePixelRatio = (ratio > 0.0f && std::isfinite(ratio)) ? ratio : 1.0f;
+    resetMatrix();
+}
+
+float Canvas::devicePixelRatio() const
+{
+    return impl_->devicePixelRatio;
 }
 
 void Canvas::concat(const Matrix4 &matrix)
