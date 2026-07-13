@@ -1134,8 +1134,16 @@ void framebuffer_size_callback(GLFWwindow *window, int width, int height)
     auto *context = static_cast<GameContext *>(glfwGetWindowUserPointer(window));
     if (context != nullptr && context->canvas != nullptr && width > 0 && height > 0) {
         context->canvas->setSize(width, height);
-        context->windowW = width;
-        context->windowH = height;
+        // HiDPI: the framebuffer is in physical pixels; keep the game laid out in
+        // logical units and let the device pixel ratio render it at full
+        // resolution (crisp text/shapes) instead of magnifying a low-res frame.
+        float scaleX = 1.0f;
+        float scaleY = 1.0f;
+        glfwGetWindowContentScale(window, &scaleX, &scaleY);
+        const float dpr = scaleX > 0.0f ? scaleX : 1.0f;
+        context->canvas->setDevicePixelRatio(dpr);
+        context->windowW = static_cast<int>(width / dpr);
+        context->windowH = static_cast<int>(height / dpr);
     }
 }
 }
@@ -1185,16 +1193,23 @@ int main()
     glViewport(0, 0, framebufferWidth, framebufferHeight);
     glEnable(kOpenGLMultisample);
 
+    float contentScaleX = 1.0f;
+    float contentScaleY = 1.0f;
+    glfwGetWindowContentScale(window, &contentScaleX, &contentScaleY);
+    const float devicePixelRatio = contentScaleX > 0.0f ? contentScaleX : 1.0f;
+
     auto canvasOwner = Canvas::create(Canvas::Backend::OpenGL, 0, 0);
     Canvas &canvas = *canvasOwner;
     canvas.setSize(framebufferWidth, framebufferHeight);
+    // Render at physical resolution while laying the game out in logical units.
+    canvas.setDevicePixelRatio(devicePixelRatio);
 
     BubbleShooterGame game;
     GameContext context;
     context.game = &game;
     context.canvas = &canvas;
-    context.windowW = framebufferWidth;
-    context.windowH = framebufferHeight;
+    context.windowW = static_cast<int>(framebufferWidth / devicePixelRatio);
+    context.windowH = static_cast<int>(framebufferHeight / devicePixelRatio);
 
     glfwSetWindowUserPointer(window, &context);
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);

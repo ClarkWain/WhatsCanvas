@@ -672,8 +672,14 @@ static void framebuffer_size_callback(GLFWwindow* window, int width, int height)
     auto* ctx = static_cast<GameContext*>(glfwGetWindowUserPointer(window));
     if (ctx && ctx->canvas && width > 0 && height > 0) {
         ctx->canvas->setSize(width, height);
-        ctx->windowW = width;
-        ctx->windowH = height;
+        // HiDPI: lay the game out in logical units, render at physical resolution.
+        float scaleX = 1.0f;
+        float scaleY = 1.0f;
+        glfwGetWindowContentScale(window, &scaleX, &scaleY);
+        const float dpr = scaleX > 0.0f ? scaleX : 1.0f;
+        ctx->canvas->setDevicePixelRatio(dpr);
+        ctx->windowW = static_cast<int>(width / dpr);
+        ctx->windowH = static_cast<int>(height / dpr);
     }
 }
 
@@ -717,13 +723,18 @@ int main() {
     auto canvasOwner = Canvas::create(Canvas::Backend::OpenGL, 0, 0);
     Canvas &canvas = *canvasOwner;
     canvas.setSize(fbw, fbh);
+    float contentScaleX = 1.0f;
+    float contentScaleY = 1.0f;
+    glfwGetWindowContentScale(window, &contentScaleX, &contentScaleY);
+    const float devicePixelRatio = contentScaleX > 0.0f ? contentScaleX : 1.0f;
+    canvas.setDevicePixelRatio(devicePixelRatio);
 
     TetrisGame game;
     GameContext ctx;
     ctx.game = &game;
     ctx.canvas = &canvas;
-    ctx.windowW = fbw;
-    ctx.windowH = fbh;
+    ctx.windowW = static_cast<int>(fbw / devicePixelRatio);
+    ctx.windowH = static_cast<int>(fbh / devicePixelRatio);
 
     glfwSetWindowUserPointer(window, &ctx);
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
