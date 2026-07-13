@@ -3,6 +3,8 @@
 // platforms it validates graceful unavailability.
 
 #include <algorithm>
+#include <cstdint>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -10,6 +12,7 @@
 #include "canvas/Paint.h"
 #include "text/DirectWriteTextBackend.h"
 #include "text/ITextBackend.h"
+#include "wsc/Font.h"
 
 namespace {
 
@@ -136,6 +139,54 @@ int main()
               << ", descent=" << metrics.descent << ", coverage=" << covered
               << " px; letter-spacing base=" << baseWidth << " spaced=" << spacedWidth
               << " (bitmap " << baseRender.bitmapWidth << "->" << spacedRender.bitmapWidth << ")." << std::endl;
+
+    // Custom font-file registration: registering an on-disk font builds a usable
+    // custom collection whose family resolves for measurement and rendering.
+    struct FontCandidate { const char *path; const char *family; };
+    const FontCandidate candidates[] = {
+        {"C:/Windows/Fonts/consola.ttf", "Consolas"},
+        {"C:/Windows/Fonts/arial.ttf", "Arial"},
+        {"C:/Windows/Fonts/segoeui.ttf", "Segoe UI"},
+    };
+    const FontCandidate *chosen = nullptr;
+    for (const FontCandidate &c : candidates) {
+        std::ifstream f(c.path, std::ios::binary);
+        if (f.good()) {
+            chosen = &c;
+            break;
+        }
+    }
+    if (chosen != nullptr) {
+        if (!backend->registerFontFace(
+                wsc::FontFace::fromFile(wsc::FontDescriptor(chosen->family), chosen->path))) {
+            std::cerr << "[DirectWriteBackendTests] FAIL: registerFontFace(file) returned false for "
+                      << chosen->path << "." << std::endl;
+            return 1;
+        }
+        wsc::Paint customPaint;
+        customPaint.setFontFamily(chosen->family);
+        customPaint.setTextSize(18.0f);
+        if (!(backend->measureTextWidth("Reg", customPaint) > 0.0f)) {
+            std::cerr << "[DirectWriteBackendTests] FAIL: registered custom font did not measure." << std::endl;
+            return 1;
+        }
+        const wsc::text::TextRenderResult customRender = backend->renderText("Reg", 0.0f, 0.0f, customPaint);
+        if (customRender.kind != wsc::text::TextRenderKind::Bitmap
+            || countCoveredPixels(customRender.bitmapPixels) <= 0) {
+            std::cerr << "[DirectWriteBackendTests] FAIL: registered custom font did not render." << std::endl;
+            return 1;
+        }
+        // Memory-backed registration is not supported yet -> should return false.
+        if (backend->registerFontFace(
+                wsc::FontFace::fromMemory(wsc::FontDescriptor("MemFont"),
+                                          std::vector<std::uint8_t>{1, 2, 3, 4}))) {
+            std::cerr << "[DirectWriteBackendTests] FAIL: memory font registration should return false."
+                      << std::endl;
+            return 1;
+        }
+        std::cout << "[DirectWriteBackendTests] custom font '" << chosen->family
+                  << "' registered and rendered." << std::endl;
+    }
     return 0;
 #else
     if (wsc::text::isDirectWriteAvailable()) {
