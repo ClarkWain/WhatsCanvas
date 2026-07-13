@@ -21,6 +21,7 @@
 #include <windows.h>
 // DirectWrite headers
 #include <dwrite.h>
+#include <dwrite_1.h>
 #include <d2d1.h>
 #include <d2d1helper.h>
 #include <wincodec.h>
@@ -267,8 +268,8 @@ public:
         }
         DWRITE_TEXT_METRICS metrics;
         layout->GetMetrics(&metrics);
-        const float letterSpacing = std::isfinite(paint.getLetterSpacing()) ? paint.getLetterSpacing() : 0.0f;
-        return metrics.width + letterSpacing * static_cast<float>(wide.size() > 0 ? wide.size() - 1 : 0);
+        // Letter spacing is baked into the layout, so the metrics already include it.
+        return metrics.width;
     }
 
     RectF measureTextBounds(const std::string &text, const Paint &paint) const override
@@ -372,9 +373,8 @@ public:
         DWRITE_TEXT_METRICS metrics;
         layout->GetMetrics(&metrics);
 
-        const float letterSpacing = std::isfinite(paint.getLetterSpacing()) ? paint.getLetterSpacing() : 0.0f;
-        const float totalWidth = metrics.width
-                                 + letterSpacing * static_cast<float>(wide.size() > 0 ? wide.size() - 1 : 0);
+        // Letter spacing is baked into the layout, so metrics already include it.
+        const float totalWidth = metrics.width;
         const float totalHeight = metrics.height;
 
         float alignedX = x;
@@ -462,9 +462,6 @@ private:
             return nullptr;
         }
 
-        // Note: letter spacing is applied to the measured width; DirectWrite
-        // character spacing requires IDWriteTextLayout1 and is a follow-up.
-
         const float layoutMaxWidth = maxWidth > 0.0f ? maxWidth : 1e6f;
         const float layoutMaxHeight = 1e6f;
 
@@ -480,6 +477,21 @@ private:
             layout->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
         } else {
             layout->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        }
+
+        // Bake letter spacing into the layout (IDWriteTextLayout1) so measurement
+        // and rendering stay consistent. Trailing spacing on every cluster except
+        // the last yields (N-1) inter-glyph gaps.
+        const float letterSpacing =
+            std::isfinite(paint.getLetterSpacing()) ? paint.getLetterSpacing() : 0.0f;
+        if (letterSpacing != 0.0f && wide.size() > 1) {
+            ComPtr<IDWriteTextLayout1> layout1;
+            if (SUCCEEDED(layout->QueryInterface(__uuidof(IDWriteTextLayout1),
+                                                 reinterpret_cast<void **>(&layout1)))
+                && layout1 != nullptr) {
+                const DWRITE_TEXT_RANGE range{0, static_cast<UINT32>(wide.size() - 1)};
+                layout1->SetCharacterSpacing(0.0f, letterSpacing, 0.0f, range);
+            }
         }
 
         return layout;
