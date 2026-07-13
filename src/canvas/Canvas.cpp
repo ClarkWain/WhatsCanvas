@@ -4407,7 +4407,14 @@ int Canvas::getSaveCount() const
 
 Matrix4 Canvas::getMatrix() const
 {
-    return toPublicMatrix(impl_->currentState().matrix);
+    // The public matrix is LOGICAL. The device pixel ratio is a device-space
+    // factor carried in the stored CTM (so it applies to every draw / clip /
+    // mapPoint and can never be dropped by setMatrix); strip it back out here so
+    // callers see exactly the logical transform they built.
+    const float inv = 1.0f / impl_->devicePixelRatio;
+    const glm::mat4 logical =
+        glm::scale(glm::mat4(1.0f), glm::vec3(inv, inv, 1.0f)) * impl_->currentState().matrix;
+    return toPublicMatrix(logical);
 }
 
 PointF Canvas::mapPoint(const PointF &point) const
@@ -4742,7 +4749,12 @@ void Canvas::clipRect(const Rect &rect)
 
 void Canvas::setMatrix(const Matrix4 &matrix)
 {
-    impl_->currentState().matrix = toGlmMatrix(matrix);
+    // `matrix` is a LOGICAL transform. Compose it onto the device pixel ratio
+    // base so the ratio is preserved even for absolute setMatrix calls (it lives
+    // in device space, not in the logical matrix the caller manages).
+    const float dpr = impl_->devicePixelRatio;
+    impl_->currentState().matrix =
+        glm::scale(glm::mat4(1.0f), glm::vec3(dpr, dpr, 1.0f)) * toGlmMatrix(matrix);
 }
 
 void Canvas::resetMatrix()
