@@ -112,8 +112,30 @@ int main()
         }
     }
 
+    // Letter spacing must affect BOTH measurement and rendering (it is baked into
+    // the DirectWrite layout, not just added to the measured width).
+    wsc::Paint spaced = paint;
+    spaced.setLetterSpacing(6.0f);
+    const float baseWidth = backend->measureTextWidth("IIII", paint);
+    const float spacedWidth = backend->measureTextWidth("IIII", spaced);
+    if (!(spacedWidth > baseWidth + 12.0f)) {
+        std::cerr << "[DirectWriteBackendTests] FAIL: letter spacing did not widen measurement (base="
+                  << baseWidth << " spaced=" << spacedWidth << ")." << std::endl;
+        return 1;
+    }
+    const wsc::text::TextRenderResult baseRender = backend->renderText("IIII", 0.0f, 0.0f, paint);
+    const wsc::text::TextRenderResult spacedRender = backend->renderText("IIII", 0.0f, 0.0f, spaced);
+    if (spacedRender.kind != wsc::text::TextRenderKind::Bitmap
+        || !(spacedRender.bitmapWidth > baseRender.bitmapWidth)) {
+        std::cerr << "[DirectWriteBackendTests] FAIL: letter spacing did not widen the rendered bitmap (base="
+                  << baseRender.bitmapWidth << " spaced=" << spacedRender.bitmapWidth << ")." << std::endl;
+        return 1;
+    }
+
     std::cout << "[DirectWriteBackendTests] PASS: measured width=" << width << ", ascent=" << metrics.ascent
-              << ", descent=" << metrics.descent << ", coverage=" << covered << " px." << std::endl;
+              << ", descent=" << metrics.descent << ", coverage=" << covered
+              << " px; letter-spacing base=" << baseWidth << " spaced=" << spacedWidth
+              << " (bitmap " << baseRender.bitmapWidth << "->" << spacedRender.bitmapWidth << ")." << std::endl;
     return 0;
 #else
     if (wsc::text::isDirectWriteAvailable()) {
