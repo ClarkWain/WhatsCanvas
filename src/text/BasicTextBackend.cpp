@@ -459,6 +459,7 @@ public:
                     result.height = nativeMeasure.height;
                     result.bitmapWidth = bitmap.width;
                     result.bitmapHeight = bitmap.height;
+                    result.bitmapIsClearType = bitmap.isClearType;
                     result.bitmapPixels = bitmap.pixels;
                     return result;
                 }
@@ -726,7 +727,8 @@ private:
                     penX += spacing;
                 }
 
-                if (pending.bitmap.width > 0 && pending.bitmap.height > 0) {
+                if (pending.cachedEntry
+                    || (pending.bitmap.width > 0 && pending.bitmap.height > 0)) {
                     const std::uint64_t generationBeforeUpload = glyphAtlas_.stats().generation;
                     const auto entry = pending.cachedEntry
                         ? pending.cachedEntry
@@ -994,7 +996,9 @@ private:
     {
         return text + '\x1f' + paint.getFontFamily() + '\x1f' +
                std::to_string(paint.getTextSize()) + '\x1f' +
-               std::to_string(paint.getLetterSpacing());
+               std::to_string(paint.getLetterSpacing()) + '\x1f' +
+               std::to_string(paint.getFontWeight()) + '\x1f' +
+               std::to_string(static_cast<int>(paint.getFontSlant()));
     }
 
     wsc::text::NativeTextMeasure getNativeMeasure(const std::string &text, const Paint &paint) const

@@ -56,6 +56,7 @@ struct OutputTarget
 	unsigned long long vulkanFormat = 0; ///< VulkanImage (a VkFormat)
 	int width = 0;                       ///< OpenGLFramebuffer / VulkanImage
 	int height = 0;                      ///< OpenGLFramebuffer / VulkanImage
+	bool opaque = false;                 ///< Destination alpha is known to remain fully opaque.
 
 	/// Off-screen: render internally, read back with readPixelsRGBA.
 	static OutputTarget Offscreen() { return OutputTarget{}; }
@@ -75,17 +76,19 @@ struct OutputTarget
 		t.kind = Kind::Window;
 		t.window = surface;
 		t.config = config;
+		t.opaque = true;
 		return t;
 	}
 
 	/// Render into a host-owned OpenGL framebuffer object.
-	static OutputTarget GLFramebuffer(unsigned int framebuffer, int width, int height)
+	static OutputTarget GLFramebuffer(unsigned int framebuffer, int width, int height, bool opaque = false)
 	{
 		OutputTarget t;
 		t.kind = Kind::OpenGLFramebuffer;
 		t.glFramebuffer = framebuffer;
 		t.width = width;
 		t.height = height;
+		t.opaque = opaque;
 		return t;
 	}
 

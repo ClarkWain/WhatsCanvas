@@ -246,8 +246,10 @@ bool testPortableBackendUsesGlyphAtlasForRegisteredFont()
                 "registered portable font should render through glyph atlas") && ok;
     ok = expect(rendered.atlasWidth > 0 && rendered.atlasHeight > 0,
                 "glyph atlas render should expose atlas dimensions") && ok;
-    ok = expect(!rendered.atlasAlphaPixels.empty(),
-                "glyph atlas render should expose atlas alpha pixels") && ok;
+    ok = expect(rendered.atlasAlphaPixelsView != nullptr
+                    ? !rendered.atlasAlphaPixelsView->empty()
+                    : !rendered.atlasAlphaPixels.empty(),
+                "glyph atlas render should expose owned or viewed atlas alpha pixels") && ok;
     ok = expect(!rendered.glyphAtlasQuads.empty(),
                 "glyph atlas render should emit glyph quads") && ok;
     ok = expect(!rendered.atlasDirtyRects.empty(),
@@ -299,8 +301,10 @@ bool testPortableBackendUsesRgbaAtlasForColorGlyphs()
                 "color glyph text should render through glyph atlas") && ok;
     ok = expect(rendered.atlasPixelFormat == wsc::text::GlyphAtlasPixelFormat::RGBA,
                 "color glyph text should expose an RGBA atlas") && ok;
-    ok = expect(!rendered.atlasRgbaPixels.empty(),
-                "color glyph text should expose atlas RGBA pixels") && ok;
+    ok = expect(rendered.atlasRgbaPixelsView != nullptr
+                    ? !rendered.atlasRgbaPixelsView->empty()
+                    : !rendered.atlasRgbaPixels.empty(),
+                "color glyph text should expose owned or viewed atlas RGBA pixels") && ok;
     ok = expect(!rendered.glyphAtlasQuads.empty(),
                 "color glyph text should emit atlas quads") && ok;
     return ok;
@@ -620,6 +624,60 @@ bool testUnavailableNativeTextAdaptersFallback()
                   "CoreText diagnostic should name the adapter");
 }
 
+bool testWindowsNativeTextPreservesClearTypeCoverage()
+{
+#ifdef _WIN32
+    wsc::text::BasicTextBackendOptions options;
+    options.backendKind = wsc::text::TextBackendKind::WindowsNative;
+    // Do not register FreeType faces: this deliberately exercises the same
+    // cached GDI path used by the Windows-native Todo comparison build.
+    options.enableSystemFontFallback = false;
+    std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createBasicTextBackend(options);
+    wsc::Paint paint;
+    paint.setFontFamily("Segoe UI");
+    paint.setTextSize(18.0f);
+    const wsc::text::TextRenderResult rendered = backend->renderText("ClearType", 0.0f, 0.0f, paint);
+    if (!expect(rendered.kind == wsc::text::TextRenderKind::Bitmap,
+                "Windows-native text should produce a cached bitmap")) {
+        return false;
+    }
+    if (!expect(!rendered.bitmapPixels.empty(),
+                "Windows-native text bitmap should contain pixels")) {
+        return false;
+    }
+
+    bool hasIndependentRgbCoverage = false;
+    for (std::size_t i = 0; i + 3 < rendered.bitmapPixels.size(); i += 4) {
+        const unsigned char r = rendered.bitmapPixels[i + 0];
+        const unsigned char g = rendered.bitmapPixels[i + 1];
+        const unsigned char b = rendered.bitmapPixels[i + 2];
+        hasIndependentRgbCoverage = hasIndependentRgbCoverage || r != g || g != b;
+    }
+    // The same backend instance must not reuse a Regular bitmap after the UI
+    // requests a heading weight. This protects both CreateFontW propagation
+    // and the native measure/bitmap cache key.
+    paint.setFontWeight(700);
+    const wsc::text::TextRenderResult bold = backend->renderText("ClearType", 0.0f, 0.0f, paint);
+    if (!expect(bold.kind == wsc::text::TextRenderKind::Bitmap && !bold.bitmapPixels.empty(),
+                "Windows-native bold text should produce a bitmap")) {
+        return false;
+    }
+    if (!expect(bold.bitmapWidth != rendered.bitmapWidth
+                    || bold.bitmapHeight != rendered.bitmapHeight
+                    || bold.bitmapPixels != rendered.bitmapPixels,
+                "Windows-native font weight must affect the cached raster")) {
+        return false;
+    }
+
+    // Systems with ClearType disabled legitimately return grayscale coverage;
+    // on those systems the renderer must retain the normal alpha fallback.
+    return expect(rendered.bitmapIsClearType == hasIndependentRgbCoverage,
+                  "native bitmap ClearType flag must exactly reflect RGB coverage");
+#else
+    return true;
+#endif
+}
+
 } // namespace
 
 int main()
@@ -643,6 +701,7 @@ int main()
         && testPortableBackendShapesFallbackFontSegments()
         && testOpenTypeShapingRequestFallsBackWithDiagnostic()
         && testTextBackendCapabilityMatrix()
-        && testUnavailableNativeTextAdaptersFallback();
+        && testUnavailableNativeTextAdaptersFallback()
+        && testWindowsNativeTextPreservesClearTypeCoverage();
     return ok ? 0 : 1;
 }

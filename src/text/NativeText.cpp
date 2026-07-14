@@ -57,13 +57,10 @@ HFONT createNativeFont(const Paint &paint)
     }
 
     const int pixelHeight = -std::max(1, static_cast<int>(std::round(paint.getTextSize())));
-    DWORD renderQuality = CLEARTYPE_QUALITY;
-#ifdef CLEARTYPE_NATURAL_QUALITY
-    renderQuality = CLEARTYPE_NATURAL_QUALITY;
-#endif
-    return CreateFontW(pixelHeight, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+    const BOOL italic = paint.getFontSlant() == wsc::FontSlant::NORMAL ? FALSE : TRUE;
+    return CreateFontW(pixelHeight, 0, 0, 0, paint.getFontWeight(), italic, FALSE, FALSE,
                        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                       renderQuality, DEFAULT_PITCH | FF_DONTCARE, family.c_str());
+                       CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, family.c_str());
 }
 #endif
 
@@ -201,16 +198,24 @@ NativeTextBitmap renderNativeTextBitmap(const std::string &text, const Paint &pa
     bitmap.rightPadding = kHorizontalPadding;
     bitmap.pixels.resize(static_cast<size_t>(bitmap.width) * static_cast<size_t>(bitmap.height) * 4);
     const unsigned char *src = static_cast<const unsigned char *>(bits);
+    bool hasIndependentRgbCoverage = false;
     for (size_t i = 0; i < static_cast<size_t>(bitmap.width) * static_cast<size_t>(bitmap.height); ++i) {
         const unsigned char blue = src[i * 4 + 0];
         const unsigned char green = src[i * 4 + 1];
         const unsigned char red = src[i * 4 + 2];
         const unsigned char alpha = std::max(red, std::max(green, blue));
-        bitmap.pixels[i * 4 + 0] = 255;
-        bitmap.pixels[i * 4 + 1] = 255;
-        bitmap.pixels[i * 4 + 2] = 255;
+        // TextOutW on this 32-bit DIB leaves the three ClearType coverages in
+        // B/G/R.  The old code deliberately collapsed them to one alpha mask,
+        // which made the native path no sharper than a grayscale atlas after
+        // OpenGL composition.  Preserve RGB coverage exactly, in RGBA order.
+        bitmap.pixels[i * 4 + 0] = red;
+        bitmap.pixels[i * 4 + 1] = green;
+        bitmap.pixels[i * 4 + 2] = blue;
         bitmap.pixels[i * 4 + 3] = alpha;
+        hasIndependentRgbCoverage = hasIndependentRgbCoverage
+            || red != green || green != blue;
     }
+    bitmap.isClearType = hasIndependentRgbCoverage;
 
     SelectObject(dc, previousFont);
     SelectObject(dc, previousBitmap);

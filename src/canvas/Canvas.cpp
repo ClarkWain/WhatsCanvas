@@ -1166,13 +1166,15 @@ glm::mat4 makeOffsetTransform(const glm::mat4 &transform, float dx, float dy)
 // of its coverage — the classic "blurry text" look. When the current transform
 // is a pure axis-aligned unit-scale transform (identity / integer or fractional
 // translation, the overwhelmingly common UI case), snap each glyph quad's device
-// origin to the pixel grid so texels align 1:1 with pixels. Rotated / scaled
-// text is left untouched (snapping would be wrong, and magnified text is blurry
-// for unrelated reasons).
-bool pixelSnappableTransform(const glm::mat4 &m, float &tx, float &ty)
+// origin to the pixel grid so texels align 1:1 with pixels. A uniform positive
+// DPI scale is equally safe: the caller rasterizes glyphs at that physical
+// scale, then this helper snaps in device coordinates. Rotated, skewed and
+// non-uniform transforms remain ineligible.
+bool pixelSnappableTransform(const glm::mat4 &m, float &tx, float &ty, float &scale)
 {
     constexpr float eps = 1e-3f;
-    if (std::abs(m[0][0] - 1.0f) > eps || std::abs(m[1][1] - 1.0f) > eps
+    scale = m[0][0];
+    if (scale <= eps || std::abs(m[1][1] - scale) > eps
         || std::abs(m[0][1]) > eps || std::abs(m[1][0]) > eps) {
         return false;
     }
@@ -1186,14 +1188,15 @@ void snapGlyphQuadsToPixelGrid(std::vector<wsc::text::TextRenderResult::GlyphAtl
 {
     float tx = 0.0f;
     float ty = 0.0f;
-    if (!pixelSnappableTransform(matrix, tx, ty)) {
+    float scale = 1.0f;
+    if (!pixelSnappableTransform(matrix, tx, ty, scale)) {
         return;
     }
     for (wsc::text::TextRenderResult::GlyphAtlasQuad &quad : quads) {
-        // Snap the DEVICE-space origin (quad + translation) to whole pixels, then
-        // map back into local space so the in-shader transform reproduces it.
-        quad.x = std::round(quad.x + tx) - tx;
-        quad.y = std::round(quad.y + ty) - ty;
+        // Snap the DEVICE-space origin (quad * DPI + translation) to whole
+        // pixels, then map back into local space for the shader transform.
+        quad.x = (std::round(quad.x * scale + tx) - tx) / scale;
+        quad.y = (std::round(quad.y * scale + ty) - ty) / scale;
     }
 }
 
@@ -2200,6 +2203,7 @@ struct Canvas::Impl
     // Render-target mode support
     bool renderTargetMode = false;
     std::shared_ptr<ImageResource> renderTargetImageResource;
+    bool outputTargetOpaque = false;
 
     // Backend this canvas was created with (for Canvas::backend()).
     Canvas::Backend backend = Canvas::Backend::OpenGL;
@@ -3786,27 +3790,33 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
     if (!impl_->textBackend) {
         return;
     }
+    float textRasterScale = 1.0f;
     const auto renderedText = [&]() -> wsc::text::TextRenderResult {
         // Rasterize glyphs at the transform's effective device-space scale so
         // zoomed / scaled / HiDPI text stays crisp instead of being a magnified
-        // low-resolution bitmap. Quantize to an integer effective pixel size to
-        // bound glyph-atlas cache growth during continuous resizes, and cap it so
-        // a pathological zoom cannot request an enormous glyph.
+        // low-resolution bitmap. Quantize the requested font height to a whole
+        // physical pixel, but normalize the resulting geometry by the ACTUAL
+        // device transform (not by effectivePx/baseSize). The previous ratio
+        // introduced a second fractional resize at 125%/150% whenever the
+        // logical font size mapped to a half pixel (for example 11 * 1.5).
         const float baseSize = paint.getTextSize();
         const float scale = effectiveTransformScale(impl_->currentState().matrix);
         if (baseSize > 0.0f && scale > 1.01f) {
             float effectivePx = std::round(baseSize * scale);
             effectivePx = std::min(effectivePx, 512.0f);
-            const float appliedScale = effectivePx / baseSize;
-            if (appliedScale > 1.01f) {
+            if (effectivePx > baseSize) {
+                textRasterScale = scale;
                 Paint scaledPaint = paint;
-                scaledPaint.setTextSize(baseSize * appliedScale);
+                scaledPaint.setTextSize(effectivePx);
                 if (std::isfinite(paint.getLetterSpacing())) {
-                    scaledPaint.setLetterSpacing(paint.getLetterSpacing() * appliedScale);
+                    scaledPaint.setLetterSpacing(paint.getLetterSpacing() * scale);
                 }
-                auto scaled = impl_->textBackend->renderText(text, x * appliedScale,
-                                                             y * appliedScale, scaledPaint);
-                scaleTextResultGeometryDown(scaled, appliedScale);
+                auto scaled = impl_->textBackend->renderText(text, x * scale,
+                                                             y * scale, scaledPaint);
+                // The root transform scales this geometry back by exactly the
+                // same factor. Each bitmap texel therefore lands on one device
+                // pixel even when effectivePx rounded a half-pixel font size.
+                scaleTextResultGeometryDown(scaled, scale);
                 return scaled;
             }
         }
@@ -3934,13 +3944,43 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
 
         const ScissorState scissor = impl_->makeCurrentScissorState();
         const ClipMaskState clipMask = impl_->makeCurrentClipMaskState();
+        float clearTypeTx = 0.0f;
+        float clearTypeTy = 0.0f;
+        float clearTypeTransformScale = 1.0f;
+        const bool useClearTypeBitmap = renderedText.bitmapIsClearType
+            && drawFill
+            && strokePasses.empty()
+            && !paint.hasShadowLayer()
+            && impl_->outputTargetOpaque
+            && impl_->layerStack.empty()
+            && paint.getBlendMode() == Paint::BlendMode::SRC_OVER
+            && !paint.hasLinearGradient()
+            && !paint.hasRadialGradient()
+            && fillColor.a() >= 0.999f
+            && pixelSnappableTransform(impl_->currentState().matrix, clearTypeTx, clearTypeTy,
+                                       clearTypeTransformScale)
+            // LCD texels must map 1:1 to physical subpixels. The raster stage
+            // and root transform now share the actual DPR even when the font
+            // height itself was rounded to a whole physical pixel.
+            && std::abs(clearTypeTransformScale - textRasterScale) <= 1e-3f;
         const auto submitBitmapText = [&](const Color &textColor, const glm::mat4 &transform, bool useFillShader = false) {
             DrawImageData data;
             data.imageResource = imageResource;
             data.x = renderedText.drawX;
             data.y = renderedText.drawY;
-            data.width = renderedText.width;
-            data.height = renderedText.height;
+            // LCD coverage is a physical-pixel mask.  DirectWrite layout
+            // metrics are fractional while the bitmap dimensions are ceiled
+            // to whole texels; drawing the texture with the fractional metric
+            // size squeezes N mask texels into <N device pixels and softens
+            // stems even with nearest sampling.  Give every ClearType texel
+            // exactly one device pixel.  Logical measurement continues to use
+            // the fractional layout metrics returned by the backend.
+            data.width = useClearTypeBitmap
+                ? static_cast<float>(renderedText.bitmapWidth) / textRasterScale
+                : renderedText.width;
+            data.height = useClearTypeBitmap
+                ? static_cast<float>(renderedText.bitmapHeight) / textRasterScale
+                : renderedText.height;
             data.u0 = 0.0f;
             data.u1 = 1.0f;
             data.v0 = 0.0f;
@@ -3950,12 +3990,26 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
             data.tintColor[2] = textColor.b();
             data.tintColor[3] = 1.0f;
             data.alpha = textColor.a();
-            data.sampling = DrawImageSampling::Linear;
+            data.rgbCoverageMask = renderedText.bitmapIsClearType;
+            // LCD coverage must map one source texel to one device pixel. It
+            // is only enabled for the normal opaque fill pass; effects retain
+            // the existing alpha-mask rendering semantics.
+            data.clearTypeMask = useClearTypeBitmap && !useFillShader
+                && textColor.a() >= 0.999f && transform == impl_->currentState().matrix;
+            data.sampling = data.clearTypeMask ? DrawImageSampling::Nearest : DrawImageSampling::Linear;
             data.tileMode = DrawImageTileMode::Clamp;
             data.transform = transform;
             data.scissor = scissor;
             data.blendMode = toDrawBlendMode(paint.getBlendMode());
             data.clipMask = clipMask;
+            if (data.clearTypeMask) {
+                // Preserve the transform but align the bitmap's device origin
+                // so DirectWrite's LCD samples do not straddle adjacent pixels.
+                data.x = (std::round(data.x * clearTypeTransformScale + clearTypeTx)
+                          - clearTypeTx) / clearTypeTransformScale;
+                data.y = (std::round(data.y * clearTypeTransformScale + clearTypeTy)
+                          - clearTypeTy) / clearTypeTransformScale;
+            }
             if (useFillShader) {
                 applyImageGradient(paint, data);
             }
@@ -3980,6 +4034,7 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
             d.tintColor[2] = 1.0f;
             d.tintColor[3] = 1.0f;
             d.alpha = 1.0f;
+            d.rgbCoverageMask = renderedText.bitmapIsClearType;
             d.sampling = DrawImageSampling::Linear;
             d.tileMode = DrawImageTileMode::Clamp;
             d.transform = makeOffsetTransform(impl_->currentState().matrix,
@@ -4002,7 +4057,12 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
             submitBitmapText(strokePass.color, strokePass.transform);
         }
         if (drawFill) {
-            submitBitmapText(fillColor, impl_->currentState().matrix, true);
+            // The fill shader is only needed for an actual paint gradient.
+            // Passing true unconditionally made every ordinary text fill
+            // ineligible for the ClearType compositor, even though all other
+            // LCD safety checks had succeeded.
+            submitBitmapText(fillColor, impl_->currentState().matrix,
+                             paint.hasLinearGradient() || paint.hasRadialGradient());
         }
         return;
     }
@@ -5061,6 +5121,7 @@ bool Canvas::setOutputTarget(const OutputTarget &target)
     impl_->renderer->wrapBackendRenderTarget(BackendRenderTarget{}); // kind None => clear external
     impl_->renderTargetMode = false;
     impl_->renderTargetImageResource.reset();
+    impl_->outputTargetOpaque = target.opaque;
 
     switch (target.kind) {
     case OutputTarget::Kind::Offscreen:

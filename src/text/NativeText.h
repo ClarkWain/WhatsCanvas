@@ -25,6 +25,11 @@ struct NativeTextBitmap
     // the renderer offset the transparent safety pixels back out.
     int leftPadding = 0;
     int rightPadding = 0;
+    // Windows GDI renders into a BGR DIB with independent LCD coverage in
+    // each colour channel when ClearType is enabled.  Keep that fact separate
+    // from the ordinary alpha-mask contract so Canvas can select its
+    // per-channel compositor only where the destination is safe for it.
+    bool isClearType = false;
     std::vector<unsigned char> pixels;
 };
 

@@ -62,6 +62,12 @@ struct TextRenderResult
     float height = 0.0f;
     int bitmapWidth = 0;
     int bitmapHeight = 0;
+    // True when bitmapPixels contains an LCD/ClearType RGB coverage mask rather
+    // than ordinary premultiplied/alpha image pixels.  It must only be
+    // composited onto an opaque, axis-aligned destination using the dedicated
+    // per-channel blend path; treating it as a normal RGBA image loses the
+    // subpixel coverage.
+    bool bitmapIsClearType = false;
     std::vector<float> vertices;
     std::vector<unsigned char> bitmapPixels;
     int atlasWidth = 0;
