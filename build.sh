@@ -39,11 +39,25 @@ PACKAGE_CMAKE_ARGS=""
 if [ "$PACKAGE" -eq 1 ] && [ "${WHATSCANVAS_PACKAGE_ENABLE_FREETYPE:-0}" != "1" ]; then
     PACKAGE_CMAKE_ARGS="$PACKAGE_CMAKE_ARGS -DWHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=OFF"
 fi
+if [ "$PACKAGE" -eq 1 ]; then
+    # Packaging installs the renderer libraries, not the demo, so skip building
+    # the test targets to keep the package build lean.
+    PACKAGE_CMAKE_ARGS="$PACKAGE_CMAKE_ARGS -DBUILD_TESTING=OFF"
+fi
 # shellcheck disable=SC2086
 cmake -S "$ROOT_DIR" -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE="$CONFIG" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON $PACKAGE_CMAKE_ARGS ${WHATSCANVAS_CMAKE_EXTRA_ARGS:-}
 
 echo "[2/3] Building..."
-cmake --build "$BUILD_DIR" --config "$CONFIG" --target "$TARGET"
+if [ "$PACKAGE" -eq 1 ]; then
+    # cmake --install exports every enabled renderer library (OpenGL and the
+    # dependency-free Software target). The demo only links OpenGL, so building
+    # just "$TARGET" would leave WhatsCanvasSoftware unbuilt and the install
+    # step would fail. Build the default target set so all installed libraries
+    # exist before packaging.
+    cmake --build "$BUILD_DIR" --config "$CONFIG"
+else
+    cmake --build "$BUILD_DIR" --config "$CONFIG" --target "$TARGET"
+fi
 
 if [ "$PACKAGE" -eq 1 ]; then
     echo "[3/4] Packaging..."

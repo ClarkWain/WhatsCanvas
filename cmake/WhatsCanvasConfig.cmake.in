@@ -1,24 +1,40 @@
+@PACKAGE_INIT@
+
 include(CMakeFindDependencyMacro)
 
+set(WhatsCanvas_VERSION "@PROJECT_VERSION@")
+
+# Relocatable, multiarch-safe install locations. PACKAGE_PREFIX_DIR is computed
+# by @PACKAGE_INIT@ relative to this config file, so it is independent of the
+# CMAKE_INSTALL_LIBDIR depth (e.g. lib vs lib/x86_64-linux-gnu).
+set_and_check(WhatsCanvas_INCLUDE_DIR "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_INCLUDEDIR@")
+set_and_check(WhatsCanvas_LIBRARY_DIR "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_LIBDIR@")
+
+# Resolve dependencies in a component-aware way. The OpenGL renderer (and the
+# FreeType/HarfBuzz configs it links) are only needed when this package actually
+# ships OpenGL AND the consumer wants it: either no explicit component list was
+# given, or the OpenGL component was requested. A Software-only consumer never
+# triggers OpenGL discovery, so find_package succeeds on a headless box.
+set(_whatscanvas_want_opengl FALSE)
 if (@WHATSCANVAS_PACKAGE_REQUIRES_OPENGL@)
+    if (NOT WhatsCanvas_FIND_COMPONENTS OR "OpenGL" IN_LIST WhatsCanvas_FIND_COMPONENTS)
+        set(_whatscanvas_want_opengl TRUE)
+    endif()
+endif()
+
+if (_whatscanvas_want_opengl)
     find_dependency(OpenGL)
 endif()
 
-get_filename_component(_WHATSCANVAS_PREFIX "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
-
-set(WhatsCanvas_VERSION "@PROJECT_VERSION@")
-set(WhatsCanvas_INCLUDE_DIR "${_WHATSCANVAS_PREFIX}/include")
-set(WhatsCanvas_LIBRARY_DIR "${_WHATSCANVAS_PREFIX}/@CMAKE_INSTALL_LIBDIR@")
-
 # FreeType and HarfBuzz are bundled only when the installed renderer was
-# configured to use them. Their upstream projects export targets but not a
-# uniform find_package config name, so load the version-pinned export files
-# directly from this package prefix before importing WhatsCanvas targets.
-if (@WHATSCANVAS_PACKAGE_REQUIRES_FREETYPE@)
-    include("${_WHATSCANVAS_PREFIX}/@CMAKE_INSTALL_LIBDIR@/cmake/freetype/freetype-config.cmake")
+# configured to use them and their config exports were installed alongside.
+# They are linked exclusively by the OpenGL renderer, so load them only when
+# OpenGL is actually being consumed, before importing the WhatsCanvas targets.
+if (_whatscanvas_want_opengl AND @WHATSCANVAS_PACKAGE_REQUIRES_FREETYPE@)
+    include("${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_LIBDIR@/cmake/freetype/freetype-config.cmake")
 endif()
-if (@WHATSCANVAS_PACKAGE_REQUIRES_HARFBUZZ@)
-    include("${_WHATSCANVAS_PREFIX}/@CMAKE_INSTALL_LIBDIR@/cmake/harfbuzz/harfbuzzConfig.cmake")
+if (_whatscanvas_want_opengl AND @WHATSCANVAS_PACKAGE_REQUIRES_HARFBUZZ@)
+    include("${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_LIBDIR@/cmake/harfbuzz/harfbuzzConfig.cmake")
 endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/WhatsCanvasTargets.cmake")
@@ -37,6 +53,24 @@ endif()
 
 if (TARGET WhatsCanvas::WhatsCanvasOpenGL AND NOT "@WHATSCANVAS_OPENGL_PACKAGE_IMPLIB@" STREQUAL "")
     set_target_properties(WhatsCanvas::WhatsCanvasOpenGL PROPERTIES
-        IMPORTED_IMPLIB "${_WHATSCANVAS_PREFIX}/@WHATSCANVAS_OPENGL_PACKAGE_IMPLIB@"
+        IMPORTED_IMPLIB "${PACKAGE_PREFIX_DIR}/@WHATSCANVAS_OPENGL_PACKAGE_IMPLIB@"
     )
 endif()
+
+# Advertise the renderer components this package actually provides so that a
+# consumer's find_package(WhatsCanvas COMPONENTS ...) request is validated by
+# check_required_components() below.
+set(WhatsCanvas_OpenGL_FOUND FALSE)
+set(WhatsCanvas_OpenGLES_FOUND FALSE)
+set(WhatsCanvas_Software_FOUND FALSE)
+if (TARGET WhatsCanvas::OpenGL)
+    set(WhatsCanvas_OpenGL_FOUND TRUE)
+endif()
+if (TARGET WhatsCanvas::OpenGLES)
+    set(WhatsCanvas_OpenGLES_FOUND TRUE)
+endif()
+if (TARGET WhatsCanvas::Software)
+    set(WhatsCanvas_Software_FOUND TRUE)
+endif()
+
+check_required_components(WhatsCanvas)

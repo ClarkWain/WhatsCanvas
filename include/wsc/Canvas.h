@@ -353,8 +353,15 @@ public:
 	/// logical coordinates and content — including crisp, device-resolution
 	/// text — renders at `ratio`x physical pixels. The canvas size is expected to
 	/// be the physical framebuffer size. Default 1.0.
+	///
+	/// Side effect (M2): this resets the CURRENT transform to a dpr-scaled base
+	/// (as if `resetMatrix()` were called). The ratio is stored on the current
+	/// graphics state, so it is saved/restored in lockstep with the matrix by
+	/// save()/restore() — a restore() that crosses this call restores the
+	/// matching prior ratio and matrix together.
 	void setDevicePixelRatio(float ratio);
-	/// The current device pixel ratio (default 1.0).
+	/// The current device pixel ratio (default 1.0). Reflects the value on the
+	/// current graphics state, so it tracks save()/restore().
 	float devicePixelRatio() const;
 	/// Post-multiply the current matrix by another transform.
 	void concat(const Matrix4 &matrix);
