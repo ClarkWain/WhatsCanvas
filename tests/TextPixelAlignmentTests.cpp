@@ -327,6 +327,84 @@ bool testSetMatrixPreservesDevicePixelRatio()
     return ok;
 }
 
+// Count inked pixels (any coverage) for text at a device pixel ratio. Unlike a
+// pure-black count this measures the text footprint, which is robust to the
+// anti-aliasing softness that fractional scales introduce.
+int inkedCountDpr(float textSize, float dpr, const std::string &fontPath)
+{
+    const int w = 320;
+    const int h = 128;
+    auto canvas = Canvas::create(Canvas::Backend::Software, w, h);
+    if (!canvas) {
+        return -1;
+    }
+    canvas->initializeContext();
+    canvas->registerFontFace(FontFace::fromFile(FontDescriptor("DpiScene"), fontPath));
+    canvas->setDevicePixelRatio(dpr);
+
+    canvas->beginFrame();
+    Paint bg;
+    bg.setStyle(Paint::Style::FILL);
+    bg.setColor(Color(255, 255, 255, 255));
+    bg.setAntiAlias(false);
+    canvas->drawRect(RectF(0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h)), bg);
+
+    Paint text;
+    text.setColor(Color(0, 0, 0, 255));
+    text.setFontFamily("DpiScene");
+    text.setTextSize(textSize);
+    text.setAntiAlias(true);
+    canvas->drawText("HHHH", 16.0f / dpr, 72.0f / dpr, text);
+    canvas->endFrame();
+
+    std::vector<unsigned char> px;
+    if (!canvas->readPixelsRGBA(px) || px.size() != static_cast<std::size_t>(w) * h * 4u) {
+        return -1;
+    }
+    int count = 0;
+    for (int i = 0; i < w * h; ++i) {
+        const int luma = (px[i * 4 + 0] * 30 + px[i * 4 + 1] * 59 + px[i * 4 + 2] * 11) / 100;
+        if (luma < 192) { // any ink, not just solid black
+            ++count;
+        }
+    }
+    return count;
+}
+
+// Multi-DPI scenes: at each common display scale, text must render at device
+// resolution (footprint matches a natively-sized glyph, i.e. not a magnified
+// low-res bitmap) and grow physically with the ratio.
+bool testMultiDpiTextScenes()
+{
+    const std::string fontPath = findSystemFont();
+    if (fontPath.empty()) {
+        std::cout << "Skipping multi-DPI test; no system font found." << std::endl;
+        return true;
+    }
+
+    const float ratios[] = {1.0f, 1.25f, 1.5f, 2.0f};
+    bool ok = true;
+    int previousInk = 0;
+    for (const float ratio : ratios) {
+        const int dprInk = inkedCountDpr(16.0f, ratio, fontPath);
+        const int nativeInk = inkedCountDpr(16.0f * ratio, 1.0f, fontPath);
+
+        ok = expect(dprInk > 0, "text should render at each DPI scale") && ok;
+        // Device-resolution rasterization: the footprint tracks the native pixel
+        // size at that ratio (a magnified 16px bitmap would be far smaller).
+        ok = expect(dprInk >= nativeInk * 7 / 10 && dprInk <= nativeInk * 13 / 10,
+                    "DPR-scaled text footprint should match native resolution at each DPI scale")
+             && ok;
+        // Higher DPI makes text physically larger, so the footprint should grow.
+        ok = expect(dprInk >= previousInk, "higher DPI should not reduce the text footprint") && ok;
+        previousInk = dprInk;
+
+        std::cout << "[TextPixelAlignmentTests] dpi=" << ratio << " inked=" << dprInk
+                  << " native=" << nativeInk << std::endl;
+    }
+    return ok;
+}
+
 } // namespace
 
 int main()
@@ -335,6 +413,7 @@ int main()
     ok = testScaledTextRasterizedAtDeviceResolution() && ok;
     ok = testDevicePixelRatioScalesAndStaysCrisp() && ok;
     ok = testSetMatrixPreservesDevicePixelRatio() && ok;
+    ok = testMultiDpiTextScenes() && ok;
     if (ok) {
         std::cout << "[TextPixelAlignmentTests] PASS" << std::endl;
         return 0;
