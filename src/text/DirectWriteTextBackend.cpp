@@ -310,6 +310,7 @@ public:
     {
         safeRelease(customFontCollection_);
         safeRelease(systemFontCollection_);
+        safeRelease(customFontFallback_);
         if (collectionLoader_ != nullptr) {
             if (dwriteFactory_ != nullptr) {
                 dwriteFactory_->UnregisterFontCollectionLoader(collectionLoader_);
@@ -355,11 +356,65 @@ public:
         return false;
     }
 
-    bool setFontFallbackChain(const FontFallbackChain & /*chain*/) override
+    bool setFontFallbackChain(const FontFallbackChain &chain) override
     {
-        // Custom fallback chains are a follow-up; the system fallback resolver
-        // is used by default.
-        return false;
+        // Build a custom DirectWrite fallback: map the whole Unicode range to the
+        // requested families (in order), then append the system fallback so any
+        // uncovered scripts still resolve. Applied to layouts via IDWriteTextLayout2.
+        if (!available_ || dwriteFactory_ == nullptr) {
+            return false;
+        }
+        const std::vector<std::string> families = chain.familiesInResolutionOrder();
+        if (families.empty()) {
+            safeRelease(customFontFallback_);
+            return true; // Cleared.
+        }
+        IDWriteFactory2 *factory2 = nullptr;
+        if (FAILED(dwriteFactory_->QueryInterface(__uuidof(IDWriteFactory2),
+                                                  reinterpret_cast<void **>(&factory2)))
+            || factory2 == nullptr) {
+            return false;
+        }
+        IDWriteFontFallbackBuilder *builder = nullptr;
+        HRESULT hr = factory2->CreateFontFallbackBuilder(&builder);
+        if (FAILED(hr) || builder == nullptr) {
+            factory2->Release();
+            return false;
+        }
+
+        std::vector<std::wstring> wide;
+        wide.reserve(families.size());
+        for (const std::string &family : families) {
+            wide.push_back(toWideString(family));
+        }
+        std::vector<const WCHAR *> names;
+        names.reserve(wide.size());
+        for (const std::wstring &w : wide) {
+            names.push_back(w.c_str());
+        }
+
+        DWRITE_UNICODE_RANGE range{0x0, 0x10FFFF};
+        hr = builder->AddMapping(&range, 1, names.data(), static_cast<UINT32>(names.size()), nullptr,
+                                 nullptr, nullptr, 1.0f);
+
+        IDWriteFontFallback *systemFallback = nullptr;
+        if (SUCCEEDED(factory2->GetSystemFontFallback(&systemFallback)) && systemFallback != nullptr) {
+            builder->AddMappings(systemFallback);
+            systemFallback->Release();
+        }
+
+        IDWriteFontFallback *fallback = nullptr;
+        if (SUCCEEDED(hr)) {
+            hr = builder->CreateFontFallback(&fallback);
+        }
+        builder->Release();
+        factory2->Release();
+        if (FAILED(hr) || fallback == nullptr) {
+            return false;
+        }
+        safeRelease(customFontFallback_);
+        customFontFallback_ = fallback;
+        return true;
     }
 
     std::vector<std::string> resolveFontFamilies(const std::string &preferredFamily) const override
@@ -761,6 +816,16 @@ private:
             layout->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
         }
 
+        // Apply a custom font fallback chain if one was configured.
+        if (customFontFallback_ != nullptr) {
+            ComPtr<IDWriteTextLayout2> layout2;
+            if (SUCCEEDED(layout->QueryInterface(__uuidof(IDWriteTextLayout2),
+                                                 reinterpret_cast<void **>(&layout2)))
+                && layout2 != nullptr) {
+                layout2->SetFontFallback(customFontFallback_);
+            }
+        }
+
         // Bake letter spacing into the layout (IDWriteTextLayout1) so measurement
         // and rendering stay consistent. Trailing spacing on every cluster except
         // the last yields (N-1) inter-glyph gaps.
@@ -911,6 +976,7 @@ private:
     IDWriteFontCollection *customFontCollection_ = nullptr;
     CustomFontCollectionLoader *collectionLoader_ = nullptr;
     IDWriteInMemoryFontFileLoader *memoryFontLoader_ = nullptr;
+    IDWriteFontFallback *customFontFallback_ = nullptr;
     std::vector<CustomFontSource> customFontSources_;
     unsigned int collectionGeneration_ = 0;
     bool available_ = false;
