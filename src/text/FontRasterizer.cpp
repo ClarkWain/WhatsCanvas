@@ -683,6 +683,8 @@ std::optional<RasterizedGlyph> FontRasterizer::rasterizeGlyphIndex(const FontFac
         glyph.key.glyphIndex = glyphIndex;
         glyph.key.pixelSize = pixelSize;
         glyph.key.format = GlyphBitmapFormat::Alpha;
+        glyph.key.weight = face.weight();
+        glyph.key.slant = face.slant();
         glyph.bitmap = std::move(bitmap);
         return glyph;
     }
@@ -723,6 +725,8 @@ std::optional<RasterizedGlyph> FontRasterizer::rasterizeGlyphIndex(const FontFac
     glyph.key.glyphIndex = glyphIndex;
     glyph.key.pixelSize = pixelSize;
     glyph.key.format = GlyphBitmapFormat::Alpha;
+    glyph.key.weight = face.weight();
+    glyph.key.slant = face.slant();
     glyph.bitmap = std::move(bitmap);
     return glyph;
 }
@@ -836,6 +840,8 @@ std::optional<RasterizedGlyph> FontRasterizer::rasterizeColorGlyph(const FontFac
     glyph.key.glyphIndex = glyphIndex;
     glyph.key.pixelSize = pixelSize;
     glyph.key.format = GlyphBitmapFormat::RGBA;
+    glyph.key.weight = face.weight();
+    glyph.key.slant = face.slant();
     glyph.bitmap = std::move(bitmap);
     return glyph;
 }

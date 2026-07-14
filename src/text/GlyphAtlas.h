@@ -7,6 +7,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "wsc/Font.h"
+
 namespace wsc::text {
 
 enum class GlyphBitmapFormat
@@ -22,6 +24,8 @@ struct GlyphKey
     int glyphIndex = 0;
     float pixelSize = 0.0f;
     GlyphBitmapFormat format = GlyphBitmapFormat::Alpha;
+    int weight = 400;
+    FontSlant slant = FontSlant::NORMAL;
 
     bool operator==(const GlyphKey &other) const;
 };

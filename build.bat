@@ -51,6 +51,9 @@ if "%GENERATOR_IS_MULTI_CONFIG%"=="0" set "EXE_PATH=%BUILD_DIR%\%TARGET%.exe"
 set "PACKAGE_DIR=%ROOT_DIR%\out\package\%CONFIG%"
 set "CONFIGURE_ARGS=-S "%ROOT_DIR%" -B "%BUILD_DIR%" -G "%GENERATOR%" -DCMAKE_EXPORT_COMPILE_COMMANDS:BOOL=TRUE"
 if "%PACKAGE%"=="1" if not "%WHATSCANVAS_PACKAGE_ENABLE_FREETYPE%"=="1" set "CONFIGURE_ARGS=%CONFIGURE_ARGS% -DWHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=OFF"
+rem Packaging installs the renderer libraries, not the demo, so skip building the
+rem test targets to keep the package build lean.
+if "%PACKAGE%"=="1" set "CONFIGURE_ARGS=%CONFIGURE_ARGS% -DBUILD_TESTING=OFF"
 if defined WHATSCANVAS_CMAKE_EXTRA_ARGS set "CONFIGURE_ARGS=%CONFIGURE_ARGS% %WHATSCANVAS_CMAKE_EXTRA_ARGS%"
 if "%GENERATOR_IS_MULTI_CONFIG%"=="1" (
     if defined GENERATOR_TOOLSET set "CONFIGURE_ARGS=%CONFIGURE_ARGS% -T %GENERATOR_TOOLSET%"
@@ -100,7 +103,15 @@ if not "!STEP_EXIT!"=="0" (
 
 echo [2/3] Building...
 call :get_tick STEP_START_MS
-cmake --build "%BUILD_DIR%" --config %CONFIG% --target %TARGET%
+if "%PACKAGE%"=="1" (
+    rem cmake --install exports every enabled renderer library (OpenGL and the
+    rem dependency-free Software target). The demo only links OpenGL, so building
+    rem just %TARGET% would leave WhatsCanvasSoftware unbuilt and the install step
+    rem would fail. Build the default target set so all installed libraries exist.
+    cmake --build "%BUILD_DIR%" --config %CONFIG%
+) else (
+    cmake --build "%BUILD_DIR%" --config %CONFIG% --target %TARGET%
+)
 set "STEP_EXIT=%ERRORLEVEL%"
 call :elapsed_ms STEP_START_MS COMPILE_MS
 echo BUILD_COMPILE_MS=!COMPILE_MS!

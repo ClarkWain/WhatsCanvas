@@ -34,4 +34,12 @@ struct GraphicsState
 
     /// Current fill color (saved/restored with the graphics state stack).
     float color[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+
+    /// Device pixel ratio baked into `matrix`. Stored here (not on the Canvas
+    /// Impl) so it is pushed/popped in lockstep with the transform by
+    /// save()/restore(); a restore() that crosses a setDevicePixelRatio() call
+    /// then keeps the ratio and the matrix consistent. Default 1.0 leaves the
+    /// baked-in scale as an exact identity, so behavior is bit-identical to a
+    /// canvas that never touches the device pixel ratio.
+    float devicePixelRatio = 1.0f;
 };

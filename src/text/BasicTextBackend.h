@@ -45,4 +45,12 @@ std::unique_ptr<ITextBackend> createBasicTextBackend(const BasicTextBackendOptio
 std::unique_ptr<ITextBackend> createPortableTextBackend();
 std::unique_ptr<ITextBackend> createTextBackend(TextBackendKind kind);
 
+/// Returns true only if `backend` was produced by createBasicTextBackend() AND
+/// actually constructed a native DirectWrite adapter. Returns false for a null
+/// pointer, a non-BasicTextBackend, or a BasicTextBackend that fell back to the
+/// portable backend at runtime (e.g. a Windows COM/factory failure). This is the
+/// source of truth for what the backend really is, as opposed to the
+/// compile-time isDirectWriteAvailable() probe.
+bool isNativeDirectWriteActive(const ITextBackend *backend);
+
 } // namespace wsc::text
