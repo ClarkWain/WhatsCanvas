@@ -176,13 +176,29 @@ int main()
             std::cerr << "[DirectWriteBackendTests] FAIL: registered custom font did not render." << std::endl;
             return 1;
         }
-        // Memory-backed registration is not supported yet -> should return false.
-        if (backend->registerFontFace(
-                wsc::FontFace::fromMemory(wsc::FontDescriptor("MemFont"),
-                                          std::vector<std::uint8_t>{1, 2, 3, 4}))) {
-            std::cerr << "[DirectWriteBackendTests] FAIL: memory font registration should return false."
-                      << std::endl;
-            return 1;
+        // In-memory font registration: load the same font file into memory and
+        // register it via fromMemory; it must measure and render.
+        std::ifstream fontStream(chosen->path, std::ios::binary);
+        std::vector<std::uint8_t> fontBytes((std::istreambuf_iterator<char>(fontStream)),
+                                            std::istreambuf_iterator<char>());
+        if (!fontBytes.empty()) {
+            auto memBackend = wsc::text::createDirectWriteTextBackend();
+            if (memBackend
+                && memBackend->registerFontFace(
+                       wsc::FontFace::fromMemory(wsc::FontDescriptor(chosen->family), fontBytes))) {
+                wsc::Paint memPaint;
+                memPaint.setFontFamily(chosen->family);
+                memPaint.setTextSize(18.0f);
+                const wsc::text::TextRenderResult memRender = memBackend->renderText("Mem", 0.0f, 0.0f, memPaint);
+                if (!(memBackend->measureTextWidth("Mem", memPaint) > 0.0f)
+                    || memRender.kind != wsc::text::TextRenderKind::Bitmap
+                    || countCoveredPixels(memRender.bitmapPixels) <= 0) {
+                    std::cerr << "[DirectWriteBackendTests] FAIL: in-memory font did not render." << std::endl;
+                    return 1;
+                }
+                std::cout << "[DirectWriteBackendTests] in-memory font '" << chosen->family
+                          << "' registered and rendered." << std::endl;
+            }
         }
         std::cout << "[DirectWriteBackendTests] custom font '" << chosen->family
                   << "' registered and rendered." << std::endl;

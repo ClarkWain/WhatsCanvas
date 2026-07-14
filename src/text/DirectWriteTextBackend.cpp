@@ -22,6 +22,7 @@
 // DirectWrite headers
 #include <dwrite.h>
 #include <dwrite_1.h>
+#include <dwrite_3.h>
 #include <d2d1.h>
 #include <d2d1helper.h>
 #include <wincodec.h>
@@ -110,24 +111,35 @@ DWRITE_FONT_WEIGHT mapFontWeight(int weight)
 // Custom font collection (registerFontFace with on-disk font files)
 // -----------------------------------------------------------------------
 
-// Key passed to CreateCustomFontCollection. `paths` points at the backend's live
-// path list; `generation` busts DirectWrite's (loader,key) collection cache so a
-// rebuild after registering a new font produces a fresh collection.
+// Key passed to CreateCustomFontCollection. `sources` points at the backend's
+// live source list; `generation` busts DirectWrite's (loader,key) collection
+// cache so a rebuild after registering a new font produces a fresh collection.
+struct CustomFontSource
+{
+    std::wstring path;                               // FILE-based (empty for memory).
+    std::shared_ptr<std::vector<std::uint8_t>> data; // MEMORY-based (null for file).
+};
+
 struct CustomFontCollectionKey
 {
-    const std::vector<std::wstring> *paths = nullptr;
+    const std::vector<CustomFontSource> *sources = nullptr;
+    IDWriteInMemoryFontFileLoader *memoryLoader = nullptr;
     unsigned int generation = 0;
 };
 
-// Enumerates on-disk font files for a custom collection.
+// Enumerates on-disk and in-memory font files for a custom collection.
 class CustomFontFileEnumerator final : public IDWriteFontFileEnumerator
 {
 public:
-    CustomFontFileEnumerator(IDWriteFactory *factory, std::vector<std::wstring> paths)
-        : factory_(factory), paths_(std::move(paths))
+    CustomFontFileEnumerator(IDWriteFactory *factory, IDWriteInMemoryFontFileLoader *memoryLoader,
+                             std::vector<CustomFontSource> sources)
+        : factory_(factory), memoryLoader_(memoryLoader), sources_(std::move(sources))
     {
         if (factory_ != nullptr) {
             factory_->AddRef();
+        }
+        if (memoryLoader_ != nullptr) {
+            memoryLoader_->AddRef();
         }
     }
 
@@ -163,12 +175,22 @@ public:
         }
         *hasCurrentFile = FALSE;
         safeRelease(currentFile_);
-        if (index_ + 1 >= static_cast<int>(paths_.size())) {
+        if (index_ + 1 >= static_cast<int>(sources_.size())) {
             return S_OK;
         }
         ++index_;
+        const CustomFontSource &source = sources_[index_];
         IDWriteFontFile *file = nullptr;
-        const HRESULT hr = factory_->CreateFontFileReference(paths_[index_].c_str(), nullptr, &file);
+        HRESULT hr = E_FAIL;
+        if (source.data != nullptr && !source.data->empty()) {
+            if (memoryLoader_ == nullptr) {
+                return E_FAIL;
+            }
+            hr = memoryLoader_->CreateInMemoryFontFileReference(
+                factory_, source.data->data(), static_cast<UINT32>(source.data->size()), nullptr, &file);
+        } else {
+            hr = factory_->CreateFontFileReference(source.path.c_str(), nullptr, &file);
+        }
         if (FAILED(hr) || file == nullptr) {
             return hr;
         }
@@ -194,6 +216,9 @@ private:
     ~CustomFontFileEnumerator()
     {
         safeRelease(currentFile_);
+        if (memoryLoader_ != nullptr) {
+            memoryLoader_->Release();
+        }
         if (factory_ != nullptr) {
             factory_->Release();
         }
@@ -201,7 +226,8 @@ private:
 
     ULONG refCount_ = 1;
     IDWriteFactory *factory_ = nullptr;
-    std::vector<std::wstring> paths_;
+    IDWriteInMemoryFontFileLoader *memoryLoader_ = nullptr;
+    std::vector<CustomFontSource> sources_;
     int index_ = -1;
     IDWriteFontFile *currentFile_ = nullptr;
 };
@@ -247,8 +273,9 @@ public:
             return E_INVALIDARG;
         }
         const auto *key = static_cast<const CustomFontCollectionKey *>(collectionKey);
-        std::vector<std::wstring> paths = key->paths != nullptr ? *key->paths : std::vector<std::wstring>{};
-        *enumerator = new CustomFontFileEnumerator(factory, std::move(paths));
+        std::vector<CustomFontSource> sources =
+            key->sources != nullptr ? *key->sources : std::vector<CustomFontSource>{};
+        *enumerator = new CustomFontFileEnumerator(factory, key->memoryLoader, std::move(sources));
         return S_OK;
     }
 
@@ -290,6 +317,13 @@ public:
             collectionLoader_->Release();
             collectionLoader_ = nullptr;
         }
+        if (memoryFontLoader_ != nullptr) {
+            if (dwriteFactory_ != nullptr) {
+                dwriteFactory_->UnregisterFontFileLoader(memoryFontLoader_);
+            }
+            memoryFontLoader_->Release();
+            memoryFontLoader_ = nullptr;
+        }
         safeRelease(dwriteFactory_);
     }
 
@@ -299,13 +333,26 @@ public:
 
     bool registerFontFace(const FontFace &face) override
     {
-        // Register an on-disk font file so its family can be resolved by name.
-        // Memory-backed faces are a further follow-up (in-memory file loader).
-        if (!available_ || !face.isValid() || face.sourceType() != wsc::FontSourceType::FILE) {
+        // Register an on-disk or in-memory font so its family resolves by name.
+        if (!available_ || !face.isValid()) {
             return false;
         }
-        customFontPaths_.push_back(toWideString(face.path()));
-        return rebuildCustomFontCollection();
+        if (face.sourceType() == wsc::FontSourceType::FILE) {
+            CustomFontSource source;
+            source.path = toWideString(face.path());
+            customFontSources_.push_back(std::move(source));
+            return rebuildCustomFontCollection();
+        }
+        if (face.sourceType() == wsc::FontSourceType::MEMORY && face.bytes() != nullptr) {
+            if (!ensureMemoryFontLoader()) {
+                return false; // In-memory loader needs IDWriteFactory5 (Windows 10+).
+            }
+            CustomFontSource source;
+            source.data = std::make_shared<std::vector<std::uint8_t>>(*face.bytes());
+            customFontSources_.push_back(std::move(source));
+            return rebuildCustomFontCollection();
+        }
+        return false;
     }
 
     bool setFontFallbackChain(const FontFallbackChain & /*chain*/) override
@@ -600,7 +647,7 @@ private:
         T *ptr_ = nullptr;
     };
 
-    // Rebuild the custom font collection from the registered on-disk fonts. The
+    // Rebuild the custom font collection from the registered fonts. The
     // generation counter busts DirectWrite's (loader,key) collection cache.
     bool rebuildCustomFontCollection()
     {
@@ -617,7 +664,7 @@ private:
         }
         safeRelease(customFontCollection_);
         ++collectionGeneration_;
-        CustomFontCollectionKey key{&customFontPaths_, collectionGeneration_};
+        CustomFontCollectionKey key{&customFontSources_, memoryFontLoader_, collectionGeneration_};
         IDWriteFontCollection *collection = nullptr;
         const HRESULT hr = dwriteFactory_->CreateCustomFontCollection(collectionLoader_, &key,
                                                                       sizeof(key), &collection);
@@ -625,6 +672,36 @@ private:
             return false;
         }
         customFontCollection_ = collection;
+        return true;
+    }
+
+    // Lazily create + register an in-memory font file loader (IDWriteFactory5,
+    // Windows 10+). Returns false when unavailable.
+    bool ensureMemoryFontLoader()
+    {
+        if (memoryFontLoader_ != nullptr) {
+            return true;
+        }
+        if (dwriteFactory_ == nullptr) {
+            return false;
+        }
+        IDWriteFactory5 *factory5 = nullptr;
+        if (FAILED(dwriteFactory_->QueryInterface(__uuidof(IDWriteFactory5),
+                                                  reinterpret_cast<void **>(&factory5)))
+            || factory5 == nullptr) {
+            return false;
+        }
+        IDWriteInMemoryFontFileLoader *loader = nullptr;
+        HRESULT hr = factory5->CreateInMemoryFontFileLoader(&loader);
+        if (SUCCEEDED(hr) && loader != nullptr) {
+            hr = factory5->RegisterFontFileLoader(loader);
+        }
+        factory5->Release();
+        if (FAILED(hr) || loader == nullptr) {
+            safeRelease(loader);
+            return false;
+        }
+        memoryFontLoader_ = loader;
         return true;
     }
 
@@ -833,7 +910,8 @@ private:
     IDWriteFontCollection *systemFontCollection_ = nullptr;
     IDWriteFontCollection *customFontCollection_ = nullptr;
     CustomFontCollectionLoader *collectionLoader_ = nullptr;
-    std::vector<std::wstring> customFontPaths_;
+    IDWriteInMemoryFontFileLoader *memoryFontLoader_ = nullptr;
+    std::vector<CustomFontSource> customFontSources_;
     unsigned int collectionGeneration_ = 0;
     bool available_ = false;
     mutable std::vector<TextBackendDiagnostic> diagnostics_;
