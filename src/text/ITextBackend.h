@@ -62,11 +62,25 @@ struct TextRenderResult
     float height = 0.0f;
     int bitmapWidth = 0;
     int bitmapHeight = 0;
+    // True when bitmapPixels contains an LCD/ClearType RGB coverage mask rather
+    // than ordinary premultiplied/alpha image pixels.  It must only be
+    // composited onto an opaque, axis-aligned destination using the dedicated
+    // per-channel blend path; treating it as a normal RGBA image loses the
+    // subpixel coverage.
+    bool bitmapIsClearType = false;
     std::vector<float> vertices;
     std::vector<unsigned char> bitmapPixels;
     int atlasWidth = 0;
     int atlasHeight = 0;
     GlyphAtlasPixelFormat atlasPixelFormat = GlyphAtlasPixelFormat::Alpha;
+    // Backends that retain their glyph atlas may expose a non-owning view
+    // instead of copying a multi-megabyte texture for every drawText call.
+    // The backend owns these vectors and guarantees they outlive this result.
+    const std::vector<unsigned char> *atlasAlphaPixelsView = nullptr;
+    const std::vector<unsigned char> *atlasRgbaPixelsView = nullptr;
+    // Monotonically changes whenever the viewed atlas contents change. A
+    // renderer can then skip re-hashing the complete atlas for every label.
+    std::uint64_t atlasRevision = 0;
     std::vector<unsigned char> atlasAlphaPixels;
     std::vector<unsigned char> atlasRgbaPixels;
     std::vector<GlyphAtlasDirtyRect> atlasDirtyRects;

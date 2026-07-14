@@ -823,6 +823,28 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     )
     set_tests_properties(WhatsCanvasTextPixelAlignmentTests PROPERTIES LABELS "unit;text")
 
+    add_executable(WhatsCanvasClearTypeCompositingTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/ClearTypeCompositingTests.cpp"
+    )
+    target_include_directories(WhatsCanvasClearTypeCompositingTests PRIVATE
+        "${SRC_DIR}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/glad/include"
+    )
+    target_link_libraries(WhatsCanvasClearTypeCompositingTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    whatscanvas_link_gl_app(WhatsCanvasClearTypeCompositingTests ${CMAKE_CURRENT_SOURCE_DIR})
+    add_test(NAME WhatsCanvasClearTypeCompositingTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasClearTypeCompositingTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasClearTypeCompositingTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasClearTypeCompositingTests PROPERTIES LABELS "unit;text;opengl" TIMEOUT 30)
+
     add_executable(WhatsCanvasSoftwareGoldenTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/SoftwareGoldenTests.cpp"
     )

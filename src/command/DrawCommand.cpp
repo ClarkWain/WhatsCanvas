@@ -56,7 +56,9 @@ DrawImageCommand::DrawImageCommand(const DrawImageData &data)
 void DrawImageCommand::execute(RenderContext &context)
 {
     context.applyClipState(data_.scissor, data_.clipMask);
-    context.applyBlendMode(data_.blendMode);
+    if (!data_.clearTypeMask || !context.applyClearTypeBlendMode()) {
+        context.applyBlendMode(data_.blendMode);
+    }
     DrawImageProgram::getInstance()->draw(context, data_);
 }
 

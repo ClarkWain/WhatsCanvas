@@ -47,6 +47,16 @@ void DrawImageProgram::initialize()
         }
     )";
 
+    const std::string clearTypeOutputs =
+#if defined(WHATSCANVAS_OPENGL_ES)
+        "out vec4 FragColor;\n";
+#else
+        // GL 3.3 core dual-source output.  The secondary output is only read
+        // while RenderContext has selected the ClearType blend function.
+        "layout(location = 0, index = 0) out vec4 FragColor;\n"
+        "layout(location = 0, index = 1) out vec4 FragBlend;\n";
+#endif
+
     const std::string fragmentSrc = std::string(wsc::opengl::shaderVersionDirective())
         + wsc::opengl::clipMaskFragmentUniforms() + R"(
         in vec2 vUv;
@@ -55,6 +65,8 @@ void DrawImageProgram::initialize()
         uniform sampler2D uTexture;
         uniform vec4 uTintColor;
         uniform float uAlpha;
+        uniform bool uClearTypeMask;
+        uniform bool uRgbCoverageFallback;
         uniform bool uUseColorMatrix;
         uniform mat4 uColorMatrix;
         uniform vec4 uColorMatrixOffset;
@@ -68,8 +80,6 @@ void DrawImageProgram::initialize()
         uniform int uGradientStopCount;
         uniform float uGradientStopPositions[8];
         uniform vec4 uGradientStopColors[8];
-
-        out vec4 FragColor;
 
         float applyGradientTile(float t, out float visibility)
         {
@@ -121,6 +131,9 @@ void DrawImageProgram::initialize()
         {
             if (uTileMode == 3 && (vUv.x < 0.0 || vUv.x > 1.0 || vUv.y < 0.0 || vUv.y > 1.0)) {
                 FragColor = vec4(0.0);
+#if !defined(WHATSCANVAS_OPENGL_ES)
+                FragBlend = vec4(0.0);
+#endif
                 return;
             }
 
@@ -135,6 +148,40 @@ void DrawImageProgram::initialize()
                 float t = length(vLocalPos - uRadialCenter) / max(uRadialRadius, 0.0001);
                 paintColor = sampleGradient(t);
             }
+            if (uClearTypeMask) {
+                // `texColor.rgb` is DirectWrite's independent R/G/B LCD
+                // coverage. Keep it separate from the ordinary alpha path;
+                // the fixed-function dual-source blend combines it with the
+                // opaque destination per channel.
+                vec3 coverage = texColor.rgb * paintColor.a * uAlpha;
+                if (uClipEnabled != 0) {
+                    coverage *= texture(uClipMask, gl_FragCoord.xy / uClipViewport).r;
+                }
+                FragColor = vec4(paintColor.rgb * coverage, 0.0);
+#if !defined(WHATSCANVAS_OPENGL_ES)
+                FragBlend = vec4(coverage, 1.0);
+#endif
+                return;
+            }
+            if (uRgbCoverageFallback) {
+                // LCD masks are not ordinary colored images. When the target
+                // is not known opaque or dual-source blending is unavailable,
+                // collapse the RGB coverage to the backend-provided alpha and
+                // render a conventional grayscale mask. This keeps colored
+                // text correct instead of multiplying coverage twice.
+                vec4 color = vec4(paintColor.rgb, texColor.a * paintColor.a * uAlpha);
+                if (uUseColorMatrix) {
+                    color = clamp(uColorMatrix * color + uColorMatrixOffset, 0.0, 1.0);
+                }
+                if (uClipEnabled != 0) {
+                    color.a *= texture(uClipMask, gl_FragCoord.xy / uClipViewport).r;
+                }
+                FragColor = color;
+#if !defined(WHATSCANVAS_OPENGL_ES)
+                FragBlend = vec4(0.0);
+#endif
+                return;
+            }
             vec4 color = vec4(texColor.rgb * paintColor.rgb, texColor.a * paintColor.a * uAlpha);
             if (uUseColorMatrix) {
                 color = clamp(uColorMatrix * color + uColorMatrixOffset, 0.0, 1.0);
@@ -146,7 +193,11 @@ void DrawImageProgram::initialize()
         }
     )";
 
-    program_ = new GLProgram(vertexSrc, fragmentSrc);
+    // Insert the declaration after the user uniforms, before helper functions.
+    std::string resolvedFragmentSrc = fragmentSrc;
+    resolvedFragmentSrc.insert(resolvedFragmentSrc.find("        float applyGradientTile"), clearTypeOutputs);
+
+    program_ = new GLProgram(vertexSrc, resolvedFragmentSrc);
 
     glGenVertexArrays(1, &VAO_);
     vertexBuffer_.initialize(16);
@@ -220,6 +271,10 @@ void DrawImageProgram::draw(const RenderContext &context, const DrawImageData &d
     GammaCorrect::srgbToLinear4(tintColor);
     program_->setVec4("uTintColor", glm::vec4(tintColor[0], tintColor[1], tintColor[2], tintColor[3]));
     program_->setFloat("uAlpha", data.alpha);
+    program_->setInt("uClearTypeMask",
+                     data.clearTypeMask && context.isClearTypeBlendModeActive() ? 1 : 0);
+    program_->setInt("uRgbCoverageFallback",
+                     data.rgbCoverageMask && !context.isClearTypeBlendModeActive() ? 1 : 0);
     const glm::mat4 colorMatrix(
         data.colorMatrix[0], data.colorMatrix[1], data.colorMatrix[2], data.colorMatrix[3],
         data.colorMatrix[4], data.colorMatrix[5], data.colorMatrix[6], data.colorMatrix[7],

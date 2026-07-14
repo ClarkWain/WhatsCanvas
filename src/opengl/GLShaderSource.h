@@ -5,7 +5,9 @@ namespace wsc::opengl {
 inline const char *shaderVersionDirective()
 {
 #if defined(WHATSCANVAS_OPENGL_ES)
-    return "#version 300 es\nprecision mediump float;\nprecision mediump int;\n";
+    // Mirror the C++ backend selection into shader source.  Individual shaders
+    // can use this to omit desktop-only features such as dual-source blending.
+    return "#version 300 es\n#define WHATSCANVAS_OPENGL_ES 1\nprecision mediump float;\nprecision mediump int;\n";
 #else
     return "#version 330 core\n";
 #endif

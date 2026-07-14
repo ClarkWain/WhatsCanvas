@@ -113,6 +113,11 @@ int main()
             std::cerr << "[DirectWriteBackendTests] FAIL: ClearType render had no coverage." << std::endl;
             return 1;
         }
+        if (ct.kind == wsc::text::TextRenderKind::Bitmap && !ct.bitmapIsClearType) {
+            std::cerr << "[DirectWriteBackendTests] FAIL: ClearType bitmap was not tagged for LCD composition."
+                      << std::endl;
+            return 1;
+        }
     }
 
     // Letter spacing must affect BOTH measurement and rendering (it is baked into

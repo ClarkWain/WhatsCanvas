@@ -203,6 +203,7 @@ void RenderContext::applyBlendMode(DrawBlendMode mode) const
     }
 
     if (hasBlendMode_ && lastBlendMode_ == mode) {
+        clearTypeBlendModeActive_ = false;
         return;
     }
 
@@ -256,6 +257,32 @@ void RenderContext::applyBlendMode(DrawBlendMode mode) const
 
     lastBlendMode_ = mode;
     hasBlendMode_ = true;
+    clearTypeBlendModeActive_ = false;
+}
+
+bool RenderContext::applyClearTypeBlendMode() const
+{
+#if defined(WHATSCANVAS_OPENGL_ES)
+    return false;
+#else
+    if (maxDualSourceDrawBuffers_ < 0) {
+        glGetIntegerv(GL_MAX_DUAL_SOURCE_DRAW_BUFFERS, &maxDualSourceDrawBuffers_);
+    }
+    if (maxDualSourceDrawBuffers_ < 1) {
+        return false;
+    }
+    if (!blendEnabled_) {
+        glEnable(GL_BLEND);
+        blendEnabled_ = true;
+    }
+    // source0.rgb is foreground * RGB coverage. source1.rgb is RGB coverage,
+    // giving: out = source0 + destination * (1 - source1) per channel.
+    glBlendEquation(GL_FUNC_ADD);
+    glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC1_COLOR, GL_ZERO, GL_ONE);
+    hasBlendMode_ = false;
+    clearTypeBlendModeActive_ = true;
+    return true;
+#endif
 }
 
 void RenderContext::bindImageHandle(ImageResourceHandle texture) const
@@ -327,6 +354,7 @@ void RenderContext::resetRenderState() const
     clipMaskActive_ = false;
     hasScissorRect_ = false;
     hasBlendMode_ = false;
+    clearTypeBlendModeActive_ = false;
     hasBoundTexture_ = false;
     hasTextureState_ = false;
     generatedMipmapsForBoundTexture_ = false;
