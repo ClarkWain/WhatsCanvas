@@ -35,6 +35,7 @@ struct BasicTextBackendOptions
     TextBackendKind backendKind = TextBackendKind::Auto;
     bool enableNativeText = true;
     bool enableSystemFontFallback = true;
+    bool preferClearType = false; // DirectWrite: use ClearType instead of grayscale.
     TextShapingBackend shapingBackend = TextShapingBackend::Simple;
 };
 

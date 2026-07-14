@@ -32,6 +32,7 @@
 #endif
 #include "render/software/SoftwareRenderer.h"
 #include "text/BasicTextBackend.h"
+#include "text/DirectWriteTextBackend.h"
 #include "text/ITextBackend.h"
 #include "text/NativeText.h"
 #include "text/TextShaper.h"
@@ -2167,6 +2168,7 @@ struct Canvas::Impl
     std::unique_ptr<IRenderer> renderer;
     std::unique_ptr<ISwapchain> swapchain;
     std::unique_ptr<wsc::text::ITextBackend> textBackend;
+    Canvas::TextBackend activeTextBackend = Canvas::TextBackend::Portable;
     std::unique_ptr<GraphicsStateStack> graphicsStates;
 #ifndef WHATSCANVAS_SOFTWARE_ONLY
     AsyncReadback asyncReadback;
@@ -4356,6 +4358,43 @@ bool Canvas::registerFontFace(const FontFace &face)
 bool Canvas::setFontFallbackChain(const FontFallbackChain &chain)
 {
     return impl_->textBackend != nullptr && impl_->textBackend->setFontFallbackChain(chain);
+}
+
+bool Canvas::setTextBackend(TextBackend backend, TextRenderMode renderMode)
+{
+    wsc::text::BasicTextBackendOptions options;
+    switch (backend) {
+    case TextBackend::Auto:
+        options.backendKind = wsc::text::TextBackendKind::Auto;
+        break;
+    case TextBackend::Portable:
+        options.backendKind = wsc::text::TextBackendKind::Portable;
+        break;
+    case TextBackend::DirectWrite:
+        options.backendKind = wsc::text::TextBackendKind::DirectWrite;
+        break;
+    }
+    options.preferClearType = (renderMode == TextRenderMode::ClearType);
+
+    auto created = wsc::text::createBasicTextBackend(options);
+    if (!created) {
+        return false;
+    }
+    impl_->textBackend = std::move(created);
+
+    // A DirectWrite request only truly activates the native backend when it is
+    // available on this platform; otherwise it falls back to portable.
+    impl_->activeTextBackend =
+        (backend == TextBackend::DirectWrite && wsc::text::isDirectWriteAvailable())
+            ? TextBackend::DirectWrite
+            : TextBackend::Portable;
+    return impl_->activeTextBackend == backend
+           || (backend == TextBackend::Auto || backend == TextBackend::Portable);
+}
+
+Canvas::TextBackend Canvas::textBackend() const
+{
+    return impl_->activeTextBackend;
 }
 
 int Canvas::save()

@@ -293,6 +293,28 @@ public:
 	/// Set the fallback chain used to resolve glyphs missing from the primary font.
 	bool setFontFallbackChain(const FontFallbackChain &chain);
 
+	/// Text backend selection. `Auto`/`Portable` use the portable FreeType/stb
+	/// glyph-atlas backend; `DirectWrite` uses the native Windows backend when
+	/// available (falls back to portable otherwise).
+	enum class TextBackend
+	{
+		Auto,
+		Portable,
+		DirectWrite,
+	};
+	/// Anti-aliasing mode for the native text backend.
+	enum class TextRenderMode
+	{
+		Grayscale,
+		ClearType,
+	};
+	/// Select the text backend (and, for the native backend, its render mode).
+	/// Resets text state (registered fonts / fallback chains), so call it before
+	/// registering fonts. Returns true if the requested backend is now active.
+	bool setTextBackend(TextBackend backend, TextRenderMode renderMode = TextRenderMode::Grayscale);
+	/// The text backend currently in effect.
+	TextBackend textBackend() const;
+
 	// Save stack and offscreen layering.
 	/// Push the current matrix/clip state; returns the new save count.
 	int save();

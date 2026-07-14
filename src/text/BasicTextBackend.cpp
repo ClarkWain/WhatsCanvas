@@ -11,6 +11,7 @@
 
 #include "../../include/wsc/Font.h"
 #include "canvas/Paint.h"
+#include "text/DirectWriteTextBackend.h"
 #include "text/FontRasterizer.h"
 #include "text/GlyphAtlas.h"
 #include "text/ITextBackend.h"
@@ -50,11 +51,24 @@ public:
         : options_(options),
           shaper_(wsc::text::createTextShapingEngine(options_.shapingBackend))
     {
-        if (options_.backendKind == wsc::text::TextBackendKind::DirectWrite
-            || options_.backendKind == wsc::text::TextBackendKind::CoreText) {
+        // Try to construct a real DirectWrite backend when requested.
+        if (options_.backendKind == wsc::text::TextBackendKind::DirectWrite) {
+            wsc::text::DirectWriteBackendOptions dwOptions;
+            dwOptions.enableSystemFontFallback = options_.enableSystemFontFallback;
+            dwOptions.rasterMode = options_.preferClearType
+                                       ? wsc::text::DirectWriteRasterMode::ClearType
+                                       : wsc::text::DirectWriteRasterMode::Grayscale;
+            directWriteBackend_ = wsc::text::createDirectWriteTextBackend(dwOptions);
+            if (directWriteBackend_ != nullptr) {
+                options_.enableNativeText = false; // DirectWrite handles native text itself
+            } else {
+                diagnostics_.push_back({wsc::text::TextBackendDiagnostic::Severity::Warning,
+                                        "DirectWrite text adapter is not available on this platform; using portable glyph-atlas backend."});
+                options_.enableNativeText = false;
+            }
+        } else if (options_.backendKind == wsc::text::TextBackendKind::CoreText) {
             diagnostics_.push_back({wsc::text::TextBackendDiagnostic::Severity::Warning,
-                                    std::string(backendName(options_.backendKind))
-                                        + " text adapter is not available yet; using portable glyph-atlas backend."});
+                                    "coretext text adapter is not available yet; using portable glyph-atlas backend."});
             options_.enableNativeText = false;
         }
         if (options_.shapingBackend == wsc::text::TextShapingBackend::OpenType
@@ -72,6 +86,9 @@ public:
 
     bool registerFontFace(const wsc::FontFace &face) override
     {
+        if (directWriteBackend_ != nullptr) {
+            return directWriteBackend_->registerFontFace(face);
+        }
         const bool registered = fontManager_.registerFace(face);
         if (!registered) {
             diagnostics_.push_back({wsc::text::TextBackendDiagnostic::Severity::Warning,
@@ -82,6 +99,9 @@ public:
 
     bool setFontFallbackChain(const wsc::FontFallbackChain &chain) override
     {
+        if (directWriteBackend_ != nullptr) {
+            return directWriteBackend_->setFontFallbackChain(chain);
+        }
         if (chain.primaryFamily().empty() || !fontManager_.hasFamily(chain.primaryFamily())) {
             diagnostics_.push_back({wsc::text::TextBackendDiagnostic::Severity::Warning,
                                     "Rejected fallback chain for an unknown primary family."});
@@ -101,6 +121,9 @@ public:
 
     std::vector<std::string> resolveFontFamilies(const std::string &preferredFamily) const override
     {
+        if (directWriteBackend_ != nullptr) {
+            return directWriteBackend_->resolveFontFamilies(preferredFamily);
+        }
         if (fontManager_.hasFamily(preferredFamily)) {
             return fontManager_.resolveFamilies(preferredFamily);
         }
@@ -113,6 +136,9 @@ public:
     std::vector<wsc::text::TextLineBreak> breakLines(const std::string &text, float maxWidth,
                                                      const Paint &paint) const override
     {
+        if (directWriteBackend_ != nullptr) {
+            return directWriteBackend_->breakLines(text, maxWidth, paint);
+        }
         std::vector<wsc::text::TextLineBreak> result;
         const std::string normalizedText = wsc::text::normalizeUtf8ForText(text);
         if (normalizedText.empty() || maxWidth <= 0.0f || paint.getTextSize() <= 0.0f) {
@@ -203,6 +229,9 @@ public:
 
     bool hasGlyphForCodepoint(std::uint32_t codepoint, const Paint &paint) const override
     {
+        if (directWriteBackend_ != nullptr) {
+            return directWriteBackend_->hasGlyphForCodepoint(codepoint, paint);
+        }
         if (codepoint == '\n' || codepoint == '\t' || wsc::text::isBidiControlCodepoint(codepoint)
             || wsc::text::isZeroWidthBreakCodepoint(codepoint)
             || (codepoint >= 32 && codepoint <= 126)) {
@@ -234,11 +263,20 @@ public:
 
     std::vector<wsc::text::TextBackendDiagnostic> diagnostics() const override
     {
+        if (directWriteBackend_ != nullptr) {
+            std::vector<wsc::text::TextBackendDiagnostic> combined = diagnostics_;
+            const auto dwDiags = directWriteBackend_->diagnostics();
+            combined.insert(combined.end(), dwDiags.begin(), dwDiags.end());
+            return combined;
+        }
         return diagnostics_;
     }
 
     float measureTextWidth(const std::string &text, const Paint &paint) const override
     {
+        if (directWriteBackend_ != nullptr) {
+            return directWriteBackend_->measureTextWidth(text, paint);
+        }
         const std::string normalizedText = wsc::text::normalizeUtf8ForText(text);
         if (normalizedText.empty() || paint.getTextSize() <= 0.0f) {
             return 0.0f;
@@ -265,6 +303,9 @@ public:
 
     RectF measureTextBounds(const std::string &text, const Paint &paint) const override
     {
+        if (directWriteBackend_ != nullptr) {
+            return directWriteBackend_->measureTextBounds(text, paint);
+        }
         const std::string normalizedText = wsc::text::normalizeUtf8ForText(text);
         if (normalizedText.empty() || paint.getTextSize() <= 0.0f) {
             return RectF();
@@ -323,6 +364,9 @@ public:
 
     wsc::text::TextMetrics measureTextMetrics(const std::string &text, const Paint &paint) const override
     {
+        if (directWriteBackend_ != nullptr) {
+            return directWriteBackend_->measureTextMetrics(text, paint);
+        }
         wsc::text::TextMetrics metrics;
         metrics.bounds = measureTextBounds(text, paint);
         metrics.width = metrics.bounds.getWidth();
@@ -370,6 +414,9 @@ public:
 
     TextRenderResult renderText(const std::string &text, float x, float y, const Paint &paint) const override
     {
+        if (directWriteBackend_ != nullptr) {
+            return directWriteBackend_->renderText(text, x, y, paint);
+        }
         TextRenderResult result;
         const std::string normalizedText = wsc::text::normalizeUtf8ForText(text);
         if (normalizedText.empty() || paint.getTextSize() <= 0.0f) {
@@ -920,6 +967,7 @@ private:
     wsc::FontManager fontManager_;
     mutable wsc::text::FontRasterizer rasterizer_;
     mutable wsc::text::GlyphAtlas glyphAtlas_{kDefaultGlyphAtlasSize, kDefaultGlyphAtlasSize, 1};
+    std::unique_ptr<wsc::text::ITextBackend> directWriteBackend_;
     mutable std::vector<wsc::text::TextBackendDiagnostic> diagnostics_;
     mutable std::unordered_set<std::string> diagnosticKeys_;
     mutable std::unordered_set<std::string> missingGlyphDiagnosticKeys_;
@@ -959,12 +1007,12 @@ std::vector<TextBackendCapability> queryTextBackendCapabilities()
                             false});
     capabilities.push_back({TextBackendKind::DirectWrite,
                             "directwrite",
-                            false,
+                            wsc::text::isDirectWriteAvailable(),
+                            true,
                             true,
                             false,
                             false,
-                            false,
-                            false});
+                            true});
     capabilities.push_back({TextBackendKind::CoreText,
                             "coretext",
                             false,
