@@ -260,6 +260,9 @@ void Paint::setTextAlign(TextAlign align) { textAlign_ = align; }
 Paint::TextAlign Paint::getTextAlign() const { return textAlign_; }
 void Paint::setTextBaseline(TextBaseline baseline) { textBaseline_ = baseline; }
 Paint::TextBaseline Paint::getTextBaseline() const { return textBaseline_; }
+void Paint::setTextLocale(const std::string &locale) { textLocale_ = locale; }
+const std::string &Paint::getTextLocale() const { return textLocale_; }
+bool Paint::hasTextLocale() const { return !textLocale_.empty(); }
 void Paint::setBlendMode(BlendMode blendMode) { blendMode_ = blendMode; }
 Paint::BlendMode Paint::getBlendMode() const { return blendMode_; }
 void Paint::setImageSampling(ImageSampling sampling) { imageSampling_ = sampling; }

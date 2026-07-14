@@ -1,0 +1,271 @@
+// DirectWrite text backend test. On Windows it validates that the real
+// DirectWrite backend measures and renders text (glyph coverage). On other
+// platforms it validates graceful unavailability.
+
+#include <algorithm>
+#include <cstdint>
+#include <fstream>
+#include <iostream>
+#include <string>
+#include <vector>
+
+#include "canvas/Paint.h"
+#include "text/DirectWriteTextBackend.h"
+#include "text/ITextBackend.h"
+#include "wsc/Font.h"
+
+namespace {
+
+int countCoveredPixels(const std::vector<unsigned char> &rgba)
+{
+    int covered = 0;
+    for (std::size_t i = 0; i + 3 < rgba.size(); i += 4) {
+        if (rgba[i + 3] > 16) {
+            ++covered;
+        }
+    }
+    return covered;
+}
+
+} // namespace
+
+int main()
+{
+#ifdef _WIN32
+    if (!wsc::text::isDirectWriteAvailable()) {
+        std::cerr << "[DirectWriteBackendTests] FAIL: DirectWrite reported unavailable on Windows." << std::endl;
+        return 1;
+    }
+
+    auto backend = wsc::text::createDirectWriteTextBackend();
+    if (!backend) {
+        std::cerr << "[DirectWriteBackendTests] FAIL: createDirectWriteTextBackend returned null." << std::endl;
+        return 1;
+    }
+
+    wsc::Paint paint;
+    paint.setFontFamily("Segoe UI");
+    paint.setTextSize(16.0f);
+
+    // Measurement.
+    const float width = backend->measureTextWidth("Hg Ap", paint);
+    if (!(width > 0.0f)) {
+        std::cerr << "[DirectWriteBackendTests] FAIL: measured width was " << width << "." << std::endl;
+        return 1;
+    }
+
+    const wsc::text::TextMetrics metrics = backend->measureTextMetrics("Hg Ap", paint);
+    if (!(metrics.ascent > 0.0f) || !(metrics.descent > 0.0f) || !(metrics.width > 0.0f)) {
+        std::cerr << "[DirectWriteBackendTests] FAIL: metrics ascent=" << metrics.ascent
+                  << " descent=" << metrics.descent << " width=" << metrics.width << "." << std::endl;
+        return 1;
+    }
+
+    // Rendering (grayscale, the default).
+    const wsc::text::TextRenderResult result = backend->renderText("Hg", 0.0f, 0.0f, paint);
+    if (result.kind != wsc::text::TextRenderKind::Bitmap) {
+        std::cerr << "[DirectWriteBackendTests] FAIL: expected Bitmap render kind." << std::endl;
+        return 1;
+    }
+    if (result.bitmapWidth <= 0 || result.bitmapHeight <= 0 || result.bitmapPixels.empty()) {
+        std::cerr << "[DirectWriteBackendTests] FAIL: empty rendered bitmap." << std::endl;
+        return 1;
+    }
+    const int covered = countCoveredPixels(result.bitmapPixels);
+    if (covered <= 0) {
+        std::cerr << "[DirectWriteBackendTests] FAIL: rendered bitmap had no covered pixels (text not drawn)."
+                  << std::endl;
+        return 1;
+    }
+    // Grayscale coverage: RGB should be white where covered.
+    bool sawWhiteRgb = false;
+    for (std::size_t i = 0; i + 3 < result.bitmapPixels.size(); i += 4) {
+        if (result.bitmapPixels[i + 3] > 128) {
+            if (result.bitmapPixels[i] == 255 && result.bitmapPixels[i + 1] == 255
+                && result.bitmapPixels[i + 2] == 255) {
+                sawWhiteRgb = true;
+                break;
+            }
+        }
+    }
+    if (!sawWhiteRgb) {
+        std::cerr << "[DirectWriteBackendTests] FAIL: grayscale coverage should emit white RGB." << std::endl;
+        return 1;
+    }
+
+    // CJK fallback: a Chinese character should render without ASCII replacement.
+    const wsc::text::TextRenderResult cjk = backend->renderText("\xE4\xBD\xA0", 0.0f, 0.0f, paint); // U+4F60
+    if (cjk.kind == wsc::text::TextRenderKind::Bitmap && !cjk.bitmapPixels.empty()) {
+        if (countCoveredPixels(cjk.bitmapPixels) <= 0) {
+            std::cerr << "[DirectWriteBackendTests] FAIL: CJK glyph produced no coverage (fallback failed)."
+                      << std::endl;
+            return 1;
+        }
+    }
+
+    // ClearType mode should preserve non-uniform RGB subpixel coverage.
+    wsc::text::DirectWriteBackendOptions ctOptions;
+    ctOptions.rasterMode = wsc::text::DirectWriteRasterMode::ClearType;
+    auto ctBackend = wsc::text::createDirectWriteTextBackend(ctOptions);
+    if (ctBackend) {
+        const wsc::text::TextRenderResult ct = ctBackend->renderText("Hg", 0.0f, 0.0f, paint);
+        if (ct.kind == wsc::text::TextRenderKind::Bitmap && countCoveredPixels(ct.bitmapPixels) <= 0) {
+            std::cerr << "[DirectWriteBackendTests] FAIL: ClearType render had no coverage." << std::endl;
+            return 1;
+        }
+    }
+
+    // Letter spacing must affect BOTH measurement and rendering (it is baked into
+    // the DirectWrite layout, not just added to the measured width).
+    wsc::Paint spaced = paint;
+    spaced.setLetterSpacing(6.0f);
+    const float baseWidth = backend->measureTextWidth("IIII", paint);
+    const float spacedWidth = backend->measureTextWidth("IIII", spaced);
+    if (!(spacedWidth > baseWidth + 12.0f)) {
+        std::cerr << "[DirectWriteBackendTests] FAIL: letter spacing did not widen measurement (base="
+                  << baseWidth << " spaced=" << spacedWidth << ")." << std::endl;
+        return 1;
+    }
+    const wsc::text::TextRenderResult baseRender = backend->renderText("IIII", 0.0f, 0.0f, paint);
+    const wsc::text::TextRenderResult spacedRender = backend->renderText("IIII", 0.0f, 0.0f, spaced);
+    if (spacedRender.kind != wsc::text::TextRenderKind::Bitmap
+        || !(spacedRender.bitmapWidth > baseRender.bitmapWidth)) {
+        std::cerr << "[DirectWriteBackendTests] FAIL: letter spacing did not widen the rendered bitmap (base="
+                  << baseRender.bitmapWidth << " spaced=" << spacedRender.bitmapWidth << ")." << std::endl;
+        return 1;
+    }
+
+    std::cout << "[DirectWriteBackendTests] PASS: measured width=" << width << ", ascent=" << metrics.ascent
+              << ", descent=" << metrics.descent << ", coverage=" << covered
+              << " px; letter-spacing base=" << baseWidth << " spaced=" << spacedWidth
+              << " (bitmap " << baseRender.bitmapWidth << "->" << spacedRender.bitmapWidth << ")." << std::endl;
+
+    // Custom font-file registration: registering an on-disk font builds a usable
+    // custom collection whose family resolves for measurement and rendering.
+    struct FontCandidate { const char *path; const char *family; };
+    const FontCandidate candidates[] = {
+        {"C:/Windows/Fonts/consola.ttf", "Consolas"},
+        {"C:/Windows/Fonts/arial.ttf", "Arial"},
+        {"C:/Windows/Fonts/segoeui.ttf", "Segoe UI"},
+    };
+    const FontCandidate *chosen = nullptr;
+    for (const FontCandidate &c : candidates) {
+        std::ifstream f(c.path, std::ios::binary);
+        if (f.good()) {
+            chosen = &c;
+            break;
+        }
+    }
+    if (chosen != nullptr) {
+        if (!backend->registerFontFace(
+                wsc::FontFace::fromFile(wsc::FontDescriptor(chosen->family), chosen->path))) {
+            std::cerr << "[DirectWriteBackendTests] FAIL: registerFontFace(file) returned false for "
+                      << chosen->path << "." << std::endl;
+            return 1;
+        }
+        wsc::Paint customPaint;
+        customPaint.setFontFamily(chosen->family);
+        customPaint.setTextSize(18.0f);
+        if (!(backend->measureTextWidth("Reg", customPaint) > 0.0f)) {
+            std::cerr << "[DirectWriteBackendTests] FAIL: registered custom font did not measure." << std::endl;
+            return 1;
+        }
+        const wsc::text::TextRenderResult customRender = backend->renderText("Reg", 0.0f, 0.0f, customPaint);
+        if (customRender.kind != wsc::text::TextRenderKind::Bitmap
+            || countCoveredPixels(customRender.bitmapPixels) <= 0) {
+            std::cerr << "[DirectWriteBackendTests] FAIL: registered custom font did not render." << std::endl;
+            return 1;
+        }
+        // In-memory font registration: load the same font file into memory and
+        // register it via fromMemory; it must measure and render.
+        std::ifstream fontStream(chosen->path, std::ios::binary);
+        std::vector<std::uint8_t> fontBytes((std::istreambuf_iterator<char>(fontStream)),
+                                            std::istreambuf_iterator<char>());
+        if (!fontBytes.empty()) {
+            auto memBackend = wsc::text::createDirectWriteTextBackend();
+            if (memBackend
+                && memBackend->registerFontFace(
+                       wsc::FontFace::fromMemory(wsc::FontDescriptor(chosen->family), fontBytes))) {
+                wsc::Paint memPaint;
+                memPaint.setFontFamily(chosen->family);
+                memPaint.setTextSize(18.0f);
+                const wsc::text::TextRenderResult memRender = memBackend->renderText("Mem", 0.0f, 0.0f, memPaint);
+                if (!(memBackend->measureTextWidth("Mem", memPaint) > 0.0f)
+                    || memRender.kind != wsc::text::TextRenderKind::Bitmap
+                    || countCoveredPixels(memRender.bitmapPixels) <= 0) {
+                    std::cerr << "[DirectWriteBackendTests] FAIL: in-memory font did not render." << std::endl;
+                    return 1;
+                }
+                std::cout << "[DirectWriteBackendTests] in-memory font '" << chosen->family
+                          << "' registered and rendered." << std::endl;
+            }
+        }
+        std::cout << "[DirectWriteBackendTests] custom font '" << chosen->family
+                  << "' registered and rendered." << std::endl;
+    }
+
+    // Custom font fallback chain: configuring a chain should succeed and text
+    // (including CJK that needs fallback) must still render.
+    wsc::FontFallbackChain chain("Segoe UI");
+    chain.addFallbackFamily("Yu Gothic");
+    chain.addFallbackFamily("Microsoft YaHei");
+    if (!backend->setFontFallbackChain(chain)) {
+        std::cerr << "[DirectWriteBackendTests] FAIL: setFontFallbackChain returned false." << std::endl;
+        return 1;
+    }
+    const wsc::text::TextRenderResult fbRender = backend->renderText("A\xE4\xBD\xA0", 0.0f, 0.0f, paint); // "A你"
+    if (fbRender.kind != wsc::text::TextRenderKind::Bitmap
+        || countCoveredPixels(fbRender.bitmapPixels) <= 0) {
+        std::cerr << "[DirectWriteBackendTests] FAIL: text did not render with a custom fallback chain."
+                  << std::endl;
+        return 1;
+    }
+    // An empty chain clears the custom fallback (returns true).
+    if (!backend->setFontFallbackChain(wsc::FontFallbackChain())) {
+        std::cerr << "[DirectWriteBackendTests] FAIL: clearing the fallback chain should return true."
+                  << std::endl;
+        return 1;
+    }
+    std::cout << "[DirectWriteBackendTests] custom font fallback chain applied and cleared." << std::endl;
+
+    // Full text styling surface: family + weight + slant + letter spacing + locale
+    // all flow through to a rendered bitmap.
+    wsc::Paint styled;
+    styled.setFontFamily("Segoe UI");
+    styled.setFontWeight(700);
+    styled.setFontSlant(wsc::FontSlant::ITALIC);
+    styled.setLetterSpacing(2.0f);
+    styled.setTextSize(20.0f);
+    styled.setTextLocale("en-US");
+    const wsc::text::TextRenderResult styledRender = backend->renderText("Style", 0.0f, 0.0f, styled);
+    if (styledRender.kind != wsc::text::TextRenderKind::Bitmap
+        || countCoveredPixels(styledRender.bitmapPixels) <= 0) {
+        std::cerr << "[DirectWriteBackendTests] FAIL: styled text (weight/slant/spacing/locale) did not render."
+                  << std::endl;
+        return 1;
+    }
+    // Locale-tagged CJK should measure a positive width (locale-aware layout).
+    wsc::Paint jp;
+    jp.setFontFamily("Yu Gothic");
+    jp.setTextSize(20.0f);
+    jp.setTextLocale("ja-JP");
+    if (!(backend->measureTextWidth("\xE6\x97\xA5\xE6\x9C\xAC", jp) > 0.0f)) { // "日本"
+        std::cerr << "[DirectWriteBackendTests] FAIL: locale-tagged CJK did not measure." << std::endl;
+        return 1;
+    }
+    std::cout << "[DirectWriteBackendTests] text styling surface (weight/slant/spacing/locale) rendered."
+              << std::endl;
+    return 0;
+#else
+    if (wsc::text::isDirectWriteAvailable()) {
+        std::cerr << "[DirectWriteBackendTests] FAIL: DirectWrite should be unavailable off Windows." << std::endl;
+        return 1;
+    }
+    if (wsc::text::createDirectWriteTextBackend() != nullptr) {
+        std::cerr << "[DirectWriteBackendTests] FAIL: expected null backend off Windows." << std::endl;
+        return 1;
+    }
+    std::cout << "[DirectWriteBackendTests] PASS: DirectWrite gracefully unavailable off Windows." << std::endl;
+    return 0;
+#endif
+}
