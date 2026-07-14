@@ -266,6 +266,8 @@ Public members:
 - `TextMetrics measureTextMetrics(const std::string &text, const Paint &paint) const;`
 - `bool registerFontFace(const FontFace &face);`
 - `bool setFontFallbackChain(const FontFallbackChain &chain);`
+- `bool setTextBackend(TextBackend backend, TextRenderMode renderMode = TextRenderMode::Grayscale);`
+- `TextBackend textBackend() const;`
 - `int save();`
 - `int saveLayer(const RectF &bounds, const Paint &paint);`
 - `int saveLayer(const Rect &bounds, const Paint &paint);`

@@ -405,6 +405,76 @@ bool testMultiDpiTextScenes()
     return ok;
 }
 
+// Public text-backend selection: setTextBackend picks the portable or native
+// (DirectWrite) backend and text still renders through the Canvas.
+bool testPublicTextBackendSelection()
+{
+    const std::string fontPath = findSystemFont();
+    if (fontPath.empty()) {
+        std::cout << "Skipping text-backend selection test; no system font found." << std::endl;
+        return true;
+    }
+
+    auto renderInk = [&](Canvas::TextBackend which) -> int {
+        const int w = 160;
+        const int h = 48;
+        auto canvas = Canvas::create(Canvas::Backend::Software, w, h);
+        if (!canvas) {
+            return -1;
+        }
+        canvas->initializeContext();
+        canvas->setTextBackend(which);
+        canvas->registerFontFace(FontFace::fromFile(FontDescriptor("Segoe UI"), fontPath));
+
+        canvas->beginFrame();
+        Paint bg;
+        bg.setStyle(Paint::Style::FILL);
+        bg.setColor(Color(255, 255, 255, 255));
+        bg.setAntiAlias(false);
+        canvas->drawRect(RectF(0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h)), bg);
+        Paint text;
+        text.setColor(Color(0, 0, 0, 255));
+        text.setFontFamily("Segoe UI");
+        text.setTextSize(20.0f);
+        text.setAntiAlias(true);
+        canvas->drawText("Backend", 8.0f, 30.0f, text);
+        canvas->endFrame();
+
+        std::vector<unsigned char> px;
+        if (!canvas->readPixelsRGBA(px)) {
+            return -1;
+        }
+        int inked = 0;
+        for (int i = 0; i < w * h; ++i) {
+            const int luma = (px[i * 4 + 0] * 30 + px[i * 4 + 1] * 59 + px[i * 4 + 2] * 11) / 100;
+            if (luma < 192) {
+                ++inked;
+            }
+        }
+        return inked;
+    };
+
+    bool ok = expect(renderInk(Canvas::TextBackend::Portable) > 0,
+                     "portable backend should render text through the Canvas");
+
+    auto probe = Canvas::create(Canvas::Backend::Software, 8, 8);
+    if (probe) {
+        probe->initializeContext();
+        const bool dwActive = probe->setTextBackend(Canvas::TextBackend::DirectWrite);
+        ok = expect(probe->textBackend() == (dwActive ? Canvas::TextBackend::DirectWrite
+                                                       : Canvas::TextBackend::Portable),
+                    "textBackend() should report the active backend")
+             && ok;
+        // Whichever backend resolved, text must still render.
+        ok = expect(renderInk(Canvas::TextBackend::DirectWrite) > 0,
+                    "DirectWrite selection should still render text (native or fallback)")
+             && ok;
+        std::cout << "[TextPixelAlignmentTests] backend select: DirectWrite active=" << dwActive
+                  << std::endl;
+    }
+    return ok;
+}
+
 } // namespace
 
 int main()
@@ -414,6 +484,7 @@ int main()
     ok = testDevicePixelRatioScalesAndStaysCrisp() && ok;
     ok = testSetMatrixPreservesDevicePixelRatio() && ok;
     ok = testMultiDpiTextScenes() && ok;
+    ok = testPublicTextBackendSelection() && ok;
     if (ok) {
         std::cout << "[TextPixelAlignmentTests] PASS" << std::endl;
         return 0;
