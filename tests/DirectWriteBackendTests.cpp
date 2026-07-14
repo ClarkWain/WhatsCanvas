@@ -203,6 +203,30 @@ int main()
         std::cout << "[DirectWriteBackendTests] custom font '" << chosen->family
                   << "' registered and rendered." << std::endl;
     }
+
+    // Custom font fallback chain: configuring a chain should succeed and text
+    // (including CJK that needs fallback) must still render.
+    wsc::FontFallbackChain chain("Segoe UI");
+    chain.addFallbackFamily("Yu Gothic");
+    chain.addFallbackFamily("Microsoft YaHei");
+    if (!backend->setFontFallbackChain(chain)) {
+        std::cerr << "[DirectWriteBackendTests] FAIL: setFontFallbackChain returned false." << std::endl;
+        return 1;
+    }
+    const wsc::text::TextRenderResult fbRender = backend->renderText("A\xE4\xBD\xA0", 0.0f, 0.0f, paint); // "A你"
+    if (fbRender.kind != wsc::text::TextRenderKind::Bitmap
+        || countCoveredPixels(fbRender.bitmapPixels) <= 0) {
+        std::cerr << "[DirectWriteBackendTests] FAIL: text did not render with a custom fallback chain."
+                  << std::endl;
+        return 1;
+    }
+    // An empty chain clears the custom fallback (returns true).
+    if (!backend->setFontFallbackChain(wsc::FontFallbackChain())) {
+        std::cerr << "[DirectWriteBackendTests] FAIL: clearing the fallback chain should return true."
+                  << std::endl;
+        return 1;
+    }
+    std::cout << "[DirectWriteBackendTests] custom font fallback chain applied and cleared." << std::endl;
     return 0;
 #else
     if (wsc::text::isDirectWriteAvailable()) {
