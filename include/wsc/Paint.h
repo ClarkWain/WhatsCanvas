@@ -211,6 +211,11 @@ public:
     TextAlign getTextAlign() const;
     void setTextBaseline(TextBaseline baseline);
     TextBaseline getTextBaseline() const;
+    /// BCP-47 locale (e.g. "en-US", "ja-JP") for locale-aware shaping and
+    /// fallback. Honoured by the native (DirectWrite) backend; empty by default.
+    void setTextLocale(const std::string &locale);
+    const std::string &getTextLocale() const;
+    bool hasTextLocale() const;
 
     /// Compositing blend mode for subsequent draws.
     void setBlendMode(BlendMode blendMode);
@@ -264,6 +269,7 @@ private:
     float letterSpacing_ = 0.0f;
     TextAlign textAlign_ = TextAlign::LEFT;
     TextBaseline textBaseline_ = TextBaseline::TOP;
+    std::string textLocale_;
     BlendMode blendMode_ = BlendMode::SRC_OVER;
     ImageSampling imageSampling_ = ImageSampling::LINEAR;
     ImageTileMode imageTileMode_ = ImageTileMode::CLAMP;

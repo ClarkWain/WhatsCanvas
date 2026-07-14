@@ -227,6 +227,34 @@ int main()
         return 1;
     }
     std::cout << "[DirectWriteBackendTests] custom font fallback chain applied and cleared." << std::endl;
+
+    // Full text styling surface: family + weight + slant + letter spacing + locale
+    // all flow through to a rendered bitmap.
+    wsc::Paint styled;
+    styled.setFontFamily("Segoe UI");
+    styled.setFontWeight(700);
+    styled.setFontSlant(wsc::FontSlant::ITALIC);
+    styled.setLetterSpacing(2.0f);
+    styled.setTextSize(20.0f);
+    styled.setTextLocale("en-US");
+    const wsc::text::TextRenderResult styledRender = backend->renderText("Style", 0.0f, 0.0f, styled);
+    if (styledRender.kind != wsc::text::TextRenderKind::Bitmap
+        || countCoveredPixels(styledRender.bitmapPixels) <= 0) {
+        std::cerr << "[DirectWriteBackendTests] FAIL: styled text (weight/slant/spacing/locale) did not render."
+                  << std::endl;
+        return 1;
+    }
+    // Locale-tagged CJK should measure a positive width (locale-aware layout).
+    wsc::Paint jp;
+    jp.setFontFamily("Yu Gothic");
+    jp.setTextSize(20.0f);
+    jp.setTextLocale("ja-JP");
+    if (!(backend->measureTextWidth("\xE6\x97\xA5\xE6\x9C\xAC", jp) > 0.0f)) { // "日本"
+        std::cerr << "[DirectWriteBackendTests] FAIL: locale-tagged CJK did not measure." << std::endl;
+        return 1;
+    }
+    std::cout << "[DirectWriteBackendTests] text styling surface (weight/slant/spacing/locale) rendered."
+              << std::endl;
     return 0;
 #else
     if (wsc::text::isDirectWriteAvailable()) {
