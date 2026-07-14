@@ -2163,7 +2163,6 @@ struct Canvas::Impl
 
     int width = 0;
     int height = 0;
-    float devicePixelRatio = 1.0f;
     Color color;
     std::unique_ptr<IRenderer> renderer;
     std::unique_ptr<ISwapchain> swapchain;
@@ -4380,14 +4379,16 @@ bool Canvas::setTextBackend(TextBackend backend, TextRenderMode renderMode)
     if (!created) {
         return false;
     }
+
+    // Report what the backend ACTUALLY constructed, not what is compile-time
+    // available. A DirectWrite request can still fall back to portable at
+    // runtime (COM/factory failure), and BasicTextBackend is the source of
+    // truth for whether its native DirectWrite adapter is really live.
+    const bool directWriteActive = wsc::text::isNativeDirectWriteActive(created.get());
     impl_->textBackend = std::move(created);
 
-    // A DirectWrite request only truly activates the native backend when it is
-    // available on this platform; otherwise it falls back to portable.
     impl_->activeTextBackend =
-        (backend == TextBackend::DirectWrite && wsc::text::isDirectWriteAvailable())
-            ? TextBackend::DirectWrite
-            : TextBackend::Portable;
+        directWriteActive ? TextBackend::DirectWrite : TextBackend::Portable;
     return impl_->activeTextBackend == backend
            || (backend == TextBackend::Auto || backend == TextBackend::Portable);
 }
@@ -4450,7 +4451,7 @@ Matrix4 Canvas::getMatrix() const
     // factor carried in the stored CTM (so it applies to every draw / clip /
     // mapPoint and can never be dropped by setMatrix); strip it back out here so
     // callers see exactly the logical transform they built.
-    const float inv = 1.0f / impl_->devicePixelRatio;
+    const float inv = 1.0f / impl_->currentState().devicePixelRatio;
     const glm::mat4 logical =
         glm::scale(glm::mat4(1.0f), glm::vec3(inv, inv, 1.0f)) * impl_->currentState().matrix;
     return toPublicMatrix(logical);
@@ -4791,15 +4792,16 @@ void Canvas::setMatrix(const Matrix4 &matrix)
     // `matrix` is a LOGICAL transform. Compose it onto the device pixel ratio
     // base so the ratio is preserved even for absolute setMatrix calls (it lives
     // in device space, not in the logical matrix the caller manages).
-    const float dpr = impl_->devicePixelRatio;
+    const float dpr = impl_->currentState().devicePixelRatio;
     impl_->currentState().matrix =
         glm::scale(glm::mat4(1.0f), glm::vec3(dpr, dpr, 1.0f)) * toGlmMatrix(matrix);
 }
 
 void Canvas::resetMatrix()
 {
+    const float dpr = impl_->currentState().devicePixelRatio;
     impl_->currentState().matrix =
-        glm::scale(glm::mat4(1.0f), glm::vec3(impl_->devicePixelRatio, impl_->devicePixelRatio, 1.0f));
+        glm::scale(glm::mat4(1.0f), glm::vec3(dpr, dpr, 1.0f));
 }
 
 void Canvas::setDevicePixelRatio(float ratio)
@@ -4809,13 +4811,19 @@ void Canvas::setDevicePixelRatio(float ratio)
     // in the transform, text automatically rasterizes at device resolution (see
     // drawText's effective-scale path) and stays crisp; all other content scales
     // up too. The canvas size is expected to be the physical framebuffer size.
-    impl_->devicePixelRatio = (ratio > 0.0f && std::isfinite(ratio)) ? ratio : 1.0f;
+    //
+    // The ratio is stored on the CURRENT graphics state (not a Canvas-wide
+    // scalar) so it is saved/restored together with the matrix; resetMatrix()
+    // then rebases the current transform onto this dpr-scaled base (side effect
+    // M2). A restore() that crosses this call restores the matching prior ratio.
+    impl_->currentState().devicePixelRatio =
+        (ratio > 0.0f && std::isfinite(ratio)) ? ratio : 1.0f;
     resetMatrix();
 }
 
 float Canvas::devicePixelRatio() const
 {
-    return impl_->devicePixelRatio;
+    return impl_->currentState().devicePixelRatio;
 }
 
 void Canvas::concat(const Matrix4 &matrix)

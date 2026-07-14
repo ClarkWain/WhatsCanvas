@@ -1334,10 +1334,14 @@ if (WHATSCANVAS_INSTALL)
             set(WHATSCANVAS_OPENGL_PACKAGE_LOCATION "${CMAKE_INSTALL_BINDIR}/${WHATSCANVAS_OPENGL_OUTPUT_NAME}${CMAKE_SHARED_LIBRARY_SUFFIX}")
             set(WHATSCANVAS_OPENGL_PACKAGE_IMPLIB "${CMAKE_INSTALL_LIBDIR}/${CMAKE_IMPORT_LIBRARY_PREFIX}${WHATSCANVAS_OPENGL_OUTPUT_NAME}${CMAKE_IMPORT_LIBRARY_SUFFIX}")
         endif()
-        if (WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER AND TARGET Freetype::Freetype)
+        # Only advertise a text dependency in the generated config when the
+        # matching upstream -config was actually installed. Installation is
+        # gated on WHATSCANVAS_INSTALL_TEXT_DEPENDENCIES (see WhatsCanvasOpenGL.cmake),
+        # so mirror that gate here to avoid include()ing a file that is absent.
+        if (WHATSCANVAS_INSTALL_TEXT_DEPENDENCIES AND WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER AND TARGET Freetype::Freetype)
             set(WHATSCANVAS_PACKAGE_REQUIRES_FREETYPE ON)
         endif()
-        if (WHATSCANVAS_ENABLE_OPENTYPE_SHAPING AND TARGET harfbuzz::harfbuzz)
+        if (WHATSCANVAS_INSTALL_TEXT_DEPENDENCIES AND WHATSCANVAS_ENABLE_OPENTYPE_SHAPING AND TARGET harfbuzz::harfbuzz)
             set(WHATSCANVAS_PACKAGE_REQUIRES_HARFBUZZ ON)
         endif()
     endif()
@@ -1370,10 +1374,10 @@ if (WHATSCANVAS_INSTALL)
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
     )
 
-    configure_file(
+    configure_package_config_file(
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/WhatsCanvasConfig.cmake.in"
         "${CMAKE_CURRENT_BINARY_DIR}/WhatsCanvasConfig.cmake"
-        @ONLY
+        INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/WhatsCanvas"
     )
 
     write_basic_package_version_file(

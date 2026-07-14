@@ -6,6 +6,7 @@
 #include <cstring>
 #include <deque>
 #include <memory>
+#include <new>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -56,6 +57,13 @@ bool isDirectWriteAvailable()
 #ifdef _WIN32
 
 namespace {
+
+// Upper bound (in pixels) on either dimension of a rasterized text bitmap.
+// User-controlled inputs (font size, letterSpacing) feed into the layout
+// metrics; without a clamp a hostile input can request an enormous bitmap and
+// trigger a huge/overflowing allocation (DoS). At this bound the worst-case
+// buffer is 16384 * 16384 * 4 == 1 GiB, which stays within size_t on 32-bit.
+constexpr int kMaxBitmapDimension = 16384;
 
 // Convert UTF-8 to UTF-16 wstring (same logic as NativeText.cpp).
 std::wstring toWideString(const std::string &value)
@@ -157,15 +165,18 @@ public:
         return E_NOINTERFACE;
     }
 
-    ULONG STDMETHODCALLTYPE AddRef() override { return ++refCount_; }
+    ULONG STDMETHODCALLTYPE AddRef() override
+    {
+        return static_cast<ULONG>(InterlockedIncrement(&refCount_));
+    }
 
     ULONG STDMETHODCALLTYPE Release() override
     {
-        const ULONG count = --refCount_;
+        const LONG count = InterlockedDecrement(&refCount_);
         if (count == 0) {
             delete this;
         }
-        return count;
+        return static_cast<ULONG>(count);
     }
 
     HRESULT STDMETHODCALLTYPE MoveNext(BOOL *hasCurrentFile) override
@@ -224,7 +235,7 @@ private:
         }
     }
 
-    ULONG refCount_ = 1;
+    LONG refCount_ = 1;
     IDWriteFactory *factory_ = nullptr;
     IDWriteInMemoryFontFileLoader *memoryLoader_ = nullptr;
     std::vector<CustomFontSource> sources_;
@@ -250,15 +261,18 @@ public:
         return E_NOINTERFACE;
     }
 
-    ULONG STDMETHODCALLTYPE AddRef() override { return ++refCount_; }
+    ULONG STDMETHODCALLTYPE AddRef() override
+    {
+        return static_cast<ULONG>(InterlockedIncrement(&refCount_));
+    }
 
     ULONG STDMETHODCALLTYPE Release() override
     {
-        const ULONG count = --refCount_;
+        const LONG count = InterlockedDecrement(&refCount_);
         if (count == 0) {
             delete this;
         }
-        return count;
+        return static_cast<ULONG>(count);
     }
 
     HRESULT STDMETHODCALLTYPE CreateEnumeratorFromKey(IDWriteFactory *factory, const void *collectionKey,
@@ -281,7 +295,7 @@ public:
 
 private:
     ~CustomFontCollectionLoader() = default;
-    ULONG refCount_ = 1;
+    LONG refCount_ = 1;
 };
 
 // -----------------------------------------------------------------------
@@ -649,10 +663,20 @@ public:
             alignedX -= totalWidth;
         }
 
-        const int pixelWidth = std::max(1, static_cast<int>(std::ceil(totalWidth)));
-        const int pixelHeight = std::max(1, static_cast<int>(std::ceil(totalHeight)));
-
-        // Render the text layout into a bitmap via Direct2D + WIC.
+        // Clamp against pathological (user-controlled) dimensions. Work in
+        // double and bound BEFORE the int cast so a huge float can't overflow
+        // the cast, then bail out gracefully if the request is oversized.
+        if (!std::isfinite(totalWidth) || !std::isfinite(totalHeight)) {
+            return result;
+        }
+        const double ceilWidth = std::ceil(static_cast<double>(totalWidth));
+        const double ceilHeight = std::ceil(static_cast<double>(totalHeight));
+        if (ceilWidth > static_cast<double>(kMaxBitmapDimension)
+            || ceilHeight > static_cast<double>(kMaxBitmapDimension)) {
+            return result;
+        }
+        const int pixelWidth = std::max(1, static_cast<int>(ceilWidth));
+        const int pixelHeight = std::max(1, static_cast<int>(ceilHeight));
         std::vector<unsigned char> pixels = renderLayoutToBitmap(layout.Get(), pixelWidth, pixelHeight, paint);
         if (pixels.empty()) {
             return result;
@@ -855,7 +879,24 @@ private:
         if (layout == nullptr || width <= 0 || height <= 0) {
             return {};
         }
-        std::vector<unsigned char> pixels(static_cast<size_t>(width) * static_cast<size_t>(height) * 4, 0);
+        // Defense-in-depth clamp + overflow-safe allocation. Compute the byte
+        // count in 64-bit so the multiply can't wrap, reject oversized requests,
+        // and catch bad_alloc so a failure returns an empty result instead of
+        // terminating the process.
+        if (width > kMaxBitmapDimension || height > kMaxBitmapDimension) {
+            return {};
+        }
+        const std::uint64_t byteCount =
+            static_cast<std::uint64_t>(width) * static_cast<std::uint64_t>(height) * 4ull;
+        if (byteCount > static_cast<std::uint64_t>(SIZE_MAX)) {
+            return {};
+        }
+        std::vector<unsigned char> pixels;
+        try {
+            pixels.assign(static_cast<size_t>(byteCount), 0);
+        } catch (const std::bad_alloc &) {
+            return {};
+        }
 
         // Ensure COM is initialized on this thread for WIC. Balance every
         // successful init (including S_FALSE) with CoUninitialize.

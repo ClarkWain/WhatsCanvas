@@ -84,6 +84,15 @@ public:
         }
     }
 
+    /// True when this backend actually constructed a native DirectWrite adapter
+    /// (i.e. DirectWrite was requested AND createDirectWriteTextBackend()
+    /// succeeded). False when it fell back to the portable glyph-atlas backend,
+    /// including a runtime COM/factory failure on Windows.
+    bool hasNativeDirectWriteBackend() const
+    {
+        return directWriteBackend_ != nullptr;
+    }
+
     bool registerFontFace(const wsc::FontFace &face) override
     {
         if (directWriteBackend_ != nullptr) {
@@ -1027,6 +1036,12 @@ std::vector<TextBackendCapability> queryTextBackendCapabilities()
 std::unique_ptr<ITextBackend> createBasicTextBackend(const BasicTextBackendOptions &options)
 {
     return std::make_unique<BasicTextBackend>(options);
+}
+
+bool isNativeDirectWriteActive(const ITextBackend *backend)
+{
+    const auto *basic = dynamic_cast<const BasicTextBackend *>(backend);
+    return basic != nullptr && basic->hasNativeDirectWriteBackend();
 }
 
 std::unique_ptr<ITextBackend> createPortableTextBackend()
