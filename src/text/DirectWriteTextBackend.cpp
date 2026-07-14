@@ -689,6 +689,7 @@ public:
         result.height = totalHeight;
         result.bitmapWidth = pixelWidth;
         result.bitmapHeight = pixelHeight;
+        result.bitmapIsClearType = options_.rasterMode == DirectWriteRasterMode::ClearType;
         result.bitmapPixels = std::move(pixels);
         return result;
     }
@@ -908,6 +909,8 @@ private:
             ~ComGuard() { if (active) CoUninitialize(); }
         } comGuard{needComUninit};
 
+        const bool clearType = options_.rasterMode == DirectWriteRasterMode::ClearType;
+
         // WIC imaging factory + bitmap.
         ComPtr<IWICImagingFactory> wicFactory;
         HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
@@ -918,8 +921,15 @@ private:
         }
 
         ComPtr<IWICBitmap> wicBitmap;
+        // D2D's ClearType render target requires an opaque destination.  A
+        // premultiplied-alpha WIC bitmap is not compatible with
+        // D2D1_ALPHA_MODE_IGNORE and causes CreateWicBitmapRenderTarget to
+        // reject every real text run (the source of Todo's blank text).  Use
+        // BGRX/opaque storage for LCD coverage; grayscale retains PBGRA.
         hr = wicFactory->CreateBitmap(static_cast<UINT>(width), static_cast<UINT>(height),
-                                      GUID_WICPixelFormat32bppPBGRA, WICBitmapCacheOnLoad, &wicBitmap);
+                                      clearType ? GUID_WICPixelFormat32bppBGR
+                                                : GUID_WICPixelFormat32bppPBGRA,
+                                      WICBitmapCacheOnLoad, &wicBitmap);
         if (FAILED(hr) || !wicBitmap) {
             return {};
         }
@@ -931,7 +941,6 @@ private:
             return {};
         }
 
-        const bool clearType = options_.rasterMode == DirectWriteRasterMode::ClearType;
         D2D1_RENDER_TARGET_PROPERTIES rtProps = D2D1::RenderTargetProperties();
         // ClearType needs an opaque target; grayscale uses premultiplied alpha.
         rtProps.pixelFormat = D2D1::PixelFormat(

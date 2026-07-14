@@ -699,7 +699,7 @@ Public members:
 - `static OutputTarget Offscreen();`
 - `static OutputTarget OffscreenTexture();`
 - `static OutputTarget ToWindow(const NativeSurface &surface, const SwapchainConfig &config = SwapchainConfig());`
-- `static OutputTarget GLFramebuffer(unsigned int framebuffer, int width, int height);`
+- `static OutputTarget GLFramebuffer(unsigned int framebuffer, int width, int height, bool opaque = false);`
 - `static OutputTarget VulkanImageTarget(void *image, unsigned long long format, int width, int height);`
 
 ## `wsc/TextureSource.h`

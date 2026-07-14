@@ -21,6 +21,12 @@ public:
     void applyClipState(const ScissorState &scissor, const ClipMaskState &clipMask) const;
     void applyScissorState(const ScissorState &scissor) const;
     void applyBlendMode(DrawBlendMode mode) const;
+    /// Configure dual-source RGB compositing for an LCD/ClearType mask.
+    /// Returns false when the current GL implementation cannot provide the
+    /// required dual-source blend output, allowing callers to use normal
+    /// grayscale/SrcOver fallback instead.
+    bool applyClearTypeBlendMode() const;
+    bool isClearTypeBlendModeActive() const { return clearTypeBlendModeActive_; }
     void bindImageHandle(ImageResourceHandle texture) const;
     void bindImageResource(const SharedImageResource &imageResource, DrawImageSampling sampling,
                            DrawImageTileMode tileMode, bool mipmapsReady) const;
@@ -47,6 +53,8 @@ private:
     mutable bool blendEnabled_ = false;
     mutable bool hasBlendMode_ = false;
     mutable DrawBlendMode lastBlendMode_ = DrawBlendMode::SrcOver;
+    mutable bool clearTypeBlendModeActive_ = false;
+    mutable int maxDualSourceDrawBuffers_ = -1;
     mutable bool scissorEnabled_ = false;
     mutable bool hasScissorRect_ = false;
     mutable int lastScissorX_ = 0;

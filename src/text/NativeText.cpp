@@ -57,13 +57,10 @@ HFONT createNativeFont(const Paint &paint)
     }
 
     const int pixelHeight = -std::max(1, static_cast<int>(std::round(paint.getTextSize())));
-    DWORD renderQuality = CLEARTYPE_QUALITY;
-#ifdef CLEARTYPE_NATURAL_QUALITY
-    renderQuality = CLEARTYPE_NATURAL_QUALITY;
-#endif
-    return CreateFontW(pixelHeight, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+    const BOOL italic = paint.getFontSlant() == wsc::FontSlant::NORMAL ? FALSE : TRUE;
+    return CreateFontW(pixelHeight, 0, 0, 0, paint.getFontWeight(), italic, FALSE, FALSE,
                        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                       renderQuality, DEFAULT_PITCH | FF_DONTCARE, family.c_str());
+                       CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, family.c_str());
 }
 #endif
 
@@ -149,9 +146,16 @@ NativeTextBitmap renderNativeTextBitmap(const std::string &text, const Paint &pa
         return bitmap;
     }
 
+    // TextOutW may touch the pixel immediately past its logical advance due
+    // to ClearType/antialias overhang. A one-pixel transparent apron prevents
+    // the final glyph (notably the S in compact all-caps labels) from being
+    // cut off by the temporary DIB while preserving the measured advance.
+    constexpr int kHorizontalPadding = 1;
+    const int bitmapWidth = measure.pixelWidth + kHorizontalPadding * 2;
+
     BITMAPINFO bitmapInfo = {};
     bitmapInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    bitmapInfo.bmiHeader.biWidth = measure.pixelWidth;
+    bitmapInfo.bmiHeader.biWidth = bitmapWidth;
     bitmapInfo.bmiHeader.biHeight = -measure.pixelHeight;
     bitmapInfo.bmiHeader.biPlanes = 1;
     bitmapInfo.bmiHeader.biBitCount = 32;
@@ -168,7 +172,7 @@ NativeTextBitmap renderNativeTextBitmap(const std::string &text, const Paint &pa
         return bitmap;
     }
 
-    std::memset(bits, 0, static_cast<size_t>(measure.pixelWidth) * static_cast<size_t>(measure.pixelHeight) * 4);
+    std::memset(bits, 0, static_cast<size_t>(bitmapWidth) * static_cast<size_t>(measure.pixelHeight) * 4);
     HGDIOBJ previousBitmap = SelectObject(dc, dib);
     HGDIOBJ previousFont = SelectObject(dc, font);
     SetBkMode(dc, TRANSPARENT);
@@ -177,9 +181,9 @@ NativeTextBitmap renderNativeTextBitmap(const std::string &text, const Paint &pa
 
     const float letterSpacing = std::isfinite(paint.getLetterSpacing()) ? paint.getLetterSpacing() : 0.0f;
     if (std::abs(letterSpacing) <= kPointEpsilon) {
-        TextOutW(dc, 0, 0, wideText.c_str(), static_cast<int>(wideText.size()));
+        TextOutW(dc, kHorizontalPadding, 0, wideText.c_str(), static_cast<int>(wideText.size()));
     } else {
-        float cursorX = 0.0f;
+        float cursorX = static_cast<float>(kHorizontalPadding);
         for (wchar_t character : wideText) {
             TextOutW(dc, static_cast<int>(std::round(cursorX)), 0, &character, 1);
             SIZE glyphSize = {0, 0};
@@ -188,20 +192,30 @@ NativeTextBitmap renderNativeTextBitmap(const std::string &text, const Paint &pa
         }
     }
 
-    bitmap.width = measure.pixelWidth;
+    bitmap.width = bitmapWidth;
     bitmap.height = measure.pixelHeight;
+    bitmap.leftPadding = kHorizontalPadding;
+    bitmap.rightPadding = kHorizontalPadding;
     bitmap.pixels.resize(static_cast<size_t>(bitmap.width) * static_cast<size_t>(bitmap.height) * 4);
     const unsigned char *src = static_cast<const unsigned char *>(bits);
+    bool hasIndependentRgbCoverage = false;
     for (size_t i = 0; i < static_cast<size_t>(bitmap.width) * static_cast<size_t>(bitmap.height); ++i) {
         const unsigned char blue = src[i * 4 + 0];
         const unsigned char green = src[i * 4 + 1];
         const unsigned char red = src[i * 4 + 2];
         const unsigned char alpha = std::max(red, std::max(green, blue));
-        bitmap.pixels[i * 4 + 0] = 255;
-        bitmap.pixels[i * 4 + 1] = 255;
-        bitmap.pixels[i * 4 + 2] = 255;
+        // TextOutW on this 32-bit DIB leaves the three ClearType coverages in
+        // B/G/R.  The old code deliberately collapsed them to one alpha mask,
+        // which made the native path no sharper than a grayscale atlas after
+        // OpenGL composition.  Preserve RGB coverage exactly, in RGBA order.
+        bitmap.pixels[i * 4 + 0] = red;
+        bitmap.pixels[i * 4 + 1] = green;
+        bitmap.pixels[i * 4 + 2] = blue;
         bitmap.pixels[i * 4 + 3] = alpha;
+        hasIndependentRgbCoverage = hasIndependentRgbCoverage
+            || red != green || green != blue;
     }
+    bitmap.isClearType = hasIndependentRgbCoverage;
 
     SelectObject(dc, previousFont);
     SelectObject(dc, previousBitmap);
