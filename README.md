@@ -177,6 +177,7 @@ ctest -C Debug -L smoke --output-on-failure
 
 - [Using WhatsCanvas as a Library](doc/GETTING_STARTED_AS_LIBRARY.md)：从打包、`find_package`、OpenGL/GLES 上下文到字体注册的最短接入路径。
 - [Text Sharpness & HiDPI](doc/TEXT_SHARPNESS_AND_HIDPI.md)：文本清晰度（像素对齐、按设备分辨率栅格化）与 `setDevicePixelRatio` 高分屏接入。
+- [DirectWrite Text Backend](doc/DIRECTWRITE_TEXT_BACKEND.md)：Windows 原生 DirectWrite 文本后端（灰度/ClearType、字间距、自定义字体文件/内存、回退链、locale 样式面板）。
 - [Troubleshooting & FAQ](doc/TROUBLESHOOTING.md)：常见坑（黑图 tint、上下文未 current、后端回退、gamma、readback 方向）的排查。
 - [API Stability](doc/API_STABILITY.md)：记录当前公开 API、CMake package target 和内部/实验边界。
 - [Public API Reference](doc/API_REFERENCE.md)：由 `scripts/generate_api_reference.py` 从 `include/wsc/` 自动生成的公开 API 索引。

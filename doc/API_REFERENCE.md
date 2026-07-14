@@ -603,6 +603,9 @@ Public members:
 - `TextAlign getTextAlign() const;`
 - `void setTextBaseline(TextBaseline baseline);`
 - `TextBaseline getTextBaseline() const;`
+- `void setTextLocale(const std::string &locale);`
+- `const std::string &getTextLocale() const;`
+- `bool hasTextLocale() const;`
 - `void setBlendMode(BlendMode blendMode);`
 - `BlendMode getBlendMode() const;`
 - `void setImageSampling(ImageSampling sampling);`

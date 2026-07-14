@@ -791,10 +791,15 @@ private:
 
         const float fontSize = paint.getTextSize() > 0.0f ? paint.getTextSize() : 16.0f;
 
+        // Locale drives locale-aware shaping and fallback (e.g. Han unification).
+        const std::wstring locale = paint.hasTextLocale() ? toWideString(paint.getTextLocale())
+                                                          : std::wstring(L"en-US");
+
         ComPtr<IDWriteTextFormat> format;
         HRESULT hr = dwriteFactory_->CreateTextFormat(
             family.c_str(), fontCollection, mapFontWeight(paint.getFontWeight()),
-            mapFontSlant(paint.getFontSlant()), DWRITE_FONT_STRETCH_NORMAL, fontSize, L"", &format);
+            mapFontSlant(paint.getFontSlant()), DWRITE_FONT_STRETCH_NORMAL, fontSize, locale.c_str(),
+            &format);
         if (FAILED(hr) || format == nullptr) {
             return nullptr;
         }
