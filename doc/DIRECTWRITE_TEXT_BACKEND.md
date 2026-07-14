@@ -7,7 +7,22 @@ backend and produces high-quality, OS-consistent text on Windows.
 
 ## Selecting the backend
 
-The backend is created through the text-backend factory (internal `src/text`):
+Select it from the public `Canvas` API (portable is the default):
+
+```cpp
+// Native DirectWrite with ClearType, else portable fallback off Windows.
+canvas->setTextBackend(wsc::Canvas::TextBackend::DirectWrite,
+                       wsc::Canvas::TextRenderMode::ClearType);
+if (canvas->textBackend() == wsc::Canvas::TextBackend::DirectWrite) {
+    // native backend active
+}
+```
+
+`setTextBackend` resets text state (registered fonts / fallback chains), so call
+it before registering fonts. A `DirectWrite` request falls back to the portable
+glyph-atlas backend when DirectWrite is unavailable.
+
+The backend can also be created directly through the internal factory:
 
 ```cpp
 #include "text/DirectWriteTextBackend.h"
@@ -19,11 +34,6 @@ if (wsc::text::isDirectWriteAvailable()) {                 // true on _WIN32
         wsc::text::createDirectWriteTextBackend(options);   // nullptr off Windows
 }
 ```
-
-`BasicTextBackend` also delegates to it when constructed with
-`TextBackendKind::DirectWrite`; when DirectWrite is unavailable it falls back to
-the portable glyph-atlas backend. A public `Canvas`-level selector is a further
-step.
 
 ## What it does
 
@@ -96,5 +106,5 @@ the effective device pixel size and stay crisp. See
   axis-aligned text over an opaque destination.
 - **Line breaking** in `breakLines` is a greedy word-wrap approximation (UTF-8
   byte offsets), not DirectWrite's full line-breaking analysis.
-- **Public exposure**: selecting the backend from the public `Canvas` API (and a
-  per-`Paint` render-mode override) is not yet wired.
+- **Per-`Paint` render-mode override** is not yet wired; the render mode is chosen
+  when the backend is selected via `setTextBackend`.

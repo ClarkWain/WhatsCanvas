@@ -55,6 +55,9 @@ public:
         if (options_.backendKind == wsc::text::TextBackendKind::DirectWrite) {
             wsc::text::DirectWriteBackendOptions dwOptions;
             dwOptions.enableSystemFontFallback = options_.enableSystemFontFallback;
+            dwOptions.rasterMode = options_.preferClearType
+                                       ? wsc::text::DirectWriteRasterMode::ClearType
+                                       : wsc::text::DirectWriteRasterMode::Grayscale;
             directWriteBackend_ = wsc::text::createDirectWriteTextBackend(dwOptions);
             if (directWriteBackend_ != nullptr) {
                 options_.enableNativeText = false; // DirectWrite handles native text itself
