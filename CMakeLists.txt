@@ -1324,6 +1324,26 @@ if (BUILD_TESTING AND WHATSCANVAS_ENABLE_SCRIPT_TESTS)
             WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
             TIMEOUT 1800
     )
+    # These script gates configure/build from the same source checkout and
+    # share its submodule metadata plus several build/package directories.
+    # CTest may otherwise launch them concurrently, racing on Git's submodule
+    # config lock or partially rewriting generated package files.
+    set_tests_properties(
+        WhatsCanvasSmoke
+        WhatsCanvasClipPathSmoke
+        WhatsCanvasValidationSceneSmoke
+        WhatsCanvasPackageConsumerSmoke
+        PROPERTIES
+            RESOURCE_LOCK "whatscanvas_root_build"
+    )
+    if (WHATSCANVAS_ENABLE_LOCAL_REGRESSION_TEST)
+        set_tests_properties(
+            WhatsCanvasRegressionSmoke
+            WhatsCanvasTextPixelRegression
+            PROPERTIES
+                RESOURCE_LOCK "whatscanvas_root_build"
+        )
+    endif()
     set_tests_properties(WhatsCanvasSmoke PROPERTIES LABELS "smoke")
     set_tests_properties(WhatsCanvasClipPathSmoke PROPERTIES LABELS "smoke;clip")
     set_tests_properties(WhatsCanvasExamplesSmoke PROPERTIES LABELS "smoke;examples")
