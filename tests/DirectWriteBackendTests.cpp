@@ -392,6 +392,47 @@ int main()
     std::cout << "[DirectWriteBackendTests] render cache: 200 identical renders in " << cacheMs
               << " ms, bitmap identical, x offset re-applied." << std::endl;
 
+    // Per-Paint TextRenderMode override: the same backend (grayscale by default)
+    // must honour an explicit ClearType override per Paint. Distinct modes must
+    // produce distinct bitmaps (the cache key includes the effective mode); each
+    // mode must round-trip byte-identical on a repeated render (still cached).
+    wsc::Paint grayscalePaint;
+    grayscalePaint.setFontFamily("Segoe UI");
+    grayscalePaint.setTextSize(20.0f);
+    grayscalePaint.setTextRenderMode(wsc::Paint::TextRenderMode::Grayscale);
+    wsc::Paint ctPaint = grayscalePaint;
+    ctPaint.setTextRenderMode(wsc::Paint::TextRenderMode::ClearType);
+
+    const wsc::text::TextRenderResult grayHit = backend->renderText("Mode", 0.0f, 0.0f, grayscalePaint);
+    const wsc::text::TextRenderResult ctHit = backend->renderText("Mode", 0.0f, 0.0f, ctPaint);
+    if (grayHit.kind != wsc::text::TextRenderKind::Bitmap
+        || ctHit.kind != wsc::text::TextRenderKind::Bitmap) {
+        std::cerr << "[DirectWriteBackendTests] FAIL: per-Paint mode render did not produce bitmaps."
+                  << std::endl;
+        return 1;
+    }
+    if (grayHit.bitmapIsClearType || !ctHit.bitmapIsClearType) {
+        std::cerr << "[DirectWriteBackendTests] FAIL: per-Paint mode not reflected in bitmapIsClearType (gray="
+                  << grayHit.bitmapIsClearType << " ct=" << ctHit.bitmapIsClearType << ")." << std::endl;
+        return 1;
+    }
+    if (grayHit.bitmapPixels == ctHit.bitmapPixels) {
+        std::cerr << "[DirectWriteBackendTests] FAIL: grayscale and ClearType produced identical pixels."
+                  << std::endl;
+        return 1;
+    }
+    // Repeated renders in each mode must be byte-identical (cache reuse).
+    const wsc::text::TextRenderResult grayAgain = backend->renderText("Mode", 5.0f, 5.0f, grayscalePaint);
+    const wsc::text::TextRenderResult ctAgain = backend->renderText("Mode", 5.0f, 5.0f, ctPaint);
+    if (grayAgain.bitmapPixels != grayHit.bitmapPixels
+        || ctAgain.bitmapPixels != ctHit.bitmapPixels) {
+        std::cerr << "[DirectWriteBackendTests] FAIL: per-Paint mode cache reuse broke byte-identity."
+                  << std::endl;
+        return 1;
+    }
+    std::cout << "[DirectWriteBackendTests] per-Paint TextRenderMode: gray + ClearType distinct, cached."
+              << std::endl;
+
     return 0;
 #else
     if (wsc::text::isDirectWriteAvailable()) {
