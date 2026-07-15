@@ -612,6 +612,8 @@ Public members:
 - `bool isUnderline() const;`
 - `void setStrikethrough(bool enabled);`
 - `bool isStrikethrough() const;`
+- `void setTextRenderMode(TextRenderMode mode);`
+- `TextRenderMode getTextRenderMode() const;`
 - `void setBlendMode(BlendMode blendMode);`
 - `BlendMode getBlendMode() const;`
 - `void setImageSampling(ImageSampling sampling);`

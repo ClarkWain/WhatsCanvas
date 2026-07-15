@@ -795,7 +795,7 @@ private:
         key += '|';
         key += paint.hasTextLocale() ? paint.getTextLocale() : std::string();
         key += '|';
-        key += static_cast<char>('0' + (options_.rasterMode == DirectWriteRasterMode::ClearType));
+        key += static_cast<char>('0' + (effectiveRasterMode(paint) == DirectWriteRasterMode::ClearType));
         key += static_cast<char>('0' + paint.isUnderline());
         key += static_cast<char>('0' + paint.isStrikethrough());
         key += '|';
@@ -854,6 +854,21 @@ private:
         renderCacheBytes_ = 0;
     }
 
+    // The raster mode a given Paint should use: prefer the per-Paint override
+    // when set, else the backend-scoped default.
+    DirectWriteRasterMode effectiveRasterMode(const Paint &paint) const
+    {
+        switch (paint.getTextRenderMode()) {
+        case Paint::TextRenderMode::Grayscale:
+            return DirectWriteRasterMode::Grayscale;
+        case Paint::TextRenderMode::ClearType:
+            return DirectWriteRasterMode::ClearType;
+        case Paint::TextRenderMode::Default:
+        default:
+            return options_.rasterMode;
+        }
+    }
+
     // Rasterize the intrinsic (position-independent) bitmap + metrics for
     // `normalized`. Returns false on any failure; on success `out` is filled.
     bool renderIntrinsic(const std::string &normalized, const Paint &paint,
@@ -891,7 +906,7 @@ private:
         out.totalHeight = totalHeight;
         out.pixelWidth = pixelWidth;
         out.pixelHeight = pixelHeight;
-        out.clearType = options_.rasterMode == DirectWriteRasterMode::ClearType;
+        out.clearType = effectiveRasterMode(paint) == DirectWriteRasterMode::ClearType;
         out.pixels = std::move(pixels);
         return true;
     }
@@ -1087,7 +1102,7 @@ private:
     }
 
     std::vector<unsigned char> renderLayoutToBitmap(IDWriteTextLayout *layout, int width, int height,
-                                                     const Paint & /*paint*/) const
+                                                     const Paint &paint) const
     {
         if (layout == nullptr || width <= 0 || height <= 0) {
             return {};
@@ -1116,7 +1131,7 @@ private:
             return {};
         }
 
-        const bool clearType = options_.rasterMode == DirectWriteRasterMode::ClearType;
+        const bool clearType = effectiveRasterMode(paint) == DirectWriteRasterMode::ClearType;
 
         // WIC bitmap (per render; sized to this run).
         ComPtr<IWICBitmap> wicBitmap;
