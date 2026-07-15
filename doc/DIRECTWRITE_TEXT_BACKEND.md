@@ -104,7 +104,5 @@ the effective device pixel size and stay crisp. See
 - **ClearType** is best-effort: it renders white-on-opaque-black and derives an
   alpha from the brightest subpixel, so true subpixel sharpness only holds for
   axis-aligned text over an opaque destination.
-- **Line breaking** in `breakLines` is a greedy word-wrap approximation (UTF-8
-  byte offsets), not DirectWrite's full line-breaking analysis.
 - **Per-`Paint` render-mode override** is not yet wired; the render mode is chosen
   when the backend is selected via `setTextBackend`.

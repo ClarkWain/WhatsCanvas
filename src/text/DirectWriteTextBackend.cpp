@@ -112,6 +112,38 @@ DWRITE_FONT_WEIGHT mapFontWeight(int weight)
     return static_cast<DWRITE_FONT_WEIGHT>(weight);
 }
 
+// Build a map from UTF-16 code-unit index to UTF-8 byte offset for `s`, so
+// DirectWrite line metrics (UTF-16 positions) can be reported back as the UTF-8
+// byte offsets the ITextBackend interface uses. The map has one entry per UTF-16
+// unit plus a trailing sentinel = s.size().
+std::vector<std::size_t> buildUtf16ToUtf8Map(const std::string &s)
+{
+    std::vector<std::size_t> map;
+    map.reserve(s.size() + 1);
+    std::size_t i = 0;
+    while (i < s.size()) {
+        const unsigned char c = static_cast<unsigned char>(s[i]);
+        std::size_t len = 1;
+        if (c < 0x80) {
+            len = 1;
+        } else if ((c >> 5) == 0x6) {
+            len = 2;
+        } else if ((c >> 4) == 0xE) {
+            len = 3;
+        } else if ((c >> 3) == 0x1E) {
+            len = 4;
+        }
+        const int units = (len == 4) ? 2 : 1; // U+10000+ needs a surrogate pair.
+        map.push_back(i);
+        if (units == 2) {
+            map.push_back(i); // second surrogate half maps to the same byte start.
+        }
+        i += len;
+    }
+    map.push_back(s.size());
+    return map;
+}
+
 // Convert a DWRITE_MATRIX to a D2D1::Matrix3x2F is not needed; we use
 // IDWriteTextLayout directly.
 
@@ -449,45 +481,45 @@ public:
             return breaks;
         }
 
-        // Greedy word wrap on ASCII/whitespace boundaries using DirectWrite
-        // measurement. Offsets are byte offsets into the normalized UTF-8 text.
-        std::size_t lineStart = 0;
-        std::size_t lastBreak = std::string::npos; // last whitespace position
-        std::size_t i = 0;
-        while (i <= normalized.size()) {
-            const bool atEnd = (i == normalized.size());
-            const char c = atEnd ? '\0' : normalized[i];
-            if (atEnd || c == '\n') {
-                TextLineBreak lb;
-                lb.sourceStart = lineStart;
-                lb.sourceLength = i - lineStart;
-                lb.width = measureTextWidth(normalized.substr(lineStart, i - lineStart), paint);
-                breaks.push_back(lb);
-                lineStart = i + 1;
-                lastBreak = std::string::npos;
-                ++i;
-                continue;
-            }
-            if (c == ' ' || c == '\t') {
-                lastBreak = i;
-            }
-            const std::string candidate = normalized.substr(lineStart, i - lineStart + 1);
-            const float w = measureTextWidth(candidate, paint);
-            if (w > maxWidth && i > lineStart) {
-                const std::size_t breakAt = (lastBreak != std::string::npos && lastBreak > lineStart)
-                                                ? lastBreak
-                                                : i;
-                TextLineBreak lb;
-                lb.sourceStart = lineStart;
-                lb.sourceLength = breakAt - lineStart;
-                lb.width = measureTextWidth(normalized.substr(lineStart, breakAt - lineStart), paint);
-                breaks.push_back(lb);
-                lineStart = (breakAt == i) ? i : breakAt + 1;
-                lastBreak = std::string::npos;
-                i = lineStart;
-                continue;
-            }
-            ++i;
+        // Use DirectWrite's real line-breaking analysis (complex scripts, CJK
+        // without spaces, bidi) instead of a greedy ASCII-whitespace heuristic.
+        const std::wstring wide = toWideString(normalized);
+        if (wide.empty()) {
+            return breaks;
+        }
+        ComPtr<IDWriteTextLayout> layout = createLayout(wide, paint, maxWidth);
+        if (layout == nullptr) {
+            return breaks;
+        }
+
+        UINT32 lineCount = 0;
+        layout->GetLineMetrics(nullptr, 0, &lineCount); // Expected to under-fill; sets lineCount.
+        if (lineCount == 0) {
+            return breaks;
+        }
+        std::vector<DWRITE_LINE_METRICS> lines(lineCount);
+        if (FAILED(layout->GetLineMetrics(lines.data(), lineCount, &lineCount))) {
+            return breaks;
+        }
+
+        const std::vector<std::size_t> map = buildUtf16ToUtf8Map(normalized);
+        const std::size_t lastIndex = map.empty() ? 0 : map.size() - 1;
+        UINT32 pos = 0;
+        for (const DWRITE_LINE_METRICS &lm : lines) {
+            const UINT32 contentLen = lm.length - std::min(lm.newlineLength, lm.length);
+            const UINT32 contentNoWs = contentLen - std::min(lm.trailingWhitespaceLength, contentLen);
+            const std::size_t u8start = map[std::min<std::size_t>(pos, lastIndex)];
+            const std::size_t u8end = map[std::min<std::size_t>(pos + contentLen, lastIndex)];
+            const std::size_t u8endNoWs = map[std::min<std::size_t>(pos + contentNoWs, lastIndex)];
+
+            TextLineBreak lb;
+            lb.sourceStart = u8start;
+            lb.sourceLength = u8end - u8start;
+            lb.width = (u8endNoWs > u8start)
+                           ? measureTextWidth(normalized.substr(u8start, u8endNoWs - u8start), paint)
+                           : 0.0f;
+            breaks.push_back(lb);
+            pos += lm.length;
         }
         return breaks;
     }
