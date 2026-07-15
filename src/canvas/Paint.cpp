@@ -267,6 +267,8 @@ void Paint::setUnderline(bool enabled) { underline_ = enabled; }
 bool Paint::isUnderline() const { return underline_; }
 void Paint::setStrikethrough(bool enabled) { strikethrough_ = enabled; }
 bool Paint::isStrikethrough() const { return strikethrough_; }
+void Paint::setTextRenderMode(TextRenderMode mode) { textRenderMode_ = mode; }
+Paint::TextRenderMode Paint::getTextRenderMode() const { return textRenderMode_; }
 void Paint::setBlendMode(BlendMode blendMode) { blendMode_ = blendMode; }
 Paint::BlendMode Paint::getBlendMode() const { return blendMode_; }
 void Paint::setImageSampling(ImageSampling sampling) { imageSampling_ = sampling; }
