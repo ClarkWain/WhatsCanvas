@@ -37,7 +37,16 @@ function(whatscanvas_add_common_dependencies project_root)
         target_include_directories(WhatsCanvasPolyline2D SYSTEM INTERFACE "${polyline2d_path}/include")
     endif()
 
-    if (EXISTS "${freetype_path}/CMakeLists.txt" AND NOT TARGET freetype)
+    # Do not create the bundled FreeType target when its rasterizer is
+    # disabled. HarfBuzz's community CMake build automatically enables its
+    # FreeType interop whenever a target named `freetype` already exists,
+    # regardless of HB_HAVE_FREETYPE=OFF. Creating that otherwise-unused
+    # target therefore leaked `freetype` into harfbuzz's installed link
+    # interface while the matching FreeType package was intentionally not
+    # installed, leaving exported consumers with a missing target.
+    if (WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER
+        AND EXISTS "${freetype_path}/CMakeLists.txt"
+        AND NOT TARGET freetype)
         set(FT_DISABLE_ZLIB ON CACHE BOOL "" FORCE)
         set(FT_DISABLE_BZIP2 ON CACHE BOOL "" FORCE)
         set(FT_DISABLE_PNG ON CACHE BOOL "" FORCE)
