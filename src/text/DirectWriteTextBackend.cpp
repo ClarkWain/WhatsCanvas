@@ -431,6 +431,7 @@ public:
         const std::vector<std::string> families = chain.familiesInResolutionOrder();
         if (families.empty()) {
             safeRelease(customFontFallback_);
+            fallbackChainFamilies_.clear();
             return true; // Cleared.
         }
         IDWriteFactory2 *factory2 = nullptr;
@@ -478,12 +479,22 @@ public:
         }
         safeRelease(customFontFallback_);
         customFontFallback_ = fallback;
+        fallbackChainFamilies_ = families;
         return true;
     }
 
     std::vector<std::string> resolveFontFamilies(const std::string &preferredFamily) const override
     {
-        return {preferredFamily};
+        // Mirror the portable backend contract: if the preferred family matches
+        // the configured fallback chain's primary, return the chain in resolution
+        // order; otherwise fall back to just the preferred family (empty when
+        // none was provided).
+        if (!fallbackChainFamilies_.empty()
+            && (preferredFamily.empty() || preferredFamily == fallbackChainFamilies_.front())) {
+            return fallbackChainFamilies_;
+        }
+        return preferredFamily.empty() ? std::vector<std::string>()
+                                       : std::vector<std::string>{preferredFamily};
     }
 
     std::vector<TextLineBreak> breakLines(const std::string &text, float maxWidth,
@@ -1072,6 +1083,7 @@ private:
     ID2D1Factory *d2dFactory_ = nullptr;
     bool comOwned_ = false;
     std::vector<CustomFontSource> customFontSources_;
+    std::vector<std::string> fallbackChainFamilies_;
     unsigned int collectionGeneration_ = 0;
     bool available_ = false;
     mutable std::vector<TextBackendDiagnostic> diagnostics_;
