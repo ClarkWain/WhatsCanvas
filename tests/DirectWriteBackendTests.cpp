@@ -260,6 +260,41 @@ int main()
     }
     std::cout << "[DirectWriteBackendTests] text styling surface (weight/slant/spacing/locale) rendered."
               << std::endl;
+
+    // Real DirectWrite line breaking: a long space-less CJK string must wrap into
+    // multiple lines (a greedy ASCII-whitespace heuristic could not), and each
+    // reported line must be non-empty with byte offsets inside the source.
+    wsc::Paint wrapPaint;
+    wrapPaint.setFontFamily("Yu Gothic");
+    wrapPaint.setTextSize(20.0f);
+    const std::string cjkText = "\xE6\x97\xA5\xE6\x9C\xAC\xE8\xAA\x9E\xE3\x81\xAE\xE3\x83\x86"
+                                "\xE3\x82\xAD\xE3\x82\xB9\xE3\x83\x88\xE8\xA1\x8C"; // 日本語のテキスト行
+    const std::vector<wsc::text::TextLineBreak> cjkLines = backend->breakLines(cjkText, 40.0f, wrapPaint);
+    if (cjkLines.size() < 2) {
+        std::cerr << "[DirectWriteBackendTests] FAIL: CJK text should wrap into multiple lines (got "
+                  << cjkLines.size() << ")." << std::endl;
+        return 1;
+    }
+    for (const wsc::text::TextLineBreak &lb : cjkLines) {
+        if (lb.sourceLength == 0 || lb.sourceStart + lb.sourceLength > cjkText.size()) {
+            std::cerr << "[DirectWriteBackendTests] FAIL: CJK line break offsets out of range." << std::endl;
+            return 1;
+        }
+    }
+
+    // English wraps at word boundaries into >1 line for a narrow width.
+    wsc::Paint enPaint;
+    enPaint.setFontFamily("Segoe UI");
+    enPaint.setTextSize(16.0f);
+    const std::vector<wsc::text::TextLineBreak> enLines =
+        backend->breakLines("the quick brown fox jumps", 80.0f, enPaint);
+    if (enLines.size() < 2) {
+        std::cerr << "[DirectWriteBackendTests] FAIL: English text should wrap into multiple lines (got "
+                  << enLines.size() << ")." << std::endl;
+        return 1;
+    }
+    std::cout << "[DirectWriteBackendTests] line breaking: CJK=" << cjkLines.size()
+              << " lines, English=" << enLines.size() << " lines." << std::endl;
     return 0;
 #else
     if (wsc::text::isDirectWriteAvailable()) {
