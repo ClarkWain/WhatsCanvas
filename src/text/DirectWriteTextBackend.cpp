@@ -888,6 +888,17 @@ private:
             }
         }
 
+        // Text decorations (underline / strikethrough) over the whole run.
+        if (paint.isUnderline() || paint.isStrikethrough()) {
+            const DWRITE_TEXT_RANGE fullRange{0, static_cast<UINT32>(wide.size())};
+            if (paint.isUnderline()) {
+                layout->SetUnderline(TRUE, fullRange);
+            }
+            if (paint.isStrikethrough()) {
+                layout->SetStrikethrough(TRUE, fullRange);
+            }
+        }
+
         // Bake letter spacing into the layout (IDWriteTextLayout1) so measurement
         // and rendering stay consistent. Trailing spacing on every cluster except
         // the last yields (N-1) inter-glyph gaps.

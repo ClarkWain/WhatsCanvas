@@ -608,6 +608,10 @@ Public members:
 - `void setTextLocale(const std::string &locale);`
 - `const std::string &getTextLocale() const;`
 - `bool hasTextLocale() const;`
+- `void setUnderline(bool enabled);`
+- `bool isUnderline() const;`
+- `void setStrikethrough(bool enabled);`
+- `bool isStrikethrough() const;`
 - `void setBlendMode(BlendMode blendMode);`
 - `BlendMode getBlendMode() const;`
 - `void setImageSampling(ImageSampling sampling);`
