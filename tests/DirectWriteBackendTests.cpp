@@ -316,6 +316,36 @@ int main()
     }
     std::cout << "[DirectWriteBackendTests] decorations: plain=" << plainCov << " underline=" << underCov
               << " strike=" << strikeCov << "." << std::endl;
+
+    // resolveFontFamilies mirrors the portable backend: once a fallback chain
+    // has been set, resolving the primary returns the chain in order; unknown
+    // families still resolve to just the requested family.
+    auto resolveBackend = wsc::text::createDirectWriteTextBackend();
+    if (resolveBackend) {
+        wsc::FontFallbackChain resChain("Segoe UI");
+        resChain.addFallbackFamily("Yu Gothic");
+        resChain.addFallbackFamily("Microsoft YaHei");
+        if (!resolveBackend->setFontFallbackChain(resChain)) {
+            std::cerr << "[DirectWriteBackendTests] FAIL: setFontFallbackChain for resolve." << std::endl;
+            return 1;
+        }
+        const std::vector<std::string> resolved = resolveBackend->resolveFontFamilies("Segoe UI");
+        if (resolved.size() != 3 || resolved[0] != "Segoe UI" || resolved[1] != "Yu Gothic"
+            || resolved[2] != "Microsoft YaHei") {
+            std::cerr << "[DirectWriteBackendTests] FAIL: resolveFontFamilies did not mirror the chain."
+                      << std::endl;
+            return 1;
+        }
+        const std::vector<std::string> other = resolveBackend->resolveFontFamilies("Arial");
+        if (other.size() != 1 || other[0] != "Arial") {
+            std::cerr << "[DirectWriteBackendTests] FAIL: resolveFontFamilies for unrelated family."
+                      << std::endl;
+            return 1;
+        }
+        std::cout << "[DirectWriteBackendTests] resolveFontFamilies: chain=" << resolved.size()
+                  << " unrelated=" << other.size() << "." << std::endl;
+    }
+
     return 0;
 #else
     if (wsc::text::isDirectWriteAvailable()) {
