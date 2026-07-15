@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstring>
 #include <deque>
+#include <list>
 #include <memory>
 #include <new>
 #include <optional>
@@ -406,7 +407,9 @@ public:
             CustomFontSource source;
             source.path = toWideString(face.path());
             customFontSources_.push_back(std::move(source));
-            return rebuildCustomFontCollection();
+            const bool ok = rebuildCustomFontCollection();
+            if (ok) invalidateRenderCache();
+            return ok;
         }
         if (face.sourceType() == wsc::FontSourceType::MEMORY && face.bytes() != nullptr) {
             if (!ensureMemoryFontLoader()) {
@@ -415,7 +418,9 @@ public:
             CustomFontSource source;
             source.data = std::make_shared<std::vector<std::uint8_t>>(*face.bytes());
             customFontSources_.push_back(std::move(source));
-            return rebuildCustomFontCollection();
+            const bool ok = rebuildCustomFontCollection();
+            if (ok) invalidateRenderCache();
+            return ok;
         }
         return false;
     }
@@ -432,6 +437,7 @@ public:
         if (families.empty()) {
             safeRelease(customFontFallback_);
             fallbackChainFamilies_.clear();
+            invalidateRenderCache();
             return true; // Cleared.
         }
         IDWriteFactory2 *factory2 = nullptr;
@@ -480,6 +486,7 @@ public:
         safeRelease(customFontFallback_);
         customFontFallback_ = fallback;
         fallbackChainFamilies_ = families;
+        invalidateRenderCache();
         return true;
     }
 
@@ -700,62 +707,195 @@ public:
             return result;
         }
 
-        const std::wstring wide = toWideString(normalized);
-        if (wide.empty()) {
-            return result;
+        // Position-independent bitmap + intrinsic metrics can be reused across
+        // frames when the same text is drawn with the same styling. Cache them
+        // by a stable key derived from the paint state that affects layout
+        // and raster.
+        const std::string cacheKey = buildRenderCacheKey(normalized, paint);
+        const CachedRender *cached = lookupRenderCache(cacheKey);
+        CachedRender fresh;
+        if (cached == nullptr) {
+            if (!renderIntrinsic(normalized, paint, fresh)) {
+                return result;
+            }
+            cached = storeRenderCache(cacheKey, std::move(fresh));
+            if (cached == nullptr) {
+                return result;
+            }
         }
 
-        ComPtr<IDWriteTextLayout> layout = createLayout(wide, paint, 0.0f);
-        if (layout == nullptr) {
-            return result;
-        }
-
-        DWRITE_TEXT_METRICS metrics;
-        layout->GetMetrics(&metrics);
-
-        // Letter spacing is baked into the layout, so metrics already include it.
-        const float totalWidth = metrics.width;
-        const float totalHeight = metrics.height;
-
+        // Apply position + text-align + baseline offset on top of the cached
+        // intrinsic geometry; the bitmap itself is position-independent.
         float alignedX = x;
         if (paint.getTextAlign() == Paint::TextAlign::CENTER) {
-            alignedX -= totalWidth * 0.5f;
+            alignedX -= cached->totalWidth * 0.5f;
         } else if (paint.getTextAlign() == Paint::TextAlign::RIGHT) {
-            alignedX -= totalWidth;
+            alignedX -= cached->totalWidth;
         }
+        result.kind = TextRenderKind::Bitmap;
+        result.drawX = alignedX;
+        result.drawY = y + wsc::text::textBaselineOffset(paint.getTextBaseline(), cached->totalHeight);
+        result.width = cached->totalWidth;
+        result.height = cached->totalHeight;
+        result.bitmapWidth = cached->pixelWidth;
+        result.bitmapHeight = cached->pixelHeight;
+        result.bitmapIsClearType = cached->clearType;
+        result.bitmapPixels = cached->pixels; // copy: consumer may modify/upload
+        return result;
+    }
 
-        // Clamp against pathological (user-controlled) dimensions. Work in
-        // double and bound BEFORE the int cast so a huge float can't overflow
-        // the cast, then bail out gracefully if the request is oversized.
+private:
+    // ------------------------------------------------------------------
+    // Rendered-text cache: reuse rasterized bitmaps across frames for
+    // stable UI text. Keyed by the paint state affecting layout + raster.
+    // A modest LRU byte budget bounds memory during scrolling / animation.
+    // Invalidated whenever registered fonts or the fallback chain change.
+    // ------------------------------------------------------------------
+    struct CachedRender
+    {
+        float totalWidth = 0.0f;
+        float totalHeight = 0.0f;
+        int pixelWidth = 0;
+        int pixelHeight = 0;
+        bool clearType = false;
+        std::vector<unsigned char> pixels;
+    };
+
+    static constexpr std::size_t kRenderCacheByteBudget = 4u * 1024u * 1024u; // 4 MB
+    static constexpr std::size_t kRenderCacheMaxEntry = 512u * 1024u;         // 512 KB per entry cap
+
+    std::string buildRenderCacheKey(const std::string &normalized, const Paint &paint) const
+    {
+        // Include every paint property createLayout / renderLayoutToBitmap reads
+        // plus the backend-scoped generation counter so font registration or a
+        // new fallback chain invalidates existing entries.
+        std::string key;
+        key.reserve(normalized.size() + 96);
+        auto appendInt = [&](long long v) {
+            char buf[32];
+            const int n = std::snprintf(buf, sizeof(buf), "%lld", v);
+            if (n > 0) key.append(buf, static_cast<std::size_t>(n));
+        };
+        auto appendFloat = [&](float v) {
+            char buf[32];
+            const int n = std::snprintf(buf, sizeof(buf), "%.6g", static_cast<double>(v));
+            if (n > 0) key.append(buf, static_cast<std::size_t>(n));
+        };
+        appendInt(static_cast<long long>(renderCacheGeneration_));
+        key += '|';
+        appendFloat(paint.getTextSize());
+        key += '|';
+        appendInt(paint.getFontWeight());
+        key += '|';
+        appendInt(static_cast<int>(paint.getFontSlant()));
+        key += '|';
+        appendFloat(std::isfinite(paint.getLetterSpacing()) ? paint.getLetterSpacing() : 0.0f);
+        key += '|';
+        key += paint.hasFontFamily() ? paint.getFontFamily() : std::string();
+        key += '|';
+        key += paint.hasTextLocale() ? paint.getTextLocale() : std::string();
+        key += '|';
+        key += static_cast<char>('0' + (options_.rasterMode == DirectWriteRasterMode::ClearType));
+        key += static_cast<char>('0' + paint.isUnderline());
+        key += static_cast<char>('0' + paint.isStrikethrough());
+        key += '|';
+        key += normalized;
+        return key;
+    }
+
+    const CachedRender *lookupRenderCache(const std::string &key) const
+    {
+        auto it = renderCache_.find(key);
+        if (it == renderCache_.end()) {
+            return nullptr;
+        }
+        // Move to LRU tail.
+        renderCacheOrder_.splice(renderCacheOrder_.end(), renderCacheOrder_, it->second.orderIt);
+        return &it->second.entry;
+    }
+
+    const CachedRender *storeRenderCache(const std::string &key, CachedRender &&entry) const
+    {
+        const std::size_t entryBytes = entry.pixels.size();
+        if (entryBytes > kRenderCacheMaxEntry) {
+            // Too large to cache - render once, don't store.
+            transientLastRender_ = std::move(entry);
+            return &transientLastRender_;
+        }
+        while (renderCacheBytes_ + entryBytes > kRenderCacheByteBudget
+               && !renderCacheOrder_.empty()) {
+            const std::string &oldest = renderCacheOrder_.front();
+            auto oldIt = renderCache_.find(oldest);
+            if (oldIt != renderCache_.end()) {
+                renderCacheBytes_ -= oldIt->second.entry.pixels.size();
+                renderCache_.erase(oldIt);
+            }
+            renderCacheOrder_.pop_front();
+        }
+        renderCacheOrder_.push_back(key);
+        auto orderIt = std::prev(renderCacheOrder_.end());
+        RenderCacheSlot slot;
+        slot.entry = std::move(entry);
+        slot.orderIt = orderIt;
+        auto [insertedIt, ok] = renderCache_.emplace(key, std::move(slot));
+        if (!ok) {
+            renderCacheOrder_.pop_back();
+            return nullptr;
+        }
+        renderCacheBytes_ += insertedIt->second.entry.pixels.size();
+        return &insertedIt->second.entry;
+    }
+
+    void invalidateRenderCache()
+    {
+        ++renderCacheGeneration_;
+        renderCache_.clear();
+        renderCacheOrder_.clear();
+        renderCacheBytes_ = 0;
+    }
+
+    // Rasterize the intrinsic (position-independent) bitmap + metrics for
+    // `normalized`. Returns false on any failure; on success `out` is filled.
+    bool renderIntrinsic(const std::string &normalized, const Paint &paint,
+                         CachedRender &out) const
+    {
+        const std::wstring wide = toWideString(normalized);
+        if (wide.empty()) {
+            return false;
+        }
+        ComPtr<IDWriteTextLayout> layout = createLayout(wide, paint, 0.0f);
+        if (layout == nullptr) {
+            return false;
+        }
+        DWRITE_TEXT_METRICS metrics;
+        layout->GetMetrics(&metrics);
+        const float totalWidth = metrics.width;
+        const float totalHeight = metrics.height;
         if (!std::isfinite(totalWidth) || !std::isfinite(totalHeight)) {
-            return result;
+            return false;
         }
         const double ceilWidth = std::ceil(static_cast<double>(totalWidth));
         const double ceilHeight = std::ceil(static_cast<double>(totalHeight));
         if (ceilWidth > static_cast<double>(kMaxBitmapDimension)
             || ceilHeight > static_cast<double>(kMaxBitmapDimension)) {
-            return result;
+            return false;
         }
         const int pixelWidth = std::max(1, static_cast<int>(ceilWidth));
         const int pixelHeight = std::max(1, static_cast<int>(ceilHeight));
-        std::vector<unsigned char> pixels = renderLayoutToBitmap(layout.Get(), pixelWidth, pixelHeight, paint);
+        std::vector<unsigned char> pixels =
+            renderLayoutToBitmap(layout.Get(), pixelWidth, pixelHeight, paint);
         if (pixels.empty()) {
-            return result;
+            return false;
         }
-
-        result.kind = TextRenderKind::Bitmap;
-        result.drawX = alignedX;
-        result.drawY = y + wsc::text::textBaselineOffset(paint.getTextBaseline(), totalHeight);
-        result.width = totalWidth;
-        result.height = totalHeight;
-        result.bitmapWidth = pixelWidth;
-        result.bitmapHeight = pixelHeight;
-        result.bitmapIsClearType = options_.rasterMode == DirectWriteRasterMode::ClearType;
-        result.bitmapPixels = std::move(pixels);
-        return result;
+        out.totalWidth = totalWidth;
+        out.totalHeight = totalHeight;
+        out.pixelWidth = pixelWidth;
+        out.pixelHeight = pixelHeight;
+        out.clearType = options_.rasterMode == DirectWriteRasterMode::ClearType;
+        out.pixels = std::move(pixels);
+        return true;
     }
 
-private:
     // Simple COM smart pointer to avoid ATL/WTL dependency.
     template <typename T>
     class ComPtr
@@ -1087,6 +1227,18 @@ private:
     unsigned int collectionGeneration_ = 0;
     bool available_ = false;
     mutable std::vector<TextBackendDiagnostic> diagnostics_;
+
+    // Rendered-text LRU cache (position-independent bitmap + metrics).
+    struct RenderCacheSlot
+    {
+        CachedRender entry;
+        std::list<std::string>::iterator orderIt;
+    };
+    mutable std::unordered_map<std::string, RenderCacheSlot> renderCache_;
+    mutable std::list<std::string> renderCacheOrder_;
+    mutable std::size_t renderCacheBytes_ = 0;
+    mutable CachedRender transientLastRender_; // Holds oversized results.
+    unsigned int renderCacheGeneration_ = 0;
 };
 
 } // anonymous namespace

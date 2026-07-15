@@ -103,9 +103,12 @@ the effective device pixel size and stay crisp. See
 ## Known limitations
 
 - **Bitmap per draw**: text is rasterized to a CPU bitmap and uploaded as a GPU
-  texture each `drawText`. The COM apartment and the WIC/D2D factories are cached
-  once on the backend, but a reused-text glyph atlas (to avoid re-rasterizing and
-  re-uploading stable UI text every frame) is a future optimization.
+  texture each `drawText`. The COM apartment, the WIC/D2D factories, and now the
+  position-independent bitmap + intrinsic metrics are cached on the backend
+  (LRU, 4 MB byte budget by default), so repeated identical text hits the cache
+  and reuses the pixels; only the on-screen position is re-applied. A shared GPU
+  glyph atlas that also skips the per-draw texture upload remains a future
+  optimization.
 - **ClearType** is best-effort: it renders white-on-opaque-black and derives an
   alpha from the brightest subpixel, so true subpixel sharpness only holds for
   axis-aligned text over an opaque destination.

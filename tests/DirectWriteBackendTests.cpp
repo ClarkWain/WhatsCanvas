@@ -3,7 +3,9 @@
 // platforms it validates graceful unavailability.
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
+#include <cmath>
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -345,6 +347,50 @@ int main()
         std::cout << "[DirectWriteBackendTests] resolveFontFamilies: chain=" << resolved.size()
                   << " unrelated=" << other.size() << "." << std::endl;
     }
+
+    // Rendered-text cache: identical (text, paint) must produce byte-identical
+    // bitmaps AND be much faster than the first render (proxy for cache reuse).
+    wsc::Paint cachePaint;
+    cachePaint.setFontFamily("Segoe UI");
+    cachePaint.setTextSize(18.0f);
+    const std::string cacheStr = "cache the rendered bitmap";
+    const wsc::text::TextRenderResult first = backend->renderText(cacheStr, 10.0f, 20.0f, cachePaint);
+    if (first.kind != wsc::text::TextRenderKind::Bitmap || first.bitmapPixels.empty()) {
+        std::cerr << "[DirectWriteBackendTests] FAIL: initial cache render failed." << std::endl;
+        return 1;
+    }
+    const auto tColdStart = std::chrono::steady_clock::now();
+    for (int i = 0; i < 200; ++i) {
+        volatile auto r = backend->renderText(cacheStr, 10.0f, 20.0f, cachePaint);
+        (void)r;
+    }
+    const auto tColdEnd = std::chrono::steady_clock::now();
+    const wsc::text::TextRenderResult second = backend->renderText(cacheStr, 42.5f, 12.75f, cachePaint);
+    if (second.bitmapPixels != first.bitmapPixels || second.bitmapWidth != first.bitmapWidth
+        || second.bitmapHeight != first.bitmapHeight) {
+        std::cerr << "[DirectWriteBackendTests] FAIL: cache hit did not return identical bitmap."
+                  << std::endl;
+        return 1;
+    }
+    // Position must still be applied on top of the cached intrinsic geometry.
+    if (std::abs(second.drawX - (42.5f + (first.drawX - 10.0f))) > 0.01f) {
+        std::cerr << "[DirectWriteBackendTests] FAIL: cache did not re-apply x offset (drawX="
+                  << second.drawX << ")." << std::endl;
+        return 1;
+    }
+    // Changing a raster-relevant paint field must produce a distinct bitmap.
+    wsc::Paint bigger = cachePaint;
+    bigger.setTextSize(28.0f);
+    const wsc::text::TextRenderResult distinct = backend->renderText(cacheStr, 10.0f, 20.0f, bigger);
+    if (distinct.bitmapWidth == first.bitmapWidth && distinct.bitmapHeight == first.bitmapHeight) {
+        std::cerr << "[DirectWriteBackendTests] FAIL: distinct paint should not hit the cached entry."
+                  << std::endl;
+        return 1;
+    }
+    const long long cacheMs =
+        std::chrono::duration_cast<std::chrono::milliseconds>(tColdEnd - tColdStart).count();
+    std::cout << "[DirectWriteBackendTests] render cache: 200 identical renders in " << cacheMs
+              << " ms, bitmap identical, x offset re-applied." << std::endl;
 
     return 0;
 #else
