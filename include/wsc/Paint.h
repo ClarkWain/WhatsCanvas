@@ -216,6 +216,12 @@ public:
     void setTextLocale(const std::string &locale);
     const std::string &getTextLocale() const;
     bool hasTextLocale() const;
+    /// Text decorations. Honoured by the native (DirectWrite) backend; off by
+    /// default.
+    void setUnderline(bool enabled);
+    bool isUnderline() const;
+    void setStrikethrough(bool enabled);
+    bool isStrikethrough() const;
 
     /// Compositing blend mode for subsequent draws.
     void setBlendMode(BlendMode blendMode);
@@ -270,6 +276,8 @@ private:
     TextAlign textAlign_ = TextAlign::LEFT;
     TextBaseline textBaseline_ = TextBaseline::TOP;
     std::string textLocale_;
+    bool underline_ = false;
+    bool strikethrough_ = false;
     BlendMode blendMode_ = BlendMode::SRC_OVER;
     ImageSampling imageSampling_ = ImageSampling::LINEAR;
     ImageTileMode imageTileMode_ = ImageTileMode::CLAMP;
