@@ -278,7 +278,7 @@ private:
     float dashPhase_ = 0.0f;
     bool colorMatrixEnabled_ = false;
     std::array<float, 20> colorMatrix_ = kIdentityColorMatrix;
-    bool antiAlias_ = false;
+    bool antiAlias_ = true;
     Style style_ = Style::FILL;
     StrokeCap strokeCap_ = StrokeCap::BUTT;
     StrokeJoin strokeJoin_ = StrokeJoin::MITER;
