@@ -60,6 +60,7 @@ All of these `Paint` knobs flow through to DirectWrite:
 - `setLetterSpacing` — baked into the layout via `IDWriteTextLayout1::SetCharacterSpacing`, so measurement and rendering stay consistent
 - `setTextAlign` / `setTextBaseline`
 - `setTextLocale` (BCP-47, e.g. `"en-US"`, `"ja-JP"`) — locale-aware shaping and Han-unification fallback
+- `setUnderline` / `setStrikethrough` — text decorations drawn by DirectWrite over the run
 
 ## Custom fonts
 

@@ -263,6 +263,10 @@ Paint::TextBaseline Paint::getTextBaseline() const { return textBaseline_; }
 void Paint::setTextLocale(const std::string &locale) { textLocale_ = locale; }
 const std::string &Paint::getTextLocale() const { return textLocale_; }
 bool Paint::hasTextLocale() const { return !textLocale_.empty(); }
+void Paint::setUnderline(bool enabled) { underline_ = enabled; }
+bool Paint::isUnderline() const { return underline_; }
+void Paint::setStrikethrough(bool enabled) { strikethrough_ = enabled; }
+bool Paint::isStrikethrough() const { return strikethrough_; }
 void Paint::setBlendMode(BlendMode blendMode) { blendMode_ = blendMode; }
 Paint::BlendMode Paint::getBlendMode() const { return blendMode_; }
 void Paint::setImageSampling(ImageSampling sampling) { imageSampling_ = sampling; }

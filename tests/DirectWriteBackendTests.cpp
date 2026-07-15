@@ -295,6 +295,27 @@ int main()
     }
     std::cout << "[DirectWriteBackendTests] line breaking: CJK=" << cjkLines.size()
               << " lines, English=" << enLines.size() << " lines." << std::endl;
+
+    // Text decorations: underline and strikethrough each add ink over the plain
+    // run (DirectWrite draws the decoration lines within the layout).
+    wsc::Paint plain;
+    plain.setFontFamily("Segoe UI");
+    plain.setTextSize(18.0f);
+    wsc::Paint underlined = plain;
+    underlined.setUnderline(true);
+    wsc::Paint struck = plain;
+    struck.setStrikethrough(true);
+
+    const int plainCov = countCoveredPixels(backend->renderText("mm", 0.0f, 0.0f, plain).bitmapPixels);
+    const int underCov = countCoveredPixels(backend->renderText("mm", 0.0f, 0.0f, underlined).bitmapPixels);
+    const int strikeCov = countCoveredPixels(backend->renderText("mm", 0.0f, 0.0f, struck).bitmapPixels);
+    if (!(plainCov > 0) || !(underCov > plainCov) || !(strikeCov > plainCov)) {
+        std::cerr << "[DirectWriteBackendTests] FAIL: decorations did not add ink (plain=" << plainCov
+                  << " underline=" << underCov << " strike=" << strikeCov << ")." << std::endl;
+        return 1;
+    }
+    std::cout << "[DirectWriteBackendTests] decorations: plain=" << plainCov << " underline=" << underCov
+              << " strike=" << strikeCov << "." << std::endl;
     return 0;
 #else
     if (wsc::text::isDirectWriteAvailable()) {
