@@ -3931,6 +3931,28 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
                     : fillColor;
             submitAtlasText(atlasFillColor, impl_->currentState().matrix, true);
         }
+
+        // Underline / strikethrough decorations for the portable glyph-atlas path.
+        // (The native bitmap path bakes decorations into the glyph bitmap itself.)
+        if (paint.isUnderline() || paint.isStrikethrough()) {
+            const float textSize = paint.getTextSize();
+            const float baseline = renderedText.drawY + textSize;
+            const float thickness = std::max(1.0f, textSize * 0.06f);
+            Paint deco;
+            deco.setStyle(Paint::Style::FILL);
+            deco.setColor(fillColor);
+            deco.setAntiAlias(paint.isAntiAlias());
+            if (paint.isUnderline()) {
+                drawRect(RectF(renderedText.drawX, baseline + textSize * 0.08f,
+                               renderedText.width, thickness),
+                         deco);
+            }
+            if (paint.isStrikethrough()) {
+                drawRect(RectF(renderedText.drawX, baseline - textSize * 0.30f,
+                               renderedText.width, thickness),
+                         deco);
+            }
+        }
         return;
     }
 
