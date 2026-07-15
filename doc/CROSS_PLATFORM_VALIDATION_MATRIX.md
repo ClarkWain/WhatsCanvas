@@ -22,7 +22,7 @@ This matrix defines the validation surface for keeping the renderer portable acr
 | --- | --- | --- |
 | Portable glyph-atlas backend | Required | Unit and contract tests on every platform. |
 | Windows native compatibility path | Platform optional | Enabled on Windows by `createBasicTextBackend` when native text is allowed. |
-| DirectWrite adapter | Adapter slot reserved | Capability query and unavailable-adapter diagnostic are tested until implementation lands. |
+| DirectWrite adapter | Shipped (Windows) | Real IDWriteFactory-backed backend: shaping/metrics/rasterization, custom fonts (file+memory), fallback chains, locale, letter spacing, real line breaking, underline/strikethrough, and grayscale/ClearType raster modes. Covered by `WhatsCanvasDirectWriteBackendTests` and `WhatsCanvasClearTypeCompositingTests`; selectable via `Canvas::setTextBackend(TextBackend::DirectWrite, ...)`. |
 | CoreText adapter | Adapter slot reserved | Capability query and unavailable-adapter diagnostic are tested until implementation lands. |
 | HarfBuzz shaping adapter | Build-time optional | Factory and fallback diagnostics are tested with and without the library; vendored HarfBuzz is used when initialized. |
 | FreeType rasterizer | Build-time optional | Glyph lookup, metrics, kerning, and alpha atlas rasterization are tested through the text backend contract tests. |
