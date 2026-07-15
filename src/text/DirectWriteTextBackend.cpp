@@ -349,6 +349,18 @@ public:
         // automatically for characters not covered by the requested family, so
         // no explicit IDWriteFontFallback wiring is required here.
         dwriteFactory_->GetSystemFontCollection(&systemFontCollection_, FALSE);
+
+        // Cache COM + the WIC/D2D factories used for bitmap rasterization so they
+        // are created once for the backend's lifetime instead of on every
+        // drawText call (a major per-draw cost). Rendering is single-threaded on
+        // the construction thread, matching the cached IDWriteFactory.
+        const HRESULT comHr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+        comOwned_ = (comHr == S_OK || comHr == S_FALSE);
+        if (comOwned_ || comHr == RPC_E_CHANGED_MODE) {
+            D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &d2dFactory_);
+            CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+                             __uuidof(IWICImagingFactory), reinterpret_cast<void **>(&wicFactory_));
+        }
         available_ = true;
     }
 
@@ -370,6 +382,12 @@ public:
             }
             memoryFontLoader_->Release();
             memoryFontLoader_ = nullptr;
+        }
+        // Release COM factories before uninitializing COM.
+        safeRelease(wicFactory_);
+        safeRelease(d2dFactory_);
+        if (comOwned_) {
+            CoUninitialize();
         }
         safeRelease(dwriteFactory_);
     }
@@ -942,45 +960,20 @@ private:
             return {};
         }
 
-        // Ensure COM is initialized on this thread for WIC. Balance every
-        // successful init (including S_FALSE) with CoUninitialize.
-        const HRESULT comInit = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-        const bool needComUninit = (comInit == S_OK || comInit == S_FALSE);
-        struct ComGuard
-        {
-            bool active;
-            ~ComGuard() { if (active) CoUninitialize(); }
-        } comGuard{needComUninit};
+        // Factories are cached on the backend (created once in the constructor).
+        if (wicFactory_ == nullptr || d2dFactory_ == nullptr) {
+            return {};
+        }
 
         const bool clearType = options_.rasterMode == DirectWriteRasterMode::ClearType;
 
-        // WIC imaging factory + bitmap.
-        ComPtr<IWICImagingFactory> wicFactory;
-        HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
-                                      __uuidof(IWICImagingFactory),
-                                      reinterpret_cast<void **>(&wicFactory));
-        if (FAILED(hr) || !wicFactory) {
-            return {};
-        }
-
+        // WIC bitmap (per render; sized to this run).
         ComPtr<IWICBitmap> wicBitmap;
-        // D2D's ClearType render target requires an opaque destination.  A
-        // premultiplied-alpha WIC bitmap is not compatible with
-        // D2D1_ALPHA_MODE_IGNORE and causes CreateWicBitmapRenderTarget to
-        // reject every real text run (the source of Todo's blank text).  Use
-        // BGRX/opaque storage for LCD coverage; grayscale retains PBGRA.
-        hr = wicFactory->CreateBitmap(static_cast<UINT>(width), static_cast<UINT>(height),
-                                      clearType ? GUID_WICPixelFormat32bppBGR
-                                                : GUID_WICPixelFormat32bppPBGRA,
-                                      WICBitmapCacheOnLoad, &wicBitmap);
+        HRESULT hr = wicFactory_->CreateBitmap(
+            static_cast<UINT>(width), static_cast<UINT>(height),
+            clearType ? GUID_WICPixelFormat32bppBGR : GUID_WICPixelFormat32bppPBGRA,
+            WICBitmapCacheOnLoad, &wicBitmap);
         if (FAILED(hr) || !wicBitmap) {
-            return {};
-        }
-
-        // D2D factory + WIC-backed render target.
-        ComPtr<ID2D1Factory> d2dFactory;
-        hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &d2dFactory);
-        if (FAILED(hr) || !d2dFactory) {
             return {};
         }
 
@@ -991,7 +984,7 @@ private:
             clearType ? D2D1_ALPHA_MODE_IGNORE : D2D1_ALPHA_MODE_PREMULTIPLIED);
 
         ComPtr<ID2D1RenderTarget> renderTarget;
-        hr = d2dFactory->CreateWicBitmapRenderTarget(wicBitmap.Get(), rtProps, &renderTarget);
+        hr = d2dFactory_->CreateWicBitmapRenderTarget(wicBitmap.Get(), rtProps, &renderTarget);
         if (FAILED(hr) || !renderTarget) {
             return {};
         }
@@ -1075,6 +1068,9 @@ private:
     CustomFontCollectionLoader *collectionLoader_ = nullptr;
     IDWriteInMemoryFontFileLoader *memoryFontLoader_ = nullptr;
     IDWriteFontFallback *customFontFallback_ = nullptr;
+    IWICImagingFactory *wicFactory_ = nullptr;
+    ID2D1Factory *d2dFactory_ = nullptr;
+    bool comOwned_ = false;
     std::vector<CustomFontSource> customFontSources_;
     unsigned int collectionGeneration_ = 0;
     bool available_ = false;
