@@ -475,6 +475,72 @@ bool testPublicTextBackendSelection()
     return ok;
 }
 
+// Portable (default) backend underline/strikethrough add ink over plain text,
+// and the underline lands below the text band.
+bool testPortableTextDecorations()
+{
+    const std::string fontPath = findSystemFont();
+    if (fontPath.empty()) {
+        std::cout << "Skipping decoration test; no system font found." << std::endl;
+        return true;
+    }
+
+    struct Probe { int inked; int lowestInkedRow; };
+    auto render = [&](bool underline, bool strike) -> Probe {
+        const int w = 160;
+        const int h = 64;
+        auto canvas = Canvas::create(Canvas::Backend::Software, w, h);
+        canvas->initializeContext();
+        canvas->setTextBackend(Canvas::TextBackend::Portable);
+        canvas->registerFontFace(FontFace::fromFile(FontDescriptor("Deco"), fontPath));
+        canvas->beginFrame();
+        Paint bg;
+        bg.setStyle(Paint::Style::FILL);
+        bg.setColor(Color(255, 255, 255, 255));
+        bg.setAntiAlias(false);
+        canvas->drawRect(RectF(0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h)), bg);
+        Paint text;
+        text.setColor(Color(0, 0, 0, 255));
+        text.setFontFamily("Deco");
+        text.setTextSize(24.0f);
+        text.setAntiAlias(true);
+        text.setUnderline(underline);
+        text.setStrikethrough(strike);
+        canvas->drawText("abc", 10.0f, 12.0f, text);
+        canvas->endFrame();
+        std::vector<unsigned char> px;
+        canvas->readPixelsRGBA(px);
+        Probe p{0, 0};
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+                const int i = (y * w + x) * 4;
+                const int luma = (px[i] * 30 + px[i + 1] * 59 + px[i + 2] * 11) / 100;
+                if (luma < 192) {
+                    ++p.inked;
+                    p.lowestInkedRow = std::max(p.lowestInkedRow, y);
+                }
+            }
+        }
+        return p;
+    };
+
+    const Probe plain = render(false, false);
+    const Probe under = render(true, false);
+    const Probe strike = render(false, true);
+
+    bool ok = expect(plain.inked > 0, "plain portable text should render");
+    // Underline adds ink and extends the inked region lower than plain text.
+    ok = expect(under.inked > plain.inked, "underline should add ink on the portable backend") && ok;
+    ok = expect(under.lowestInkedRow >= plain.lowestInkedRow,
+                "underline should extend ink to/below the text baseline")
+         && ok;
+    ok = expect(strike.inked > plain.inked, "strikethrough should add ink on the portable backend") && ok;
+
+    std::cout << "[TextPixelAlignmentTests] decorations(portable): plain=" << plain.inked
+              << " underline=" << under.inked << " strike=" << strike.inked << std::endl;
+    return ok;
+}
+
 } // namespace
 
 int main()
@@ -485,6 +551,7 @@ int main()
     ok = testSetMatrixPreservesDevicePixelRatio() && ok;
     ok = testMultiDpiTextScenes() && ok;
     ok = testPublicTextBackendSelection() && ok;
+    ok = testPortableTextDecorations() && ok;
     if (ok) {
         std::cout << "[TextPixelAlignmentTests] PASS" << std::endl;
         return 0;
