@@ -61,6 +61,10 @@ All of these `Paint` knobs flow through to DirectWrite:
 - `setTextAlign` / `setTextBaseline`
 - `setTextLocale` (BCP-47, e.g. `"en-US"`, `"ja-JP"`) — locale-aware shaping and Han-unification fallback
 - `setUnderline` / `setStrikethrough` — text decorations drawn by DirectWrite over the run
+- `setTextRenderMode` — per-Paint raster mode override (`Grayscale` / `ClearType` /
+  `Default` = inherit backend setting). Lets a single canvas mix ClearType body
+  text with grayscale labels/animated text; distinct modes get distinct cache
+  entries.
 
 ## Custom fonts
 
@@ -112,5 +116,3 @@ the effective device pixel size and stay crisp. See
 - **ClearType** is best-effort: it renders white-on-opaque-black and derives an
   alpha from the brightest subpixel, so true subpixel sharpness only holds for
   axis-aligned text over an opaque destination.
-- **Per-`Paint` render-mode override** is not yet wired; the render mode is chosen
-  when the backend is selected via `setTextBackend`.

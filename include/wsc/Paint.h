@@ -81,6 +81,17 @@ public:
         BOTTOM
     };
 
+    /// Per-Paint text anti-aliasing mode override. `Default` inherits from the
+    /// backend-wide mode chosen via `Canvas::setTextBackend`. `Grayscale` and
+    /// `ClearType` request a specific mode for this Paint only; honoured by the
+    /// native DirectWrite backend, ignored by the portable backend.
+    enum class TextRenderMode
+    {
+        Default,
+        Grayscale,
+        ClearType
+    };
+
     /// Porter-Duff and separable blend modes for compositing.
     enum class BlendMode
     {
@@ -222,6 +233,9 @@ public:
     bool isUnderline() const;
     void setStrikethrough(bool enabled);
     bool isStrikethrough() const;
+    /// Per-Paint text render mode override. Default = inherit backend setting.
+    void setTextRenderMode(TextRenderMode mode);
+    TextRenderMode getTextRenderMode() const;
 
     /// Compositing blend mode for subsequent draws.
     void setBlendMode(BlendMode blendMode);
@@ -278,6 +292,7 @@ private:
     std::string textLocale_;
     bool underline_ = false;
     bool strikethrough_ = false;
+    TextRenderMode textRenderMode_ = TextRenderMode::Default;
     BlendMode blendMode_ = BlendMode::SRC_OVER;
     ImageSampling imageSampling_ = ImageSampling::LINEAR;
     ImageTileMode imageTileMode_ = ImageTileMode::CLAMP;
