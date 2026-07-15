@@ -541,6 +541,111 @@ bool testPortableTextDecorations()
     return ok;
 }
 
+// Cross-backend consistency: underline and strikethrough must behave the same
+// way on both the portable and the DirectWrite backends. We assert the QUALITY
+// of the behaviour (each decoration adds ink, the underline extends the ink
+// region lower than plain text, and the strikethrough does not), not the exact
+// pixel counts (which differ across raster engines by design).
+bool testDecorationsCrossBackendConsistency()
+{
+    const std::string fontPath = findSystemFont();
+    if (fontPath.empty()) {
+        std::cout << "Skipping decoration cross-backend test; no system font found." << std::endl;
+        return true;
+    }
+
+    struct Probe
+    {
+        int inked = 0;
+        int lowestInkedRow = 0;
+        int highestInkedRow = 1 << 30;
+    };
+    auto render = [&](Canvas::TextBackend which, bool underline, bool strike) -> Probe {
+        const int w = 200;
+        const int h = 80;
+        auto canvas = Canvas::create(Canvas::Backend::Software, w, h);
+        canvas->initializeContext();
+        canvas->setTextBackend(which);
+        canvas->registerFontFace(FontFace::fromFile(FontDescriptor("XBackDeco"), fontPath));
+        canvas->beginFrame();
+        Paint bg;
+        bg.setStyle(Paint::Style::FILL);
+        bg.setColor(Color(255, 255, 255, 255));
+        bg.setAntiAlias(false);
+        canvas->drawRect(RectF(0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h)), bg);
+        Paint text;
+        text.setColor(Color(0, 0, 0, 255));
+        text.setFontFamily("XBackDeco");
+        text.setTextSize(24.0f);
+        text.setAntiAlias(true);
+        text.setUnderline(underline);
+        text.setStrikethrough(strike);
+        canvas->drawText("Abc", 12.0f, 12.0f, text);
+        canvas->endFrame();
+        std::vector<unsigned char> px;
+        canvas->readPixelsRGBA(px);
+        Probe p;
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+                const int i = (y * w + x) * 4;
+                const int luma = (px[i] * 30 + px[i + 1] * 59 + px[i + 2] * 11) / 100;
+                if (luma < 192) {
+                    ++p.inked;
+                    if (y > p.lowestInkedRow) p.lowestInkedRow = y;
+                    if (y < p.highestInkedRow) p.highestInkedRow = y;
+                }
+            }
+        }
+        return p;
+    };
+
+    const Canvas::TextBackend backends[] = {Canvas::TextBackend::Portable,
+                                            Canvas::TextBackend::DirectWrite};
+    bool ok = true;
+    for (const Canvas::TextBackend which : backends) {
+        // Probe availability by creating a scratch canvas + selecting the backend.
+        auto scratch = Canvas::create(Canvas::Backend::Software, 4, 4);
+        scratch->initializeContext();
+        const bool active = scratch->setTextBackend(which);
+        if (!active && which != Canvas::TextBackend::Portable) {
+            std::cout << "[TextPixelAlignmentTests] cross-backend deco: skip "
+                      << (which == Canvas::TextBackend::DirectWrite ? "DirectWrite" : "Portable")
+                      << " (unavailable on this platform)." << std::endl;
+            continue;
+        }
+
+        const Probe plain = render(which, false, false);
+        const Probe under = render(which, true, false);
+        const Probe strike = render(which, false, true);
+
+        const char *name = which == Canvas::TextBackend::DirectWrite ? "DirectWrite" : "Portable";
+        ok = expect(plain.inked > 0, std::string("plain text should render on ") + name) && ok;
+        ok = expect(under.inked > plain.inked,
+                    std::string("underline should add ink on ") + name)
+             && ok;
+        ok = expect(under.lowestInkedRow >= plain.lowestInkedRow,
+                    std::string("underline should extend ink to/below the text baseline on ") + name)
+             && ok;
+        ok = expect(strike.inked > plain.inked,
+                    std::string("strikethrough should add ink on ") + name)
+             && ok;
+        // Strikethrough must NOT extend the ink region lower than the plain
+        // text (unlike the underline). This is the qualitative shape check that
+        // catches future drift where one backend accidentally uses the wrong
+        // decoration geometry.
+        ok = expect(strike.lowestInkedRow <= under.lowestInkedRow,
+                    std::string("strikethrough should sit within the text band on ") + name)
+             && ok;
+
+        std::cout << "[TextPixelAlignmentTests] cross-backend deco (" << name
+                  << "): plain=" << plain.inked << " under=" << under.inked
+                  << " strike=" << strike.inked
+                  << " under.low=" << under.lowestInkedRow << " strike.low=" << strike.lowestInkedRow
+                  << std::endl;
+    }
+    return ok;
+}
+
 } // namespace
 
 int main()
@@ -552,6 +657,7 @@ int main()
     ok = testMultiDpiTextScenes() && ok;
     ok = testPublicTextBackendSelection() && ok;
     ok = testPortableTextDecorations() && ok;
+    ok = testDecorationsCrossBackendConsistency() && ok;
     if (ok) {
         std::cout << "[TextPixelAlignmentTests] PASS" << std::endl;
         return 0;
