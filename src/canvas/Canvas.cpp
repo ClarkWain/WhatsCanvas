@@ -11,6 +11,7 @@
 #endif
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <list>
 #include <memory>
 #include <unordered_map>
 #include <utility>
@@ -2198,6 +2199,63 @@ struct Canvas::Impl
     int glyphAtlasWidth = 0;
     int glyphAtlasHeight = 0;
     std::uint64_t glyphAtlasContentHash = 0;
+    // Reused-text bitmap texture cache: identical (bitmapContentId, w, h) skips
+    // the per-draw createImageResourceRGBA upload. LRU by max entry count; the
+    // upstream DirectWrite backend caps the number of distinct entries via its
+    // own render cache, so this bound is defensive.
+    struct BitmapTextCacheSlot
+    {
+        SharedImageResource resource;
+        int width = 0;
+        int height = 0;
+        std::list<std::uint64_t>::iterator orderIt;
+    };
+    std::unordered_map<std::uint64_t, BitmapTextCacheSlot> bitmapTextCache;
+    std::list<std::uint64_t> bitmapTextCacheOrder;
+    static constexpr std::size_t kBitmapTextCacheMax = 256;
+
+    SharedImageResource getOrUploadBitmapText(const wsc::text::TextRenderResult &renderedText)
+    {
+        if (renderedText.bitmapContentId == 0
+            || renderedText.bitmapWidth <= 0 || renderedText.bitmapHeight <= 0
+            || renderedText.bitmapPixels.empty()) {
+            return renderer->createImageResourceRGBA(renderedText.bitmapWidth,
+                                                     renderedText.bitmapHeight,
+                                                     renderedText.bitmapPixels);
+        }
+        auto it = bitmapTextCache.find(renderedText.bitmapContentId);
+        if (it != bitmapTextCache.end() && it->second.resource && it->second.resource->isValid()
+            && it->second.width == renderedText.bitmapWidth
+            && it->second.height == renderedText.bitmapHeight) {
+            // Cache hit: move to LRU tail, reuse the GPU texture as-is.
+            bitmapTextCacheOrder.splice(bitmapTextCacheOrder.end(), bitmapTextCacheOrder,
+                                        it->second.orderIt);
+            return it->second.resource;
+        }
+        // Cache miss (or size/reset invalidation): upload a fresh texture.
+        SharedImageResource resource = renderer->createImageResourceRGBA(renderedText.bitmapWidth,
+                                                                         renderedText.bitmapHeight,
+                                                                         renderedText.bitmapPixels);
+        if (!resource || !resource->isValid()) {
+            return resource;
+        }
+        while (bitmapTextCache.size() >= kBitmapTextCacheMax && !bitmapTextCacheOrder.empty()) {
+            bitmapTextCache.erase(bitmapTextCacheOrder.front());
+            bitmapTextCacheOrder.pop_front();
+        }
+        if (it != bitmapTextCache.end()) {
+            bitmapTextCacheOrder.erase(it->second.orderIt);
+            bitmapTextCache.erase(it);
+        }
+        bitmapTextCacheOrder.push_back(renderedText.bitmapContentId);
+        BitmapTextCacheSlot slot;
+        slot.resource = resource;
+        slot.width = renderedText.bitmapWidth;
+        slot.height = renderedText.bitmapHeight;
+        slot.orderIt = std::prev(bitmapTextCacheOrder.end());
+        bitmapTextCache.emplace(renderedText.bitmapContentId, std::move(slot));
+        return resource;
+    }
     std::uint64_t glyphAtlasRevision = 0;
 
     // Render-target mode support
@@ -2436,6 +2494,8 @@ void Canvas::Impl::releaseResources()
     glyphAtlasHeight = 0;
     glyphAtlasContentHash = 0;
     glyphAtlasRevision = 0;
+    bitmapTextCache.clear();
+    bitmapTextCacheOrder.clear();
     releaseSizeDependentResources();
     if (renderer != nullptr) {
         renderer->clear();
@@ -3957,9 +4017,7 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
     }
 
     if (renderedText.kind == wsc::text::TextRenderKind::Bitmap) {
-        const SharedImageResource imageResource = impl_->renderer->createImageResourceRGBA(renderedText.bitmapWidth,
-                                                 renderedText.bitmapHeight,
-                                                 renderedText.bitmapPixels);
+        const SharedImageResource imageResource = impl_->getOrUploadBitmapText(renderedText);
         if (!imageResource || !imageResource->isValid()) {
             return;
         }
