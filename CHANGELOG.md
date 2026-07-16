@@ -9,6 +9,62 @@ For releases and downloadable artifacts, see the
 
 ## [Unreleased]
 
+## [0.1.15] - 2026-07-16
+
+### Added
+- **DirectWrite text backend** (Windows): first-class native adapter that
+  replaces the portable rasterizer when `TextBackendKind::DirectWrite` is
+  selected. Covers measurement, real line breaking via `IDWriteTextLayout`,
+  weight/slant/spacing/locale styling, custom in-memory font registration and
+  fallback chains, underline / strikethrough decorations, grayscale and
+  ClearType raster modes, and `resolveFontFamilies` parity with the portable
+  backend. See [`doc/DIRECTWRITE_TEXT_BACKEND.md`](doc/DIRECTWRITE_TEXT_BACKEND.md).
+- **Per-`Paint` `TextRenderMode` override**: `Paint::setTextRenderMode(Auto |
+  Grayscale | ClearType)` lets callers opt into ClearType per draw when the
+  destination surface is known to be opaque and axis-aligned. The DirectWrite
+  backend caches raster output per mode.
+- **Cross-backend text decoration parity**: underline and strikethrough now
+  render consistently on the portable backend, the DirectWrite backend, and
+  the software backend, with a regression test that pixel-compares all three.
+- **OpenGL `ClipFill` primitive support in `executeDrawList`**: a new
+  `DrawClipFillProgram` in `src/opengl/` mirrors Vulkan's clip pipeline
+  (mask.r × tint color), closing an ADR-006 parity gap. Handles both the
+  full-target quad emit and the arbitrary-geometry emit.
+
+### Changed
+- **Text sharpness / HiDPI**: text now rasterizes at effective device pixel
+  size under a scaled transform or `Canvas::setDevicePixelRatio`, and glyph
+  quads snap to pixel grid on axis-aligned draws — glyphs stay crisp on
+  high-DPI displays instead of being blurred by post-upscale.
+- **Default anti-aliasing**: `Paint` now defaults to anti-aliased strokes and
+  fills; opt out with `Paint::setAntiAlias(false)`.
+- **DirectWrite three-layer cache**: repeat UI text draws pay only the
+  `scissor + quad-submit` cost per frame. (1) COM apartment + WIC/D2D
+  factories cached process-wide, (2) rasterized bitmap + intrinsic metrics
+  cached in an LRU (4 MB byte budget by default) keyed by
+  `(text, paint, dpr, render-mode)`, (3) `Canvas` keeps a 256-entry LRU of GPU
+  textures keyed by the backend-provided content id so identical text skips
+  the CPU→GPU upload entirely.
+- **Shared `CommandDrawListEncoder` clipped-command handling**: previously
+  aborted the whole encode on a clipped point/line/vector-text command;
+  now logs a warning and continues so the rest of the offscreen replay still
+  produces output. (ADR-006)
+- **DirectWrite backend contract cleanup**: `registerFontFace`,
+  `setFontFallbackChain`, and `resolveFontFamilies` now match portable
+  behavior. Cross-platform validation matrix updated to reflect DirectWrite
+  as shipped.
+
+### Fixed
+- **MSVC build on non-English Windows**: `CMakeLists.txt` now passes `/utf-8`
+  to MSVC so UTF-8 source files decode consistently under the active ANSI
+  code page. Previously a Chinese Windows installation could corrupt the
+  DirectWrite backend test's CJK line-break declaration.
+
+### Docs
+- Refreshed `doc/DIRECTWRITE_DESIGN_REVIEW.md` with a status table mapping
+  each of the five original review issues to the PR(s) that closed it.
+- ADR-006 gained a Progress Log section (PR #42 / PR #44).
+
 ## [0.1.14] - 2026-07-08
 
 ### Removed
@@ -100,7 +156,8 @@ For releases and downloadable artifacts, see the
 For changes prior to 0.1.11, see the
 [GitHub Releases](https://github.com/ClarkWain/WhatsCanvas/releases) history.
 
-[Unreleased]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.14...HEAD
+[Unreleased]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.15...HEAD
+[0.1.15]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.14...v0.1.15
 [0.1.14]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.13...v0.1.14
 [0.1.13]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.12...v0.1.13
 [0.1.12]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.11...v0.1.12
