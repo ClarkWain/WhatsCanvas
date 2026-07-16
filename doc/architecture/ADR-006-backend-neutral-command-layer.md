@@ -102,3 +102,18 @@ Vulkan `ctest -L vulkan` suite.
    command semantics are added.
 5. Keep backend selection, demo coverage, and CI gates aligned with the supported
    backend matrix.
+
+## Progress Log
+
+- **PR #42** — `CommandDrawListEncoder` no longer aborts the whole encode when
+  it hits a clipped point/line/vector-text command. It logs a warning and skips
+  the primitive so the rest of the offscreen replay still produces output.
+- **PR #44** — `OpenGLRenderDevice::executeDrawList` now handles the `ClipFill`
+  primitive via a dedicated `DrawClipFillProgram` in `src/opengl/`, mirroring
+  Vulkan's `clipPipeline`. Both the full-target quad emit (encoder default for
+  canvas-covering clipped paths) and the arbitrary-geometry emit are supported.
+  The follow-up piece is wiring `CommandDrawListEncodeRequest::createClipMaskTexture`
+  on the OpenGL device so clipped commands are actually rasterized into a mask
+  texture and emitted as `ClipFill`, closing the last gap for clipped offscreen
+  replay parity with Vulkan.
+
