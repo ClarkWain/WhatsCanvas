@@ -740,6 +740,7 @@ public:
         result.bitmapWidth = cached->pixelWidth;
         result.bitmapHeight = cached->pixelHeight;
         result.bitmapIsClearType = cached->clearType;
+        result.bitmapContentId = cached->contentHash;
         result.bitmapPixels = cached->pixels; // copy: consumer may modify/upload
         return result;
     }
@@ -758,6 +759,7 @@ private:
         int pixelWidth = 0;
         int pixelHeight = 0;
         bool clearType = false;
+        std::uint64_t contentHash = 0;
         std::vector<unsigned char> pixels;
     };
 
@@ -907,6 +909,24 @@ private:
         out.pixelWidth = pixelWidth;
         out.pixelHeight = pixelHeight;
         out.clearType = effectiveRasterMode(paint) == DirectWriteRasterMode::ClearType;
+        // FNV-1a 64-bit over the raw pixels + dims + mode: stable content id
+        // used by upstream (Canvas) to key a GPU texture cache and skip the
+        // per-draw upload when the same styled text renders repeatedly.
+        std::uint64_t h = 1469598103934665603ull;
+        auto mix = [&h](std::uint64_t v) {
+            for (int i = 0; i < 8; ++i) {
+                h ^= (v >> (i * 8)) & 0xffull;
+                h *= 1099511628211ull;
+            }
+        };
+        mix(static_cast<std::uint64_t>(pixelWidth));
+        mix(static_cast<std::uint64_t>(pixelHeight));
+        mix(out.clearType ? 1ull : 0ull);
+        for (unsigned char b : pixels) {
+            h ^= static_cast<std::uint64_t>(b);
+            h *= 1099511628211ull;
+        }
+        out.contentHash = h;
         out.pixels = std::move(pixels);
         return true;
     }

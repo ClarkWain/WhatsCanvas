@@ -433,6 +433,30 @@ int main()
     std::cout << "[DirectWriteBackendTests] per-Paint TextRenderMode: gray + ClearType distinct, cached."
               << std::endl;
 
+    // bitmapContentId plumbing: DirectWrite must populate a stable non-zero id
+    // that Canvas uses to key its GPU texture cache. Same paint + text = same
+    // id; grayscale vs ClearType (raster-mode difference) = different ids.
+    wsc::Paint idPaint;
+    idPaint.setFontFamily("Segoe UI");
+    idPaint.setTextSize(16.0f);
+    const auto idA = backend->renderText("cache id", 0.0f, 0.0f, idPaint);
+    const auto idB = backend->renderText("cache id", 25.0f, 5.0f, idPaint); // moved
+    if (idA.bitmapContentId == 0 || idA.bitmapContentId != idB.bitmapContentId) {
+        std::cerr << "[DirectWriteBackendTests] FAIL: bitmapContentId not stable across identical renders ("
+                  << idA.bitmapContentId << " vs " << idB.bitmapContentId << ")." << std::endl;
+        return 1;
+    }
+    wsc::Paint idPaintCt = idPaint;
+    idPaintCt.setTextRenderMode(wsc::Paint::TextRenderMode::ClearType);
+    const auto idCt = backend->renderText("cache id", 0.0f, 0.0f, idPaintCt);
+    if (idCt.bitmapContentId == 0 || idCt.bitmapContentId == idA.bitmapContentId) {
+        std::cerr << "[DirectWriteBackendTests] FAIL: bitmapContentId did not change with raster mode."
+                  << std::endl;
+        return 1;
+    }
+    std::cout << "[DirectWriteBackendTests] bitmapContentId: gray=" << idA.bitmapContentId
+              << " ct=" << idCt.bitmapContentId << " (distinct, stable)." << std::endl;
+
     return 0;
 #else
     if (wsc::text::isDirectWriteAvailable()) {
