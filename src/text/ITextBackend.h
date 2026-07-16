@@ -68,6 +68,11 @@ struct TextRenderResult
     // per-channel blend path; treating it as a normal RGBA image loses the
     // subpixel coverage.
     bool bitmapIsClearType = false;
+    // Stable content id for the bitmapPixels buffer (identical across cache-hit
+    // renders of the same styled text). Backends may leave this zero when they
+    // don't guarantee stability; Canvas uses non-zero ids to key a GPU texture
+    // cache and skip per-draw uploads for reused text.
+    std::uint64_t bitmapContentId = 0;
     std::vector<float> vertices;
     std::vector<unsigned char> bitmapPixels;
     int atlasWidth = 0;
