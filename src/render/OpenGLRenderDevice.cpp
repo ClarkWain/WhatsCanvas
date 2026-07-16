@@ -15,6 +15,7 @@
 #include "opengl/GLTextureUtils.h"
 #include "opengl/PixelFormatCaps.h"
 #include "opengl/ClipCoverageProgram.h"
+#include "opengl/DrawClipFillProgram.h"
 #include "render/CommandDrawListEncoder.h"
 #include "render/IRenderer.h"
 #include "render/IRenderTarget.h"
@@ -562,6 +563,24 @@ bool OpenGLRenderDevice::executeDrawList(const wsc::DrawList &drawList, int widt
                 std::memcpy(data.gradientStopColors, prim.gradientStopColors, sizeof(data.gradientStopColors));
             }
             DrawImageProgram::getInstance()->draw(context, data);
+        } else if (prim.kind == wsc::DrawPrimitiveKind::ClipFill) {
+            if (!prim.texture || !prim.texture->isValid()) {
+                return false;
+            }
+            wsc::opengl::DrawClipFillData data;
+            data.positions = &prim.positions;
+            data.uvs = &prim.uvs;
+            if (!prim.colors.empty()) {
+                data.perVertexColors = &prim.colors;
+            }
+            data.color[0] = prim.color[0];
+            data.color[1] = prim.color[1];
+            data.color[2] = prim.color[2];
+            data.color[3] = prim.color[3];
+            data.mask = prim.texture;
+            auto *clipProgram = wsc::opengl::DrawClipFillProgram::getInstance();
+            clipProgram->initialize();
+            clipProgram->draw(context, data);
         } else {
             return false;
         }
