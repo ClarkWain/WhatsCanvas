@@ -28,8 +28,10 @@ set(WHATSCANVAS_DEFAULT_SMOKE_HASH "2808591959994190122" CACHE STRING "Default l
 set(WHATSCANVAS_CLIP_SMOKE_HASH "7173893163224947210" CACHE STRING "Default local clip-path smoke hash for regression ctest registration.")
 
 if (MSVC)
-    # Globally disable warning C4819
-    add_compile_options(/wd4819)
+    # All source files are UTF-8.  Pin the source/execution charset instead of
+    # relying on the active Windows ANSI code page; otherwise UTF-8 comments
+    # can corrupt preprocessing on non-English developer machines.
+    add_compile_options(/utf-8 /wd4819)
 
     # Prebuilt-binary portability across MSVC toolset versions.
     #
