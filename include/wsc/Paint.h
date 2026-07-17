@@ -21,7 +21,10 @@ public:
         Color color;
 
         ColorStop() = default;
-        ColorStop(float position, const Color &color);
+        ColorStop(float position, const Color &color)
+            : position(position), color(color)
+        {
+        }
     };
 
     /// Whether geometry is filled, stroked (outlined), or both.

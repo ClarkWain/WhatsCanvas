@@ -24,6 +24,9 @@ build-validation-win/
 build-vulkan/
 build_stub/
 build_asan/
+build-vscode/
+build-github-win/
+build-example-consumer-vk/
 
 # MkDocs site build output
 site/

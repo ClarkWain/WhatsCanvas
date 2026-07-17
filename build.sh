@@ -7,6 +7,9 @@ CONFIG="Debug"
 TARGET="WhatsCanvasDemo"
 NO_RUN=0
 PACKAGE=0
+BUILD_SHARED=0
+BUILD_OPENGLES=0
+BUILD_VULKAN=0
 
 for arg in "$@"; do
     case "$arg" in
@@ -14,9 +17,12 @@ for arg in "$@"; do
         --release) CONFIG="Release" ;;
         --debug) CONFIG="Debug" ;;
         --package) PACKAGE=1 ;;
+        --shared) BUILD_SHARED=1 ;;
+        --opengles) BUILD_OPENGLES=1 ;;
+        --vulkan) BUILD_VULKAN=1 ;;
         *)
             echo "Unknown argument: $arg"
-            echo "Usage: ./build.sh [--no-run] [--debug|--release] [--package]"
+            echo "Usage: ./build.sh [--no-run] [--debug|--release] [--package] [--shared] [--opengles] [--vulkan]"
             exit 1
             ;;
     esac
@@ -36,13 +42,27 @@ fi
 
 echo "[1/3] Configuring..."
 PACKAGE_CMAKE_ARGS=""
-if [ "$PACKAGE" -eq 1 ] && [ "${WHATSCANVAS_PACKAGE_ENABLE_FREETYPE:-0}" != "1" ]; then
-    PACKAGE_CMAKE_ARGS="$PACKAGE_CMAKE_ARGS -DWHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=OFF"
+if [ "$PACKAGE" -eq 1 ]; then
+    if [ "${WHATSCANVAS_PACKAGE_ENABLE_FREETYPE:-0}" = "1" ]; then
+        PACKAGE_CMAKE_ARGS="$PACKAGE_CMAKE_ARGS -DWHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=ON"
+    else
+        PACKAGE_CMAKE_ARGS="$PACKAGE_CMAKE_ARGS -DWHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=OFF"
+    fi
 fi
 if [ "$PACKAGE" -eq 1 ]; then
-    # Packaging installs the renderer libraries, not the demo, so skip building
-    # the test targets to keep the package build lean.
-    PACKAGE_CMAKE_ARGS="$PACKAGE_CMAKE_ARGS -DBUILD_TESTING=OFF"
+    # Packaging installs the renderer libraries, not the demo, so skip optional
+    # executable targets to keep the package build lean and avoid linking
+    # internal-only helpers against shared-library exports.
+    PACKAGE_CMAKE_ARGS="$PACKAGE_CMAKE_ARGS -DBUILD_TESTING=OFF -DWHATSCANVAS_BUILD_DEMO=OFF -DWHATSCANVAS_BUILD_BENCHMARKS=OFF"
+fi
+if [ "$BUILD_SHARED" -eq 1 ]; then
+    PACKAGE_CMAKE_ARGS="$PACKAGE_CMAKE_ARGS -DBUILD_SHARED_LIBS=ON"
+fi
+if [ "$BUILD_OPENGLES" -eq 1 ]; then
+    PACKAGE_CMAKE_ARGS="$PACKAGE_CMAKE_ARGS -DWHATSCANVAS_BUILD_OPENGLES=ON"
+fi
+if [ "$BUILD_VULKAN" -eq 1 ]; then
+    PACKAGE_CMAKE_ARGS="$PACKAGE_CMAKE_ARGS -DWHATSCANVAS_ENABLE_VULKAN=ON"
 fi
 # shellcheck disable=SC2086
 cmake -S "$ROOT_DIR" -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE="$CONFIG" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON $PACKAGE_CMAKE_ARGS ${WHATSCANVAS_CMAKE_EXTRA_ARGS:-}
