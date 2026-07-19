@@ -1051,10 +1051,17 @@ AAExpandedMesh expandTrianglesWithAA(const std::vector<crushedpixel::Vec2> &tria
     }
 
     // Interior triangles first (fully covered), then the feathered fringe band.
+    // Boundary vertices must stop at the fringe's inner edge. Keeping the
+    // original triangles all the way to the mathematical silhouette makes the
+    // inner half of every fringe overlap fully covered geometry. SrcOver then
+    // composites the same shape twice there (for example alpha 0.5 becomes
+    // 0.75), producing the dark, thick edges most visible on fractional-DPI
+    // one-DIP strokes. Shared quantized indices keep the inset watertight.
     mesh.vertices.reserve(triVertCount + boundary.size() * 6);
     mesh.coverage.reserve(triVertCount + boundary.size() * 6);
-    for (const auto &v : triangles) {
-        mesh.vertices.push_back(v);
+    for (std::size_t index = 0; index < triVertCount; ++index) {
+        const auto offset = offsets.find(triIndices[index]);
+        mesh.vertices.push_back(offset != offsets.end() ? offset->second.inner : triangles[index]);
         mesh.coverage.push_back(1.0f);
     }
 
