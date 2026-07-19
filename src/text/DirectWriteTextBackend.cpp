@@ -1061,6 +1061,20 @@ private:
             family.c_str(), fontCollection, mapFontWeight(paint.getFontWeight()),
             mapFontSlant(paint.getFontSlant()), DWRITE_FONT_STRETCH_NORMAL, fontSize, locale.c_str(),
             &format);
+        // Segoe UI Variable is the Windows Fluent default, but it is absent
+        // on older Windows images. DirectWrite rejects an unknown family at
+        // format creation, so retrying the stable Segoe UI face prevents an
+        // invisible/serif fallback while preserving the preferred family on
+        // Windows 11 and newer.
+        if (FAILED(hr) || format == nullptr) {
+            const std::wstring fallbackFamily(L"Segoe UI");
+            fontCollection = chooseFontCollection(fallbackFamily);
+            if (fontCollection == nullptr) return nullptr;
+            hr = dwriteFactory_->CreateTextFormat(
+                fallbackFamily.c_str(), fontCollection, mapFontWeight(paint.getFontWeight()),
+                mapFontSlant(paint.getFontSlant()), DWRITE_FONT_STRETCH_NORMAL, fontSize,
+                locale.c_str(), &format);
+        }
         if (FAILED(hr) || format == nullptr) {
             return nullptr;
         }
