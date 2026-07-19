@@ -737,7 +737,30 @@ RectF clampSourceRect(const RectF &src, int imageWidth, int imageHeight)
     return intersectRects(normalized, imageBounds);
 }
 
-int computeEllipseSegments(float radiusX, float radiusY)
+int curveSegmentsForPhysicalTolerance(float radius, float sweepRadians,
+                                      float deviceScale, int minimum, int maximum)
+{
+    if (radius <= 0.0f || sweepRadians <= 0.0f) {
+        return 0;
+    }
+
+    // Bound the sagitta of every generated chord in device space.  Curves are
+    // tessellated before the Canvas root transform is applied, so a logical
+    // radius alone underestimates the visible error at 125-200% DPI.
+    constexpr float kMaximumSagittaPixels = 0.1f;
+    const float physicalRadius = radius * std::max(deviceScale, kPointEpsilon);
+    const float cosine = std::clamp(
+        1.0f - kMaximumSagittaPixels / std::max(physicalRadius, kMaximumSagittaPixels),
+        -1.0f, 1.0f);
+    const float maximumStep = 2.0f * std::acos(cosine);
+    if (maximumStep <= kPointEpsilon) {
+        return maximum;
+    }
+    return std::clamp(static_cast<int>(std::ceil(sweepRadians / maximumStep)),
+                      minimum, maximum);
+}
+
+int computeEllipseSegments(float radiusX, float radiusY, float deviceScale)
 {
     if (radiusX <= 0.0f || radiusY <= 0.0f) {
         return 0;
@@ -752,7 +775,9 @@ int computeEllipseSegments(float radiusX, float radiusY)
     const float b = std::min(radiusX, radiusY);
     const float circumference = kPi * (3.0f * (a + b) - std::sqrt((3.0f * a + b) * (a + 3.0f * b)));
     const int estimated = static_cast<int>(std::ceil(circumference * kSegmentsPerPixel));
-    return std::clamp(estimated, kMinSegments, kMaxSegments);
+    const int toleranceSegments = curveSegmentsForPhysicalTolerance(
+        a, 2.0f * kPi, deviceScale, kMinSegments, kMaxSegments);
+    return std::clamp(std::max(estimated, toleranceSegments), kMinSegments, kMaxSegments);
 }
 
 void addEllipse(Path &path, float centerX, float centerY, float radiusX, float radiusY, int segments)
@@ -3027,8 +3052,12 @@ void Canvas::drawRoundRect(const RectF &rect, float topLeftRadius, float topRigh
     }
 
     constexpr float kPi = 3.14159265358979323846f;
-    auto cornerSegments = [](float radius) {
-        return std::clamp(static_cast<int>(std::ceil(radius * 0.35f)), 4, 24);
+    const float deviceScale = averageDeviceScale(impl_->currentState().matrix);
+    auto cornerSegments = [deviceScale, kPi](float radius) {
+        const int estimated = static_cast<int>(std::ceil(radius * 0.35f));
+        const int toleranceSegments = curveSegmentsForPhysicalTolerance(
+            radius, 0.5f * kPi, deviceScale, 4, 24);
+        return std::clamp(std::max(estimated, toleranceSegments), 4, 24);
     };
 
     const float left = normalized.getX();
@@ -3117,7 +3146,8 @@ void Canvas::drawCircle(float centerX, float centerY, float radius, const Paint 
         return;
     }
 
-    const int segments = computeEllipseSegments(radius, radius);
+    const int segments = computeEllipseSegments(
+        radius, radius, averageDeviceScale(impl_->currentState().matrix));
     if (segments <= 0) {
         return;
     }
@@ -3150,7 +3180,8 @@ void Canvas::drawOval(const RectF &bounds, const Paint &paint)
     const float centerY = normalized.getY() + height * 0.5f;
     const float radiusX = width * 0.5f;
     const float radiusY = height * 0.5f;
-    const int segments = computeEllipseSegments(radiusX, radiusY);
+    const int segments = computeEllipseSegments(
+        radiusX, radiusY, averageDeviceScale(impl_->currentState().matrix));
     if (segments <= 0) {
         return;
     }
