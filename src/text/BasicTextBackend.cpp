@@ -692,6 +692,8 @@ private:
             cachedKey.glyphIndex = glyph.glyphIndex;
             cachedKey.pixelSize = paint.getTextSize();
             cachedKey.format = wsc::text::GlyphBitmapFormat::Alpha;
+            cachedKey.weight = face->weight();
+            cachedKey.slant = face->slant();
             if (const auto *cached = glyphAtlas_.find(cachedKey)) {
                 pendingGlyphs.push_back({glyph, cachedKey, {}, *cached});
                 continue;

@@ -268,6 +268,57 @@ bool testPortableBackendUsesGlyphAtlasForRegisteredFont()
     return ok;
 }
 
+bool testPortableGlyphAtlasCacheKeepsFontFacesDistinct()
+{
+    const std::string fontPath = findSystemFontPath();
+    if (fontPath.empty()) {
+        std::cout << "Skipping glyph atlas face-key test; no known system font path found." << std::endl;
+        return true;
+    }
+
+    std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createPortableTextBackend();
+    bool ok = expect(
+        backend->registerFontFace(wsc::FontFace::fromFile(
+            wsc::FontDescriptor("AtlasFaceKey", 400, wsc::FontSlant::NORMAL), fontPath)),
+        "regular atlas face should register");
+    ok = expect(
+        backend->registerFontFace(wsc::FontFace::fromFile(
+            wsc::FontDescriptor("AtlasFaceKey", 700, wsc::FontSlant::NORMAL), fontPath)),
+        "bold atlas face should register") && ok;
+
+    Paint paint;
+    paint.setTextSize(24.0f);
+    paint.setFontFamily("AtlasFaceKey");
+    paint.setFontWeight(700);
+    const auto boldBefore = backend->renderText("A", 0.0f, 0.0f, paint);
+    paint.setFontWeight(400);
+    const auto regular = backend->renderText("A", 0.0f, 0.0f, paint);
+    paint.setFontWeight(700);
+    const auto boldAfter = backend->renderText("A", 0.0f, 0.0f, paint);
+
+    const auto hasOneQuad = [](const wsc::text::TextRenderResult& result) {
+        return result.kind == wsc::text::TextRenderKind::GlyphAtlas
+            && result.glyphAtlasQuads.size() == 1u;
+    };
+    ok = expect(hasOneQuad(boldBefore) && hasOneQuad(regular) && hasOneQuad(boldAfter),
+                "regular and bold face-key renders should each emit one atlas quad") && ok;
+    if (!hasOneQuad(boldBefore) || !hasOneQuad(regular) || !hasOneQuad(boldAfter)) {
+        return false;
+    }
+
+    const auto sameAtlasEntry = [](const auto& left, const auto& right) {
+        return left.u0 == right.u0 && left.v0 == right.v0
+            && left.u1 == right.u1 && left.v1 == right.v1;
+    };
+    ok = expect(!sameAtlasEntry(boldBefore.glyphAtlasQuads.front(),
+                                regular.glyphAtlasQuads.front()),
+                "regular and bold faces must occupy distinct glyph-atlas entries") && ok;
+    ok = expect(sameAtlasEntry(boldBefore.glyphAtlasQuads.front(),
+                               boldAfter.glyphAtlasQuads.front()),
+                "bold glyph lookup after a regular render must return the original bold atlas entry") && ok;
+    return ok;
+}
+
 bool testPortableBackendUsesRgbaAtlasForColorGlyphs()
 {
     const std::string fontPath = findColorSystemFontPath();
@@ -692,6 +743,7 @@ int main()
         && testPortableBackendUsesGeometryPath()
         && testPortableBackendSkipsZeroWidthBreak()
         && testPortableBackendUsesGlyphAtlasForRegisteredFont()
+        && testPortableGlyphAtlasCacheKeepsFontFacesDistinct()
         && testPortableBackendUsesRgbaAtlasForColorGlyphs()
         && testFontRasterizerCachePolicy()
         && testFontRasterizerCacheThreadSafety()
