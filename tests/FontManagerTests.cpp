@@ -124,8 +124,12 @@ bool testSystemFontFallbackChain()
     const std::vector<wsc::FontFace> faces = wsc::FontSystem::defaultSystemFontFaces();
 
     bool primarySeen = false;
+    bool primarySemiboldSeen = false;
     for (const wsc::FontFace &face : faces) {
         primarySeen = primarySeen || face.family() == wsc::FontSystem::kDefaultPrimaryFamily;
+        primarySemiboldSeen = primarySemiboldSeen
+            || (face.family() == wsc::FontSystem::kDefaultPrimaryFamily
+                && face.weight() == 600);
     }
 
     return expect(chain.primaryFamily() == wsc::FontSystem::kDefaultPrimaryFamily,
@@ -133,7 +137,13 @@ bool testSystemFontFallbackChain()
         && expect(!chain.fallbackFamilies().empty(),
                   "system fallback chain should include fallback families")
         && expect(faces.empty() || primarySeen,
-                  "discovered system font faces should include the default primary when any face is found");
+                  "discovered system font faces should include the default primary when any face is found")
+#ifdef _WIN32
+        && expect(primarySemiboldSeen,
+                  "Windows system fonts should register Segoe UI Semibold as the exact 600-weight primary face");
+#else
+        ;
+#endif
 }
 
 } // namespace
