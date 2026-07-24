@@ -1,6 +1,6 @@
 # Vulkan Backend Roadmap
 
-Status: **Functional parity complete** · Done: M1, M2, M3 (solid fills), M4 (gradients + blend), M5 (images), M6 (layer composite), M7 (coverage-mask clip), M8 (windowed present), plus command-stream translation (path/points/lines/image/text/shadow), full 14-mode blend parity across all pipelines, analytic-AA coverage, mipmapped sampling, complete clip translation (all fill types), and `wrapExternalImageResource` (IRenderDevice 11/11).
+Status: **Functional parity complete** · Done: M1, M2, M3 (solid fills), M4 (gradients + blend), M5 (images), M6 (layer composite), M7 (coverage-mask clip), M8 (windowed present), plus command-stream translation (path/points/lines/image/text/shadow), full 14-mode blend parity across all pipelines, analytic-AA coverage, mipmapped sampling, complete clip translation (all fill types), GPU image/backdrop filters, and `wrapExternalImageResource` (IRenderDevice 12/12).
 
 This document tracks the work needed to bring the Vulkan render backend
 (`VulkanRenderDevice`) to functional parity with the existing OpenGL backend
@@ -13,7 +13,7 @@ Make `RenderBackendType::Vulkan` a first-class, selectable backend that produces
 pixel output equivalent to the OpenGL path for the full WhatsCanvas Canvas API,
 validated on real hardware and guarded by automated tests.
 
-"Parity" is defined against the 11 `IRenderDevice` entry points plus the five
+"Parity" is defined against the 12 required `IRenderDevice` entry points plus the five
 draw-command families, not against internal implementation details.
 
 ## 2. Current state (baseline)
@@ -30,7 +30,7 @@ Completed on this branch:
 - `WhatsCanvasVulkanDeviceTests` (CTest label `vulkan`) validates bring-up on
   real hardware (verified on NVIDIA GeForce RTX 2080 Ti).
 
-All eleven `IRenderDevice` methods are implemented, and the full draw-command
+All twelve required `IRenderDevice` methods are implemented, and the full draw-command
 stream (path / points / lines / image / text / shadow) translates to Vulkan via
 the backend-neutral command layer (ADR-006). See
 [vulkan-backend-status.md](vulkan-backend-status.md) for the current capability
@@ -244,7 +244,7 @@ device bring-up (done)
 
 ## 7. Definition of done (parity)
 
-- All 11 `IRenderDevice` methods implemented for Vulkan.
+- All 12 required `IRenderDevice` methods implemented for Vulkan.
 - All five draw-command families render on Vulkan.
 - A representative scene set (fills, AA, gradients, shadows, images, text, clip,
   saveLayer) matches OpenGL within the fuzzy-compare tolerance.
