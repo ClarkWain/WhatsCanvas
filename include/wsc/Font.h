@@ -329,6 +329,8 @@ public:
 #ifdef _WIN32
         addRangedFace(FontFace::fromFile(FontDescriptor(kDefaultPrimaryFamily, 400), "C:/Windows/Fonts/segoeui.ttf"),
                       {FontCodepointRange(0x0000, 0x024F), FontCodepointRange(0x2000, 0x206F)});
+        addRangedFace(FontFace::fromFile(FontDescriptor(kDefaultPrimaryFamily, 600), "C:/Windows/Fonts/seguisb.ttf"),
+                      {FontCodepointRange(0x0000, 0x024F), FontCodepointRange(0x2000, 0x206F)});
         addRangedFace(FontFace::fromFile(FontDescriptor(kDefaultPrimaryFamily, 700), "C:/Windows/Fonts/segoeuib.ttf"),
                       {FontCodepointRange(0x0000, 0x024F), FontCodepointRange(0x2000, 0x206F)});
         addRangedFace(FontFace::fromFile(FontDescriptor(kDefaultCjkFamily), "C:/Windows/Fonts/msyh.ttc", 0),
