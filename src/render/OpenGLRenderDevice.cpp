@@ -711,7 +711,9 @@ SharedImageResource OpenGLRenderDevice::filterImageResource(const SharedImageRes
     blur->blurImagePass(input->texture(), glTargetA->framebuffer(), width, height,
                         glm::vec2(1.0f / static_cast<float>(width), 0.0f), kernelX, decal);
     blur->blurImagePass(imageA->texture(), glTargetB->framebuffer(), width, height,
-                        glm::vec2(0.0f, 1.0f / static_cast<float>(height)), kernelY, decal);
+                        glm::vec2(0.0f, 1.0f / static_cast<float>(height)), kernelY, decal,
+                        filter.saturation(), filter.brightness(), filter.contrast(),
+                        filter.grain());
 
     glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(previousFramebuffer));
     glViewport(previousViewport[0], previousViewport[1], previousViewport[2], previousViewport[3]);

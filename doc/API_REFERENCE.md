@@ -505,11 +505,22 @@ Public members:
 - `ImageFilter() = default;`
 - `static ImageFilter blur(float radiusX, float radiusY, TileMode tileMode = TileMode::Clamp);`
 - `static ImageFilter blur(float radius, TileMode tileMode = TileMode::Clamp);`
+- `static ImageFilter blurSigma(float sigmaX, float sigmaY, TileMode tileMode = TileMode::Clamp);`
+- `static ImageFilter blurSigma(float sigma, TileMode tileMode = TileMode::Clamp);`
+- `static ImageFilter frostedGlass(float blurSigma, float saturation = 1.18f, float brightness = 1.04f, float contrast = 1.02f, float grain = 0.012f, TileMode tileMode = TileMode::Clamp);`
+- `ImageFilter &setColorAdjustment(float saturation, float brightness = 1.0f, float contrast = 1.0f);`
+- `ImageFilter &setGrain(float amount);`
 - `Type type() const;`
 - `bool isValid() const;`
 - `float radiusX() const;`
 - `float radiusY() const;`
 - `TileMode tileMode() const;`
+- `float saturation() const;`
+- `float brightness() const;`
+- `float contrast() const;`
+- `float grain() const;`
+- `bool hasColorAdjustment() const;`
+- `bool hasGrain() const;`
 
 ### `class LayerOptions`
 
