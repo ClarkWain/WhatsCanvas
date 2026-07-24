@@ -46,6 +46,44 @@ std::vector<unsigned char> makeSplitImage(int width, int height)
     return pixels;
 }
 
+std::vector<unsigned char> makeTransparentEdgeImage(int width, int height)
+{
+    std::vector<unsigned char> pixels(
+        static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4u);
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            unsigned char *pixel = pixels.data()
+                + (static_cast<std::size_t>(y) * static_cast<std::size_t>(width)
+                   + static_cast<std::size_t>(x)) * 4u;
+            const bool opaqueBlue = x >= width / 2;
+            pixel[0] = opaqueBlue ? 0 : 255;
+            pixel[1] = 0;
+            pixel[2] = opaqueBlue ? 255 : 0;
+            pixel[3] = opaqueBlue ? 255 : 0;
+        }
+    }
+    return pixels;
+}
+
+std::vector<unsigned char> makeVerticalStripes(int width, int height)
+{
+    std::vector<unsigned char> pixels(
+        static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4u);
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            const unsigned char value = ((x / 8) % 2) == 0 ? 0 : 255;
+            unsigned char *pixel = pixels.data()
+                + (static_cast<std::size_t>(y) * static_cast<std::size_t>(width)
+                   + static_cast<std::size_t>(x)) * 4u;
+            pixel[0] = value;
+            pixel[1] = value;
+            pixel[2] = value;
+            pixel[3] = 255;
+        }
+    }
+    return pixels;
+}
+
 bool readTexture(VulkanRenderDevice &device, const SharedImageResource &texture,
                  int width, int height, std::vector<unsigned char> &pixels)
 {
@@ -86,6 +124,129 @@ bool renderBackdropScene(wsc::Canvas::Backend backend, int width, int height,
     canvas->restore();
     canvas->endFrame();
     stats = canvas->getRenderStats();
+    return canvas->readPixelsRGBA(pixels);
+}
+
+bool renderImageFilterLayerScene(wsc::Canvas::Backend backend, int width, int height,
+                                 std::vector<unsigned char> &pixels)
+{
+    auto canvas = wsc::Canvas::create(backend, width, height);
+    if (!canvas) {
+        return false;
+    }
+    canvas->initializeContext();
+    canvas->beginFrame();
+
+    wsc::Paint composite;
+    composite.setColor(wsc::Color(255, 255, 255, 255));
+    wsc::LayerOptions options;
+    options.setImageFilter(wsc::ImageFilter::blur(3.0f));
+    canvas->saveLayer(
+        wsc::RectF(0.0f, 0.0f, static_cast<float>(width),
+                   static_cast<float>(height)),
+        composite, options);
+
+    wsc::Paint top;
+    top.setColor(wsc::Color(240, 32, 24, 255));
+    top.setAntiAlias(false);
+    wsc::Paint bottom = top;
+    bottom.setColor(wsc::Color(24, 48, 240, 255));
+    canvas->drawRect(
+        wsc::RectF(0.0f, 0.0f, static_cast<float>(width),
+                   static_cast<float>(height / 2)),
+        top);
+    canvas->drawRect(
+        wsc::RectF(0.0f, static_cast<float>(height / 2),
+                   static_cast<float>(width), static_cast<float>(height / 2)),
+        bottom);
+    canvas->restore();
+    canvas->endFrame();
+    return canvas->readPixelsRGBA(pixels);
+}
+
+bool renderTranslucentFilterLayerScene(
+    wsc::Canvas::Backend backend, int width, int height,
+    std::vector<unsigned char> &pixels)
+{
+    auto canvas = wsc::Canvas::create(backend, width, height);
+    if (!canvas) {
+        return false;
+    }
+    canvas->initializeContext();
+    canvas->beginFrame();
+
+    wsc::Paint composite;
+    composite.setColor(wsc::Color(255, 255, 255, 255));
+    wsc::LayerOptions options;
+    options.setImageFilter(wsc::ImageFilter::blur(2.0f));
+    canvas->saveLayer(
+        wsc::RectF(0.0f, 0.0f, static_cast<float>(width),
+                   static_cast<float>(height)),
+        composite, options);
+    wsc::Paint red;
+    red.setColor(wsc::Color(255, 0, 0, 128));
+    red.setAntiAlias(false);
+    canvas->drawRect(wsc::RectF(12.0f, 12.0f, 40.0f, 40.0f), red);
+    canvas->restore();
+    canvas->endFrame();
+    return canvas->readPixelsRGBA(pixels);
+}
+
+bool renderCroppedClipScene(wsc::Canvas::Backend backend, int width, int height,
+                            std::vector<unsigned char> &pixels)
+{
+    auto canvas = wsc::Canvas::create(backend, width, height);
+    if (!canvas) {
+        return false;
+    }
+    canvas->initializeContext();
+
+    std::vector<unsigned char> imagePixels(16u * 16u * 4u, 255);
+    for (int y = 0; y < 16; ++y) {
+        for (int x = 0; x < 16; ++x) {
+            unsigned char *pixel =
+                imagePixels.data() + (static_cast<std::size_t>(y) * 16u + x) * 4u;
+            pixel[0] = x < 8 ? 255 : 0;
+            pixel[1] = y < 8 ? 220 : 32;
+            pixel[2] = x < 8 ? 16 : 255;
+        }
+    }
+    wsc::Image image;
+    if (!canvas->loadImageFromRGBA(image, imagePixels, 16, 16)) {
+        return false;
+    }
+
+    canvas->beginFrame();
+    wsc::Paint background;
+    background.setColor(wsc::Color(8, 10, 14, 255));
+    background.setAntiAlias(false);
+    canvas->drawRect(
+        wsc::RectF(0.0f, 0.0f, static_cast<float>(width),
+                   static_cast<float>(height)),
+        background);
+
+    wsc::Paint composite;
+    composite.setColor(wsc::Color(255, 255, 255, 255));
+    canvas->saveLayer(wsc::RectF(16.0f, 8.0f, 64.0f, 56.0f), composite);
+    wsc::Path clip;
+    clip.addRoundRect(wsc::RectF(20.0f, 12.0f, 56.0f, 48.0f), 8.0f);
+    canvas->clipPath(clip);
+
+    wsc::Paint gradient;
+    gradient.setLinearGradient(
+        20.0f, 0.0f, 48.0f, 0.0f,
+        {wsc::Paint::ColorStop(0.0f, wsc::Color(255, 32, 16, 255)),
+         wsc::Paint::ColorStop(1.0f, wsc::Color(16, 240, 64, 255))});
+    gradient.setAntiAlias(false);
+    canvas->drawRect(wsc::RectF(16.0f, 8.0f, 32.0f, 56.0f), gradient);
+
+    wsc::Paint imagePaint;
+    imagePaint.setColor(wsc::Color(255, 255, 255, 255));
+    imagePaint.setAntiAlias(false);
+    canvas->drawImage(
+        image, wsc::RectF(48.0f, 8.0f, 32.0f, 56.0f), imagePaint);
+    canvas->restore();
+    canvas->endFrame();
     return canvas->readPixelsRGBA(pixels);
 }
 
@@ -204,6 +365,57 @@ int main()
                     "large blur should report downsample plus restore") && ok;
         ok = expect(stats.pixelPassCount == 30720,
                     "downsampled blur pixel-pass count is wrong") && ok;
+        std::vector<unsigned char> pixels;
+        ok = expect(readTexture(device, filtered, width, height, pixels),
+                    "downsampled blur readback failed") && ok;
+        if (!pixels.empty()) {
+            const auto *blackSide = pixelAt(pixels, width, 68, height / 2);
+            const auto *whiteSide = pixelAt(pixels, width, 92, height / 2);
+            ok = expect(blackSide[0] > 0 && blackSide[0] < 128,
+                        "downsampled blur did not soften the black side") && ok;
+            ok = expect(whiteSide[0] > 128 && whiteSide[0] < 255,
+                        "downsampled blur did not soften the white side") && ok;
+        }
+    }
+
+    {
+        constexpr int width = 160;
+        constexpr int height = 128;
+        auto source = device.createImageResourceRGBA(
+            width, height, makeTransparentEdgeImage(width, height));
+        auto filtered = device.filterImageResource(
+            source, width, height, wsc::ImageFilter::blur(32.0f));
+        std::vector<unsigned char> pixels;
+        ok = expect(readTexture(device, filtered, width, height, pixels),
+                    "transparent-edge blur readback failed") && ok;
+        if (!pixels.empty()) {
+            const auto *edge = pixelAt(pixels, width, 72, height / 2);
+            ok = expect(edge[3] > 0 && edge[2] > 0,
+                        "opaque blue did not spread into transparent pixels") && ok;
+            ok = expect(edge[0] <= 2,
+                        "transparent red RGB contaminated the blurred blue edge") && ok;
+        }
+    }
+
+    {
+        constexpr int width = 160;
+        constexpr int height = 128;
+        auto source = device.createImageResourceRGBA(
+            width, height, makeVerticalStripes(width, height));
+        FilterExecutionStats stats;
+        auto filtered = device.filterImageResource(
+            source, width, height, wsc::ImageFilter::blur(0.0f, 32.0f), &stats);
+        std::vector<unsigned char> pixels;
+        ok = expect(readTexture(device, filtered, width, height, pixels),
+                    "anisotropic blur readback failed") && ok;
+        ok = expect(stats.downsampled && stats.pixelPassCount == 40960,
+                    "anisotropic blur should downsample only its vertical axis") && ok;
+        if (!pixels.empty()) {
+            const auto *blackStripe = pixelAt(pixels, width, 4, height / 2);
+            const auto *whiteStripe = pixelAt(pixels, width, 12, height / 2);
+            ok = expect(blackStripe[0] < 8 && whiteStripe[0] > 247,
+                        "vertical-only blur lost horizontal stripe detail") && ok;
+        }
     }
 
     const std::string deviceName = device.selectedDeviceName();
@@ -276,6 +488,113 @@ int main()
         } else {
             ok = expect(false, "Vulkan/Software parity image sizes differ") && ok;
         }
+    }
+
+    {
+        constexpr int width = 64;
+        constexpr int height = 64;
+        std::vector<unsigned char> vulkanPixels;
+        std::vector<unsigned char> softwarePixels;
+        ok = expect(renderImageFilterLayerScene(
+                        wsc::Canvas::Backend::Vulkan, width, height, vulkanPixels),
+                    "Vulkan public image-filter layer scene failed") && ok;
+        ok = expect(renderImageFilterLayerScene(
+                        wsc::Canvas::Backend::Software, width, height, softwarePixels),
+                    "Software public image-filter layer scene failed") && ok;
+        if (!vulkanPixels.empty()) {
+            const auto *top = pixelAt(vulkanPixels, width, width / 2, 12);
+            const auto *bottom = pixelAt(vulkanPixels, width, width / 2, 52);
+            ok = expect(top[0] > top[2] * 3,
+                        "filtered saveLayer flipped the red top half") && ok;
+            ok = expect(bottom[2] > bottom[0] * 3,
+                        "filtered saveLayer flipped the blue bottom half") && ok;
+        }
+        ok = expect(vulkanPixels.size() == softwarePixels.size(),
+                    "public image-filter parity image sizes differ") && ok;
+    }
+
+    {
+        constexpr int width = 64;
+        constexpr int height = 64;
+        std::vector<unsigned char> vulkanPixels;
+        std::vector<unsigned char> softwarePixels;
+        ok = expect(renderTranslucentFilterLayerScene(
+                        wsc::Canvas::Backend::Vulkan, width, height, vulkanPixels),
+                    "Vulkan translucent image-filter layer failed") && ok;
+        ok = expect(renderTranslucentFilterLayerScene(
+                        wsc::Canvas::Backend::Software, width, height, softwarePixels),
+                    "Software translucent image-filter layer failed") && ok;
+        if (!vulkanPixels.empty()) {
+            const auto *center = pixelAt(vulkanPixels, width, 32, 32);
+            ok = expect(center[0] >= 118 && center[0] <= 138,
+                        "premultiplied layer RGB was multiplied by alpha twice") && ok;
+            ok = expect(center[3] >= 118 && center[3] <= 138,
+                        "translucent filtered layer changed center alpha") && ok;
+            ok = expect(center[1] <= 2 && center[2] <= 2,
+                        "translucent red layer gained unrelated color") && ok;
+        }
+        if (vulkanPixels.size() == softwarePixels.size() && !vulkanPixels.empty()) {
+            const auto *vkCenter = pixelAt(vulkanPixels, width, 32, 32);
+            const auto *swCenter = pixelAt(softwarePixels, width, 32, 32);
+            ok = expect(std::abs(static_cast<int>(vkCenter[0])
+                                 - static_cast<int>(swCenter[0])) <= 3
+                            && std::abs(static_cast<int>(vkCenter[3])
+                                       - static_cast<int>(swCenter[3])) <= 3,
+                        "translucent filter layer drifted from Software") && ok;
+        } else {
+            ok = expect(false, "translucent parity image sizes differ") && ok;
+        }
+    }
+
+    {
+        constexpr int width = 96;
+        constexpr int height = 72;
+        std::vector<unsigned char> vulkanPixels;
+        std::vector<unsigned char> softwarePixels;
+        ok = expect(renderCroppedClipScene(
+                        wsc::Canvas::Backend::Vulkan, width, height, vulkanPixels),
+                    "Vulkan cropped clip scene failed") && ok;
+        ok = expect(renderCroppedClipScene(
+                        wsc::Canvas::Backend::Software, width, height, softwarePixels),
+                    "Software cropped clip scene failed") && ok;
+        if (!vulkanPixels.empty()) {
+            const auto *outside = pixelAt(vulkanPixels, width, 17, 10);
+            const auto *gradientLeft = pixelAt(vulkanPixels, width, 24, 36);
+            const auto *gradientRight = pixelAt(vulkanPixels, width, 44, 36);
+            const auto *imageTopLeft = pixelAt(vulkanPixels, width, 54, 20);
+            const auto *imageBottomRight = pixelAt(vulkanPixels, width, 70, 52);
+            ok = expect(outside[0] < 20 && outside[1] < 20 && outside[2] < 20,
+                        "rounded clip leaked outside its cropped layer") && ok;
+            ok = expect(gradientLeft[0] > gradientLeft[1]
+                            && gradientRight[1] > gradientRight[0],
+                        "cropped clip shifted the gradient coordinates") && ok;
+            if (!(imageTopLeft[0] > 220 && imageTopLeft[1] > 180)
+                || !(imageBottomRight[0] < 40 && imageBottomRight[2] > 220)) {
+                const auto *softwareTopLeft =
+                    pixelAt(softwarePixels, width, 54, 20);
+                const auto *softwareBottomRight =
+                    pixelAt(softwarePixels, width, 70, 52);
+                std::cerr << "[VulkanImageFilterTests] cropped image samples: top-left="
+                          << static_cast<int>(imageTopLeft[0]) << ","
+                          << static_cast<int>(imageTopLeft[1]) << ","
+                          << static_cast<int>(imageTopLeft[2]) << " bottom-right="
+                          << static_cast<int>(imageBottomRight[0]) << ","
+                          << static_cast<int>(imageBottomRight[1]) << ","
+                          << static_cast<int>(imageBottomRight[2]) << " software="
+                          << static_cast<int>(softwareTopLeft[0]) << ","
+                          << static_cast<int>(softwareTopLeft[1]) << ","
+                          << static_cast<int>(softwareTopLeft[2]) << "/"
+                          << static_cast<int>(softwareBottomRight[0]) << ","
+                          << static_cast<int>(softwareBottomRight[1]) << ","
+                          << static_cast<int>(softwareBottomRight[2]) << std::endl;
+            }
+            ok = expect(imageTopLeft[0] > 220 && imageTopLeft[1] > 180,
+                        "cropped clip shifted the image's top-left quadrant") && ok;
+            ok = expect(imageBottomRight[0] < 40 && imageBottomRight[2] > 220,
+                        "cropped clip shifted the image's bottom-right quadrant") && ok;
+        }
+        ok = expect(vulkanPixels.size() == softwarePixels.size(),
+                    "cropped clip parity image sizes differ") && ok;
     }
 
     if (ok) {

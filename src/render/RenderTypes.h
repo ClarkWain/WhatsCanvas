@@ -15,12 +15,24 @@ struct ImageResourceHandle {
     bool isValid() const { return value != 0; }
 };
 
+enum class ImageOrigin {
+    TopLeft,
+    BottomLeft
+};
+
+enum class ImageAlphaType {
+    Straight,
+    Premultiplied
+};
+
 class ImageResource
 {
 public:
     virtual ~ImageResource() = default;
 
     virtual bool isValid() const = 0;
+    virtual ImageOrigin origin() const { return ImageOrigin::TopLeft; }
+    virtual ImageAlphaType alphaType() const { return ImageAlphaType::Straight; }
     virtual void bind(const RenderContext &context) const = 0;
     virtual bool updateRGBA(int x, int y, int width, int height, const unsigned char *pixels,
                             bool regenerateMipmaps) = 0;

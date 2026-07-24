@@ -42,11 +42,54 @@ void GaussianBlurProgram::initialize()
         uniform int uRadius;
         uniform int uDecal;
         uniform int uColorAdjust;
+        uniform int uSourcePremultiplied;
+        uniform int uOutputStraight;
+        uniform int uResampleStraightAlpha;
         uniform vec3 uColorAdjustment; // saturation, brightness, contrast
         uniform float uGrain;
         uniform float uWeights[65];
         uniform vec4 uTint;
         out vec4 FragColor;
+
+        vec4 fetchStraightPremultiplied(ivec2 coord)
+        {
+            ivec2 size = textureSize(uTexture, 0);
+            if (uDecal != 0
+                && (coord.x < 0 || coord.x >= size.x
+                    || coord.y < 0 || coord.y >= size.y)) {
+                return vec4(0.0);
+            }
+            ivec2 bounded = clamp(coord, ivec2(0), size - ivec2(1));
+            vec4 color = texelFetch(uTexture, bounded, 0);
+            return vec4(color.rgb * color.a, color.a);
+        }
+
+        vec4 samplePremultiplied(vec2 uv)
+        {
+            if (uSourcePremultiplied != 0) {
+                if (uDecal != 0
+                    && (uv.x < 0.0 || uv.x > 1.0
+                        || uv.y < 0.0 || uv.y > 1.0)) {
+                    return vec4(0.0);
+                }
+                return texture(uTexture, uv);
+            }
+            if (uResampleStraightAlpha == 0) {
+                vec4 color = texture(uTexture, uv);
+                return vec4(color.rgb * color.a, color.a);
+            }
+            vec2 size = vec2(textureSize(uTexture, 0));
+            vec2 position = uv * size - vec2(0.5);
+            ivec2 base = ivec2(floor(position));
+            vec2 fraction = fract(position);
+            vec4 c00 = fetchStraightPremultiplied(base);
+            vec4 c10 = fetchStraightPremultiplied(base + ivec2(1, 0));
+            vec4 c01 = fetchStraightPremultiplied(base + ivec2(0, 1));
+            vec4 c11 = fetchStraightPremultiplied(base + ivec2(1, 1));
+            return mix(mix(c00, c10, fraction.x),
+                       mix(c01, c11, fraction.x), fraction.y);
+        }
+
         void main()
         {
             if (uMode == 0) {
@@ -61,8 +104,7 @@ void GaussianBlurProgram::initialize()
                 }
                 FragColor = vec4(1.0, 1.0, 1.0, a);
             } else if (uMode == 2) {
-                vec4 center = texture(uTexture, vUv);
-                vec4 sum = vec4(center.rgb * center.a, center.a) * uWeights[0];
+                vec4 sum = samplePremultiplied(vUv) * uWeights[0];
                 for (int i = 1; i <= 64; ++i) {
                     if (i > uRadius) {
                         break;
@@ -70,12 +112,12 @@ void GaussianBlurProgram::initialize()
                     vec2 offset = uDirection * float(i);
                     vec2 loUv = vUv - offset;
                     vec2 hiUv = vUv + offset;
-                    vec4 lo = (uDecal != 0 && (loUv.x < 0.0 || loUv.x > 1.0 || loUv.y < 0.0 || loUv.y > 1.0))
-                        ? vec4(0.0) : texture(uTexture, loUv);
-                    vec4 hi = (uDecal != 0 && (hiUv.x < 0.0 || hiUv.x > 1.0 || hiUv.y < 0.0 || hiUv.y > 1.0))
-                        ? vec4(0.0) : texture(uTexture, hiUv);
-                    sum += vec4(lo.rgb * lo.a, lo.a) * uWeights[i];
-                    sum += vec4(hi.rgb * hi.a, hi.a) * uWeights[i];
+                    sum += samplePremultiplied(loUv) * uWeights[i];
+                    sum += samplePremultiplied(hiUv) * uWeights[i];
+                }
+                if (uOutputStraight == 0) {
+                    FragColor = sum;
+                    return;
                 }
                 vec4 color = sum.a > 0.000001
                     ? vec4(sum.rgb / sum.a, sum.a)
@@ -238,23 +280,28 @@ void GaussianBlurProgram::blurPass(GLuint srcTexture, GLuint dstFramebuffer, int
                                    const glm::vec2 &direction, const wsc::render::GaussianKernel &kernel)
 {
     blurPassImpl(srcTexture, dstFramebuffer, width, height, direction, kernel,
-                 0, false, 1.0f, 1.0f, 1.0f, 0.0f);
+                 0, false, 1.0f, 1.0f, 1.0f, 0.0f, false, true, false);
 }
 
 void GaussianBlurProgram::blurImagePass(GLuint srcTexture, GLuint dstFramebuffer, int width, int height,
                                         const glm::vec2 &direction,
                                         const wsc::render::GaussianKernel &kernel, bool decal,
                                         float saturation, float brightness, float contrast,
-                                        float grain)
+                                        float grain, bool sourcePremultiplied,
+                                        bool outputStraight,
+                                        bool resampleStraightAlpha)
 {
     blurPassImpl(srcTexture, dstFramebuffer, width, height, direction, kernel,
-                 2, decal, saturation, brightness, contrast, grain);
+                 2, decal, saturation, brightness, contrast, grain,
+                 sourcePremultiplied, outputStraight, resampleStraightAlpha);
 }
 
 void GaussianBlurProgram::blurPassImpl(GLuint srcTexture, GLuint dstFramebuffer, int width, int height,
                                        const glm::vec2 &direction,
                                        const wsc::render::GaussianKernel &kernel, int mode, bool decal,
-                                       float saturation, float brightness, float contrast, float grain)
+                                       float saturation, float brightness, float contrast, float grain,
+                                       bool sourcePremultiplied, bool outputStraight,
+                                       bool resampleStraightAlpha)
 {
     if (!initialized_) {
         return;
@@ -273,6 +320,9 @@ void GaussianBlurProgram::blurPassImpl(GLuint srcTexture, GLuint dstFramebuffer,
         || std::abs(brightness - 1.0f) > 1e-6f
         || std::abs(contrast - 1.0f) > 1e-6f;
     program_->setInt("uColorAdjust", colorAdjust ? 1 : 0);
+    program_->setInt("uSourcePremultiplied", sourcePremultiplied ? 1 : 0);
+    program_->setInt("uOutputStraight", outputStraight ? 1 : 0);
+    program_->setInt("uResampleStraightAlpha", resampleStraightAlpha ? 1 : 0);
     program_->setVec3("uColorAdjustment", glm::vec3(saturation, brightness, contrast));
     program_->setFloat("uGrain", grain);
     program_->setVec2("uDirection", direction);

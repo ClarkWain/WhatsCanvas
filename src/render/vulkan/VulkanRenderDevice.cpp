@@ -78,7 +78,7 @@ bool VulkanRenderDevice::isAvailable()
 #if defined(WHATSCANVAS_ENABLE_VULKAN)
 
 // Fragment push constants for the textured pipeline. Layout matches the
-// std430-style push_constant block in textured.frag (104 bytes).
+// std430-style push_constant block in textured.frag (108 bytes).
 struct TexPushConstants
 {
     float colorMatrix[16] = {1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f,
@@ -87,6 +87,7 @@ struct TexPushConstants
     float colorOffset[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     float layerAlpha = 1.0f;
     std::int32_t useColorMatrix = 0;
+    std::int32_t sourcePremultiplied = 0;
 };
 
 // Uniform buffer for the gradient pipeline (std140-compatible, matches
@@ -854,9 +855,34 @@ struct VulkanRenderDevice::VulkanContext
             return filterPipeline;
         }
 
+        auto resetPartialState = [&]() {
+            if (filterPipeline != VK_NULL_HANDLE) {
+                vkDestroyPipeline(device, filterPipeline, nullptr);
+                filterPipeline = VK_NULL_HANDLE;
+            }
+            if (filterPipelineLayout != VK_NULL_HANDLE) {
+                vkDestroyPipelineLayout(device, filterPipelineLayout, nullptr);
+                filterPipelineLayout = VK_NULL_HANDLE;
+            }
+            if (filterDescriptorSetLayout != VK_NULL_HANDLE) {
+                vkDestroyDescriptorSetLayout(device, filterDescriptorSetLayout, nullptr);
+                filterDescriptorSetLayout = VK_NULL_HANDLE;
+            }
+            if (filterVertModule != VK_NULL_HANDLE) {
+                vkDestroyShaderModule(device, filterVertModule, nullptr);
+                filterVertModule = VK_NULL_HANDLE;
+            }
+            if (filterFragModule != VK_NULL_HANDLE) {
+                vkDestroyShaderModule(device, filterFragModule, nullptr);
+                filterFragModule = VK_NULL_HANDLE;
+            }
+        };
+        resetPartialState();
+
         filterVertModule = createShaderModule(kFilterVertSpv, sizeof(kFilterVertSpv));
         filterFragModule = createShaderModule(kFilterFragSpv, sizeof(kFilterFragSpv));
         if (filterVertModule == VK_NULL_HANDLE || filterFragModule == VK_NULL_HANDLE) {
+            resetPartialState();
             return VK_NULL_HANDLE;
         }
 
@@ -876,6 +902,7 @@ struct VulkanRenderDevice::VulkanContext
         descriptorLayoutInfo.pBindings = bindings.data();
         if (vkCreateDescriptorSetLayout(device, &descriptorLayoutInfo, nullptr,
                                         &filterDescriptorSetLayout) != VK_SUCCESS) {
+            resetPartialState();
             return VK_NULL_HANDLE;
         }
 
@@ -884,6 +911,7 @@ struct VulkanRenderDevice::VulkanContext
         layoutInfo.setLayoutCount = 1;
         layoutInfo.pSetLayouts = &filterDescriptorSetLayout;
         if (vkCreatePipelineLayout(device, &layoutInfo, nullptr, &filterPipelineLayout) != VK_SUCCESS) {
+            resetPartialState();
             return VK_NULL_HANDLE;
         }
 
@@ -897,27 +925,8 @@ struct VulkanRenderDevice::VulkanContext
         stages[1].module = filterFragModule;
         stages[1].pName = "main";
 
-        VkVertexInputBindingDescription binding{};
-        binding.binding = 0;
-        binding.stride = 4 * sizeof(float);
-        binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-        std::array<VkVertexInputAttributeDescription, 2> attributes{};
-        attributes[0].location = 0;
-        attributes[0].binding = 0;
-        attributes[0].format = VK_FORMAT_R32G32_SFLOAT;
-        attributes[0].offset = 0;
-        attributes[1].location = 1;
-        attributes[1].binding = 0;
-        attributes[1].format = VK_FORMAT_R32G32_SFLOAT;
-        attributes[1].offset = 2 * sizeof(float);
-
         VkPipelineVertexInputStateCreateInfo vertexInput{};
         vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-        vertexInput.vertexBindingDescriptionCount = 1;
-        vertexInput.pVertexBindingDescriptions = &binding;
-        vertexInput.vertexAttributeDescriptionCount =
-            static_cast<std::uint32_t>(attributes.size());
-        vertexInput.pVertexAttributeDescriptions = attributes.data();
 
         VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
         inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -968,7 +977,7 @@ struct VulkanRenderDevice::VulkanContext
         pipelineInfo.subpass = 0;
         if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr,
                                       &filterPipeline) != VK_SUCCESS) {
-            filterPipeline = VK_NULL_HANDLE;
+            resetPartialState();
         }
         return filterPipeline;
     }
@@ -1250,6 +1259,10 @@ public:
     }
 
     bool isValid() const override { return image_ != VK_NULL_HANDLE; }
+    ImageAlphaType alphaType() const override
+    {
+        return ImageAlphaType::Premultiplied;
+    }
     void bind(const RenderContext & /*context*/) const override {}
     bool updateRGBA(int /*x*/, int /*y*/, int /*width*/, int /*height*/, const unsigned char * /*pixels*/,
                     bool /*regenerateMipmaps*/) override
@@ -1271,7 +1284,8 @@ class VulkanTextureResource final : public ImageResource
 public:
     VulkanTextureResource(VulkanRenderDevice::VulkanContext *context, VkImage image, VkDeviceMemory memory,
                           VkImageView view, VkSampler sampler, int width, int height, int mipLevels = 1,
-                          bool ownsImage = true)
+                          bool ownsImage = true,
+                          ImageAlphaType alphaType = ImageAlphaType::Straight)
         : context_(context),
           image_(image),
           memory_(memory),
@@ -1280,7 +1294,8 @@ public:
           width_(width),
           height_(height),
           mipLevels_(mipLevels),
-          ownsImage_(ownsImage)
+          ownsImage_(ownsImage),
+          alphaType_(alphaType)
     {
         if (context_) {
             ++context_->imageTextureCount;
@@ -1309,6 +1324,7 @@ public:
     {
         return image_ != VK_NULL_HANDLE && view_ != VK_NULL_HANDLE && sampler_ != VK_NULL_HANDLE;
     }
+    ImageAlphaType alphaType() const override { return alphaType_; }
 
     void bind(const RenderContext & /*context*/) const override {}
 
@@ -1355,6 +1371,9 @@ public:
     VkSampler sampler() const { return sampler_; }
     int mipLevels() const { return mipLevels_; }
     VkImage image() const { return image_; }
+    int width() const { return width_; }
+    int height() const { return height_; }
+    VulkanRenderDevice::VulkanContext *context() const { return context_; }
 
 private:
     VulkanRenderDevice::VulkanContext *context_ = nullptr;
@@ -1366,6 +1385,7 @@ private:
     int height_ = 0;
     int mipLevels_ = 1;
     bool ownsImage_ = true;
+    ImageAlphaType alphaType_ = ImageAlphaType::Straight;
 };
 
 // Create an owning sampled RGBA8 texture from tightly-packed pixels.
@@ -1565,7 +1585,8 @@ std::shared_ptr<VulkanTextureResource> createSampledTexture(VulkanRenderDevice::
 }
 
 std::shared_ptr<VulkanTextureResource> createEmptySampledTexture(
-    VulkanRenderDevice::VulkanContext *ctx, int width, int height)
+    VulkanRenderDevice::VulkanContext *ctx, int width, int height,
+    ImageAlphaType alphaType = ImageAlphaType::Straight)
 {
     if (ctx == nullptr || ctx->device == VK_NULL_HANDLE || width <= 0 || height <= 0) {
         return nullptr;
@@ -1644,7 +1665,7 @@ std::shared_ptr<VulkanTextureResource> createEmptySampledTexture(
     }
 
     return std::make_shared<VulkanTextureResource>(
-        ctx, image, memory, view, sampler, width, height);
+        ctx, image, memory, view, sampler, width, height, 1, true, alphaType);
 }
 
 // Clip-mask resource holding the analytic-AA path data. Application into a live
@@ -1704,7 +1725,9 @@ public:
         if (!context_ || context_->device == VK_NULL_HANDLE) {
             return;
         }
-        vkDeviceWaitIdle(context_->device);
+        if (!synchronized_) {
+            vkDeviceWaitIdle(context_->device);
+        }
         if (context_->readbackImage == image_) {
             context_->readbackImage = VK_NULL_HANDLE;
             context_->readbackLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -1802,6 +1825,7 @@ public:
     VkRenderPass renderPass() const { return renderPass_; }
     VkFramebuffer framebuffer() const { return framebuffer_; }
     void markReadbackReady() { activated_ = true; }
+    void markSynchronized() { synchronized_ = true; }
 
 private:
     VulkanRenderDevice::VulkanContext *context_ = nullptr;
@@ -1814,6 +1838,7 @@ private:
     VkFramebuffer framebuffer_ = VK_NULL_HANDLE;
     VkImageLayout layout_ = VK_IMAGE_LAYOUT_UNDEFINED;
     bool ownsImage_ = true;
+    bool synchronized_ = false;
     SharedImageResource imageResource_;
     bool begun_ = false;
     bool activated_ = false;
@@ -1957,28 +1982,42 @@ const std::vector<float> &fullTargetQuad()
     return kQuad;
 }
 
-const std::array<float, 24> &fullTextureQuad()
+struct FilterPassRecording
 {
-    static const std::array<float, 24> kQuad = {
-        -1.0f, -1.0f, 0.0f, 0.0f,
-         1.0f, -1.0f, 1.0f, 0.0f,
-         1.0f,  1.0f, 1.0f, 1.0f,
-        -1.0f, -1.0f, 0.0f, 0.0f,
-         1.0f,  1.0f, 1.0f, 1.0f,
-        -1.0f,  1.0f, 0.0f, 1.0f,
-    };
-    return kQuad;
-}
+    VkBuffer uniformBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory uniformMemory = VK_NULL_HANDLE;
+    VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
+    VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
 
-bool recordFilterPass(VulkanRenderDevice::VulkanContext *ctx,
-                      VulkanRenderTarget *destination,
-                      VkImageView sourceView,
-                      VkSampler sourceSampler,
-                      const wsc::render::GaussianKernel &kernel,
-                      float directionX, float directionY,
-                      bool decal,
-                      float saturation, float brightness, float contrast,
-                      float grain)
+    void destroy(VkDevice device)
+    {
+        if (descriptorPool != VK_NULL_HANDLE) {
+            vkDestroyDescriptorPool(device, descriptorPool, nullptr);
+            descriptorPool = VK_NULL_HANDLE;
+            descriptorSet = VK_NULL_HANDLE;
+        }
+        if (uniformBuffer != VK_NULL_HANDLE) {
+            vkDestroyBuffer(device, uniformBuffer, nullptr);
+            uniformBuffer = VK_NULL_HANDLE;
+        }
+        if (uniformMemory != VK_NULL_HANDLE) {
+            vkFreeMemory(device, uniformMemory, nullptr);
+            uniformMemory = VK_NULL_HANDLE;
+        }
+    }
+};
+
+bool prepareFilterPass(VulkanRenderDevice::VulkanContext *ctx,
+                       VulkanRenderTarget *destination,
+                       VkImageView sourceView,
+                       VkSampler sourceSampler,
+                       const wsc::render::GaussianKernel &kernel,
+                       float directionX, float directionY,
+                       bool decal,
+                       float saturation, float brightness, float contrast,
+                       float grain, bool sourcePremultiplied,
+                       bool outputStraight, bool resampleStraightAlpha,
+                       FilterPassRecording &recording)
 {
     if (ctx == nullptr || destination == nullptr || !destination->isValid()
         || sourceView == VK_NULL_HANDLE || sourceSampler == VK_NULL_HANDLE
@@ -2004,47 +2043,27 @@ bool recordFilterPass(VulkanRenderDevice::VulkanContext *ctx,
         || std::abs(brightness - 1.0f) > 1e-6f
         || std::abs(contrast - 1.0f) > 1e-6f
         ? 1.0f : 0.0f;
+    uniform.options[1] = sourcePremultiplied ? 1.0f : 0.0f;
+    uniform.options[2] = outputStraight ? 1.0f : 0.0f;
+    uniform.options[3] = resampleStraightAlpha ? 1.0f : 0.0f;
     std::copy(kernel.weights.begin(), kernel.weights.end(), uniform.packedWeights);
 
     VkDevice device = ctx->device;
-    VkBuffer vertexBuffer = VK_NULL_HANDLE;
-    VkDeviceMemory vertexMemory = VK_NULL_HANDLE;
-    VkBuffer uniformBuffer = VK_NULL_HANDLE;
-    VkDeviceMemory uniformMemory = VK_NULL_HANDLE;
-    VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
-    auto cleanup = [&]() {
-        if (descriptorPool != VK_NULL_HANDLE) {
-            vkDestroyDescriptorPool(device, descriptorPool, nullptr);
-        }
-        if (uniformBuffer != VK_NULL_HANDLE) vkDestroyBuffer(device, uniformBuffer, nullptr);
-        if (uniformMemory != VK_NULL_HANDLE) vkFreeMemory(device, uniformMemory, nullptr);
-        if (vertexBuffer != VK_NULL_HANDLE) vkDestroyBuffer(device, vertexBuffer, nullptr);
-        if (vertexMemory != VK_NULL_HANDLE) vkFreeMemory(device, vertexMemory, nullptr);
-    };
-
-    const auto &quad = fullTextureQuad();
-    const VkDeviceSize vertexBytes = quad.size() * sizeof(float);
-    if (!ctx->createHostVisibleBuffer(vertexBytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                                      vertexBuffer, vertexMemory)
-        || !ctx->createHostVisibleBuffer(sizeof(FilterUBO), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                                         uniformBuffer, uniformMemory)) {
-        cleanup();
+    if (!ctx->createHostVisibleBuffer(
+            sizeof(FilterUBO), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            recording.uniformBuffer, recording.uniformMemory)) {
+        recording.destroy(device);
         return false;
     }
 
     void *mapped = nullptr;
-    if (vkMapMemory(device, vertexMemory, 0, vertexBytes, 0, &mapped) != VK_SUCCESS) {
-        cleanup();
-        return false;
-    }
-    std::memcpy(mapped, quad.data(), static_cast<std::size_t>(vertexBytes));
-    vkUnmapMemory(device, vertexMemory);
-    if (vkMapMemory(device, uniformMemory, 0, sizeof(FilterUBO), 0, &mapped) != VK_SUCCESS) {
-        cleanup();
+    if (vkMapMemory(device, recording.uniformMemory, 0, sizeof(FilterUBO), 0, &mapped)
+        != VK_SUCCESS) {
+        recording.destroy(device);
         return false;
     }
     std::memcpy(mapped, &uniform, sizeof(FilterUBO));
-    vkUnmapMemory(device, uniformMemory);
+    vkUnmapMemory(device, recording.uniformMemory);
 
     std::array<VkDescriptorPoolSize, 2> poolSizes{};
     poolSizes[0] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1};
@@ -2054,19 +2073,20 @@ bool recordFilterPass(VulkanRenderDevice::VulkanContext *ctx,
     poolInfo.maxSets = 1;
     poolInfo.poolSizeCount = static_cast<std::uint32_t>(poolSizes.size());
     poolInfo.pPoolSizes = poolSizes.data();
-    if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS) {
-        cleanup();
+    if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &recording.descriptorPool)
+        != VK_SUCCESS) {
+        recording.destroy(device);
         return false;
     }
 
     VkDescriptorSetAllocateInfo allocation{};
     allocation.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    allocation.descriptorPool = descriptorPool;
+    allocation.descriptorPool = recording.descriptorPool;
     allocation.descriptorSetCount = 1;
     allocation.pSetLayouts = &ctx->filterDescriptorSetLayout;
-    VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
-    if (vkAllocateDescriptorSets(device, &allocation, &descriptorSet) != VK_SUCCESS) {
-        cleanup();
+    if (vkAllocateDescriptorSets(device, &allocation, &recording.descriptorSet)
+        != VK_SUCCESS) {
+        recording.destroy(device);
         return false;
     }
 
@@ -2075,17 +2095,17 @@ bool recordFilterPass(VulkanRenderDevice::VulkanContext *ctx,
     imageInfo.imageView = sourceView;
     imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     VkDescriptorBufferInfo bufferInfo{};
-    bufferInfo.buffer = uniformBuffer;
+    bufferInfo.buffer = recording.uniformBuffer;
     bufferInfo.range = sizeof(FilterUBO);
     std::array<VkWriteDescriptorSet, 2> writes{};
     writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writes[0].dstSet = descriptorSet;
+    writes[0].dstSet = recording.descriptorSet;
     writes[0].dstBinding = 0;
     writes[0].descriptorCount = 1;
     writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     writes[0].pImageInfo = &imageInfo;
     writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writes[1].dstSet = descriptorSet;
+    writes[1].dstSet = recording.descriptorSet;
     writes[1].dstBinding = 1;
     writes[1].descriptorCount = 1;
     writes[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -2093,54 +2113,45 @@ bool recordFilterPass(VulkanRenderDevice::VulkanContext *ctx,
     vkUpdateDescriptorSets(device, static_cast<std::uint32_t>(writes.size()),
                            writes.data(), 0, nullptr);
 
-    VkCommandBuffer commandBuffer = ctx->beginSingleTimeCommands();
-    bool submitted = false;
-    if (commandBuffer != VK_NULL_HANDLE) {
-        VkClearValue clear{};
-        clear.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
-        VkRenderPassBeginInfo passInfo{};
-        passInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-        passInfo.renderPass = destination->renderPass();
-        passInfo.framebuffer = destination->framebuffer();
-        passInfo.renderArea.extent = {
-            static_cast<std::uint32_t>(destination->width()),
-            static_cast<std::uint32_t>(destination->height())};
-        passInfo.clearValueCount = 1;
-        passInfo.pClearValues = &clear;
-        vkCmdBeginRenderPass(commandBuffer, &passInfo, VK_SUBPASS_CONTENTS_INLINE);
-
-        VkViewport viewport{};
-        viewport.width = static_cast<float>(destination->width());
-        viewport.height = static_cast<float>(destination->height());
-        viewport.maxDepth = 1.0f;
-        vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
-        VkRect2D scissor{};
-        scissor.extent = {
-            static_cast<std::uint32_t>(destination->width()),
-            static_cast<std::uint32_t>(destination->height())};
-        vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
-
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                ctx->filterPipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
-        const VkDeviceSize offset = 0;
-        vkCmdBindVertexBuffers(commandBuffer, 0, 1, &vertexBuffer, &offset);
-        vkCmdDraw(commandBuffer, 6, 1, 0, 0);
-        vkCmdEndRenderPass(commandBuffer);
-        submitted = ctx->endSingleTimeCommands(commandBuffer);
-    }
-    cleanup();
-    if (!submitted) {
-        return false;
-    }
-
-    destination->setLayout(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-    destination->markReadbackReady();
-    ctx->readbackImage = destination->image();
-    ctx->readbackLayout = destination->layout();
-    ctx->readbackWidth = destination->width();
-    ctx->readbackHeight = destination->height();
     return true;
+}
+
+void recordFilterPass(VulkanRenderDevice::VulkanContext *ctx,
+                      VkCommandBuffer commandBuffer,
+                      VulkanRenderTarget *destination,
+                      const FilterPassRecording &recording)
+{
+    VkClearValue clear{};
+    clear.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
+    VkRenderPassBeginInfo passInfo{};
+    passInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    passInfo.renderPass = destination->renderPass();
+    passInfo.framebuffer = destination->framebuffer();
+    passInfo.renderArea.extent = {
+        static_cast<std::uint32_t>(destination->width()),
+        static_cast<std::uint32_t>(destination->height())};
+    passInfo.clearValueCount = 1;
+    passInfo.pClearValues = &clear;
+    vkCmdBeginRenderPass(commandBuffer, &passInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+    VkViewport viewport{};
+    viewport.width = static_cast<float>(destination->width());
+    viewport.height = static_cast<float>(destination->height());
+    viewport.maxDepth = 1.0f;
+    vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+    VkRect2D scissor{};
+    scissor.extent = {
+        static_cast<std::uint32_t>(destination->width()),
+        static_cast<std::uint32_t>(destination->height())};
+    vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                      ctx->filterPipeline);
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            ctx->filterPipelineLayout, 0, 1,
+                            &recording.descriptorSet, 0, nullptr);
+    vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+    vkCmdEndRenderPass(commandBuffer);
 }
 
 SharedImageResource copyRenderTargetToSampledTexture(
@@ -2149,7 +2160,9 @@ SharedImageResource copyRenderTargetToSampledTexture(
     if (ctx == nullptr || source == nullptr || !source->isValid()) {
         return {};
     }
-    auto destination = createEmptySampledTexture(ctx, source->width(), source->height());
+    auto destination = createEmptySampledTexture(
+        ctx, source->width(), source->height(),
+        ImageAlphaType::Premultiplied);
     if (!destination) {
         return {};
     }
@@ -2161,11 +2174,12 @@ SharedImageResource copyRenderTargetToSampledTexture(
     VulkanRenderDevice::VulkanContext::transitionImageLayout(
         commandBuffer, destination->image(), VK_IMAGE_LAYOUT_UNDEFINED,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    if (source->layout() != VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL) {
-        VulkanRenderDevice::VulkanContext::transitionImageLayout(
-            commandBuffer, source->image(), source->layout(),
-            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-    }
+    // A layout value alone is not a memory dependency. Issue the barrier even
+    // when the render pass already selected TRANSFER_SRC_OPTIMAL so its color
+    // writes are visible to this transfer read.
+    VulkanRenderDevice::VulkanContext::transitionImageLayout(
+        commandBuffer, source->image(), source->layout(),
+        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
     VkImageCopy region{};
     region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -3729,6 +3743,8 @@ bool VulkanRenderDevice::renderTexturedQuad(const std::unique_ptr<IRenderTarget>
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, context_->texPipelineLayout, 0, 1, &set, 0,
                                 nullptr);
         TexPushConstants push;
+        push.sourcePremultiplied =
+            imageResource->alphaType() == ImageAlphaType::Premultiplied ? 1 : 0;
         vkCmdPushConstants(cmd, context_->texPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                            sizeof(TexPushConstants), &push);
         const VkDeviceSize offset = 0;
@@ -3990,6 +4006,7 @@ bool VulkanRenderDevice::compositeLayer(const std::unique_ptr<IRenderTarget> &ds
                                 nullptr);
         TexPushConstants push;
         push.layerAlpha = layerAlpha;
+        push.sourcePremultiplied = 1;
         vkCmdPushConstants(cmd, context_->texPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                            sizeof(TexPushConstants), &push);
         vkCmdBindVertexBuffers(cmd, 0, 1, &layerBuffer, &offset);
@@ -4072,14 +4089,17 @@ SharedImageResource VulkanRenderDevice::filterImageResource(
         return {};
     }
     auto *input = dynamic_cast<VulkanTextureResource *>(source.get());
-    if (input == nullptr || !input->isValid()) {
+    if (input == nullptr || !input->isValid()
+        || input->context() != context_.get()
+        || input->width() != width || input->height() != height) {
         return {};
     }
 
-    const int downsample = wsc::render::chooseGaussianBlurDownsample(
-        width, height, filter.radiusX(), filter.radiusY());
-    const int blurWidth = (width + downsample - 1) / downsample;
-    const int blurHeight = (height + downsample - 1) / downsample;
+    const wsc::render::GaussianBlurDownsample downsample =
+        wsc::render::chooseGaussianBlurDownsampleFactors(
+            width, height, filter.radiusX(), filter.radiusY());
+    const int blurWidth = (width + downsample.x - 1) / downsample.x;
+    const int blurHeight = (height + downsample.y - 1) / downsample.y;
     auto targetA = createRenderTarget(blurWidth, blurHeight);
     auto targetB = createRenderTarget(blurWidth, blurHeight);
     auto *passA = dynamic_cast<VulkanRenderTarget *>(targetA.get());
@@ -4089,81 +4109,142 @@ SharedImageResource VulkanRenderDevice::filterImageResource(
         return {};
     }
 
-    auto transitionToShaderRead = [&](VulkanRenderTarget *target) {
-        VkCommandBuffer commandBuffer = context_->beginSingleTimeCommands();
-        if (commandBuffer == VK_NULL_HANDLE) {
-            return false;
-        }
-        VulkanContext::transitionImageLayout(
-            commandBuffer, target->image(), target->layout(),
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        if (!context_->endSingleTimeCommands(commandBuffer)) {
-            return false;
-        }
-        target->setLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        return true;
-    };
-
     VkSampler sampler = context_->getSampler(
         VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
     if (sampler == VK_NULL_HANDLE) {
         return {};
     }
     const bool decal = filter.tileMode() == wsc::ImageFilter::TileMode::Decal;
+    const bool sourcePremultiplied =
+        source->alphaType() == ImageAlphaType::Premultiplied;
     const auto kernelX = wsc::render::computeGaussianKernel(
-        filter.radiusX() / static_cast<float>(downsample));
+        filter.radiusX() / static_cast<float>(downsample.x));
     const auto kernelY = wsc::render::computeGaussianKernel(
-        filter.radiusY() / static_cast<float>(downsample));
+        filter.radiusY() / static_cast<float>(downsample.y));
 
-    if (!recordFilterPass(
+    VulkanRenderTarget *restore = nullptr;
+    std::unique_ptr<IRenderTarget> restoreTarget;
+    if (downsample.active()) {
+        restoreTarget = createRenderTarget(width, height);
+        restore = dynamic_cast<VulkanRenderTarget *>(restoreTarget.get());
+        if (restore == nullptr || !restore->isValid()) {
+            return {};
+        }
+    }
+
+    auto result = createEmptySampledTexture(context_.get(), width, height);
+    if (!result) {
+        return {};
+    }
+
+    std::array<FilterPassRecording, 3> recordings{};
+    auto destroyRecordings = [&]() {
+        for (FilterPassRecording &recording : recordings) {
+            recording.destroy(context_->device);
+        }
+    };
+    if (!prepareFilterPass(
             context_.get(), passA, input->view(), sampler, kernelX,
             1.0f / static_cast<float>(blurWidth), 0.0f, decal,
-            1.0f, 1.0f, 1.0f, 0.0f)
-        || !transitionToShaderRead(passA)
-        || !recordFilterPass(
+            1.0f, 1.0f, 1.0f, 0.0f, sourcePremultiplied, false,
+            downsample.active() && !sourcePremultiplied, recordings[0])
+        || !prepareFilterPass(
             context_.get(), passB, passA->view(), sampler, kernelY,
             0.0f, 1.0f / static_cast<float>(blurHeight), decal,
-            downsample == 1 ? filter.saturation() : 1.0f,
-            downsample == 1 ? filter.brightness() : 1.0f,
-            downsample == 1 ? filter.contrast() : 1.0f,
-            downsample == 1 ? filter.grain() : 0.0f)) {
+            !downsample.active() ? filter.saturation() : 1.0f,
+            !downsample.active() ? filter.brightness() : 1.0f,
+            !downsample.active() ? filter.contrast() : 1.0f,
+            !downsample.active() ? filter.grain() : 0.0f,
+            true, !downsample.active(), false, recordings[1])) {
+        destroyRecordings();
         return {};
     }
 
     VulkanRenderTarget *finalTarget = passB;
-    std::unique_ptr<IRenderTarget> restoreTarget;
-    if (downsample > 1) {
-        restoreTarget = createRenderTarget(width, height);
-        auto *restore = dynamic_cast<VulkanRenderTarget *>(restoreTarget.get());
-        if (restore == nullptr || !restore->isValid()
-            || !transitionToShaderRead(passB)) {
-            return {};
-        }
+    if (downsample.active()) {
         const auto passThrough = wsc::render::computeGaussianKernel(0.0f);
-        if (!recordFilterPass(
+        if (!prepareFilterPass(
                 context_.get(), restore, passB->view(), sampler, passThrough,
                 0.0f, 0.0f, decal,
                 filter.saturation(), filter.brightness(), filter.contrast(),
-                filter.grain())) {
+                filter.grain(), true, true, false, recordings[2])) {
+            destroyRecordings();
             return {};
         }
         finalTarget = restore;
     }
 
-    SharedImageResource result =
-        copyRenderTargetToSampledTexture(context_.get(), finalTarget);
-    if (!result || !result->isValid()) {
+    VkCommandBuffer commandBuffer = context_->beginSingleTimeCommands();
+    if (commandBuffer == VK_NULL_HANDLE) {
+        destroyRecordings();
         return {};
     }
+
+    recordFilterPass(context_.get(), commandBuffer, passA, recordings[0]);
+    VulkanContext::transitionImageLayout(
+        commandBuffer, passA->image(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    recordFilterPass(context_.get(), commandBuffer, passB, recordings[1]);
+    if (restore != nullptr) {
+        VulkanContext::transitionImageLayout(
+            commandBuffer, passB->image(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        recordFilterPass(context_.get(), commandBuffer, restore, recordings[2]);
+    }
+
+    // The final render pass already selected TRANSFER_SRC_OPTIMAL. Keep the
+    // layout but add the required color-write to transfer-read dependency.
+    VulkanContext::transitionImageLayout(
+        commandBuffer, finalTarget->image(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    VulkanContext::transitionImageLayout(
+        commandBuffer, result->image(), VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    VkImageCopy copy{};
+    copy.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    copy.srcSubresource.layerCount = 1;
+    copy.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    copy.dstSubresource.layerCount = 1;
+    copy.extent = {static_cast<std::uint32_t>(width),
+                   static_cast<std::uint32_t>(height), 1};
+    vkCmdCopyImage(
+        commandBuffer,
+        finalTarget->image(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        result->image(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        1, &copy);
+    VulkanContext::transitionImageLayout(
+        commandBuffer, result->image(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    const bool submitted = context_->endSingleTimeCommands(commandBuffer);
+    destroyRecordings();
+    if (!submitted) {
+        return {};
+    }
+    passA->markSynchronized();
+    passB->markSynchronized();
+    if (restore != nullptr) {
+        restore->markSynchronized();
+    }
+    if (!result->isValid()) {
+        return {};
+    }
+    passA->setLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    passB->setLayout(
+        restore != nullptr ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                           : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    if (restore != nullptr) {
+        restore->setLayout(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    }
     if (executionStats != nullptr) {
-        executionStats->passCount = downsample > 1 ? 3u : 2u;
+        executionStats->passCount = downsample.active() ? 3u : 2u;
         executionStats->pixelPassCount =
             static_cast<std::size_t>(blurWidth)
                 * static_cast<std::size_t>(blurHeight) * 2u
-            + (downsample > 1
+            + (downsample.active()
                 ? static_cast<std::size_t>(width) * static_cast<std::size_t>(height)
                 : 0u);
-        executionStats->downsampled = downsample > 1;
+        executionStats->downsampled = downsample.active();
     }
     return result;
 #else
@@ -4338,6 +4419,8 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
             draw.descriptorLayout = context_->texPipelineLayout;
             draw.pushLayerAlpha = true;
             draw.push.layerAlpha = prim.layerAlpha;
+            draw.push.sourcePremultiplied =
+                prim.texture->alphaType() == ImageAlphaType::Premultiplied ? 1 : 0;
             draw.push.tint[0] = prim.tint[0];
             draw.push.tint[1] = prim.tint[1];
             draw.push.tint[2] = prim.tint[2];
@@ -4681,6 +4764,22 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
         ox = targetX / static_cast<float>(rt->width()) * 2.0f - 1.0f;
         oy = targetY / static_cast<float>(rt->height()) * 2.0f - 1.0f;
     };
+    auto toFullCanvasNdc = [&](const glm::mat4 &tf, float x, float y,
+                               float &ox, float &oy) {
+        const glm::vec4 p = tf * glm::vec4(x, y, 0.0f, 1.0f);
+        ox = p.x / w * 2.0f - 1.0f;
+        oy = p.y / h * 2.0f - 1.0f;
+    };
+    auto targetNdcToCanvasUv = [&](float nx, float ny) {
+        const float targetX =
+            (nx + 1.0f) * 0.5f * static_cast<float>(rt->width());
+        const float targetY =
+            (ny + 1.0f) * 0.5f * static_cast<float>(rt->height());
+        const float canvasX = targetX - static_cast<float>(request.viewportX);
+        const float canvasY = targetY
+            - static_cast<float>(rt->height() - request.viewportY) + h;
+        return glm::vec2(canvasX / w, canvasY / h);
+    };
 
     // Emit two triangles (a quad ABCD) into an NDC position list.
     auto emitQuad = [&](std::vector<float> &out, const glm::mat4 &tf, float ax, float ay, float bx, float by,
@@ -4734,7 +4833,7 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
             mp.positions.reserve(vc * 2);
             for (std::size_t i = 0; i < vc; ++i) {
                 float nx = 0.0f, ny = 0.0f;
-                toNdc(tf, pts[i * 2 + 0], pts[i * 2 + 1], nx, ny);
+                toFullCanvasNdc(tf, pts[i * 2 + 0], pts[i * 2 + 1], nx, ny);
                 mp.positions.push_back(nx);
                 mp.positions.push_back(ny);
             }
@@ -4792,9 +4891,10 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
         prim.uvs.clear();
         prim.uvs.reserve(vc * 2);
         for (std::size_t i = 0; i < vc; ++i) {
-            // Screen-space UV: NDC [-1,1] -> mask texture [0,1].
-            prim.uvs.push_back(prim.positions[i * 2 + 0] * 0.5f + 0.5f);
-            prim.uvs.push_back(prim.positions[i * 2 + 1] * 0.5f + 0.5f);
+            const glm::vec2 uv = targetNdcToCanvasUv(
+                prim.positions[i * 2 + 0], prim.positions[i * 2 + 1]);
+            prim.uvs.push_back(uv.x);
+            prim.uvs.push_back(uv.y);
         }
         return true;
     };
@@ -4819,6 +4919,12 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
         // (transparent) layer so its RGB is a well-defined premultiplied capture;
         // the draw's actual blend mode is applied later at composite time.
         srcPrim.blendMode = 0;
+        for (std::size_t i = 0; i + 1 < srcPrim.positions.size(); i += 2) {
+            const glm::vec2 uv =
+                targetNdcToCanvasUv(srcPrim.positions[i], srcPrim.positions[i + 1]);
+            srcPrim.positions[i] = uv.x * 2.0f - 1.0f;
+            srcPrim.positions[i + 1] = uv.y * 2.0f - 1.0f;
+        }
         ll.push_back(std::move(srcPrim));
         if (!executeDrawList(layer, ll)) {
             return false;

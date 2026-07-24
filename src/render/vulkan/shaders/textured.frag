@@ -16,11 +16,16 @@ layout(push_constant) uniform Push
     vec4 colorOffset;   // offset 80
     float layerAlpha;   // offset 96
     int useColorMatrix; // offset 100
+    int sourcePremultiplied; // offset 104
 } pc;
 
 void main()
 {
     vec4 sampled = texture(uTexture, vUV);
+    if (pc.sourcePremultiplied != 0 && sampled.a > 0.000001)
+    {
+        sampled.rgb /= sampled.a;
+    }
     vec4 c = vec4(sampled.rgb * pc.tint.rgb, sampled.a * pc.tint.a);
     if (pc.useColorMatrix != 0)
     {

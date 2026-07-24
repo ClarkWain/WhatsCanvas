@@ -58,7 +58,9 @@ public:
                        const glm::vec2 &direction, const wsc::render::GaussianKernel &kernel,
                        bool decal = false, float saturation = 1.0f,
                        float brightness = 1.0f, float contrast = 1.0f,
-                       float grain = 0.0f);
+                       float grain = 0.0f, bool sourcePremultiplied = false,
+                       bool outputStraight = true,
+                       bool resampleStraightAlpha = false);
 
     /// Composites `srcTexture` (blurred coverage) into the currently bound
     /// framebuffer as a full-screen quad, tinting rgb with `tint` and scaling
@@ -74,7 +76,9 @@ private:
     void blurPassImpl(GLuint srcTexture, GLuint dstFramebuffer, int width, int height,
                       const glm::vec2 &direction, const wsc::render::GaussianKernel &kernel,
                       int mode, bool decal, float saturation, float brightness,
-                      float contrast, float grain);
+                      float contrast, float grain, bool sourcePremultiplied = false,
+                      bool outputStraight = true,
+                      bool resampleStraightAlpha = false);
     void destroyTargets();
 
     static GaussianBlurProgram *instance_;

@@ -33,9 +33,12 @@ std::size_t g_activeRenderTargetResourceCount = 0;
 class OpenGLImageResource final : public ImageResource
 {
 public:
-    explicit OpenGLImageResource(ImageResourceHandle handle, bool ownsHandle)
+    explicit OpenGLImageResource(ImageResourceHandle handle, bool ownsHandle,
+                                 ImageOrigin origin, ImageAlphaType alphaType)
         : handle_(handle),
-          ownsHandle_(ownsHandle)
+          ownsHandle_(ownsHandle),
+          origin_(origin),
+          alphaType_(alphaType)
     {
         if (handle_.isValid()) {
             ++g_activeImageTextureResourceCount;
@@ -57,6 +60,11 @@ public:
         return handle_.isValid();
     }
 
+    ImageOrigin origin() const override { return origin_; }
+    void setOrigin(ImageOrigin origin) { origin_ = origin; }
+    ImageAlphaType alphaType() const override { return alphaType_; }
+    void setAlphaType(ImageAlphaType alphaType) { alphaType_ = alphaType; }
+
     void bind(const RenderContext &context) const override
     {
         context.bindImageHandle(handle_);
@@ -73,6 +81,8 @@ public:
 private:
     ImageResourceHandle handle_;
     bool ownsHandle_ = true;
+    ImageOrigin origin_ = ImageOrigin::TopLeft;
+    ImageAlphaType alphaType_ = ImageAlphaType::Straight;
 };
 
 class OpenGLClipMaskResource final : public ClipMaskResource
@@ -243,13 +253,17 @@ private:
     GLfloat previousClearColor_[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 };
 
-SharedImageResource createSharedOpenGLImageResource(ImageResourceHandle handle, bool ownsHandle = true)
+SharedImageResource createSharedOpenGLImageResource(
+    ImageResourceHandle handle, bool ownsHandle = true,
+    ImageOrigin origin = ImageOrigin::TopLeft,
+    ImageAlphaType alphaType = ImageAlphaType::Straight)
 {
     if (!handle.isValid()) {
         return {};
     }
 
-    return std::make_shared<OpenGLImageResource>(handle, ownsHandle);
+    return std::make_shared<OpenGLImageResource>(
+        handle, ownsHandle, origin, alphaType);
 }
 
 void initializeSharedRenderBackend()
@@ -415,8 +429,12 @@ std::unique_ptr<IRenderTarget> OpenGLRenderDevice::createRenderTarget(int width,
         return {};
     }
 
-    return std::make_unique<OpenGLRenderTarget>(width, height, createSharedOpenGLImageResource(texture),
-                                                framebuffer, stencilRenderbuffer);
+    return std::make_unique<OpenGLRenderTarget>(
+        width, height,
+        createSharedOpenGLImageResource(
+            texture, true, ImageOrigin::BottomLeft,
+            ImageAlphaType::Premultiplied),
+        framebuffer, stencilRenderbuffer);
 }
 
 SharedClipMaskResource OpenGLRenderDevice::createClipMaskResource(const ClipMaskPath &maskPath) const
@@ -670,10 +688,11 @@ SharedImageResource OpenGLRenderDevice::filterImageResource(const SharedImageRes
         return {};
     }
 
-    const int downsample = wsc::render::chooseGaussianBlurDownsample(
+    const wsc::render::GaussianBlurDownsample downsample =
+        wsc::render::chooseGaussianBlurDownsampleFactors(
         width, height, filter.radiusX(), filter.radiusY());
-    const int blurWidth = (width + downsample - 1) / downsample;
-    const int blurHeight = (height + downsample - 1) / downsample;
+    const int blurWidth = (width + downsample.x - 1) / downsample.x;
+    const int blurHeight = (height + downsample.y - 1) / downsample.y;
     std::unique_ptr<IRenderTarget> targetA = createRenderTarget(blurWidth, blurHeight);
     std::unique_ptr<IRenderTarget> targetB = createRenderTarget(blurWidth, blurHeight);
     auto *glTargetA = dynamic_cast<OpenGLRenderTarget *>(targetA.get());
@@ -690,7 +709,7 @@ SharedImageResource OpenGLRenderDevice::filterImageResource(const SharedImageRes
     }
     std::unique_ptr<IRenderTarget> restoreTarget;
     OpenGLRenderTarget *glRestoreTarget = nullptr;
-    if (downsample > 1) {
+    if (downsample.active()) {
         restoreTarget = createRenderTarget(width, height);
         glRestoreTarget = dynamic_cast<OpenGLRenderTarget *>(restoreTarget.get());
         if (glRestoreTarget == nullptr || !glRestoreTarget->isValid()) {
@@ -717,26 +736,31 @@ SharedImageResource OpenGLRenderDevice::filterImageResource(const SharedImageRes
     auto *blur = wsc::opengl::GaussianBlurProgram::getInstance();
     blur->initialize();
     const auto kernelX = wsc::render::computeGaussianKernel(
-        filter.radiusX() / static_cast<float>(downsample));
+        filter.radiusX() / static_cast<float>(downsample.x));
     const auto kernelY = wsc::render::computeGaussianKernel(
-        filter.radiusY() / static_cast<float>(downsample));
+        filter.radiusY() / static_cast<float>(downsample.y));
     const bool decal = filter.tileMode() == wsc::ImageFilter::TileMode::Decal;
+    const bool sourcePremultiplied =
+        source->alphaType() == ImageAlphaType::Premultiplied;
     blur->blurImagePass(input->texture(), glTargetA->framebuffer(), blurWidth, blurHeight,
                         glm::vec2(1.0f / static_cast<float>(blurWidth), 0.0f),
-                        kernelX, decal);
+                        kernelX, decal, 1.0f, 1.0f, 1.0f, 0.0f,
+                        sourcePremultiplied, false,
+                        downsample.active() && !sourcePremultiplied);
     blur->blurImagePass(imageA->texture(), glTargetB->framebuffer(), blurWidth, blurHeight,
                         glm::vec2(0.0f, 1.0f / static_cast<float>(blurHeight)),
                         kernelY, decal,
-                        downsample == 1 ? filter.saturation() : 1.0f,
-                        downsample == 1 ? filter.brightness() : 1.0f,
-                        downsample == 1 ? filter.contrast() : 1.0f,
-                        downsample == 1 ? filter.grain() : 0.0f);
-    if (downsample > 1) {
+                        !downsample.active() ? filter.saturation() : 1.0f,
+                        !downsample.active() ? filter.brightness() : 1.0f,
+                        !downsample.active() ? filter.contrast() : 1.0f,
+                        !downsample.active() ? filter.grain() : 0.0f,
+                        true, !downsample.active());
+    if (downsample.active()) {
         const auto passThrough = wsc::render::computeGaussianKernel(0.0f);
         blur->blurImagePass(imageB->texture(), glRestoreTarget->framebuffer(), width, height,
                             glm::vec2(0.0f), passThrough, decal,
                             filter.saturation(), filter.brightness(), filter.contrast(),
-                            filter.grain());
+                            filter.grain(), true, true);
     }
 
     glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(previousFramebuffer));
@@ -758,15 +782,20 @@ SharedImageResource OpenGLRenderDevice::filterImageResource(const SharedImageRes
     }
 
     if (executionStats != nullptr) {
-        executionStats->passCount = downsample > 1 ? 3u : 2u;
+        executionStats->passCount = downsample.active() ? 3u : 2u;
         executionStats->pixelPassCount =
             static_cast<std::size_t>(blurWidth) * static_cast<std::size_t>(blurHeight) * 2u
-            + (downsample > 1
+            + (downsample.active()
                 ? static_cast<std::size_t>(width) * static_cast<std::size_t>(height)
                 : 0u);
-        executionStats->downsampled = downsample > 1;
+        executionStats->downsampled = downsample.active();
     }
-    return downsample > 1
+    SharedImageResource result = downsample.active()
         ? glRestoreTarget->getImageResource()
         : glTargetB->getImageResource();
+    if (auto *output = dynamic_cast<OpenGLImageResource *>(result.get())) {
+        output->setOrigin(source->origin());
+        output->setAlphaType(ImageAlphaType::Straight);
+    }
+    return result;
 }
