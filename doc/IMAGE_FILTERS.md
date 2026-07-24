@@ -24,13 +24,26 @@ options.setBackdropFilter(wsc::ImageFilter::frostedGlass(
 ));
 
 canvas->saveLayer(panelBounds, compositePaint, options);
+canvas->restore();
 
 wsc::Paint tint;
 tint.setColor(wsc::Color(255, 255, 255, 64));
 canvas->drawRect(panelBounds, tint);
 canvas->drawText("Backdrop filter", x, y, textPaint);
+```
 
-canvas->restore();
+For a rounded panel, establish the clip before the backdrop-only layer and draw
+the tint and foreground after restoring that layer:
+
+```cpp
+canvas->save();
+canvas->clipPath(roundedPanelPath);
+canvas->saveLayer(panelBounds, compositePaint, options);
+canvas->restore(); // composite the filtered backdrop through the active clip
+
+canvas->drawPath(roundedPanelPath, tint);
+canvas->drawText("Sharp foreground", x, y, textPaint);
+canvas->restore(); // release the rounded clip
 ```
 
 The existing `saveLayer(bounds, paint)` overloads remain unchanged. Filters are
@@ -73,9 +86,10 @@ available on a filter created by `blur()` or `blurSigma()`.
 
 The shared OpenGL offscreen encoder does not yet support every command carrying
 an arbitrary path clip, notably shader-gradient paths inside a filtered layer.
-Unsupported combinations preserve ordinary layer content instead of leaking a
-temporary backdrop capture into the parent framebuffer. Use rectangular layer
-bounds for the current portable frosted-glass path.
+Keep the filtered layer backdrop-only and draw clipped tint and foreground
+after restoring it, as shown above. Unsupported combinations preserve ordinary
+layer content instead of leaking a temporary backdrop capture into the parent
+framebuffer.
 
 ## Backend Status
 

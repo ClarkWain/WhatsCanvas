@@ -124,10 +124,12 @@ int main()
     canvas->beginFrame();
     canvas->drawRect(wsc::RectF(0.0f, 0.0f, 20.0f, static_cast<float>(kHeight)), black);
     canvas->drawRect(wsc::RectF(20.0f, 0.0f, 20.0f, static_cast<float>(kHeight)), white);
-    canvas->saveLayer(wsc::RectF(8.0f, 4.0f, 24.0f, 16.0f), layerPaint, options);
+    canvas->save();
     wsc::Path roundedClip;
     roundedClip.addRoundRect(wsc::RectF(8.0f, 4.0f, 24.0f, 16.0f), 5.0f);
     canvas->clipPath(roundedClip);
+    canvas->saveLayer(wsc::RectF(8.0f, 4.0f, 24.0f, 16.0f), layerPaint, options);
+    canvas->restore();
     wsc::Paint tint = white;
     tint.setColor(wsc::Color(80, 160, 220, 64));
     canvas->drawRect(wsc::RectF(8.0f, 4.0f, 24.0f, 16.0f), tint);
