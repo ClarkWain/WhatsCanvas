@@ -7,6 +7,7 @@
 
 #include <glm/glm.hpp>
 
+#include <algorithm>
 #include <iostream>
 #include "core/LogInternal.h"
 #include <vector>
@@ -29,6 +30,7 @@
 #include "shaders/SolidShaderSpv.h"
 #include "shaders/TexturedShaderSpv.h"
 #include "shaders/ClipShaderSpv.h"
+#include "shaders/FilterShaderSpv.h"
 #include "shaders/GradientShaderSpv.h"
 #endif
 
@@ -99,6 +101,15 @@ struct GradientUBO
     float stopColors[8][4] = {};
 };
 
+struct alignas(16) FilterUBO
+{
+    float directionRadiusDecal[4] = {};
+    float colorAdjustment[4] = {1.0f, 1.0f, 1.0f, 0.0f};
+    float options[4] = {};
+    float packedWeights[68] = {};
+};
+static_assert(sizeof(FilterUBO) == 320, "FilterUBO must match the shader std140 layout");
+
 struct VulkanRenderDevice::VulkanContext
 {
     VkInstance instance = VK_NULL_HANDLE;
@@ -151,6 +162,13 @@ struct VulkanRenderDevice::VulkanContext
     VkDescriptorSetLayout gradientDescriptorSetLayout = VK_NULL_HANDLE;
     VkPipelineLayout gradientPipelineLayout = VK_NULL_HANDLE;
     std::vector<CachedBlendPipeline> gradientPipelineCache;
+
+    // Full-screen separable RGBA Gaussian filter pipeline.
+    VkShaderModule filterVertModule = VK_NULL_HANDLE;
+    VkShaderModule filterFragModule = VK_NULL_HANDLE;
+    VkDescriptorSetLayout filterDescriptorSetLayout = VK_NULL_HANDLE;
+    VkPipelineLayout filterPipelineLayout = VK_NULL_HANDLE;
+    VkPipeline filterPipeline = VK_NULL_HANDLE;
 
     // Cached samplers keyed by (filter, address mode) for per-draw sampling/tile
     // modes.
@@ -262,6 +280,26 @@ struct VulkanRenderDevice::VulkanContext
             if (gradientFragModule != VK_NULL_HANDLE) {
                 vkDestroyShaderModule(device, gradientFragModule, nullptr);
                 gradientFragModule = VK_NULL_HANDLE;
+            }
+            if (filterPipeline != VK_NULL_HANDLE) {
+                vkDestroyPipeline(device, filterPipeline, nullptr);
+                filterPipeline = VK_NULL_HANDLE;
+            }
+            if (filterPipelineLayout != VK_NULL_HANDLE) {
+                vkDestroyPipelineLayout(device, filterPipelineLayout, nullptr);
+                filterPipelineLayout = VK_NULL_HANDLE;
+            }
+            if (filterDescriptorSetLayout != VK_NULL_HANDLE) {
+                vkDestroyDescriptorSetLayout(device, filterDescriptorSetLayout, nullptr);
+                filterDescriptorSetLayout = VK_NULL_HANDLE;
+            }
+            if (filterVertModule != VK_NULL_HANDLE) {
+                vkDestroyShaderModule(device, filterVertModule, nullptr);
+                filterVertModule = VK_NULL_HANDLE;
+            }
+            if (filterFragModule != VK_NULL_HANDLE) {
+                vkDestroyShaderModule(device, filterFragModule, nullptr);
+                filterFragModule = VK_NULL_HANDLE;
             }
             for (CachedSampler &entry : samplerCache) {
                 if (entry.sampler != VK_NULL_HANDLE) {
@@ -808,6 +846,131 @@ struct VulkanRenderDevice::VulkanContext
         }
         texPipelineCache.push_back({blendMode, pipeline});
         return pipeline;
+    }
+
+    VkPipeline ensureFilterPipeline(VkRenderPass renderPass)
+    {
+        if (filterPipeline != VK_NULL_HANDLE) {
+            return filterPipeline;
+        }
+
+        filterVertModule = createShaderModule(kFilterVertSpv, sizeof(kFilterVertSpv));
+        filterFragModule = createShaderModule(kFilterFragSpv, sizeof(kFilterFragSpv));
+        if (filterVertModule == VK_NULL_HANDLE || filterFragModule == VK_NULL_HANDLE) {
+            return VK_NULL_HANDLE;
+        }
+
+        std::array<VkDescriptorSetLayoutBinding, 2> bindings{};
+        bindings[0].binding = 0;
+        bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        bindings[0].descriptorCount = 1;
+        bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        bindings[1].binding = 1;
+        bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        bindings[1].descriptorCount = 1;
+        bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+        VkDescriptorSetLayoutCreateInfo descriptorLayoutInfo{};
+        descriptorLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        descriptorLayoutInfo.bindingCount = static_cast<std::uint32_t>(bindings.size());
+        descriptorLayoutInfo.pBindings = bindings.data();
+        if (vkCreateDescriptorSetLayout(device, &descriptorLayoutInfo, nullptr,
+                                        &filterDescriptorSetLayout) != VK_SUCCESS) {
+            return VK_NULL_HANDLE;
+        }
+
+        VkPipelineLayoutCreateInfo layoutInfo{};
+        layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        layoutInfo.setLayoutCount = 1;
+        layoutInfo.pSetLayouts = &filterDescriptorSetLayout;
+        if (vkCreatePipelineLayout(device, &layoutInfo, nullptr, &filterPipelineLayout) != VK_SUCCESS) {
+            return VK_NULL_HANDLE;
+        }
+
+        std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
+        stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+        stages[0].module = filterVertModule;
+        stages[0].pName = "main";
+        stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+        stages[1].module = filterFragModule;
+        stages[1].pName = "main";
+
+        VkVertexInputBindingDescription binding{};
+        binding.binding = 0;
+        binding.stride = 4 * sizeof(float);
+        binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+        std::array<VkVertexInputAttributeDescription, 2> attributes{};
+        attributes[0].location = 0;
+        attributes[0].binding = 0;
+        attributes[0].format = VK_FORMAT_R32G32_SFLOAT;
+        attributes[0].offset = 0;
+        attributes[1].location = 1;
+        attributes[1].binding = 0;
+        attributes[1].format = VK_FORMAT_R32G32_SFLOAT;
+        attributes[1].offset = 2 * sizeof(float);
+
+        VkPipelineVertexInputStateCreateInfo vertexInput{};
+        vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+        vertexInput.vertexBindingDescriptionCount = 1;
+        vertexInput.pVertexBindingDescriptions = &binding;
+        vertexInput.vertexAttributeDescriptionCount =
+            static_cast<std::uint32_t>(attributes.size());
+        vertexInput.pVertexAttributeDescriptions = attributes.data();
+
+        VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+        inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+        inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+        VkPipelineViewportStateCreateInfo viewportState{};
+        viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+        viewportState.viewportCount = 1;
+        viewportState.scissorCount = 1;
+
+        VkPipelineRasterizationStateCreateInfo rasterizer{};
+        rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+        rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+        rasterizer.cullMode = VK_CULL_MODE_NONE;
+        rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+        rasterizer.lineWidth = 1.0f;
+
+        VkPipelineMultisampleStateCreateInfo multisample{};
+        multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+        multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+        VkPipelineColorBlendAttachmentState blendAttachment = blendStateFor(1);
+        VkPipelineColorBlendStateCreateInfo colorBlend{};
+        colorBlend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        colorBlend.attachmentCount = 1;
+        colorBlend.pAttachments = &blendAttachment;
+
+        const std::array<VkDynamicState, 2> dynamicStates{
+            VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+        VkPipelineDynamicStateCreateInfo dynamicState{};
+        dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+        dynamicState.dynamicStateCount = static_cast<std::uint32_t>(dynamicStates.size());
+        dynamicState.pDynamicStates = dynamicStates.data();
+
+        VkGraphicsPipelineCreateInfo pipelineInfo{};
+        pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        pipelineInfo.stageCount = static_cast<std::uint32_t>(stages.size());
+        pipelineInfo.pStages = stages.data();
+        pipelineInfo.pVertexInputState = &vertexInput;
+        pipelineInfo.pInputAssemblyState = &inputAssembly;
+        pipelineInfo.pViewportState = &viewportState;
+        pipelineInfo.pRasterizationState = &rasterizer;
+        pipelineInfo.pMultisampleState = &multisample;
+        pipelineInfo.pColorBlendState = &colorBlend;
+        pipelineInfo.pDynamicState = &dynamicState;
+        pipelineInfo.layout = filterPipelineLayout;
+        pipelineInfo.renderPass = renderPass;
+        pipelineInfo.subpass = 0;
+        if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr,
+                                      &filterPipeline) != VK_SUCCESS) {
+            filterPipeline = VK_NULL_HANDLE;
+        }
+        return filterPipeline;
     }
 
     // Lazily build (and cache) a clip pipeline for the given blend mode
@@ -1401,6 +1564,89 @@ std::shared_ptr<VulkanTextureResource> createSampledTexture(VulkanRenderDevice::
                                                    static_cast<int>(mipLevels));
 }
 
+std::shared_ptr<VulkanTextureResource> createEmptySampledTexture(
+    VulkanRenderDevice::VulkanContext *ctx, int width, int height)
+{
+    if (ctx == nullptr || ctx->device == VK_NULL_HANDLE || width <= 0 || height <= 0) {
+        return nullptr;
+    }
+
+    VkImage image = VK_NULL_HANDLE;
+    VkDeviceMemory memory = VK_NULL_HANDLE;
+    VkImageView view = VK_NULL_HANDLE;
+    VkSampler sampler = VK_NULL_HANDLE;
+    auto cleanup = [&]() {
+        if (sampler != VK_NULL_HANDLE) vkDestroySampler(ctx->device, sampler, nullptr);
+        if (view != VK_NULL_HANDLE) vkDestroyImageView(ctx->device, view, nullptr);
+        if (image != VK_NULL_HANDLE) vkDestroyImage(ctx->device, image, nullptr);
+        if (memory != VK_NULL_HANDLE) vkFreeMemory(ctx->device, memory, nullptr);
+    };
+
+    VkImageCreateInfo imageInfo{};
+    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    imageInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageInfo.format = kRenderTargetFormat;
+    imageInfo.extent = {static_cast<std::uint32_t>(width),
+                        static_cast<std::uint32_t>(height), 1};
+    imageInfo.mipLevels = 1;
+    imageInfo.arrayLayers = 1;
+    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    if (vkCreateImage(ctx->device, &imageInfo, nullptr, &image) != VK_SUCCESS) {
+        return nullptr;
+    }
+
+    VkMemoryRequirements requirements{};
+    vkGetImageMemoryRequirements(ctx->device, image, &requirements);
+    const auto typeIndex =
+        ctx->findMemoryType(requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (!typeIndex.has_value()) {
+        cleanup();
+        return nullptr;
+    }
+    VkMemoryAllocateInfo allocation{};
+    allocation.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocation.allocationSize = requirements.size;
+    allocation.memoryTypeIndex = typeIndex.value();
+    if (vkAllocateMemory(ctx->device, &allocation, nullptr, &memory) != VK_SUCCESS
+        || vkBindImageMemory(ctx->device, image, memory, 0) != VK_SUCCESS) {
+        cleanup();
+        return nullptr;
+    }
+
+    VkImageViewCreateInfo viewInfo{};
+    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewInfo.image = image;
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.format = kRenderTargetFormat;
+    viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    viewInfo.subresourceRange.levelCount = 1;
+    viewInfo.subresourceRange.layerCount = 1;
+    if (vkCreateImageView(ctx->device, &viewInfo, nullptr, &view) != VK_SUCCESS) {
+        cleanup();
+        return nullptr;
+    }
+
+    VkSamplerCreateInfo samplerInfo{};
+    samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    samplerInfo.magFilter = VK_FILTER_LINEAR;
+    samplerInfo.minFilter = VK_FILTER_LINEAR;
+    samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    if (vkCreateSampler(ctx->device, &samplerInfo, nullptr, &sampler) != VK_SUCCESS) {
+        cleanup();
+        return nullptr;
+    }
+
+    return std::make_shared<VulkanTextureResource>(
+        ctx, image, memory, view, sampler, width, height);
+}
+
 // Clip-mask resource holding the analytic-AA path data. Application into a live
 // pass is done by the device's coverage-mask draw path.
 class VulkanClipMaskResource final : public ClipMaskResource
@@ -1550,6 +1796,7 @@ public:
     SharedImageResource getImageResource() const override { return imageResource_; }
 
     VkImage image() const { return image_; }
+    VkImageView view() const { return view_; }
     VkImageLayout layout() const { return layout_; }
     void setLayout(VkImageLayout layout) { layout_ = layout; }
     VkRenderPass renderPass() const { return renderPass_; }
@@ -1708,6 +1955,237 @@ const std::vector<float> &fullTargetQuad()
         -1.0f, -1.0f, 1.0f,  1.0f, -1.0f, 1.0f,
     };
     return kQuad;
+}
+
+const std::array<float, 24> &fullTextureQuad()
+{
+    static const std::array<float, 24> kQuad = {
+        -1.0f, -1.0f, 0.0f, 0.0f,
+         1.0f, -1.0f, 1.0f, 0.0f,
+         1.0f,  1.0f, 1.0f, 1.0f,
+        -1.0f, -1.0f, 0.0f, 0.0f,
+         1.0f,  1.0f, 1.0f, 1.0f,
+        -1.0f,  1.0f, 0.0f, 1.0f,
+    };
+    return kQuad;
+}
+
+bool recordFilterPass(VulkanRenderDevice::VulkanContext *ctx,
+                      VulkanRenderTarget *destination,
+                      VkImageView sourceView,
+                      VkSampler sourceSampler,
+                      const wsc::render::GaussianKernel &kernel,
+                      float directionX, float directionY,
+                      bool decal,
+                      float saturation, float brightness, float contrast,
+                      float grain)
+{
+    if (ctx == nullptr || destination == nullptr || !destination->isValid()
+        || sourceView == VK_NULL_HANDLE || sourceSampler == VK_NULL_HANDLE
+        || kernel.weights.empty() || kernel.radius() > 64) {
+        return false;
+    }
+    VkPipeline pipeline = ctx->ensureFilterPipeline(destination->renderPass());
+    if (pipeline == VK_NULL_HANDLE) {
+        return false;
+    }
+
+    FilterUBO uniform;
+    uniform.directionRadiusDecal[0] = directionX;
+    uniform.directionRadiusDecal[1] = directionY;
+    uniform.directionRadiusDecal[2] = static_cast<float>(kernel.radius());
+    uniform.directionRadiusDecal[3] = decal ? 1.0f : 0.0f;
+    uniform.colorAdjustment[0] = saturation;
+    uniform.colorAdjustment[1] = brightness;
+    uniform.colorAdjustment[2] = contrast;
+    uniform.colorAdjustment[3] = grain;
+    uniform.options[0] =
+        std::abs(saturation - 1.0f) > 1e-6f
+        || std::abs(brightness - 1.0f) > 1e-6f
+        || std::abs(contrast - 1.0f) > 1e-6f
+        ? 1.0f : 0.0f;
+    std::copy(kernel.weights.begin(), kernel.weights.end(), uniform.packedWeights);
+
+    VkDevice device = ctx->device;
+    VkBuffer vertexBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory vertexMemory = VK_NULL_HANDLE;
+    VkBuffer uniformBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory uniformMemory = VK_NULL_HANDLE;
+    VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
+    auto cleanup = [&]() {
+        if (descriptorPool != VK_NULL_HANDLE) {
+            vkDestroyDescriptorPool(device, descriptorPool, nullptr);
+        }
+        if (uniformBuffer != VK_NULL_HANDLE) vkDestroyBuffer(device, uniformBuffer, nullptr);
+        if (uniformMemory != VK_NULL_HANDLE) vkFreeMemory(device, uniformMemory, nullptr);
+        if (vertexBuffer != VK_NULL_HANDLE) vkDestroyBuffer(device, vertexBuffer, nullptr);
+        if (vertexMemory != VK_NULL_HANDLE) vkFreeMemory(device, vertexMemory, nullptr);
+    };
+
+    const auto &quad = fullTextureQuad();
+    const VkDeviceSize vertexBytes = quad.size() * sizeof(float);
+    if (!ctx->createHostVisibleBuffer(vertexBytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                                      vertexBuffer, vertexMemory)
+        || !ctx->createHostVisibleBuffer(sizeof(FilterUBO), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                                         uniformBuffer, uniformMemory)) {
+        cleanup();
+        return false;
+    }
+
+    void *mapped = nullptr;
+    if (vkMapMemory(device, vertexMemory, 0, vertexBytes, 0, &mapped) != VK_SUCCESS) {
+        cleanup();
+        return false;
+    }
+    std::memcpy(mapped, quad.data(), static_cast<std::size_t>(vertexBytes));
+    vkUnmapMemory(device, vertexMemory);
+    if (vkMapMemory(device, uniformMemory, 0, sizeof(FilterUBO), 0, &mapped) != VK_SUCCESS) {
+        cleanup();
+        return false;
+    }
+    std::memcpy(mapped, &uniform, sizeof(FilterUBO));
+    vkUnmapMemory(device, uniformMemory);
+
+    std::array<VkDescriptorPoolSize, 2> poolSizes{};
+    poolSizes[0] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1};
+    poolSizes[1] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1};
+    VkDescriptorPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.maxSets = 1;
+    poolInfo.poolSizeCount = static_cast<std::uint32_t>(poolSizes.size());
+    poolInfo.pPoolSizes = poolSizes.data();
+    if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS) {
+        cleanup();
+        return false;
+    }
+
+    VkDescriptorSetAllocateInfo allocation{};
+    allocation.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocation.descriptorPool = descriptorPool;
+    allocation.descriptorSetCount = 1;
+    allocation.pSetLayouts = &ctx->filterDescriptorSetLayout;
+    VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
+    if (vkAllocateDescriptorSets(device, &allocation, &descriptorSet) != VK_SUCCESS) {
+        cleanup();
+        return false;
+    }
+
+    VkDescriptorImageInfo imageInfo{};
+    imageInfo.sampler = sourceSampler;
+    imageInfo.imageView = sourceView;
+    imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    VkDescriptorBufferInfo bufferInfo{};
+    bufferInfo.buffer = uniformBuffer;
+    bufferInfo.range = sizeof(FilterUBO);
+    std::array<VkWriteDescriptorSet, 2> writes{};
+    writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[0].dstSet = descriptorSet;
+    writes[0].dstBinding = 0;
+    writes[0].descriptorCount = 1;
+    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[0].pImageInfo = &imageInfo;
+    writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[1].dstSet = descriptorSet;
+    writes[1].dstBinding = 1;
+    writes[1].descriptorCount = 1;
+    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    writes[1].pBufferInfo = &bufferInfo;
+    vkUpdateDescriptorSets(device, static_cast<std::uint32_t>(writes.size()),
+                           writes.data(), 0, nullptr);
+
+    VkCommandBuffer commandBuffer = ctx->beginSingleTimeCommands();
+    bool submitted = false;
+    if (commandBuffer != VK_NULL_HANDLE) {
+        VkClearValue clear{};
+        clear.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
+        VkRenderPassBeginInfo passInfo{};
+        passInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        passInfo.renderPass = destination->renderPass();
+        passInfo.framebuffer = destination->framebuffer();
+        passInfo.renderArea.extent = {
+            static_cast<std::uint32_t>(destination->width()),
+            static_cast<std::uint32_t>(destination->height())};
+        passInfo.clearValueCount = 1;
+        passInfo.pClearValues = &clear;
+        vkCmdBeginRenderPass(commandBuffer, &passInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+        VkViewport viewport{};
+        viewport.width = static_cast<float>(destination->width());
+        viewport.height = static_cast<float>(destination->height());
+        viewport.maxDepth = 1.0f;
+        vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+        VkRect2D scissor{};
+        scissor.extent = {
+            static_cast<std::uint32_t>(destination->width()),
+            static_cast<std::uint32_t>(destination->height())};
+        vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                ctx->filterPipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
+        const VkDeviceSize offset = 0;
+        vkCmdBindVertexBuffers(commandBuffer, 0, 1, &vertexBuffer, &offset);
+        vkCmdDraw(commandBuffer, 6, 1, 0, 0);
+        vkCmdEndRenderPass(commandBuffer);
+        submitted = ctx->endSingleTimeCommands(commandBuffer);
+    }
+    cleanup();
+    if (!submitted) {
+        return false;
+    }
+
+    destination->setLayout(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    destination->markReadbackReady();
+    ctx->readbackImage = destination->image();
+    ctx->readbackLayout = destination->layout();
+    ctx->readbackWidth = destination->width();
+    ctx->readbackHeight = destination->height();
+    return true;
+}
+
+SharedImageResource copyRenderTargetToSampledTexture(
+    VulkanRenderDevice::VulkanContext *ctx, VulkanRenderTarget *source)
+{
+    if (ctx == nullptr || source == nullptr || !source->isValid()) {
+        return {};
+    }
+    auto destination = createEmptySampledTexture(ctx, source->width(), source->height());
+    if (!destination) {
+        return {};
+    }
+
+    VkCommandBuffer commandBuffer = ctx->beginSingleTimeCommands();
+    if (commandBuffer == VK_NULL_HANDLE) {
+        return {};
+    }
+    VulkanRenderDevice::VulkanContext::transitionImageLayout(
+        commandBuffer, destination->image(), VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    if (source->layout() != VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL) {
+        VulkanRenderDevice::VulkanContext::transitionImageLayout(
+            commandBuffer, source->image(), source->layout(),
+            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    }
+
+    VkImageCopy region{};
+    region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.srcSubresource.layerCount = 1;
+    region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.dstSubresource.layerCount = 1;
+    region.extent = {static_cast<std::uint32_t>(source->width()),
+                     static_cast<std::uint32_t>(source->height()), 1};
+    vkCmdCopyImage(commandBuffer,
+                   source->image(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                   destination->image(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                   1, &region);
+    VulkanRenderDevice::VulkanContext::transitionImageLayout(
+        commandBuffer, destination->image(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    if (!ctx->endSingleTimeCommands(commandBuffer)) {
+        return {};
+    }
+    source->setLayout(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    return destination;
 }
 
 // Locate a queue family that supports graphics operations.
@@ -3569,15 +4047,131 @@ SharedImageResource VulkanRenderDevice::renderCommandsToImageResource(
     if (!executeCommands(target, commands, request)) {
         return nullptr;
     }
-    std::vector<unsigned char> pixels;
-    if (!readPixelsRGBA(w, h, pixels)) {
+    auto *renderTarget = dynamic_cast<VulkanRenderTarget *>(target.get());
+    if (renderTarget == nullptr) {
         return nullptr;
     }
-    return createImageResourceRGBA(w, h, pixels);
+    return copyRenderTargetToSampledTexture(context_.get(), renderTarget);
 #else
     (void)commands;
     (void)request;
     return nullptr;
+#endif
+}
+
+SharedImageResource VulkanRenderDevice::filterImageResource(
+    const SharedImageResource &source, int width, int height,
+    const wsc::ImageFilter &filter, FilterExecutionStats *executionStats) const
+{
+    if (executionStats != nullptr) {
+        *executionStats = {};
+    }
+#if defined(WHATSCANVAS_ENABLE_VULKAN)
+    if (!context_ || !context_->deviceReady || width <= 0 || height <= 0
+        || !filter.isValid() || filter.type() != wsc::ImageFilter::Type::Blur) {
+        return {};
+    }
+    auto *input = dynamic_cast<VulkanTextureResource *>(source.get());
+    if (input == nullptr || !input->isValid()) {
+        return {};
+    }
+
+    const int downsample = wsc::render::chooseGaussianBlurDownsample(
+        width, height, filter.radiusX(), filter.radiusY());
+    const int blurWidth = (width + downsample - 1) / downsample;
+    const int blurHeight = (height + downsample - 1) / downsample;
+    auto targetA = createRenderTarget(blurWidth, blurHeight);
+    auto targetB = createRenderTarget(blurWidth, blurHeight);
+    auto *passA = dynamic_cast<VulkanRenderTarget *>(targetA.get());
+    auto *passB = dynamic_cast<VulkanRenderTarget *>(targetB.get());
+    if (passA == nullptr || passB == nullptr
+        || !passA->isValid() || !passB->isValid()) {
+        return {};
+    }
+
+    auto transitionToShaderRead = [&](VulkanRenderTarget *target) {
+        VkCommandBuffer commandBuffer = context_->beginSingleTimeCommands();
+        if (commandBuffer == VK_NULL_HANDLE) {
+            return false;
+        }
+        VulkanContext::transitionImageLayout(
+            commandBuffer, target->image(), target->layout(),
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        if (!context_->endSingleTimeCommands(commandBuffer)) {
+            return false;
+        }
+        target->setLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        return true;
+    };
+
+    VkSampler sampler = context_->getSampler(
+        VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
+    if (sampler == VK_NULL_HANDLE) {
+        return {};
+    }
+    const bool decal = filter.tileMode() == wsc::ImageFilter::TileMode::Decal;
+    const auto kernelX = wsc::render::computeGaussianKernel(
+        filter.radiusX() / static_cast<float>(downsample));
+    const auto kernelY = wsc::render::computeGaussianKernel(
+        filter.radiusY() / static_cast<float>(downsample));
+
+    if (!recordFilterPass(
+            context_.get(), passA, input->view(), sampler, kernelX,
+            1.0f / static_cast<float>(blurWidth), 0.0f, decal,
+            1.0f, 1.0f, 1.0f, 0.0f)
+        || !transitionToShaderRead(passA)
+        || !recordFilterPass(
+            context_.get(), passB, passA->view(), sampler, kernelY,
+            0.0f, 1.0f / static_cast<float>(blurHeight), decal,
+            downsample == 1 ? filter.saturation() : 1.0f,
+            downsample == 1 ? filter.brightness() : 1.0f,
+            downsample == 1 ? filter.contrast() : 1.0f,
+            downsample == 1 ? filter.grain() : 0.0f)) {
+        return {};
+    }
+
+    VulkanRenderTarget *finalTarget = passB;
+    std::unique_ptr<IRenderTarget> restoreTarget;
+    if (downsample > 1) {
+        restoreTarget = createRenderTarget(width, height);
+        auto *restore = dynamic_cast<VulkanRenderTarget *>(restoreTarget.get());
+        if (restore == nullptr || !restore->isValid()
+            || !transitionToShaderRead(passB)) {
+            return {};
+        }
+        const auto passThrough = wsc::render::computeGaussianKernel(0.0f);
+        if (!recordFilterPass(
+                context_.get(), restore, passB->view(), sampler, passThrough,
+                0.0f, 0.0f, decal,
+                filter.saturation(), filter.brightness(), filter.contrast(),
+                filter.grain())) {
+            return {};
+        }
+        finalTarget = restore;
+    }
+
+    SharedImageResource result =
+        copyRenderTargetToSampledTexture(context_.get(), finalTarget);
+    if (!result || !result->isValid()) {
+        return {};
+    }
+    if (executionStats != nullptr) {
+        executionStats->passCount = downsample > 1 ? 3u : 2u;
+        executionStats->pixelPassCount =
+            static_cast<std::size_t>(blurWidth)
+                * static_cast<std::size_t>(blurHeight) * 2u
+            + (downsample > 1
+                ? static_cast<std::size_t>(width) * static_cast<std::size_t>(height)
+                : 0u);
+        executionStats->downsampled = downsample > 1;
+    }
+    return result;
+#else
+    (void)source;
+    (void)width;
+    (void)height;
+    (void)filter;
+    return {};
 #endif
 }
 
@@ -4078,11 +4672,14 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
     };
 
     // Project a canvas-space point through a transform to Vulkan NDC using the
-    // same ortho(0,w,h,0) convention the OpenGL path uses.
+    // same cropped viewport semantics as OpenGLRenderTarget::activate().
     auto toNdc = [&](const glm::mat4 &tf, float x, float y, float &ox, float &oy) {
         const glm::vec4 p = tf * glm::vec4(x, y, 0.0f, 1.0f);
-        ox = p.x / w * 2.0f - 1.0f;
-        oy = p.y / h * 2.0f - 1.0f;
+        const float targetX = p.x + static_cast<float>(request.viewportX);
+        const float targetY =
+            p.y + static_cast<float>(rt->height() - request.viewportY) - h;
+        ox = targetX / static_cast<float>(rt->width()) * 2.0f - 1.0f;
+        oy = targetY / static_cast<float>(rt->height()) * 2.0f - 1.0f;
     };
 
     // Emit two triangles (a quad ABCD) into an NDC position list.
