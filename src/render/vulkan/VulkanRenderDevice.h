@@ -57,6 +57,10 @@ public:
     RenderResourceStats resourceStats() const override;
     SharedImageResource renderCommandsToImageResource(const std::vector<std::unique_ptr<Command>> &commands,
                                                       const OffscreenRenderRequest &request) const override;
+    SharedImageResource filterImageResource(const SharedImageResource &source,
+                                            int width, int height,
+                                            const wsc::ImageFilter &filter,
+                                            FilterExecutionStats *executionStats = nullptr) const override;
 
     // On-screen presentation. Not yet integrated: this device's instance is
     // headless (no surface extensions). See createSwapchain() and

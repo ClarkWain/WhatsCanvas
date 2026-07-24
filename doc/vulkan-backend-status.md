@@ -1,6 +1,6 @@
 # Vulkan Backend — Progress Summary
 
-Branch: `feature/vulkan-backend` · Validated on: NVIDIA GeForce RTX 2080 Ti ·
+Validated on: NVIDIA GeForce RTX 2080 Ti and NVIDIA GeForce GTX 1060 3GB ·
 Enable with: `cmake -S . -B build -DWHATSCANVAS_ENABLE_VULKAN=ON` (Vulkan SDK
 required). See [vulkan-backend-roadmap.md](vulkan-backend-roadmap.md) and
 [ADR-006](architecture/ADR-006-backend-neutral-command-layer.md).
@@ -9,7 +9,7 @@ required). See [vulkan-backend-roadmap.md](vulkan-backend-roadmap.md) and
 
 The Vulkan backend is compiled unconditionally as an inert stub and only performs
 real Vulkan work when `WHATSCANVAS_ENABLE_VULKAN` is set. Every capability below
-is covered by a real-hardware test under the CTest `vulkan` label (8 tests,
+is covered by a real-hardware test under the CTest `vulkan` label (21 tests,
 `ctest -L vulkan`), and the default (Vulkan-off) build stays green.
 
 | Milestone | Capability | Test |
@@ -24,19 +24,25 @@ is covered by a real-hardware test under the CTest `vulkan` label (8 tests,
 | M7 | Coverage-mask path clipping | `WhatsCanvasVulkanClipTests` |
 | ADR-006 | Backend-neutral `DrawList` + Vulkan translator (solid + textured + clip primitives) | `WhatsCanvasVulkanDrawListTests` |
 | Text / glyph atlas | Vector text geometry, shader-gradient text, glyph-atlas textured quads, and dirty-rect atlas texture updates | `WhatsCanvasVulkanTextTests` |
+| Image filters | Image/backdrop blur, Clamp/Decal edges, color treatment, grain, adaptive downsampling, and Software pixel parity | `WhatsCanvasVulkanImageFilterTests` |
 | OpenGL offscreen snapshots | `renderCommandsToImageResource` uses the shared `CommandDrawListEncoder` for layer/snapshot replay | `WhatsCanvasRenderTargetPoolTests` |
 
 ## `IRenderDevice` parity
 
-All 11 methods are implemented on Vulkan.
+All 12 required methods are implemented on Vulkan.
 
 - Implemented: `initializeBackend`, `finalizeBackend`, `createRenderTarget`,
   `readPixelsRGBA`, `createImageResourceRGBA`, `createImageResourceFromImageData`,
   `updateImageResourceRGBA`, `createClipMaskResource`, `resourceStats`,
-  `renderCommandsToImageResource`, `wrapExternalImageResource`.
+  `renderCommandsToImageResource`, `filterImageResource`,
+  `wrapExternalImageResource`.
 - `renderCommandsToImageResource` renders a `Command` stream into an offscreen
-  target and returns it as an owned sampled texture (via the backend-neutral
-  command translation).
+  target and returns it as an owned sampled texture through a GPU-local image
+  copy (via the backend-neutral command translation).
+- `filterImageResource` runs separable RGBA Gaussian blur in Vulkan fragment
+  pipelines. Large kernels use a 2x blur target and a full-resolution restore
+  pass; saturation, brightness, contrast, and stable grain run in the final
+  pass without a CPU readback.
 - `wrapExternalImageResource` wraps a foreign `VkImage` (carried by the now
   64-bit `ImageResourceHandle`) in a non-owning texture resource (owns only its
   view + sampler); the borrowed image is assumed RGBA8 in `SHADER_READ_ONLY`.
@@ -119,7 +125,9 @@ All 11 methods are implemented on Vulkan.
 ## Next steps
 
 1. Expand representative Canvas-level validation scenes for Vulkan/OpenGL parity.
-2. Continue migrating OpenGL execution paths to the shared command encoder in
+2. Move the remaining arbitrary clipped textured-image fallback onto a
+   dual-texture Vulkan mask pipeline.
+3. Continue migrating OpenGL execution paths to the shared command encoder in
    small, testable slices.
-3. Turn the windowed Vulkan present path from a bridge into a GPU-only or
+4. Turn the windowed Vulkan present path from a bridge into a GPU-only or
    surface-aware render path.

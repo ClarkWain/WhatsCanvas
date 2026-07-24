@@ -260,6 +260,29 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
         )
         set_tests_properties(WhatsCanvasVulkanTextureTests PROPERTIES LABELS "vulkan" TIMEOUT 60)
 
+        add_executable(WhatsCanvasVulkanImageFilterTests
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/VulkanImageFilterTests.cpp"
+        )
+        target_include_directories(WhatsCanvasVulkanImageFilterTests PRIVATE
+            "${SRC_DIR}"
+        )
+        target_link_libraries(WhatsCanvasVulkanImageFilterTests PRIVATE
+            WhatsCanvasOpenGL
+            WhatsCanvasGLM
+        )
+        add_test(NAME WhatsCanvasVulkanImageFilterTests
+            COMMAND ${CMAKE_COMMAND}
+                -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+                -DWHATSCANVAS_TEST_TARGET=WhatsCanvasVulkanImageFilterTests
+                -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasVulkanImageFilterTests>
+                -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+        )
+        set_tests_properties(WhatsCanvasVulkanImageFilterTests PROPERTIES
+            LABELS "vulkan;image-filter"
+            TIMEOUT 60
+        )
+
         add_executable(WhatsCanvasVulkanLayerTests
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/VulkanLayerTests.cpp"
         )
@@ -529,6 +552,7 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
             WhatsCanvasVulkanSolidGeometryTests
             WhatsCanvasVulkanPaintTests
             WhatsCanvasVulkanTextureTests
+            WhatsCanvasVulkanImageFilterTests
             WhatsCanvasVulkanLayerTests
             WhatsCanvasVulkanClipTests
             WhatsCanvasVulkanDrawListTests
