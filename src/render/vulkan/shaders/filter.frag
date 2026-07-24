@@ -9,7 +9,7 @@ layout(std140, binding = 1) uniform FilterUBO
 {
     vec4 directionRadiusDecal; // texel step xy, radius, decal
     vec4 colorAdjustment;      // saturation, brightness, contrast, grain
-    vec4 options;              // apply color adjustment, reserved
+    vec4 options;              // color adjustment, source premul, output straight, straight resample
     vec4 packedWeights[17];    // 65 taps packed into 68 floats
 } ubo;
 
@@ -29,32 +29,73 @@ float weightAt(int index)
     return packed.w;
 }
 
-vec4 sampleStraight(vec2 uv, bool decal)
+vec4 fetchStraightPremultiplied(ivec2 coord, bool decal)
 {
-    if (decal && (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)) {
+    ivec2 size = textureSize(uTexture, 0);
+    if (decal && (coord.x < 0 || coord.x >= size.x
+                  || coord.y < 0 || coord.y >= size.y)) {
         return vec4(0.0);
     }
-    return texture(uTexture, uv);
+    ivec2 bounded = clamp(coord, ivec2(0), size - ivec2(1));
+    vec4 color = texelFetch(uTexture, bounded, 0);
+    return vec4(color.rgb * color.a, color.a);
+}
+
+vec4 samplePremultiplied(vec2 uv, bool decal, bool sourcePremultiplied,
+                         bool resampleStraightAlpha)
+{
+    if (sourcePremultiplied) {
+        if (decal && (uv.x < 0.0 || uv.x > 1.0
+                      || uv.y < 0.0 || uv.y > 1.0)) {
+            return vec4(0.0);
+        }
+        return texture(uTexture, uv);
+    }
+    if (!resampleStraightAlpha) {
+        vec4 color = texture(uTexture, uv);
+        return vec4(color.rgb * color.a, color.a);
+    }
+    vec2 size = vec2(textureSize(uTexture, 0));
+    vec2 position = uv * size - vec2(0.5);
+    ivec2 base = ivec2(floor(position));
+    vec2 fraction = fract(position);
+    vec4 c00 = fetchStraightPremultiplied(base, decal);
+    vec4 c10 = fetchStraightPremultiplied(base + ivec2(1, 0), decal);
+    vec4 c01 = fetchStraightPremultiplied(base + ivec2(0, 1), decal);
+    vec4 c11 = fetchStraightPremultiplied(base + ivec2(1, 1), decal);
+    return mix(mix(c00, c10, fraction.x),
+               mix(c01, c11, fraction.x), fraction.y);
 }
 
 void main()
 {
     int radius = int(ubo.directionRadiusDecal.z + 0.5);
     bool decal = ubo.directionRadiusDecal.w > 0.5;
+    bool sourcePremultiplied = ubo.options.y > 0.5;
+    bool outputStraight = ubo.options.z > 0.5;
+    bool resampleStraightAlpha = ubo.options.w > 0.5;
     vec2 direction = ubo.directionRadiusDecal.xy;
 
-    vec4 center = sampleStraight(vUV, decal);
-    vec4 sum = vec4(center.rgb * center.a, center.a) * weightAt(0);
+    vec4 sum =
+        samplePremultiplied(vUV, decal, sourcePremultiplied,
+                            resampleStraightAlpha) * weightAt(0);
     for (int i = 1; i <= 64; ++i) {
         if (i > radius) {
             break;
         }
         vec2 offset = direction * float(i);
-        vec4 lo = sampleStraight(vUV - offset, decal);
-        vec4 hi = sampleStraight(vUV + offset, decal);
         float weight = weightAt(i);
-        sum += vec4(lo.rgb * lo.a, lo.a) * weight;
-        sum += vec4(hi.rgb * hi.a, hi.a) * weight;
+        sum += samplePremultiplied(
+            vUV - offset, decal, sourcePremultiplied,
+            resampleStraightAlpha) * weight;
+        sum += samplePremultiplied(
+            vUV + offset, decal, sourcePremultiplied,
+            resampleStraightAlpha) * weight;
+    }
+
+    if (!outputStraight) {
+        outColor = sum;
+        return;
     }
 
     vec4 color = sum.a > 0.000001

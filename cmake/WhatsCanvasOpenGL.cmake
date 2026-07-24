@@ -284,6 +284,10 @@ function(whatscanvas_add_gl_family_library target_name project_root)
         target_compile_definitions(${target_name} PRIVATE WHATSCANVAS_ENABLE_VULKAN)
         target_link_libraries(${target_name} PRIVATE ${vulkan_backend_libraries})
     endif()
+    set_property(TARGET ${target_name} PROPERTY
+        WHATSCANVAS_VULKAN_BACKEND_ENABLED "${vulkan_backend_enabled}")
+    set_property(GLOBAL PROPERTY
+        WHATSCANVAS_VULKAN_BACKEND_ENABLED "${vulkan_backend_enabled}")
 
     target_include_directories(${target_name}
         PRIVATE

@@ -4922,8 +4922,10 @@ void Canvas::Impl::restoreLayer(const LayerState &layer)
                 backdropData.height = layerRect.getHeight();
                 backdropData.u0 = 0.0f;
                 backdropData.u1 = 1.0f;
-                backdropData.v0 = 1.0f;
-                backdropData.v1 = 0.0f;
+                const bool flipBackdrop =
+                    backdropData.imageResource->origin() == ImageOrigin::BottomLeft;
+                backdropData.v0 = flipBackdrop ? 1.0f : 0.0f;
+                backdropData.v1 = flipBackdrop ? 0.0f : 1.0f;
                 backdropData.sampling = DrawImageSampling::Linear;
                 backdropData.tileMode = DrawImageTileMode::Clamp;
                 backdropData.transform = glm::mat4(1.0f);
@@ -4965,8 +4967,9 @@ void Canvas::Impl::restoreLayer(const LayerState &layer)
     RectF compositeRect = layerRect;
     float sourceU0 = 0.0f;
     float sourceU1 = 1.0f;
-    float sourceV0 = 1.0f;
-    float sourceV1 = 0.0f;
+    const bool flipSource = imageResource->origin() == ImageOrigin::BottomLeft;
+    float sourceV0 = flipSource ? 1.0f : 0.0f;
+    float sourceV1 = flipSource ? 0.0f : 1.0f;
     if (layer.options.hasBackdropFilter() && !layer.options.hasImageFilter()) {
         // The expanded rectangle supplies neighboring pixels to the blur
         // kernel. A backdrop filter still belongs to the saved layer bounds;
@@ -4985,8 +4988,10 @@ void Canvas::Impl::restoreLayer(const LayerState &layer)
             / layerRect.getHeight();
         sourceU0 = std::clamp(left, 0.0f, 1.0f);
         sourceU1 = std::clamp(right, 0.0f, 1.0f);
-        sourceV0 = 1.0f - std::clamp(top, 0.0f, 1.0f);
-        sourceV1 = 1.0f - std::clamp(bottom, 0.0f, 1.0f);
+        const float clampedTop = std::clamp(top, 0.0f, 1.0f);
+        const float clampedBottom = std::clamp(bottom, 0.0f, 1.0f);
+        sourceV0 = flipSource ? 1.0f - clampedTop : clampedTop;
+        sourceV1 = flipSource ? 1.0f - clampedBottom : clampedBottom;
     }
 
     DrawImageData data;

@@ -14,14 +14,17 @@
 namespace wsc::software {
 namespace {
 
-/// CPU-side image resource holding a straight-alpha RGBA8 buffer. sample()
-/// supports nearest/bilinear filtering and clamp/repeat/mirror/decal tile
-/// modes; it backs both image draws and bitmap-text atlas resources.
+/// CPU-side RGBA8 image. Uploaded images use straight alpha; offscreen layer
+/// captures use premultiplied alpha and are converted by sample().
 class SoftwareImageResource final : public ImageResource
 {
 public:
-    SoftwareImageResource(int width, int height, std::vector<std::uint8_t> pixels)
-        : width_(width), height_(height), pixels_(std::move(pixels))
+    SoftwareImageResource(int width, int height, std::vector<std::uint8_t> pixels,
+                          ImageAlphaType alphaType = ImageAlphaType::Straight)
+        : width_(width),
+          height_(height),
+          pixels_(std::move(pixels)),
+          alphaType_(alphaType)
     {
     }
 
@@ -30,6 +33,7 @@ public:
         return width_ > 0 && height_ > 0
             && pixels_.size() >= static_cast<std::size_t>(width_) * static_cast<std::size_t>(height_) * 4u;
     }
+    ImageAlphaType alphaType() const override { return alphaType_; }
 
     void bind(const RenderContext &) const override {}
 
@@ -78,6 +82,7 @@ public:
         const float fy = v * static_cast<float>(height_) - 0.5f;
         if (samplingMode == 1) {
             fetch(static_cast<int>(std::lround(fx)), static_cast<int>(std::lround(fy)), out);
+            unpremultiply(out);
             return;
         }
         const int x0 = static_cast<int>(std::floor(fx));
@@ -97,6 +102,7 @@ public:
             const float bottom = c01[c] + (c11[c] - c01[c]) * tx;
             out[c] = top + (bottom - top) * ty;
         }
+        unpremultiply(out);
     }
 
 private:
@@ -127,10 +133,25 @@ private:
         out[3] = p[3] / 255.0f;
     }
 
+    void unpremultiply(float out[4]) const
+    {
+        if (alphaType_ != ImageAlphaType::Premultiplied) {
+            return;
+        }
+        if (out[3] <= 1e-6f) {
+            out[0] = out[1] = out[2] = 0.0f;
+            return;
+        }
+        out[0] = std::clamp(out[0] / out[3], 0.0f, 1.0f);
+        out[1] = std::clamp(out[1] / out[3], 0.0f, 1.0f);
+        out[2] = std::clamp(out[2] / out[3], 0.0f, 1.0f);
+    }
+
 private:
     int width_ = 0;
     int height_ = 0;
     std::vector<std::uint8_t> pixels_;
+    ImageAlphaType alphaType_ = ImageAlphaType::Straight;
 };
 
 class SoftwareClipMaskResource final : public ClipMaskResource
@@ -772,7 +793,8 @@ void blurAlpha(std::vector<float> &buffer, int width, int height, const wsc::ren
 void blurRGBA(std::vector<std::uint8_t> &pixels, int width, int height,
               const wsc::render::GaussianKernel &kernelX,
               const wsc::render::GaussianKernel &kernelY,
-              wsc::ImageFilter::TileMode tileMode)
+              wsc::ImageFilter::TileMode tileMode,
+              ImageAlphaType sourceAlphaType)
 {
     if (width <= 0 || height <= 0
         || pixels.size() < static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4u) {
@@ -785,9 +807,11 @@ void blurRGBA(std::vector<std::uint8_t> &pixels, int width, int height,
     std::vector<float> output(componentCount, 0.0f);
     for (std::size_t i = 0; i < componentCount; i += 4u) {
         const float alpha = pixels[i + 3u] / 255.0f;
-        source[i] = (pixels[i] / 255.0f) * alpha;
-        source[i + 1u] = (pixels[i + 1u] / 255.0f) * alpha;
-        source[i + 2u] = (pixels[i + 2u] / 255.0f) * alpha;
+        const float alphaScale =
+            sourceAlphaType == ImageAlphaType::Premultiplied ? 1.0f : alpha;
+        source[i] = (pixels[i] / 255.0f) * alphaScale;
+        source[i + 1u] = (pixels[i + 1u] / 255.0f) * alphaScale;
+        source[i + 2u] = (pixels[i + 2u] / 255.0f) * alphaScale;
         source[i + 3u] = alpha;
     }
 
@@ -1266,7 +1290,8 @@ SharedImageResource SoftwareRenderer::renderCommandsToImageResource(const std::v
     extra[3][1] = static_cast<float>(th - request.viewportY - request.canvasHeight);
     executeCommandList(target.data(), tw, th, request.canvasHeight, extra, commands, nullptr);
 
-    return std::make_shared<SoftwareImageResource>(tw, th, std::move(target));
+    return std::make_shared<SoftwareImageResource>(
+        tw, th, std::move(target), ImageAlphaType::Premultiplied);
 }
 
 SharedImageResource SoftwareRenderer::renderQueuedCommandsToImageResource(
@@ -1301,7 +1326,7 @@ SharedImageResource SoftwareRenderer::filterImageResource(const SharedImageResou
     blurRGBA(filtered, width, height,
              wsc::render::computeGaussianKernel(filter.radiusX()),
              wsc::render::computeGaussianKernel(filter.radiusY()),
-             filter.tileMode());
+             filter.tileMode(), source->alphaType());
     adjustRGBA(filtered, filter);
     const bool adjustmentPass = filter.hasColorAdjustment() || filter.hasGrain();
     const std::size_t passCount = adjustmentPass ? 3u : 2u;

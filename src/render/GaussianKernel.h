@@ -57,15 +57,31 @@ inline GaussianKernel computeGaussianKernel(float radiusPixels)
 /// Large kernels dominate cost quadratically with rendered area, while a 2x
 /// reduction is visually hidden by the low-pass filter. Small targets and
 /// short kernels remain full resolution to preserve fine detail.
-inline int chooseGaussianBlurDownsample(int width, int height,
-                                        float radiusX, float radiusY)
+struct GaussianBlurDownsample
+{
+    int x = 1;
+    int y = 1;
+
+    bool active() const { return x > 1 || y > 1; }
+};
+
+inline GaussianBlurDownsample chooseGaussianBlurDownsampleFactors(
+    int width, int height, float radiusX, float radiusY)
 {
     constexpr int kMinTargetExtent = 128;
     constexpr float kMinRadius = 24.0f;
-    return width >= kMinTargetExtent && height >= kMinTargetExtent
-        && std::max(radiusX, radiusY) >= kMinRadius
-        ? 2
-        : 1;
+    return {
+        width >= kMinTargetExtent && radiusX >= kMinRadius ? 2 : 1,
+        height >= kMinTargetExtent && radiusY >= kMinRadius ? 2 : 1
+    };
+}
+
+inline int chooseGaussianBlurDownsample(int width, int height,
+                                        float radiusX, float radiusY)
+{
+    const GaussianBlurDownsample factors =
+        chooseGaussianBlurDownsampleFactors(width, height, radiusX, radiusY);
+    return std::max(factors.x, factors.y);
 }
 
 } // namespace wsc::render

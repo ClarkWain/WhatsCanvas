@@ -113,6 +113,12 @@ if (NOT TARGET WhatsCanvasOpenGL AND NOT TARGET WhatsCanvasOpenGLES AND NOT TARG
     message(FATAL_ERROR "At least one renderer target must be enabled: WHATSCANVAS_BUILD_OPENGL, WHATSCANVAS_BUILD_OPENGLES or WHATSCANVAS_BUILD_SOFTWARE.")
 endif()
 
+set(WHATSCANVAS_VULKAN_BACKEND_ENABLED OFF)
+if (TARGET WhatsCanvasOpenGL)
+    get_property(WHATSCANVAS_VULKAN_BACKEND_ENABLED
+        GLOBAL PROPERTY WHATSCANVAS_VULKAN_BACKEND_ENABLED)
+endif()
+
 if (WHATSCANVAS_BUILD_DEMO AND TARGET WhatsCanvasOpenGL)
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/showcase")
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/aa_showcase")
@@ -121,7 +127,7 @@ if (WHATSCANVAS_BUILD_DEMO AND TARGET WhatsCanvasOpenGL)
     if (WIN32)
         add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/software_present")
     endif()
-    if (WHATSCANVAS_ENABLE_VULKAN)
+    if (WHATSCANVAS_VULKAN_BACKEND_ENABLED)
         add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/vulkan_present")
         add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/vulkan_canvas_present")
     endif()
@@ -159,7 +165,7 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     )
     set_tests_properties(WhatsCanvasGraphicsStateStackTests PROPERTIES LABELS "unit")
 
-    if (WHATSCANVAS_ENABLE_VULKAN)
+    if (WHATSCANVAS_VULKAN_BACKEND_ENABLED)
         add_executable(WhatsCanvasVulkanDeviceTests
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/VulkanDeviceTests.cpp"
         )
@@ -978,7 +984,7 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     )
     set_tests_properties(WhatsCanvasVulkanBackendSelectionTests PROPERTIES LABELS "unit;vulkan")
 
-    if (WHATSCANVAS_ENABLE_VULKAN)
+    if (WHATSCANVAS_VULKAN_BACKEND_ENABLED)
         find_package(Vulkan QUIET)
         if (Vulkan_FOUND)
             add_executable(WhatsCanvasVulkanWrapExternalTests

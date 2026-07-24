@@ -59,10 +59,11 @@ opt-in through the overloads that accept `LayerOptions`.
   APIs such as Skia. Sigma is therefore clamped to `64 / 3`.
 - The current implementation uses a separable Gaussian kernel whose radius
   reaches approximately three standard deviations.
-- GPU backends automatically use a conservative 2x downsample when both target
-  dimensions are at least 128 pixels and either blur radius reaches 24 pixels.
-  The Gaussian kernel is scaled into the reduced target, cutting the dominant
-  convolution work to roughly one quarter.
+- GPU backends independently use a conservative 2x downsample on each axis
+  whose target extent is at least 128 pixels and whose blur radius reaches 24
+  pixels. A vertical-only large blur therefore keeps full horizontal detail,
+  while a large two-axis blur cuts the dominant convolution work to roughly one
+  quarter.
 - Downsampled filters use a full-resolution restore pass. Saturation,
   brightness, contrast, and grain are applied there so color treatment remains
   stable and monochrome grain does not become blocky when enlarged.
@@ -104,8 +105,8 @@ the foreground does not need group opacity or an image filter.
 | Backend | Image blur | Backdrop blur | Execution |
 | --- | --- | --- | --- |
 | Software | Supported | Supported | Deterministic CPU separable Gaussian reference |
-| OpenGL / OpenGLES | Supported | Supported | Two-pass GPU RGBA Gaussian; adaptive 2x blur plus full-resolution restore for large kernels |
-| Vulkan | Supported | Supported | Two-pass GPU RGBA Gaussian; GPU-local snapshot/copy; adaptive 2x blur plus full-resolution restore for large kernels |
+| OpenGL / OpenGLES | Supported | Supported | Two-pass GPU RGBA Gaussian; adaptive per-axis 2x blur plus full-resolution restore for large kernels |
+| Vulkan | Supported | Supported | Two-pass GPU RGBA Gaussian; filter passes and result copy share one synchronized submission; adaptive per-axis 2x blur plus full-resolution restore for large kernels |
 
 Unsupported filters degrade gracefully: ordinary layer content is preserved,
 and an unavailable backdrop filter becomes a no-op.
@@ -120,9 +121,11 @@ and an unavailable backdrop filter becomes a no-op.
   sampling-outset cropping.
 - `WhatsCanvasVulkanImageFilterTests` validates the native Vulkan image handle,
   GPU blur diffusion, Clamp/Decal edges, alpha-safe color adjustment, adaptive
-  downsampling, public `Canvas::saveLayer` backdrop filtering, and pixel parity
-  against the Software reference. The current parity gate allows a maximum
-  channel difference of 3 and a mean channel difference of 0.5.
+  per-axis downsampling, transparent-edge color safety, public image/backdrop
+  filtering, premultiplied translucent layers, layer orientation, and cropped
+  gradient/image clipping. Backdrop output is also checked against the Software
+  reference; the current parity gate allows a maximum channel difference of 3
+  and a mean channel difference of 0.5.
 - `WhatsCanvasRenderTargetPoolTests` prevents offscreen targets from being
   reused while a deferred filter/composite command still references their
   texture.

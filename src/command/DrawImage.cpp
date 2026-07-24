@@ -67,6 +67,7 @@ void DrawImageProgram::initialize()
         uniform float uAlpha;
         uniform bool uClearTypeMask;
         uniform bool uRgbCoverageFallback;
+        uniform bool uSourcePremultiplied;
         uniform bool uUseColorMatrix;
         uniform mat4 uColorMatrix;
         uniform vec4 uColorMatrixOffset;
@@ -138,6 +139,9 @@ void DrawImageProgram::initialize()
             }
 
             vec4 texColor = texture(uTexture, vUv);
+            if (uSourcePremultiplied && texColor.a > 0.000001) {
+                texColor.rgb /= texColor.a;
+            }
             vec4 paintColor = uTintColor;
             if (uGradientType == 1) {
                 vec2 direction = uLinearEnd - uLinearStart;
@@ -275,6 +279,9 @@ void DrawImageProgram::draw(const RenderContext &context, const DrawImageData &d
                      data.clearTypeMask && context.isClearTypeBlendModeActive() ? 1 : 0);
     program_->setInt("uRgbCoverageFallback",
                      data.rgbCoverageMask && !context.isClearTypeBlendModeActive() ? 1 : 0);
+    program_->setInt(
+        "uSourcePremultiplied",
+        data.imageResource->alphaType() == ImageAlphaType::Premultiplied ? 1 : 0);
     const glm::mat4 colorMatrix(
         data.colorMatrix[0], data.colorMatrix[1], data.colorMatrix[2], data.colorMatrix[3],
         data.colorMatrix[4], data.colorMatrix[5], data.colorMatrix[6], data.colorMatrix[7],
