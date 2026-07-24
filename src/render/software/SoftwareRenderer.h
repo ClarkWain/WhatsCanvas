@@ -54,7 +54,8 @@ public:
         size_t commandEnd, const OffscreenRenderRequest &request) const override;
     SharedImageResource filterImageResource(const SharedImageResource &source,
                                             int width, int height,
-                                            const wsc::ImageFilter &filter) const override;
+                                            const wsc::ImageFilter &filter,
+                                            FilterExecutionStats *executionStats = nullptr) const override;
     void resetRenderState() override;
     void clear() override;
     void flush() override;
@@ -75,7 +76,7 @@ private:
     int height_ = 0;
     std::vector<std::uint8_t> framebuffer_; // RGBA8, row 0 = top (canvas y = 0)
     std::vector<std::unique_ptr<Command>> commands_;
-    FrameStats stats_;
+    mutable FrameStats stats_;
 };
 
 } // namespace wsc::software

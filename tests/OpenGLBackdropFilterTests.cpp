@@ -125,6 +125,13 @@ int main()
                     "downsampled blur should spread black into the white half") && ok;
         ok = expect(pixelAt(70, 64)[3] == 255 && pixelAt(89, 64)[3] == 255,
                     "full-resolution restore pass should preserve opaque alpha") && ok;
+        const wsc::Canvas::RenderStats stats = canvas->getRenderStats();
+        ok = expect(stats.filterCount == 1 && stats.filterPassCount == 3
+                        && stats.downsampledFilterCount == 1,
+                    "GPU stats should report one downsampled three-pass filter") && ok;
+        ok = expect(stats.filterInputPixelCount == 20480
+                        && stats.filterPixelPassCount == 30720,
+                    "GPU stats should report input and reduced pixel-pass work") && ok;
     }
 
     canvas->beginFrame();

@@ -489,6 +489,48 @@ void benchmarkFrameFlush(int iterations)
               << rawRenderer->flushCount << std::endl;
 }
 
+void benchmarkSoftwareBackdropBlur(int iterations)
+{
+    const int filterIterations = std::max(1, iterations / 5000);
+    std::unique_ptr<wsc::Canvas> canvas =
+        wsc::Canvas::create(wsc::Canvas::Backend::Software, 320, 180);
+    if (!canvas || !canvas->initializeContext()) {
+        printSkippedMetric("software_backdrop_blur_320x180_r24",
+                           "software canvas initialization failed");
+        return;
+    }
+    canvas->setSize(320, 180);
+
+    wsc::Paint black;
+    black.setStyle(wsc::Paint::Style::FILL);
+    black.setColor(wsc::Color(0, 0, 0, 255));
+    black.setAntiAlias(false);
+    wsc::Paint white = black;
+    white.setColor(wsc::Color(255, 255, 255, 255));
+    wsc::LayerOptions options;
+    options.setBackdropFilter(wsc::ImageFilter::blur(24.0f));
+
+    const double ms = timeMilliseconds([&]() {
+        for (int i = 0; i < filterIterations; ++i) {
+            canvas->beginFrame();
+            canvas->drawRect(wsc::RectF(0.0f, 0.0f, 160.0f, 180.0f), black);
+            canvas->drawRect(wsc::RectF(160.0f, 0.0f, 160.0f, 180.0f), white);
+            canvas->saveLayer(wsc::RectF(0.0f, 0.0f, 320.0f, 180.0f), white, options);
+            canvas->restore();
+            canvas->endFrame();
+        }
+    });
+
+    const wsc::Canvas::RenderStats stats = canvas->getRenderStats();
+    printMetric("software_backdrop_blur_320x180_r24", filterIterations, ms);
+    std::cout << "BENCHMARK_DETAIL name=software_backdrop_blur_320x180_r24"
+              << " filter_count=" << stats.filterCount
+              << " filter_passes=" << stats.filterPassCount
+              << " input_pixels=" << stats.filterInputPixelCount
+              << " pixel_passes=" << stats.filterPixelPassCount
+              << std::endl;
+}
+
 } // namespace
 
 int main()
@@ -505,5 +547,6 @@ int main()
     benchmarkCommandRecording(iterations);
     benchmarkImageUpload(std::max(1, iterations / 10));
     benchmarkFrameFlush(iterations);
+    benchmarkSoftwareBackdropBlur(iterations);
     return 0;
 }

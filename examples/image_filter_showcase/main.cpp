@@ -240,6 +240,10 @@ int main(int argc, char **argv)
               << viewport[2] << 'x' << viewport[3]
               << ", commands " << stats.commandCount
               << ", draws " << stats.drawCallCount
+              << ", filters " << stats.filterCount
+              << ", filter passes " << stats.filterPassCount
+              << ", downsampled " << stats.downsampledFilterCount
+              << ", filter pixel-passes " << stats.filterPixelPassCount
               << ", GL error " << glGetError() << '\n';
 
     std::vector<unsigned char> pixels;

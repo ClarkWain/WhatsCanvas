@@ -9,6 +9,11 @@ struct FrameStats
     std::size_t commandCount = 0;        ///< Number of commands submitted.
     std::size_t mergedBatchCount = 0;    ///< Number of batch merges performed.
     std::size_t renderTargetSwitches = 0;///< Number of FBO switches.
+    std::size_t filterCount = 0;         ///< Successful image/backdrop filters.
+    std::size_t filterPassCount = 0;     ///< Backend passes used by filters.
+    std::size_t downsampledFilterCount = 0; ///< Reduced-resolution filters.
+    std::size_t filterInputPixelCount = 0;  ///< Input pixels submitted to filters.
+    std::size_t filterPixelPassCount = 0;   ///< Pixels processed across passes.
 
     void reset()
     {
@@ -16,5 +21,10 @@ struct FrameStats
         commandCount = 0;
         mergedBatchCount = 0;
         renderTargetSwitches = 0;
+        filterCount = 0;
+        filterPassCount = 0;
+        downsampledFilterCount = 0;
+        filterInputPixelCount = 0;
+        filterPixelPassCount = 0;
     }
 };

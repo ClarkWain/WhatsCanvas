@@ -2754,6 +2754,11 @@ Canvas::RenderStats Canvas::getRenderStats() const
     stats.drawCallCount = frameStats.drawCallCount;
     stats.mergedBatchCount = frameStats.mergedBatchCount;
     stats.renderTargetSwitches = frameStats.renderTargetSwitches;
+    stats.filterCount = frameStats.filterCount;
+    stats.filterPassCount = frameStats.filterPassCount;
+    stats.downsampledFilterCount = frameStats.downsampledFilterCount;
+    stats.filterInputPixelCount = frameStats.filterInputPixelCount;
+    stats.filterPixelPassCount = frameStats.filterPixelPassCount;
     stats.imageTextureCount = resourceStats.imageTextureCount;
     stats.renderTargetCount = resourceStats.renderTargetCount;
     stats.tessellationCacheHits = impl_->fillTessellationCache.hitCount();

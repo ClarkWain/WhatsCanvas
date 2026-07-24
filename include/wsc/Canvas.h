@@ -63,6 +63,11 @@ public:
 		std::size_t drawCallCount = 0;
 		std::size_t mergedBatchCount = 0;
 		std::size_t renderTargetSwitches = 0;
+		std::size_t filterCount = 0;
+		std::size_t filterPassCount = 0;
+		std::size_t downsampledFilterCount = 0;
+		std::size_t filterInputPixelCount = 0;
+		std::size_t filterPixelPassCount = 0;
 		std::size_t imageTextureCount = 0;
 		std::size_t glyphAtlasTextureCount = 0;
 		std::size_t renderTargetCount = 0;

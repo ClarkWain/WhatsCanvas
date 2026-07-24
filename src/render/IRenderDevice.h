@@ -36,12 +36,16 @@ public:
                                                               const OffscreenRenderRequest &request) const = 0;
     virtual SharedImageResource filterImageResource(const SharedImageResource &source,
                                                     int width, int height,
-                                                    const wsc::ImageFilter &filter) const
+                                                    const wsc::ImageFilter &filter,
+                                                    FilterExecutionStats *executionStats = nullptr) const
     {
         (void)source;
         (void)width;
         (void)height;
         (void)filter;
+        if (executionStats != nullptr) {
+            *executionStats = {};
+        }
         return {};
     }
 
