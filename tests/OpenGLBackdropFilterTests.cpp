@@ -58,6 +58,8 @@ int main()
         glfwTerminate();
         return expect(false, "unable to bind hidden-window framebuffer") ? 0 : 1;
     }
+    GLint outputFramebuffer = 0;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &outputFramebuffer);
 
     wsc::Paint black;
     black.setStyle(wsc::Paint::Style::FILL);
@@ -78,13 +80,17 @@ int main()
     canvas->endFrame();
 
     std::vector<unsigned char> pixels;
+    GLint framebufferAfterBackdrop = 0;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &framebufferAfterBackdrop);
+    bool ok = expect(framebufferAfterBackdrop == outputFramebuffer,
+                     "backdrop filtering must restore the output framebuffer");
     const bool read = canvas->readPixelsRGBA(pixels);
     auto pixelAt = [&](int x, int y) {
         return &pixels[(static_cast<std::size_t>(y) * kWidth + x) * 4u];
     };
 
-    bool ok = expect(read && pixels.size() == static_cast<std::size_t>(kWidth * kHeight * 4),
-                     "framebuffer readback must return a complete RGBA frame");
+    ok = expect(read && pixels.size() == static_cast<std::size_t>(kWidth * kHeight * 4),
+                "framebuffer readback must return a complete RGBA frame") && ok;
     if (ok) {
         ok = expect(pixelAt(6, 12)[0] < 5, "black pixels outside the layer should remain sharp") && ok;
         ok = expect(pixelAt(34, 12)[0] > 250, "white pixels outside the layer should remain sharp") && ok;
@@ -92,6 +98,34 @@ int main()
                     "blur should spread white into the black half") && ok;
         ok = expect(pixelAt(21, 12)[0] > 128 && pixelAt(21, 12)[0] < 255,
                     "blur should spread black into the white half") && ok;
+    }
+
+    canvas->beginFrame();
+    canvas->drawRect(wsc::RectF(0.0f, 0.0f, 20.0f, static_cast<float>(kHeight)), black);
+    canvas->drawRect(wsc::RectF(20.0f, 0.0f, 20.0f, static_cast<float>(kHeight)), white);
+    canvas->saveLayer(wsc::RectF(8.0f, 4.0f, 24.0f, 16.0f), layerPaint, options);
+    wsc::Path roundedClip;
+    roundedClip.addRoundRect(wsc::RectF(8.0f, 4.0f, 24.0f, 16.0f), 5.0f);
+    canvas->clipPath(roundedClip);
+    wsc::Paint tint = white;
+    tint.setColor(wsc::Color(80, 160, 220, 64));
+    canvas->drawRect(wsc::RectF(8.0f, 4.0f, 24.0f, 16.0f), tint);
+    canvas->restore();
+    canvas->endFrame();
+
+    pixels.clear();
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &framebufferAfterBackdrop);
+    ok = expect(framebufferAfterBackdrop == outputFramebuffer,
+                "rounded backdrop filtering must restore the output framebuffer") && ok;
+    ok = expect(canvas->readPixelsRGBA(pixels),
+                "rounded backdrop readback should succeed") && ok;
+    if (ok) {
+        ok = expect(pixelAt(3, 12)[0] < 5,
+                    "rounded backdrop must preserve black pixels outside its layer") && ok;
+        ok = expect(pixelAt(36, 12)[0] > 250,
+                    "rounded backdrop must preserve white pixels outside its layer") && ok;
+        ok = expect(pixelAt(18, 12)[0] > 0 && pixelAt(18, 12)[0] < 160,
+                    "rounded backdrop should retain the blurred transition") && ok;
     }
 
     canvas.reset();
