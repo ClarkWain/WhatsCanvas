@@ -60,12 +60,16 @@ public:
     /// Apply a backend-native filter and return a new image resource.
     virtual SharedImageResource filterImageResource(const SharedImageResource &source,
                                                     int width, int height,
-                                                    const wsc::ImageFilter &filter) const
+                                                    const wsc::ImageFilter &filter,
+                                                    FilterExecutionStats *executionStats = nullptr) const
     {
         (void)source;
         (void)width;
         (void)height;
         (void)filter;
+        if (executionStats != nullptr) {
+            *executionStats = {};
+        }
         return {};
     }
     virtual void resetRenderState() = 0;

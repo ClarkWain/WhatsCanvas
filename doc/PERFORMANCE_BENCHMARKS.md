@@ -31,6 +31,8 @@ Current benchmark cases:
 - `command_record_rect`: CPU-side rectangle command recording without flushing a GL context.
 - `image_upload_rgba_64x64`: backend-neutral image resource creation/update cost through the renderer abstraction.
 - `frame_flush_single_rect`: command flush overhead with a lightweight renderer.
+- `software_backdrop_blur_320x180_r24`: real separable-Gaussian backdrop blur
+  through the Software backend, including filter pass and pixel-pass details.
 
 ## Scope
 
@@ -41,3 +43,7 @@ The remaining GPU-sensitive benchmark targets still need dedicated harnesses:
 - image upload cost with a current GL/GLES context
 - frame flush cost with real draw execution
 - backend-specific draw-call counters under stable validation scenes
+
+`WhatsCanvasImageFilterShowcase` complements the headless benchmark with a real
+OpenGL framebuffer workload. Its diagnostic line includes filter executions,
+passes, downsample hits, and pixel-pass work for local GPU profiling.

@@ -46,6 +46,12 @@ struct RenderResourceStats {
     std::size_t renderTargetCount = 0;
 };
 
+struct FilterExecutionStats {
+    std::size_t passCount = 0;
+    std::size_t pixelPassCount = 0;
+    bool downsampled = false;
+};
+
 struct ScissorState {
     bool enabled = false;
     int x = 0;

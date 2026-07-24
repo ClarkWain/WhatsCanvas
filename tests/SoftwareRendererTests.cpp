@@ -500,6 +500,13 @@ bool testBackdropColorAdjustment()
     bool ok = expect(rg <= 2 && gb <= 2,
                      "zero saturation should turn the filtered backdrop grayscale");
     ok = expect(center[3] == 255, "color adjustment should preserve backdrop alpha") && ok;
+    const Canvas::RenderStats stats = canvas->getRenderStats();
+    ok = expect(stats.filterCount == 1 && stats.filterPassCount == 3
+                    && stats.downsampledFilterCount == 0,
+                "software stats should report blur plus color-adjustment passes") && ok;
+    ok = expect(stats.filterInputPixelCount == 400
+                    && stats.filterPixelPassCount == 1200,
+                "software stats should report full-resolution pixel-pass work") && ok;
     return ok;
 }
 

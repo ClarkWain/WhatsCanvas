@@ -15,3 +15,7 @@ This directory is reserved for repeatable local and CI benchmark assets.
 - state-change and draw-call counters per scene;
 - readback and saveLayer latency tracking;
 - stable benchmark output suitable for local history comparison and future CI reporting.
+
+`WhatsCanvasCoreBenchmarks` now includes
+`software_backdrop_blur_320x180_r24`, a repeatable real-filter workload that
+reports elapsed time together with filter pass and pixel-pass diagnostics.

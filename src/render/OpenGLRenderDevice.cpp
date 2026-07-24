@@ -658,8 +658,12 @@ SharedImageResource OpenGLRenderDevice::renderCommandsToImageResource(const std:
 
 SharedImageResource OpenGLRenderDevice::filterImageResource(const SharedImageResource &source,
                                                             int width, int height,
-                                                            const wsc::ImageFilter &filter) const
+                                                            const wsc::ImageFilter &filter,
+                                                            FilterExecutionStats *executionStats) const
 {
+    if (executionStats != nullptr) {
+        *executionStats = {};
+    }
     const auto *input = dynamic_cast<const OpenGLImageResource *>(source.get());
     if (input == nullptr || !input->isValid() || width <= 0 || height <= 0
         || !filter.isValid() || filter.type() != wsc::ImageFilter::Type::Blur) {
@@ -753,6 +757,15 @@ SharedImageResource OpenGLRenderDevice::filterImageResource(const SharedImageRes
         glDisable(GL_SCISSOR_TEST);
     }
 
+    if (executionStats != nullptr) {
+        executionStats->passCount = downsample > 1 ? 3u : 2u;
+        executionStats->pixelPassCount =
+            static_cast<std::size_t>(blurWidth) * static_cast<std::size_t>(blurHeight) * 2u
+            + (downsample > 1
+                ? static_cast<std::size_t>(width) * static_cast<std::size_t>(height)
+                : 0u);
+        executionStats->downsampled = downsample > 1;
+    }
     return downsample > 1
         ? glRestoreTarget->getImageResource()
         : glTargetB->getImageResource();
