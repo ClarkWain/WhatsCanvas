@@ -13,6 +13,9 @@ set "CONFIG=Debug"
 set "TARGET=WhatsCanvasDemo"
 set "NO_RUN=0"
 set "PACKAGE=0"
+set "BUILD_SHARED=0"
+set "BUILD_OPENGLES=0"
+set "BUILD_VULKAN=0"
 
 :parse_args
 if "%~1"=="" goto args_done
@@ -26,9 +29,15 @@ if /I "%~1"=="--no-run" (
     set "CONFIG=Debug"
 ) else if /I "%~1"=="--package" (
     set "PACKAGE=1"
+) else if /I "%~1"=="--shared" (
+    set "BUILD_SHARED=1"
+) else if /I "%~1"=="--opengles" (
+    set "BUILD_OPENGLES=1"
+) else if /I "%~1"=="--vulkan" (
+    set "BUILD_VULKAN=1"
 ) else (
     echo Unknown argument: %~1
-    echo Usage: build.bat [--no-run] [--debug^|--release] [--package]
+    echo Usage: build.bat [--no-run] [--debug^|--release] [--package] [--shared] [--opengles] [--vulkan]
     exit /b 1
 )
 shift
@@ -50,10 +59,20 @@ set "EXE_PATH=%BUILD_DIR%\%CONFIG%\%TARGET%.exe"
 if "%GENERATOR_IS_MULTI_CONFIG%"=="0" set "EXE_PATH=%BUILD_DIR%\%TARGET%.exe"
 set "PACKAGE_DIR=%ROOT_DIR%\out\package\%CONFIG%"
 set "CONFIGURE_ARGS=-S "%ROOT_DIR%" -B "%BUILD_DIR%" -G "%GENERATOR%" -DCMAKE_EXPORT_COMPILE_COMMANDS:BOOL=TRUE"
-if "%PACKAGE%"=="1" if not "%WHATSCANVAS_PACKAGE_ENABLE_FREETYPE%"=="1" set "CONFIGURE_ARGS=%CONFIGURE_ARGS% -DWHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=OFF"
-rem Packaging installs the renderer libraries, not the demo, so skip building the
-rem test targets to keep the package build lean.
-if "%PACKAGE%"=="1" set "CONFIGURE_ARGS=%CONFIGURE_ARGS% -DBUILD_TESTING=OFF"
+if "%PACKAGE%"=="1" (
+    if "%WHATSCANVAS_PACKAGE_ENABLE_FREETYPE%"=="1" (
+        set "CONFIGURE_ARGS=%CONFIGURE_ARGS% -DWHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=ON"
+    ) else (
+        set "CONFIGURE_ARGS=%CONFIGURE_ARGS% -DWHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=OFF"
+    )
+)
+rem Packaging installs the renderer libraries, not the demo, so skip optional
+rem executable targets to keep the package build lean and avoid linking
+rem internal-only helpers against shared-library exports.
+if "%PACKAGE%"=="1" set "CONFIGURE_ARGS=%CONFIGURE_ARGS% -DBUILD_TESTING=OFF -DWHATSCANVAS_BUILD_DEMO=OFF -DWHATSCANVAS_BUILD_BENCHMARKS=OFF"
+if "%BUILD_SHARED%"=="1" set "CONFIGURE_ARGS=%CONFIGURE_ARGS% -DBUILD_SHARED_LIBS=ON"
+if "%BUILD_OPENGLES%"=="1" set "CONFIGURE_ARGS=%CONFIGURE_ARGS% -DWHATSCANVAS_BUILD_OPENGLES=ON"
+if "%BUILD_VULKAN%"=="1" set "CONFIGURE_ARGS=%CONFIGURE_ARGS% -DWHATSCANVAS_ENABLE_VULKAN=ON"
 if defined WHATSCANVAS_CMAKE_EXTRA_ARGS set "CONFIGURE_ARGS=%CONFIGURE_ARGS% %WHATSCANVAS_CMAKE_EXTRA_ARGS%"
 if "%GENERATOR_IS_MULTI_CONFIG%"=="1" (
     if defined GENERATOR_TOOLSET set "CONFIGURE_ARGS=%CONFIGURE_ARGS% -T %GENERATOR_TOOLSET%"
@@ -122,13 +141,15 @@ if not "!STEP_EXIT!"=="0" (
     exit /b 1
 )
 
-if not exist "%EXE_PATH%" if exist "%BUILD_DIR%\%CONFIG%\%TARGET%.exe" set "EXE_PATH=%BUILD_DIR%\%CONFIG%\%TARGET%.exe"
+if not "%PACKAGE%"=="1" (
+    if not exist "%EXE_PATH%" if exist "%BUILD_DIR%\%CONFIG%\%TARGET%.exe" set "EXE_PATH=%BUILD_DIR%\%CONFIG%\%TARGET%.exe"
 
-if not exist "%EXE_PATH%" (
-    echo Executable not found: "%EXE_PATH%"
-    echo BUILD_RESULT=FAIL
-    echo BUILD_FAILED_STAGE=OUTPUT
-    exit /b 1
+    if not exist "%EXE_PATH%" (
+        echo Executable not found: "%EXE_PATH%"
+        echo BUILD_RESULT=FAIL
+        echo BUILD_FAILED_STAGE=OUTPUT
+        exit /b 1
+    )
 )
 
 if "%PACKAGE%"=="1" (
