@@ -60,6 +60,7 @@ public:
 
     int width() const { return width_; }
     int height() const { return height_; }
+    const std::vector<std::uint8_t> &pixels() const { return pixels_; }
 
     /// Sample straight-alpha RGBA in [0,1] at texture coordinate (u,v).
     /// samplingMode: 0/2 = bilinear, 1 = nearest. tileMode: 0 clamp, 1 repeat,
@@ -765,6 +766,84 @@ void blurAlpha(std::vector<float> &buffer, int width, int height, const wsc::ren
     }
 }
 
+/// Blur straight-alpha RGBA without introducing transparent-edge color halos.
+/// RGB is premultiplied before convolution and unpremultiplied afterwards.
+void blurRGBA(std::vector<std::uint8_t> &pixels, int width, int height,
+              const wsc::render::GaussianKernel &kernelX,
+              const wsc::render::GaussianKernel &kernelY,
+              wsc::ImageFilter::TileMode tileMode)
+{
+    if (width <= 0 || height <= 0
+        || pixels.size() < static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4u) {
+        return;
+    }
+
+    const std::size_t componentCount = static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4u;
+    std::vector<float> source(componentCount, 0.0f);
+    std::vector<float> temp(componentCount, 0.0f);
+    std::vector<float> output(componentCount, 0.0f);
+    for (std::size_t i = 0; i < componentCount; i += 4u) {
+        const float alpha = pixels[i + 3u] / 255.0f;
+        source[i] = (pixels[i] / 255.0f) * alpha;
+        source[i + 1u] = (pixels[i + 1u] / 255.0f) * alpha;
+        source[i + 2u] = (pixels[i + 2u] / 255.0f) * alpha;
+        source[i + 3u] = alpha;
+    }
+
+    const bool decal = tileMode == wsc::ImageFilter::TileMode::Decal;
+    auto accumulate = [&](const std::vector<float> &input, int x, int y, int component,
+                          bool horizontal, const wsc::render::GaussianKernel &kernel) {
+        float sum = input[(static_cast<std::size_t>(y) * width + x) * 4u + component] * kernel.weights[0];
+        for (int i = 1; i <= kernel.radius(); ++i) {
+            int x0 = horizontal ? x - i : x;
+            int x1 = horizontal ? x + i : x;
+            int y0 = horizontal ? y : y - i;
+            int y1 = horizontal ? y : y + i;
+            const bool valid0 = x0 >= 0 && x0 < width && y0 >= 0 && y0 < height;
+            const bool valid1 = x1 >= 0 && x1 < width && y1 >= 0 && y1 < height;
+            if (!decal || valid0) {
+                x0 = std::clamp(x0, 0, width - 1);
+                y0 = std::clamp(y0, 0, height - 1);
+                sum += input[(static_cast<std::size_t>(y0) * width + x0) * 4u + component]
+                     * kernel.weights[static_cast<std::size_t>(i)];
+            }
+            if (!decal || valid1) {
+                x1 = std::clamp(x1, 0, width - 1);
+                y1 = std::clamp(y1, 0, height - 1);
+                sum += input[(static_cast<std::size_t>(y1) * width + x1) * 4u + component]
+                     * kernel.weights[static_cast<std::size_t>(i)];
+            }
+        }
+        return sum;
+    };
+
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            for (int c = 0; c < 4; ++c) {
+                temp[(static_cast<std::size_t>(y) * width + x) * 4u + c] =
+                    accumulate(source, x, y, c, true, kernelX);
+            }
+        }
+    }
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            for (int c = 0; c < 4; ++c) {
+                output[(static_cast<std::size_t>(y) * width + x) * 4u + c] =
+                    accumulate(temp, x, y, c, false, kernelY);
+            }
+        }
+    }
+
+    for (std::size_t i = 0; i < componentCount; i += 4u) {
+        const float alpha = std::clamp(output[i + 3u], 0.0f, 1.0f);
+        const float invAlpha = alpha > 1e-6f ? 1.0f / alpha : 0.0f;
+        pixels[i] = toByte(output[i] * invAlpha);
+        pixels[i + 1u] = toByte(output[i + 1u] * invAlpha);
+        pixels[i + 2u] = toByte(output[i + 2u] * invAlpha);
+        pixels[i + 3u] = toByte(alpha);
+    }
+}
+
 /// True separable-Gaussian drop shadow: rasterize the silhouette coverage, blur
 /// it, then composite the tinted blurred coverage into the framebuffer. `extra`
 /// offsets the silhouette and scissor for offscreen layers; `canvasHeight` is
@@ -1153,6 +1232,38 @@ SharedImageResource SoftwareRenderer::renderCommandsToImageResource(const std::v
     executeCommandList(target.data(), tw, th, request.canvasHeight, extra, commands, nullptr);
 
     return std::make_shared<SoftwareImageResource>(tw, th, std::move(target));
+}
+
+SharedImageResource SoftwareRenderer::renderQueuedCommandsToImageResource(
+    size_t commandEnd, const OffscreenRenderRequest &request) const
+{
+    if (commandEnd == 0 || commands_.empty()) {
+        return {};
+    }
+    const size_t boundedEnd = std::min(commandEnd, commands_.size());
+    if (boundedEnd != commands_.size()) {
+        return {};
+    }
+    return renderCommandsToImageResource(commands_, request);
+}
+
+SharedImageResource SoftwareRenderer::filterImageResource(const SharedImageResource &source,
+                                                          int width, int height,
+                                                          const wsc::ImageFilter &filter) const
+{
+    const auto *softwareImage = dynamic_cast<const SoftwareImageResource *>(source.get());
+    if (softwareImage == nullptr || !softwareImage->isValid()
+        || softwareImage->width() != width || softwareImage->height() != height
+        || !filter.isValid() || filter.type() != wsc::ImageFilter::Type::Blur) {
+        return {};
+    }
+
+    std::vector<std::uint8_t> filtered = softwareImage->pixels();
+    blurRGBA(filtered, width, height,
+             wsc::render::computeGaussianKernel(filter.radiusX()),
+             wsc::render::computeGaussianKernel(filter.radiusY()),
+             filter.tileMode());
+    return std::make_shared<SoftwareImageResource>(width, height, std::move(filtered));
 }
 
 void SoftwareRenderer::resetRenderState() {}

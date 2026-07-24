@@ -53,6 +53,11 @@ public:
     void blurPass(GLuint srcTexture, GLuint dstFramebuffer, int width, int height,
                   const glm::vec2 &direction, const wsc::render::GaussianKernel &kernel);
 
+    /// Blur straight-alpha RGBA while accumulating RGB in premultiplied form.
+    void blurImagePass(GLuint srcTexture, GLuint dstFramebuffer, int width, int height,
+                       const glm::vec2 &direction, const wsc::render::GaussianKernel &kernel,
+                       bool decal = false);
+
     /// Composites `srcTexture` (blurred coverage) into the currently bound
     /// framebuffer as a full-screen quad, tinting rgb with `tint` and scaling
     /// alpha by `tint.a`. The caller owns blend/scissor/viewport state.
@@ -64,6 +69,9 @@ private:
     static constexpr int kMaxRadius = 64;
 
     void drawQuad();
+    void blurPassImpl(GLuint srcTexture, GLuint dstFramebuffer, int width, int height,
+                      const glm::vec2 &direction, const wsc::render::GaussianKernel &kernel,
+                      int mode, bool decal);
     void destroyTargets();
 
     static GaussianBlurProgram *instance_;

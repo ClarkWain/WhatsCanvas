@@ -50,6 +50,11 @@ public:
     RenderResourceStats resourceStats() const override;
     SharedImageResource renderCommandsToImageResource(const std::vector<std::unique_ptr<Command>> &commands,
                                                       const OffscreenRenderRequest &request) const override;
+    SharedImageResource renderQueuedCommandsToImageResource(
+        size_t commandEnd, const OffscreenRenderRequest &request) const override;
+    SharedImageResource filterImageResource(const SharedImageResource &source,
+                                            int width, int height,
+                                            const wsc::ImageFilter &filter) const override;
     void resetRenderState() override;
     void clear() override;
     void flush() override;

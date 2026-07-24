@@ -250,3 +250,16 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
 - OpenGLES builds remain configurable.
 - Tests or smoke scenes cover the new behavior.
 - README or architecture docs are updated when public usage changes.
+
+## Phase 7: Image Filters And Backdrop Effects
+
+- [x] Add backend-neutral `ImageFilter` and `LayerOptions` public values.
+- [x] Preserve the existing `saveLayer(bounds, paint)` API.
+- [x] Define separate layer-content and backdrop-filter semantics.
+- [x] Add premultiplied RGBA Gaussian blur to the Software reference backend.
+- [x] Add two-pass GPU RGBA Gaussian blur to OpenGL / OpenGLES.
+- [x] Prevent pooled render-target reuse while deferred commands retain its image.
+- [x] Add Software and real-context OpenGL pixel tests.
+- [ ] Add a GPU-only Vulkan blur path and Vulkan/OpenGL parity scene.
+- [ ] Add composable color-matrix and offset filter nodes.
+- [ ] Add adaptive downsampling and filter performance statistics.
