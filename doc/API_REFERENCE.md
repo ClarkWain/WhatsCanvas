@@ -14,6 +14,7 @@ It is meant to stay close to the current C++ API; behavioral contracts remain do
 - `wsc/Color.h`
 - `wsc/Font.h`
 - `wsc/Image.h`
+- `wsc/ImageFilter.h`
 - `wsc/Log.h`
 - `wsc/Matrix.h`
 - `wsc/Paint.h`
@@ -271,6 +272,8 @@ Public members:
 - `int save();`
 - `int saveLayer(const RectF &bounds, const Paint &paint);`
 - `int saveLayer(const Rect &bounds, const Paint &paint);`
+- `int saveLayer(const RectF &bounds, const Paint &paint, const LayerOptions &options);`
+- `int saveLayer(const Rect &bounds, const Paint &paint, const LayerOptions &options);`
 - `void restore();`
 - `int getSaveCount() const;`
 - `void restoreToCount(int saveCount);`
@@ -492,6 +495,32 @@ Public members:
 - `int getTextureHeight() const override;`
 - `bool isTextureValid() const override;`
 - `bool isRenderTarget() const override;`
+
+## `wsc/ImageFilter.h`
+
+### `class ImageFilter`
+
+Public members:
+
+- `ImageFilter() = default;`
+- `static ImageFilter blur(float radiusX, float radiusY, TileMode tileMode = TileMode::Clamp);`
+- `static ImageFilter blur(float radius, TileMode tileMode = TileMode::Clamp);`
+- `Type type() const;`
+- `bool isValid() const;`
+- `float radiusX() const;`
+- `float radiusY() const;`
+- `TileMode tileMode() const;`
+
+### `class LayerOptions`
+
+Public members:
+
+- `LayerOptions &setImageFilter(const ImageFilter &filter);`
+- `LayerOptions &setBackdropFilter(const ImageFilter &filter);`
+- `const ImageFilter &imageFilter() const;`
+- `const ImageFilter &backdropFilter() const;`
+- `bool hasImageFilter() const;`
+- `bool hasBackdropFilter() const;`
 
 ## `wsc/Log.h`
 

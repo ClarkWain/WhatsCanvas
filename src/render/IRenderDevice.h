@@ -6,6 +6,7 @@
 
 #include "RenderTypes.h"
 #include "Surface.h"
+#include "wsc/ImageFilter.h"
 
 class Command;
 class IRenderTarget;
@@ -33,6 +34,16 @@ public:
     virtual RenderResourceStats resourceStats() const = 0;
     virtual SharedImageResource renderCommandsToImageResource(const std::vector<std::unique_ptr<Command>> &commands,
                                                               const OffscreenRenderRequest &request) const = 0;
+    virtual SharedImageResource filterImageResource(const SharedImageResource &source,
+                                                    int width, int height,
+                                                    const wsc::ImageFilter &filter) const
+    {
+        (void)source;
+        (void)width;
+        (void)height;
+        (void)filter;
+        return {};
+    }
 
     /// Whether this device drives its main-target frame by rendering a recorded
     /// command stream through executeCommands() (e.g. Vulkan) rather than the

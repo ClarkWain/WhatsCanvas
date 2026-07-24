@@ -9,6 +9,7 @@
 #include "Color.h"
 #include "Font.h"
 #include "Image.h"
+#include "ImageFilter.h"
 #include "Log.h"
 #include "Matrix.h"
 #include "Paint.h"

@@ -35,7 +35,8 @@ public:
     FakeRenderTarget(int width, int height, int identifier)
         : width_(width),
           height_(height),
-          identifier_(identifier)
+          identifier_(identifier),
+          image_(std::make_shared<FakeImageResource>())
     {
     }
 
@@ -46,7 +47,7 @@ public:
     void activate() override { activated_ = true; }
     bool isActivated() const override { return activated_; }
     void end() override { activated_ = false; }
-    SharedImageResource getImageResource() const override { return std::make_shared<FakeImageResource>(); }
+    SharedImageResource getImageResource() const override { return image_; }
     int identifier() const { return identifier_; }
 
 private:
@@ -54,6 +55,7 @@ private:
     int height_ = 0;
     int identifier_ = 0;
     bool activated_ = false;
+    SharedImageResource image_;
 };
 
 class FakeRenderDevice final : public IRenderDevice
@@ -122,11 +124,31 @@ bool testPoolExpiresIdleTargets()
     return expect(pool.pooledCount() == 0, "pool should remove targets past the idle limit");
 }
 
+bool testPoolDoesNotOverwriteReferencedImage()
+{
+    FakeRenderDevice device;
+    RenderTargetPool pool(&device);
+
+    std::unique_ptr<IRenderTarget> first = pool.acquire(24, 24);
+    const auto *firstTarget = dynamic_cast<const FakeRenderTarget *>(first.get());
+    const int firstIdentifier = firstTarget == nullptr ? 0 : firstTarget->identifier();
+    SharedImageResource liveImage = first->getImageResource();
+    pool.release(std::move(first));
+
+    std::unique_ptr<IRenderTarget> second = pool.acquire(24, 24);
+    const auto *secondTarget = dynamic_cast<const FakeRenderTarget *>(second.get());
+    const int secondIdentifier = secondTarget == nullptr ? 0 : secondTarget->identifier();
+
+    return expect(device.createdCount == 2, "pool should allocate while a deferred command references the image")
+        && expect(secondIdentifier != firstIdentifier, "pool must not overwrite a live offscreen image");
+}
+
 } // namespace
 
 int main()
 {
     const bool ok = testPoolReusesMatchingSize()
-        && testPoolExpiresIdleTargets();
+        && testPoolExpiresIdleTargets()
+        && testPoolDoesNotOverwriteReferencedImage();
     return ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }

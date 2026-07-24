@@ -7,6 +7,7 @@
 #include "render/FrameStats.h"
 #include "render/RenderTypes.h"
 #include "render/Surface.h"
+#include "wsc/ImageFilter.h"
 
 class Command;
 
@@ -47,6 +48,26 @@ public:
     virtual RenderResourceStats resourceStats() const = 0;
     virtual SharedImageResource renderCommandsToImageResource(const std::vector<std::unique_ptr<Command>> &commands,
                                                               const OffscreenRenderRequest &request) const = 0;
+    /// Render a prefix of the currently queued frame without consuming it.
+    /// Used by backdrop filters to snapshot content recorded before a layer.
+    virtual SharedImageResource renderQueuedCommandsToImageResource(
+        size_t commandEnd, const OffscreenRenderRequest &request) const
+    {
+        (void)commandEnd;
+        (void)request;
+        return {};
+    }
+    /// Apply a backend-native filter and return a new image resource.
+    virtual SharedImageResource filterImageResource(const SharedImageResource &source,
+                                                    int width, int height,
+                                                    const wsc::ImageFilter &filter) const
+    {
+        (void)source;
+        (void)width;
+        (void)height;
+        (void)filter;
+        return {};
+    }
     virtual void resetRenderState() = 0;
     virtual void clear() = 0;
     virtual void flush() = 0;
