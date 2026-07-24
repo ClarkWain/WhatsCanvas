@@ -1,4 +1,5 @@
 #include <cstdint>
+#include <cstdlib>
 #include <iostream>
 #include <vector>
 
@@ -101,6 +102,26 @@ int main()
     }
 
     canvas->beginFrame();
+    canvas->drawRect(wsc::RectF(0.0f, 0.0f, static_cast<float>(kWidth),
+                                static_cast<float>(kHeight)), black);
+    canvas->drawRect(wsc::RectF(6.0f, 0.0f, 2.0f, static_cast<float>(kHeight)), white);
+    canvas->saveLayer(wsc::RectF(8.0f, 4.0f, 24.0f, 16.0f), layerPaint, options);
+    canvas->restore();
+    canvas->endFrame();
+
+    pixels.clear();
+    ok = expect(canvas->readPixelsRGBA(pixels),
+                "bounded backdrop readback should succeed") && ok;
+    if (ok) {
+        ok = expect(pixelAt(5, 12)[0] < 5,
+                    "backdrop sampling outset must not darken pixels outside the layer") && ok;
+        ok = expect(pixelAt(7, 12)[0] > 250,
+                    "backdrop sampling outset must not overwrite source pixels outside the layer") && ok;
+        ok = expect(pixelAt(9, 12)[0] > 0,
+                    "pixels outside the layer should still contribute to blur inside its boundary") && ok;
+    }
+
+    canvas->beginFrame();
     canvas->drawRect(wsc::RectF(0.0f, 0.0f, 20.0f, static_cast<float>(kHeight)), black);
     canvas->drawRect(wsc::RectF(20.0f, 0.0f, 20.0f, static_cast<float>(kHeight)), white);
     canvas->saveLayer(wsc::RectF(8.0f, 4.0f, 24.0f, 16.0f), layerPaint, options);
@@ -126,6 +147,37 @@ int main()
                     "rounded backdrop must preserve white pixels outside its layer") && ok;
         ok = expect(pixelAt(18, 12)[0] > 0 && pixelAt(18, 12)[0] < 160,
                     "rounded backdrop should retain the blurred transition") && ok;
+    }
+
+    wsc::Paint colorBackground = black;
+    colorBackground.setColor(wsc::Color(240, 80, 40, 255));
+    wsc::ImageFilter grayscale = wsc::ImageFilter::blur(1.0f);
+    grayscale.setColorAdjustment(0.0f);
+    wsc::LayerOptions grayscaleOptions;
+    grayscaleOptions.setBackdropFilter(grayscale);
+    canvas->beginFrame();
+    canvas->drawRect(wsc::RectF(0.0f, 0.0f, static_cast<float>(kWidth),
+                                static_cast<float>(kHeight)), colorBackground);
+    canvas->saveLayer(wsc::RectF(0.0f, 0.0f, static_cast<float>(kWidth),
+                                 static_cast<float>(kHeight)),
+                      layerPaint, grayscaleOptions);
+    canvas->restore();
+    canvas->endFrame();
+
+    pixels.clear();
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &framebufferAfterBackdrop);
+    ok = expect(framebufferAfterBackdrop == outputFramebuffer,
+                "color-adjusted backdrop must restore the output framebuffer") && ok;
+    ok = expect(canvas->readPixelsRGBA(pixels),
+                "color-adjusted backdrop readback should succeed") && ok;
+    if (ok) {
+        const unsigned char *center = pixelAt(kWidth / 2, kHeight / 2);
+        const int rg = std::abs(static_cast<int>(center[0]) - static_cast<int>(center[1]));
+        const int gb = std::abs(static_cast<int>(center[1]) - static_cast<int>(center[2]));
+        ok = expect(rg <= 2 && gb <= 2,
+                    "GPU zero saturation should turn the filtered backdrop grayscale") && ok;
+        ok = expect(center[3] == 255,
+                    "GPU color adjustment should preserve backdrop alpha") && ok;
     }
 
     canvas.reset();

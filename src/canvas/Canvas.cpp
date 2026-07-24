@@ -4901,6 +4901,7 @@ void Canvas::Impl::restoreLayer(const LayerState &layer)
     request.scissorOffsetY = -(height - layerBottom);
 
     std::vector<std::unique_ptr<Command>> layerCommands;
+    std::size_t generatedBackdropCommandCount = 0;
     if (layer.options.hasBackdropFilter()) {
         SharedImageResource backdrop = renderer->renderQueuedCommandsToImageResource(layer.commandStart, request);
         if (backdrop && backdrop->isValid()) {
@@ -4922,6 +4923,7 @@ void Canvas::Impl::restoreLayer(const LayerState &layer)
                 backdropData.tileMode = DrawImageTileMode::Clamp;
                 backdropData.transform = glm::mat4(1.0f);
                 layerCommands.push_back(std::make_unique<DrawImageCommand>(backdropData));
+                generatedBackdropCommandCount = 1;
             }
         }
     }
@@ -4935,6 +4937,13 @@ void Canvas::Impl::restoreLayer(const LayerState &layer)
 
     SharedImageResource imageResource = renderer->renderCommandsToImageResource(layerCommands, request);
     if (!imageResource || !imageResource->isValid()) {
+        if (generatedBackdropCommandCount > 0
+            && generatedBackdropCommandCount <= layerCommands.size()) {
+            layerCommands.erase(
+                layerCommands.begin(),
+                layerCommands.begin()
+                    + static_cast<std::ptrdiff_t>(generatedBackdropCommandCount));
+        }
         renderer->appendCommands(std::move(layerCommands));
         return;
     }
@@ -4948,16 +4957,43 @@ void Canvas::Impl::restoreLayer(const LayerState &layer)
         }
     }
 
+    RectF compositeRect = layerRect;
+    float sourceU0 = 0.0f;
+    float sourceU1 = 1.0f;
+    float sourceV0 = 1.0f;
+    float sourceV1 = 0.0f;
+    if (layer.options.hasBackdropFilter() && !layer.options.hasImageFilter()) {
+        // The expanded rectangle supplies neighboring pixels to the blur
+        // kernel. A backdrop filter still belongs to the saved layer bounds;
+        // do not let that sampling outset become visible output.
+        compositeRect = intersectRects(layer.bounds, canvasBounds);
+        if (compositeRect.getWidth() <= 0.0f || compositeRect.getHeight() <= 0.0f) {
+            return;
+        }
+        const float left = (compositeRect.getX() - layerRect.getX()) / layerRect.getWidth();
+        const float top = (compositeRect.getY() - layerRect.getY()) / layerRect.getHeight();
+        const float right =
+            (compositeRect.getX() + compositeRect.getWidth() - layerRect.getX())
+            / layerRect.getWidth();
+        const float bottom =
+            (compositeRect.getY() + compositeRect.getHeight() - layerRect.getY())
+            / layerRect.getHeight();
+        sourceU0 = std::clamp(left, 0.0f, 1.0f);
+        sourceU1 = std::clamp(right, 0.0f, 1.0f);
+        sourceV0 = 1.0f - std::clamp(top, 0.0f, 1.0f);
+        sourceV1 = 1.0f - std::clamp(bottom, 0.0f, 1.0f);
+    }
+
     DrawImageData data;
     data.imageResource = imageResource;
-    data.x = layerRect.getX();
-    data.y = layerRect.getY();
-    data.width = layerRect.getWidth();
-    data.height = layerRect.getHeight();
-    data.u0 = 0.0f;
-    data.u1 = 1.0f;
-    data.v0 = 1.0f;
-    data.v1 = 0.0f;
+    data.x = compositeRect.getX();
+    data.y = compositeRect.getY();
+    data.width = compositeRect.getWidth();
+    data.height = compositeRect.getHeight();
+    data.u0 = sourceU0;
+    data.u1 = sourceU1;
+    data.v0 = sourceV0;
+    data.v1 = sourceV1;
     const Color tintColor = layer.paint.getColor();
     data.tintColor[0] = tintColor.r();
     data.tintColor[1] = tintColor.g();

@@ -85,30 +85,28 @@ void drawPanelContent(Canvas &canvas, const RectF &bounds,
     }
 }
 
-void drawGlassPanel(Canvas &canvas, const RectF &bounds, float blurRadius,
+void drawGlassPanel(Canvas &canvas, const RectF &bounds,
                     const std::string &title, const Color &accent)
 {
-    constexpr float cornerRadius = 42.0f;
+    constexpr float cornerRadius = 8.0f;
     canvas.drawRoundRect(RectF(bounds.getX(), bounds.getY() + 20.0f,
                                bounds.getWidth(), bounds.getHeight()),
                          cornerRadius, solid(Color(5, 8, 18, 72)));
 
     LayerOptions options;
-    options.setBackdropFilter(ImageFilter::blur(blurRadius));
+    options.setBackdropFilter(
+        ImageFilter::frostedGlass(ImageFilter::kMaxBlurSigma,
+                                  1.08f, 1.08f, 0.98f, 0.008f));
     canvas.saveLayer(bounds, solid(Color(255, 255, 255, 255)), options);
-
-    Path clip;
-    clip.addRoundRect(bounds, cornerRadius);
-    canvas.clipPath(clip);
 
     Paint tint;
     tint.setLinearGradient(
         bounds.getX(), bounds.getY(),
         bounds.getX(), bounds.getY() + bounds.getHeight(),
         {
-            Paint::ColorStop(0.0f, Color(255, 255, 255, 76)),
-            Paint::ColorStop(0.28f, Color(37, 45, 66, 96)),
-            Paint::ColorStop(1.0f, Color(13, 18, 32, 142)),
+            Paint::ColorStop(0.0f, Color(255, 255, 255, 94)),
+            Paint::ColorStop(0.28f, Color(247, 251, 255, 58)),
+            Paint::ColorStop(1.0f, Color(234, 242, 252, 38)),
         });
     canvas.drawRect(bounds, tint);
 
@@ -183,7 +181,6 @@ int main(int argc, char **argv)
         glfwTerminate();
         return 1;
     }
-
     canvas->beginFrame();
     Paint imagePaint = solid(Color(255, 255, 255, 255));
     imagePaint.setImageSampling(Paint::ImageSampling::LINEAR);
@@ -202,11 +199,11 @@ int main(int argc, char **argv)
         RectF(720.0f, 238.0f, 480.0f, 610.0f),
         RectF(1290.0f, 238.0f, 480.0f, 610.0f),
     };
-    drawGlassPanel(*canvas, panels[0], 14.0f, "SOFT",
+    drawGlassPanel(*canvas, panels[0], "GLASS 01",
                    Color(117, 238, 227, 255));
-    drawGlassPanel(*canvas, panels[1], 30.0f, "BALANCED",
+    drawGlassPanel(*canvas, panels[1], "GLASS 02",
                    Color(255, 166, 116, 255));
-    drawGlassPanel(*canvas, panels[2], 52.0f, "DEEP",
+    drawGlassPanel(*canvas, panels[2], "GLASS 03",
                    Color(211, 238, 91, 255));
 
     canvas->drawText("Real OpenGL framebuffer capture", 82.0f, 1016.0f,

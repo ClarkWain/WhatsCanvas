@@ -462,6 +462,91 @@ bool testBackdropBlur()
     return ok;
 }
 
+bool testBackdropColorAdjustment()
+{
+    const int w = 20;
+    const int h = 20;
+    std::unique_ptr<Canvas> canvas = makeSoftwareCanvas(w, h);
+    if (!canvas) {
+        return expect(false, "createSoftware should return a canvas");
+    }
+
+    Paint background;
+    background.setStyle(Paint::Style::FILL);
+    background.setColor(Color(240, 80, 40, 255));
+    background.setAntiAlias(false);
+    Paint layerPaint;
+    layerPaint.setColor(Color(255, 255, 255, 255));
+    ImageFilter grayscale = ImageFilter::blur(1.0f);
+    grayscale.setColorAdjustment(0.0f);
+    LayerOptions options;
+    options.setBackdropFilter(grayscale);
+
+    canvas->beginFrame();
+    canvas->drawRect(RectF(0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h)), background);
+    canvas->saveLayer(RectF(0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h)),
+                      layerPaint, options);
+    canvas->restore();
+    canvas->endFrame();
+
+    std::vector<unsigned char> pixels;
+    if (!canvas->readPixelsRGBA(pixels) || pixels.size() != static_cast<std::size_t>(w) * h * 4u) {
+        return expect(false, "color-adjusted backdrop readPixelsRGBA should succeed");
+    }
+    const unsigned char *center =
+        &pixels[(static_cast<std::size_t>(h / 2) * w + w / 2) * 4u];
+    const int rg = std::abs(static_cast<int>(center[0]) - static_cast<int>(center[1]));
+    const int gb = std::abs(static_cast<int>(center[1]) - static_cast<int>(center[2]));
+    bool ok = expect(rg <= 2 && gb <= 2,
+                     "zero saturation should turn the filtered backdrop grayscale");
+    ok = expect(center[3] == 255, "color adjustment should preserve backdrop alpha") && ok;
+    return ok;
+}
+
+bool testBackdropSamplingOutsetIsClipped()
+{
+    const int w = 40;
+    const int h = 24;
+    std::unique_ptr<Canvas> canvas = makeSoftwareCanvas(w, h);
+    if (!canvas) {
+        return expect(false, "createSoftware should return a canvas");
+    }
+
+    Paint black;
+    black.setStyle(Paint::Style::FILL);
+    black.setColor(Color(0, 0, 0, 255));
+    black.setAntiAlias(false);
+    Paint white = black;
+    white.setColor(Color(255, 255, 255, 255));
+    Paint layerPaint = white;
+    LayerOptions options;
+    options.setBackdropFilter(ImageFilter::blur(6.0f));
+
+    canvas->beginFrame();
+    canvas->drawRect(RectF(0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h)), black);
+    canvas->drawRect(RectF(6.0f, 0.0f, 2.0f, static_cast<float>(h)), white);
+    canvas->saveLayer(RectF(8.0f, 4.0f, 24.0f, 16.0f), layerPaint, options);
+    canvas->restore();
+    canvas->endFrame();
+
+    std::vector<unsigned char> pixels;
+    if (!canvas->readPixelsRGBA(pixels)
+        || pixels.size() != static_cast<std::size_t>(w) * h * 4u) {
+        return expect(false, "bounded backdrop readPixelsRGBA should succeed");
+    }
+    auto redAt = [&](int x, int y) {
+        return pixels[(static_cast<std::size_t>(y) * w + x) * 4u];
+    };
+
+    bool ok = expect(redAt(5, 12) == 0,
+                     "sampling outset must not change black pixels outside the layer");
+    ok = expect(redAt(7, 12) == 255,
+                "sampling outset must not overwrite source pixels outside the layer") && ok;
+    ok = expect(redAt(9, 12) > 0,
+                "source pixels outside the layer should contribute to blur inside it") && ok;
+    return ok;
+}
+
 bool testLayerImageBlur()
 {
     const int w = 32;
@@ -561,6 +646,8 @@ int main()
     ok = testSaveLayerAlpha() && ok;
     ok = testSaveLayerPartial() && ok;
     ok = testBackdropBlur() && ok;
+    ok = testBackdropColorAdjustment() && ok;
+    ok = testBackdropSamplingOutsetIsClipped() && ok;
     ok = testLayerImageBlur() && ok;
     ok = testGammaLinearBlend() && ok;
     return ok ? 0 : 1;
