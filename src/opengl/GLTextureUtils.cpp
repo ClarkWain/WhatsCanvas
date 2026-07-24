@@ -100,7 +100,9 @@ bool createRenderTargetTexture(int width, int height, GLuint &framebuffer, GLuin
     }
 
     const GLuint nativeTexture = static_cast<GLuint>(createdTexture.value);
+    GLint previousFramebuffer = 0;
     GLint previousRenderbuffer = 0;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &previousFramebuffer);
     glGetIntegerv(GL_RENDERBUFFER_BINDING, &previousRenderbuffer);
 
     glGenFramebuffers(1, &framebuffer);
@@ -113,9 +115,9 @@ bool createRenderTargetTexture(int width, int height, GLuint &framebuffer, GLuin
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_RENDERBUFFER, stencilRenderbuffer);
 
     const bool complete = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+    glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(previousFramebuffer));
     glBindRenderbuffer(GL_RENDERBUFFER, static_cast<GLuint>(previousRenderbuffer));
     if (!complete) {
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glDeleteRenderbuffers(1, &stencilRenderbuffer);
         glDeleteFramebuffers(1, &framebuffer);
         destroyTexture(createdTexture);
