@@ -65,6 +65,17 @@ public:
     {
         return std::make_shared<FakeImageResource>();
     }
+    SharedImageResource filterImageResource(const SharedImageResource &, int, int,
+                                            const wsc::ImageFilter &,
+                                            FilterExecutionStats *executionStats) const override
+    {
+        if (executionStats != nullptr) {
+            executionStats->passCount = 3;
+            executionStats->pixelPassCount = 5120;
+            executionStats->downsampled = true;
+        }
+        return std::make_shared<FakeImageResource>();
+    }
 };
 
 bool testDefaultStatsAreReadable()
@@ -76,6 +87,14 @@ bool testDefaultStatsAreReadable()
         && expect(stats.drawCallCount == 0, "default draw call count should be zero")
         && expect(stats.mergedBatchCount == 0, "default merged batch count should be zero")
         && expect(stats.renderTargetSwitches == 0, "default render target switch count should be zero")
+        && expect(stats.filterCount == 0, "default filter count should be zero")
+        && expect(stats.filterPassCount == 0, "default filter pass count should be zero")
+        && expect(stats.downsampledFilterCount == 0,
+                  "default downsampled filter count should be zero")
+        && expect(stats.filterInputPixelCount == 0,
+                  "default filter input pixel count should be zero")
+        && expect(stats.filterPixelPassCount == 0,
+                  "default filter pixel-pass count should be zero")
         && expect(stats.imageTextureCount == 0, "default image texture count should be zero")
         && expect(stats.glyphAtlasTextureCount == 0, "default glyph atlas count should be zero")
         && expect(stats.renderTargetCount == 0, "default render target count should be zero");
@@ -104,6 +123,30 @@ bool testOffscreenStatsCountCommandsAndDraws()
         && expect(stats.renderTargetSwitches == 1, "offscreen render should count render target switch");
 }
 
+bool testFilterStatsAccumulateAndReset()
+{
+    Renderer renderer(std::make_unique<FakeRenderDevice>());
+    const auto source = std::make_shared<FakeImageResource>();
+    const SharedImageResource filtered = renderer.filterImageResource(
+        source, 64, 40, wsc::ImageFilter::blur(32.0f));
+    const FrameStats &stats = renderer.frameStats();
+    bool ok = expect(filtered && filtered->isValid(),
+                     "fake filter should return a valid image")
+        && expect(stats.filterCount == 1, "successful filter should increment filter count")
+        && expect(stats.filterPassCount == 3, "filter passes should be accumulated")
+        && expect(stats.downsampledFilterCount == 1,
+                  "downsampled filters should be counted")
+        && expect(stats.filterInputPixelCount == 2560,
+                  "filter input pixels should use the submitted dimensions")
+        && expect(stats.filterPixelPassCount == 5120,
+                  "backend pixel-pass work should be accumulated");
+    renderer.resetFrameStats();
+    ok = expect(renderer.frameStats().filterCount == 0
+                    && renderer.frameStats().filterPixelPassCount == 0,
+                "resetFrameStats should clear filter diagnostics") && ok;
+    return ok;
+}
+
 } // namespace
 
 int main()
@@ -111,5 +154,6 @@ int main()
     bool ok = true;
     ok = testDefaultStatsAreReadable() && ok;
     ok = testOffscreenStatsCountCommandsAndDraws() && ok;
+    ok = testFilterStatsAccumulateAndReset() && ok;
     return ok ? 0 : 1;
 }

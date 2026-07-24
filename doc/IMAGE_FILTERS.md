@@ -121,6 +121,13 @@ and an unavailable backdrop filter becomes a no-op.
 - `WhatsCanvasRenderTargetPoolTests` prevents offscreen targets from being
   reused while a deferred filter/composite command still references their
   texture.
+- `Canvas::getRenderStats()` exposes `filterCount`, `filterPassCount`,
+  `downsampledFilterCount`, `filterInputPixelCount`, and
+  `filterPixelPassCount`. These counters reset with the frame and make
+  expensive glass layouts visible without backend-specific tooling.
+- `WhatsCanvasCoreBenchmarks` includes a repeatable
+  `software_backdrop_blur_320x180_r24` workload. The OpenGL showcase prints the
+  same filter counters for local GPU profiling.
 
 ## Roadmap
 
@@ -128,7 +135,6 @@ and an unavailable backdrop filter becomes a no-op.
 2. Add a composable filter graph with generic color-matrix and offset nodes.
 3. Extend the backend-neutral shared encoder to arbitrary clipped image and
    gradient primitives for non-GL device command execution.
-4. Add filter pass/cache statistics and representative performance benchmarks.
 
 The core API deliberately starts with a small filter surface. Inner shadows,
 morphology, displacement maps, and custom shader filters remain optional

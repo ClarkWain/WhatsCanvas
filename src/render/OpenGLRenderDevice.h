@@ -30,7 +30,8 @@ public:
                                                       const OffscreenRenderRequest &request) const override;
     SharedImageResource filterImageResource(const SharedImageResource &source,
                                             int width, int height,
-                                            const wsc::ImageFilter &filter) const override;
+                                            const wsc::ImageFilter &filter,
+                                            FilterExecutionStats *executionStats = nullptr) const override;
     bool executeDrawList(const wsc::DrawList &drawList, int width, int height,
                          int scissorOffsetX = 0, int scissorOffsetY = 0) const;
 

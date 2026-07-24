@@ -220,10 +220,30 @@ SharedImageResource Renderer::renderQueuedCommandsToImageResource(
 
 SharedImageResource Renderer::filterImageResource(const SharedImageResource &source,
                                                   int width, int height,
-                                                  const wsc::ImageFilter &filter) const
+                                                  const wsc::ImageFilter &filter,
+                                                  FilterExecutionStats *executionStats) const
 {
-    return device_ == nullptr ? SharedImageResource()
-                              : device_->filterImageResource(source, width, height, filter);
+    if (executionStats != nullptr) {
+        *executionStats = {};
+    }
+    if (device_ == nullptr) {
+        return {};
+    }
+    FilterExecutionStats execution;
+    SharedImageResource result =
+        device_->filterImageResource(source, width, height, filter, &execution);
+    if (executionStats != nullptr) {
+        *executionStats = execution;
+    }
+    if (result && result->isValid()) {
+        ++stats_.filterCount;
+        stats_.filterPassCount += execution.passCount;
+        stats_.downsampledFilterCount += execution.downsampled ? 1u : 0u;
+        stats_.filterInputPixelCount +=
+            static_cast<std::size_t>(width) * static_cast<std::size_t>(height);
+        stats_.filterPixelPassCount += execution.pixelPassCount;
+    }
+    return result;
 }
 
 void Renderer::resetRenderState()

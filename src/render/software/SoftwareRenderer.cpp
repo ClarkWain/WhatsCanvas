@@ -1284,8 +1284,12 @@ SharedImageResource SoftwareRenderer::renderQueuedCommandsToImageResource(
 
 SharedImageResource SoftwareRenderer::filterImageResource(const SharedImageResource &source,
                                                           int width, int height,
-                                                          const wsc::ImageFilter &filter) const
+                                                          const wsc::ImageFilter &filter,
+                                                          FilterExecutionStats *executionStats) const
 {
+    if (executionStats != nullptr) {
+        *executionStats = {};
+    }
     const auto *softwareImage = dynamic_cast<const SoftwareImageResource *>(source.get());
     if (softwareImage == nullptr || !softwareImage->isValid()
         || softwareImage->width() != width || softwareImage->height() != height
@@ -1299,6 +1303,20 @@ SharedImageResource SoftwareRenderer::filterImageResource(const SharedImageResou
              wsc::render::computeGaussianKernel(filter.radiusY()),
              filter.tileMode());
     adjustRGBA(filtered, filter);
+    const bool adjustmentPass = filter.hasColorAdjustment() || filter.hasGrain();
+    const std::size_t passCount = adjustmentPass ? 3u : 2u;
+    if (executionStats != nullptr) {
+        executionStats->passCount = passCount;
+        executionStats->pixelPassCount =
+            static_cast<std::size_t>(width) * static_cast<std::size_t>(height)
+            * passCount;
+    }
+    ++stats_.filterCount;
+    stats_.filterPassCount += passCount;
+    stats_.filterInputPixelCount +=
+        static_cast<std::size_t>(width) * static_cast<std::size_t>(height);
+    stats_.filterPixelPassCount +=
+        static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * passCount;
     return std::make_shared<SoftwareImageResource>(width, height, std::move(filtered));
 }
 
