@@ -68,7 +68,7 @@ WhatsCanvas 的公开接口仍然是熟悉的 `Canvas` / `Paint` / `Path` / `Ima
 
 ![图像滤镜与毛玻璃真实渲染效果](images/image-filter-showcase.png)
 
-上图由桌面 OpenGL 后端以 `1920 x 1080` 实时渲染并从 framebuffer 直接回读，三个面板分别使用 `10 / 28 / 52 px` backdrop blur，不是 SVG 或设计稿。可用 `WhatsCanvasImageFilterShowcase <输出路径>` 重新生成；实现语义与后端边界见 [Image Filters And Backdrop Effects](doc/IMAGE_FILTERS.md)。
+上图由桌面 OpenGL 后端以 `1920 x 1080` 实时渲染并从 framebuffer 直接回读。中央播放面板、右上通知和底部播放条分别使用 `30 / 18 / 42 px` backdrop blur；背景界面、玻璃层、圆角裁剪、文字和控件全部由 WhatsCanvas 绘制，不是 SVG 或设计稿。可用 `WhatsCanvasImageFilterShowcase <输出路径>` 重新生成；实现语义与后端边界见 [Image Filters And Backdrop Effects](doc/IMAGE_FILTERS.md)。
 
 ## 画质与渲染
 
