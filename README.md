@@ -62,6 +62,14 @@ WhatsCanvas 的公开接口仍然是熟悉的 `Canvas` / `Paint` / `Path` / `Ima
 
 上图由 `WhatsCanvasDemo` 的 `text-showcase` 场景真实捕获。更多细节见 [Text Feature Matrix](doc/TEXT_FEATURE_MATRIX.md) 与 [字体渲染专题](doc/Font%20Rendering%20Techniques/index.html)。
 
+## 图像滤镜与毛玻璃
+
+`ImageFilter` 可以处理离屏层自身内容，也可以通过 backdrop filter 采样并模糊已经绘制的场景。后者适合制作毛玻璃面板、半透明 HUD、浮层和模态界面；圆角路径裁剪、半透明 tint、描边和层内容可继续按普通 Canvas API 组合。
+
+![图像滤镜与毛玻璃真实渲染效果](images/image-filter-showcase.png)
+
+上图由桌面 OpenGL 后端以 `1920 x 1080` 实时渲染并从 framebuffer 直接回读，三个面板分别使用 `10 / 28 / 52 px` backdrop blur，不是 SVG 或设计稿。可用 `WhatsCanvasImageFilterShowcase <输出路径>` 重新生成；实现语义与后端边界见 [Image Filters And Backdrop Effects](doc/IMAGE_FILTERS.md)。
+
 ## 画质与渲染
 
 WhatsCanvas 在"好看"上做了成体系的深耕，且都是**分辨率无关、不依赖 MSAA、对离屏目标同样生效**的实现：
