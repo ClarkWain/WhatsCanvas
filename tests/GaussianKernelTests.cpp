@@ -95,11 +95,20 @@ bool testSigmaAndFrostedGlassFactories()
 
 bool testBlurDownsamplePolicy()
 {
-    return expect(wsc::render::chooseGaussianBlurDownsample(512, 256, 24.0f, 8.0f) == 2,
-                  "large targets with a long blur kernel should use 2x downsampling")
+    const auto horizontal =
+        wsc::render::chooseGaussianBlurDownsampleFactors(512, 256, 24.0f, 8.0f);
+    const auto vertical =
+        wsc::render::chooseGaussianBlurDownsampleFactors(127, 512, 64.0f, 64.0f);
+    return expect(horizontal.x == 2 && horizontal.y == 1,
+                  "only the long horizontal blur axis should be downsampled")
+        && expect(vertical.x == 1 && vertical.y == 2,
+                  "a narrow target should still downsample its eligible vertical axis")
+        && expect(wsc::render::chooseGaussianBlurDownsample(512, 256, 24.0f, 8.0f) == 2,
+                  "the compatibility helper should report the largest axis factor")
         && expect(wsc::render::chooseGaussianBlurDownsample(512, 256, 23.9f, 8.0f) == 1,
                   "short blur kernels should remain full resolution")
-        && expect(wsc::render::chooseGaussianBlurDownsample(127, 512, 64.0f, 64.0f) == 1,
+        && expect(!wsc::render::chooseGaussianBlurDownsampleFactors(
+                       127, 127, 64.0f, 64.0f).active(),
                   "small target extents should remain full resolution");
 }
 

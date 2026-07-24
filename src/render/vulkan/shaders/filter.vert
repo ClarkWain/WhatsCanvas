@@ -1,12 +1,14 @@
 #version 450
 
-layout(location = 0) in vec2 inPosition;
-layout(location = 1) in vec2 inUV;
-
 layout(location = 0) out vec2 vUV;
 
 void main()
 {
-    gl_Position = vec4(inPosition, 0.0, 1.0);
-    vUV = inUV;
+    const vec2 positions[3] = vec2[3](
+        vec2(-1.0, -1.0),
+        vec2( 3.0, -1.0),
+        vec2(-1.0,  3.0));
+    vec2 position = positions[gl_VertexIndex];
+    gl_Position = vec4(position, 0.0, 1.0);
+    vUV = position * 0.5 + 0.5;
 }
