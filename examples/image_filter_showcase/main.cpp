@@ -88,16 +88,12 @@ void drawPanelContent(Canvas &canvas, const RectF &bounds,
 void drawGlassPanel(Canvas &canvas, const RectF &bounds,
                     const std::string &title, const Color &accent)
 {
-    constexpr float cornerRadius = 8.0f;
-    canvas.drawRoundRect(RectF(bounds.getX(), bounds.getY() + 20.0f,
-                               bounds.getWidth(), bounds.getHeight()),
-                         cornerRadius, solid(Color(5, 8, 18, 72)));
+    constexpr float cornerRadius = 32.0f;
 
-    LayerOptions options;
-    options.setBackdropFilter(
-        ImageFilter::frostedGlass(ImageFilter::kMaxBlurSigma,
-                                  1.08f, 1.08f, 0.98f, 0.008f));
-    canvas.saveLayer(bounds, solid(Color(255, 255, 255, 255)), options);
+    canvas.save();
+    Path clip;
+    clip.addRoundRect(bounds, cornerRadius);
+    canvas.clipPath(clip);
 
     Paint tint;
     tint.setLinearGradient(
@@ -199,6 +195,30 @@ int main(int argc, char **argv)
         RectF(720.0f, 238.0f, 480.0f, 610.0f),
         RectF(1290.0f, 238.0f, 480.0f, 610.0f),
     };
+
+    constexpr float panelRadius = 32.0f;
+    for (const RectF &panel : panels) {
+        canvas->drawRoundRect(
+            RectF(panel.getX(), panel.getY() + 20.0f,
+                  panel.getWidth(), panel.getHeight()),
+            panelRadius, solid(Color(5, 8, 18, 72)));
+    }
+
+    canvas->save();
+    Path glassClip;
+    for (const RectF &panel : panels) {
+        glassClip.addRoundRect(panel, panelRadius);
+    }
+    canvas->clipPath(glassClip);
+    LayerOptions glassOptions;
+    glassOptions.setBackdropFilter(
+        ImageFilter::frostedGlass(ImageFilter::kMaxBlurSigma,
+                                  1.08f, 1.08f, 0.98f, 0.008f));
+    canvas->saveLayer(RectF(150.0f, 238.0f, 1620.0f, 610.0f),
+                      solid(Color(255, 255, 255, 255)), glassOptions);
+    canvas->restore();
+    canvas->restore();
+
     drawGlassPanel(*canvas, panels[0], "GLASS 01",
                    Color(117, 238, 227, 255));
     drawGlassPanel(*canvas, panels[1], "GLASS 02",
