@@ -59,6 +59,13 @@ opt-in through the overloads that accept `LayerOptions`.
   APIs such as Skia. Sigma is therefore clamped to `64 / 3`.
 - The current implementation uses a separable Gaussian kernel whose radius
   reaches approximately three standard deviations.
+- GL-family backends automatically use a conservative 2x downsample when both
+  target dimensions are at least 128 pixels and either blur radius reaches 24
+  pixels. The Gaussian kernel is scaled into the reduced target, cutting the
+  dominant convolution work to roughly one quarter.
+- Downsampled filters use a full-resolution restore pass. Saturation,
+  brightness, contrast, and grain are applied there so color treatment remains
+  stable and monochrome grain does not become blocky when enlarged.
 - RGBA filtering accumulates premultiplied RGB and unpremultiplies the result,
   avoiding colored fringes around transparent content.
 - `Clamp` repeats edge pixels outside the source image. `Decal` treats samples
@@ -97,7 +104,7 @@ the foreground does not need group opacity or an image filter.
 | Backend | Image blur | Backdrop blur | Execution |
 | --- | --- | --- | --- |
 | Software | Supported | Supported | Deterministic CPU separable Gaussian reference |
-| OpenGL / OpenGLES | Supported | Supported | Two-pass GPU RGBA Gaussian |
+| OpenGL / OpenGLES | Supported | Supported | Two-pass GPU RGBA Gaussian; adaptive 2x blur plus full-resolution restore for large kernels |
 | Vulkan | Planned | Planned | Must remain GPU-side; no readback fallback |
 
 Unsupported filters degrade gracefully: ordinary layer content is preserved,
@@ -119,10 +126,9 @@ and an unavailable backdrop filter becomes a no-op.
 
 1. Add Vulkan GPU blur and OpenGL/Vulkan pixel-parity coverage.
 2. Add a composable filter graph with generic color-matrix and offset nodes.
-3. Add adaptive downsampling for large animated blur regions.
-4. Extend the backend-neutral shared encoder to arbitrary clipped image and
+3. Extend the backend-neutral shared encoder to arbitrary clipped image and
    gradient primitives for non-GL device command execution.
-5. Add filter pass/cache statistics and representative performance benchmarks.
+4. Add filter pass/cache statistics and representative performance benchmarks.
 
 The core API deliberately starts with a small filter surface. Inner shadows,
 morphology, displacement maps, and custom shader filters remain optional

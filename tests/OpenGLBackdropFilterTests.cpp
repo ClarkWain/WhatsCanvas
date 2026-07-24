@@ -11,8 +11,8 @@
 
 namespace {
 
-constexpr int kWidth = 40;
-constexpr int kHeight = 24;
+constexpr int kWidth = 160;
+constexpr int kHeight = 128;
 
 bool expect(bool condition, const char *message)
 {
@@ -99,6 +99,32 @@ int main()
                     "blur should spread white into the black half") && ok;
         ok = expect(pixelAt(21, 12)[0] > 128 && pixelAt(21, 12)[0] < 255,
                     "blur should spread black into the white half") && ok;
+    }
+
+    wsc::LayerOptions downsampleOptions;
+    downsampleOptions.setBackdropFilter(wsc::ImageFilter::blur(32.0f));
+    canvas->beginFrame();
+    canvas->drawRect(wsc::RectF(0.0f, 0.0f, 80.0f, static_cast<float>(kHeight)), black);
+    canvas->drawRect(wsc::RectF(80.0f, 0.0f, 80.0f, static_cast<float>(kHeight)), white);
+    canvas->saveLayer(wsc::RectF(0.0f, 0.0f, static_cast<float>(kWidth),
+                                 static_cast<float>(kHeight)),
+                      layerPaint, downsampleOptions);
+    canvas->restore();
+    canvas->endFrame();
+
+    pixels.clear();
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &framebufferAfterBackdrop);
+    ok = expect(framebufferAfterBackdrop == outputFramebuffer,
+                "downsampled filtering must restore the output framebuffer") && ok;
+    ok = expect(canvas->readPixelsRGBA(pixels),
+                "downsampled backdrop readback should succeed") && ok;
+    if (ok) {
+        ok = expect(pixelAt(70, 64)[0] > 0 && pixelAt(70, 64)[0] < 128,
+                    "downsampled blur should spread white into the black half") && ok;
+        ok = expect(pixelAt(89, 64)[0] > 128 && pixelAt(89, 64)[0] < 255,
+                    "downsampled blur should spread black into the white half") && ok;
+        ok = expect(pixelAt(70, 64)[3] == 255 && pixelAt(89, 64)[3] == 255,
+                    "full-resolution restore pass should preserve opaque alpha") && ok;
     }
 
     canvas->beginFrame();

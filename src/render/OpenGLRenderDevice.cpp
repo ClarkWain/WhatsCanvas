@@ -666,8 +666,12 @@ SharedImageResource OpenGLRenderDevice::filterImageResource(const SharedImageRes
         return {};
     }
 
-    std::unique_ptr<IRenderTarget> targetA = createRenderTarget(width, height);
-    std::unique_ptr<IRenderTarget> targetB = createRenderTarget(width, height);
+    const int downsample = wsc::render::chooseGaussianBlurDownsample(
+        width, height, filter.radiusX(), filter.radiusY());
+    const int blurWidth = (width + downsample - 1) / downsample;
+    const int blurHeight = (height + downsample - 1) / downsample;
+    std::unique_ptr<IRenderTarget> targetA = createRenderTarget(blurWidth, blurHeight);
+    std::unique_ptr<IRenderTarget> targetB = createRenderTarget(blurWidth, blurHeight);
     auto *glTargetA = dynamic_cast<OpenGLRenderTarget *>(targetA.get());
     auto *glTargetB = dynamic_cast<OpenGLRenderTarget *>(targetB.get());
     if (glTargetA == nullptr || glTargetB == nullptr
@@ -675,8 +679,19 @@ SharedImageResource OpenGLRenderDevice::filterImageResource(const SharedImageRes
         return {};
     }
     const auto *imageA = dynamic_cast<const OpenGLImageResource *>(glTargetA->getImageResource().get());
-    if (imageA == nullptr || !imageA->isValid()) {
+    const auto *imageB = dynamic_cast<const OpenGLImageResource *>(glTargetB->getImageResource().get());
+    if (imageA == nullptr || !imageA->isValid()
+        || imageB == nullptr || !imageB->isValid()) {
         return {};
+    }
+    std::unique_ptr<IRenderTarget> restoreTarget;
+    OpenGLRenderTarget *glRestoreTarget = nullptr;
+    if (downsample > 1) {
+        restoreTarget = createRenderTarget(width, height);
+        glRestoreTarget = dynamic_cast<OpenGLRenderTarget *>(restoreTarget.get());
+        if (glRestoreTarget == nullptr || !glRestoreTarget->isValid()) {
+            return {};
+        }
     }
 
     GLint previousFramebuffer = 0;
@@ -697,15 +712,28 @@ SharedImageResource OpenGLRenderDevice::filterImageResource(const SharedImageRes
 
     auto *blur = wsc::opengl::GaussianBlurProgram::getInstance();
     blur->initialize();
-    const auto kernelX = wsc::render::computeGaussianKernel(filter.radiusX());
-    const auto kernelY = wsc::render::computeGaussianKernel(filter.radiusY());
+    const auto kernelX = wsc::render::computeGaussianKernel(
+        filter.radiusX() / static_cast<float>(downsample));
+    const auto kernelY = wsc::render::computeGaussianKernel(
+        filter.radiusY() / static_cast<float>(downsample));
     const bool decal = filter.tileMode() == wsc::ImageFilter::TileMode::Decal;
-    blur->blurImagePass(input->texture(), glTargetA->framebuffer(), width, height,
-                        glm::vec2(1.0f / static_cast<float>(width), 0.0f), kernelX, decal);
-    blur->blurImagePass(imageA->texture(), glTargetB->framebuffer(), width, height,
-                        glm::vec2(0.0f, 1.0f / static_cast<float>(height)), kernelY, decal,
-                        filter.saturation(), filter.brightness(), filter.contrast(),
-                        filter.grain());
+    blur->blurImagePass(input->texture(), glTargetA->framebuffer(), blurWidth, blurHeight,
+                        glm::vec2(1.0f / static_cast<float>(blurWidth), 0.0f),
+                        kernelX, decal);
+    blur->blurImagePass(imageA->texture(), glTargetB->framebuffer(), blurWidth, blurHeight,
+                        glm::vec2(0.0f, 1.0f / static_cast<float>(blurHeight)),
+                        kernelY, decal,
+                        downsample == 1 ? filter.saturation() : 1.0f,
+                        downsample == 1 ? filter.brightness() : 1.0f,
+                        downsample == 1 ? filter.contrast() : 1.0f,
+                        downsample == 1 ? filter.grain() : 0.0f);
+    if (downsample > 1) {
+        const auto passThrough = wsc::render::computeGaussianKernel(0.0f);
+        blur->blurImagePass(imageB->texture(), glRestoreTarget->framebuffer(), width, height,
+                            glm::vec2(0.0f), passThrough, decal,
+                            filter.saturation(), filter.brightness(), filter.contrast(),
+                            filter.grain());
+    }
 
     glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(previousFramebuffer));
     glViewport(previousViewport[0], previousViewport[1], previousViewport[2], previousViewport[3]);
@@ -725,5 +753,7 @@ SharedImageResource OpenGLRenderDevice::filterImageResource(const SharedImageRes
         glDisable(GL_SCISSOR_TEST);
     }
 
-    return glTargetB->getImageResource();
+    return downsample > 1
+        ? glRestoreTarget->getImageResource()
+        : glTargetB->getImageResource();
 }
