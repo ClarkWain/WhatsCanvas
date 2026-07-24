@@ -26,12 +26,13 @@ GLFW/SDL/Qt) does. The required order is:
 1. Create a GL context and **make it current**.
 2. `wsc::Canvas::loadOpenGL(loader)` — hand over your platform's proc loader.
 3. `canvas.setSize(w, h)` then `canvas.initializeContext()`.
-4. Draw + `canvas.endFrame()` **with the context current**.
+4. `canvas.beginFrame()` → draw → `canvas.endFrame()` **with the context
+   current**.
 
 If you skip step 1–2 or draw without a current context, GL calls fail. The
 software and Vulkan backends (`Canvas::create(Backend::Software, ...)` /
-`Canvas::create(Backend::Vulkan, ...)`) need none of this — they initialize
-lazily on the first draw/endFrame.
+`Canvas::create(Backend::Vulkan, ...)`) need none of this — call `beginFrame()`
+to initialize them lazily before drawing.
 
 ### Colors look washed out / semi-transparent blends look wrong
 
@@ -53,23 +54,28 @@ double flip. Don't flip again.
 
 ### `readPixelsRGBA` returns all zeros (black / empty image)
 
-Almost always this is a **second** `endFrame()` **after** you already ended the
-frame. `endFrame()` renders the recorded commands onto a freshly-cleared
-framebuffer and then consumes them, so calling it twice with no new draws
-re-clears the buffer and renders nothing — the read-back is all zeros.
+On the Software backend's normal framebuffer path, a common cause is a
+**second** `endFrame()` **after** you already ended the frame. `endFrame()`
+consumes the recorded commands, so the second call has nothing to draw while
+Software clears that framebuffer to transparent. Vulkan, OpenGL, and a
+render-target canvas created with `OffscreenTexture()` retain their existing
+target contents on an empty submission, but the extra call is still a lifecycle
+error.
 
 The correct offscreen sequence is:
 
 ```cpp
-canvas->beginFrame();               // optional; draws auto-begin a frame
+canvas->beginFrame();               // initializes lazily; resets queued frame state
 canvas->drawRect(/* ... */, paint);
 canvas->endFrame();                 // <- exactly once, right before reading
 canvas->readPixelsRGBA(pixels);     // or savePixelsPPM("out.ppm")
 ```
 
 Call `endFrame()` exactly once per frame, and do **not** call `beginFrame()`
-after drawing (it clears the framebuffer). Also confirm you actually drew inside
-the canvas bounds with a non-transparent paint color.
+after drawing (it discards queued commands before submission). Also confirm you
+actually drew inside the canvas bounds with a non-transparent paint color.
+OpenGL does not implicitly clear a host-owned framebuffer; clear it explicitly
+when a fresh background is required.
 
 ## Text
 
@@ -118,8 +124,9 @@ std::unique_ptr<wsc::Canvas> canvas =
         : wsc::Canvas::create(Backend::Software, w, h);
 ```
 
-The Vulkan backend renders **off-screen** (no window/surface) — read the result
-with `readPixelsRGBA`.
+The Vulkan backend renders **off-screen by default**. On Win32 it can also use
+`OutputTarget::ToWindow(...)` + `present()`; for portable/headless usage, read
+the result with `readPixelsRGBA`.
 
 ### I want a binary that links no GPU libraries at all
 
@@ -142,13 +149,17 @@ canvas.initializeContext();
 
 ### `present()` returns false / nothing shows in my window
 
-On-screen presentation is **experimental**. Supported today: software (Windows
-GDI + Linux X11), OpenGL (WGL; GLX on Linux), and Vulkan (Windows). Checklist:
+On-screen presentation is platform-dependent. Supported today: software
+(Windows GDI + Linux X11), OpenGL (WGL; GLX on Linux), and Vulkan (Windows).
+Checklist:
 
 - Call `setOutputTarget(OutputTarget::ToWindow(surface))` and check its return
   value — it is `false` when presentation is unsupported for the current
   backend/platform or the surface has no window handle. Fall back accordingly
   (e.g. `glfwSwapBuffers` for GL, or off-screen + `readPixelsRGBA`).
+- Initialize the backend before configuring a window or external target:
+  `initializeContext()` is required for Vulkan and for the OpenGL renderer
+  after `loadOpenGL(...)`; it is harmless but optional for Software.
 - Fill the surface correctly: `platform = NativeSurface::Platform::Win32` and
   `window = <HWND>` (e.g. `glfwGetWin32Window(window)`).
 - Create the window **without** a GL context for the software or Vulkan backend

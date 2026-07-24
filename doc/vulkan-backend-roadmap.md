@@ -18,7 +18,7 @@ draw-command families, not against internal implementation details.
 
 ## 2. Current state (baseline)
 
-Completed on this branch:
+Completed in the current tree:
 
 - `VulkanRenderDevice` implements `IRenderDevice` and is wired through
   `RenderDeviceFactory` (`create` / `isBackendSupported` / `isAvailable`).
@@ -36,7 +36,7 @@ the backend-neutral command layer (ADR-006). See
 [vulkan-backend-status.md](vulkan-backend-status.md) for the current capability
 matrix and test inventory.
 
-### 2.1 Parity gap
+### 2.1 Capability matrix
 
 | `IRenderDevice` method | OpenGL | Vulkan | Milestone |
 | --- | --- | --- | --- |
@@ -52,28 +52,17 @@ matrix and test inventory.
 | `renderCommandsToImageResource` | offscreen replay | command translation into an owned sampled texture | ✅ |
 | Draw commands (points/lines/path/image/text/shadow) | GL programs | command translation to solid/textured/gradient/clip pipelines | ✅ |
 
-## 3. Architectural constraint (must decide before M3)
+## 3. Architectural decision (implemented)
 
-The five draw commands (`DrawPoints`, `DrawLines`, `DrawPath`, `DrawImage`,
-`DrawText`) currently call OpenGL directly inside `Command::execute(RenderContext)`.
-They are GL-coupled and cannot be reused by Vulkan as-is. ADR-002 introduced the
-device abstraction, but the command/recording layer is still GL-specific.
+The recorded commands retain the OpenGL execution path while also exposing the
+backend-neutral draw data consumed by Vulkan. Vulkan translates the same command
+stream into backend-specific pipelines through the command layer; it does not
+call OpenGL from the Vulkan path. This is the implemented decision recorded in
+[ADR-006](architecture/ADR-006-backend-neutral-command-layer.md).
 
-Two viable strategies:
-
-- **A. Backend-neutral command layer (clean, larger).** Refactor commands to emit
-  backend-neutral draw primitives (vertex/index/uniform payloads + pipeline
-  state) that each backend consumes. Highest long-term value; unblocks Metal/D3D
-  too. Larger up-front refactor and regression risk to the shipping GL path.
-- **B. Parallel Vulkan command translator (pragmatic, faster).** Keep GL commands
-  untouched; add a Vulkan-side translation that reads the same `DrawData`
-  payloads and records Vulkan draws. Faster to a visible result; some duplicated
-  dispatch logic.
-
-Recommendation: start with **B** to reach visible parity quickly (M3–M5), then
-extract the common seam toward **A** once the Vulkan pipeline shapes are known.
-This decision is a hard dependency for M3 and should be recorded as an ADR.
-Recorded in [ADR-006](architecture/ADR-006-backend-neutral-command-layer.md).
+The remaining architectural follow-up is to reduce duplicated backend-specific
+translation and extend the seam to future Metal/D3D/WebGPU backends. That is
+not a prerequisite for the current Vulkan implementation.
 
 ## 4. Milestones
 
@@ -85,7 +74,7 @@ Depends on: device bring-up (done).
 - Vulkan Memory Allocator (or a minimal allocator) for device/host memory.
 - Command pool + command buffer allocation; fences/semaphores for submission.
 - A single-time-submit helper and a per-frame submit path.
-- Extend `resourceStats` scaffolding.
+- Keep `resourceStats` tracking aligned with newly added resource types.
 Gate: unit test allocates a buffer, submits an empty command buffer, waits on a
 fence — all succeed on hardware. **Met** (covered by M2 test path).
 
@@ -101,77 +90,77 @@ of the existing pixel-hash smoke approach. First real Vulkan pixels.
 **Met** by `WhatsCanvasVulkanRenderTargetTests` on NVIDIA RTX 2080 Ti (exact
 RGBA for a solid fill and a render-pass clear-to-zero).
 
-### M3 — First geometry: solid fills (points/lines/path fill) · **In progress (solid fills done)**
+### M3 — First geometry: solid fills (points/lines/path fill) · **Done**
 Depends on: M2 and the §3 decision.
-- SPIR-V shaders compiled from GLSL with `glslc` (add a CMake shader-compile
-  step; embed or load `.spv`). **Done**: `solid.vert`/`solid.frag` compiled to an
-  embedded SPIR-V header (`shaders/SolidShaderSpv.h`).
+- SPIR-V shaders compiled from GLSL with `glslc` and embedded as headers.
+  **Done**: `solid.vert`/`solid.frag` are represented by the checked-in
+  `shaders/SolidShaderSpv.h`; future shader changes must regenerate that header
+  and keep the source/header pair in sync.
 - Graphics pipeline(s) for solid-colored triangles/lines/points; vertex/index
   buffers; a push-constant or UBO for the transform/color. **Done** for a
   triangle-list solid pipeline (per-vertex color, dynamic viewport/scissor).
 - Translate `DrawPoints`, `DrawLines`, and solid `DrawPath` fill into Vulkan draws.
-  *Pending*: wired via `renderSolidTriangles`; command-layer hookup still to come.
+  **Done** through the backend-neutral command/draw-list translation path; the
+  corresponding command and solid-geometry tests cover points, lines, and path
+  geometry.
 - Blend state matching GL `SRC_ALPHA, ONE_MINUS_SRC_ALPHA` default. **Done**.
 Gate: render a filled polygon + polyline offscreen; pixel-compare (fuzzy) against
-the OpenGL output of the same scene. **First step met** by
-`WhatsCanvasVulkanSolidGeometryTests` (triangle interior = fill color, corner =
-clear) on NVIDIA RTX 2080 Ti.
+the OpenGL output of the same scene. Covered by
+`WhatsCanvasVulkanSolidGeometryTests` and the ADR-006 command-translation tests
+on NVIDIA RTX 2080 Ti.
 
-### M4 — Paint features on geometry · **In progress (gradients + blend done)**
+### M4 — Paint features on geometry · **Done; broader parity hardening ongoing**
 Depends on: M3.
-- Per-Paint anti-aliased fill/stroke (coverage feathering) to match GL analytic AA.
-  *Pending*.
-- Linear/radial multi-stop gradients (fragment evaluation; texel-buffer or UBO).
-  **Done** for per-vertex color interpolation (`renderGradientTriangles`);
-  fragment texel-buffer multi-stop still pending.
-- Blend modes (Porter-Duff subset + Add/Multiply/Screen). **Done**: pipelines
-  cached per (topology, blend mode); `renderBlendedOverlay` validates SrcOver/Src/
-  Add/Multiply/Screen via draw-over-draw.
-- Alpha, stroke mesh (reuse Polyline2D tessellation output). *Pending*.
+- Per-Paint anti-aliased fill/stroke (coverage feathering) is **done** through
+  the analytic-AA coverage path; broader visual parity scenes remain hardening.
+- Linear/radial multi-stop gradients are **done** through fragment evaluation,
+  with UBO-backed stops and clamp/repeat/mirror/decal tile modes.
+- Blend modes are **done** across the Canvas set, including the Porter-Duff
+  modes plus Add/Multiply/Screen; Vulkan blend tests cover the mappings.
+- Alpha and stroke geometry are **done** in the command translation path;
+  additional stress scenes remain validation work.
 Gate: fuzzy pixel-compare of an AA + gradient + blend scene vs OpenGL.
-**First step met** by `WhatsCanvasVulkanPaintTests` (gradient interpolation,
-SrcOver and Add results within tolerance) on NVIDIA RTX 2080 Ti.
+Covered by `WhatsCanvasVulkanPaintTests`, `WhatsCanvasVulkanAATests`,
+`WhatsCanvasVulkanBlendModeTests`, and gradient command tests on NVIDIA RTX
+2080 Ti.
 
-### M5 — Images and text · **In progress (images done)**
+### M5 — Images and text · **Done; broader Canvas parity hardening ongoing**
 Depends on: M4.
 - `createImageResourceRGBA` / `createImageResourceFromImageData` / `updateImageResourceRGBA`:
   `VkImage` + `VkImageView` + `VkSampler`, staging upload, optional mipmaps.
-  **Done** (mipmap generation still pending; channels 1/2/3 expanded to RGBA).
+  **Done**, including optional mipmap generation and channel normalization.
 - `DrawImage`: sampling modes (Linear/Nearest/Mipmap), tile modes
-  (Clamp/Repeat/Mirror/Decal), tint, color matrix. *Pending* (basic textured
-  quad with nearest/linear + clamp done via `renderTexturedQuad`).
-- `DrawText`: sample the existing GPU glyph atlas as a Vulkan sampled image.
-  *Pending*.
-Gate: fuzzy pixel-compare of an image + text scene vs OpenGL. **First step met**
-by `WhatsCanvasVulkanTextureTests` (2x2 texture sampled into quadrants + partial
-update) on NVIDIA RTX 2080 Ti.
+  (Clamp/Repeat/Mirror/Decal), tint, and color matrix. **Done** through the
+  textured-quad and command translation paths.
+- `DrawText`: vector text and glyph-atlas text are supported through the Vulkan
+  command and sampled-texture paths; dirty-rect atlas updates are covered by
+  `WhatsCanvasVulkanTextTests`.
+Gate: image + text coverage is exercised by the texture, text, image-color,
+gradient, mipmap, and command-translation tests on NVIDIA RTX 2080 Ti.
 
-### M6 — Offscreen command replay (saveLayer) · **Mechanism done; generic replay pending §3**
+### M6 — Offscreen command replay (saveLayer) · **Done**
 Depends on: M5.
 - `renderCommandsToImageResource`: record a command list into an offscreen image
   and return it as a `SharedImageResource` for `saveLayer` composition.
-  *Pending*: the WhatsCanvas `Command` objects call OpenGL directly and cannot be
-  replayed on Vulkan until the backend-neutral command layer lands (§3 / ADR).
+  **Done** through the backend-neutral command translation path.
 - Vulkan-native saveLayer mechanism: **Done** via `compositeLayer`, which samples
   an already-rendered offscreen layer and composites it over a background with a
   layer alpha (fragment push-constant).
-Gate: a `saveLayer` scene composites correctly vs OpenGL. **Mechanism met** by
-`WhatsCanvasVulkanLayerTests` (red layer @50% over blue -> purple) on NVIDIA RTX
-2080 Ti.
+Gate: a `saveLayer` scene composites correctly vs OpenGL. Covered by
+`WhatsCanvasVulkanLayerTests`, `WhatsCanvasVulkanCommandTests`, and the render
+target pool tests on NVIDIA RTX 2080 Ti.
 
-### M7 — Anti-aliased path clipping · **Mechanism done**
+### M7 — Anti-aliased path clipping · **Done; broader parity hardening ongoing**
 Depends on: M6.
 - `createClipMaskResource`: **Done** — returns a Vulkan clip-mask resource
   holding the analytic-AA path data.
 - Coverage-mask draw: **Done** via `renderClippedSolid`, which samples a coverage
   mask (red channel) and modulates the fill alpha per fragment, giving
-  path-shaped clipping. True analytic-AA feathering and nested-clip intersection
-  are follow-ups; the mask-multiply mechanism matches the GL clip model.
-- Rectangular clip fast path via `VkRect2D` scissor. *Pending* (dynamic scissor
-  already available in all pipelines).
-Gate: fuzzy pixel-compare of the clip-path scene vs OpenGL. **Mechanism met** by
-`WhatsCanvasVulkanClipTests` (green fill clipped to a triangle mask: center
-green, corner clear) on NVIDIA RTX 2080 Ti.
+  path-shaped clipping with analytic-AA coverage and nested-clip intersection.
+- Rectangular clip fast path uses the dynamic scissor state where applicable.
+Gate: fuzzy pixel-compare of the clip-path scene vs OpenGL. Covered by
+`WhatsCanvasVulkanClipTests` and `WhatsCanvasVulkanClipCommandTests`, including
+solid, text, gradient, image, point, and line fills.
 
 Vulkan covers text as vector geometry and can render glyph-atlas text quads
 through the sampled texture pipeline. Dirty-rect atlas texture updates are
@@ -179,22 +168,24 @@ covered by `WhatsCanvasVulkanTextTests`; broader Canvas-level glyph-atlas text
 parity, text shadows, clipped atlas text, and larger text scenes remain good
 hardening targets.
 
-### M8 — Windowed presentation + external images · **Present done (standalone)**
+### M8 — Windowed presentation + external images · **Done; platform hardening ongoing**
 Depends on: M2 (swapchain can proceed in parallel after M2).
 - GLFW Vulkan surface (`glfwCreateWindowSurface`) + swapchain + present queue.
-  **Done** as a standalone example (`examples/vulkan_present`): instance with the
-  GLFW surface extensions, surface, present-capable device, swapchain, and a
-  cleared frame acquired/submitted/presented with semaphores + a fence.
+  **Done** both in the standalone example (`examples/vulkan_present`) and in
+  the Win32 Canvas `OutputTarget::ToWindow(...)` path.
 - Frame loop: acquire/record/submit/present with proper synchronization + resize.
   *Partial*: single-frame present; a continuous loop + resize/recreate is a
   follow-up.
-- `wrapExternalImageResource` for externally-provided images. *Pending*: the
-  `ImageResourceHandle` is 32-bit and cannot carry a 64-bit `VkImage`; needs an
-  interface change.
-Note: presentation needs its own instance/device (surface extensions), so it is
-not wired into `VulkanRenderDevice` (whose instance is headless). Not a CTest gate
-(windowed present is environment dependent); verified manually on NVIDIA RTX 2080
-Ti (3 swapchain images, B8G8R8A8_UNORM).
+- `wrapExternalImageResource` for externally-provided images. **Done** with a
+  64-bit `ImageResourceHandle`; `WhatsCanvasVulkanExternalImageTests` and
+  `WhatsCanvasVulkanWrapExternalTests` cover round-tripping and wrapping.
+Canvas-level Win32 presentation is now wired through `VulkanRenderDevice` via
+`OutputTarget::ToWindow(...)` and `Canvas::present()`. The lower-level
+`examples/vulkan_present` path remains a standalone swapchain validation aid.
+Cross-platform surface support and broader resize/device-loss coverage remain
+follow-ups. This is not a CTest gate because windowed present is environment
+dependent; the Win32 path was verified manually on NVIDIA RTX 2080 Ti (3
+swapchain images, B8G8R8A8_UNORM).
 
 ### M9 — Integration, selection, and CI · **Done**
 Depends on: M3+ (progressively).
@@ -212,8 +203,10 @@ Depends on: M3+ (progressively).
   Vulkan-enabled configuration (hard gate — embedded SPIR-V + translation must
   compile/link) and runs `ctest -L vulkan` on Mesa lavapipe as a best-effort
   step.
-- Documentation: update README backend section from "reserved" to "experimental".
-  **Done**: README documents `Canvas::create(Backend::Vulkan, ...)` and the Vulkan CI gate.
+- Documentation: keep README and the backend status page aligned with the
+  optional, implemented Vulkan backend, its build switch, and platform limits.
+  **Done**: README documents `Canvas::create(Backend::Vulkan, ...)` and the
+  Vulkan CI gate.
 Gate: `ctest -L vulkan` green; CI job green. **Met** (hardware-verified on an
 NVIDIA GTX 1060; CI build gate + lavapipe best-effort run).
 
@@ -230,10 +223,11 @@ device bring-up (done)
 
 ## 6. Cross-cutting concerns
 
-- **Shaders:** add a CMake step invoking `glslc` (already installed with the SDK)
-  to compile GLSL → SPIR-V; decide embed-as-header vs load-from-file.
-- **Validation layers:** enable `VK_LAYER_KHRONOS_validation` in debug builds and
-  fail tests on validation errors.
+- **Shaders:** keep the checked-in embedded SPIR-V headers synchronized with
+  their GLSL sources; shader regeneration remains a development-time step.
+- **Validation layers:** use `VK_LAYER_KHRONOS_validation` for debug/manual
+  validation of presentation and resource-lifetime changes; the normal Vulkan
+  build/test gate must also remain usable on software Vulkan where available.
 - **Coordinate/clip origin:** Vulkan clip space Y is inverted vs OpenGL; normalize
   so pixel output matches the OpenGL reference (readback origin already handled in
   M2).
@@ -249,4 +243,5 @@ device bring-up (done)
 - A representative scene set (fills, AA, gradients, shadows, images, text, clip,
   saveLayer) matches OpenGL within the fuzzy-compare tolerance.
 - `ctest -L vulkan` passes on hardware; CI covers it where a runner allows.
-- README documents Vulkan as an available (experimental) backend.
+- README documents Vulkan as an optional, implemented backend, including the
+  `WHATSCANVAS_ENABLE_VULKAN` build requirement and current platform limits.

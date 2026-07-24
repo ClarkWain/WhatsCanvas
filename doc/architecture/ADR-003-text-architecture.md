@@ -6,7 +6,10 @@ Accepted.
 
 ## Context
 
-Current text rendering is intentionally lightweight and useful for demos, but it is not a production typography stack. The project goals require support for multiple languages, fallback fonts, shaping, layout, and platform portability.
+The text subsystem must support multiple languages, fallback fonts, shaping,
+layout, platform portability, and deterministic fallback behavior. The initial
+implementation was intentionally lightweight; the current tree has since
+landed the portable glyph-atlas path and a Windows DirectWrite adapter.
 
 That rules out continuing to grow text capabilities directly inside the canvas core with ad-hoc flags.
 
@@ -14,13 +17,21 @@ That rules out continuing to grow text capabilities directly inside the canvas c
 
 Text moves to a dedicated, pluggable subsystem.
 
-The current implementation has started that migration with a small interface-first slice:
+The current implementation uses the following interface-first structure:
 
 - `ITextBackend` defines the text measurement and render-planning surface consumed by `Canvas`.
-- `BasicTextBackend` is the default implementation used today.
-- `BasicTextBackend` now keeps a bounded cache for Windows native text measurement and bitmap generation instead of unbounded growth.
-- `TextUtils` contains the current ASCII fallback measurement and geometry generation helpers.
-- `NativeText` contains the current Windows GDI measurement and bitmap generation helpers.
+- `BasicTextBackend` is the default facade and owns backend selection, fallback,
+  diagnostics, and cache coordination; its portable glyph-atlas path is the
+  cross-platform baseline.
+- The portable path uses registered/system font faces, optional HarfBuzz
+  shaping, optional FreeType rasterization, and a reusable glyph atlas.
+- `DirectWriteTextBackend` is the Windows native adapter for explicit
+  `Canvas::TextBackend::DirectWrite` selection. It provides DirectWrite layout,
+  custom font registration, fallback chains, grayscale/ClearType raster modes,
+  and bounded bitmap/GPU texture caches.
+- `TextUtils` contains shared UTF-8, bidi, layout, and geometry helpers.
+- `NativeText` remains the Windows compatibility path for the legacy native
+  text mode; it is distinct from DirectWrite.
 
 The target architecture is:
 
@@ -38,15 +49,17 @@ The current implementation now exposes explicit backend slots and capability que
 - Portable glyph-atlas backend: implemented and required.
 - Windows native compatibility path: available on Windows when native text is enabled.
 - HarfBuzz shaping adapter: optional at build time.
-- DirectWrite adapter: reserved backend slot with diagnostic fallback.
+- DirectWrite adapter: shipped on Windows and selectable through the public
+  `Canvas` API; requests fall back to the portable path when unavailable.
 - CoreText adapter: reserved backend slot with diagnostic fallback.
 
-Adapter implementation priorities:
+Current follow-up priorities:
 
-1. Windows: DirectWrite adapter.
-2. Cross-platform: HarfBuzz + FreeType adapter.
-3. Apple platforms: CoreText adapter.
-4. Web: browser / WASM-compatible path.
+1. Expand cross-platform HarfBuzz + FreeType parity and validation.
+2. Implement the CoreText adapter behind the existing backend slot.
+3. Evaluate a shared glyph atlas/cache strategy for distinct repeated native
+   text draws.
+4. Keep a browser/WASM-compatible path as a longer-term extension.
 
 ## Rules
 
@@ -64,11 +77,14 @@ Adapter implementation priorities:
 
 ### Negative
 
-- The text stack becomes a first-class subsystem with its own cache and testing needs.
-- Existing simple text flows will need migration once the new subsystem lands.
+- The text stack is a first-class subsystem with its own cache and testing
+  needs.
+- Native text backends can differ in rasterization details, so callers should
+  choose grayscale when they need compositing safety or cross-backend parity.
 
 ## Follow-up
 
-1. Replace the Windows GDI helper path with a real DirectWrite adapter.
-2. Add a cross-platform HarfBuzz + FreeType backend implementation for glyph loading/rasterization parity.
-3. Implement the CoreText adapter behind the existing backend slot.
+1. Continue cross-platform font-stack and pixel-validation coverage.
+2. Implement the CoreText adapter behind the existing backend slot.
+3. Consider batching distinct DirectWrite strings through a shared glyph atlas
+   if profiling shows the bitmap cache is insufficient.

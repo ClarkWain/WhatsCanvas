@@ -63,7 +63,8 @@ The public context lifecycle methods added for this flow are:
 - Confirm `WHATSCANVAS_OPENGL_ES` is defined for the target.
 - Confirm shaders use `#version 300 es` and precision qualifiers.
 - Confirm desktop-only states remain guarded away from GLES builds.
-- Run at least one host-app frame that clears, draws paths/images/text, flushes, and presents.
+- Run at least one host-app frame that clears, draws paths/images/text, calls
+  `endFrame()`, and presents.
 - Exercise background/foreground or view recreation by calling `releaseResources`, `finalizeContext`, then `initializeContext` again after a fresh current context is available.
 
 ## Known Gaps

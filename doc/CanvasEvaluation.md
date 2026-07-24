@@ -1,6 +1,13 @@
 # Canvas Evaluation
 
-This file records each incremental Canvas implementation batch.
+This file is a **historical implementation log**, not the current API
+reference. Each row records the state and test result when that batch landed;
+older rows may describe APIs or limitations that were later changed. For the
+current public lifecycle and capability matrix, see
+[`GETTING_STARTED_AS_LIBRARY.md`](GETTING_STARTED_AS_LIBRARY.md) and
+[`API_REFERENCE.md`](API_REFERENCE.md). In particular, the public frame flow is
+`beginFrame()` → draw → `endFrame()`; any historical `Canvas::flush()` entry
+below must not be read as a current public method.
 
 | Batch | Feature | Status | Test Command | Test Result | Visual Result | Performance Result | Issues | Next Step |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |

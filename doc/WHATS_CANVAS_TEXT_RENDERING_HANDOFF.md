@@ -1,6 +1,10 @@
 # WhatsCanvas Text Rendering Handoff
 
-Status: implementation handoff for the text-rendering owner.
+Status: superseded historical handoff. The current implementation is described
+in [`DIRECTWRITE_TEXT_BACKEND.md`](DIRECTWRITE_TEXT_BACKEND.md) and
+[`TEXT_FEATURE_MATRIX.md`](TEXT_FEATURE_MATRIX.md). The statements below
+describe the pre-DirectWrite implementation and must not be used as the
+current capability status.
 
 ## Executive summary
 
@@ -108,4 +112,3 @@ Relevant source:
   used for rendering.
 - Windows font fallback covers Latin, Simplified Chinese, Arabic, Hebrew,
   symbols, and emoji without ASCII replacement.
-

@@ -9,7 +9,11 @@ Accepted. The first distribution-ready packaging slice is implemented; deeper ta
 WhatsCanvas 已经从“只有 demo 的源码工程”推进到可被外部 CMake 工程消费的库形态。当前已具备：
 
 - 稳定公共头目录 `include/wsc/`。
-- `WhatsCanvas::OpenGL` package target，以及启用 OpenGLES 时的 `WhatsCanvas::OpenGLES` target。
+- `WhatsCanvas::OpenGL`、`WhatsCanvas::OpenGLES`（可选）和
+  `WhatsCanvas::Software` package targets。
+- Vulkan 没有独立 package target；启用 `WHATSCANVAS_ENABLE_VULKAN=ON` 且找到
+  Vulkan SDK 时，它编译进 `WhatsCanvas::OpenGL`，再由 `Canvas::Backend::Vulkan`
+  在运行时选择。
 - `install()`、export、`WhatsCanvasConfig.cmake` 和 `WhatsCanvasConfigVersion.cmake`。
 - `build.bat --package` / `build.sh --package` 生成 `out/package/<config>/`。
 - 外部 consumer smoke，验证 `find_package(WhatsCanvas CONFIG REQUIRED)` 和导出 target。
@@ -54,16 +58,20 @@ WhatsCanvas 后续应按“核心库 + 后端库 + 可选平台胶水 + 示例�
 
 ```text
 include/
-  wsc/
+    wsc/
     wsc.h
+    base.h
     Canvas.h
     CanvasAdapter.h
     Paint.h
     Path.h
     Image.h
     Color.h
+    Export.h
     Font.h
+    Log.h
     Matrix.h
+    Surface.h
     TextureSource.h
     Version.h
 ```
@@ -111,9 +119,11 @@ scripts/
 - `WHATSCANVAS_INSTALL`
 - `WHATSCANVAS_BUILD_OPENGL`
 - `WHATSCANVAS_BUILD_OPENGLES`
+- `WHATSCANVAS_BUILD_SOFTWARE`
 - `WHATSCANVAS_BUILD_BENCHMARKS`
 - `WHATSCANVAS_ENABLE_OPENTYPE_SHAPING`
 - `WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER`
+- `WHATSCANVAS_ENABLE_VULKAN`
 
 当前已经补齐：
 

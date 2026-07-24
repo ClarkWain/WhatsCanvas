@@ -22,7 +22,8 @@ This directory captures the Phase 0 architecture decisions for turning WhatsCanv
 5. Render abstraction layer
    - Renderer interfaces, device/resource abstractions, command execution.
 6. Backend layer
-   - OpenGL today, GLES / Metal / Vulkan / WebGPU later.
+   - OpenGL, OpenGLES, Software, and optional Vulkan today; Metal and WebGPU
+     remain future extension points.
 7. Platform layer
    - Windowing, system fonts, image decode, timing, diagnostics.
 
