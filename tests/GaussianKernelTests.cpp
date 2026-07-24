@@ -93,6 +93,16 @@ bool testSigmaAndFrostedGlassFactories()
                   "frostedGlass should add color adjustment and subtle grain");
 }
 
+bool testBlurDownsamplePolicy()
+{
+    return expect(wsc::render::chooseGaussianBlurDownsample(512, 256, 24.0f, 8.0f) == 2,
+                  "large targets with a long blur kernel should use 2x downsampling")
+        && expect(wsc::render::chooseGaussianBlurDownsample(512, 256, 23.9f, 8.0f) == 1,
+                  "short blur kernels should remain full resolution")
+        && expect(wsc::render::chooseGaussianBlurDownsample(127, 512, 64.0f, 64.0f) == 1,
+                  "small target extents should remain full resolution");
+}
+
 } // namespace
 
 int main()
@@ -104,5 +114,6 @@ int main()
     ok = testWeightsAreMonotonicallyDecreasing() && ok;
     ok = testRadiusScalesWithRequest() && ok;
     ok = testSigmaAndFrostedGlassFactories() && ok;
+    ok = testBlurDownsamplePolicy() && ok;
     return ok ? 0 : 1;
 }
