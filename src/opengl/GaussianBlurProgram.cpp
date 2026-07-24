@@ -1,6 +1,7 @@
 #include "GaussianBlurProgram.h"
 
 #include <algorithm>
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -40,6 +41,9 @@ void GaussianBlurProgram::initialize()
         uniform vec2 uDirection;  // texel step along the blur axis
         uniform int uRadius;
         uniform int uDecal;
+        uniform int uColorAdjust;
+        uniform vec3 uColorAdjustment; // saturation, brightness, contrast
+        uniform float uGrain;
         uniform float uWeights[65];
         uniform vec4 uTint;
         out vec4 FragColor;
@@ -73,9 +77,22 @@ void GaussianBlurProgram::initialize()
                     sum += vec4(lo.rgb * lo.a, lo.a) * uWeights[i];
                     sum += vec4(hi.rgb * hi.a, hi.a) * uWeights[i];
                 }
-                FragColor = sum.a > 0.000001
+                vec4 color = sum.a > 0.000001
                     ? vec4(sum.rgb / sum.a, sum.a)
                     : vec4(0.0);
+                if (uColorAdjust != 0 && color.a > 0.000001) {
+                    float luma = dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));
+                    color.rgb = vec3(luma) + (color.rgb - vec3(luma)) * uColorAdjustment.x;
+                    color.rgb = ((color.rgb - vec3(0.5)) * uColorAdjustment.z + vec3(0.5))
+                        * uColorAdjustment.y;
+                    color.rgb = clamp(color.rgb, 0.0, 1.0);
+                }
+                if (uGrain > 0.0 && color.a > 0.000001) {
+                    float noise = fract(sin(dot(gl_FragCoord.xy,
+                        vec2(12.9898, 78.233))) * 43758.5453) - 0.5;
+                    color.rgb = clamp(color.rgb + vec3(noise * uGrain), 0.0, 1.0);
+                }
+                FragColor = color;
             } else {
                 float a = texture(uTexture, vUv).a;
                 FragColor = vec4(uTint.rgb, a * uTint.a);
@@ -220,19 +237,24 @@ void GaussianBlurProgram::drawQuad()
 void GaussianBlurProgram::blurPass(GLuint srcTexture, GLuint dstFramebuffer, int width, int height,
                                    const glm::vec2 &direction, const wsc::render::GaussianKernel &kernel)
 {
-    blurPassImpl(srcTexture, dstFramebuffer, width, height, direction, kernel, 0, false);
+    blurPassImpl(srcTexture, dstFramebuffer, width, height, direction, kernel,
+                 0, false, 1.0f, 1.0f, 1.0f, 0.0f);
 }
 
 void GaussianBlurProgram::blurImagePass(GLuint srcTexture, GLuint dstFramebuffer, int width, int height,
                                         const glm::vec2 &direction,
-                                        const wsc::render::GaussianKernel &kernel, bool decal)
+                                        const wsc::render::GaussianKernel &kernel, bool decal,
+                                        float saturation, float brightness, float contrast,
+                                        float grain)
 {
-    blurPassImpl(srcTexture, dstFramebuffer, width, height, direction, kernel, 2, decal);
+    blurPassImpl(srcTexture, dstFramebuffer, width, height, direction, kernel,
+                 2, decal, saturation, brightness, contrast, grain);
 }
 
 void GaussianBlurProgram::blurPassImpl(GLuint srcTexture, GLuint dstFramebuffer, int width, int height,
                                        const glm::vec2 &direction,
-                                       const wsc::render::GaussianKernel &kernel, int mode, bool decal)
+                                       const wsc::render::GaussianKernel &kernel, int mode, bool decal,
+                                       float saturation, float brightness, float contrast, float grain)
 {
     if (!initialized_) {
         return;
@@ -247,6 +269,12 @@ void GaussianBlurProgram::blurPassImpl(GLuint srcTexture, GLuint dstFramebuffer,
     program_->setInt("uMode", mode);
     program_->setInt("uTexture", 0);
     program_->setInt("uDecal", decal ? 1 : 0);
+    const bool colorAdjust = std::abs(saturation - 1.0f) > 1e-6f
+        || std::abs(brightness - 1.0f) > 1e-6f
+        || std::abs(contrast - 1.0f) > 1e-6f;
+    program_->setInt("uColorAdjust", colorAdjust ? 1 : 0);
+    program_->setVec3("uColorAdjustment", glm::vec3(saturation, brightness, contrast));
+    program_->setFloat("uGrain", grain);
     program_->setVec2("uDirection", direction);
 
     const int radius = std::min(kernel.radius(), kMaxRadius);

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 
 #include <glm/glm.hpp>
 
@@ -844,6 +845,40 @@ void blurRGBA(std::vector<std::uint8_t> &pixels, int width, int height,
     }
 }
 
+void adjustRGBA(std::vector<std::uint8_t> &pixels, const wsc::ImageFilter &filter)
+{
+    if (!filter.hasColorAdjustment() && !filter.hasGrain()) {
+        return;
+    }
+
+    constexpr float lumaR = 0.2126f;
+    constexpr float lumaG = 0.7152f;
+    constexpr float lumaB = 0.0722f;
+    for (std::size_t i = 0; i + 3u < pixels.size(); i += 4u) {
+        float r = pixels[i] / 255.0f;
+        float g = pixels[i + 1u] / 255.0f;
+        float b = pixels[i + 2u] / 255.0f;
+        const float luma = r * lumaR + g * lumaG + b * lumaB;
+        r = luma + (r - luma) * filter.saturation();
+        g = luma + (g - luma) * filter.saturation();
+        b = luma + (b - luma) * filter.saturation();
+        r = ((r - 0.5f) * filter.contrast() + 0.5f) * filter.brightness();
+        g = ((g - 0.5f) * filter.contrast() + 0.5f) * filter.brightness();
+        b = ((b - 0.5f) * filter.contrast() + 0.5f) * filter.brightness();
+        std::uint32_t hash = static_cast<std::uint32_t>(i / 4u) * 747796405u + 2891336453u;
+        hash = ((hash >> ((hash >> 28u) + 4u)) ^ hash) * 277803737u;
+        hash = (hash >> 22u) ^ hash;
+        const float grain = (static_cast<float>(hash & 0xffffu) / 65535.0f - 0.5f)
+            * filter.grain();
+        r += grain;
+        g += grain;
+        b += grain;
+        pixels[i] = toByte(r);
+        pixels[i + 1u] = toByte(g);
+        pixels[i + 2u] = toByte(b);
+    }
+}
+
 /// True separable-Gaussian drop shadow: rasterize the silhouette coverage, blur
 /// it, then composite the tinted blurred coverage into the framebuffer. `extra`
 /// offsets the silhouette and scissor for offscreen layers; `canvasHeight` is
@@ -1263,6 +1298,7 @@ SharedImageResource SoftwareRenderer::filterImageResource(const SharedImageResou
              wsc::render::computeGaussianKernel(filter.radiusX()),
              wsc::render::computeGaussianKernel(filter.radiusY()),
              filter.tileMode());
+    adjustRGBA(filtered, filter);
     return std::make_shared<SoftwareImageResource>(width, height, std::move(filtered));
 }
 

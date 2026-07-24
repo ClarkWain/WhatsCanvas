@@ -26,7 +26,7 @@ WhatsCanvas 的公开接口仍然是熟悉的 `Canvas` / `Paint` / `Path` / `Ima
 | 路径与几何 | `Path` 构建、曲线 flatten、路径 bounds、fill/stroke hit-test、stroke bounds、虚线、圆角路径效果、Polyline2D 描边网格。 | `Path`、`measureStrokeBounds`、`hitTestPathFill`、`hitTestPathStroke`、`Paint::setDashPathEffect` |
 | 绘制样式 | 填充、描边、透明度、逐 `Paint` 解析抗锯齿、线性 / 径向 / 多 stop 渐变、混合模式、真高斯模糊阴影（填充 / 描边 / 文本）、采样质量、图像 tile mode、颜色矩阵。 | `Paint`、`setAntiAlias`、`setLinearGradient`、`setRadialGradient`、`setBlendMode`、`setShadowLayer`、`setColorMatrix` |
 | Canvas 状态 | `save` / `restore`、矩阵变换、矩形裁剪、抗锯齿路径裁剪、`saveLayer` 离屏层、render-target canvas、clip 查询、quick reject。 | `save`、`restore`、`translate`、`scale`、`rotate`、`clipRect`、`clipPath`、`saveLayer`、`quickReject` |
-| 图像滤镜与合成 | `ImageFilter` 图层滤镜、真正采样已绘制背景的 backdrop blur、层内容高斯模糊、Clamp / Decal 边界模式；Software 提供确定性参考实现，OpenGL / OpenGLES 走两遍 GPU RGBA 模糊。 | `ImageFilter::blur`、`LayerOptions::setImageFilter`、`LayerOptions::setBackdropFilter`、`saveLayer` |
+| 图像滤镜与合成 | `ImageFilter` 图层滤镜、真正采样已绘制背景的 backdrop blur、半径 / sigma 两种模糊参数、模糊后饱和度 / 亮度 / 对比度调整、稳定单色颗粒、毛玻璃预设、Clamp / Decal 边界模式；Software 提供确定性参考实现，OpenGL / OpenGLES 走两遍 GPU RGBA 模糊。 | `ImageFilter::blur`、`ImageFilter::blurSigma`、`ImageFilter::frostedGlass`、`setColorAdjustment`、`setGrain`、`LayerOptions::setImageFilter`、`LayerOptions::setBackdropFilter`、`saveLayer` |
 | 图像与纹理 | 文件解码、encoded memory、raw RGBA、外部纹理包装、整图替换、局部更新、contain / cover / fill 布局、锚点、九宫格、圆角裁剪、圆形裁剪、平铺绘制。 | `Image`、`drawImage`、`drawImageFit`、`drawImageNinePatch`、`drawImageRounded`、`drawImageCircle`、`drawImageTiled`、`wrapExternalTexture` |
 | 字体与文本 | 系统字体发现 + fallback chain、weight/slant 匹配、TrueType/TTC/内存字体与 collection face index、FreeType（不可用回退 stb）glyph lookup/metrics/kerning/栅格化、HarfBuzz shaping（回退 simple shaping）、多字体 fallback 分段、GPU glyph atlas（dirty-rect 更新 + resize-before-evict + 统计）、COLR/CPAL v0 彩色字形、UTF-8 布局 + CJK 无空格折行 + 省略号 + baseline + letter spacing、渐变/描边/阴影文本、text-on-path、缺字与回退诊断、Unicode UAX #9 全量通过。 | `FontSystem`、`FontFace`、`FontManager`、`FontFallbackChain`、`registerFontFace`、`setFontFallbackChain`、`drawText`、`drawTextBox`、`layoutTextBox`、`drawTextOnPath`、`measureTextMetrics` |
 | 渲染后端 | 桌面 OpenGL 主路径、OpenGLES 目标、纯 CPU 软件后端（零 GPU 依赖、可在无图形栈环境运行）、可选 Vulkan 后端（离屏、可选择）、共享 GL-family 后端、proc-address 注入、上下文生命周期、资源释放与重建、shader portability。 | `Canvas::loadOpenGL`、`Canvas::create`、`Canvas::isBackendAvailable`、`WhatsCanvas::OpenGL`、`WhatsCanvas::OpenGLES`、`WhatsCanvas::Software`、`initializeContext`、`releaseResources` |
@@ -64,11 +64,11 @@ WhatsCanvas 的公开接口仍然是熟悉的 `Canvas` / `Paint` / `Path` / `Ima
 
 ## 图像滤镜与毛玻璃
 
-`ImageFilter` 可以处理离屏层自身内容，也可以通过 backdrop filter 采样并模糊已经绘制的场景。后者适合制作毛玻璃面板、半透明 HUD、浮层和模态界面；圆角路径裁剪、半透明 tint、描边和层内容可继续按普通 Canvas API 组合。
+`ImageFilter` 可以处理离屏层自身内容，也可以通过 backdrop filter 采样并模糊已经绘制的场景。后者适合制作毛玻璃面板、半透明 HUD、浮层和模态界面。`frostedGlass` 在真实高斯模糊后继续完成饱和度、亮度、对比度与细颗粒处理；面板 tint、描边、文字和控件仍使用普通 Canvas API 绘制。
 
 ![图像滤镜与毛玻璃真实渲染效果](images/image-filter-showcase.png)
 
-上图由桌面 OpenGL 后端以 `1920 x 1080` 实时渲染并从 framebuffer 直接回读。彩色抽象位图作为待采样背景，三块统一玻璃面板分别使用 `14 / 30 / 52 px` backdrop blur；玻璃层、圆角裁剪、文字和控件均由 WhatsCanvas 绘制。可用 `WhatsCanvasImageFilterShowcase <输出路径> [背景图路径]` 重新生成；实现语义与后端边界见 [Image Filters And Backdrop Effects](doc/IMAGE_FILTERS.md)。
+上图由桌面 OpenGL 后端以 `1920 x 1080` 实时渲染并从 framebuffer 直接回读。高频几何位图用于直观呈现面板内外的清晰度差异；三块面板使用同一套 `frostedGlass` 材质（最大 sigma、轻微提亮增艳与稳定颗粒），玻璃 tint、描边、文字和控件均由 WhatsCanvas 绘制。可用 `WhatsCanvasImageFilterShowcase <输出路径> [背景图路径]` 重新生成；实现语义与后端边界见 [Image Filters And Backdrop Effects](doc/IMAGE_FILTERS.md)。
 
 ## 画质与渲染
 

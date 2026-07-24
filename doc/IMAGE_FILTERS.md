@@ -15,14 +15,19 @@ wsc::Paint compositePaint;
 compositePaint.setColor(wsc::Color(255, 255, 255, 255));
 
 wsc::LayerOptions options;
-options.setBackdropFilter(wsc::ImageFilter::blur(18.0f));
+options.setBackdropFilter(wsc::ImageFilter::frostedGlass(
+    12.0f, // Gaussian sigma
+    1.18f, // saturation
+    1.04f, // brightness
+    1.02f, // contrast
+    0.012f // grain
+));
 
 canvas->saveLayer(panelBounds, compositePaint, options);
-canvas->clipPath(panelShape);
 
 wsc::Paint tint;
 tint.setColor(wsc::Color(255, 255, 255, 64));
-canvas->drawPath(panelShape, tint);
+canvas->drawRect(panelBounds, tint);
 canvas->drawText("Backdrop filter", x, y, textPaint);
 
 canvas->restore();
@@ -35,6 +40,9 @@ opt-in through the overloads that accept `LayerOptions`.
 
 - Blur radii use filter-target pixels and are clamped to 64 pixels so Software
   and GL-family backends use the same kernel reach.
+- `blurSigma()` uses standard deviation, then derives a sampled radius of
+  `3 * sigma`. This convention is convenient when matching design tools and
+  APIs such as Skia. Sigma is therefore clamped to `64 / 3`.
 - The current implementation uses a separable Gaussian kernel whose radius
   reaches approximately three standard deviations.
 - RGBA filtering accumulates premultiplied RGB and unpremultiplies the result,
@@ -43,9 +51,31 @@ opt-in through the overloads that accept `LayerOptions`.
   outside the source image as transparent.
 - A backdrop sees only drawing commands recorded before `saveLayer`.
 - The filter capture is expanded by its radius, while final composition remains
-  clipped to the original layer bounds and active Canvas clip.
+  cropped to the original layer bounds. Pixels just outside the layer can
+  contribute to edge blur without the sampling outset becoming visible output.
 - Layer paint alpha, tint, color matrix, image sampling, and blend mode are
   applied when the completed layer is composited into its parent.
+
+## Frosted Glass Treatment
+
+`frostedGlass()` is a convenience factory over the same blur implementation.
+After the two blur passes it applies:
+
+1. Rec. 709 luminance-based saturation adjustment.
+2. Contrast around mid-gray, followed by brightness scaling.
+3. Stable monochrome grain in framebuffer pixel space.
+
+The color treatment affects the filtered image only. Layer content drawn after
+`saveLayer()` remains sharp and keeps its own `Paint` styling. Grain values
+around `0.005-0.02` are intended to reduce banding; larger values are an
+intentional texture effect. `setColorAdjustment()` and `setGrain()` are also
+available on a filter created by `blur()` or `blurSigma()`.
+
+The shared OpenGL offscreen encoder does not yet support every command carrying
+an arbitrary path clip, notably shader-gradient paths inside a filtered layer.
+Unsupported combinations preserve ordinary layer content instead of leaking a
+temporary backdrop capture into the parent framebuffer. Use rectangular layer
+bounds for the current portable frosted-glass path.
 
 ## Backend Status
 
@@ -61,10 +91,11 @@ and an unavailable backdrop filter becomes a no-op.
 ## Validation
 
 - `WhatsCanvasSoftwareRendererTests` covers empty-layer backdrop composition,
-  hard-edge background diffusion, layer-content blur, alpha preservation, and
-  layer-bound clipping.
+  hard-edge background diffusion, post-blur color adjustment, sampling-outset
+  cropping, layer-content blur, alpha preservation, and layer-bound clipping.
 - `WhatsCanvasOpenGLBackdropFilterTests` validates real GPU output through a
-  hidden OpenGL 3.3 context and pixel readback.
+  hidden OpenGL 3.3 context and pixel readback, including color adjustment and
+  sampling-outset cropping.
 - `WhatsCanvasRenderTargetPoolTests` prevents offscreen targets from being
   reused while a deferred filter/composite command still references their
   texture.
@@ -72,9 +103,10 @@ and an unavailable backdrop filter becomes a no-op.
 ## Roadmap
 
 1. Add Vulkan GPU blur and OpenGL/Vulkan pixel-parity coverage.
-2. Add composable color-matrix and offset filter nodes.
+2. Add a composable filter graph with generic color-matrix and offset nodes.
 3. Add adaptive downsampling for large animated blur regions.
-4. Add a high-level frosted-glass helper implemented on top of `saveLayer`.
+4. Extend the shared offscreen encoder to arbitrary clipped path, gradient,
+   image, and text commands.
 5. Add filter pass/cache statistics and representative performance benchmarks.
 
 The core API deliberately starts with a small filter surface. Inner shadows,

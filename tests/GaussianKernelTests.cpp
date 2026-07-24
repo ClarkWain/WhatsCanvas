@@ -5,6 +5,7 @@
 #include <string>
 
 #include "render/GaussianKernel.h"
+#include "wsc/ImageFilter.h"
 
 namespace {
 
@@ -75,6 +76,23 @@ bool testRadiusScalesWithRequest()
         && expect(small.radius() == 4 && large.radius() == 20, "radius should round to the requested pixel reach");
 }
 
+bool testSigmaAndFrostedGlassFactories()
+{
+    const wsc::ImageFilter sigma = wsc::ImageFilter::blurSigma(4.0f);
+    const wsc::ImageFilter glass = wsc::ImageFilter::frostedGlass(6.0f);
+    return expect(std::abs(sigma.radiusX() - 12.0f) < 1e-6f
+                      && std::abs(sigma.radiusY() - 12.0f) < 1e-6f,
+                  "blurSigma should convert standard deviation to a three-sigma reach")
+        && expect(std::abs(glass.radiusX() - 18.0f) < 1e-6f,
+                  "frostedGlass should use sigma-based blur")
+        && expect(glass.hasColorAdjustment()
+                      && glass.saturation() > 1.0f
+                      && glass.brightness() > 1.0f
+                      && glass.contrast() > 1.0f
+                      && glass.hasGrain(),
+                  "frostedGlass should add color adjustment and subtle grain");
+}
+
 } // namespace
 
 int main()
@@ -85,5 +103,6 @@ int main()
     ok = testWeightsAreNormalized() && ok;
     ok = testWeightsAreMonotonicallyDecreasing() && ok;
     ok = testRadiusScalesWithRequest() && ok;
+    ok = testSigmaAndFrostedGlassFactories() && ok;
     return ok ? 0 : 1;
 }
