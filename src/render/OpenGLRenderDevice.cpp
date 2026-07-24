@@ -12,6 +12,7 @@
 #include "command/DrawPoints.h"
 #include "command/DrawText.h"
 #include "opengl/GlobalIndexBuffers.h"
+#include "opengl/GaussianBlurProgram.h"
 #include "opengl/GLTextureUtils.h"
 #include "opengl/PixelFormatCaps.h"
 #include "opengl/ClipCoverageProgram.h"
@@ -67,6 +68,8 @@ public:
     {
         return wsc::opengl::updateTextureRGBA(handle_, x, y, width, height, pixels, regenerateMipmaps);
     }
+
+    GLuint texture() const { return static_cast<GLuint>(handle_.value); }
 
 private:
     ImageResourceHandle handle_;
@@ -164,6 +167,8 @@ public:
         activated_ = false;
         return true;
     }
+
+    GLuint framebuffer() const { return framebuffer_; }
 
     void activate() override
     {
@@ -657,4 +662,74 @@ SharedImageResource OpenGLRenderDevice::renderCommandsToImageResource(const std:
     renderTargetPool_->release(std::move(renderTarget));
     renderTargetPool_->expire();
     return imageResource;
+}
+
+SharedImageResource OpenGLRenderDevice::filterImageResource(const SharedImageResource &source,
+                                                            int width, int height,
+                                                            const wsc::ImageFilter &filter) const
+{
+    const auto *input = dynamic_cast<const OpenGLImageResource *>(source.get());
+    if (input == nullptr || !input->isValid() || width <= 0 || height <= 0
+        || !filter.isValid() || filter.type() != wsc::ImageFilter::Type::Blur) {
+        return {};
+    }
+
+    std::unique_ptr<IRenderTarget> targetA = createRenderTarget(width, height);
+    std::unique_ptr<IRenderTarget> targetB = createRenderTarget(width, height);
+    auto *glTargetA = dynamic_cast<OpenGLRenderTarget *>(targetA.get());
+    auto *glTargetB = dynamic_cast<OpenGLRenderTarget *>(targetB.get());
+    if (glTargetA == nullptr || glTargetB == nullptr
+        || !glTargetA->isValid() || !glTargetB->isValid()) {
+        return {};
+    }
+    const auto *imageA = dynamic_cast<const OpenGLImageResource *>(glTargetA->getImageResource().get());
+    if (imageA == nullptr || !imageA->isValid()) {
+        return {};
+    }
+
+    GLint previousFramebuffer = 0;
+    GLint previousViewport[4] = {};
+    GLint previousProgram = 0;
+    GLint previousVertexArray = 0;
+    GLint previousActiveTexture = 0;
+    GLint previousTexture0 = 0;
+    const GLboolean blendEnabled = glIsEnabled(GL_BLEND);
+    const GLboolean scissorEnabled = glIsEnabled(GL_SCISSOR_TEST);
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &previousFramebuffer);
+    glGetIntegerv(GL_VIEWPORT, previousViewport);
+    glGetIntegerv(GL_CURRENT_PROGRAM, &previousProgram);
+    glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &previousVertexArray);
+    glGetIntegerv(GL_ACTIVE_TEXTURE, &previousActiveTexture);
+    glActiveTexture(GL_TEXTURE0);
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &previousTexture0);
+
+    auto *blur = wsc::opengl::GaussianBlurProgram::getInstance();
+    blur->initialize();
+    const auto kernelX = wsc::render::computeGaussianKernel(filter.radiusX());
+    const auto kernelY = wsc::render::computeGaussianKernel(filter.radiusY());
+    const bool decal = filter.tileMode() == wsc::ImageFilter::TileMode::Decal;
+    blur->blurImagePass(input->texture(), glTargetA->framebuffer(), width, height,
+                        glm::vec2(1.0f / static_cast<float>(width), 0.0f), kernelX, decal);
+    blur->blurImagePass(imageA->texture(), glTargetB->framebuffer(), width, height,
+                        glm::vec2(0.0f, 1.0f / static_cast<float>(height)), kernelY, decal);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(previousFramebuffer));
+    glViewport(previousViewport[0], previousViewport[1], previousViewport[2], previousViewport[3]);
+    glUseProgram(static_cast<GLuint>(previousProgram));
+    glBindVertexArray(static_cast<GLuint>(previousVertexArray));
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(previousTexture0));
+    glActiveTexture(static_cast<GLenum>(previousActiveTexture));
+    if (blendEnabled) {
+        glEnable(GL_BLEND);
+    } else {
+        glDisable(GL_BLEND);
+    }
+    if (scissorEnabled) {
+        glEnable(GL_SCISSOR_TEST);
+    } else {
+        glDisable(GL_SCISSOR_TEST);
+    }
+
+    return glTargetB->getImageResource();
 }

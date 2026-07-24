@@ -409,6 +409,97 @@ bool testSaveLayerPartial()
     return ok;
 }
 
+bool testBackdropBlur()
+{
+    const int w = 40;
+    const int h = 24;
+    std::unique_ptr<Canvas> canvas = makeSoftwareCanvas(w, h);
+    if (!canvas) {
+        return expect(false, "createSoftware should return a canvas");
+    }
+
+    canvas->beginFrame();
+    Paint black;
+    black.setStyle(Paint::Style::FILL);
+    black.setColor(Color(0, 0, 0, 255));
+    black.setAntiAlias(false);
+    canvas->drawRect(RectF(0.0f, 0.0f, 20.0f, static_cast<float>(h)), black);
+
+    Paint white = black;
+    white.setColor(Color(255, 255, 255, 255));
+    canvas->drawRect(RectF(20.0f, 0.0f, 20.0f, static_cast<float>(h)), white);
+
+    Paint layerPaint;
+    layerPaint.setColor(Color(255, 255, 255, 255));
+    LayerOptions options;
+    options.setBackdropFilter(ImageFilter::blur(6.0f));
+    canvas->saveLayer(RectF(8.0f, 4.0f, 24.0f, 16.0f), layerPaint, options);
+    // An empty layer is intentional: the filtered backdrop itself must still
+    // be composited when restore closes the layer.
+    canvas->restore();
+    canvas->endFrame();
+
+    std::vector<unsigned char> pixels;
+    if (!canvas->readPixelsRGBA(pixels) || pixels.size() != static_cast<std::size_t>(w) * h * 4u) {
+        return expect(false, "backdrop readPixelsRGBA should succeed");
+    }
+    auto pixelAt = [&](int x, int y) { return &pixels[(static_cast<std::size_t>(y) * w + x) * 4u]; };
+
+    bool ok = true;
+    const unsigned char *leftOutside = pixelAt(6, 12);
+    const unsigned char *rightOutside = pixelAt(34, 12);
+    ok = expect(leftOutside[0] == 0, "outside the backdrop layer the black half should remain sharp") && ok;
+    ok = expect(rightOutside[0] == 255, "outside the backdrop layer the white half should remain sharp") && ok;
+
+    const unsigned char *leftNearEdge = pixelAt(18, 12);
+    const unsigned char *rightNearEdge = pixelAt(21, 12);
+    ok = expect(leftNearEdge[0] > 0 && leftNearEdge[0] < 128,
+                "backdrop blur should spread white into the black side") && ok;
+    ok = expect(rightNearEdge[0] > 128 && rightNearEdge[0] < 255,
+                "backdrop blur should spread black into the white side") && ok;
+    ok = expect(leftNearEdge[3] == 255 && rightNearEdge[3] == 255,
+                "an opaque backdrop should remain opaque after blur") && ok;
+    return ok;
+}
+
+bool testLayerImageBlur()
+{
+    const int w = 32;
+    const int h = 24;
+    std::unique_ptr<Canvas> canvas = makeSoftwareCanvas(w, h);
+    if (!canvas) {
+        return expect(false, "createSoftware should return a canvas");
+    }
+
+    Paint layerPaint;
+    layerPaint.setColor(Color(255, 255, 255, 255));
+    LayerOptions options;
+    options.setImageFilter(ImageFilter::blur(5.0f));
+    Paint red;
+    red.setStyle(Paint::Style::FILL);
+    red.setColor(Color(255, 0, 0, 255));
+    red.setAntiAlias(false);
+
+    canvas->beginFrame();
+    canvas->saveLayer(RectF(4.0f, 4.0f, 24.0f, 16.0f), layerPaint, options);
+    canvas->drawRect(RectF(14.0f, 8.0f, 4.0f, 8.0f), red);
+    canvas->restore();
+    canvas->endFrame();
+
+    std::vector<unsigned char> pixels;
+    if (!canvas->readPixelsRGBA(pixels) || pixels.size() != static_cast<std::size_t>(w) * h * 4u) {
+        return expect(false, "image-filter readPixelsRGBA should succeed");
+    }
+    auto alphaAt = [&](int x, int y) {
+        return pixels[(static_cast<std::size_t>(y) * w + x) * 4u + 3u];
+    };
+
+    bool ok = expect(alphaAt(16, 12) > 80, "blurred layer content should remain visible at its center");
+    ok = expect(alphaAt(12, 12) > 0, "image blur should spread alpha outside the source rect") && ok;
+    ok = expect(alphaAt(2, 12) == 0, "image blur should remain clipped to the saved layer") && ok;
+    return ok;
+}
+
 // With gamma-correct rendering the software backend blends in linear space and
 // re-encodes to sRGB (mirroring the GL backend's linearized source color +
 // GL_FRAMEBUFFER_SRGB). A 50% red over opaque blue must land near the linear
@@ -469,6 +560,8 @@ int main()
     ok = testGaussianShadow() && ok;
     ok = testSaveLayerAlpha() && ok;
     ok = testSaveLayerPartial() && ok;
+    ok = testBackdropBlur() && ok;
+    ok = testLayerImageBlur() && ok;
     ok = testGammaLinearBlend() && ok;
     return ok ? 0 : 1;
 }

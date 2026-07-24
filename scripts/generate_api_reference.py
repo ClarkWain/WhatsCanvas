@@ -18,6 +18,7 @@ PUBLIC_HEADERS = [
     "Color.h",
     "Font.h",
     "Image.h",
+    "ImageFilter.h",
     "Log.h",
     "Matrix.h",
     "Paint.h",

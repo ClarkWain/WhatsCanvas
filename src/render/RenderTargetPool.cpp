@@ -6,7 +6,13 @@ std::unique_ptr<IRenderTarget> RenderTargetPool::acquire(int width, int height)
 {
     // Search for a matching pooled target.
     for (auto it = pool_.begin(); it != pool_.end(); ++it) {
-        if (it->width == width && it->height == height) {
+        const SharedImageResource resource =
+            it->target ? it->target->getImageResource() : SharedImageResource();
+        // getImageResource() creates the second reference here. Any additional
+        // reference means a deferred composite/filter command still consumes
+        // this texture, so reusing the target would overwrite live pixels.
+        const bool externallyReferenced = resource && resource.use_count() > 2;
+        if (it->width == width && it->height == height && !externallyReferenced) {
             auto target = std::move(it->target);
             pool_.erase(it);
             return target;

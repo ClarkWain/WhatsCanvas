@@ -870,6 +870,29 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     set_tests_properties(WhatsCanvasOpenGLAAGeometryTests
         PROPERTIES LABELS "unit;geometry;opengl;antialias" TIMEOUT 30)
 
+    add_executable(WhatsCanvasOpenGLBackdropFilterTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/OpenGLBackdropFilterTests.cpp"
+    )
+    target_include_directories(WhatsCanvasOpenGLBackdropFilterTests PRIVATE
+        "${SRC_DIR}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/glad/include"
+    )
+    target_link_libraries(WhatsCanvasOpenGLBackdropFilterTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    whatscanvas_link_gl_app(WhatsCanvasOpenGLBackdropFilterTests ${CMAKE_CURRENT_SOURCE_DIR})
+    add_test(NAME WhatsCanvasOpenGLBackdropFilterTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasOpenGLBackdropFilterTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasOpenGLBackdropFilterTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasOpenGLBackdropFilterTests
+        PROPERTIES LABELS "unit;image-filter;opengl" TIMEOUT 30)
+
     add_executable(WhatsCanvasSoftwareGoldenTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/SoftwareGoldenTests.cpp"
     )

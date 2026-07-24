@@ -206,6 +206,26 @@ SharedImageResource Renderer::renderCommandsToImageResource(const std::vector<st
     return resource;
 }
 
+SharedImageResource Renderer::renderQueuedCommandsToImageResource(
+    size_t commandEnd, const OffscreenRenderRequest &request) const
+{
+    if (device_ == nullptr || commandEnd == 0 || commands_.empty()) {
+        return {};
+    }
+
+    return commandEnd == commands_.size()
+        ? renderCommandsToImageResource(commands_, request)
+        : SharedImageResource();
+}
+
+SharedImageResource Renderer::filterImageResource(const SharedImageResource &source,
+                                                  int width, int height,
+                                                  const wsc::ImageFilter &filter) const
+{
+    return device_ == nullptr ? SharedImageResource()
+                              : device_->filterImageResource(source, width, height, filter);
+}
+
 void Renderer::resetRenderState()
 {
     // No GL context to reset for devices that render through executeCommands().

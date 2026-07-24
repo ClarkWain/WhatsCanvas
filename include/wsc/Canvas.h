@@ -10,6 +10,7 @@
 
 #include "Color.h"
 #include "Export.h"
+#include "ImageFilter.h"
 #include "Paint.h"
 #include "Surface.h"
 #include "TextureSource.h"
@@ -321,6 +322,13 @@ public:
 	/// Begin an offscreen layer composited back with the given paint on restore.
 	int saveLayer(const RectF &bounds, const Paint &paint);
 	int saveLayer(const Rect &bounds, const Paint &paint);
+	/// Begin an offscreen layer with optional filters for its content and backdrop.
+	///
+	/// A backdrop filter sees only commands recorded before this call. The
+	/// filtered backdrop and subsequently drawn layer content are composited
+	/// together when restore() closes the layer.
+	int saveLayer(const RectF &bounds, const Paint &paint, const LayerOptions &options);
+	int saveLayer(const Rect &bounds, const Paint &paint, const LayerOptions &options);
 	/// Pop the most recent saved state.
 	void restore();
 	int getSaveCount() const;

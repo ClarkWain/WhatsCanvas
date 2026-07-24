@@ -2187,6 +2187,7 @@ struct Canvas::Impl
         std::size_t commandStart = 0;
         RectF bounds;
         Paint paint;
+        LayerOptions options;
     };
 
     Impl(std::unique_ptr<IRenderer> renderer, std::unique_ptr<wsc::text::ITextBackend> textBackend)
@@ -4610,6 +4611,11 @@ int Canvas::save()
 
 int Canvas::saveLayer(const RectF &bounds, const Paint &paint)
 {
+    return saveLayer(bounds, paint, LayerOptions());
+}
+
+int Canvas::saveLayer(const RectF &bounds, const Paint &paint, const LayerOptions &options)
+{
     const RectF normalized = normalizeRect(bounds);
     const int savedCount = save();
     Impl::LayerState layer;
@@ -4617,6 +4623,7 @@ int Canvas::saveLayer(const RectF &bounds, const Paint &paint)
     layer.commandStart = impl_->renderer->commandCount();
     layer.bounds = normalized;
     layer.paint = paint;
+    layer.options = options;
     impl_->layerStack.push_back(layer);
     clipRect(normalized);
     return savedCount;
@@ -4624,9 +4631,14 @@ int Canvas::saveLayer(const RectF &bounds, const Paint &paint)
 
 int Canvas::saveLayer(const Rect &bounds, const Paint &paint)
 {
+    return saveLayer(bounds, paint, LayerOptions());
+}
+
+int Canvas::saveLayer(const Rect &bounds, const Paint &paint, const LayerOptions &options)
+{
     return saveLayer(RectF(static_cast<float>(bounds.getX()), static_cast<float>(bounds.getY()),
                            static_cast<float>(bounds.getWidth()), static_cast<float>(bounds.getHeight())),
-                     paint);
+                     paint, options);
 }
 
 void Canvas::restore()
@@ -4845,12 +4857,22 @@ void Canvas::restoreToCount(int saveCount)
 void Canvas::Impl::restoreLayer(const LayerState &layer)
 {
     auto commands = renderer->takeCommandsFrom(layer.commandStart);
-    if (commands.empty() || width <= 0 || height <= 0) {
+    if ((commands.empty() && !layer.options.hasBackdropFilter()) || width <= 0 || height <= 0) {
         return;
     }
 
     const RectF canvasBounds(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height));
-    const RectF clipped = intersectRects(layer.bounds, canvasBounds);
+    const float filterOutset = std::max({
+        layer.options.imageFilter().radiusX(),
+        layer.options.imageFilter().radiusY(),
+        layer.options.backdropFilter().radiusX(),
+        layer.options.backdropFilter().radiusY(),
+    });
+    const RectF expanded(layer.bounds.getX() - filterOutset,
+                         layer.bounds.getY() - filterOutset,
+                         layer.bounds.getWidth() + filterOutset * 2.0f,
+                         layer.bounds.getHeight() + filterOutset * 2.0f);
+    const RectF clipped = intersectRects(expanded, canvasBounds);
     if (clipped.getWidth() <= 0.0f || clipped.getHeight() <= 0.0f) {
         return;
     }
@@ -4878,10 +4900,52 @@ void Canvas::Impl::restoreLayer(const LayerState &layer)
     request.scissorOffsetX = -layerLeft;
     request.scissorOffsetY = -(height - layerBottom);
 
-    const SharedImageResource imageResource = renderer->renderCommandsToImageResource(commands, request);
-    if (!imageResource || !imageResource->isValid()) {
-        renderer->appendCommands(std::move(commands));
+    std::vector<std::unique_ptr<Command>> layerCommands;
+    if (layer.options.hasBackdropFilter()) {
+        SharedImageResource backdrop = renderer->renderQueuedCommandsToImageResource(layer.commandStart, request);
+        if (backdrop && backdrop->isValid()) {
+            SharedImageResource filteredBackdrop =
+                renderer->filterImageResource(backdrop, layerWidth, layerHeight,
+                                              layer.options.backdropFilter());
+            if (filteredBackdrop && filteredBackdrop->isValid()) {
+                DrawImageData backdropData;
+                backdropData.imageResource = std::move(filteredBackdrop);
+                backdropData.x = layerRect.getX();
+                backdropData.y = layerRect.getY();
+                backdropData.width = layerRect.getWidth();
+                backdropData.height = layerRect.getHeight();
+                backdropData.u0 = 0.0f;
+                backdropData.u1 = 1.0f;
+                backdropData.v0 = 1.0f;
+                backdropData.v1 = 0.0f;
+                backdropData.sampling = DrawImageSampling::Linear;
+                backdropData.tileMode = DrawImageTileMode::Clamp;
+                backdropData.transform = glm::mat4(1.0f);
+                layerCommands.push_back(std::make_unique<DrawImageCommand>(backdropData));
+            }
+        }
+    }
+    for (auto &command : commands) {
+        layerCommands.push_back(std::move(command));
+    }
+
+    if (layerCommands.empty()) {
         return;
+    }
+
+    SharedImageResource imageResource = renderer->renderCommandsToImageResource(layerCommands, request);
+    if (!imageResource || !imageResource->isValid()) {
+        renderer->appendCommands(std::move(layerCommands));
+        return;
+    }
+
+    if (layer.options.hasImageFilter()) {
+        SharedImageResource filtered =
+            renderer->filterImageResource(imageResource, layerWidth, layerHeight,
+                                          layer.options.imageFilter());
+        if (filtered && filtered->isValid()) {
+            imageResource = std::move(filtered);
+        }
     }
 
     DrawImageData data;

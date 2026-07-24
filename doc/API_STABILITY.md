@@ -12,6 +12,7 @@ The stable public surface lives under `include/wsc/` and is exported through the
 - `wsc/Paint.h`
 - `wsc/Path.h`
 - `wsc/Image.h`
+- `wsc/ImageFilter.h`
 - `wsc/Font.h`
 - `wsc/Matrix.h`
 - `wsc/base.h`
@@ -49,6 +50,8 @@ These types form the expected consumer contract:
 - `wsc::Paint`
 - `wsc::Path`
 - `wsc::Image`
+- `wsc::ImageFilter`
+- `wsc::LayerOptions`
 - `wsc::FontFace`
 - `wsc::FontDescriptor`
 - `wsc::FontFallbackChain`
