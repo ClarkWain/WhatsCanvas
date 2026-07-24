@@ -17,7 +17,6 @@
 #include "opengl/PixelFormatCaps.h"
 #include "opengl/ClipCoverageProgram.h"
 #include "opengl/DrawClipFillProgram.h"
-#include "render/CommandDrawListEncoder.h"
 #include "render/IRenderer.h"
 #include "render/IRenderTarget.h"
 #include "render/RenderContext.h"
@@ -637,25 +636,18 @@ SharedImageResource OpenGLRenderDevice::renderCommandsToImageResource(const std:
         return {};
     }
 
-    CommandDrawListEncodeRequest encodeRequest;
-    encodeRequest.canvasWidth = request.canvasWidth;
-    encodeRequest.canvasHeight = request.canvasHeight;
-    encodeRequest.targetHeight = request.targetHeight;
-    encodeRequest.scissorOffsetX = request.scissorOffsetX;
-    encodeRequest.scissorOffsetY = request.scissorOffsetY;
-    wsc::DrawList drawList;
-    if (!encodeCommandsToDrawList(commands, encodeRequest, drawList) || drawList.empty()) {
-        renderTarget->end();
-        renderTargetPool_->release(std::move(renderTarget));
-        return {};
-    }
-
-    // Lazy activation: only bind FBO when we know there are primitives to execute.
+    // Reuse the complete GL command path for offscreen replay. In particular,
+    // this preserves arbitrary path clips on gradients, images, and text; the
+    // backend-neutral DrawList encoder intentionally supports a smaller common
+    // subset and is primarily used by non-GL device command execution.
     renderTarget->activate();
-    if (!executeDrawList(drawList, request.canvasWidth, request.canvasHeight,
-                         request.scissorOffsetX, request.scissorOffsetY)) {
-        renderTarget->end();
-        return {};
+    RenderContext context;
+    context.setSize(request.canvasWidth, request.canvasHeight);
+    context.setScissorOffset(request.scissorOffsetX, request.scissorOffsetY);
+    for (const std::unique_ptr<Command> &command : commands) {
+        if (command) {
+            command->execute(context);
+        }
     }
     renderTarget->end();
     SharedImageResource imageResource = renderTarget->getImageResource();

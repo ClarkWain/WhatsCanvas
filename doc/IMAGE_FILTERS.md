@@ -32,17 +32,18 @@ canvas->drawRect(panelBounds, tint);
 canvas->drawText("Backdrop filter", x, y, textPaint);
 ```
 
-For a rounded panel, establish the clip before the backdrop-only layer and draw
-the tint and foreground after restoring that layer:
+For a rounded panel, establish the clip before the layer. Tint, gradients,
+images, and text may remain inside the layer when they need the same group
+opacity or image filter:
 
 ```cpp
 canvas->save();
 canvas->clipPath(roundedPanelPath);
 canvas->saveLayer(panelBounds, compositePaint, options);
-canvas->restore(); // composite the filtered backdrop through the active clip
 
 canvas->drawPath(roundedPanelPath, tint);
 canvas->drawText("Sharp foreground", x, y, textPaint);
+canvas->restore(); // composite the filtered backdrop and layer content
 canvas->restore(); // release the rounded clip
 ```
 
@@ -84,12 +85,12 @@ around `0.005-0.02` are intended to reduce banding; larger values are an
 intentional texture effect. `setColorAdjustment()` and `setGrain()` are also
 available on a filter created by `blur()` or `blurSigma()`.
 
-The shared OpenGL offscreen encoder does not yet support every command carrying
-an arbitrary path clip, notably shader-gradient paths inside a filtered layer.
-Keep the filtered layer backdrop-only and draw clipped tint and foreground
-after restoring it, as shown above. Unsupported combinations preserve ordinary
-layer content instead of leaking a temporary backdrop capture into the parent
-framebuffer.
+OpenGL offscreen replay uses the same command path as direct rendering, so
+paths, gradients, images, and text retain their active arbitrary-path clip.
+Multiple independent rounded backdrop layers can therefore be composed in
+stream order. Keeping the filtered layer backdrop-only and drawing sharp
+foreground content after restoring it remains the cheapest arrangement when
+the foreground does not need group opacity or an image filter.
 
 ## Backend Status
 
@@ -119,8 +120,8 @@ and an unavailable backdrop filter becomes a no-op.
 1. Add Vulkan GPU blur and OpenGL/Vulkan pixel-parity coverage.
 2. Add a composable filter graph with generic color-matrix and offset nodes.
 3. Add adaptive downsampling for large animated blur regions.
-4. Extend the shared offscreen encoder to arbitrary clipped path, gradient,
-   image, and text commands.
+4. Extend the backend-neutral shared encoder to arbitrary clipped image and
+   gradient primitives for non-GL device command execution.
 5. Add filter pass/cache statistics and representative performance benchmarks.
 
 The core API deliberately starts with a small filter surface. Inner shadows,

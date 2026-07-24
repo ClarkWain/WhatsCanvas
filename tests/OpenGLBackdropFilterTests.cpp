@@ -129,10 +129,12 @@ int main()
     roundedClip.addRoundRect(wsc::RectF(8.0f, 4.0f, 24.0f, 16.0f), 5.0f);
     canvas->clipPath(roundedClip);
     canvas->saveLayer(wsc::RectF(8.0f, 4.0f, 24.0f, 16.0f), layerPaint, options);
+    wsc::Paint transparentGradient = white;
+    transparentGradient.setLinearGradient(
+        8.0f, 4.0f, 32.0f, 20.0f,
+        wsc::Color(255, 80, 120, 0), wsc::Color(80, 180, 255, 0));
+    canvas->drawRect(wsc::RectF(8.0f, 4.0f, 24.0f, 16.0f), transparentGradient);
     canvas->restore();
-    wsc::Paint tint = white;
-    tint.setColor(wsc::Color(80, 160, 220, 64));
-    canvas->drawRect(wsc::RectF(8.0f, 4.0f, 24.0f, 16.0f), tint);
     canvas->restore();
     canvas->endFrame();
 
@@ -180,6 +182,37 @@ int main()
                     "GPU zero saturation should turn the filtered backdrop grayscale") && ok;
         ok = expect(center[3] == 255,
                     "GPU color adjustment should preserve backdrop alpha") && ok;
+    }
+
+    canvas->beginFrame();
+    for (int x = 0; x < kWidth; x += 4) {
+        canvas->drawRect(wsc::RectF(static_cast<float>(x), 0.0f, 4.0f,
+                                    static_cast<float>(kHeight)),
+                         ((x / 4) % 2) == 0 ? black : white);
+    }
+    auto drawRoundedBackdrop = [&](const wsc::RectF &bounds) {
+        canvas->save();
+        wsc::Path clip;
+        clip.addRoundRect(bounds, 4.0f);
+        canvas->clipPath(clip);
+        canvas->saveLayer(bounds, layerPaint, options);
+        canvas->restore();
+        canvas->restore();
+    };
+    drawRoundedBackdrop(wsc::RectF(2.0f, 4.0f, 16.0f, 16.0f));
+    drawRoundedBackdrop(wsc::RectF(22.0f, 4.0f, 16.0f, 16.0f));
+    canvas->endFrame();
+
+    pixels.clear();
+    ok = expect(canvas->readPixelsRGBA(pixels),
+                "multiple rounded backdrop readback should succeed") && ok;
+    if (ok) {
+        ok = expect(pixelAt(8, 12)[0] > 0 && pixelAt(8, 12)[0] < 255,
+                    "first independent rounded backdrop should blur striped content") && ok;
+        ok = expect(pixelAt(24, 12)[0] > 0 && pixelAt(24, 12)[0] < 255,
+                    "second rounded backdrop should replay an earlier clipped layer") && ok;
+        ok = expect(pixelAt(20, 2)[0] == 255,
+                    "pixels outside rounded backdrop layers should remain sharp") && ok;
     }
 
     canvas.reset();
