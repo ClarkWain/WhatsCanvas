@@ -53,4 +53,19 @@ inline GaussianKernel computeGaussianKernel(float radiusPixels)
     return kernel;
 }
 
+/// Selects a conservative blur downsample factor for GPU implementations.
+/// Large kernels dominate cost quadratically with rendered area, while a 2x
+/// reduction is visually hidden by the low-pass filter. Small targets and
+/// short kernels remain full resolution to preserve fine detail.
+inline int chooseGaussianBlurDownsample(int width, int height,
+                                        float radiusX, float radiusY)
+{
+    constexpr int kMinTargetExtent = 128;
+    constexpr float kMinRadius = 24.0f;
+    return width >= kMinTargetExtent && height >= kMinTargetExtent
+        && std::max(radiusX, radiusY) >= kMinRadius
+        ? 2
+        : 1;
+}
+
 } // namespace wsc::render
