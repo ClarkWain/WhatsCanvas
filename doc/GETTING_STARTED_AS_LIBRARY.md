@@ -23,9 +23,9 @@ back — ideal for a first test, servers, CI, or thumbnails.
 
 int main()
 {
-    // Sized and ready to draw — no GL context, no window.
-    // The first draw/endFrame initializes the backend lazily.
+    // Sized but not initialized — no GL context or window is needed.
     auto canvas = wsc::Canvas::create(wsc::Canvas::Backend::Software, 256, 256);
+    canvas->beginFrame();
 
     wsc::Paint bg;
     bg.setColor(wsc::Color(18, 20, 24, 255));
@@ -43,13 +43,13 @@ int main()
 ```
 
 That is a complete, runnable program. No `loadOpenGL`, and no explicit
-`initializeContext` — the first `endFrame()` initializes the software backend
+`initializeContext` is needed: `beginFrame()` initializes the software backend
 lazily.
 
 > `Canvas::create(...)` returns a `std::unique_ptr<wsc::Canvas>` that is already
-> sized. Use `->` to call methods. It is *not* pre-initialized: drawing and
-> `endFrame()` initialize it lazily, or call `initializeContext()` yourself if you
-> need to read pixels before drawing.
+> sized. Use `->` to call methods. It is *not* pre-initialized: call
+> `beginFrame()` or `initializeContext()` before drawing. `endFrame()` requires
+> an initialized backend.
 
 ### The frame lifecycle: `beginFrame` / `endFrame`
 
@@ -57,20 +57,26 @@ Drawing is bracketed by a matching pair. The minimal offscreen flow is exactly
 four steps:
 
 ```cpp
-canvas->beginFrame();                       // optional — draws auto-begin a frame
+canvas->beginFrame();                       // initializes lazily; resets queued frame state
 canvas->drawRect(/* ... */, paint);         // record draws
 canvas->endFrame();                         // render + make readable (pairs with beginFrame)
 canvas->readPixelsRGBA(pixels);             // or savePixelsPPM("out.ppm")
 ```
 
-`endFrame()` renders the recorded commands onto a **freshly-cleared** framebuffer
-and then **consumes** them. So call it **exactly once per frame**, right before
-reading back or presenting:
+`endFrame()` submits and then **consumes** the recorded commands. On the normal
+output path, Software clears on every submission, Vulkan clears when a non-empty
+draw list starts, and OpenGL draws into the current framebuffer without an
+implicit clear. A render-target canvas created with `OffscreenTexture()` rebuilds
+its texture only when commands are queued. A GL host that needs a fresh
+background must clear it itself. Call `endFrame()` **exactly once per frame**,
+right before reading back or presenting:
 
-- **Do not call `endFrame()` twice** in a row — a second end with no new draws
-  re-clears the buffer and renders nothing, so you'd read back an all-zero
-  (black/transparent) image. This is the usual cause of a "black screen".
-- **Do not call `beginFrame()` after drawing** — it clears the framebuffer.
+- **Do not call `endFrame()` twice** in a row — there are no commands left on the
+  second call. A normal Software framebuffer clears to transparent; Vulkan,
+  OpenGL, and an `OffscreenTexture()` render-target canvas retain their existing
+  target contents.
+- **Do not call `beginFrame()` after drawing** — it discards queued commands and
+  resets the frame state before they are submitted.
 
 One `beginFrame`, your draws, one `endFrame`, then read/present.
 
@@ -89,13 +95,13 @@ new API, just a new `Backend` value.
 | **Software (CPU)** | `Backend::Software` | No | Headless, servers, tests, thumbnails, "just works" everywhere |
 | **OpenGL** | `Backend::OpenGL` | Yes (you own it) | Desktop apps/games with a window (GLFW, SDL, Qt, your engine) |
 | **OpenGL ES** | `Backend::OpenGLES` | Yes (you own it) | Mobile / embedded GLES 3.0 |
-| **Vulkan** (optional) | `Backend::Vulkan` | No (off-screen) | Vulkan pipelines; `nullptr` when unavailable |
+| **Vulkan** (optional) | `Backend::Vulkan` | No external GL context; off-screen by default | Vulkan pipelines, off-screen rendering, or Win32 `ToWindow`; `nullptr` when unavailable |
 
 ```cpp
 using Backend = wsc::Canvas::Backend;
 
-// Explicit backend (sized; call initializeContext() before drawing — the first
-// endFrame also initializes lazily):
+// Explicit backend (sized; initialize explicitly when you want deterministic
+// lifecycle control):
 auto canvas = wsc::Canvas::create(Backend::Software, 256, 256);
 canvas->initializeContext();
 
@@ -136,6 +142,7 @@ int main()
     canvas.initializeContext();
 
     while (!glfwWindowShouldClose(window)) {
+        canvas.beginFrame();
         wsc::Paint p;
         p.setColor(wsc::Color(40, 120, 240, 255));
         p.setAntiAlias(true);
@@ -157,13 +164,14 @@ The lifecycle contract for the GL/GLES backends:
 
 1. `Canvas::loadOpenGL(loader)` once, after a context is current.
 2. `canvas.setSize(w, h)` then `canvas.initializeContext()`.
-3. Draw + `canvas.endFrame()` per frame (with your context current).
+3. `canvas.beginFrame()` → draw → `canvas.endFrame()` per frame (with your
+   context current). Clear the host framebuffer explicitly when required.
 4. `canvas.releaseResources()` before tearing down the context. On context loss
    (e.g. Android background), call `releaseResources()` and re-`initializeContext()`.
 
-> The software and Vulkan backends need no `loadOpenGL`. They initialize lazily
-> on the first draw/endFrame; call `initializeContext()` explicitly only if you read
-> pixels before drawing.
+> The software and Vulkan backends need no `loadOpenGL`. `beginFrame()` initializes
+> them lazily; call `initializeContext()` explicitly if you want initialization
+> outside the frame loop.
 
 ---
 
@@ -205,10 +213,12 @@ cmake -S . -B build -DCMAKE_PREFIX_PATH=/path/to/unzipped/whatscanvas
 cmake --build build --config Release
 ```
 
-> Prebuilt releases are built with the **default** options, i.e. the desktop
-> OpenGL family. The optional Vulkan backend is **not** in prebuilt releases —
-> to use Vulkan, build from source with `-DWHATSCANVAS_ENABLE_VULKAN=ON`
-> (see [section 4](#4-the-vulkan-backend-explained)).
+> The release build matrix is platform-specific. Windows assets are built as
+> shared libraries with OpenGL, OpenGLES, and Vulkan enabled; Linux and macOS
+> assets use the platform defaults. If a required imported target is absent from
+> your platform archive, build from source with the corresponding option (for
+> Vulkan, `-DWHATSCANVAS_ENABLE_VULKAN=ON`; see
+> [section 4](#4-the-vulkan-backend-explained)).
 
 ### Option B — Build the package yourself
 
@@ -289,17 +299,19 @@ auto canvas = wsc::Canvas::isBackendAvailable(Backend::Vulkan)
 // ... render, then canvas->readPixelsRGBA(...)
 ```
 
-**Why is Vulkan off-screen only (unlike OpenGL)?** Because the difference is
-about **who owns the presentation surface**:
+**Why is Vulkan usually used off-screen (unlike OpenGL)?** The Canvas Vulkan
+device is headless by default, while Win32 window presentation is an explicit
+`OutputTarget::ToWindow(...)` path. The difference is about **who owns the
+presentation surface**:
 
 - The **OpenGL** backend renders into the framebuffer of the GL context *you*
   create and make current — so it can draw straight to your window.
-- The **Vulkan** backend, through the Canvas API, does **not** own a Vulkan
-  surface/swapchain. It renders into an off-screen image and you read it back with
-  `readPixelsRGBA` (or use it as a texture). Windowed Vulkan presentation
-  (swapchain) currently lives only as a standalone example
-  ([`examples/vulkan_present`](../examples/vulkan_present)); it is not wired into
-  the `Canvas` API yet.
+- The **Vulkan** backend renders into an off-screen image by default, which you
+  can read with `readPixelsRGBA` or use as a texture. On Win32, the Canvas API
+  can also build a surface/swapchain through `OutputTarget::ToWindow(...)` and
+  deliver frames with `present()`; see
+  [`examples/vulkan_canvas_present`](../examples/vulkan_canvas_present). Other
+  native surface types remain future work.
 
 **Why does the pipeline differ from OpenGL at all?** The OpenGL backend is driven
 by immediate GL calls issued per command against the current context. The Vulkan
@@ -310,6 +322,10 @@ API and same visual result — different plumbing underneath.
 ---
 
 ## 5. Common tasks
+
+The snippets below assume the canvas is initialized and a frame has been
+started with `beginFrame()`. Record the draws, then call `endFrame()` once
+before reading pixels or presenting.
 
 ### Draw text
 
@@ -474,6 +490,9 @@ hand over the native handle):
 ```cpp
 using Backend = wsc::Canvas::Backend;
 auto canvas = wsc::Canvas::create(Backend::Software, width, height);   // or Backend::OpenGL / Backend::Vulkan
+// Required before setOutputTarget for GL/Vulkan. For OpenGL, make the context
+// current and call Canvas::loadOpenGL(...) first; Software needs no setup.
+canvas->initializeContext();
 
 wsc::NativeSurface surface;
 surface.platform = wsc::NativeSurface::Platform::Win32;
@@ -512,11 +531,14 @@ while (running) {
 ```
 
 ```cpp
-// Vulkan: allocate an R8G8B8A8_UNORM VkImage (COLOR_ATTACHMENT usage) on the
-// canvas's device, obtained via the interop accessors.
+// Vulkan: allocate an R8G8B8A8_UNORM VkImage (COLOR_ATTACHMENT + TRANSFER_SRC
+// usage) on the canvas's device, obtained via the interop accessors.
 auto canvas = wsc::Canvas::create(wsc::Canvas::Backend::Vulkan, width, height);
+canvas->initializeContext();
 VkDevice dev = static_cast<VkDevice>(canvas->vulkanDevice());
-VkImage  hostImage = /* vkCreateImage(dev, ... R8G8B8A8_UNORM, COLOR_ATTACHMENT ...) + bind memory */;
+VkImage  hostImage = /* vkCreateImage(dev, ... R8G8B8A8_UNORM,
+                        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                        VK_IMAGE_USAGE_TRANSFER_SRC_BIT, ...) + bind memory */;
 
 canvas->setOutputTarget(
     wsc::OutputTarget::VulkanImageTarget(reinterpret_cast<void *>(hostImage),

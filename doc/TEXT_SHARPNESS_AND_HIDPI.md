@@ -47,9 +47,12 @@ const float dpr = sx > 0.0f ? sx : 1.0f;
 auto canvas = wsc::Canvas::create(wsc::Canvas::Backend::OpenGL, 0, 0);
 canvas->setSize(fbW, fbH);          // physical framebuffer pixels
 canvas->setDevicePixelRatio(dpr);   // logical -> physical scale
+canvas->initializeContext();
+canvas->beginFrame();
 
 // From here on, draw in LOGICAL coordinates:
 canvas->drawText("Crisp on HiDPI", 24.0f, 40.0f, paint);  // 24,40 are logical px
+canvas->endFrame();
 ```
 
 Semantics:

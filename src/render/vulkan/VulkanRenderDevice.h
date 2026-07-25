@@ -15,11 +15,11 @@
 /// the project is configured with `WHATSCANVAS_ENABLE_VULKAN` (which requires
 /// the Vulkan SDK to be available at configure time).
 ///
-/// The current milestone brings the device up to a usable logical-device state
-/// (instance creation, physical-device selection, queue-family discovery and
-/// logical-device creation). The command-execution and resource-creation
-/// entry points are intentional stubs that will be filled in by later
-/// milestones once the pipeline and memory management layers land.
+/// The current implementation covers logical-device bring-up, offscreen
+/// rendering, resource creation/update, backend-neutral command translation,
+/// text/image/clip paths, external-image wrapping, and Win32 window
+/// presentation. Vulkan remains opt-in at build time and some broader
+/// cross-platform parity and device-loss validation are still follow-ups.
 class VulkanRenderDevice : public IRenderDevice
 {
 public:
@@ -62,15 +62,16 @@ public:
                                             const wsc::ImageFilter &filter,
                                             FilterExecutionStats *executionStats = nullptr) const override;
 
-    // On-screen presentation. Not yet integrated: this device's instance is
-    // headless (no surface extensions). See createSwapchain() and
-    // doc/windowed-presentation-design.md for the integration plan.
+    // On-screen presentation. Win32 Canvas presentation is integrated; other
+    // native surface types and broader resize/device-loss coverage remain
+    // follow-ups. See doc/windowed-presentation-design.md.
     bool supportsPresentation() const override;
     std::unique_ptr<ISwapchain> createSwapchain(const NativeSurface &surface,
                                                 const SwapchainConfig &config) override;
 
     // Skia-style wrap-external: render into a host-owned VkImage (created on this
-    // device; format must be VK_FORMAT_R8G8B8A8_UNORM with COLOR_ATTACHMENT usage).
+    // device; format must be VK_FORMAT_R8G8B8A8_UNORM with COLOR_ATTACHMENT and
+    // TRANSFER_SRC usage).
     bool wrapBackendRenderTarget(const BackendRenderTarget &target) override;
 
     /// Raw Vulkan handle accessor for advanced interop (e.g. allocating a
@@ -89,8 +90,8 @@ public:
     /// Vulkan-specific capability: fill an offscreen render target with a solid
     /// RGBA color using a device clear, leaving it ready for readPixelsRGBA().
     /// Returns false when Vulkan is not compiled in, the device is not ready, or
-    /// the target is not a Vulkan render target. Used by validation and as a
-    /// building block until the draw-command pipeline lands.
+    /// the target is not a Vulkan render target. Primarily used by low-level
+    /// validation and bring-up tests.
     bool fillRenderTargetSolid(const std::unique_ptr<IRenderTarget> &target, unsigned char r, unsigned char g,
                                unsigned char b, unsigned char a) const;
 
@@ -165,10 +166,10 @@ public:
                             const std::unique_ptr<IRenderTarget> &maskTarget, float r, float g, float b,
                             float a) const;
 
-    /// Backend-neutral entry point (first slice of ADR-006): execute a
-    /// backend-neutral DrawList into an offscreen render target. The Vulkan
-    /// backend translates each primitive onto its own pipelines. This is the
-    /// seam that a future backend-neutral command layer will feed.
+    /// Backend-neutral entry point from ADR-006: execute a backend-neutral
+    /// DrawList into an offscreen render target. The Vulkan backend translates
+    /// each primitive onto its own pipelines; the command translation path feeds
+    /// this seam for offscreen replay and layer composition.
     bool executeDrawList(const std::unique_ptr<IRenderTarget> &target, const wsc::DrawList &drawList) const;
 
     /// ADR-006 command-translation slice: render a real WhatsCanvas `Command`

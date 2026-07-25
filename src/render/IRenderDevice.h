@@ -70,7 +70,8 @@ public:
 
     /// Create an on-screen presentation target for the given OS window. Returns
     /// nullptr when presentation is unsupported (the default) or setup failed.
-    /// Scaffolding: no backend wires a real swapchain yet.
+    /// OpenGL and the Win32 Vulkan path provide concrete adapters; other
+    /// platform/backend combinations may still return nullptr.
     virtual std::unique_ptr<ISwapchain> createSwapchain(const NativeSurface & /*surface*/,
                                                         const SwapchainConfig & /*config*/) { return nullptr; }
 

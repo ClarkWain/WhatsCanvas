@@ -81,14 +81,14 @@ public:
     virtual bool supportsPresentation() const { return false; }
 
     /// Create an on-screen presentation target for the given OS window, or
-    /// nullptr when unsupported / setup failed. Scaffolding: no backend wires a
-    /// real swapchain yet.
+    /// nullptr when unsupported / setup failed. OpenGL, Software, and the
+    /// Win32 Vulkan path provide concrete adapters.
     virtual std::unique_ptr<ISwapchain> createSwapchain(const NativeSurface & /*surface*/,
                                                         const SwapchainConfig & /*config*/) { return nullptr; }
 
     /// Draw subsequent frames into a host-owned backend render target
-    /// (Skia-style wrap-external). Returns false when unsupported. Scaffolding:
-    /// no backend accepts an external target yet.
+    /// (Skia-style wrap-external). Returns false when unsupported; OpenGL and
+    /// Vulkan support their corresponding external target kinds.
     virtual bool wrapBackendRenderTarget(const BackendRenderTarget & /*target*/) { return false; }
 
     /// Raw native handle accessor for advanced interop; backend-specific.

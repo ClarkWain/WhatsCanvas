@@ -9,7 +9,7 @@ complete than the latter. It exposes a familiar `Canvas` / `Paint` / `Path` /
 OpenGL, OpenGL ES, a pure-CPU software rasterizer (no GPU at all), and an
 optional Vulkan backend.
 
-![WhatsCanvas quality showcase — analytic AA, gradients, Gaussian shadows, AA path clipping](images/aa/quality_showcase.png)
+![WhatsCanvas quality showcase — analytic AA, gradients, Gaussian shadows, AA path clipping](../images/aa/quality_showcase.png)
 
 ## First pixel in 60 seconds
 
@@ -20,7 +20,8 @@ The software backend needs no window, GL context, or GPU:
 
 int main()
 {
-    auto canvas = wsc::Canvas::create(wsc::Canvas::Backend::Software, 256, 256);   // sized; endFrame initializes
+    auto canvas = wsc::Canvas::create(wsc::Canvas::Backend::Software, 256, 256);   // sized; beginFrame initializes
+    canvas->beginFrame();
 
     wsc::Paint fill;
     fill.setColor(wsc::Color(40, 120, 240, 255));
@@ -50,7 +51,7 @@ windowed OpenGL, GitHub Release consumption, Vulkan, and common tasks.
 | **Software (CPU)** | `Canvas::create(Backend::Software, w, h)` | No | Headless, servers, tests, thumbnails |
 | **OpenGL** | `Canvas::create(Backend::OpenGL, w, h)` + `loadOpenGL(...)` | Yes (you own it) | Desktop apps/games with a window |
 | **OpenGL ES** | `Canvas::create(Backend::OpenGLES, w, h)` + `loadOpenGL(...)` | Yes (you own it) | Mobile / embedded GLES 3.0 |
-| **Vulkan** (optional) | `Canvas::create(Backend::Vulkan, w, h)` | No (off-screen) | Vulkan pipelines; degrades gracefully |
+| **Vulkan** (optional) | `Canvas::create(Backend::Vulkan, w, h)` | No external GL context; off-screen by default | Vulkan pipelines, or Win32 `ToWindow`; degrades gracefully |
 
 ## What makes it stand out
 
@@ -73,7 +74,7 @@ windowed OpenGL, GitHub Release consumption, Vulkan, and common tasks.
 The core (`canvas` / `text` / `command` / `render`) is backend-neutral; only the
 device layer is backend-specific.
 
-![WhatsCanvas architecture](images/canvas-architecture.png)
+![WhatsCanvas architecture](../images/canvas-architecture.png)
 
 ## Where next
 

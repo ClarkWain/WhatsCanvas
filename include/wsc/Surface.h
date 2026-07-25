@@ -93,7 +93,8 @@ struct OutputTarget
 	}
 
 	/// Render into a host-owned VkImage (created on this canvas's Vulkan device,
-	/// R8G8B8A8_UNORM with COLOR_ATTACHMENT usage). `format` is a VkFormat.
+	/// R8G8B8A8_UNORM with COLOR_ATTACHMENT and TRANSFER_SRC usage). `format` is
+	/// a VkFormat.
 	static OutputTarget VulkanImageTarget(void *image, unsigned long long format, int width, int height)
 	{
 		OutputTarget t;

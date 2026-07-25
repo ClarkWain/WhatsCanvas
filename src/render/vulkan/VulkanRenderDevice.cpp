@@ -1255,7 +1255,8 @@ namespace {
 constexpr VkFormat kRenderTargetFormat = VK_FORMAT_R8G8B8A8_UNORM;
 
 // Minimal non-owning image resource; the owning render target manages the image
-// lifetime. Sampling support arrives with the texture milestone (M5).
+// lifetime. It is also used by the sampled-image paths once a view and sampler
+// are available.
 class VulkanImageResource final : public ImageResource
 {
 public:
@@ -1688,9 +1689,9 @@ public:
     void apply(const RenderContext & /*context*/, const ScissorState & /*scissor*/,
                std::size_t /*clipIndex*/) const override
     {
-        // Application through the shared RenderContext is pending the
-        // backend-neutral command layer; the Vulkan coverage-mask mechanism is
-        // exercised directly via VulkanRenderDevice::renderClippedSolid().
+        // Generic RenderContext application is intentionally unused here; the
+        // Vulkan coverage masks are consumed by executeCommands() through its
+        // emitClippedSolid / emitClippedLayer command-translation paths.
     }
 
     const std::vector<float> &points() const { return points_; }
@@ -1801,7 +1802,8 @@ public:
         renderPassInfo.pClearValues = &clearValue;
 
         vkCmdBeginRenderPass(cmd, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-        // No draws yet (M3); the clear load-op paints the target.
+        // Target initialization records no draw commands; the clear load-op
+        // paints the initial contents.
         vkCmdEndRenderPass(cmd);
         context_->endSingleTimeCommands(cmd);
 
@@ -5246,11 +5248,12 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
             }
             list.push_back(std::move(prim));
         } else if (cmd->type() == Command::Type::Text) {
-            // Text is rendered as vector triangle geometry (no glyph atlas): the
-            // glyph outlines are tessellated into local-space triangles that are
-            // filled with a solid color or the same shader gradient as paths. The
-            // GL shader evaluates the gradient in raw (pre-transform) local space
-            // (vLocalPos = aPos), so we mirror that exactly.
+            // Text commands are rendered as vector triangle geometry: glyph
+            // outlines are tessellated into local-space triangles and filled
+            // with a solid color or the same shader gradient as paths. Glyph
+            // atlas text is represented by sampled image commands instead. The
+            // GL shader evaluates the gradient in raw (pre-transform) local
+            // space (vLocalPos = aPos), so we mirror that exactly.
             const auto *textCmd = static_cast<const DrawTextCommand *>(cmd.get());
             const DrawTextData &d = textCmd->data();
             const std::size_t vertexCount = d.getVertexCount();
