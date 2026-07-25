@@ -24,6 +24,10 @@ void GaussianBlurProgram::initialize()
     }
 
     const std::string vertexSrc = std::string(shaderVersionDirective()) + R"(
+        #ifdef WHATSCANVAS_OPENGL_ES
+        precision highp float;
+        precision highp int;
+        #endif
         layout (location = 0) in vec2 aPos;
         layout (location = 1) in vec2 aUv;
         out vec2 vUv;
@@ -35,9 +39,13 @@ void GaussianBlurProgram::initialize()
     )";
 
     const std::string fragmentSrc = std::string(shaderVersionDirective()) + R"(
+        #ifdef WHATSCANVAS_OPENGL_ES
+        precision highp float;
+        precision highp int;
+        #endif
         in vec2 vUv;
         uniform sampler2D uTexture;
-        uniform int uMode;        // 0 = alpha blur, 1 = composite, 2 = RGBA blur
+        uniform int uMode;        // 0 = alpha blur, 1 = composite, 2 = RGBA blur, 3 = inner shadow
         uniform vec2 uDirection;  // texel step along the blur axis
         uniform int uRadius;
         uniform int uDecal;
@@ -49,6 +57,9 @@ void GaussianBlurProgram::initialize()
         uniform float uGrain;
         uniform float uWeights[65];
         uniform vec4 uTint;
+        uniform sampler2D uOriginalTexture;
+        uniform vec2 uInnerShadowOffset;
+        uniform vec4 uInnerShadowColor;
         out vec4 FragColor;
 
         vec4 fetchStraightPremultiplied(ivec2 coord)
@@ -75,6 +86,11 @@ void GaussianBlurProgram::initialize()
                 return texture(uTexture, uv);
             }
             if (uResampleStraightAlpha == 0) {
+                if (uDecal != 0
+                    && (uv.x < 0.0 || uv.x > 1.0
+                        || uv.y < 0.0 || uv.y > 1.0)) {
+                    return vec4(0.0);
+                }
                 vec4 color = texture(uTexture, uv);
                 return vec4(color.rgb * color.a, color.a);
             }
@@ -88,6 +104,27 @@ void GaussianBlurProgram::initialize()
             vec4 c11 = fetchStraightPremultiplied(base + ivec2(1, 1));
             return mix(mix(c00, c10, fraction.x),
                        mix(c01, c11, fraction.x), fraction.y);
+        }
+
+        float sampleAlphaDecal(vec2 uv)
+        {
+            ivec2 size = textureSize(uTexture, 0);
+            vec2 position = uv * vec2(size) - vec2(0.5);
+            ivec2 base = ivec2(floor(position));
+            vec2 fraction = fract(position);
+            float samples[4];
+            ivec2 taps[4] = ivec2[4](
+                base, base + ivec2(1, 0),
+                base + ivec2(0, 1), base + ivec2(1, 1));
+            for (int i = 0; i < 4; ++i) {
+                ivec2 tap = taps[i];
+                samples[i] =
+                    tap.x < 0 || tap.x >= size.x
+                    || tap.y < 0 || tap.y >= size.y
+                    ? 0.0 : texelFetch(uTexture, tap, 0).a;
+            }
+            return mix(mix(samples[0], samples[1], fraction.x),
+                       mix(samples[2], samples[3], fraction.x), fraction.y);
         }
 
         void main()
@@ -135,6 +172,23 @@ void GaussianBlurProgram::initialize()
                     color.rgb = clamp(color.rgb + vec3(noise * uGrain), 0.0, 1.0);
                 }
                 FragColor = color;
+            } else if (uMode == 3) {
+                vec4 original = texture(uOriginalTexture, vUv);
+                if (uSourcePremultiplied != 0 && original.a > 0.000001) {
+                    original.rgb /= original.a;
+                }
+                if (original.a <= 0.000001) {
+                    FragColor = vec4(0.0);
+                    return;
+                }
+                vec2 shadowUv = vUv - uInnerShadowOffset;
+                float blurredAlpha = sampleAlphaDecal(shadowUv);
+                float coverage =
+                    clamp((original.a - blurredAlpha) / original.a, 0.0, 1.0)
+                    * uInnerShadowColor.a;
+                FragColor = vec4(
+                    mix(original.rgb, uInnerShadowColor.rgb, coverage),
+                    original.a);
             } else {
                 float a = texture(uTexture, vUv).a;
                 FragColor = vec4(uTint.rgb, a * uTint.a);
@@ -353,6 +407,39 @@ void GaussianBlurProgram::composite(GLuint srcTexture, const glm::vec4 &tint)
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, srcTexture);
     drawQuad();
+    glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+void GaussianBlurProgram::innerShadowPass(
+    GLuint blurredTexture, GLuint originalTexture,
+    GLuint dstFramebuffer, int width, int height,
+    const glm::vec2 &offsetUv, const glm::vec4 &color,
+    bool sourcePremultiplied)
+{
+    if (!initialized_) {
+        return;
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, dstFramebuffer);
+    glViewport(0, 0, width, height);
+    glDisable(GL_BLEND);
+    glDisable(GL_SCISSOR_TEST);
+
+    program_->use();
+    program_->setInt("uMode", 3);
+    program_->setInt("uTexture", 0);
+    program_->setInt("uOriginalTexture", 1);
+    program_->setInt("uSourcePremultiplied", sourcePremultiplied ? 1 : 0);
+    program_->setVec2("uInnerShadowOffset", offsetUv);
+    program_->setVec4("uInnerShadowColor", color);
+
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, blurredTexture);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, originalTexture);
+    drawQuad();
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, 0);
 }
 

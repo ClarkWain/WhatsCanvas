@@ -592,6 +592,100 @@ bool testLayerImageBlur()
     return ok;
 }
 
+bool testLayerInnerShadow()
+{
+    constexpr int w = 48;
+    constexpr int h = 36;
+    std::unique_ptr<Canvas> canvas = makeSoftwareCanvas(w, h);
+    if (!canvas) {
+        return expect(false, "createSoftware should return a canvas");
+    }
+
+    const RectF bounds(8.0f, 6.0f, 32.0f, 24.0f);
+    Paint layerPaint;
+    layerPaint.setColor(Color::WHITE);
+    LayerOptions options;
+    options.setImageFilter(ImageFilter::innerShadow(
+        6.0f, 4.0f, 4.0f, Color(0, 0, 0, 220)));
+    Paint fill;
+    fill.setStyle(Paint::Style::FILL);
+    fill.setColor(Color(240, 240, 240, 255));
+    fill.setAntiAlias(false);
+
+    canvas->beginFrame();
+    canvas->saveLayer(bounds, layerPaint, options);
+    canvas->drawRect(bounds, fill);
+    canvas->restore();
+    canvas->endFrame();
+
+    std::vector<unsigned char> pixels;
+    if (!canvas->readPixelsRGBA(pixels)
+        || pixels.size() != static_cast<std::size_t>(w) * h * 4u) {
+        return expect(false, "inner-shadow readPixelsRGBA should succeed");
+    }
+    auto pixelAt = [&](int x, int y) {
+        return &pixels[(static_cast<std::size_t>(y) * w + x) * 4u];
+    };
+
+    const unsigned char *topLeft = pixelAt(9, 7);
+    const unsigned char *center = pixelAt(24, 18);
+    const unsigned char *bottomRight = pixelAt(38, 28);
+    bool ok = expect(topLeft[0] < 150 && topLeft[1] < 150 && topLeft[2] < 150,
+                     "positive inset offsets should shade the top-left edge");
+    ok = expect(center[0] > 225 && center[1] > 225 && center[2] > 225,
+                "inner shadow should preserve the center fill") && ok;
+    ok = expect(bottomRight[0] > topLeft[0] + 60,
+                "the edge opposite the inset offset should remain brighter") && ok;
+    ok = expect(topLeft[3] == 255 && center[3] == 255,
+                "inner shadow should preserve source alpha") && ok;
+    ok = expect(pixelAt(7, 18)[3] == 0 && pixelAt(40, 18)[3] == 0,
+                "inner shadow must not leak outside layer bounds") && ok;
+    const Canvas::RenderStats stats = canvas->getRenderStats();
+    ok = expect(stats.filterCount == 1 && stats.filterPassCount == 3,
+                "inner shadow should report two blur passes plus composite") && ok;
+    return ok;
+}
+
+bool testFullBleedInnerShadow()
+{
+    constexpr int w = 64;
+    constexpr int h = 48;
+    std::unique_ptr<Canvas> canvas = makeSoftwareCanvas(w, h);
+    if (!canvas) {
+        return expect(false, "createSoftware should return a canvas");
+    }
+    Paint layerPaint;
+    layerPaint.setColor(Color::WHITE);
+    LayerOptions options;
+    options.setImageFilter(ImageFilter::innerShadow(
+        8.0f, 5.0f, 4.0f, Color(0, 0, 0, 220)));
+    Paint fill;
+    fill.setColor(Color::WHITE);
+    fill.setAntiAlias(false);
+
+    canvas->beginFrame();
+    canvas->saveLayer(RectF(0.0f, 0.0f, static_cast<float>(w),
+                            static_cast<float>(h)),
+                      layerPaint, options);
+    canvas->drawRect(RectF(0.0f, 0.0f, static_cast<float>(w),
+                           static_cast<float>(h)),
+                     fill);
+    canvas->restore();
+    canvas->endFrame();
+
+    std::vector<unsigned char> pixels;
+    if (!canvas->readPixelsRGBA(pixels)) {
+        return expect(false, "full-bleed inner-shadow readback should succeed");
+    }
+    auto pixelAt = [&](int x, int y) {
+        return &pixels[(static_cast<std::size_t>(y) * w + x) * 4u];
+    };
+    return expect(pixelAt(0, 0)[0] < 170,
+                  "transparent-outside sampling should shade a full-bleed edge")
+        && expect(pixelAt(w / 2, h / 2)[0] > 245,
+                  "full-bleed inner shadow should preserve its center");
+}
+
 // With gamma-correct rendering the software backend blends in linear space and
 // re-encodes to sRGB (mirroring the GL backend's linearized source color +
 // GL_FRAMEBUFFER_SRGB). A 50% red over opaque blue must land near the linear
@@ -656,6 +750,8 @@ int main()
     ok = testBackdropColorAdjustment() && ok;
     ok = testBackdropSamplingOutsetIsClipped() && ok;
     ok = testLayerImageBlur() && ok;
+    ok = testLayerInnerShadow() && ok;
+    ok = testFullBleedInnerShadow() && ok;
     ok = testGammaLinearBlend() && ok;
     return ok ? 0 : 1;
 }

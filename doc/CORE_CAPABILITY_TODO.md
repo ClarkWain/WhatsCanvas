@@ -260,6 +260,7 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
 - [x] Add two-pass GPU RGBA Gaussian blur to OpenGL / OpenGLES.
 - [x] Prevent pooled render-target reuse while deferred commands retain its image.
 - [x] Add Software and real-context OpenGL pixel tests.
-- [ ] Add a GPU-only Vulkan blur path and Vulkan/OpenGL parity scene.
+- [x] Add a GPU-only Vulkan blur path and Vulkan/Software parity scene.
 - [ ] Add composable color-matrix and offset filter nodes.
-- [ ] Add adaptive downsampling and filter performance statistics.
+- [x] Add adaptive downsampling and filter performance statistics.
+- [x] Add backend-neutral inner shadows across Software, OpenGL/OpenGLES, and Vulkan.

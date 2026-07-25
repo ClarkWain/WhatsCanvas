@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <string>
 
 #include "render/GaussianKernel.h"
@@ -93,6 +94,54 @@ bool testSigmaAndFrostedGlassFactories()
                   "frostedGlass should add color adjustment and subtle grain");
 }
 
+bool testInnerShadowFactory()
+{
+    wsc::ImageFilter shadow = wsc::ImageFilter::innerShadowSigma(
+        4.0f, 3.0f, 5.0f, wsc::Color(10, 20, 30, 128));
+    const bool factoryOk = expect(shadow.isValid()
+                      && shadow.type() == wsc::ImageFilter::Type::InnerShadow,
+                  "innerShadowSigma should create a valid inner-shadow filter")
+        && expect(std::abs(shadow.radiusX() - 12.0f) < 1e-6f
+                      && std::abs(shadow.radiusY() - 12.0f) < 1e-6f,
+                  "innerShadowSigma should convert sigma to a three-sigma reach")
+        && expect(std::abs(shadow.offsetX() - 3.0f) < 1e-6f
+                      && std::abs(shadow.offsetY() - 5.0f) < 1e-6f,
+                  "inner shadow should preserve finite offsets")
+        && expect(std::abs(shadow.samplingOutset() - 17.0f) < 1e-6f,
+                  "inner shadow should include blur and offset in its sampling outset")
+        && expect(shadow.outputOutset() == 0.0f,
+                  "inner shadow must not expand visible layer output")
+        && expect(shadow.shadowColor().getA() == 128,
+                  "inner shadow should preserve its color");
+    shadow.setColorAdjustment(0.0f).setGrain(0.2f);
+    return factoryOk
+        && expect(!shadow.hasColorAdjustment() && !shadow.hasGrain(),
+                  "blur-only post-processing mutators should ignore inner shadows");
+}
+
+bool testNonFiniteFilterArguments()
+{
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float inf = std::numeric_limits<float>::infinity();
+    const wsc::ImageFilter blur = wsc::ImageFilter::blur(inf, -inf);
+    const wsc::ImageFilter shadow = wsc::ImageFilter::innerShadow(
+        nan, inf, inf, -inf, wsc::Color(0, 0, 0, 255));
+    const wsc::ImageFilter overflow =
+        wsc::ImageFilter::innerShadowSigma(inf, 0.0f, 0.0f,
+                                           wsc::Color(0, 0, 0, 255));
+    return expect(blur.radiusX() == wsc::ImageFilter::kMaxBlurRadius
+                      && blur.radiusY() == 0.0f,
+                  "signed infinite blur radii should clamp to their limits")
+        && expect(shadow.radiusX() == 0.0f
+                      && shadow.radiusY() == wsc::ImageFilter::kMaxBlurRadius,
+                  "NaN should sanitize to zero while positive infinity clamps high")
+        && expect(shadow.offsetX() == wsc::ImageFilter::kMaxShadowOffset
+                      && shadow.offsetY() == -wsc::ImageFilter::kMaxShadowOffset,
+                  "signed infinite offsets should clamp to their limits")
+        && expect(overflow.radiusX() == wsc::ImageFilter::kMaxBlurRadius,
+                  "overflowing sigma should clamp to the maximum radius");
+}
+
 bool testBlurDownsamplePolicy()
 {
     const auto horizontal =
@@ -123,6 +172,8 @@ int main()
     ok = testWeightsAreMonotonicallyDecreasing() && ok;
     ok = testRadiusScalesWithRequest() && ok;
     ok = testSigmaAndFrostedGlassFactories() && ok;
+    ok = testInnerShadowFactory() && ok;
+    ok = testNonFiniteFilterArguments() && ok;
     ok = testBlurDownsamplePolicy() && ok;
     return ok ? 0 : 1;
 }

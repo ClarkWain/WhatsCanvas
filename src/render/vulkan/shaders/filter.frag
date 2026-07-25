@@ -4,12 +4,15 @@ layout(location = 0) in vec2 vUV;
 layout(location = 0) out vec4 outColor;
 
 layout(binding = 0) uniform sampler2D uTexture;
+layout(binding = 2) uniform sampler2D uOriginalTexture;
 
 layout(std140, binding = 1) uniform FilterUBO
 {
     vec4 directionRadiusDecal; // texel step xy, radius, decal
     vec4 colorAdjustment;      // saturation, brightness, contrast, grain
     vec4 options;              // color adjustment, source premul, output straight, straight resample
+    vec4 innerShadow;          // offset xy, enabled, original premultiplied
+    vec4 innerShadowColor;
     vec4 packedWeights[17];    // 65 taps packed into 68 floats
 } ubo;
 
@@ -52,6 +55,10 @@ vec4 samplePremultiplied(vec2 uv, bool decal, bool sourcePremultiplied,
         return texture(uTexture, uv);
     }
     if (!resampleStraightAlpha) {
+        if (decal && (uv.x < 0.0 || uv.x > 1.0
+                      || uv.y < 0.0 || uv.y > 1.0)) {
+            return vec4(0.0);
+        }
         vec4 color = texture(uTexture, uv);
         return vec4(color.rgb * color.a, color.a);
     }
@@ -65,6 +72,27 @@ vec4 samplePremultiplied(vec2 uv, bool decal, bool sourcePremultiplied,
     vec4 c11 = fetchStraightPremultiplied(base + ivec2(1, 1), decal);
     return mix(mix(c00, c10, fraction.x),
                mix(c01, c11, fraction.x), fraction.y);
+}
+
+float sampleAlphaDecal(vec2 uv)
+{
+    ivec2 size = textureSize(uTexture, 0);
+    vec2 position = uv * vec2(size) - vec2(0.5);
+    ivec2 base = ivec2(floor(position));
+    vec2 fraction = fract(position);
+    float samples[4];
+    ivec2 taps[4] = ivec2[4](
+        base, base + ivec2(1, 0),
+        base + ivec2(0, 1), base + ivec2(1, 1));
+    for (int i = 0; i < 4; ++i) {
+        ivec2 tap = taps[i];
+        samples[i] =
+            tap.x < 0 || tap.x >= size.x
+            || tap.y < 0 || tap.y >= size.y
+            ? 0.0 : texelFetch(uTexture, tap, 0).a;
+    }
+    return mix(mix(samples[0], samples[1], fraction.x),
+               mix(samples[2], samples[3], fraction.x), fraction.y);
 }
 
 void main()
@@ -91,6 +119,26 @@ void main()
         sum += samplePremultiplied(
             vUV + offset, decal, sourcePremultiplied,
             resampleStraightAlpha) * weight;
+    }
+
+    if (ubo.innerShadow.z > 0.5) {
+        vec4 original = texture(uOriginalTexture, vUV);
+        if (ubo.innerShadow.w > 0.5 && original.a > 0.000001) {
+            original.rgb /= original.a;
+        }
+        if (original.a <= 0.000001) {
+            outColor = vec4(0.0);
+            return;
+        }
+        vec2 shadowUV = vUV - ubo.innerShadow.xy;
+        float blurredAlpha = sampleAlphaDecal(shadowUV);
+        float coverage =
+            clamp((original.a - blurredAlpha) / original.a, 0.0, 1.0)
+            * ubo.innerShadowColor.a;
+        outColor = vec4(
+            mix(original.rgb, ubo.innerShadowColor.rgb, coverage),
+            original.a);
+        return;
     }
 
     if (!outputStraight) {

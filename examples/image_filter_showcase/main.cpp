@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -73,16 +74,6 @@ void drawPanelContent(Canvas &canvas, const RectF &bounds,
     canvas.drawCircle(x + width * 0.5f, y + 272.0f, 30.0f,
                       solid(Color(accent.r(), accent.g(), accent.b(), 210.0f / 255.0f)));
 
-    const float barWidths[] = {0.72f, 0.48f, 0.62f};
-    for (int i = 0; i < 3; ++i) {
-        const float barY = y + 410.0f + static_cast<float>(i) * 42.0f;
-        canvas.drawRoundRect(RectF(x + 48.0f, barY, width - 96.0f, 7.0f),
-                             3.5f, solid(Color(255, 255, 255, 38)));
-        canvas.drawRoundRect(RectF(x + 48.0f, barY,
-                                   (width - 96.0f) * barWidths[i], 7.0f),
-                             3.5f, solid(Color(accent.r(), accent.g(), accent.b(),
-                                               205.0f / 255.0f)));
-    }
 }
 
 void drawGlassPanel(Canvas &canvas, const RectF &bounds,
@@ -118,6 +109,47 @@ void drawGlassPanel(Canvas &canvas, const RectF &bounds,
 
     drawPanelContent(canvas, bounds, title, accent);
     canvas.restore();
+}
+
+void drawInsetControls(Canvas &canvas, const RectF &bounds, const Color &accent)
+{
+    const float x = bounds.getX();
+    const float y = bounds.getY();
+    const float trackX = x + 48.0f;
+    const float trackWidth = bounds.getWidth() - 96.0f;
+    constexpr float trackHeight = 8.0f;
+    constexpr float trackRadius = trackHeight * 0.5f;
+    const float values[] = {0.72f, 0.48f, 0.62f};
+
+    LayerOptions insetOptions;
+    insetOptions.setImageFilter(ImageFilter::innerShadow(
+        5.5f, 1.25f, 1.75f, Color(24, 54, 72, 78)));
+    canvas.saveLayer(RectF(trackX - 8.0f, y + 398.0f,
+                           trackWidth + 16.0f, 104.0f),
+                     solid(Color(255, 255, 255, 255)), insetOptions);
+    for (int i = 0; i < 3; ++i) {
+        const float trackY = y + 410.0f + static_cast<float>(i) * 42.0f;
+        canvas.drawRoundRect(
+            RectF(trackX, trackY, trackWidth, trackHeight),
+            trackRadius, solid(Color(210, 226, 236, 178)));
+    }
+    canvas.restore();
+
+    for (int i = 0; i < 3; ++i) {
+        const float trackY = y + 410.0f + static_cast<float>(i) * 42.0f;
+        const float fillWidth = trackWidth * values[i];
+        canvas.drawRoundRect(
+            RectF(trackX + 2.0f, trackY + 2.0f,
+                  std::max(0.0f, fillWidth - 4.0f), trackHeight - 4.0f),
+            2.0f, solid(Color(accent.r(), accent.g(), accent.b(),
+                              220.0f / 255.0f)));
+        canvas.drawCircle(
+            trackX + fillWidth, trackY + trackHeight * 0.5f, 6.0f,
+            solid(Color(accent.r(), accent.g(), accent.b(), 1.0f)));
+        canvas.drawCircle(
+            trackX + fillWidth - 1.0f, trackY + 2.5f, 1.5f,
+            solid(Color(255, 255, 255, 180)));
+    }
 }
 
 } // namespace
@@ -225,6 +257,9 @@ int main(int argc, char **argv)
                    Color(255, 166, 116, 255));
     drawGlassPanel(*canvas, panels[2], "GLASS 03",
                    Color(211, 238, 91, 255));
+    drawInsetControls(*canvas, panels[0], Color(117, 238, 227, 255));
+    drawInsetControls(*canvas, panels[1], Color(255, 166, 116, 255));
+    drawInsetControls(*canvas, panels[2], Color(211, 238, 91, 255));
 
     canvas->drawText("Real OpenGL framebuffer capture", 82.0f, 1016.0f,
                      textStyle(15.0f, Color(255, 255, 255, 145)));

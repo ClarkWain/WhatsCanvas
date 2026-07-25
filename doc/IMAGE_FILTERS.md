@@ -50,6 +50,30 @@ canvas->restore(); // release the rounded clip
 The existing `saveLayer(bounds, paint)` overloads remain unchanged. Filters are
 opt-in through the overloads that accept `LayerOptions`.
 
+### Inner shadow
+
+`innerShadow()` derives an inset shadow from the alpha of the layer content:
+
+```cpp
+wsc::LayerOptions insetOptions;
+insetOptions.setImageFilter(wsc::ImageFilter::innerShadow(
+    12.0f,                  // Gaussian radius
+    4.0f, 5.0f,            // X/Y offset
+    wsc::Color(0, 0, 0, 180)
+));
+
+canvas->saveLayer(cardBounds, compositePaint, insetOptions);
+canvas->drawPath(roundedCardPath, cardPaint);
+canvas->restore();
+```
+
+Positive X shades the inside-left edge and positive Y shades the inside-top
+edge, matching common inset-shadow conventions. The shadow is clipped to the
+source silhouette, preserves the source alpha, and never expands the visible
+layer output. The capture still grows by `radius + abs(offset)` so the
+transparent area needed to form the edge is available to the filter. Radii are
+clamped to 64 pixels and offsets to 256 pixels for backend parity.
+
 ## Blur Semantics
 
 - Blur radii use filter-target pixels and are clamped to 64 pixels so Software,
@@ -72,9 +96,10 @@ opt-in through the overloads that accept `LayerOptions`.
 - `Clamp` repeats edge pixels outside the source image. `Decal` treats samples
   outside the source image as transparent.
 - A backdrop sees only drawing commands recorded before `saveLayer`.
-- The filter capture is expanded by its radius, while final composition remains
-  cropped to the original layer bounds. Pixels just outside the layer can
-  contribute to edge blur without the sampling outset becoming visible output.
+- The filter capture is expanded by its radius. Backdrop filters and inner
+  shadows remain cropped to the original layer bounds; a layer-content blur
+  may expand its visible result by its blur radius. Pixels outside the original
+  bounds can therefore contribute without exposing a sampling-only outset.
 - Layer paint alpha, tint, color matrix, image sampling, and blend mode are
   applied when the completed layer is composited into its parent.
 
@@ -102,11 +127,11 @@ the foreground does not need group opacity or an image filter.
 
 ## Backend Status
 
-| Backend | Image blur | Backdrop blur | Execution |
-| --- | --- | --- | --- |
-| Software | Supported | Supported | Deterministic CPU separable Gaussian reference |
-| OpenGL / OpenGLES | Supported | Supported | Two-pass GPU RGBA Gaussian; adaptive per-axis 2x blur plus full-resolution restore for large kernels |
-| Vulkan | Supported | Supported | Two-pass GPU RGBA Gaussian; filter passes and result copy share one synchronized submission; adaptive per-axis 2x blur plus full-resolution restore for large kernels |
+| Backend | Image blur | Backdrop blur | Inner shadow | Execution |
+| --- | --- | --- | --- | --- |
+| Software | Supported | Supported | Supported | Deterministic CPU separable Gaussian reference |
+| OpenGL / OpenGLES | Supported | Supported | Supported | GPU separable Gaussian plus inner-shadow composite; adaptive per-axis 2x blur and full-resolution restore |
+| Vulkan | Supported | Supported | Supported | GPU separable Gaussian plus inner-shadow composite in one synchronized submission; adaptive per-axis 2x blur and full-resolution restore |
 
 Unsupported filters degrade gracefully: ordinary layer content is preserved,
 and an unavailable backdrop filter becomes a no-op.
@@ -115,17 +140,18 @@ and an unavailable backdrop filter becomes a no-op.
 
 - `WhatsCanvasSoftwareRendererTests` covers empty-layer backdrop composition,
   hard-edge background diffusion, post-blur color adjustment, sampling-outset
-  cropping, layer-content blur, alpha preservation, and layer-bound clipping.
+  cropping, layer-content blur, inner-shadow direction and clipping, alpha
+  preservation, and layer-bound clipping.
 - `WhatsCanvasOpenGLBackdropFilterTests` validates real GPU output through a
   hidden OpenGL 3.3 context and pixel readback, including color adjustment and
-  sampling-outset cropping.
+  sampling-outset cropping, inner-shadow output, framebuffer state restoration,
+  and layer-bound isolation.
 - `WhatsCanvasVulkanImageFilterTests` validates the native Vulkan image handle,
   GPU blur diffusion, Clamp/Decal edges, alpha-safe color adjustment, adaptive
   per-axis downsampling, transparent-edge color safety, public image/backdrop
-  filtering, premultiplied translucent layers, layer orientation, and cropped
-  gradient/image clipping. Backdrop output is also checked against the Software
-  reference; the current parity gate allows a maximum channel difference of 3
-  and a mean channel difference of 0.5.
+  filtering, inner-shadow composition, premultiplied translucent layers, layer
+  orientation, and cropped gradient/image clipping. Backdrop and inner-shadow
+  output are also checked against the Software reference.
 - `WhatsCanvasRenderTargetPoolTests` prevents offscreen targets from being
   reused while a deferred filter/composite command still references their
   texture.
@@ -145,6 +171,6 @@ and an unavailable backdrop filter becomes a no-op.
 3. Expand real-device performance baselines for large and overlapping glass
    regions.
 
-The core API deliberately starts with a small filter surface. Inner shadows,
-morphology, displacement maps, and custom shader filters remain optional
-extensions after blur performance and cross-backend behavior are stable.
+The core API deliberately keeps a small filter surface. Morphology,
+displacement maps, and custom shader filters remain optional extensions after
+the current effects and cross-backend behavior are stable.
