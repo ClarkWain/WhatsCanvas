@@ -96,15 +96,13 @@ inline bool drawCompositeFilterParityScene(wsc::Canvas &canvas)
     canvas.restore();
 
     canvas.save();
-    wsc::Path clip;
-    clip.addRoundRect(wsc::RectF(126.0f, 16.0f, 50.0f, 30.0f), 7.0f);
-    canvas.clipPath(clip);
+    canvas.clipRect(wsc::RectF(126.0f, 16.0f, 50.0f, 30.0f));
     wsc::Paint clippedGradient;
     clippedGradient.setAntiAlias(false);
     clippedGradient.setLinearGradient(
         126.0f, 16.0f, 176.0f, 46.0f,
         wsc::Color(248, 212, 88, 255), wsc::Color(122, 78, 224, 255));
-    canvas.drawRect(wsc::RectF(126.0f, 16.0f, 50.0f, 30.0f), clippedGradient);
+    canvas.drawRect(wsc::RectF(122.0f, 12.0f, 58.0f, 38.0f), clippedGradient);
     canvas.restore();
 
     canvas.endFrame();
