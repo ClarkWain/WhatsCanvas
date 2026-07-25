@@ -13,7 +13,8 @@ WhatsCanvas uses automated tests, smoke scenes, exact pixel hashes, and fuzzy PP
 | Deterministic smoke | `scripts/smoke_test.*` | Exact hash / first-frame checks | Use fixed time and disabled MSAA where possible. |
 | Text rendering | `scripts/text_pixel_regression.*` | Fuzzy PPM | Covers `font-regression` and `text-showcase` by default. |
 | Effects and scenes | `scripts/validation_scene_smoke.*` plus manual captures | Exact hash or fuzzy PPM depending on scene | Gradients, shadows, blend modes, strokes, dashes, and other driver-sensitive effects. |
-| OpenGLES build health | `scripts/opengles_build_smoke.*` | Configure/build smoke | Ensures GL-family portability does not regress. |
+| Cross-backend filters | `*FilterPixelParityTests` | In-memory fuzzy premultiplied RGBA | One deterministic scene is compared with Software; structured output records max/mean error, bad-pixel ratio, worst channel/location, and hashes. |
+| OpenGLES build health | `scripts/opengles_build_smoke.*` | Configure/build plus Mesa EGL parity | Ensures GL-family portability and GLES filter shader execution do not regress. |
 
 ## Official Baseline Storage
 
@@ -89,7 +90,8 @@ python scripts/compare_ppm_fuzzy.py baseline.ppm candidate.ppm \
 | Public header changes | `scripts/api_reference_check.*` after regenerating `doc/API_REFERENCE.md` |
 | Text/font stack | `ctest -L text`, `scripts/text_pixel_regression.*` |
 | GL shader/render path | smoke test, relevant validation scene, fuzzy comparison if captured |
-| OpenGLES portability | `scripts/opengles_build_smoke.*` |
+| Image-filter backend | matching `*FilterPixelParityTests`; benchmark smoke if performance wiring changed |
+| OpenGLES portability | `scripts/opengles_build_smoke.*` and GLES parity under Mesa EGL |
 | Docs only | link/keyword review and no private project context |
 
 See also `doc/VISUAL_REGRESSION.md`, `doc/EFFECT_REGRESSION_MATRIX.md`, and `doc/CROSS_PLATFORM_VALIDATION_MATRIX.md`.
