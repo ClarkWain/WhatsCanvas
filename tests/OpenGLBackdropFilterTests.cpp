@@ -248,6 +248,105 @@ int main()
                     "pixels outside rounded backdrop layers should remain sharp") && ok;
     }
 
+    wsc::LayerOptions innerShadowOptions;
+    innerShadowOptions.setImageFilter(wsc::ImageFilter::innerShadow(
+        8.0f, 5.0f, 5.0f, wsc::Color(0, 0, 0, 220)));
+    const wsc::RectF innerBounds(32.0f, 28.0f, 96.0f, 72.0f);
+    wsc::Paint blue = black;
+    blue.setColor(wsc::Color(0, 32, 220, 255));
+    canvas->beginFrame();
+    canvas->drawRect(wsc::RectF(
+        0.0f, 0.0f, static_cast<float>(kWidth), static_cast<float>(kHeight)), blue);
+    canvas->saveLayer(innerBounds, layerPaint, innerShadowOptions);
+    canvas->drawRect(innerBounds, white);
+    canvas->restore();
+    canvas->endFrame();
+
+    pixels.clear();
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &framebufferAfterBackdrop);
+    ok = expect(framebufferAfterBackdrop == outputFramebuffer,
+                "inner-shadow filtering must restore the output framebuffer") && ok;
+    ok = expect(canvas->readPixelsRGBA(pixels),
+                "inner-shadow readback should succeed") && ok;
+    if (ok) {
+        const unsigned char *topLeft = pixelAt(34, 30);
+        const unsigned char *center = pixelAt(80, 64);
+        const unsigned char *bottomRight = pixelAt(125, 97);
+        ok = expect(topLeft[0] < 170,
+                    "GPU inner shadow should shade the top-left edge") && ok;
+        ok = expect(center[0] > 240,
+                    "GPU inner shadow should preserve the center fill") && ok;
+        ok = expect(bottomRight[0] > topLeft[0] + 60,
+                    "GPU inner shadow should preserve the opposite edge") && ok;
+        ok = expect(topLeft[3] == 255 && center[3] == 255,
+                    "GPU inner shadow should preserve source alpha") && ok;
+        const unsigned char *outsideLeft = pixelAt(30, 64);
+        const unsigned char *outsideRight = pixelAt(130, 64);
+        ok = expect(outsideLeft[0] < 5 && outsideLeft[1] > 25 && outsideLeft[2] > 210
+                        && outsideRight[0] < 5 && outsideRight[1] > 25
+                        && outsideRight[2] > 210,
+                    "GPU inner shadow must not modify pixels outside layer bounds") && ok;
+        const wsc::Canvas::RenderStats stats = canvas->getRenderStats();
+        ok = expect(stats.filterCount == 1 && stats.filterPassCount == 3,
+                    "GPU inner shadow should report three filter passes") && ok;
+    }
+
+    wsc::LayerOptions fullBleedInnerShadowOptions;
+    fullBleedInnerShadowOptions.setImageFilter(wsc::ImageFilter::innerShadow(
+        32.0f, -10.5f, 8.25f, wsc::Color(0, 0, 0, 220)));
+    canvas->beginFrame();
+    canvas->saveLayer(
+        wsc::RectF(0.0f, 0.0f, static_cast<float>(kWidth),
+                   static_cast<float>(kHeight)),
+        layerPaint, fullBleedInnerShadowOptions);
+    canvas->drawRect(
+        wsc::RectF(0.0f, 0.0f, static_cast<float>(kWidth),
+                   static_cast<float>(kHeight)),
+        white);
+    canvas->restore();
+    canvas->endFrame();
+    pixels.clear();
+    ok = expect(canvas->readPixelsRGBA(pixels),
+                "full-bleed inner-shadow readback should succeed") && ok;
+    if (ok) {
+        const unsigned char *corner = pixelAt(kWidth - 1, 0);
+        const unsigned char *center = pixelAt(kWidth / 2, kHeight / 2);
+        ok = expect(corner[0] < 170,
+                    "Decal sampling should shade a full-bleed source edge") && ok;
+        ok = expect(center[0] > 240,
+                    "full-bleed inner shadow should preserve the center") && ok;
+        const wsc::Canvas::RenderStats stats = canvas->getRenderStats();
+        ok = expect(stats.filterPassCount == 3
+                        && stats.downsampledFilterCount == 1,
+                    "large OpenGL inner shadow should use adaptive downsampling") && ok;
+    }
+
+    wsc::LayerOptions halfPixelInnerShadowOptions;
+    halfPixelInnerShadowOptions.setImageFilter(wsc::ImageFilter::innerShadow(
+        0.0f, 0.5f, 0.0f, wsc::Color(0, 0, 0, 255)));
+    canvas->beginFrame();
+    canvas->saveLayer(
+        wsc::RectF(0.0f, 0.0f, static_cast<float>(kWidth),
+                   static_cast<float>(kHeight)),
+        layerPaint, halfPixelInnerShadowOptions);
+    canvas->drawRect(
+        wsc::RectF(0.0f, 0.0f, static_cast<float>(kWidth),
+                   static_cast<float>(kHeight)),
+        white);
+    canvas->restore();
+    canvas->endFrame();
+    pixels.clear();
+    ok = expect(canvas->readPixelsRGBA(pixels),
+                "half-pixel inner-shadow readback should succeed") && ok;
+    if (ok) {
+        const unsigned char *transition = pixelAt(0, kHeight / 2);
+        const unsigned char *center = pixelAt(kWidth / 2, kHeight / 2);
+        ok = expect(transition[0] >= 126 && transition[0] <= 129,
+                    "Decal bilinear sampling should mix one transparent edge tap") && ok;
+        ok = expect(center[0] == 255,
+                    "half-pixel inner shadow should preserve the center") && ok;
+    }
+
     canvas.reset();
     glfwDestroyWindow(window);
     glfwTerminate();

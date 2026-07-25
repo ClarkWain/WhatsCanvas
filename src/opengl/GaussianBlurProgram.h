@@ -62,6 +62,13 @@ public:
                        bool outputStraight = true,
                        bool resampleStraightAlpha = false);
 
+    /// Composite an inset shadow over the original source while preserving its
+    /// alpha. `blurredTexture` supplies the blurred source-alpha field.
+    void innerShadowPass(GLuint blurredTexture, GLuint originalTexture,
+                         GLuint dstFramebuffer, int width, int height,
+                         const glm::vec2 &offsetUv, const glm::vec4 &color,
+                         bool sourcePremultiplied);
+
     /// Composites `srcTexture` (blurred coverage) into the currently bound
     /// framebuffer as a full-screen quad, tinting rgb with `tint` and scaling
     /// alpha by `tint.a`. The caller owns blend/scissor/viewport state.

@@ -9,6 +9,12 @@ For releases and downloadable artifacts, see the
 
 ## [Unreleased]
 
+### Added
+- Added backend-neutral `ImageFilter::innerShadow` /
+  `ImageFilter::innerShadowSigma` with matching Software, OpenGL/OpenGLES, and
+  Vulkan implementations. The exported `ImageFilter` value retains its
+  existing ABI size by using type-specific payload storage.
+
 ## [0.1.15] - 2026-07-16
 
 ### Added

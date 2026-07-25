@@ -903,6 +903,121 @@ void adjustRGBA(std::vector<std::uint8_t> &pixels, const wsc::ImageFilter &filte
     }
 }
 
+float sampleAlphaBilinear(const std::vector<float> &alpha, int width, int height,
+                          float x, float y)
+{
+    const int x0 = static_cast<int>(std::floor(x));
+    const int y0 = static_cast<int>(std::floor(y));
+    const float fx = x - static_cast<float>(x0);
+    const float fy = y - static_cast<float>(y0);
+    auto sample = [&](int sx, int sy) {
+        if (sx < 0 || sx >= width || sy < 0 || sy >= height) {
+            return 0.0f;
+        }
+        return alpha[static_cast<std::size_t>(sy) * width + sx];
+    };
+    const float top = sample(x0, y0) * (1.0f - fx) + sample(x0 + 1, y0) * fx;
+    const float bottom =
+        sample(x0, y0 + 1) * (1.0f - fx) + sample(x0 + 1, y0 + 1) * fx;
+    return top * (1.0f - fy) + bottom * fy;
+}
+
+void applyInnerShadow(std::vector<std::uint8_t> &pixels, int width, int height,
+                      const wsc::ImageFilter &filter,
+                      ImageAlphaType sourceAlphaType)
+{
+    if (width <= 0 || height <= 0
+        || pixels.size()
+            < static_cast<std::size_t>(width)
+                * static_cast<std::size_t>(height) * 4u) {
+        return;
+    }
+
+    std::vector<float> sourceAlpha(
+        static_cast<std::size_t>(width) * static_cast<std::size_t>(height), 0.0f);
+    for (std::size_t i = 0; i < sourceAlpha.size(); ++i) {
+        sourceAlpha[i] = pixels[i * 4u + 3u] / 255.0f;
+    }
+
+    std::vector<float> temp(sourceAlpha.size(), 0.0f);
+    std::vector<float> blurred(sourceAlpha.size(), 0.0f);
+    const auto kernelX = wsc::render::computeGaussianKernel(filter.radiusX());
+    const auto kernelY = wsc::render::computeGaussianKernel(filter.radiusY());
+    auto sample = [&](const std::vector<float> &buffer, int x, int y) {
+        if (x < 0 || x >= width || y < 0 || y >= height) {
+            return 0.0f;
+        }
+        return buffer[static_cast<std::size_t>(y) * width + x];
+    };
+
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            float sum = sample(sourceAlpha, x, y) * kernelX.weights[0];
+            for (int i = 1; i <= kernelX.radius(); ++i) {
+                sum += (sample(sourceAlpha, x - i, y)
+                        + sample(sourceAlpha, x + i, y))
+                    * kernelX.weights[static_cast<std::size_t>(i)];
+            }
+            temp[static_cast<std::size_t>(y) * width + x] = sum;
+        }
+    }
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            float sum = sample(temp, x, y) * kernelY.weights[0];
+            for (int i = 1; i <= kernelY.radius(); ++i) {
+                sum += (sample(temp, x, y - i)
+                        + sample(temp, x, y + i))
+                    * kernelY.weights[static_cast<std::size_t>(i)];
+            }
+            blurred[static_cast<std::size_t>(y) * width + x] = sum;
+        }
+    }
+
+    const Color shadow = filter.shadowColor();
+    const float shadowR = shadow.r();
+    const float shadowG = shadow.g();
+    const float shadowB = shadow.b();
+    const float shadowA = shadow.a();
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            const std::size_t pixelIndex =
+                (static_cast<std::size_t>(y) * width + x) * 4u;
+            const float alpha = sourceAlpha[pixelIndex / 4u];
+            if (alpha <= 1e-6f) {
+                pixels[pixelIndex] = 0;
+                pixels[pixelIndex + 1u] = 0;
+                pixels[pixelIndex + 2u] = 0;
+                pixels[pixelIndex + 3u] = 0;
+                continue;
+            }
+
+            const float shiftedAlpha = sampleAlphaBilinear(
+                blurred, width, height,
+                static_cast<float>(x) - filter.offsetX(),
+                static_cast<float>(y) - filter.offsetY());
+            const float coverage =
+                std::clamp((alpha - shiftedAlpha) / alpha, 0.0f, 1.0f)
+                * shadowA;
+            const float alphaScale =
+                sourceAlphaType == ImageAlphaType::Premultiplied
+                ? 1.0f / alpha : 1.0f;
+            const float sourceR =
+                std::clamp((pixels[pixelIndex] / 255.0f) * alphaScale, 0.0f, 1.0f);
+            const float sourceG =
+                std::clamp((pixels[pixelIndex + 1u] / 255.0f) * alphaScale, 0.0f, 1.0f);
+            const float sourceB =
+                std::clamp((pixels[pixelIndex + 2u] / 255.0f) * alphaScale, 0.0f, 1.0f);
+            pixels[pixelIndex] =
+                toByte(sourceR * (1.0f - coverage) + shadowR * coverage);
+            pixels[pixelIndex + 1u] =
+                toByte(sourceG * (1.0f - coverage) + shadowG * coverage);
+            pixels[pixelIndex + 2u] =
+                toByte(sourceB * (1.0f - coverage) + shadowB * coverage);
+            pixels[pixelIndex + 3u] = toByte(alpha);
+        }
+    }
+}
+
 /// True separable-Gaussian drop shadow: rasterize the silhouette coverage, blur
 /// it, then composite the tinted blurred coverage into the framebuffer. `extra`
 /// offsets the silhouette and scissor for offscreen layers; `canvasHeight` is
@@ -1318,18 +1433,26 @@ SharedImageResource SoftwareRenderer::filterImageResource(const SharedImageResou
     const auto *softwareImage = dynamic_cast<const SoftwareImageResource *>(source.get());
     if (softwareImage == nullptr || !softwareImage->isValid()
         || softwareImage->width() != width || softwareImage->height() != height
-        || !filter.isValid() || filter.type() != wsc::ImageFilter::Type::Blur) {
+        || !filter.isValid()) {
         return {};
     }
 
     std::vector<std::uint8_t> filtered = softwareImage->pixels();
-    blurRGBA(filtered, width, height,
-             wsc::render::computeGaussianKernel(filter.radiusX()),
-             wsc::render::computeGaussianKernel(filter.radiusY()),
-             filter.tileMode(), source->alphaType());
-    adjustRGBA(filtered, filter);
-    const bool adjustmentPass = filter.hasColorAdjustment() || filter.hasGrain();
-    const std::size_t passCount = adjustmentPass ? 3u : 2u;
+    std::size_t passCount = 0;
+    if (filter.type() == wsc::ImageFilter::Type::Blur) {
+        blurRGBA(filtered, width, height,
+                 wsc::render::computeGaussianKernel(filter.radiusX()),
+                 wsc::render::computeGaussianKernel(filter.radiusY()),
+                 filter.tileMode(), source->alphaType());
+        adjustRGBA(filtered, filter);
+        const bool adjustmentPass = filter.hasColorAdjustment() || filter.hasGrain();
+        passCount = adjustmentPass ? 3u : 2u;
+    } else if (filter.type() == wsc::ImageFilter::Type::InnerShadow) {
+        applyInnerShadow(filtered, width, height, filter, source->alphaType());
+        passCount = 3u;
+    } else {
+        return {};
+    }
     if (executionStats != nullptr) {
         executionStats->passCount = passCount;
         executionStats->pixelPassCount =
@@ -1342,7 +1465,8 @@ SharedImageResource SoftwareRenderer::filterImageResource(const SharedImageResou
         static_cast<std::size_t>(width) * static_cast<std::size_t>(height);
     stats_.filterPixelPassCount +=
         static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * passCount;
-    return std::make_shared<SoftwareImageResource>(width, height, std::move(filtered));
+    return std::make_shared<SoftwareImageResource>(
+        width, height, std::move(filtered), ImageAlphaType::Straight);
 }
 
 void SoftwareRenderer::resetRenderState() {}

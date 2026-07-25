@@ -84,6 +84,24 @@ std::vector<unsigned char> makeVerticalStripes(int width, int height)
     return pixels;
 }
 
+std::vector<unsigned char> makeOpaqueRectImage(int width, int height)
+{
+    std::vector<unsigned char> pixels(
+        static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4u);
+    for (int y = 8; y < height - 8; ++y) {
+        for (int x = 12; x < width - 12; ++x) {
+            unsigned char *pixel = pixels.data()
+                + (static_cast<std::size_t>(y) * static_cast<std::size_t>(width)
+                   + static_cast<std::size_t>(x)) * 4u;
+            pixel[0] = 255;
+            pixel[1] = 255;
+            pixel[2] = 255;
+            pixel[3] = 255;
+        }
+    }
+    return pixels;
+}
+
 bool readTexture(VulkanRenderDevice &device, const SharedImageResource &texture,
                  int width, int height, std::vector<unsigned char> &pixels)
 {
@@ -187,6 +205,99 @@ bool renderTranslucentFilterLayerScene(
     red.setColor(wsc::Color(255, 0, 0, 128));
     red.setAntiAlias(false);
     canvas->drawRect(wsc::RectF(12.0f, 12.0f, 40.0f, 40.0f), red);
+    canvas->restore();
+    canvas->endFrame();
+    return canvas->readPixelsRGBA(pixels);
+}
+
+bool renderInnerShadowLayerScene(wsc::Canvas::Backend backend, int width, int height,
+                                 std::vector<unsigned char> &pixels,
+                                 wsc::Canvas::RenderStats &stats)
+{
+    auto canvas = wsc::Canvas::create(backend, width, height);
+    if (!canvas) {
+        return false;
+    }
+    canvas->initializeContext();
+    canvas->beginFrame();
+
+    wsc::Paint background;
+    background.setColor(wsc::Color(18, 30, 54, 255));
+    background.setAntiAlias(false);
+    canvas->drawRect(
+        wsc::RectF(0.0f, 0.0f, static_cast<float>(width),
+                   static_cast<float>(height)),
+        background);
+
+    wsc::LayerOptions options;
+    options.setImageFilter(wsc::ImageFilter::innerShadow(
+        6.0f, 4.0f, 4.0f, 3.0f, wsc::Color(0, 0, 0, 220)));
+    wsc::Paint composite;
+    composite.setColor(wsc::Color(255, 255, 255, 255));
+    canvas->saveLayer(wsc::RectF(16.0f, 12.0f, 64.0f, 48.0f),
+                      composite, options);
+    wsc::Paint surface;
+    surface.setColor(wsc::Color(240, 244, 252, 255));
+    surface.setAntiAlias(false);
+    canvas->drawRect(wsc::RectF(16.0f, 12.0f, 64.0f, 48.0f), surface);
+    canvas->restore();
+    canvas->endFrame();
+    stats = canvas->getRenderStats();
+    return canvas->readPixelsRGBA(pixels);
+}
+
+bool renderTranslucentInnerShadowScene(wsc::Canvas::Backend backend,
+                                       int width, int height,
+                                       std::vector<unsigned char> &pixels)
+{
+    auto canvas = wsc::Canvas::create(backend, width, height);
+    if (!canvas) {
+        return false;
+    }
+    canvas->initializeContext();
+    canvas->beginFrame();
+
+    wsc::LayerOptions options;
+    options.setImageFilter(wsc::ImageFilter::innerShadow(
+        7.0f, -3.5f, 2.25f, wsc::Color(20, 120, 240, 180)));
+    wsc::Paint composite;
+    composite.setColor(wsc::Color(255, 255, 255, 255));
+    canvas->saveLayer(wsc::RectF(8.0f, 8.0f, 48.0f, 48.0f),
+                      composite, options);
+    wsc::Paint surface;
+    surface.setColor(wsc::Color(220, 60, 30, 128));
+    surface.setAntiAlias(false);
+    canvas->drawRect(wsc::RectF(8.0f, 8.0f, 48.0f, 48.0f), surface);
+    canvas->restore();
+    canvas->endFrame();
+    return canvas->readPixelsRGBA(pixels);
+}
+
+bool renderHalfPixelFullBleedInnerShadow(wsc::Canvas::Backend backend,
+                                         int width, int height,
+                                         std::vector<unsigned char> &pixels)
+{
+    auto canvas = wsc::Canvas::create(backend, width, height);
+    if (!canvas) {
+        return false;
+    }
+    canvas->initializeContext();
+    canvas->beginFrame();
+
+    wsc::LayerOptions options;
+    options.setImageFilter(wsc::ImageFilter::innerShadow(
+        0.0f, -0.5f, 0.0f, wsc::Color(0, 0, 0, 255)));
+    wsc::Paint paint;
+    paint.setColor(wsc::Color(255, 255, 255, 255));
+    paint.setAntiAlias(false);
+    canvas->saveLayer(
+        wsc::RectF(0.0f, 0.0f, static_cast<float>(width),
+                   static_cast<float>(height)),
+        paint, options);
+    canvas->drawRect(
+        wsc::RectF(0.0f, 0.0f, static_cast<float>(width),
+                   static_cast<float>(height)),
+        paint);
     canvas->restore();
     canvas->endFrame();
     return canvas->readPixelsRGBA(pixels);
@@ -298,6 +409,73 @@ int main()
                         "blur did not spread black into the white side") && ok;
             ok = expect(farBlack[0] == 0 && farWhite[0] == 255,
                         "blur changed pixels outside its kernel reach") && ok;
+        }
+    }
+
+    {
+        constexpr int width = 64;
+        constexpr int height = 48;
+        std::vector<unsigned char> vulkanPixels;
+        std::vector<unsigned char> softwarePixels;
+        ok = expect(renderHalfPixelFullBleedInnerShadow(
+                        wsc::Canvas::Backend::Vulkan, width, height,
+                        vulkanPixels),
+                    "Vulkan half-pixel full-bleed inner shadow failed") && ok;
+        ok = expect(renderHalfPixelFullBleedInnerShadow(
+                        wsc::Canvas::Backend::Software, width, height,
+                        softwarePixels),
+                    "Software half-pixel full-bleed inner shadow failed") && ok;
+        if (!vulkanPixels.empty()) {
+            const auto *transition =
+                pixelAt(vulkanPixels, width, width - 1, height / 2);
+            const auto *center = pixelAt(vulkanPixels, width, width / 2, height / 2);
+            ok = expect(transition[0] >= 126 && transition[0] <= 129,
+                        "Vulkan Decal bilinear sampling missed its half-pixel edge") && ok;
+            ok = expect(center[0] == 255,
+                        "Vulkan half-pixel inner shadow changed the center") && ok;
+        }
+        if (vulkanPixels.size() == softwarePixels.size() && !vulkanPixels.empty()) {
+            int maxDifference = 0;
+            for (std::size_t i = 0; i < vulkanPixels.size(); ++i) {
+                maxDifference = std::max(
+                    maxDifference,
+                    std::abs(static_cast<int>(vulkanPixels[i])
+                             - static_cast<int>(softwarePixels[i])));
+            }
+            ok = expect(maxDifference <= 1,
+                        "half-pixel full-bleed Vulkan output drifted from Software") && ok;
+        } else {
+            ok = expect(false,
+                        "half-pixel full-bleed parity image sizes differ") && ok;
+        }
+    }
+
+    {
+        constexpr int width = 160;
+        constexpr int height = 128;
+        const std::vector<unsigned char> opaqueWhite(
+            static_cast<std::size_t>(width * height * 4), 255);
+        auto source = device.createImageResourceRGBA(width, height, opaqueWhite);
+        FilterExecutionStats stats;
+        auto filtered = device.filterImageResource(
+            source, width, height,
+            wsc::ImageFilter::innerShadow(
+                32.0f, 10.0f, 8.0f, wsc::Color(0, 0, 0, 220)),
+            &stats);
+        std::vector<unsigned char> pixels;
+        ok = expect(readTexture(device, filtered, width, height, pixels),
+                    "downsampled full-bleed inner-shadow readback failed") && ok;
+        ok = expect(stats.passCount == 3 && stats.downsampled,
+                    "large inner shadow should report downsampling and three passes") && ok;
+        ok = expect(stats.pixelPassCount == 30720,
+                    "downsampled inner-shadow pixel-pass count is wrong") && ok;
+        if (!pixels.empty()) {
+            const auto *corner = pixelAt(pixels, width, 0, 0);
+            const auto *center = pixelAt(pixels, width, width / 2, height / 2);
+            ok = expect(corner[0] < 160,
+                        "Decal sampling should shade a full-bleed Vulkan edge") && ok;
+            ok = expect(center[0] > 245,
+                        "large inner shadow should preserve its center") && ok;
         }
     }
 
@@ -418,6 +596,40 @@ int main()
         }
     }
 
+    {
+        constexpr int width = 64;
+        constexpr int height = 48;
+        auto source = device.createImageResourceRGBA(
+            width, height, makeOpaqueRectImage(width, height));
+        FilterExecutionStats stats;
+        auto filtered = device.filterImageResource(
+            source, width, height,
+            wsc::ImageFilter::innerShadow(
+                6.0f, 4.0f, 4.0f, 3.0f, wsc::Color(0, 0, 0, 220)),
+            &stats);
+        ok = expect(filtered && filtered->isValid(),
+                    "inner shadow returned no texture") && ok;
+        ok = expect(stats.passCount == 3 && !stats.downsampled,
+                    "small inner shadow should report three full-resolution passes") && ok;
+        std::vector<unsigned char> pixels;
+        ok = expect(readTexture(device, filtered, width, height, pixels),
+                    "inner-shadow readback failed") && ok;
+        if (!pixels.empty()) {
+            const auto *outside = pixelAt(pixels, width, 4, 4);
+            const auto *topLeft = pixelAt(pixels, width, 13, 9);
+            const auto *center = pixelAt(pixels, width, 32, 24);
+            const auto *bottomRight = pixelAt(pixels, width, 50, 38);
+            ok = expect(outside[3] == 0,
+                        "inner shadow leaked outside the source silhouette") && ok;
+            ok = expect(topLeft[0] < 180 && topLeft[3] == 255,
+                        "inner shadow did not shade the offset-facing edge") && ok;
+            ok = expect(center[0] > 245 && center[3] == 255,
+                        "inner shadow changed the opaque center") && ok;
+            ok = expect(bottomRight[0] > topLeft[0],
+                        "inner-shadow offset direction is reversed") && ok;
+        }
+    }
+
     const std::string deviceName = device.selectedDeviceName();
     device.finalizeBackend();
 
@@ -495,6 +707,65 @@ int main()
         constexpr int height = 64;
         std::vector<unsigned char> vulkanPixels;
         std::vector<unsigned char> softwarePixels;
+        ok = expect(renderTranslucentInnerShadowScene(
+                        wsc::Canvas::Backend::Vulkan, width, height,
+                        vulkanPixels),
+                    "Vulkan translucent inner-shadow scene failed") && ok;
+        ok = expect(renderTranslucentInnerShadowScene(
+                        wsc::Canvas::Backend::Software, width, height,
+                        softwarePixels),
+                    "Software translucent inner-shadow scene failed") && ok;
+        if (!vulkanPixels.empty()) {
+            const auto *edge = pixelAt(vulkanPixels, width, 54, 9);
+            const auto *center = pixelAt(vulkanPixels, width, 32, 32);
+            const auto *outside = pixelAt(vulkanPixels, width, 4, 32);
+            if (!(center[0] >= 105 && center[0] <= 115
+                  && center[1] >= 27 && center[1] <= 33
+                  && center[2] >= 12 && center[2] <= 18)) {
+                std::cerr << "[VulkanImageFilterTests] translucent inner-shadow "
+                             "center="
+                          << static_cast<int>(center[0]) << ","
+                          << static_cast<int>(center[1]) << ","
+                          << static_cast<int>(center[2]) << ","
+                          << static_cast<int>(center[3]) << std::endl;
+            }
+            ok = expect(center[3] >= 126 && center[3] <= 130,
+                        "inner shadow changed fractional source alpha") && ok;
+            ok = expect(center[0] >= 105 && center[0] <= 115
+                            && center[1] >= 27 && center[1] <= 33
+                            && center[2] >= 12 && center[2] <= 18,
+                        "inner shadow changed premultiplied translucent center color") && ok;
+            ok = expect(edge[2] > center[2] && edge[0] < center[0],
+                        "colored inner shadow did not tint the translucent edge") && ok;
+            ok = expect(outside[3] == 0 && outside[0] == 0
+                            && outside[1] == 0 && outside[2] == 0,
+                        "translucent inner shadow contaminated transparent pixels") && ok;
+        }
+        if (vulkanPixels.size() == softwarePixels.size() && !vulkanPixels.empty()) {
+            int maxDifference = 0;
+            std::uint64_t totalDifference = 0;
+            for (std::size_t i = 0; i < vulkanPixels.size(); ++i) {
+                const int difference = std::abs(
+                    static_cast<int>(vulkanPixels[i])
+                    - static_cast<int>(softwarePixels[i]));
+                maxDifference = std::max(maxDifference, difference);
+                totalDifference += static_cast<std::uint64_t>(difference);
+            }
+            const double meanDifference =
+                static_cast<double>(totalDifference) / vulkanPixels.size();
+            ok = expect(maxDifference <= 4 && meanDifference <= 0.75,
+                        "translucent inner shadow drifted from Software") && ok;
+        } else {
+            ok = expect(false,
+                        "translucent inner-shadow parity image sizes differ") && ok;
+        }
+    }
+
+    {
+        constexpr int width = 64;
+        constexpr int height = 64;
+        std::vector<unsigned char> vulkanPixels;
+        std::vector<unsigned char> softwarePixels;
         ok = expect(renderImageFilterLayerScene(
                         wsc::Canvas::Backend::Vulkan, width, height, vulkanPixels),
                     "Vulkan public image-filter layer scene failed") && ok;
@@ -551,6 +822,66 @@ int main()
         constexpr int height = 72;
         std::vector<unsigned char> vulkanPixels;
         std::vector<unsigned char> softwarePixels;
+        wsc::Canvas::RenderStats vulkanStats;
+        wsc::Canvas::RenderStats softwareStats;
+        ok = expect(renderInnerShadowLayerScene(
+                        wsc::Canvas::Backend::Vulkan, width, height,
+                        vulkanPixels, vulkanStats),
+                    "Vulkan public inner-shadow layer failed") && ok;
+        ok = expect(renderInnerShadowLayerScene(
+                        wsc::Canvas::Backend::Software, width, height,
+                        softwarePixels, softwareStats),
+                    "Software public inner-shadow layer failed") && ok;
+        if (!vulkanPixels.empty()) {
+            const auto *outside = pixelAt(vulkanPixels, width, 8, 8);
+            const auto *topLeft = pixelAt(vulkanPixels, width, 17, 13);
+            const auto *center = pixelAt(vulkanPixels, width, 48, 36);
+            ok = expect(outside[0] == 18 && outside[1] == 30 && outside[2] == 54,
+                        "Canvas inner shadow changed pixels outside the layer") && ok;
+            ok = expect(topLeft[0] < center[0] && topLeft[1] < center[1],
+                        "Canvas inner shadow did not darken its inside edge") && ok;
+        }
+        ok = expect(vulkanStats.filterCount == 1
+                        && vulkanStats.filterPassCount == 3,
+                    "Canvas did not expose Vulkan inner-shadow pass statistics") && ok;
+        if (vulkanPixels.size() == softwarePixels.size() && !vulkanPixels.empty()) {
+            int maxDifference = 0;
+            std::uint64_t totalDifference = 0;
+            std::size_t comparedChannels = 0;
+            for (int y = 12; y < 60; ++y) {
+                for (int x = 16; x < 80; ++x) {
+                    const std::size_t index =
+                        (static_cast<std::size_t>(y) * width + x) * 4u;
+                    for (int channel = 0; channel < 4; ++channel) {
+                        const int difference = std::abs(
+                            static_cast<int>(vulkanPixels[index + channel])
+                            - static_cast<int>(softwarePixels[index + channel]));
+                        maxDifference = std::max(maxDifference, difference);
+                        totalDifference += static_cast<std::uint64_t>(difference);
+                        ++comparedChannels;
+                    }
+                }
+            }
+            const double meanDifference = comparedChannels > 0
+                ? static_cast<double>(totalDifference) / comparedChannels : 0.0;
+            if (maxDifference > 4 || meanDifference > 0.75) {
+                std::cerr << "[VulkanImageFilterTests] inner-shadow parity "
+                             "max_difference="
+                          << maxDifference << " mean_difference=" << meanDifference
+                          << std::endl;
+            }
+            ok = expect(maxDifference <= 4 && meanDifference <= 0.75,
+                        "Vulkan inner-shadow pixels drifted from Software") && ok;
+        } else {
+            ok = expect(false, "inner-shadow parity image sizes differ") && ok;
+        }
+    }
+
+    {
+        constexpr int width = 96;
+        constexpr int height = 72;
+        std::vector<unsigned char> vulkanPixels;
+        std::vector<unsigned char> softwarePixels;
         ok = expect(renderCroppedClipScene(
                         wsc::Canvas::Backend::Vulkan, width, height, vulkanPixels),
                     "Vulkan cropped clip scene failed") && ok;
@@ -598,8 +929,9 @@ int main()
     }
 
     if (ok) {
-        std::cout << "[VulkanImageFilterTests] PASS: GPU Gaussian blur, tile modes, "
-                     "color treatment, downsampling, and Canvas backdrop verified on \""
+        std::cout << "[VulkanImageFilterTests] PASS: GPU Gaussian blur, inner shadow, "
+                     "tile modes, color treatment, downsampling, and Canvas effects "
+                     "verified on \""
                   << deviceName << "\"." << std::endl;
     }
     return ok ? 0 : 1;

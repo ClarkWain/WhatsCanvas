@@ -684,7 +684,12 @@ SharedImageResource OpenGLRenderDevice::filterImageResource(const SharedImageRes
     }
     const auto *input = dynamic_cast<const OpenGLImageResource *>(source.get());
     if (input == nullptr || !input->isValid() || width <= 0 || height <= 0
-        || !filter.isValid() || filter.type() != wsc::ImageFilter::Type::Blur) {
+        || !filter.isValid()) {
+        return {};
+    }
+    const bool innerShadow =
+        filter.type() == wsc::ImageFilter::Type::InnerShadow;
+    if (!innerShadow && filter.type() != wsc::ImageFilter::Type::Blur) {
         return {};
     }
 
@@ -709,7 +714,7 @@ SharedImageResource OpenGLRenderDevice::filterImageResource(const SharedImageRes
     }
     std::unique_ptr<IRenderTarget> restoreTarget;
     OpenGLRenderTarget *glRestoreTarget = nullptr;
-    if (downsample.active()) {
+    if (downsample.active() || innerShadow) {
         restoreTarget = createRenderTarget(width, height);
         glRestoreTarget = dynamic_cast<OpenGLRenderTarget *>(restoreTarget.get());
         if (glRestoreTarget == nullptr || !glRestoreTarget->isValid()) {
@@ -723,6 +728,7 @@ SharedImageResource OpenGLRenderDevice::filterImageResource(const SharedImageRes
     GLint previousVertexArray = 0;
     GLint previousActiveTexture = 0;
     GLint previousTexture0 = 0;
+    GLint previousTexture1 = 0;
     const GLboolean blendEnabled = glIsEnabled(GL_BLEND);
     const GLboolean scissorEnabled = glIsEnabled(GL_SCISSOR_TEST);
     glGetIntegerv(GL_FRAMEBUFFER_BINDING, &previousFramebuffer);
@@ -732,6 +738,9 @@ SharedImageResource OpenGLRenderDevice::filterImageResource(const SharedImageRes
     glGetIntegerv(GL_ACTIVE_TEXTURE, &previousActiveTexture);
     glActiveTexture(GL_TEXTURE0);
     glGetIntegerv(GL_TEXTURE_BINDING_2D, &previousTexture0);
+    glActiveTexture(GL_TEXTURE1);
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &previousTexture1);
+    glActiveTexture(GL_TEXTURE0);
 
     auto *blur = wsc::opengl::GaussianBlurProgram::getInstance();
     blur->initialize();
@@ -739,7 +748,8 @@ SharedImageResource OpenGLRenderDevice::filterImageResource(const SharedImageRes
         filter.radiusX() / static_cast<float>(downsample.x));
     const auto kernelY = wsc::render::computeGaussianKernel(
         filter.radiusY() / static_cast<float>(downsample.y));
-    const bool decal = filter.tileMode() == wsc::ImageFilter::TileMode::Decal;
+    const bool decal = innerShadow
+        || filter.tileMode() == wsc::ImageFilter::TileMode::Decal;
     const bool sourcePremultiplied =
         source->alphaType() == ImageAlphaType::Premultiplied;
     blur->blurImagePass(input->texture(), glTargetA->framebuffer(), blurWidth, blurHeight,
@@ -750,12 +760,24 @@ SharedImageResource OpenGLRenderDevice::filterImageResource(const SharedImageRes
     blur->blurImagePass(imageA->texture(), glTargetB->framebuffer(), blurWidth, blurHeight,
                         glm::vec2(0.0f, 1.0f / static_cast<float>(blurHeight)),
                         kernelY, decal,
-                        !downsample.active() ? filter.saturation() : 1.0f,
-                        !downsample.active() ? filter.brightness() : 1.0f,
-                        !downsample.active() ? filter.contrast() : 1.0f,
-                        !downsample.active() ? filter.grain() : 0.0f,
-                        true, !downsample.active());
-    if (downsample.active()) {
+                        !innerShadow && !downsample.active() ? filter.saturation() : 1.0f,
+                        !innerShadow && !downsample.active() ? filter.brightness() : 1.0f,
+                        !innerShadow && !downsample.active() ? filter.contrast() : 1.0f,
+                        !innerShadow && !downsample.active() ? filter.grain() : 0.0f,
+                        true, !innerShadow && !downsample.active());
+    if (innerShadow) {
+        const float textureOffsetY =
+            source->origin() == ImageOrigin::BottomLeft
+            ? -filter.offsetY() : filter.offsetY();
+        const wsc::Color shadow = filter.shadowColor();
+        blur->innerShadowPass(
+            imageB->texture(), input->texture(),
+            glRestoreTarget->framebuffer(), width, height,
+            glm::vec2(filter.offsetX() / static_cast<float>(width),
+                      textureOffsetY / static_cast<float>(height)),
+            glm::vec4(shadow.r(), shadow.g(), shadow.b(), shadow.a()),
+            sourcePremultiplied);
+    } else if (downsample.active()) {
         const auto passThrough = wsc::render::computeGaussianKernel(0.0f);
         blur->blurImagePass(imageB->texture(), glRestoreTarget->framebuffer(), width, height,
                             glm::vec2(0.0f), passThrough, decal,
@@ -769,6 +791,8 @@ SharedImageResource OpenGLRenderDevice::filterImageResource(const SharedImageRes
     glBindVertexArray(static_cast<GLuint>(previousVertexArray));
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(previousTexture0));
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(previousTexture1));
     glActiveTexture(static_cast<GLenum>(previousActiveTexture));
     if (blendEnabled) {
         glEnable(GL_BLEND);
@@ -782,15 +806,16 @@ SharedImageResource OpenGLRenderDevice::filterImageResource(const SharedImageRes
     }
 
     if (executionStats != nullptr) {
-        executionStats->passCount = downsample.active() ? 3u : 2u;
+        executionStats->passCount =
+            (downsample.active() || innerShadow) ? 3u : 2u;
         executionStats->pixelPassCount =
             static_cast<std::size_t>(blurWidth) * static_cast<std::size_t>(blurHeight) * 2u
-            + (downsample.active()
+            + ((downsample.active() || innerShadow)
                 ? static_cast<std::size_t>(width) * static_cast<std::size_t>(height)
                 : 0u);
         executionStats->downsampled = downsample.active();
     }
-    SharedImageResource result = downsample.active()
+    SharedImageResource result = (downsample.active() || innerShadow)
         ? glRestoreTarget->getImageResource()
         : glTargetB->getImageResource();
     if (auto *output = dynamic_cast<OpenGLImageResource *>(result.get())) {
