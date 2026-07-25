@@ -4868,10 +4868,8 @@ void Canvas::Impl::restoreLayer(const LayerState &layer)
 
     const RectF canvasBounds(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height));
     const float filterOutset = std::max({
-        layer.options.imageFilter().radiusX(),
-        layer.options.imageFilter().radiusY(),
-        layer.options.backdropFilter().radiusX(),
-        layer.options.backdropFilter().radiusY(),
+        layer.options.imageFilter().samplingOutset(),
+        layer.options.backdropFilter().samplingOutset(),
     });
     const RectF expanded(layer.bounds.getX() - filterOutset,
                          layer.bounds.getY() - filterOutset,
@@ -4964,20 +4962,30 @@ void Canvas::Impl::restoreLayer(const LayerState &layer)
         }
     }
 
-    RectF compositeRect = layerRect;
+    const float outputOutset = layer.options.hasImageFilter()
+        ? layer.options.imageFilter().outputOutset()
+        : 0.0f;
+    RectF requestedCompositeRect(
+        layer.bounds.getX() - outputOutset,
+        layer.bounds.getY() - outputOutset,
+        layer.bounds.getWidth() + outputOutset * 2.0f,
+        layer.bounds.getHeight() + outputOutset * 2.0f);
+    RectF compositeRect = intersectRects(requestedCompositeRect, canvasBounds);
+    if (compositeRect.getWidth() <= 0.0f || compositeRect.getHeight() <= 0.0f) {
+        return;
+    }
     float sourceU0 = 0.0f;
     float sourceU1 = 1.0f;
     const bool flipSource = imageResource->origin() == ImageOrigin::BottomLeft;
     float sourceV0 = flipSource ? 1.0f : 0.0f;
     float sourceV1 = flipSource ? 0.0f : 1.0f;
-    if (layer.options.hasBackdropFilter() && !layer.options.hasImageFilter()) {
-        // The expanded rectangle supplies neighboring pixels to the blur
-        // kernel. A backdrop filter still belongs to the saved layer bounds;
-        // do not let that sampling outset become visible output.
-        compositeRect = intersectRects(layer.bounds, canvasBounds);
-        if (compositeRect.getWidth() <= 0.0f || compositeRect.getHeight() <= 0.0f) {
-            return;
-        }
+    if (compositeRect.getX() != layerRect.getX()
+        || compositeRect.getY() != layerRect.getY()
+        || compositeRect.getWidth() != layerRect.getWidth()
+        || compositeRect.getHeight() != layerRect.getHeight()) {
+        // Sampling outsets provide neighboring pixels to blur-like filters,
+        // but only outputOutset() may expand the visible layer result. Backdrop
+        // filters and inner shadows therefore remain cropped to layer bounds.
         const float left = (compositeRect.getX() - layerRect.getX()) / layerRect.getWidth();
         const float top = (compositeRect.getY() - layerRect.getY()) / layerRect.getHeight();
         const float right =

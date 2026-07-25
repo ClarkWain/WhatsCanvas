@@ -107,9 +107,11 @@ struct alignas(16) FilterUBO
     float directionRadiusDecal[4] = {};
     float colorAdjustment[4] = {1.0f, 1.0f, 1.0f, 0.0f};
     float options[4] = {};
+    float innerShadow[4] = {};
+    float innerShadowColor[4] = {};
     float packedWeights[68] = {};
 };
-static_assert(sizeof(FilterUBO) == 320, "FilterUBO must match the shader std140 layout");
+static_assert(sizeof(FilterUBO) == 352, "FilterUBO must match the shader std140 layout");
 
 struct VulkanRenderDevice::VulkanContext
 {
@@ -886,7 +888,7 @@ struct VulkanRenderDevice::VulkanContext
             return VK_NULL_HANDLE;
         }
 
-        std::array<VkDescriptorSetLayoutBinding, 2> bindings{};
+        std::array<VkDescriptorSetLayoutBinding, 3> bindings{};
         bindings[0].binding = 0;
         bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         bindings[0].descriptorCount = 1;
@@ -895,6 +897,10 @@ struct VulkanRenderDevice::VulkanContext
         bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         bindings[1].descriptorCount = 1;
         bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        bindings[2].binding = 2;
+        bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        bindings[2].descriptorCount = 1;
+        bindings[2].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
         VkDescriptorSetLayoutCreateInfo descriptorLayoutInfo{};
         descriptorLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -2017,7 +2023,13 @@ bool prepareFilterPass(VulkanRenderDevice::VulkanContext *ctx,
                        float saturation, float brightness, float contrast,
                        float grain, bool sourcePremultiplied,
                        bool outputStraight, bool resampleStraightAlpha,
-                       FilterPassRecording &recording)
+                       FilterPassRecording &recording,
+                       VkImageView originalView = VK_NULL_HANDLE,
+                       bool innerShadow = false,
+                       float innerOffsetX = 0.0f,
+                       float innerOffsetY = 0.0f,
+                       const wsc::Color *innerShadowColor = nullptr,
+                       bool originalPremultiplied = false)
 {
     if (ctx == nullptr || destination == nullptr || !destination->isValid()
         || sourceView == VK_NULL_HANDLE || sourceSampler == VK_NULL_HANDLE
@@ -2046,6 +2058,13 @@ bool prepareFilterPass(VulkanRenderDevice::VulkanContext *ctx,
     uniform.options[1] = sourcePremultiplied ? 1.0f : 0.0f;
     uniform.options[2] = outputStraight ? 1.0f : 0.0f;
     uniform.options[3] = resampleStraightAlpha ? 1.0f : 0.0f;
+    uniform.innerShadow[0] = innerOffsetX;
+    uniform.innerShadow[1] = innerOffsetY;
+    uniform.innerShadow[2] = innerShadow ? 1.0f : 0.0f;
+    uniform.innerShadow[3] = originalPremultiplied ? 1.0f : 0.0f;
+    if (innerShadowColor != nullptr) {
+        innerShadowColor->getNormalized(uniform.innerShadowColor);
+    }
     std::copy(kernel.weights.begin(), kernel.weights.end(), uniform.packedWeights);
 
     VkDevice device = ctx->device;
@@ -2066,7 +2085,7 @@ bool prepareFilterPass(VulkanRenderDevice::VulkanContext *ctx,
     vkUnmapMemory(device, recording.uniformMemory);
 
     std::array<VkDescriptorPoolSize, 2> poolSizes{};
-    poolSizes[0] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1};
+    poolSizes[0] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2};
     poolSizes[1] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1};
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -2094,10 +2113,15 @@ bool prepareFilterPass(VulkanRenderDevice::VulkanContext *ctx,
     imageInfo.sampler = sourceSampler;
     imageInfo.imageView = sourceView;
     imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    VkDescriptorImageInfo originalImageInfo{};
+    originalImageInfo.sampler = sourceSampler;
+    originalImageInfo.imageView =
+        originalView != VK_NULL_HANDLE ? originalView : sourceView;
+    originalImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     VkDescriptorBufferInfo bufferInfo{};
     bufferInfo.buffer = recording.uniformBuffer;
     bufferInfo.range = sizeof(FilterUBO);
-    std::array<VkWriteDescriptorSet, 2> writes{};
+    std::array<VkWriteDescriptorSet, 3> writes{};
     writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     writes[0].dstSet = recording.descriptorSet;
     writes[0].dstBinding = 0;
@@ -2110,6 +2134,12 @@ bool prepareFilterPass(VulkanRenderDevice::VulkanContext *ctx,
     writes[1].descriptorCount = 1;
     writes[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     writes[1].pBufferInfo = &bufferInfo;
+    writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[2].dstSet = recording.descriptorSet;
+    writes[2].dstBinding = 2;
+    writes[2].descriptorCount = 1;
+    writes[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[2].pImageInfo = &originalImageInfo;
     vkUpdateDescriptorSets(device, static_cast<std::uint32_t>(writes.size()),
                            writes.data(), 0, nullptr);
 
@@ -4085,7 +4115,12 @@ SharedImageResource VulkanRenderDevice::filterImageResource(
     }
 #if defined(WHATSCANVAS_ENABLE_VULKAN)
     if (!context_ || !context_->deviceReady || width <= 0 || height <= 0
-        || !filter.isValid() || filter.type() != wsc::ImageFilter::Type::Blur) {
+        || !filter.isValid()) {
+        return {};
+    }
+    const bool innerShadow =
+        filter.type() == wsc::ImageFilter::Type::InnerShadow;
+    if (!innerShadow && filter.type() != wsc::ImageFilter::Type::Blur) {
         return {};
     }
     auto *input = dynamic_cast<VulkanTextureResource *>(source.get());
@@ -4114,7 +4149,8 @@ SharedImageResource VulkanRenderDevice::filterImageResource(
     if (sampler == VK_NULL_HANDLE) {
         return {};
     }
-    const bool decal = filter.tileMode() == wsc::ImageFilter::TileMode::Decal;
+    const bool decal = innerShadow
+        || filter.tileMode() == wsc::ImageFilter::TileMode::Decal;
     const bool sourcePremultiplied =
         source->alphaType() == ImageAlphaType::Premultiplied;
     const auto kernelX = wsc::render::computeGaussianKernel(
@@ -4124,7 +4160,7 @@ SharedImageResource VulkanRenderDevice::filterImageResource(
 
     VulkanRenderTarget *restore = nullptr;
     std::unique_ptr<IRenderTarget> restoreTarget;
-    if (downsample.active()) {
+    if (downsample.active() || innerShadow) {
         restoreTarget = createRenderTarget(width, height);
         restore = dynamic_cast<VulkanRenderTarget *>(restoreTarget.get());
         if (restore == nullptr || !restore->isValid()) {
@@ -4151,17 +4187,33 @@ SharedImageResource VulkanRenderDevice::filterImageResource(
         || !prepareFilterPass(
             context_.get(), passB, passA->view(), sampler, kernelY,
             0.0f, 1.0f / static_cast<float>(blurHeight), decal,
-            !downsample.active() ? filter.saturation() : 1.0f,
-            !downsample.active() ? filter.brightness() : 1.0f,
-            !downsample.active() ? filter.contrast() : 1.0f,
-            !downsample.active() ? filter.grain() : 0.0f,
-            true, !downsample.active(), false, recordings[1])) {
+            !innerShadow && !downsample.active() ? filter.saturation() : 1.0f,
+            !innerShadow && !downsample.active() ? filter.brightness() : 1.0f,
+            !innerShadow && !downsample.active() ? filter.contrast() : 1.0f,
+            !innerShadow && !downsample.active() ? filter.grain() : 0.0f,
+            true, !innerShadow && !downsample.active(), false, recordings[1])) {
         destroyRecordings();
         return {};
     }
 
     VulkanRenderTarget *finalTarget = passB;
-    if (downsample.active()) {
+    if (innerShadow) {
+        const auto passThrough = wsc::render::computeGaussianKernel(0.0f);
+        const wsc::Color shadow = filter.shadowColor();
+        if (!prepareFilterPass(
+                context_.get(), restore, passB->view(), sampler, passThrough,
+                0.0f, 0.0f, true,
+                1.0f, 1.0f, 1.0f, 0.0f,
+                true, true, false, recordings[2],
+                input->view(), true,
+                filter.offsetX() / static_cast<float>(width),
+                filter.offsetY() / static_cast<float>(height),
+                &shadow, sourcePremultiplied)) {
+            destroyRecordings();
+            return {};
+        }
+        finalTarget = restore;
+    } else if (downsample.active()) {
         const auto passThrough = wsc::render::computeGaussianKernel(0.0f);
         if (!prepareFilterPass(
                 context_.get(), restore, passB->view(), sampler, passThrough,
@@ -4237,11 +4289,12 @@ SharedImageResource VulkanRenderDevice::filterImageResource(
         restore->setLayout(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     }
     if (executionStats != nullptr) {
-        executionStats->passCount = downsample.active() ? 3u : 2u;
+        executionStats->passCount =
+            (downsample.active() || innerShadow) ? 3u : 2u;
         executionStats->pixelPassCount =
             static_cast<std::size_t>(blurWidth)
                 * static_cast<std::size_t>(blurHeight) * 2u
-            + (downsample.active()
+            + ((downsample.active() || innerShadow)
                 ? static_cast<std::size_t>(width) * static_cast<std::size_t>(height)
                 : 0u);
         executionStats->downsampled = downsample.active();
