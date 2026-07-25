@@ -35,17 +35,14 @@ WhatsCanvas 的公开接口仍然是熟悉的 `Canvas` / `Paint` / `Path` / `Ima
 
 ## 与常见 2D 图形库的能力参照
 
-下表是粗粒度的功能定位对比，用来说明 WhatsCanvas 当前更接近哪类使用场景；它不是性能排名，也不表示其它项目不能通过扩展实现相同能力。
+这不是功能或性能排名，而是帮助使用者快速判断不同方案的设计重心和适用场景。
 
-| 项目 | 主要定位 | 渲染后端 | 路径 / Canvas 状态 | 图片 / 纹理 | 字体与文本 | 工程化与验证 |
-| --- | --- | --- | --- | --- | --- | --- |
-| WhatsCanvas | 轻量 C++ Canvas 风格 2D 渲染库，兼顾 UI、工具界面、2D 游戏和学习。 | OpenGL / OpenGLES / 纯 CPU 软件 / 可选 Vulkan，保留 Metal 等扩展空间。 | `save/restore`、矩阵、裁剪、路径、离屏层、解析抗锯齿、真高斯阴影、渐变、命中测试。 | 图片解码、raw RGBA、外部纹理、局部更新、九宫格、圆角 / 圆形裁剪、平铺、render-target canvas。 | FreeType / stb rasterizer、HarfBuzz shaping、fallback chain、glyph atlas、COLR/CPAL v0、UAX #9、像素回归。 | CTest、跨平台 CI、OpenGLES smoke、像素 hash / PPM / fuzzy diff、benchmark smoke、专题文档。 |
-| Skia | 完整工业级 2D 图形引擎，覆盖浏览器、应用框架和复杂排版场景。 | CPU、GPU、多平台后端生态成熟。 | 路径、滤镜、着色器、文本和图像能力覆盖面很广。 | 图像编解码、颜色管理、滤镜和 GPU 资源体系完整。 | 高级文本和字体能力完整，常与 HarfBuzz / ICU 等生态协作。 | 成熟工程生态，体量和接入复杂度也更高。 |
-| Cairo | 稳定的 2D 矢量绘图库，偏文档、桌面和软件渲染场景。 | CPU surface、PDF / SVG / PS 等输出面强。 | 路径、stroke/fill、变换、裁剪成熟。 | 图像 surface 支持稳定，但不是游戏式纹理管线。 | 基本文字能力可用，复杂 shaping 通常依赖外部文本栈。 | 稳定、可移植，实时 GPU 特性不是重点。 |
-| NanoVG | 小型即时模式矢量绘制库，适合嵌入式 UI 和调试面板。 | 典型为 OpenGL 类后端。 | API 简洁，路径、渐变、阴影等 UI 绘制常用能力轻量。 | 支持基础图片绘制和纹理使用。 | 基本文本绘制为主，复杂排版、fallback 和字体诊断不是重点。 | 接入轻，但验证、排版和资源治理通常需要应用侧补齐。 |
-| HTML Canvas 2D | 浏览器内建 2D API，适合 Web 内容、图表、小游戏和工具界面。 | 由浏览器实现，后端对用户透明。 | Canvas 状态、路径、变换、裁剪、渐变、阴影能力完整且标准化。 | 图片、视频、ImageBitmap、像素读写等 Web 生态强。 | 文本绘制依赖浏览器字体栈，复杂排版能力受 API 边界影响。 | 跨平台由浏览器兜底，但原生 C++ 嵌入和渲染管线控制较弱。 |
-| Qt QPainter | Qt 应用框架中的高层 2D 绘制 API，适合桌面应用 UI。 | Qt paint engine 抽象，随平台和 surface 变化。 | 路径、文本、图片、变换、裁剪等应用 UI 能力成熟。 | 与 Qt image / pixmap / resource 体系结合紧密。 | 与 Qt 字体和文本系统集成好。 | 依托 Qt 生态，功能强但框架依赖较重。 |
-| LÖVE2D | 面向 Lua 的 2D 游戏框架，适合快速制作游戏和交互 demo。 | 封装底层图形后端，面向游戏循环。 | Canvas、变换、图像、粒子、shader 等游戏常用能力友好。 | 纹理、sprite、render target、资源加载体验好。 | 文本能力适合游戏 UI，复杂排版不是核心目标。 | 开发体验强，但不是 C++ 库式嵌入接口。 |
+| 方案 | 特色差异 | 更适合的场景 |
+| --- | --- | --- |
+| **WhatsCanvas** | 可独立嵌入的 C++17 Canvas API，内建文本 shaping、fallback、双向文本、布局与栅格化链路，以及毛玻璃和内阴影等图层效果；提供确定性 Software 基线、OpenGL / OpenGLES / 可选 Vulkan 后端，并持续执行滤镜像素对比和视觉回归。 | 原生应用的自定义 2D 渲染层、工具与数据界面、HUD、2D 游戏的渲染层或 UI，以及同时需要多语言文本、静态视觉效果和可重复验证的项目。 |
+| **[Skia](https://skia.org/)** | 被浏览器和大型跨平台框架采用的通用图形引擎，平台覆盖、颜色管理、图像处理、路径和效果生态更广；相应的构建、体量控制和集成范围也更大。 | 大型产品、跨平台应用框架，以及优先考虑能力上限和成熟图形基础设施的长期项目。 |
+| **[NanoVG](https://github.com/memononen/nanovg)** | API 和依赖范围较小，围绕 OpenGL 提供即时模式矢量绘制；复杂文本、多后端资源模型、图层滤镜和系统化视觉回归不是其设计重点。 | 调试面板、可视化原型、游戏内简单 UI，以及只需要基础路径、图片和文字的小型 OpenGL 项目。 |
+| **HTML Canvas 2D** | 浏览器原生，无需部署 C++ 图形运行时，可直接与 JavaScript、DOM 和 Web API 协作；底层实现和跨浏览器渲染差异由浏览器管理。WhatsCanvas 的 WebAssembly 支持目前仍处于规划阶段。 | 网站、在线图表、Web 小游戏和以浏览器为唯一运行环境的内容。 |
 
 ## 字体与文本
 
@@ -194,12 +191,9 @@ ctest -C Debug -L smoke --output-on-failure
 - [Image Filters And Backdrop Effects](doc/IMAGE_FILTERS.md)：图层滤镜、毛玻璃语义、后端状态、验证入口与后续路线。
 - [Regression Baseline Policy](doc/REGRESSION_BASELINES.md)：记录文本、效果、smoke 和 OpenGLES baseline 的更新规则。
 - [Release Checklist](doc/RELEASE_CHECKLIST.md)：记录版本同步、CI、artifact 和外部 consumer 验证步骤。
+- [CHANGELOG](CHANGELOG.md)：记录版本发布内容与重要变更。
 - [架构总览](doc/architecture/README.md)：适合先建立整体分层和模块边界认知。
 - [Contributing](CONTRIBUTING.md)：本地构建、测试、PR 前校验（API reference / 版本一致性 / 单测）与仓库约定。
-
-## 许可证
-
-WhatsCanvas 以 [MIT License](LICENSE) 发布。`third_party/` 下的组件（FreeType、HarfBuzz、GLFW、stb、polyline2d 等）各自遵循其原始许可证。版本变更见 [CHANGELOG](CHANGELOG.md)。
 - [Text Feature Matrix](doc/TEXT_FEATURE_MATRIX.md)：定义文本、字体、fallback、layout、diagnostics 和后续 atlas 后端的能力边界。
 - [Shader Portability Notes](doc/SHADER_PORTABILITY.md)：记录桌面 OpenGL / OpenGLES shader 版本、precision、状态 guard 和 GLES-only build gate。
 - [iOS Build Notes](doc/IOS_BUILD_NOTES.md)：记录当前 OpenGLES target 在 iOS 宿主中的构建、上下文生命周期和验证边界。
@@ -251,3 +245,7 @@ cmake --build build --target WhatsCanvasCheckPackageConsumer
 - 增强自动化验证、跨后端像素对齐与性能基准。
 - 规划通过 Emscripten 将现有 OpenGLES 后端运行于 WebGL 2，并提供精简的 JavaScript / TypeScript 桥接，使 HTML `<canvas>` 可以动态调用 WhatsCanvas 绘制；该能力目前尚未实现或支持，详细范围见 [`CORE_CAPABILITY_TODO.md`](doc/CORE_CAPABILITY_TODO.md#phase-8-webassembly-and-javascript-bridge)。
 - 在已有 OpenGL / OpenGLES / 软件 / Vulkan 后端之上，为 Metal / WebGPU 等保留清晰扩展边界。
+
+## 许可证
+
+WhatsCanvas 以 [MIT License](LICENSE) 发布。`third_party/` 下的组件（FreeType、HarfBuzz、GLFW、stb、polyline2d 等）各自遵循其原始许可证。
