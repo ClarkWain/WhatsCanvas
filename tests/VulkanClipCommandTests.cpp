@@ -73,7 +73,9 @@ int main()
         return 1;
     }
 
-    // A full-canvas green fill, clipped to the left half.
+    // A full-canvas green fill, intersected by the left-half path mask and a
+    // smaller rectangular scissor. This keeps the two clip mechanisms
+    // independently observable.
     DrawPathData d;
     const float fw = static_cast<float>(width);
     d.points = {0.0f, 0.0f, fw, 0.0f, fw, fh, 0.0f, 0.0f, fw, fh, 0.0f, fh};
@@ -83,6 +85,11 @@ int main()
     d.color[3] = 1.0f;
     d.drawMode = PathDrawMode::Fill;
     d.clipMask.resources.push_back(clipRes);
+    d.scissor.enabled = true;
+    d.scissor.x = 4;
+    d.scissor.y = 4;
+    d.scissor.width = 24;
+    d.scissor.height = 16;
 
     std::vector<std::unique_ptr<Command>> commands;
     commands.push_back(std::make_unique<DrawPathCommand>(d));
@@ -96,8 +103,12 @@ int main()
         return 1;
     }
 
-    // Left quarter -> green (inside clip); right quarter -> clear (clipped out).
-    if (!near4(px, width, width / 4, height / 2, 0, 255, 0, 255, 4, "left (inside clip)")) return 1;
+    // (10,12) is inside both clips. The other samples are inside only one or
+    // neither and must remain clear.
+    if (!near4(px, width, 10, 12, 0, 255, 0, 255, 4, "inside path and scissor")) return 1;
+    if (!near4(px, width, 2, 12, 0, 0, 0, 0, 4, "path only")) return 1;
+    if (!near4(px, width, 24, 12, 0, 0, 0, 0, 4, "scissor only")) return 1;
+    if (!near4(px, width, 10, 2, 0, 0, 0, 0, 4, "above scissor")) return 1;
     if (!near4(px, width, (width * 3) / 4, height / 2, 0, 0, 0, 0, 4, "right (clipped out)")) return 1;
 
     // --- Clipped vector text: a full-canvas blue text quad clipped to the left. ---
@@ -250,6 +261,8 @@ int main()
         DrawPathData bg;
         bg.points = {0.0f, 0.0f, fw, 0.0f, fw, fh, 0.0f, 0.0f, fw, fh, 0.0f, fh};
         bg.color[0] = 1.0f;
+        bg.color[1] = 0.0f;
+        bg.color[2] = 0.0f;
         bg.color[3] = 1.0f;
         bg.drawMode = PathDrawMode::Fill;
         mCmds.push_back(std::make_unique<DrawPathCommand>(bg));

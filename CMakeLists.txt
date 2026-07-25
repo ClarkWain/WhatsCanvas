@@ -289,6 +289,29 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
             TIMEOUT 60
         )
 
+        add_executable(WhatsCanvasVulkanFilterPixelParityTests
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/VulkanFilterPixelParityTests.cpp"
+        )
+        target_include_directories(WhatsCanvasVulkanFilterPixelParityTests PRIVATE
+            "${SRC_DIR}"
+        )
+        target_link_libraries(WhatsCanvasVulkanFilterPixelParityTests PRIVATE
+            WhatsCanvasOpenGL
+            WhatsCanvasGLM
+        )
+        add_test(NAME WhatsCanvasVulkanFilterPixelParityTests
+            COMMAND ${CMAKE_COMMAND}
+                -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+                -DWHATSCANVAS_TEST_TARGET=WhatsCanvasVulkanFilterPixelParityTests
+                -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasVulkanFilterPixelParityTests>
+                -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+        )
+        set_tests_properties(WhatsCanvasVulkanFilterPixelParityTests PROPERTIES
+            LABELS "vulkan;image-filter;pixel-parity"
+            TIMEOUT 60
+        )
+
         add_executable(WhatsCanvasVulkanLayerTests
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/VulkanLayerTests.cpp"
         )
@@ -559,6 +582,7 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
             WhatsCanvasVulkanPaintTests
             WhatsCanvasVulkanTextureTests
             WhatsCanvasVulkanImageFilterTests
+            WhatsCanvasVulkanFilterPixelParityTests
             WhatsCanvasVulkanLayerTests
             WhatsCanvasVulkanClipTests
             WhatsCanvasVulkanDrawListTests
@@ -924,6 +948,32 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     set_tests_properties(WhatsCanvasOpenGLBackdropFilterTests
         PROPERTIES LABELS "unit;image-filter;opengl" TIMEOUT 30)
 
+    add_executable(WhatsCanvasOpenGLFilterPixelParityTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/GLFilterPixelParityTests.cpp"
+    )
+    target_include_directories(WhatsCanvasOpenGLFilterPixelParityTests PRIVATE
+        "${SRC_DIR}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/glad/include"
+    )
+    target_link_libraries(WhatsCanvasOpenGLFilterPixelParityTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    whatscanvas_link_gl_app(
+        WhatsCanvasOpenGLFilterPixelParityTests ${CMAKE_CURRENT_SOURCE_DIR})
+    add_test(NAME WhatsCanvasOpenGLFilterPixelParityTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasOpenGLFilterPixelParityTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasOpenGLFilterPixelParityTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasOpenGLFilterPixelParityTests PROPERTIES
+        LABELS "image-filter;opengl;pixel-parity"
+        TIMEOUT 60
+    )
+
     add_executable(WhatsCanvasSoftwareGoldenTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/SoftwareGoldenTests.cpp"
     )
@@ -1181,6 +1231,36 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     set_tests_properties(WhatsCanvasDeprecationTrackerTests PROPERTIES LABELS "unit;api")
 endif()
 
+if (BUILD_TESTING AND TARGET WhatsCanvasOpenGLES)
+    whatscanvas_add_glfw_dependency("${CMAKE_CURRENT_SOURCE_DIR}")
+    add_executable(WhatsCanvasOpenGLESFilterPixelParityTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/GLFilterPixelParityTests.cpp"
+    )
+    target_include_directories(WhatsCanvasOpenGLESFilterPixelParityTests PRIVATE
+        "${SRC_DIR}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/glad/include"
+    )
+    target_compile_definitions(WhatsCanvasOpenGLESFilterPixelParityTests PRIVATE
+        WHATSCANVAS_PARITY_OPENGLES
+    )
+    target_link_libraries(WhatsCanvasOpenGLESFilterPixelParityTests PRIVATE
+        WhatsCanvasOpenGLES
+        glfw
+    )
+    add_test(NAME WhatsCanvasOpenGLESFilterPixelParityTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasOpenGLESFilterPixelParityTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasOpenGLESFilterPixelParityTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasOpenGLESFilterPixelParityTests PROPERTIES
+        LABELS "image-filter;opengles;pixel-parity"
+        TIMEOUT 60
+    )
+endif()
+
 # Standalone proof for the GPU-free path: the same head-less software tests
 # linked against ONLY the dependency-free WhatsCanvasSoftware library (no
 # OpenGL / glad / Vulkan). Guarded solely on WhatsCanvasSoftware so it is
@@ -1215,6 +1295,38 @@ if (WHATSCANVAS_BUILD_BENCHMARKS AND TARGET WhatsCanvasOpenGL)
     target_link_libraries(WhatsCanvasCoreBenchmarks PRIVATE
         WhatsCanvasOpenGL
         WhatsCanvasGLM
+    )
+
+    add_executable(WhatsCanvasImageFilterBenchmarks
+        "${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/ImageFilterBenchmarks.cpp"
+    )
+    target_link_libraries(WhatsCanvasImageFilterBenchmarks PRIVATE
+        WhatsCanvasOpenGL
+    )
+    target_compile_definitions(WhatsCanvasImageFilterBenchmarks PRIVATE
+        WHATSCANVAS_FILTER_BENCHMARK_ENABLE_OPENGL
+    )
+    if (WHATSCANVAS_VULKAN_BACKEND_ENABLED)
+        target_compile_definitions(WhatsCanvasImageFilterBenchmarks PRIVATE
+            WHATSCANVAS_FILTER_BENCHMARK_ENABLE_VULKAN
+        )
+    else()
+        target_compile_definitions(WhatsCanvasImageFilterBenchmarks PRIVATE
+            WHATSCANVAS_FILTER_BENCHMARK_DISABLE_VULKAN
+        )
+    endif()
+    whatscanvas_link_gl_app(
+        WhatsCanvasImageFilterBenchmarks ${CMAKE_CURRENT_SOURCE_DIR})
+elseif (WHATSCANVAS_BUILD_BENCHMARKS AND TARGET WhatsCanvasSoftware)
+    add_executable(WhatsCanvasImageFilterBenchmarks
+        "${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/ImageFilterBenchmarks.cpp"
+    )
+    target_link_libraries(WhatsCanvasImageFilterBenchmarks PRIVATE
+        WhatsCanvasSoftware
+    )
+    target_compile_definitions(WhatsCanvasImageFilterBenchmarks PRIVATE
+        WHATSCANVAS_FILTER_BENCHMARK_DISABLE_OPENGL
+        WHATSCANVAS_FILTER_BENCHMARK_DISABLE_VULKAN
     )
 endif()
 

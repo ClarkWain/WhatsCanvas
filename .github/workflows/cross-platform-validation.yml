@@ -78,12 +78,52 @@ jobs:
       - name: Install Linux OpenGL dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
+          sudo apt-get install -y libgl1-mesa-dev libegl1-mesa-dev libgles2-mesa-dev \
+                                  libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev xvfb
 
       - name: OpenGLES build smoke
         run: |
           chmod +x scripts/opengles_build_smoke.sh
           ./scripts/opengles_build_smoke.sh
+
+      - name: OpenGLES filter pixel parity on Mesa EGL
+        run: |
+          xvfb-run -a env WHATSCANVAS_REQUIRE_GL_CONTEXT=1 \
+            LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe \
+            ctest --test-dir build-gles-check -C Debug \
+              -R '^WhatsCanvasOpenGLESFilterPixelParityTests$' --output-on-failure
+
+  opengl-filter-parity:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Mesa and Xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev libxrandr-dev libxinerama-dev \
+                                  libxcursor-dev libxi-dev xvfb
+
+      - name: Configure filter validation
+        run: cmake -S . -B build-filter-parity -DCMAKE_BUILD_TYPE=Release -DWHATSCANVAS_BUILD_DEMO=OFF -DWHATSCANVAS_ENABLE_SCRIPT_TESTS=OFF
+
+      - name: Build filter parity and benchmark targets
+        run: cmake --build build-filter-parity --config Release --target WhatsCanvasOpenGLFilterPixelParityTests WhatsCanvasImageFilterBenchmarks
+
+      - name: OpenGL filter pixel parity on llvmpipe
+        run: |
+          xvfb-run -a env WHATSCANVAS_REQUIRE_GL_CONTEXT=1 \
+            LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe \
+            ctest --test-dir build-filter-parity -C Release \
+              -R '^WhatsCanvasOpenGLFilterPixelParityTests$' --output-on-failure
+
+      - name: Software filter benchmark smoke
+        run: |
+          ./build-filter-parity/WhatsCanvasImageFilterBenchmarks \
+            --backend software --warmup 1 --frames 2 --width 320 --height 180
 
   package-consumer:
     runs-on: ubuntu-latest
@@ -177,13 +217,24 @@ jobs:
       - name: Build the Vulkan backend
         run: cmake --build build-validation-vulkan --config Debug
 
+      - name: Vulkan filter pixel parity on lavapipe
+        run: |
+          LVP_ICD=$(find /usr/share/vulkan/icd.d -maxdepth 1 -name 'lvp_icd*.json' -print -quit)
+          test -n "$LVP_ICD"
+          export VK_DRIVER_FILES="$LVP_ICD"
+          export VK_ICD_FILENAMES="$LVP_ICD"
+          vulkaninfo --summary
+          ctest --test-dir build-validation-vulkan -C Debug \
+            -R '^WhatsCanvasVulkanFilterPixelParityTests$' --output-on-failure
+
       # Best-effort execution on the Mesa "lavapipe" software Vulkan device.
       # Non-blocking: software-rasterizer limitations must not fail the gate,
       # but a green run gives real render coverage on the hosted runner.
       - name: Run Vulkan tests on lavapipe (informational)
         continue-on-error: true
         run: |
-          export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+          LVP_ICD=$(find /usr/share/vulkan/icd.d -maxdepth 1 -name 'lvp_icd*.json' -print -quit)
+          export VK_DRIVER_FILES="$LVP_ICD"
+          export VK_ICD_FILENAMES="$LVP_ICD"
           vulkaninfo --summary || true
           ctest --test-dir build-validation-vulkan -C Debug -L vulkan --output-on-failure
-

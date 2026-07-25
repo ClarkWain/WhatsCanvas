@@ -34,15 +34,43 @@ Current benchmark cases:
 - `software_backdrop_blur_320x180_r24`: real separable-Gaussian backdrop blur
   through the Software backend, including filter pass and pixel-pass details.
 
+## Image-filter frame benchmarks
+
+`WhatsCanvasImageFilterBenchmarks` measures complete filter frames:
+
+```sh
+cmake --build build --target WhatsCanvasImageFilterBenchmarks --config Release
+./build/WhatsCanvasImageFilterBenchmarks \
+  --backend software --warmup 3 --frames 10 --width 960 --height 540
+```
+
+On a multi-config Windows build, run
+`build\Release\WhatsCanvasImageFilterBenchmarks.exe`.
+
+The supported backends are `software`, `opengl`, and `vulkan` when the
+corresponding backend was compiled and is available on the host. The executable
+runs two fixed workloads:
+
+- `overlapping_frosted_glass`: four separately captured, overlapping backdrop
+  layers with deterministic zero-grain frosted glass.
+- `inner_shadow_grid`: 24 independently filtered controls.
+
+Each `FILTER_BENCHMARK` line includes `median_ms`, `p95_ms`, `min_ms`,
+`max_ms`, `fps`, a pixel `hash`, and the public filter/pass/downsample/pixel-work
+statistics. `beginFrame`, drawing, `endFrame`, and OpenGL `glFinish` are timed;
+readback and hashing are not.
+
+CI runs a small Software smoke workload to catch broken benchmark wiring. It
+does not compare elapsed time because shared hosted runners are not stable
+performance machines. Use identical hardware, build type, dimensions, backend,
+warmup, and frame count for local trend comparisons.
+
 ## Scope
 
-This benchmark intentionally avoids requiring a live OpenGL context. That keeps it useful on build machines and during API work.
-
-The remaining GPU-sensitive benchmark targets still need dedicated harnesses:
-
-- image upload cost with a current GL/GLES context
-- frame flush cost with real draw execution
-- backend-specific draw-call counters under stable validation scenes
+`WhatsCanvasCoreBenchmarks` intentionally avoids a live graphics context.
+`WhatsCanvasImageFilterBenchmarks` supplies the real Software/OpenGL/Vulkan
+filter path. Dedicated image-upload and presentation latency harnesses remain
+future work.
 
 `WhatsCanvasImageFilterShowcase` complements the headless benchmark with a real
 OpenGL framebuffer workload. Its diagnostic line includes filter executions,
