@@ -4381,6 +4381,11 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
         TexPushConstants push;
         VkBuffer uboBuffer = VK_NULL_HANDLE;
         VkDeviceMemory uboMemory = VK_NULL_HANDLE;
+        bool scissorEnabled = false;
+        int scissorX = 0;
+        int scissorY = 0;
+        int scissorWidth = 0;
+        int scissorHeight = 0;
     };
     std::vector<RecordedDraw> draws;
     draws.reserve(drawList.size());
@@ -4426,6 +4431,11 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
 
     for (const wsc::DrawPrimitive &prim : drawList) {
         RecordedDraw draw;
+        draw.scissorEnabled = prim.scissorEnabled;
+        draw.scissorX = prim.scissorX;
+        draw.scissorY = prim.scissorY;
+        draw.scissorWidth = prim.scissorWidth;
+        draw.scissorHeight = prim.scissorHeight;
         std::vector<float> vertices;
         if (prim.kind == wsc::DrawPrimitiveKind::SolidTriangles) {
             const std::size_t vertexCount = prim.positions.size() / 2;
@@ -4715,6 +4725,29 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
 
         const VkDeviceSize offset = 0;
         for (const RecordedDraw &d : draws) {
+            if (d.scissorEnabled) {
+                const int left = std::clamp(d.scissorX, 0, rt->width());
+                const int top = std::clamp(d.scissorY, 0, rt->height());
+                const int right =
+                    std::clamp(d.scissorX + d.scissorWidth, left, rt->width());
+                const int bottom =
+                    std::clamp(d.scissorY + d.scissorHeight, top, rt->height());
+                if (right <= left || bottom <= top) {
+                    continue;
+                }
+                scissor.offset = {left, top};
+                scissor.extent = {
+                    static_cast<std::uint32_t>(right - left),
+                    static_cast<std::uint32_t>(bottom - top),
+                };
+            } else {
+                scissor.offset = {0, 0};
+                scissor.extent = {
+                    static_cast<std::uint32_t>(rt->width()),
+                    static_cast<std::uint32_t>(rt->height()),
+                };
+            }
+            vkCmdSetScissor(cmd, 0, 1, &scissor);
             vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, d.pipeline);
             if (d.descriptorSet != VK_NULL_HANDLE) {
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, d.descriptorLayout, 0, 1,
@@ -4847,6 +4880,19 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
         const float tris[12] = {n[0], n[1], n[2], n[3], n[4], n[5], n[0], n[1], n[4], n[5], n[6], n[7]};
         out.insert(out.end(), tris, tris + 12);
     };
+    auto applyPrimitiveScissor = [&](wsc::DrawPrimitive &prim,
+                                     const ScissorState &scissor) {
+        if (!scissor.enabled) {
+            return;
+        }
+        const int resolvedX = scissor.x + request.scissorOffsetX;
+        const int resolvedY = scissor.y + request.scissorOffsetY;
+        prim.scissorEnabled = true;
+        prim.scissorX = resolvedX;
+        prim.scissorY = rt->height() - (resolvedY + scissor.height);
+        prim.scissorWidth = scissor.width;
+        prim.scissorHeight = scissor.height;
+    };
 
     // Build a clip coverage mask texture (red channel = coverage) for the given
     // clip state. Each clip path is rasterized (white, with its analytic-AA
@@ -4973,6 +5019,15 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
         // Render the primitive in isolation with SrcOver over the cleared
         // (transparent) layer so its RGB is a well-defined premultiplied capture;
         // the draw's actual blend mode is applied later at composite time.
+        const bool compositeScissorEnabled = srcPrim.scissorEnabled;
+        const int compositeScissorX = srcPrim.scissorX;
+        const int compositeScissorY = srcPrim.scissorY;
+        const int compositeScissorWidth = srcPrim.scissorWidth;
+        const int compositeScissorHeight = srcPrim.scissorHeight;
+        // srcPrim is remapped below from the cropped target into a full-canvas
+        // temporary layer. Its target-local scissor must therefore be applied
+        // to the final cropped-target composite rather than to this temporary.
+        srcPrim.scissorEnabled = false;
         srcPrim.blendMode = 0;
         for (std::size_t i = 0; i + 1 < srcPrim.positions.size(); i += 2) {
             const glm::vec2 uv =
@@ -5016,6 +5071,11 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
         wsc::DrawPrimitive q;
         q.kind = wsc::DrawPrimitiveKind::TexturedQuad;
         q.blendMode = compositeBlend;
+        q.scissorEnabled = compositeScissorEnabled;
+        q.scissorX = compositeScissorX;
+        q.scissorY = compositeScissorY;
+        q.scissorWidth = compositeScissorWidth;
+        q.scissorHeight = compositeScissorHeight;
         q.texture = layerTex;
         q.layerAlpha = 1.0f;
         q.tint[0] = 1.0f;
@@ -5053,6 +5113,7 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
             }
             wsc::DrawPrimitive prim;
             prim.blendMode = mapBlend(d.blendMode);
+            applyPrimitiveScissor(prim, d.scissor);
             prim.positions.reserve(vertexCount * 2);
             for (std::size_t i = 0; i < vertexCount; ++i) {
                 float nx = 0.0f, ny = 0.0f;
@@ -5145,6 +5206,7 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
             wsc::DrawPrimitive prim;
             prim.kind = wsc::DrawPrimitiveKind::SolidTriangles;
             prim.blendMode = mapBlend(d.blendMode);
+            applyPrimitiveScissor(prim, d.scissor);
             prim.positions.reserve(count * 12);
             for (std::size_t i = 0; i < count; ++i) {
                 const float cx = d.points[i * 2 + 0];
@@ -5171,6 +5233,7 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
             wsc::DrawPrimitive prim;
             prim.kind = wsc::DrawPrimitiveKind::SolidTriangles;
             prim.blendMode = mapBlend(d.blendMode);
+            applyPrimitiveScissor(prim, d.scissor);
             prim.positions.reserve(lineCount * 12);
             for (std::size_t i = 0; i < lineCount; ++i) {
                 const float x0 = d.points[i * 4 + 0];
@@ -5216,6 +5279,7 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
             wsc::DrawPrimitive prim;
             prim.kind = wsc::DrawPrimitiveKind::TexturedQuad;
             prim.blendMode = mapBlend(d.blendMode);
+            applyPrimitiveScissor(prim, d.scissor);
             prim.texture = d.imageResource;
             prim.layerAlpha = d.alpha;
             prim.tint[0] = d.tintColor[0];
@@ -5263,6 +5327,7 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
             const bool textClipped = d.clipMask.hasPaths();
             wsc::DrawPrimitive prim;
             prim.blendMode = mapBlend(d.blendMode);
+            applyPrimitiveScissor(prim, d.scissor);
             prim.positions.reserve(vertexCount * 2);
             for (std::size_t i = 0; i < vertexCount; ++i) {
                 float nx = 0.0f, ny = 0.0f;
@@ -5477,6 +5542,7 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
             wsc::DrawPrimitive prim;
             prim.kind = wsc::DrawPrimitiveKind::TexturedQuad;
             prim.blendMode = mapBlend(d.blendMode);
+            applyPrimitiveScissor(prim, d.scissor);
             prim.texture = shadowTex;
             prim.layerAlpha = 1.0f;
             prim.tint[0] = d.color[0];
