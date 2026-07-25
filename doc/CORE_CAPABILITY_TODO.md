@@ -264,3 +264,79 @@ This TODO tracks public, product-level capability growth for WhatsCanvas. It is 
 - [ ] Add composable color-matrix and offset filter nodes.
 - [x] Add adaptive downsampling and filter performance statistics.
 - [x] Add backend-neutral inner shadows across Software, OpenGL/OpenGLES, and Vulkan.
+
+## Phase 8: WebAssembly And JavaScript Bridge
+
+Status: planned for a later development cycle; no WebAssembly build or public
+JavaScript API is implemented or supported yet.
+
+The intended browser architecture combines Emscripten, the existing OpenGLES
+backend, and WebGL 2. WebAssembly is treated as a deployment platform rather
+than a new renderer. The first implementation should reuse the backend-neutral
+Canvas model and OpenGLES rendering path instead of creating a separate web
+renderer.
+
+### M1: Browser Rendering Proof Of Concept
+
+- [ ] Add an Emscripten CMake build option and documented build command.
+- [ ] Compile the OpenGLES backend against WebGL 2.
+- [ ] Add browser-specific presentation for an HTML `<canvas>` without
+      introducing WGL, GLX, EGL, or DOM types into the core renderer.
+- [ ] Render a minimal `beginFrame` / draw / `endFrame` scene in a browser.
+- [ ] Handle CSS size, backing-store size, and `devicePixelRatio` correctly.
+- [ ] Add a CI smoke build for the WebAssembly target.
+
+### M2: JavaScript-Facing Canvas API
+
+- [ ] Add a narrow bridge, initially using Embind or an equivalent generated
+      binding layer.
+- [ ] Expose product-level types only: `Canvas`, `Paint`, `Color`, `Rect`,
+      `Path`, `Image`, `ImageFilter`, `LayerOptions`, and `RenderStats`.
+- [ ] Keep `Renderer`, `IRenderDevice`, draw commands, native GPU resources,
+      platform contexts, and raw ownership-sensitive pointers private.
+- [ ] Generate an ES module and TypeScript declarations.
+- [ ] Define explicit JavaScript lifetime and disposal behavior for bound C++
+      objects.
+- [ ] Support asynchronous image and font loading from `ArrayBuffer` data.
+- [ ] Allow JavaScript and `requestAnimationFrame` to control dynamic drawing;
+      WhatsCanvas itself will remain a renderer rather than an animation or UI
+      framework.
+
+### M3: Web Feature Parity And Validation
+
+- [ ] Validate paths, gradients, images, text, clipping, transforms, and
+      save/restore on WebGL 2.
+- [ ] Validate `saveLayer`, Gaussian blur, frosted glass, and inner shadow.
+- [ ] Add browser screenshot or fuzzy pixel regression coverage.
+- [ ] Report filter counts, pass counts, draw calls, and frame timing through
+      the JavaScript API.
+- [ ] Add context-loss and context-restoration coverage.
+- [ ] Add a polished browser showcase using the same rendering APIs as native
+      examples.
+
+### M4: Distribution And High-Throughput Drawing
+
+- [ ] Publish reproducible `.wasm`, ES module, and TypeScript artifacts.
+- [ ] Evaluate npm packaging after the browser API stabilizes.
+- [ ] Add display-list or typed-array batch submission so complex pages do not
+      require thousands of fine-grained JavaScript/Wasm calls per frame.
+- [ ] Add an online showcase and playground suitable for documentation.
+
+### Initial Non-Goals
+
+- WebGPU or Vulkan-to-WebGPU translation.
+- Pthreads, worker rendering, and `OffscreenCanvas`.
+- A DOM widget system, general event framework, or animation framework.
+- Exporting the complete internal C++ API directly to JavaScript.
+- Treating the Software renderer as the primary browser presentation path.
+
+### WebAssembly Definition Of Done
+
+- A browser can dynamically draw a representative WhatsCanvas scene into an
+  HTML `<canvas>` through a documented JavaScript API.
+- The scene includes text, images, clipping, layers, frosted glass, and inner
+  shadow through the reused OpenGLES/WebGL 2 implementation.
+- Device-pixel-ratio resizing, resource loading, object disposal, and context
+  restoration have documented behavior.
+- Native targets remain unaffected, and WebAssembly has repeatable CI build and
+  browser regression coverage.
