@@ -12,23 +12,32 @@ swapchain image; validated clean under the Khronos validation layer), and
 swapchains and mobile surface lifecycle. Remaining API sketches are marked
 "sketch".
 
-This is the source of truth for *why* and *how* WhatsCanvas would gain on-screen
-window presentation across backends, and how that stays forward-compatible with
-future Direct3D / Metal backends. It complements
+This is the source of truth for the design rationale and remaining gaps around
+on-screen presentation across backends. The current consumer-facing contract is
+documented in [`GETTING_STARTED_AS_LIBRARY.md`](GETTING_STARTED_AS_LIBRARY.md).
+It complements
 [vulkan-backend-roadmap.md](vulkan-backend-roadmap.md) (which covers offscreen
 rendering parity, already complete).
 
-## 1. Problem
+> Reader note: this is a design discussion as well as a status record. Any
+> identifier in a design diagram or block marked **sketch**—for example `createWindowed`,
+> `setBackend`, or `wrapBackendRenderTarget`—is not necessarily a current
+> public API. For the current consumer-facing API, use
+> [`GETTING_STARTED_AS_LIBRARY.md`](GETTING_STARTED_AS_LIBRARY.md):
+> `setOutputTarget(...)`, `beginFrame()`, `endFrame()`, and `present()`.
 
-Today WhatsCanvas renders but does **not** present to a window itself:
+## 1. Current state and remaining problem
 
-- **OpenGL / GLES** render into the framebuffer of a GL context the *host* owns;
-  the host (e.g. GLFW) calls `swapBuffers`. WhatsCanvas never presents.
-- **Vulkan** is **offscreen-only**: a headless `VkInstance` (no surface
-  extensions), rendering into an offscreen `VkImage`, results retrieved via
-  `readPixelsRGBA`. A full swapchain present path exists but only as a
-  *standalone* example (`examples/vulkan_present`) with its own instance/device.
-- **Software (CPU)** produces a CPU RGBA buffer; the host must display it.
+WhatsCanvas now has a unified output-target API, but window presentation is
+still platform- and backend-specific:
+
+- **OpenGL** supports the unified `ToWindow` path where the platform swapchain
+  adapter is available (WGL; guarded GLX on Linux). The common embedding path
+  remains a host-owned current GL context plus `glfwSwapBuffers`/equivalent.
+- **Vulkan** supports Canvas-level `ToWindow` + `present()` on Win32. The
+  lower-level `examples/vulkan_present` remains a standalone swapchain test.
+- **Software (CPU)** supports window blitting on Windows GDI and Linux/X11;
+  otherwise it produces a CPU RGBA buffer for the host to display.
 - **Metal / D3D** do not exist (factory returns `nullptr`).
 - There is **no `setMode` / runtime backend switch**. The backend is fixed at
   `Canvas` construction, and `Canvas` is non-copyable.
@@ -161,12 +170,14 @@ peer to `readPixelsRGBA`** — both answer "where does this frame's result go":
 
 | Step | Role | Offscreen | Windowed |
 |---|---|---|---|
-| `beginFrame()` | start a frame (windowed: internally acquire image) | ✅ | ✅ |
-| `flush()` | submit/execute commands | ✅ | ✅ |
+| `beginFrame()` | start a frame | ✅ | ✅ |
+| `Renderer::flush()` *(internal)* | submit/execute commands | ✅ | ✅ |
 | `endFrame()` | finalize, stats | ✅ | ✅ |
 | **output** | where the result goes | `readPixelsRGBA()` | **`present()`** |
 
-Existing offscreen / GL users are unaffected; windowed users add one `present()`.
+`Canvas::endFrame()` invokes the internal submission step; there is no public
+`Canvas::flush()` method. Existing offscreen / GL users are unaffected;
+windowed users add one `present()` after `endFrame()`.
 Merging present into endFrame was rejected: it breaks the offscreen/windowed
 frame symmetry and backward compatibility.
 
@@ -243,10 +254,11 @@ recovery, and the present layer must expose a hook for it.
 WhatsCanvas is positioned closest to Skia (embeddable), hence the Skia-style core
 plus an optional convenience layer.
 
-## 11. Change inventory (when implemented)
+## 11. Historical change inventory
 
-Grouped by layer; rendering (command translation, AA, gradients, shadows, clip)
-is **already at parity and needs no change**.
+This inventory records the original implementation plan. The completed slices
+are summarized in §1 and §13; the remaining work is primarily platform and
+backend expansion.
 
 - **A. Instance** — Vulkan: build a *present-ready* instance (surface extensions)
   behind a windowed mode flag; keep the headless path for offscreen.
@@ -267,9 +279,11 @@ is **already at parity and needs no change**.
 
 ## 12. Forward-compatibility check (D3D / Metal)
 
-- ✅ New backends need only implement `createSwapchain` + `ISwapchain` (and a
-  wrap-target descriptor); public API unchanged.
-- ✅ User code unchanged (always `NativeSurface` or a wrapped target).
+- ⚠️ A future backend must implement its full render-device/resource and command
+  translation surface in addition to `createSwapchain` / `ISwapchain`; this is a
+  design goal, not a claim that presentation alone is sufficient.
+- ✅ The current public output model is intended to remain stable: user code can
+  use `setOutputTarget(...)` and `present()` once a backend supports the target.
 - ⚠️ `NativeSurface` must reserve enough platform fields (window/display/layer).
 - ⚠️ Backend differences (vsync/present mode/color space/HDR) abstracted in a
   neutral `SwapchainConfig`; unmapped features degrade gracefully.
@@ -296,12 +310,12 @@ is **already at parity and needs no change**.
 5. Future: **D3D / Metal** against the same interface; mobile surface-lifecycle
    handling; verify the Linux X11/GLX paths.
 
-## 14. Open questions
+## 14. Open questions and resolved decisions
 
-- Exact shape of `AcquiredImage` and how it threads into the existing
-  `IRenderDevice::executeCommands` render-target path.
-- Whether `present()` lives on `Canvas` or on a separate `WindowTarget`/`Swapchain`
-  object returned at creation.
+- **Resolved:** swapchain acquisition remains an internal `ISwapchain` detail;
+  the current `Canvas::present()` delegates to it after `endFrame()`.
+- **Resolved:** `present()` is exposed on `Canvas`, not on a new public
+  `WindowTarget` object.
 - Color-space / sRGB handling across swapchain formats vs the existing
   `setGammaCorrect` model.
 - Mobile surface-loss callback surface area (reuse `releaseResources` semantics?).

@@ -2383,7 +2383,8 @@ std::unique_ptr<Canvas> Canvas::create(Backend backend, int width, int height)
         return nullptr;
     }
 
-    // Strategy A: sized but NOT initialized — the caller calls initializeContext().
+    // Strategy A: sized but not initialized — the caller starts a frame or
+    // calls initializeContext() explicitly.
     std::unique_ptr<Canvas> canvas(new Canvas(std::move(renderer)));
     canvas->impl_->backend = backend;
     canvas->setSize(width, height);

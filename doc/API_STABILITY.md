@@ -7,15 +7,20 @@ WhatsCanvas aims to be a lightweight, embeddable Canvas-style 2D renderer. This 
 The stable public surface lives under `include/wsc/` and is exported through the install/package target:
 
 - `wsc/wsc.h`
+- `wsc/base.h`
 - `wsc/Canvas.h`
 - `wsc/CanvasAdapter.h`
+- `wsc/Color.h`
+- `wsc/Export.h`
 - `wsc/Paint.h`
 - `wsc/Path.h`
 - `wsc/Image.h`
 - `wsc/ImageFilter.h`
 - `wsc/Font.h`
 - `wsc/Matrix.h`
-- `wsc/base.h`
+- `wsc/Log.h`
+- `wsc/Surface.h`
+- `wsc/Version.h`
 - `wsc/TextureSource.h`
 
 The generated API index is maintained in `doc/API_REFERENCE.md`.
@@ -57,14 +62,23 @@ These types form the expected consumer contract:
 - `wsc::FontFallbackChain`
 - `wsc::FontManager`
 - `wsc::ITextureSource`
+- `wsc::NativeSurface`
+- `wsc::SwapchainConfig`
+- `wsc::OutputTarget`
 - geometry/value types such as `PointF`, `SizeF`, `RectF`, and `Matrix4`
 
 ## Package Targets
 
 The supported CMake package targets are:
 
-- `WhatsCanvas::OpenGL`
+- `WhatsCanvas::OpenGL` when `WHATSCANVAS_BUILD_OPENGL=ON`
 - `WhatsCanvas::OpenGLES` when built with `WHATSCANVAS_BUILD_OPENGLES=ON`
+- `WhatsCanvas::Software` when built with `WHATSCANVAS_BUILD_SOFTWARE=ON`
+
+Vulkan does not have a separate package target. When enabled with
+`WHATSCANVAS_ENABLE_VULKAN=ON`, it is compiled into the `WhatsCanvas::OpenGL`
+target and selected at runtime with `Canvas::Backend::Vulkan`. Vulkan remains
+optional and is unavailable when no usable Vulkan SDK/device is present.
 
 Repository-internal targets, helper libraries, and example targets should not be treated as application-facing API.
 

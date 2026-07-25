@@ -21,8 +21,12 @@ The first concrete step is already in place:
 - `IRenderTarget` now defines the backend-owned offscreen render target surface used inside the current device implementation;
 - non-rect `clipPath` execution now also uses backend-owned clip-resource objects at the render boundary, instead of carrying raw clip triangulation payloads all the way through generic draw execution;
 - `Renderer` implements `IRenderer`;
-- `OpenGLRenderDevice` implements `IRenderDevice`;
-- `Canvas` now owns `std::unique_ptr<IRenderer>`, lazily initializes the active renderer instance, exposes instance-level `shutdown()` for explicit teardown before context destruction, and defaults to the current OpenGL renderer;
+- `OpenGLRenderDevice` and the optional `VulkanRenderDevice` implement `IRenderDevice`;
+- `Canvas` now owns `std::unique_ptr<IRenderer>`, lazily initializes the active
+  renderer instance, exposes instance-level `shutdown()` for explicit teardown
+  before context destruction, and uses the current `Backend::Auto` preference
+  order (Vulkan, OpenGL, OpenGLES, Software) when automatic selection is
+  requested;
 - pixel readback, temporary bitmap texture upload, and offscreen layer rendering now route through the renderer/device boundary instead of being managed directly inside `Canvas.cpp`;
 - `Image` is now a move-only opaque resource owner, and image-file texture upload routes through the active `IRenderer` instance instead of direct OpenGL calls inside `Image.cpp`;
 - shared draw/image data now uses backend-neutral `ImageResource` interfaces backed by renderer-private implementations instead of texture-specific command fields and manual handle/releaser bookkeeping, and temporary resource cleanup no longer happens through direct GL calls in generic draw command destructors;
@@ -59,9 +63,13 @@ The target direction is:
 ### Negative
 
 - The current split is `Canvas -> IRenderer -> IRenderDevice`, with an initial `IRenderTarget` resource seam, but it is still not yet a full render graph or broader device/resource family.
-- `ImageResource` is now an interface boundary, but it still has only one concrete OpenGL implementation and is not yet a fuller device-owned resource family.
+- `ImageResource` is now an interface boundary with concrete OpenGL and Vulkan
+  resources; it is not yet a complete device-owned resource family across all
+  backends.
 - Backend resources are still implemented as OpenGL textures inside the current OpenGL device layer.
-- Path clip execution still ends as OpenGL stencil work during command execution, but it now enters that stage through backend-owned clip resources rather than raw generic draw payloads.
+- OpenGL path clipping still ends as stencil work during command execution, while
+  Vulkan uses its backend-owned analytic coverage-mask path; both enter through
+  backend-owned clip resources rather than raw generic draw payloads.
 
 ## Follow-up
 

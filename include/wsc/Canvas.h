@@ -147,9 +147,10 @@ public:
 
 	/// Create a canvas on `backend`, sized to width×height. Returns nullptr when
 	/// the backend is unavailable in this build/host. The canvas is sized but
-	/// NOT initialized — call `initializeContext()` before drawing. For the
-	/// OpenGL backends, make your GL context current and call `loadOpenGL`
-	/// first; software/Vulkan need no external context.
+	/// not initialized. Call `beginFrame()` (which initializes lazily) or
+	/// `initializeContext()` before drawing. For the OpenGL backends, make your
+	/// GL context current and call `loadOpenGL()` before initialization or the
+	/// first frame; software/Vulkan need no external context.
 	static std::unique_ptr<Canvas> create(Backend backend, int width, int height);
 
 	/// Create a canvas on the first available backend from `preferred`, or
@@ -384,19 +385,20 @@ public:
 	void rotate(float radians);
 
 	// Frame and pixel readback helpers.
-	/// Begin a frame of drawing (optional; draws auto-begin a frame). Clears the
-	/// framebuffer to transparent, so only call it before recording a frame's
-	/// draws — never after, or you will wipe what you just drew.
+	/// Begin a frame of drawing. Initializes the backend lazily, resets per-frame
+	/// state/statistics, and discards any previously queued commands. It does not
+	/// clear a host-owned OpenGL framebuffer; the host controls that clear.
 	void beginFrame();
 	/// End the current frame: submit all recorded drawing to the backend and make
 	/// it readable. This is the paired counterpart of `beginFrame()` and is
 	/// required before reading pixels or using this Canvas as a texture source.
 	///
 	/// The offscreen flow is `beginFrame -> draw -> endFrame -> readPixelsRGBA`.
-	/// endFrame() renders the recorded commands onto a freshly-cleared framebuffer
-	/// and then consumes them, so calling it twice with no new draws re-clears the
-	/// buffer and yields an empty (transparent/black) image — call it exactly once
-	/// per frame, right before reading back or presenting.
+	/// endFrame() submits and consumes the recorded commands. On the normal output
+	/// path, Software clears on every submission, Vulkan clears when a non-empty
+	/// draw list starts, and OpenGL does not clear implicitly. A render-target
+	/// canvas rebuilds its offscreen texture only when commands are queued. Call
+	/// endFrame() exactly once per frame, right before reading back or presenting.
 	void endFrame();
 	void shutdown();
 	/// Read the rendered image back as top-left-origin RGBA bytes.
@@ -414,7 +416,7 @@ public:
 	/// GL/Vulkan render target. Returns false when the target is unsupported for
 	/// this backend/platform. Default is `OutputTarget::Offscreen()`.
 	bool setOutputTarget(const OutputTarget &target);
-	/// Deliver the current frame to the output target. Call after `flush()`.
+	/// Deliver the current frame to the output target. Call after `endFrame()`.
 	/// For a Window target this swaps/blits to the window; for off-screen and
 	/// wrap-external targets it is a no-op returning true.
 	bool present();

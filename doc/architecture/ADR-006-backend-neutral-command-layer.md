@@ -2,12 +2,13 @@
 
 ## Status
 
-Accepted / in progress.
+Accepted / implemented incrementally; regular OpenGL onscreen execution remains
+direct by design.
 
 ## Context
 
-The Vulkan backend (`VulkanRenderDevice`, branch `feature/vulkan-backend`) now
-implements most of the `IRenderDevice` surface: device bring-up, offscreen
+The Vulkan backend (`VulkanRenderDevice`) now
+implements the `IRenderDevice` surface: device bring-up, offscreen
 render targets and readback, a graphics pipeline for solid/gradient/blended
 geometry, sampled textures, offscreen-layer compositing, and coverage-mask
 clipping. Each capability is validated on real hardware (see the Vulkan roadmap).
@@ -24,7 +25,8 @@ stable while the shared primitive stream is hardened.
 
 Introduce a backend-neutral draw representation that sits between command
 recording and backend execution. Commands will emit backend-neutral draw
-payloads; each backend (OpenGL today, Vulkan next) consumes those payloads and
+payloads; each backend (OpenGL and Vulkan today, with future D3D/WebGPU/Metal
+consumers) consumes those payloads and
 translates them into its own API calls. Concretely:
 
 1. Define backend-neutral draw primitives (a small tagged set): solid/gradient
@@ -77,8 +79,9 @@ Vulkan `ctest -L vulkan` suite.
 
 - Unblocks `renderCommandsToImageResource` (and therefore true `saveLayer`
   command replay) on Vulkan, and any future backend (D3D, WebGPU, Metal).
-- Commands stop being OpenGL-specific, completing the direction started in
-  ADR-002 (renderer abstraction) and ADR-003 (text architecture).
+- The shared command/draw-list path reduces OpenGL-specific coupling and
+  continues the direction started in ADR-002 (renderer abstraction) and ADR-003
+  (text architecture); the regular onscreen OpenGL path remains direct for now.
 - The Vulkan pipelines built in M3–M7 become the Vulkan translator, so little of
   that work is thrown away.
 
@@ -116,4 +119,3 @@ Vulkan `ctest -L vulkan` suite.
   on the OpenGL device so clipped commands are actually rasterized into a mask
   texture and emitted as `ClipFill`, closing the last gap for clipped offscreen
   replay parity with Vulkan.
-

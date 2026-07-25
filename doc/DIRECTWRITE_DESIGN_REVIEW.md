@@ -10,19 +10,24 @@ All five issues below have been addressed. The DirectWrite backend is now the re
 
 | # | Issue | Status | Landed in |
 |---|-------|--------|-----------|
-| 1 | Not publicly integrated | **Resolved** — `TextBackendKind::DirectWrite` is a public option; default `Auto` picks it on Windows. | PR #27 (backend) + subsequent public-surface changes |
+| 1 | Not publicly integrated | **Resolved** — `Canvas::TextBackend::DirectWrite` is a public option. The portable backend remains the default; DirectWrite is selected explicitly on Windows. | PR #27 (backend) + subsequent public-surface changes |
 | 2 | Bitmap path too heavy for repeated UI text | **Resolved** — three-layer cache: cached DirectWrite/D2D/WIC factories (PR #37), cached bitmap pixels + intrinsic metrics (PR #39, 4 MB LRU by default), cached GPU texture (PR #43, 256-entry LRU keyed by stable content id). Only a shared glyph atlas that batches distinct text in one frame remains as future work. |
 | 3 | Backend contract not aligned with portable path | **Resolved** — `registerFontFace`, `setFontFallbackChain`, `resolveFontFamilies` all work and match portable semantics (PR #38 + cross-platform matrix update). |
 | 4 | Layout fidelity gaps (breakLines, letter spacing) | **Resolved** — real DirectWrite line breaking via `IDWriteTextLayout` (PR #34); character spacing applied through `IDWriteTextLayout1::SetCharacterSpacing`. |
 | 5 | ClearType safety | **Resolved** — per-`Paint` `TextRenderMode` (PR #41) makes ClearType an explicit, per-draw opt-in with cached raster mode; ADR-003 documents the opaque-surface / axis-aligned safety policy. |
 
-The recommendations section below is preserved as the historical review; each numbered item now maps to a landed PR above.
+The remainder of this file is preserved as the original historical review for
+traceability. Its issue descriptions and recommendations are superseded by the
+status table above; use [`DIRECTWRITE_TEXT_BACKEND.md`](DIRECTWRITE_TEXT_BACKEND.md)
+for the current contract.
 
-## Executive Summary
+## Historical Executive Summary (superseded)
 
 WhatsCanvas now has a real DirectWrite backend implementation, not just an enum placeholder.
 
-However, it should still be treated as an experimental backend rather than a production-ready text path. The main issues are:
+At the time of the original review, it was treated as an experimental backend.
+The following issue list is retained only to explain the work that led to the
+current implementation:
 
 1. DirectWrite is not part of the public Canvas configuration surface.
 2. The rendering path is bitmap-based and expensive per draw.
@@ -37,7 +42,7 @@ However, it should still be treated as an experimental backend rather than a pro
 - Measurement and rasterization both flow through DirectWrite layout objects instead of ad-hoc GDI helpers.
 - Grayscale and ClearType raster modes are separated explicitly, which is the right high-level direction.
 
-## Main Issues
+## Historical Main Issues (superseded)
 
 ### 1. DirectWrite Is Not Publicly Integrated Yet
 
@@ -88,7 +93,7 @@ Why this matters:
 
 ClearType should be a surface-aware rendering policy, not only a backend option. Without framework-level restrictions, it is easy to use it in unsafe contexts and get visible color fringes.
 
-## Recommended Order Before Calling DirectWrite "Supported"
+## Historical Recommended Order Before Calling DirectWrite "Supported"
 
 1. Expose a stable public way to select the DirectWrite backend.
 2. Decide whether DirectWrite stays bitmap-based or gains a cache/atlas strategy for reused text.
@@ -96,7 +101,7 @@ ClearType should be a surface-aware rendering policy, not only a backend option.
 4. Move line breaking and character spacing fully into the DirectWrite layout pipeline.
 5. Gate ClearType behind an explicit opaque-surface or axis-aligned safety policy.
 
-## Short Recommendation
+## Historical Short Recommendation
 
 Do not present DirectWrite as a production-ready text backend yet.
 
