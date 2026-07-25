@@ -249,4 +249,5 @@ cmake --build build --target WhatsCanvasCheckPackageConsumer
 - 持续完善接入文档、专题文档与文档站点。
 - 继续推进 CBDT/CBLC / SBIX / SVG / COLR paint graph 等 color glyph 解码、更高质量文本渲染，并完善 DirectWrite 的平台验证与性能覆盖；CoreText native text adapter 仍属于后续工作。
 - 增强自动化验证、跨后端像素对齐与性能基准。
+- 规划通过 Emscripten 将现有 OpenGLES 后端运行于 WebGL 2，并提供精简的 JavaScript / TypeScript 桥接，使 HTML `<canvas>` 可以动态调用 WhatsCanvas 绘制；该能力目前尚未实现或支持，详细范围见 [`CORE_CAPABILITY_TODO.md`](doc/CORE_CAPABILITY_TODO.md#phase-8-webassembly-and-javascript-bridge)。
 - 在已有 OpenGL / OpenGLES / 软件 / Vulkan 后端之上，为 Metal / WebGPU 等保留清晰扩展边界。
