@@ -9,11 +9,33 @@ For releases and downloadable artifacts, see the
 
 ## [Unreleased]
 
+## [0.1.16] - 2026-07-25
+
 ### Added
-- Added backend-neutral `ImageFilter::innerShadow` /
-  `ImageFilter::innerShadowSigma` with matching Software, OpenGL/OpenGLES, and
-  Vulkan implementations. The exported `ImageFilter` value retains its
+- Added backend-neutral image and backdrop filters across Software,
+  OpenGL/OpenGLES, and Vulkan: Gaussian blur, practical frosted-glass color and
+  grain treatment, and `ImageFilter::innerShadow` /
+  `ImageFilter::innerShadowSigma`. The exported `ImageFilter` value retains its
   existing ABI size by using type-specific payload storage.
+- Added `LayerOptions` integration, filter work statistics, an image-filter
+  showcase, and cross-backend filter/parity tests.
+- Added full Windows shared-package builds for OpenGL, OpenGLES, and Vulkan,
+  together with an installed-package consumer example and CI smoke coverage.
+
+### Changed
+- Large GPU blur kernels now use adaptive per-axis downsampling and a
+  full-resolution restore pass to reduce pixel-pass work.
+- Documentation and public/internal API comments now match the implemented
+  frame lifecycle, output targets, Vulkan capabilities, packaging matrix, and
+  text backend behavior.
+
+### Fixed
+- Preserved rounded/path clipping while rendering filtered OpenGL layers and
+  hardened fractional-offset, Decal-edge, and translucent inner-shadow parity.
+- Tessellated transformed curves in device space and prevented analytic-AA
+  overdraw artifacts.
+- Preserved Fluent font face identity and registered the Segoe UI Semibold face
+  for correct weight selection.
 
 ## [0.1.15] - 2026-07-16
 
@@ -162,7 +184,8 @@ For releases and downloadable artifacts, see the
 For changes prior to 0.1.11, see the
 [GitHub Releases](https://github.com/ClarkWain/WhatsCanvas/releases) history.
 
-[Unreleased]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.15...HEAD
+[Unreleased]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.16...HEAD
+[0.1.16]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.15...v0.1.16
 [0.1.15]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.14...v0.1.15
 [0.1.14]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.13...v0.1.14
 [0.1.13]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.12...v0.1.13
