@@ -219,7 +219,11 @@ jobs:
 
       - name: Vulkan filter pixel parity on lavapipe
         run: |
-          export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+          LVP_ICD=$(find /usr/share/vulkan/icd.d -maxdepth 1 -name 'lvp_icd*.json' -print -quit)
+          test -n "$LVP_ICD"
+          export VK_DRIVER_FILES="$LVP_ICD"
+          export VK_ICD_FILENAMES="$LVP_ICD"
+          vulkaninfo --summary
           ctest --test-dir build-validation-vulkan -C Debug \
             -R '^WhatsCanvasVulkanFilterPixelParityTests$' --output-on-failure
 
@@ -229,6 +233,8 @@ jobs:
       - name: Run Vulkan tests on lavapipe (informational)
         continue-on-error: true
         run: |
-          export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+          LVP_ICD=$(find /usr/share/vulkan/icd.d -maxdepth 1 -name 'lvp_icd*.json' -print -quit)
+          export VK_DRIVER_FILES="$LVP_ICD"
+          export VK_ICD_FILENAMES="$LVP_ICD"
           vulkaninfo --summary || true
           ctest --test-dir build-validation-vulkan -C Debug -L vulkan --output-on-failure

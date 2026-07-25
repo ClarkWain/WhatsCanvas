@@ -2,11 +2,12 @@
 
 #include "core/LogInternal.h"
 
-#if defined(_WIN32)
+#if defined(_WIN32) && !defined(WHATSCANVAS_OPENGL_ES)
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
-#elif defined(__linux__) && defined(WHATSCANVAS_HAS_X11)
+#elif defined(__linux__) && defined(WHATSCANVAS_HAS_X11) \
+    && !defined(WHATSCANVAS_OPENGL_ES)
 #include <cstdint>
 #include <GL/glx.h>
 #include <X11/Xlib.h>
@@ -14,7 +15,7 @@
 
 namespace wsc::gl {
 
-#if defined(_WIN32)
+#if defined(_WIN32) && !defined(WHATSCANVAS_OPENGL_ES)
 
 bool glPresentSupported()
 {
@@ -82,7 +83,8 @@ std::unique_ptr<ISwapchain> makeGLSwapchain(const NativeSurface &surface, const 
 	return std::make_unique<GLSwapchain>(static_cast<HWND>(surface.window));
 }
 
-#elif defined(__linux__) && defined(WHATSCANVAS_HAS_X11)
+#elif defined(__linux__) && defined(WHATSCANVAS_HAS_X11) \
+    && !defined(WHATSCANVAS_OPENGL_ES)
 
 // NOTE: This GLX path has NOT been compiled/validated in the current
 // development environment (Windows). Verify on Linux before relying on it.
