@@ -36,11 +36,7 @@ void DrawImageProgram::initialize()
         uniform mat4 uProjection;
         uniform mat4 uTransform;
 
-#ifdef WHATSCANVAS_OPENGL_ES
-        out highp vec2 vUv;
-#else
         out vec2 vUv;
-#endif
         out vec2 vLocalPos;
 
         void main()
@@ -63,11 +59,7 @@ void DrawImageProgram::initialize()
 
     const std::string fragmentSrc = std::string(wsc::opengl::shaderVersionDirective())
         + wsc::opengl::clipMaskFragmentUniforms() + R"(
-#ifdef WHATSCANVAS_OPENGL_ES
-        in highp vec2 vUv;
-#else
         in vec2 vUv;
-#endif
         in vec2 vLocalPos;
 
         uniform sampler2D uTexture;
