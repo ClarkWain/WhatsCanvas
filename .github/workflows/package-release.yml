@@ -21,12 +21,15 @@ jobs:
           - os: windows-2022
             os_id: win64
             config: Release
+            cmake_extra: ''
           - os: ubuntu-latest
             os_id: linux-x64
             config: Release
+            cmake_extra: ''
           - os: macos-latest
             os_id: macos-universal
             config: Release
+            cmake_extra: '-DCMAKE_OSX_ARCHITECTURES=x86_64;arm64'
 
     steps:
       - name: Checkout repository
@@ -63,6 +66,8 @@ jobs:
       - name: Build package on Unix
         if: runner.os != 'Windows'
         shell: bash
+        env:
+          WHATSCANVAS_CMAKE_EXTRA_ARGS: ${{ matrix.cmake_extra }}
         run: |
           chmod +x build.sh
           ./build.sh --release --package --no-run
@@ -102,6 +107,12 @@ jobs:
             throw "Unable to read WhatsCanvas version from CMakeLists.txt"
           }
           $version = $Matches[1]
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            $expectedTag = "v$version"
+            if ($env:GITHUB_REF_NAME -ne $expectedTag) {
+              throw "Tag/version mismatch: ref is '$($env:GITHUB_REF_NAME)', CMake version requires '$expectedTag'"
+            }
+          }
           $configLower = "${{ matrix.config }}".ToLowerInvariant()
           $artifactName = "whatscanvas-${{ matrix.os_id }}-$configLower-$version"
           $archivePath = Join-Path $PWD "$artifactName.zip"
