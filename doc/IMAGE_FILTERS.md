@@ -152,6 +152,13 @@ and an unavailable backdrop filter becomes a no-op.
   filtering, inner-shadow composition, premultiplied translucent layers, layer
   orientation, and cropped gradient/image clipping. Backdrop and inner-shadow
   output are also checked against the Software reference.
+- `WhatsCanvasOpenGLFilterPixelParityTests`,
+  `WhatsCanvasOpenGLESFilterPixelParityTests`, and
+  `WhatsCanvasVulkanFilterPixelParityTests` render the same deterministic
+  zero-grain composite scene and enforce bounded max/mean premultiplied-RGBA
+  error and bad-pixel ratio against Software. Linux CI supplies Mesa GL/EGL and
+  lavapipe contexts, so an unavailable context fails instead of silently
+  skipping.
 - `WhatsCanvasRenderTargetPoolTests` prevents offscreen targets from being
   reused while a deferred filter/composite command still references their
   texture.
@@ -160,8 +167,11 @@ and an unavailable backdrop filter becomes a no-op.
   `filterPixelPassCount`. These counters reset with the frame and make
   expensive glass layouts visible without backend-specific tooling.
 - `WhatsCanvasCoreBenchmarks` includes a repeatable
-  `software_backdrop_blur_320x180_r24` workload. The OpenGL showcase prints the
-  same filter counters for local GPU profiling.
+  `software_backdrop_blur_320x180_r24` workload.
+  `WhatsCanvasImageFilterBenchmarks` measures four overlapping glass panels and
+  24 inner-shadow controls through Software/OpenGL/Vulkan, with structured
+  timing, hash, pass, downsample, and pixel-work output. The OpenGL showcase
+  prints the same counters for visual profiling.
 
 ## Roadmap
 

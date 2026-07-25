@@ -106,6 +106,41 @@ int main()
     if (!pixelIs(pixels, width, width / 2, height / 2, 255, 0, 0, 255, "center red")) return 1;
     if (!pixelIs(pixels, width, 0, 0, 0, 0, 0, 0, "corner clear")) return 1;
 
+    // A full-canvas green quad restricted by a top-left Canvas-space scissor.
+    // ScissorState stores a bottom-left Y for the command stream; the shared
+    // encoder converts it to the top-left convention used by DrawPrimitive and
+    // Vulkan.
+    DrawPathData scissoredData;
+    scissoredData.points = {
+        0.0f, 0.0f, static_cast<float>(width), 0.0f,
+        static_cast<float>(width), static_cast<float>(height),
+        0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height),
+        0.0f, static_cast<float>(height),
+    };
+    scissoredData.color[0] = 0.0f;
+    scissoredData.color[1] = 1.0f;
+    scissoredData.color[2] = 0.0f;
+    scissoredData.color[3] = 1.0f;
+    scissoredData.drawMode = PathDrawMode::Fill;
+    scissoredData.scissor.enabled = true;
+    scissoredData.scissor.x = 10;
+    scissoredData.scissor.y = height - 30;
+    scissoredData.scissor.width = 20;
+    scissoredData.scissor.height = 20;
+    std::vector<std::unique_ptr<Command>> scissoredCommands;
+    scissoredCommands.push_back(std::make_unique<DrawPathCommand>(scissoredData));
+    if (!device.executeCommands(target, scissoredCommands, request)) {
+        std::cerr << "[VulkanCommandTests] FAIL: executeCommands (scissor) returned false." << std::endl;
+        return 1;
+    }
+    if (!device.readPixelsRGBA(width, height, pixels)) {
+        std::cerr << "[VulkanCommandTests] FAIL: scissor readback failed." << std::endl;
+        return 1;
+    }
+    if (!pixelIs(pixels, width, 15, 15, 0, 255, 0, 255, "scissor inside green")) return 1;
+    if (!pixelIs(pixels, width, 5, 15, 0, 0, 0, 0, "scissor left clear")) return 1;
+    if (!pixelIs(pixels, width, 15, 35, 0, 0, 0, 0, "scissor bottom clear")) return 1;
+
     // A points command: a large green point centered on the canvas.
     DrawPointsData pointsData;
     pointsData.points = {static_cast<float>(width) / 2.0f, static_cast<float>(height) / 2.0f};
@@ -246,6 +281,7 @@ int main()
               << "\"." << std::endl;
 
     commands.clear();
+    scissoredCommands.clear();
     pointCommands.clear();
     lineCommands.clear();
     imageData.imageResource.reset();
