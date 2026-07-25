@@ -12,6 +12,13 @@ This directory is the top-level home for WhatsCanvas validation beyond ad-hoc lo
 - `ctest -C Debug -R ^WhatsCanvasTextRegressionTests$ --output-on-failure`: text fallback regression coverage for ASCII, Chinese, mixed Latin/CJK, uncovered codepoints, and declared fallback ranges.
 - `ctest -C Debug -R ^WhatsCanvasRenderStatsTests$ --output-on-failure`: public `Canvas::getRenderStats` diagnostics API coverage, including filter pass, downsample, input-pixel, and pixel-pass accounting.
 - `ctest --test-dir build-vulkan -C Debug -R ^WhatsCanvasVulkanImageFilterTests$ --output-on-failure`: real Vulkan GPU coverage for image/backdrop Gaussian blur, inner-shadow composition and clipping, Clamp/Decal edges, transparent-edge color safety, premultiplied translucent layers, per-axis adaptive downsampling, layer orientation, cropped clip coordinates, render statistics, and Software pixel parity.
+- `WhatsCanvasOpenGLFilterPixelParityTests`,
+  `WhatsCanvasOpenGLESFilterPixelParityTests`, and
+  `WhatsCanvasVulkanFilterPixelParityTests`: render one deterministic composite
+  scene and compare premultiplied RGBA output with the Software reference. The
+  machine-readable `FILTER_PARITY` line reports max/mean error, bad-pixel ratio,
+  worst coordinate/channel, and both hashes. Hosted Linux CI requires real
+  Mesa contexts for GL/GLES and uses lavapipe for the blocking Vulkan baseline.
 - `ctest -C Debug -R ^WhatsCanvasCanvasAdapterTests$ --output-on-failure`: public `CanvasAdapter` state, path, and image-handle coverage.
 - `ctest -C Debug -R ^WhatsCanvasMatrixClipTests$ --output-on-failure`: public matrix mapping, clip bounds, quick reject, and transformed hit-test coverage.
 - `ctest -C Debug -R ^WhatsCanvasPaintStateTests$ --output-on-failure`: public `Paint` state, gradient stop, path effect, color matrix, shadow, sampling, and blend-mode coverage.
@@ -25,7 +32,9 @@ This directory is the top-level home for WhatsCanvas validation beyond ad-hoc lo
 - `scripts/clip_path_smoke.bat` / `scripts/clip_path_smoke.sh`: stacked non-rect `clipPath` smoke gate.
 - `scripts/examples_smoke.bat` / `scripts/examples_smoke.sh`: independent example build gate.
 - `scripts/validation_scene_smoke.bat` / `scripts/validation_scene_smoke.sh`: six-scene render smoke gate covering text, images, gradients/effects, clipping, transforms, and saveLayer.
-- `scripts/opengles_build_smoke.bat` / `scripts/opengles_build_smoke.sh`: OpenGLES-only configure/build smoke gate.
+- `scripts/opengles_build_smoke.bat` / `scripts/opengles_build_smoke.sh`:
+  OpenGLES-only configure/build smoke gate; the shell path also builds the
+  GLES pixel-parity executable that CI runs through EGL/Xvfb.
 - `scripts/regression_smoke.bat` / `scripts/regression_smoke.sh`: strict local pixel-baseline gate.
 - `scripts/text_pixel_regression.bat` / `scripts/text_pixel_regression.sh`: font-only pixel regression for the `font-regression` and `text-showcase` scenes against `tests/baselines/text/*.ppm`; set `WHATSCANVAS_UPDATE_TEXT_BASELINES=1` to refresh baselines, or `WHATSCANVAS_TEXT_REGRESSION_SCENES=font-regression` to narrow the scene list locally.
 - `scripts/compare_ppm_fuzzy.py`: binary P6 PPM comparison helper for driver-sensitive visual baselines.

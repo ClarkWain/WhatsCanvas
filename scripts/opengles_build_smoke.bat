@@ -11,7 +11,9 @@ cmake -S "%ROOT_DIR%" -B "%BUILD_DIR%" ^
     -DWHATSCANVAS_BUILD_OPENGL=OFF ^
     -DWHATSCANVAS_BUILD_OPENGLES=ON ^
     -DWHATSCANVAS_BUILD_DEMO=OFF ^
-    -DBUILD_TESTING=OFF ^
+    -DBUILD_TESTING=ON ^
+    -DWHATSCANVAS_ENABLE_SCRIPT_TESTS=OFF ^
+    -DWHATSCANVAS_BUILD_BENCHMARKS=OFF ^
     -DWHATSCANVAS_INSTALL=OFF
 if not "%ERRORLEVEL%"=="0" (
     echo OPENGLES_BUILD_SMOKE_RESULT=FAIL
@@ -19,7 +21,7 @@ if not "%ERRORLEVEL%"=="0" (
     exit /b 1
 )
 
-cmake --build "%BUILD_DIR%" --target WhatsCanvasOpenGLES --config Debug
+cmake --build "%BUILD_DIR%" --target WhatsCanvasOpenGLESFilterPixelParityTests --config Debug
 if not "%ERRORLEVEL%"=="0" (
     echo OPENGLES_BUILD_SMOKE_RESULT=FAIL
     echo OPENGLES_BUILD_SMOKE_FAILED_STAGE=BUILD

@@ -19,3 +19,18 @@ This directory is reserved for repeatable local and CI benchmark assets.
 `WhatsCanvasCoreBenchmarks` now includes
 `software_backdrop_blur_320x180_r24`, a repeatable real-filter workload that
 reports elapsed time together with filter pass and pixel-pass diagnostics.
+
+`WhatsCanvasImageFilterBenchmarks` is the dedicated end-to-end filter harness.
+It renders four sequentially overlapping frosted-glass panels and a grid of 24
+inner-shadow controls through Software, OpenGL, or Vulkan:
+
+```sh
+./build/WhatsCanvasImageFilterBenchmarks \
+  --backend software --warmup 3 --frames 10 --width 960 --height 540
+```
+
+Every workload emits one `FILTER_BENCHMARK` line containing median, p95, min,
+max, FPS, output hash, filter/pass counts, downsample count, and pixel-work
+metrics. GPU completion is included in OpenGL timings; pixel readback and
+hashing are excluded. CI treats the short Software run as a functional smoke
+test and intentionally does not enforce machine-dependent timing thresholds.
