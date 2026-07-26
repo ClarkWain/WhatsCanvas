@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <thread>
 
 #include <glm/glm.hpp>
 
@@ -13,6 +14,40 @@
 
 namespace wsc::software {
 namespace {
+
+template <typename Function>
+void parallelForRows(int rowCount, std::size_t estimatedWork, Function &&function)
+{
+    constexpr std::size_t kMinParallelWork = 256u * 1024u;
+    constexpr unsigned int kMaxWorkers = 8;
+    const unsigned int hardwareWorkers = std::thread::hardware_concurrency();
+    if (rowCount <= 1 || estimatedWork < kMinParallelWork || hardwareWorkers < 2) {
+        function(0, rowCount);
+        return;
+    }
+
+    const unsigned int workerCount = std::min(
+        {hardwareWorkers, kMaxWorkers, static_cast<unsigned int>(rowCount)});
+    const int rowsPerWorker =
+        (rowCount + static_cast<int>(workerCount) - 1)
+        / static_cast<int>(workerCount);
+    std::vector<std::thread> workers;
+    workers.reserve(workerCount - 1u);
+    for (unsigned int worker = 1; worker < workerCount; ++worker) {
+        const int begin = static_cast<int>(worker) * rowsPerWorker;
+        const int end = std::min(begin + rowsPerWorker, rowCount);
+        if (begin < end) {
+            workers.emplace_back([begin, end, &function]() {
+                function(begin, end);
+            });
+        }
+    }
+
+    function(0, std::min(rowsPerWorker, rowCount));
+    for (std::thread &worker : workers) {
+        worker.join();
+    }
+}
 
 /// CPU-side RGBA8 image. Uploaded images use straight alpha; offscreen layer
 /// captures use premultiplied alpha and are converted by sample().
@@ -66,6 +101,12 @@ public:
     int width() const { return width_; }
     int height() const { return height_; }
     const std::vector<std::uint8_t> &pixels() const { return pixels_; }
+
+    void samplePixel(int x, int y, float out[4]) const
+    {
+        fetch(x, y, out);
+        unpremultiply(out);
+    }
 
     /// Sample straight-alpha RGBA in [0,1] at texture coordinate (u,v).
     /// samplingMode: 0/2 = bilinear, 1 = nearest. tileMode: 0 clamp, 1 repeat,
@@ -177,7 +218,8 @@ private:
 
 inline std::uint8_t toByte(float value)
 {
-    return static_cast<std::uint8_t>(std::lround(std::clamp(value, 0.0f, 1.0f) * 255.0f));
+    const float scaled = std::clamp(value, 0.0f, 1.0f) * 255.0f;
+    return static_cast<std::uint8_t>(scaled + 0.5f);
 }
 
 /// Blend a straight-alpha source over the destination pixel, matching the GL
@@ -189,6 +231,45 @@ inline std::uint8_t toByte(float value)
 inline void blendPixel(std::uint8_t *dst, float sr, float sg, float sb, float sa, DrawBlendMode mode)
 {
     const bool gamma = GammaCorrect::enabled();
+    if (!gamma) {
+        if (mode == DrawBlendMode::Dst) {
+            return;
+        }
+        if (mode == DrawBlendMode::Clear) {
+            dst[0] = dst[1] = dst[2] = dst[3] = 0;
+            return;
+        }
+        if (mode == DrawBlendMode::Src) {
+            dst[0] = toByte(sr);
+            dst[1] = toByte(sg);
+            dst[2] = toByte(sb);
+            dst[3] = toByte(sa);
+            return;
+        }
+        if (mode == DrawBlendMode::SrcOver) {
+            if (sa <= 0.0f) {
+                return;
+            }
+            if (sa >= 1.0f) {
+                dst[0] = toByte(sr);
+                dst[1] = toByte(sg);
+                dst[2] = toByte(sb);
+                dst[3] = 255;
+                return;
+            }
+            const float inverseAlpha = 1.0f - sa;
+            const float dr = dst[0] / 255.0f;
+            const float dg = dst[1] / 255.0f;
+            const float db = dst[2] / 255.0f;
+            const float da = dst[3] / 255.0f;
+            dst[0] = toByte(sr * sa + dr * inverseAlpha);
+            dst[1] = toByte(sg * sa + dg * inverseAlpha);
+            dst[2] = toByte(sb * sa + db * inverseAlpha);
+            dst[3] = toByte(sa + da * inverseAlpha);
+            return;
+        }
+    }
+
     float dr = dst[0] / 255.0f;
     float dg = dst[1] / 255.0f;
     float db = dst[2] / 255.0f;
@@ -450,6 +531,46 @@ struct Vertex
     float coverage;
 };
 
+void compositeImagePixel(std::uint8_t *framebuffer, int width, int px, int py,
+                         const float tex[4], const DrawImageData &data,
+                         const RasterClip &clip)
+{
+    float r = tex[0] * data.tintColor[0];
+    float g = tex[1] * data.tintColor[1];
+    float b = tex[2] * data.tintColor[2];
+    float a = tex[3] * data.tintColor[3] * data.alpha;
+    if (data.hasColorMatrix) {
+        const float *m = data.colorMatrix;
+        const float nr =
+            m[0] * r + m[4] * g + m[8] * b + m[12] * a
+            + data.colorMatrixOffset[0];
+        const float ng =
+            m[1] * r + m[5] * g + m[9] * b + m[13] * a
+            + data.colorMatrixOffset[1];
+        const float nb =
+            m[2] * r + m[6] * g + m[10] * b + m[14] * a
+            + data.colorMatrixOffset[2];
+        const float na =
+            m[3] * r + m[7] * g + m[11] * b + m[15] * a
+            + data.colorMatrixOffset[3];
+        r = std::clamp(nr, 0.0f, 1.0f);
+        g = std::clamp(ng, 0.0f, 1.0f);
+        b = std::clamp(nb, 0.0f, 1.0f);
+        a = std::clamp(na, 0.0f, 1.0f);
+    }
+    const float clipCov = clip.at(px, py);
+    if (clipCov <= 0.0f) {
+        return;
+    }
+    a *= clipCov;
+    if (a <= 0.0f && data.blendMode != DrawBlendMode::Clear) {
+        return;
+    }
+    std::uint8_t *dst =
+        framebuffer + (static_cast<std::size_t>(py) * width + px) * 4u;
+    blendPixel(dst, r, g, b, a, data.blendMode);
+}
+
 /// Rasterize an already-tessellated triangle list. `points` is interleaved x,y
 /// in canvas space; `transform` maps it to device pixels. Per-vertex `colors`
 /// (RGBA) and `coverage` are optional; when absent the uniform color and full
@@ -467,6 +588,8 @@ void rasterizeTriangles(std::uint8_t *framebuffer, int width, int height,
     }
     const bool hasColors = colors.size() >= vertexCount * 4;
     const bool hasCoverage = coverage.size() >= vertexCount;
+    const bool needsBarycentrics =
+        grad.type != 0 || hasColors || hasCoverage;
 
     auto makeVertex = [&](std::size_t index) {
         const glm::vec4 device = transform * glm::vec4(points[index * 2], points[index * 2 + 1], 0.0f, 1.0f);
@@ -530,10 +653,25 @@ void rasterizeTriangles(std::uint8_t *framebuffer, int width, int height,
                 if (!(in0 && in1 && in2)) {
                     continue;
                 }
+                const float clipCov = clip.at(px, py);
+                if (clipCov <= 0.0f) {
+                    continue;
+                }
+                std::uint8_t *dst =
+                    framebuffer
+                    + (static_cast<std::size_t>(py) * width + px) * 4u;
+                if (!needsBarycentrics) {
+                    const float srcA = uniformColor[3] * clipCov;
+                    if (srcA > 0.0f || blendMode == DrawBlendMode::Clear) {
+                        blendPixel(dst, uniformColor[0], uniformColor[1],
+                                   uniformColor[2], srcA, blendMode);
+                    }
+                    continue;
+                }
+
                 const float b0 = e0 * invArea;
                 const float b1 = e1 * invArea;
                 const float b2 = e2 * invArea;
-
                 float r;
                 float g;
                 float bch;
@@ -554,15 +692,10 @@ void rasterizeTriangles(std::uint8_t *framebuffer, int width, int height,
                     a = b0 * v0.a + b1 * v1.a + b2 * v2.a;
                 }
                 const float cov = std::clamp(b0 * v0.coverage + b1 * v1.coverage + b2 * v2.coverage, 0.0f, 1.0f);
-                const float clipCov = clip.at(px, py);
-                if (clipCov <= 0.0f) {
-                    continue;
-                }
                 const float srcA = a * cov * clipCov;
                 if (srcA <= 0.0f && blendMode != DrawBlendMode::Clear) {
                     continue;
                 }
-                std::uint8_t *dst = framebuffer + (static_cast<std::size_t>(py) * width + px) * 4u;
                 blendPixel(dst, r, g, bch, srcA, blendMode);
             }
         }
@@ -678,6 +811,41 @@ void rasterizeImage(std::uint8_t *framebuffer, int width, int height, const Draw
 
     const int samplingMode = static_cast<int>(data.sampling);
     const int tileMode = static_cast<int>(data.tileMode);
+    const float rectWidth = c1.x - c0.x;
+    const float rectHeight = c3.y - c0.y;
+    const bool integerOrigin =
+        c0.x == std::floor(c0.x) && c0.y == std::floor(c0.y);
+    const bool exactAxisAligned =
+        c0.y == c1.y && c1.x == c2.x && c2.y == c3.y && c3.x == c0.x
+        && rectWidth == static_cast<float>(image->width())
+        && rectHeight == static_cast<float>(image->height())
+        && integerOrigin
+        && data.u0 == 0.0f && data.u1 == 1.0f
+        && (data.v0 == 0.0f || data.v0 == 1.0f)
+        && (data.v1 == 0.0f || data.v1 == 1.0f)
+        && data.v0 != data.v1
+        && data.sampling == DrawImageSampling::Linear
+        && data.tileMode == DrawImageTileMode::Clamp;
+    if (exactAxisAligned) {
+        const int left = static_cast<int>(c0.x);
+        const int top = static_cast<int>(c0.y);
+        const int beginX = std::max(left, 0);
+        const int endX = std::min(left + image->width(), width);
+        const int beginY = std::max(top, 0);
+        const int endY = std::min(top + image->height(), height);
+        const bool flipY = data.v0 > data.v1;
+        for (int py = beginY; py < endY; ++py) {
+            const int sourceY =
+                flipY ? image->height() - 1 - (py - top) : py - top;
+            for (int px = beginX; px < endX; ++px) {
+                float tex[4];
+                image->samplePixel(px - left, sourceY, tex);
+                compositeImagePixel(
+                    framebuffer, width, px, py, tex, data, clip);
+            }
+        }
+        return;
+    }
 
     for (int t = 0; t < 6; t += 3) {
         IV v0 = tris[t];
@@ -721,32 +889,8 @@ void rasterizeImage(std::uint8_t *framebuffer, int width, int height, const Draw
                 const float v = b0 * v0.v + b1 * v1.v + b2 * v2.v;
                 float tex[4];
                 image->sample(u, v, samplingMode, tileMode, tex);
-
-                float r = tex[0] * data.tintColor[0];
-                float g = tex[1] * data.tintColor[1];
-                float bch = tex[2] * data.tintColor[2];
-                float a = tex[3] * data.tintColor[3] * data.alpha;
-                if (data.hasColorMatrix) {
-                    const float *m = data.colorMatrix;
-                    const float nr = m[0] * r + m[4] * g + m[8] * bch + m[12] * a + data.colorMatrixOffset[0];
-                    const float ng = m[1] * r + m[5] * g + m[9] * bch + m[13] * a + data.colorMatrixOffset[1];
-                    const float nb = m[2] * r + m[6] * g + m[10] * bch + m[14] * a + data.colorMatrixOffset[2];
-                    const float na = m[3] * r + m[7] * g + m[11] * bch + m[15] * a + data.colorMatrixOffset[3];
-                    r = std::clamp(nr, 0.0f, 1.0f);
-                    g = std::clamp(ng, 0.0f, 1.0f);
-                    bch = std::clamp(nb, 0.0f, 1.0f);
-                    a = std::clamp(na, 0.0f, 1.0f);
-                }
-                const float clipCov = clip.at(px, py);
-                if (clipCov <= 0.0f) {
-                    continue;
-                }
-                a *= clipCov;
-                if (a <= 0.0f && data.blendMode != DrawBlendMode::Clear) {
-                    continue;
-                }
-                std::uint8_t *dst = framebuffer + (static_cast<std::size_t>(py) * width + px) * 4u;
-                blendPixel(dst, r, g, bch, a, data.blendMode);
+                compositeImagePixel(
+                    framebuffer, width, px, py, tex, data, clip);
             }
         }
     }
@@ -815,56 +959,108 @@ void blurRGBA(std::vector<std::uint8_t> &pixels, int width, int height,
     }
 
     const bool decal = tileMode == wsc::ImageFilter::TileMode::Decal;
-    auto accumulate = [&](const std::vector<float> &input, int x, int y, int component,
-                          bool horizontal, const wsc::render::GaussianKernel &kernel) {
-        float sum = input[(static_cast<std::size_t>(y) * width + x) * 4u + component] * kernel.weights[0];
-        for (int i = 1; i <= kernel.radius(); ++i) {
-            int x0 = horizontal ? x - i : x;
-            int x1 = horizontal ? x + i : x;
-            int y0 = horizontal ? y : y - i;
-            int y1 = horizontal ? y : y + i;
-            const bool valid0 = x0 >= 0 && x0 < width && y0 >= 0 && y0 < height;
-            const bool valid1 = x1 >= 0 && x1 < width && y1 >= 0 && y1 < height;
-            if (!decal || valid0) {
-                x0 = std::clamp(x0, 0, width - 1);
-                y0 = std::clamp(y0, 0, height - 1);
-                sum += input[(static_cast<std::size_t>(y0) * width + x0) * 4u + component]
-                     * kernel.weights[static_cast<std::size_t>(i)];
-            }
-            if (!decal || valid1) {
-                x1 = std::clamp(x1, 0, width - 1);
-                y1 = std::clamp(y1, 0, height - 1);
-                sum += input[(static_cast<std::size_t>(y1) * width + x1) * 4u + component]
-                     * kernel.weights[static_cast<std::size_t>(i)];
-            }
-        }
-        return sum;
-    };
+    const int radiusX = kernelX.radius();
+    const int radiusY = kernelY.radius();
+    const std::size_t horizontalWork =
+        static_cast<std::size_t>(width) * static_cast<std::size_t>(height)
+        * static_cast<std::size_t>(std::max(radiusX, 1));
+    parallelForRows(height, horizontalWork, [&](int beginY, int endY) {
+        for (int y = beginY; y < endY; ++y) {
+            const float *sourceRow =
+                source.data() + static_cast<std::size_t>(y) * width * 4u;
+            float *tempRow =
+                temp.data() + static_cast<std::size_t>(y) * width * 4u;
+            for (int x = 0; x < width; ++x) {
+                const float *center = sourceRow + static_cast<std::size_t>(x) * 4u;
+                const float centerWeight = kernelX.weights[0];
+                float sum0 = center[0] * centerWeight;
+                float sum1 = center[1] * centerWeight;
+                float sum2 = center[2] * centerWeight;
+                float sum3 = center[3] * centerWeight;
 
-    for (int y = 0; y < height; ++y) {
-        for (int x = 0; x < width; ++x) {
-            for (int c = 0; c < 4; ++c) {
-                temp[(static_cast<std::size_t>(y) * width + x) * 4u + c] =
-                    accumulate(source, x, y, c, true, kernelX);
+                for (int i = 1; i <= radiusX; ++i) {
+                    const float weight = kernelX.weights[static_cast<std::size_t>(i)];
+                    const int leftX = x - i;
+                    const int rightX = x + i;
+                    if (!decal || leftX >= 0) {
+                        const int sampleX = leftX >= 0 ? leftX : 0;
+                        const float *sample =
+                            sourceRow + static_cast<std::size_t>(sampleX) * 4u;
+                        sum0 += sample[0] * weight;
+                        sum1 += sample[1] * weight;
+                        sum2 += sample[2] * weight;
+                        sum3 += sample[3] * weight;
+                    }
+                    if (!decal || rightX < width) {
+                        const int sampleX = rightX < width ? rightX : width - 1;
+                        const float *sample =
+                            sourceRow + static_cast<std::size_t>(sampleX) * 4u;
+                        sum0 += sample[0] * weight;
+                        sum1 += sample[1] * weight;
+                        sum2 += sample[2] * weight;
+                        sum3 += sample[3] * weight;
+                    }
+                }
+                float *output = tempRow + static_cast<std::size_t>(x) * 4u;
+                output[0] = sum0;
+                output[1] = sum1;
+                output[2] = sum2;
+                output[3] = sum3;
             }
         }
-    }
-    for (int y = 0; y < height; ++y) {
-        for (int x = 0; x < width; ++x) {
-            float output[4] = {};
-            for (int c = 0; c < 4; ++c) {
-                output[c] = accumulate(temp, x, y, c, false, kernelY);
+    });
+
+    const std::size_t verticalWork =
+        static_cast<std::size_t>(width) * static_cast<std::size_t>(height)
+        * static_cast<std::size_t>(std::max(radiusY, 1));
+    parallelForRows(height, verticalWork, [&](int beginY, int endY) {
+        for (int y = beginY; y < endY; ++y) {
+            for (int x = 0; x < width; ++x) {
+                const float *center =
+                    temp.data() + (static_cast<std::size_t>(y) * width + x) * 4u;
+                const float centerWeight = kernelY.weights[0];
+                float sum0 = center[0] * centerWeight;
+                float sum1 = center[1] * centerWeight;
+                float sum2 = center[2] * centerWeight;
+                float sum3 = center[3] * centerWeight;
+
+                for (int i = 1; i <= radiusY; ++i) {
+                    const float weight = kernelY.weights[static_cast<std::size_t>(i)];
+                    const int topY = y - i;
+                    const int bottomY = y + i;
+                    if (!decal || topY >= 0) {
+                        const int sampleY = topY >= 0 ? topY : 0;
+                        const float *sample =
+                            temp.data()
+                            + (static_cast<std::size_t>(sampleY) * width + x) * 4u;
+                        sum0 += sample[0] * weight;
+                        sum1 += sample[1] * weight;
+                        sum2 += sample[2] * weight;
+                        sum3 += sample[3] * weight;
+                    }
+                    if (!decal || bottomY < height) {
+                        const int sampleY = bottomY < height ? bottomY : height - 1;
+                        const float *sample =
+                            temp.data()
+                            + (static_cast<std::size_t>(sampleY) * width + x) * 4u;
+                        sum0 += sample[0] * weight;
+                        sum1 += sample[1] * weight;
+                        sum2 += sample[2] * weight;
+                        sum3 += sample[3] * weight;
+                    }
+                }
+
+                const float alpha = std::clamp(sum3, 0.0f, 1.0f);
+                const float invAlpha = alpha > 1e-6f ? 1.0f / alpha : 0.0f;
+                const std::size_t pixel =
+                    (static_cast<std::size_t>(y) * width + x) * 4u;
+                pixels[pixel] = toByte(sum0 * invAlpha);
+                pixels[pixel + 1u] = toByte(sum1 * invAlpha);
+                pixels[pixel + 2u] = toByte(sum2 * invAlpha);
+                pixels[pixel + 3u] = toByte(alpha);
             }
-            const float alpha = std::clamp(output[3], 0.0f, 1.0f);
-            const float invAlpha = alpha > 1e-6f ? 1.0f / alpha : 0.0f;
-            const std::size_t pixel =
-                (static_cast<std::size_t>(y) * width + x) * 4u;
-            pixels[pixel] = toByte(output[0] * invAlpha);
-            pixels[pixel + 1u] = toByte(output[1] * invAlpha);
-            pixels[pixel + 2u] = toByte(output[2] * invAlpha);
-            pixels[pixel + 3u] = toByte(alpha);
         }
-    }
+    });
 }
 
 void adjustRGBA(std::vector<std::uint8_t> &pixels, const wsc::ImageFilter &filter)
@@ -901,25 +1097,6 @@ void adjustRGBA(std::vector<std::uint8_t> &pixels, const wsc::ImageFilter &filte
     }
 }
 
-float sampleAlphaBilinear(const std::vector<float> &alpha, int width, int height,
-                          float x, float y)
-{
-    const int x0 = static_cast<int>(std::floor(x));
-    const int y0 = static_cast<int>(std::floor(y));
-    const float fx = x - static_cast<float>(x0);
-    const float fy = y - static_cast<float>(y0);
-    auto sample = [&](int sx, int sy) {
-        if (sx < 0 || sx >= width || sy < 0 || sy >= height) {
-            return 0.0f;
-        }
-        return alpha[static_cast<std::size_t>(sy) * width + sx];
-    };
-    const float top = sample(x0, y0) * (1.0f - fx) + sample(x0 + 1, y0) * fx;
-    const float bottom =
-        sample(x0, y0 + 1) * (1.0f - fx) + sample(x0 + 1, y0 + 1) * fx;
-    return top * (1.0f - fy) + bottom * fy;
-}
-
 void applyInnerShadow(std::vector<std::uint8_t> &pixels, int width, int height,
                       const wsc::ImageFilter &filter,
                       ImageAlphaType sourceAlphaType)
@@ -940,33 +1117,50 @@ void applyInnerShadow(std::vector<std::uint8_t> &pixels, int width, int height,
     std::vector<float> temp(sourceAlpha.size(), 0.0f);
     const auto kernelX = wsc::render::computeGaussianKernel(filter.radiusX());
     const auto kernelY = wsc::render::computeGaussianKernel(filter.radiusY());
-    auto sample = [&](const std::vector<float> &buffer, int x, int y) {
-        if (x < 0 || x >= width || y < 0 || y >= height) {
-            return 0.0f;
-        }
-        return buffer[static_cast<std::size_t>(y) * width + x];
-    };
-
     for (int y = 0; y < height; ++y) {
+        const float *sourceRow =
+            sourceAlpha.data() + static_cast<std::size_t>(y) * width;
+        float *tempRow =
+            temp.data() + static_cast<std::size_t>(y) * width;
         for (int x = 0; x < width; ++x) {
-            float sum = sample(sourceAlpha, x, y) * kernelX.weights[0];
+            float sum = sourceRow[x] * kernelX.weights[0];
             for (int i = 1; i <= kernelX.radius(); ++i) {
-                sum += (sample(sourceAlpha, x - i, y)
-                        + sample(sourceAlpha, x + i, y))
-                    * kernelX.weights[static_cast<std::size_t>(i)];
+                const float weight = kernelX.weights[static_cast<std::size_t>(i)];
+                const int leftX = x - i;
+                const int rightX = x + i;
+                float pair = 0.0f;
+                if (leftX >= 0) {
+                    pair += sourceRow[leftX];
+                }
+                if (rightX < width) {
+                    pair += sourceRow[rightX];
+                }
+                sum += pair * weight;
             }
-            temp[static_cast<std::size_t>(y) * width + x] = sum;
+            tempRow[x] = sum;
         }
     }
     for (int y = 0; y < height; ++y) {
+        float *outputRow =
+            sourceAlpha.data() + static_cast<std::size_t>(y) * width;
         for (int x = 0; x < width; ++x) {
-            float sum = sample(temp, x, y) * kernelY.weights[0];
+            float sum =
+                temp[static_cast<std::size_t>(y) * width + x]
+                * kernelY.weights[0];
             for (int i = 1; i <= kernelY.radius(); ++i) {
-                sum += (sample(temp, x, y - i)
-                        + sample(temp, x, y + i))
-                    * kernelY.weights[static_cast<std::size_t>(i)];
+                const float weight = kernelY.weights[static_cast<std::size_t>(i)];
+                const int topY = y - i;
+                const int bottomY = y + i;
+                float pair = 0.0f;
+                if (topY >= 0) {
+                    pair += temp[static_cast<std::size_t>(topY) * width + x];
+                }
+                if (bottomY < height) {
+                    pair += temp[static_cast<std::size_t>(bottomY) * width + x];
+                }
+                sum += pair * weight;
             }
-            sourceAlpha[static_cast<std::size_t>(y) * width + x] = sum;
+            outputRow[x] = sum;
         }
     }
 
@@ -975,6 +1169,35 @@ void applyInnerShadow(std::vector<std::uint8_t> &pixels, int width, int height,
     const float shadowG = shadow.g();
     const float shadowB = shadow.b();
     const float shadowA = shadow.a();
+    const float sampleOffsetX = -filter.offsetX();
+    const float sampleOffsetY = -filter.offsetY();
+    const int sampleBaseX = static_cast<int>(std::floor(sampleOffsetX));
+    const int sampleBaseY = static_cast<int>(std::floor(sampleOffsetY));
+    const float sampleFractionX = sampleOffsetX - static_cast<float>(sampleBaseX);
+    const float sampleFractionY = sampleOffsetY - static_cast<float>(sampleBaseY);
+    const bool integerOffset =
+        sampleFractionX == 0.0f && sampleFractionY == 0.0f;
+    auto sampleShifted = [&](int x, int y) {
+        const int x0 = x + sampleBaseX;
+        const int y0 = y + sampleBaseY;
+        auto sample = [&](int sx, int sy) {
+            if (sx < 0 || sx >= width || sy < 0 || sy >= height) {
+                return 0.0f;
+            }
+            return sourceAlpha[static_cast<std::size_t>(sy) * width + sx];
+        };
+        if (integerOffset) {
+            return sample(x0, y0);
+        }
+        const float top =
+            sample(x0, y0) * (1.0f - sampleFractionX)
+            + sample(x0 + 1, y0) * sampleFractionX;
+        const float bottom =
+            sample(x0, y0 + 1) * (1.0f - sampleFractionX)
+            + sample(x0 + 1, y0 + 1) * sampleFractionX;
+        return top * (1.0f - sampleFractionY)
+            + bottom * sampleFractionY;
+    };
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
             const std::size_t pixelIndex =
@@ -988,10 +1211,7 @@ void applyInnerShadow(std::vector<std::uint8_t> &pixels, int width, int height,
                 continue;
             }
 
-            const float shiftedAlpha = sampleAlphaBilinear(
-                sourceAlpha, width, height,
-                static_cast<float>(x) - filter.offsetX(),
-                static_cast<float>(y) - filter.offsetY());
+            const float shiftedAlpha = sampleShifted(x, y);
             const float coverage =
                 std::clamp((alpha - shiftedAlpha) / alpha, 0.0f, 1.0f)
                 * shadowA;

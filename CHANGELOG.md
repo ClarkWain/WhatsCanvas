@@ -19,6 +19,10 @@ For releases and downloadable artifacts, see the
   reused OpenGL/Vulkan filter targets; reduced the initial portable glyph atlas
   to 2048 x 2048; and removed one full-size floating-point working buffer from
   software blur and inner-shadow rendering.
+- Accelerated the deterministic Software backend with fused RGBA Gaussian
+  sampling, bounded row-parallel blur passes, common blend and solid-raster
+  fast paths, and direct one-to-one layer image sampling without changing
+  regression pixels.
 
 ## [0.1.16] - 2026-07-25
 
