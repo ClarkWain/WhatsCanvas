@@ -804,7 +804,6 @@ void blurRGBA(std::vector<std::uint8_t> &pixels, int width, int height,
     const std::size_t componentCount = static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4u;
     std::vector<float> source(componentCount, 0.0f);
     std::vector<float> temp(componentCount, 0.0f);
-    std::vector<float> output(componentCount, 0.0f);
     for (std::size_t i = 0; i < componentCount; i += 4u) {
         const float alpha = pixels[i + 3u] / 255.0f;
         const float alphaScale =
@@ -852,20 +851,19 @@ void blurRGBA(std::vector<std::uint8_t> &pixels, int width, int height,
     }
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
+            float output[4] = {};
             for (int c = 0; c < 4; ++c) {
-                output[(static_cast<std::size_t>(y) * width + x) * 4u + c] =
-                    accumulate(temp, x, y, c, false, kernelY);
+                output[c] = accumulate(temp, x, y, c, false, kernelY);
             }
+            const float alpha = std::clamp(output[3], 0.0f, 1.0f);
+            const float invAlpha = alpha > 1e-6f ? 1.0f / alpha : 0.0f;
+            const std::size_t pixel =
+                (static_cast<std::size_t>(y) * width + x) * 4u;
+            pixels[pixel] = toByte(output[0] * invAlpha);
+            pixels[pixel + 1u] = toByte(output[1] * invAlpha);
+            pixels[pixel + 2u] = toByte(output[2] * invAlpha);
+            pixels[pixel + 3u] = toByte(alpha);
         }
-    }
-
-    for (std::size_t i = 0; i < componentCount; i += 4u) {
-        const float alpha = std::clamp(output[i + 3u], 0.0f, 1.0f);
-        const float invAlpha = alpha > 1e-6f ? 1.0f / alpha : 0.0f;
-        pixels[i] = toByte(output[i] * invAlpha);
-        pixels[i + 1u] = toByte(output[i + 1u] * invAlpha);
-        pixels[i + 2u] = toByte(output[i + 2u] * invAlpha);
-        pixels[i + 3u] = toByte(alpha);
     }
 }
 
@@ -940,7 +938,6 @@ void applyInnerShadow(std::vector<std::uint8_t> &pixels, int width, int height,
     }
 
     std::vector<float> temp(sourceAlpha.size(), 0.0f);
-    std::vector<float> blurred(sourceAlpha.size(), 0.0f);
     const auto kernelX = wsc::render::computeGaussianKernel(filter.radiusX());
     const auto kernelY = wsc::render::computeGaussianKernel(filter.radiusY());
     auto sample = [&](const std::vector<float> &buffer, int x, int y) {
@@ -969,7 +966,7 @@ void applyInnerShadow(std::vector<std::uint8_t> &pixels, int width, int height,
                         + sample(temp, x, y + i))
                     * kernelY.weights[static_cast<std::size_t>(i)];
             }
-            blurred[static_cast<std::size_t>(y) * width + x] = sum;
+            sourceAlpha[static_cast<std::size_t>(y) * width + x] = sum;
         }
     }
 
@@ -982,7 +979,7 @@ void applyInnerShadow(std::vector<std::uint8_t> &pixels, int width, int height,
         for (int x = 0; x < width; ++x) {
             const std::size_t pixelIndex =
                 (static_cast<std::size_t>(y) * width + x) * 4u;
-            const float alpha = sourceAlpha[pixelIndex / 4u];
+            const float alpha = pixels[pixelIndex + 3u] / 255.0f;
             if (alpha <= 1e-6f) {
                 pixels[pixelIndex] = 0;
                 pixels[pixelIndex + 1u] = 0;
@@ -992,7 +989,7 @@ void applyInnerShadow(std::vector<std::uint8_t> &pixels, int width, int height,
             }
 
             const float shiftedAlpha = sampleAlphaBilinear(
-                blurred, width, height,
+                sourceAlpha, width, height,
                 static_cast<float>(x) - filter.offsetX(),
                 static_cast<float>(y) - filter.offsetY());
             const float coverage =

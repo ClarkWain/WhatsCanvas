@@ -560,6 +560,15 @@ bool runWorkload(BenchmarkContext &context, const Options &options,
               << " downsampledFilterCount=" << stats.downsampledFilterCount
               << " filterInputPixelCount=" << stats.filterInputPixelCount
               << " filterPixelPassCount=" << stats.filterPixelPassCount
+              << " pooledRenderTargetCount=" << stats.pooledRenderTargetCount
+              << " pooledRenderTargetBytes=" << stats.pooledRenderTargetBytes
+              << " renderTargetPoolReuses=" << stats.renderTargetPoolReuseCount
+              << " renderTargetPoolAllocations=" << stats.renderTargetPoolAllocationCount
+              << " renderTargetPoolEvictions=" << stats.renderTargetPoolEvictionCount
+              << " glyphAtlasTextureBytes=" << stats.glyphAtlasTextureBytes
+              << " tessellationCacheBytes=" << stats.tessellationCacheBytes
+              << " strokeCacheBytes=" << stats.strokeCacheBytes
+              << " bitmapTextCacheBytes=" << stats.bitmapTextCacheBytes
               << '\n';
     return true;
 }

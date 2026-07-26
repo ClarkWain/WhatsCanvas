@@ -170,6 +170,14 @@ public:
             return false;
         }
 
+        // A pooled target may previously have been returned as a filtered
+        // straight-alpha image. Offscreen command replay always produces the
+        // backend's canonical bottom-left, premultiplied render-target image.
+        if (auto *image = dynamic_cast<OpenGLImageResource *>(imageResource_.get())) {
+            image->setOrigin(ImageOrigin::BottomLeft);
+            image->setAlphaType(ImageAlphaType::Premultiplied);
+        }
+
         // Lazy mode: only store the request, don't bind FBO yet.
         request_ = request;
         begun_ = true;
@@ -478,6 +486,13 @@ RenderResourceStats OpenGLRenderDevice::resourceStats() const
     RenderResourceStats stats;
     stats.imageTextureCount = g_activeImageTextureResourceCount;
     stats.renderTargetCount = g_activeRenderTargetResourceCount;
+    if (renderTargetPool_) {
+        stats.pooledRenderTargetCount = renderTargetPool_->pooledCount();
+        stats.pooledRenderTargetBytes = renderTargetPool_->pooledBytes();
+        stats.renderTargetPoolReuseCount = renderTargetPool_->reuseCount();
+        stats.renderTargetPoolAllocationCount = renderTargetPool_->allocationCount();
+        stats.renderTargetPoolEvictionCount = renderTargetPool_->evictionCount();
+    }
     return stats;
 }
 
@@ -698,8 +713,13 @@ SharedImageResource OpenGLRenderDevice::filterImageResource(const SharedImageRes
         width, height, filter.radiusX(), filter.radiusY());
     const int blurWidth = (width + downsample.x - 1) / downsample.x;
     const int blurHeight = (height + downsample.y - 1) / downsample.y;
-    std::unique_ptr<IRenderTarget> targetA = createRenderTarget(blurWidth, blurHeight);
-    std::unique_ptr<IRenderTarget> targetB = createRenderTarget(blurWidth, blurHeight);
+    if (!renderTargetPool_) {
+        renderTargetPool_ = std::make_unique<RenderTargetPool>(this);
+    }
+    std::unique_ptr<IRenderTarget> targetA =
+        renderTargetPool_->acquire(blurWidth, blurHeight);
+    std::unique_ptr<IRenderTarget> targetB =
+        renderTargetPool_->acquire(blurWidth, blurHeight);
     auto *glTargetA = dynamic_cast<OpenGLRenderTarget *>(targetA.get());
     auto *glTargetB = dynamic_cast<OpenGLRenderTarget *>(targetB.get());
     if (glTargetA == nullptr || glTargetB == nullptr
@@ -715,7 +735,7 @@ SharedImageResource OpenGLRenderDevice::filterImageResource(const SharedImageRes
     std::unique_ptr<IRenderTarget> restoreTarget;
     OpenGLRenderTarget *glRestoreTarget = nullptr;
     if (downsample.active() || innerShadow) {
-        restoreTarget = createRenderTarget(width, height);
+        restoreTarget = renderTargetPool_->acquire(width, height);
         glRestoreTarget = dynamic_cast<OpenGLRenderTarget *>(restoreTarget.get());
         if (glRestoreTarget == nullptr || !glRestoreTarget->isValid()) {
             return {};
@@ -822,5 +842,9 @@ SharedImageResource OpenGLRenderDevice::filterImageResource(const SharedImageRes
         output->setOrigin(source->origin());
         output->setAlphaType(ImageAlphaType::Straight);
     }
+    renderTargetPool_->release(std::move(targetA));
+    renderTargetPool_->release(std::move(targetB));
+    renderTargetPool_->release(std::move(restoreTarget));
+    renderTargetPool_->expire();
     return result;
 }

@@ -13,23 +13,12 @@ layout(std140, binding = 1) uniform FilterUBO
     vec4 options;              // color adjustment, source premul, output straight, straight resample
     vec4 innerShadow;          // offset xy, enabled, original premultiplied
     vec4 innerShadowColor;
-    vec4 packedWeights[17];    // 65 taps packed into 68 floats
+    vec4 weights[65];          // x stores one directly indexed Gaussian weight
 } ubo;
 
 float weightAt(int index)
 {
-    vec4 packed = ubo.packedWeights[index / 4];
-    int component = index % 4;
-    if (component == 0) {
-        return packed.x;
-    }
-    if (component == 1) {
-        return packed.y;
-    }
-    if (component == 2) {
-        return packed.z;
-    }
-    return packed.w;
+    return ubo.weights[index].x;
 }
 
 vec4 fetchStraightPremultiplied(ivec2 coord, bool decal)
