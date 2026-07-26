@@ -38,11 +38,13 @@ public:
     const std::shared_ptr<ImageResource> &texture() const { return texture_; }
 
     /// Add a sprite (quad) to the batch.
-    /// Each sprite is 6 vertices (2 triangles), each vertex = 2 pos + 2 uv + 4 color = 8 floats.
+    /// Each sprite is 6 vertices (2 triangles). Per-vertex data also carries
+    /// normalized quad coordinates and uniform rounded-clip parameters.
     void add(float x, float y, float width, float height,
              float u0, float v0, float u1, float v1,
              float r, float g, float b, float a,
-             const glm::mat4 &transform = glm::mat4(1.0f));
+             const glm::mat4 &transform = glm::mat4(1.0f),
+             float roundedRadius = 0.0f);
 
     /// Submit all accumulated sprites as a single draw call.
     void flush(RenderContext &context, DrawBlendMode blendMode);
@@ -51,7 +53,7 @@ public:
     void clear();
 
     /// Get the number of sprites in the current batch.
-    std::size_t spriteCount() const { return vertexData_.size() / 48; } // 6 verts * 8 floats
+    std::size_t spriteCount() const { return vertexData_.size() / 78; } // 6 verts * 13 floats
 
     /// Whether the batch has any sprites.
     bool empty() const { return vertexData_.empty(); }

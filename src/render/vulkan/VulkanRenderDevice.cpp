@@ -4933,17 +4933,27 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
             draw.push.layerAlpha = prim.layerAlpha;
             draw.push.sourcePremultiplied =
                 prim.texture->alphaType() == ImageAlphaType::Premultiplied ? 1 : 0;
-            draw.push.useClipMask = clipTex != nullptr ? 1 : 0;
-            draw.push.clipUvScale[0] = clipTex != nullptr
-                ? prim.clipUvScale[0]
-                : 1.0f / static_cast<float>(rt->width());
-            draw.push.clipUvScale[1] = clipTex != nullptr
-                ? prim.clipUvScale[1]
-                : 1.0f / static_cast<float>(rt->height());
-            draw.push.clipUvOffset[0] =
-                clipTex != nullptr ? prim.clipUvOffset[0] : 0.0f;
-            draw.push.clipUvOffset[1] =
-                clipTex != nullptr ? prim.clipUvOffset[1] : 0.0f;
+            if (clipTex != nullptr) {
+                draw.push.useClipMask = 1;
+                draw.push.clipUvScale[0] = prim.clipUvScale[0];
+                draw.push.clipUvScale[1] = prim.clipUvScale[1];
+                draw.push.clipUvOffset[0] = prim.clipUvOffset[0];
+                draw.push.clipUvOffset[1] = prim.clipUvOffset[1];
+            } else if (prim.roundedRadius > 0.0f) {
+                draw.push.useClipMask = 2;
+                draw.push.clipUvScale[0] = prim.roundedRadius;
+                draw.push.clipUvScale[1] = prim.roundedWidth;
+                draw.push.clipUvOffset[0] = prim.roundedHeight;
+                draw.push.clipUvOffset[1] = 0.0f;
+            } else {
+                draw.push.useClipMask = 0;
+                draw.push.clipUvScale[0] =
+                    1.0f / static_cast<float>(rt->width());
+                draw.push.clipUvScale[1] =
+                    1.0f / static_cast<float>(rt->height());
+                draw.push.clipUvOffset[0] = 0.0f;
+                draw.push.clipUvOffset[1] = 0.0f;
+            }
             draw.push.tint[0] = prim.tint[0];
             draw.push.tint[1] = prim.tint[1];
             draw.push.tint[2] = prim.tint[2];
@@ -6082,6 +6092,9 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
             applyPrimitiveScissor(prim, d.scissor);
             prim.texture = d.imageResource;
             prim.layerAlpha = d.alpha;
+            prim.roundedRadius = d.roundedRadius;
+            prim.roundedWidth = d.width;
+            prim.roundedHeight = d.height;
             prim.tint[0] = d.tintColor[0];
             prim.tint[1] = d.tintColor[1];
             prim.tint[2] = d.tintColor[2];
@@ -6178,14 +6191,8 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
             }
             list.push_back(std::move(prim));
         } else if (cmd->type() == Command::Type::Shadow) {
-            // Gaussian drop shadow. Mirrors DrawShadowCommand::execute: render a
-            // white silhouette into an offscreen coverage target, separable
-            // Gaussian blur it, then composite the tinted blurred coverage. The
-            // blur is evaluated on the CPU (identical kernel math to the GL
-            // separable passes) and the composite is expressed as a textured
-            // full-canvas quad -- the textured shader computes
-            // (tint.rgb, coverage * tint.a), exactly the GL composite formula --
-            // so it blends in-order with the rest of the command stream.
+            // Gaussian drop shadow. Render only the silhouette's affected
+            // region, blur it on the GPU, and composite it in stream order.
             const auto *shadowCmd = static_cast<const DrawShadowCommand *>(cmd.get());
             const DrawShadowData &d = shadowCmd->data();
             const int sw = d.canvasWidth;
@@ -6200,15 +6207,89 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
                 continue;
             }
 
-            // 1. Render the white silhouette into an offscreen coverage target.
-            std::unique_ptr<IRenderTarget> covTarget = createRenderTarget(sw, sh);
+            float shadowMinX = static_cast<float>(rt->width());
+            float shadowMinY = static_cast<float>(rt->height());
+            float shadowMaxX = 0.0f;
+            float shadowMaxY = 0.0f;
+            bool hasShadowBounds = false;
+            auto includeShadowPoint =
+                [&](const glm::mat4 &tf, float x, float y) {
+                    float nx = 0.0f;
+                    float ny = 0.0f;
+                    toNdc(tf, x, y, nx, ny);
+                    const float targetX =
+                        (nx + 1.0f) * 0.5f
+                        * static_cast<float>(rt->width());
+                    const float targetY =
+                        (ny + 1.0f) * 0.5f
+                        * static_cast<float>(rt->height());
+                    shadowMinX = std::min(shadowMinX, targetX);
+                    shadowMinY = std::min(shadowMinY, targetY);
+                    shadowMaxX = std::max(shadowMaxX, targetX);
+                    shadowMaxY = std::max(shadowMaxY, targetY);
+                    hasShadowBounds = true;
+                };
+            for (std::size_t i = 0; i < silCount; ++i) {
+                includeShadowPoint(
+                    sil.transform,
+                    sil.points[i * 2 + 0],
+                    sil.points[i * 2 + 1]);
+            }
+            for (const DrawImageData &quad : d.imageSilhouette) {
+                includeShadowPoint(quad.transform, quad.x, quad.y);
+                includeShadowPoint(
+                    quad.transform, quad.x + quad.width, quad.y);
+                includeShadowPoint(
+                    quad.transform,
+                    quad.x + quad.width,
+                    quad.y + quad.height);
+                includeShadowPoint(
+                    quad.transform, quad.x, quad.y + quad.height);
+            }
+            if (!hasShadowBounds) {
+                continue;
+            }
+
+            const int outset =
+                wsc::render::computeGaussianKernel(d.blurRadius).radius() + 1;
+            const int shadowLeft = std::clamp(
+                static_cast<int>(std::floor(shadowMinX)) - outset,
+                0, rt->width());
+            const int shadowTop = std::clamp(
+                static_cast<int>(std::floor(shadowMinY)) - outset,
+                0, rt->height());
+            const int shadowRight = std::clamp(
+                static_cast<int>(std::ceil(shadowMaxX)) + outset,
+                0, rt->width());
+            const int shadowBottom = std::clamp(
+                static_cast<int>(std::ceil(shadowMaxY)) + outset,
+                0, rt->height());
+            const int shadowWidth = shadowRight - shadowLeft;
+            const int shadowHeight = shadowBottom - shadowTop;
+            if (shadowWidth <= 0 || shadowHeight <= 0) {
+                continue;
+            }
+
+            // 1. Render the white silhouette into a cropped coverage target.
+            std::unique_ptr<IRenderTarget> covTarget =
+                createRenderTarget(shadowWidth, shadowHeight);
             if (!covTarget || !covTarget->isValid()) {
                 continue;
             }
             auto toNdcS = [&](const glm::mat4 &tf, float x, float y, float &ox, float &oy) {
-                const glm::vec4 p = tf * glm::vec4(x, y, 0.0f, 1.0f);
-                ox = p.x / static_cast<float>(sw) * 2.0f - 1.0f;
-                oy = p.y / static_cast<float>(sh) * 2.0f - 1.0f;
+                float canvasNdcX = 0.0f;
+                float canvasNdcY = 0.0f;
+                toNdc(tf, x, y, canvasNdcX, canvasNdcY);
+                const float targetX =
+                    (canvasNdcX + 1.0f) * 0.5f
+                        * static_cast<float>(rt->width())
+                    - static_cast<float>(shadowLeft);
+                const float targetY =
+                    (canvasNdcY + 1.0f) * 0.5f
+                        * static_cast<float>(rt->height())
+                    - static_cast<float>(shadowTop);
+                ox = targetX / static_cast<float>(shadowWidth) * 2.0f - 1.0f;
+                oy = targetY / static_cast<float>(shadowHeight) * 2.0f - 1.0f;
             };
             wsc::DrawList silList;
             if (hasImageSilhouette) {
@@ -6270,74 +6351,46 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
                 continue;
             }
 
-            // 2. Read back the silhouette coverage (the alpha channel).
-            std::vector<unsigned char> cov;
-            if (!readPixelsRGBA(sw, sh, cov)) {
-                continue;
-            }
-            const std::size_t pixelCount = static_cast<std::size_t>(sw) * static_cast<std::size_t>(sh);
-
-            // 3. Separable Gaussian blur on the alpha channel (horizontal then
-            //    vertical), edges clamped -- matching the GL CLAMP_TO_EDGE passes.
-            const wsc::render::GaussianKernel kernel = wsc::render::computeGaussianKernel(d.blurRadius);
-            const int radius = kernel.radius();
-            std::vector<float> srcA(pixelCount);
-            for (std::size_t i = 0; i < pixelCount; ++i) {
-                srcA[i] = static_cast<float>(cov[i * 4 + 3]) / 255.0f;
-            }
-            std::vector<float> tmpA(pixelCount, 0.0f);
-            std::vector<float> outA(pixelCount, 0.0f);
-            auto clampi = [](int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); };
-            for (int y = 0; y < sh; ++y) {
-                for (int x = 0; x < sw; ++x) {
-                    float a = srcA[static_cast<std::size_t>(y) * sw + x] * kernel.weights[0];
-                    for (int k = 1; k <= radius; ++k) {
-                        const int xl = clampi(x - k, 0, sw - 1);
-                        const int xr = clampi(x + k, 0, sw - 1);
-                        const float wk = kernel.weights[static_cast<std::size_t>(k)];
-                        a += srcA[static_cast<std::size_t>(y) * sw + xl] * wk;
-                        a += srcA[static_cast<std::size_t>(y) * sw + xr] * wk;
-                    }
-                    tmpA[static_cast<std::size_t>(y) * sw + x] = a;
-                }
-            }
-            for (int y = 0; y < sh; ++y) {
-                for (int x = 0; x < sw; ++x) {
-                    float a = tmpA[static_cast<std::size_t>(y) * sw + x] * kernel.weights[0];
-                    for (int k = 1; k <= radius; ++k) {
-                        const int yt = clampi(y - k, 0, sh - 1);
-                        const int yb = clampi(y + k, 0, sh - 1);
-                        const float wk = kernel.weights[static_cast<std::size_t>(k)];
-                        a += tmpA[static_cast<std::size_t>(yt) * sw + x] * wk;
-                        a += tmpA[static_cast<std::size_t>(yb) * sw + x] * wk;
-                    }
-                    outA[static_cast<std::size_t>(y) * sw + x] = a;
-                }
-            }
-
-            // 4. Upload the blurred coverage as a white-RGB / coverage-alpha texture.
-            std::vector<unsigned char> shadowPixels(pixelCount * 4);
-            for (std::size_t i = 0; i < pixelCount; ++i) {
-                const float a = outA[i] < 0.0f ? 0.0f : (outA[i] > 1.0f ? 1.0f : outA[i]);
-                shadowPixels[i * 4 + 0] = 255;
-                shadowPixels[i * 4 + 1] = 255;
-                shadowPixels[i * 4 + 2] = 255;
-                shadowPixels[i * 4 + 3] = static_cast<unsigned char>(a * 255.0f + 0.5f);
-            }
-            SharedImageResource shadowTex =
-                createSampledTexture(context_.get(), sw, sh, shadowPixels.data(), /*nearest=*/false);
-            if (!shadowTex) {
+            // 2. Keep the separable blur on the GPU. The former path read the
+            //    full coverage image back to the CPU, blurred it there, then
+            //    uploaded another full image for every shadow command.
+            SharedImageResource shadowTex = filterImageResource(
+                covTarget->getImageResource(), shadowWidth, shadowHeight,
+                wsc::ImageFilter::blur(
+                    d.blurRadius, wsc::ImageFilter::TileMode::Clamp));
+            if (!shadowTex || !shadowTex->isValid()) {
                 continue;
             }
 
-            // 5. Composite as a tinted full-canvas textured quad (in stream order).
-            float qnx[4], qny[4];
-            toNdc(glm::mat4(1.0f), 0.0f, 0.0f, qnx[0], qny[0]);
-            toNdc(glm::mat4(1.0f), w, 0.0f, qnx[1], qny[1]);
-            toNdc(glm::mat4(1.0f), w, h, qnx[2], qny[2]);
-            toNdc(glm::mat4(1.0f), 0.0f, h, qnx[3], qny[3]);
+            // 3. Composite the cropped result into its target-space region.
+            const float leftNdc =
+                static_cast<float>(shadowLeft)
+                    / static_cast<float>(rt->width()) * 2.0f
+                - 1.0f;
+            const float rightNdc =
+                static_cast<float>(shadowRight)
+                    / static_cast<float>(rt->width()) * 2.0f
+                - 1.0f;
+            const float topNdc =
+                static_cast<float>(shadowTop)
+                    / static_cast<float>(rt->height()) * 2.0f
+                - 1.0f;
+            const float bottomNdc =
+                static_cast<float>(shadowBottom)
+                    / static_cast<float>(rt->height()) * 2.0f
+                - 1.0f;
+            const float qnx[4] = {
+                leftNdc, rightNdc, rightNdc, leftNdc};
+            const float qny[4] = {
+                topNdc, topNdc, bottomNdc, bottomNdc};
             const float qu[4] = {0.0f, 1.0f, 1.0f, 0.0f};
-            const float qv[4] = {0.0f, 0.0f, 1.0f, 1.0f};
+            const bool flipShadow =
+                shadowTex->origin() == ImageOrigin::BottomLeft;
+            const float qv[4] = {
+                flipShadow ? 1.0f : 0.0f,
+                flipShadow ? 1.0f : 0.0f,
+                flipShadow ? 0.0f : 1.0f,
+                flipShadow ? 0.0f : 1.0f};
             const int qidx[6] = {0, 1, 2, 0, 2, 3};
             wsc::DrawPrimitive prim;
             prim.kind = wsc::DrawPrimitiveKind::TexturedQuad;

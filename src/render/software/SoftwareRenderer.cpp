@@ -6,6 +6,7 @@
 #include <thread>
 
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 #include "command/DrawCommand.h"
 #include "render/GammaCorrect.h"
@@ -533,7 +534,7 @@ struct Vertex
 
 void compositeImagePixel(std::uint8_t *framebuffer, int width, int px, int py,
                          const float tex[4], const DrawImageData &data,
-                         const RasterClip &clip)
+                         const RasterClip &clip, float shapeCoverage = 1.0f)
 {
     float r = tex[0] * data.tintColor[0];
     float g = tex[1] * data.tintColor[1];
@@ -562,13 +563,40 @@ void compositeImagePixel(std::uint8_t *framebuffer, int width, int px, int py,
     if (clipCov <= 0.0f) {
         return;
     }
-    a *= clipCov;
+    a *= clipCov * std::clamp(shapeCoverage, 0.0f, 1.0f);
     if (a <= 0.0f && data.blendMode != DrawBlendMode::Clear) {
         return;
     }
     std::uint8_t *dst =
         framebuffer + (static_cast<std::size_t>(py) * width + px) * 4u;
     blendPixel(dst, r, g, b, a, data.blendMode);
+}
+
+float roundedImageCoverage(
+    const DrawImageData &data, float localX, float localY)
+{
+    if (!data.hasRoundedCorners()) {
+        return 1.0f;
+    }
+    const float halfWidth = data.width * 0.5f;
+    const float halfHeight = data.height * 0.5f;
+    const float radius = std::min(
+        data.roundedRadius, std::min(halfWidth, halfHeight));
+    const float qx =
+        std::abs(localX - (data.x + halfWidth)) - (halfWidth - radius);
+    const float qy =
+        std::abs(localY - (data.y + halfHeight)) - (halfHeight - radius);
+    const float outsideX = std::max(qx, 0.0f);
+    const float outsideY = std::max(qy, 0.0f);
+    const float distanceToEdge =
+        std::sqrt(outsideX * outsideX + outsideY * outsideY)
+        + std::min(std::max(qx, qy), 0.0f) - radius;
+    const float scaleX = std::hypot(data.transform[0][0], data.transform[0][1]);
+    const float scaleY = std::hypot(data.transform[1][0], data.transform[1][1]);
+    const float deviceScale = std::max(0.5f * (scaleX + scaleY), 1e-4f);
+    const float localAaWidth = 1.0f / deviceScale;
+    return std::clamp(
+        0.5f - distanceToEdge / localAaWidth, 0.0f, 1.0f);
 }
 
 /// Rasterize an already-tessellated triangle list. `points` is interleaved x,y
@@ -798,10 +826,12 @@ void rasterizeImage(std::uint8_t *framebuffer, int width, int height, const Draw
         float y;
         float u;
         float v;
+        float localX;
+        float localY;
     };
     auto corner = [&](float cx, float cy, float u, float v) {
         const glm::vec4 d = data.transform * glm::vec4(cx, cy, 0.0f, 1.0f);
-        return IV{d.x, d.y, u, v};
+        return IV{d.x, d.y, u, v, cx, cy};
     };
     const IV c0 = corner(data.x, data.y, data.u0, data.v0);
     const IV c1 = corner(data.x + data.width, data.y, data.u1, data.v0);
@@ -841,7 +871,11 @@ void rasterizeImage(std::uint8_t *framebuffer, int width, int height, const Draw
                 float tex[4];
                 image->samplePixel(px - left, sourceY, tex);
                 compositeImagePixel(
-                    framebuffer, width, px, py, tex, data, clip);
+                    framebuffer, width, px, py, tex, data, clip,
+                    roundedImageCoverage(
+                        data,
+                        static_cast<float>(px - left) + data.x + 0.5f,
+                        static_cast<float>(py - top) + data.y + 0.5f));
             }
         }
         return;
@@ -887,10 +921,15 @@ void rasterizeImage(std::uint8_t *framebuffer, int width, int height, const Draw
                 const float b2 = e2 * invArea;
                 const float u = b0 * v0.u + b1 * v1.u + b2 * v2.u;
                 const float v = b0 * v0.v + b1 * v1.v + b2 * v2.v;
+                const float localX =
+                    b0 * v0.localX + b1 * v1.localX + b2 * v2.localX;
+                const float localY =
+                    b0 * v0.localY + b1 * v1.localY + b2 * v2.localY;
                 float tex[4];
                 image->sample(u, v, samplingMode, tileMode, tex);
                 compositeImagePixel(
-                    framebuffer, width, px, py, tex, data, clip);
+                    framebuffer, width, px, py, tex, data, clip,
+                    roundedImageCoverage(data, localX, localY));
             }
         }
     }
@@ -1245,11 +1284,74 @@ void rasterizeShadow(std::uint8_t *framebuffer, int width, int height, int canva
     if (width <= 0 || height <= 0 || !(data.blurRadius > 0.0f)) {
         return;
     }
-    std::vector<float> alpha(static_cast<std::size_t>(width) * static_cast<std::size_t>(height), 0.0f);
+
+    float minX = static_cast<float>(width);
+    float minY = static_cast<float>(height);
+    float maxX = 0.0f;
+    float maxY = 0.0f;
+    bool hasBounds = false;
+    auto includePoint = [&](const glm::mat4 &transform, float x, float y) {
+        const glm::vec4 point = transform * glm::vec4(x, y, 0.0f, 1.0f);
+        minX = std::min(minX, point.x);
+        minY = std::min(minY, point.y);
+        maxX = std::max(maxX, point.x);
+        maxY = std::max(maxY, point.y);
+        hasBounds = true;
+    };
+
+    const glm::mat4 silhouetteTransform = extra * data.silhouette.transform;
+    for (std::size_t i = 0; i + 1 < data.silhouette.points.size(); i += 2) {
+        includePoint(
+            silhouetteTransform,
+            data.silhouette.points[i],
+            data.silhouette.points[i + 1]);
+    }
+    for (const DrawImageData &quad : data.imageSilhouette) {
+        const glm::mat4 transform = extra * quad.transform;
+        includePoint(transform, quad.x, quad.y);
+        includePoint(transform, quad.x + quad.width, quad.y);
+        includePoint(transform, quad.x + quad.width, quad.y + quad.height);
+        includePoint(transform, quad.x, quad.y + quad.height);
+    }
+    if (!hasBounds) {
+        return;
+    }
+
+    const wsc::render::GaussianKernel kernel =
+        wsc::render::computeGaussianKernel(data.blurRadius);
+    const int outset = kernel.radius() + 1;
+    const int left = std::clamp(
+        static_cast<int>(std::floor(minX)) - outset, 0, width);
+    const int top = std::clamp(
+        static_cast<int>(std::floor(minY)) - outset, 0, height);
+    const int right = std::clamp(
+        static_cast<int>(std::ceil(maxX)) + outset, 0, width);
+    const int bottom = std::clamp(
+        static_cast<int>(std::ceil(maxY)) + outset, 0, height);
+    const int shadowWidth = right - left;
+    const int shadowHeight = bottom - top;
+    if (shadowWidth <= 0 || shadowHeight <= 0) {
+        return;
+    }
+
+    std::vector<float> alpha(
+        static_cast<std::size_t>(shadowWidth)
+            * static_cast<std::size_t>(shadowHeight),
+        0.0f);
+    const glm::mat4 toShadow =
+        glm::translate(
+            glm::mat4(1.0f),
+            glm::vec3(
+                -static_cast<float>(left),
+                -static_cast<float>(top),
+                0.0f))
+        * extra;
 
     if (!data.silhouette.points.empty()) {
-        rasterizeCoverageTriangles(alpha.data(), width, height, data.silhouette.points,
-                                   data.silhouette.coverage, extra * data.silhouette.transform);
+        rasterizeCoverageTriangles(
+            alpha.data(), shadowWidth, shadowHeight,
+            data.silhouette.points, data.silhouette.coverage,
+            toShadow * data.silhouette.transform);
     }
     for (const DrawImageData &quad : data.imageSilhouette) {
         const auto *image = dynamic_cast<const SoftwareImageResource *>(quad.imageResource.get());
@@ -1258,7 +1360,8 @@ void rasterizeShadow(std::uint8_t *framebuffer, int width, int height, int canva
         }
         struct IV { float x; float y; float u; float v; };
         auto corner = [&](float cx, float cy, float u, float v) {
-            const glm::vec4 d = extra * quad.transform * glm::vec4(cx, cy, 0.0f, 1.0f);
+            const glm::vec4 d =
+                toShadow * quad.transform * glm::vec4(cx, cy, 0.0f, 1.0f);
             return IV{d.x, d.y, u, v};
         };
         const IV c0 = corner(quad.x, quad.y, quad.u0, quad.v0);
@@ -1278,9 +1381,9 @@ void rasterizeShadow(std::uint8_t *framebuffer, int width, int height, int canva
             }
             const float invArea = 1.0f / area;
             int minX = std::max(0, static_cast<int>(std::floor(std::min({v0.x, v1.x, v2.x}))));
-            int maxX = std::min(width - 1, static_cast<int>(std::ceil(std::max({v0.x, v1.x, v2.x}))));
+            int maxX = std::min(shadowWidth - 1, static_cast<int>(std::ceil(std::max({v0.x, v1.x, v2.x}))));
             int minY = std::max(0, static_cast<int>(std::floor(std::min({v0.y, v1.y, v2.y}))));
-            int maxY = std::min(height - 1, static_cast<int>(std::ceil(std::max({v0.y, v1.y, v2.y}))));
+            int maxY = std::min(shadowHeight - 1, static_cast<int>(std::ceil(std::max({v0.y, v1.y, v2.y}))));
             for (int py = minY; py <= maxY; ++py) {
                 for (int px = minX; px <= maxX; ++px) {
                     const float sx = px + 0.5f;
@@ -1294,14 +1397,15 @@ void rasterizeShadow(std::uint8_t *framebuffer, int width, int height, int canva
                     float tex[4];
                     image->sample(b0 * v0.u + b1 * v1.u + b2 * v2.u,
                                   b0 * v0.v + b1 * v1.v + b2 * v2.v, samplingMode, tileMode, tex);
-                    float &slot = alpha[static_cast<std::size_t>(py) * width + px];
+                    float &slot =
+                        alpha[static_cast<std::size_t>(py) * shadowWidth + px];
                     slot = std::max(slot, tex[3]);
                 }
             }
         }
     }
 
-    blurAlpha(alpha, width, height, wsc::render::computeGaussianKernel(data.blurRadius));
+    blurAlpha(alpha, shadowWidth, shadowHeight, kernel);
 
     RasterClip clip;
     clip.width = width;
@@ -1315,10 +1419,14 @@ void rasterizeShadow(std::uint8_t *framebuffer, int width, int height, int canva
         clip.sy1 = canvasHeight - data.scissor.y + oy;
     }
 
-    for (int py = 0; py < height; ++py) {
-        for (int px = 0; px < width; ++px) {
-            const float coverage = alpha[static_cast<std::size_t>(py) * width + px];
-            const float srcA = coverage * data.color[3] * clip.at(px, py);
+    for (int localY = 0; localY < shadowHeight; ++localY) {
+        const int py = top + localY;
+        for (int localX = 0; localX < shadowWidth; ++localX) {
+            const int px = left + localX;
+            const float coverage =
+                alpha[static_cast<std::size_t>(localY) * shadowWidth + localX];
+            const float srcA =
+                coverage * data.color[3] * clip.at(px, py);
             if (srcA <= 0.0f) {
                 continue;
             }
