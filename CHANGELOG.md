@@ -23,6 +23,10 @@ For releases and downloadable artifacts, see the
   sampling, bounded row-parallel blur passes, common blend and solid-raster
   fast paths, and direct one-to-one layer image sampling without changing
   regression pixels.
+- Accelerated rounded-image and shadow-heavy scenes with native uniform-rounded
+  shader coverage, OpenGL sprite batching, cropped Software/Vulkan shadow work,
+  GPU-only Vulkan blur, deferred temporary-target reclamation, and batched
+  Vulkan path-shadow silhouette submissions.
 
 ## [0.1.16] - 2026-07-25
 
