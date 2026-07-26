@@ -92,6 +92,9 @@ struct DrawImageData {
     float v0 = 0.0f;
     float u1 = 1.0f;
     float v1 = 1.0f;
+    // Uniform rounded-rectangle clip evaluated directly by image backends.
+    // Complex/non-uniform rounded clips continue to use ClipMaskState.
+    float roundedRadius = 0.0f;
     float tintColor[4] = {1.0f, 1.0f, 1.0f, 1.0f};
     bool hasColorMatrix = false;
     float colorMatrix[16] = {
@@ -127,6 +130,7 @@ struct DrawImageData {
     float gradientStopPositions[kMaxGradientStops] = {};
     float gradientStopColors[kMaxGradientStops * 4] = {};
     bool hasShaderGradient() const { return gradientType != DrawGradientType::None && gradientStopCount > 0; }
+    bool hasRoundedCorners() const { return roundedRadius > 0.0f; }
 };
 
 struct DrawTextData {

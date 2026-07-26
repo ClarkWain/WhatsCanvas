@@ -104,7 +104,7 @@ public:
     }
     SharedImageResource createImageResourceFromImageData(int, int, int, const unsigned char *, bool) const override
     {
-        return {};
+        return std::make_shared<FakeImageResource>();
     }
     bool updateImageResourceRGBA(const SharedImageResource &, int, int, int, int, const unsigned char *, bool) const override
     {
@@ -574,6 +574,66 @@ bool testAsyncReadbackRejectsInvalidState()
     return ok;
 }
 
+bool testUniformRoundedImageUsesNativeCoverage()
+{
+    auto renderer = std::make_unique<FakeRenderer>();
+    FakeRenderer *rawRenderer = renderer.get();
+    std::unique_ptr<wsc::Canvas> canvas =
+        wsc::CanvasLifecycleTestAccess::create(std::move(renderer));
+
+    bool ok = expect(
+        canvas->initializeContext(), "initializeContext should succeed");
+    canvas->setSize(100, 80);
+    const std::vector<unsigned char> pixels(4u * 4u * 4u, 255u);
+    wsc::Image image;
+    ok = expect(
+        image.loadFromRGBA(*canvas, pixels, 4, 4),
+        "test image should load") && ok;
+
+    canvas->drawImageRounded(
+        image, wsc::RectF(10.0f, 12.0f, 60.0f, 40.0f), 9.0f,
+        wsc::Paint());
+    ok = expect(
+        rawRenderer->commands.size() == 1,
+        "uniform rounded image should queue one command") && ok;
+    const auto *imageCommand = rawRenderer->commands.empty()
+        ? nullptr
+        : dynamic_cast<DrawImageCommand *>(
+            rawRenderer->commands.front().get());
+    ok = expect(
+        imageCommand != nullptr,
+        "uniform rounded image should queue DrawImageCommand") && ok;
+    if (imageCommand != nullptr) {
+        ok = expect(
+            near(imageCommand->data().roundedRadius, 9.0f),
+            "uniform radius should be carried by image data") && ok;
+        ok = expect(
+            !imageCommand->data().clipMask.hasPaths(),
+            "native rounded image should not allocate a clip mask") && ok;
+    }
+    ok = expect(
+        rawRenderer->clipMaskResourceCount == 0,
+        "native rounded image should avoid clip-mask resources") && ok;
+
+    rawRenderer->clear();
+    canvas->drawImageRounded(
+        image, wsc::RectF(10.0f, 12.0f, 60.0f, 40.0f),
+        4.0f, 8.0f, 12.0f, 16.0f, wsc::Paint());
+    ok = expect(
+        rawRenderer->commands.size() == 1,
+        "non-uniform rounded image should still queue one image command") && ok;
+    const auto *fallbackCommand = rawRenderer->commands.empty()
+        ? nullptr
+        : dynamic_cast<DrawImageCommand *>(
+            rawRenderer->commands.front().get());
+    ok = expect(
+        fallbackCommand != nullptr
+            && !fallbackCommand->data().hasRoundedCorners()
+            && fallbackCommand->data().clipMask.hasPaths(),
+        "non-uniform radii should retain the clip-mask fallback") && ok;
+    return ok;
+}
+
 bool testContextRecreation()
 {
     auto renderer = std::make_unique<FakeRenderer>();
@@ -609,6 +669,7 @@ int main()
     ok = testGeometryTextGaussianShadowQueuesShadowCommand() && ok;
     ok = testClipPathBuildsAntiAliasedCoverageMask() && ok;
     ok = testGradientQueuesShaderDescriptor() && ok;
+    ok = testUniformRoundedImageUsesNativeCoverage() && ok;
     ok = testAsyncReadbackRejectsInvalidState() && ok;
     ok = testContextRecreation() && ok;
     return ok ? 0 : 1;
