@@ -56,6 +56,11 @@ using SharedClipMaskResource = std::shared_ptr<ClipMaskResource>;
 struct RenderResourceStats {
     std::size_t imageTextureCount = 0;
     std::size_t renderTargetCount = 0;
+    std::size_t pooledRenderTargetCount = 0;
+    std::size_t pooledRenderTargetBytes = 0;
+    std::size_t renderTargetPoolReuseCount = 0;
+    std::size_t renderTargetPoolAllocationCount = 0;
+    std::size_t renderTargetPoolEvictionCount = 0;
 };
 
 struct FilterExecutionStats {

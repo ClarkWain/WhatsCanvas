@@ -96,6 +96,17 @@ struct DrawPrimitive
     /// TexturedQuad: the image sampled across the quad.
     /// ClipFill: the coverage mask; its red channel modulates the fill alpha.
     SharedImageResource texture;
+
+    /// TexturedQuad: optional full-target coverage mask. Its red channel
+    /// modulates the sampled image alpha in backends that support direct
+    /// texture clipping.
+    SharedImageResource clipTexture;
+
+    /// TexturedQuad: maps framebuffer fragment coordinates into `clipTexture`
+    /// UVs. Cropped layer targets use a non-zero offset to retain canvas-space
+    /// clip coordinates.
+    float clipUvScale[2] = {1.0f, 1.0f};
+    float clipUvOffset[2] = {0.0f, 0.0f};
 };
 
 using DrawList = std::vector<DrawPrimitive>;
