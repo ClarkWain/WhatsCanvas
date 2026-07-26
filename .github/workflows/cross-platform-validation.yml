@@ -111,7 +111,7 @@ jobs:
         run: cmake -S . -B build-filter-parity -DCMAKE_BUILD_TYPE=Release -DWHATSCANVAS_BUILD_DEMO=OFF -DWHATSCANVAS_ENABLE_SCRIPT_TESTS=OFF
 
       - name: Build filter parity and benchmark targets
-        run: cmake --build build-filter-parity --config Release --target WhatsCanvasOpenGLFilterPixelParityTests WhatsCanvasImageFilterBenchmarks
+        run: cmake --build build-filter-parity --config Release --target WhatsCanvasOpenGLFilterPixelParityTests WhatsCanvasImageFilterBenchmarks WhatsCanvasPerformanceSuite
 
       - name: OpenGL filter pixel parity on llvmpipe
         run: |
@@ -124,6 +124,16 @@ jobs:
         run: |
           ./build-filter-parity/WhatsCanvasImageFilterBenchmarks \
             --backend software --warmup 1 --frames 2 --width 320 --height 180
+
+      - name: Unified performance suite schema smoke
+        run: |
+          ./build-filter-parity/WhatsCanvasPerformanceSuite \
+            --backend software --profile quick \
+            --scene solid_rects,path_cached,image_grid \
+            --width 320 --height 180 \
+            --output build-filter-parity/performance-smoke.jsonl
+          python3 scripts/compare_performance.py \
+            --validate build-filter-parity/performance-smoke.jsonl
 
   package-consumer:
     runs-on: ubuntu-latest
