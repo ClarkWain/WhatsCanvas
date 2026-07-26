@@ -5907,6 +5907,230 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
         return true;
     };
 
+    struct PendingSolidShadow
+    {
+        const DrawShadowCommand *command = nullptr;
+        std::unique_ptr<IRenderTarget> coverageTarget;
+        VkDeviceSize vertexOffset = 0;
+        std::uint32_t vertexCount = 0;
+    };
+    std::vector<PendingSolidShadow> pendingSolidShadows;
+    std::unordered_map<const DrawShadowCommand *, std::size_t>
+        pendingSolidShadowIndices;
+    std::vector<float> shadowVertices;
+
+    // Path shadows are independent offscreen silhouette passes. Record all of
+    // them into one submission so Vulkan pays one fence wait per command
+    // stream instead of one wait per shadow. Bitmap/glyph silhouettes retain
+    // the general textured fallback below.
+    for (const std::unique_ptr<Command> &command : commands) {
+        if (pendingSolidShadows.size()
+            >= VulkanContext::kMaxFilterJobsInFlight) {
+            break;
+        }
+        if (!command || command->type() != Command::Type::Shadow) {
+            continue;
+        }
+        const auto *shadowCommand =
+            static_cast<const DrawShadowCommand *>(command.get());
+        const DrawShadowData &shadow = shadowCommand->data();
+        const DrawPathData &silhouette = shadow.silhouette;
+        const std::size_t vertexCount = silhouette.getPointCount();
+        if (!shadow.imageSilhouette.empty()
+            || !(shadow.blurRadius > 0.0f)
+            || vertexCount < 3 || (vertexCount % 3) != 0) {
+            continue;
+        }
+
+        float minX = static_cast<float>(rt->width());
+        float minY = static_cast<float>(rt->height());
+        float maxX = 0.0f;
+        float maxY = 0.0f;
+        for (std::size_t i = 0; i < vertexCount; ++i) {
+            float nx = 0.0f;
+            float ny = 0.0f;
+            toNdc(
+                silhouette.transform,
+                silhouette.points[i * 2],
+                silhouette.points[i * 2 + 1],
+                nx, ny);
+            const float targetX =
+                (nx + 1.0f) * 0.5f * static_cast<float>(rt->width());
+            const float targetY =
+                (ny + 1.0f) * 0.5f * static_cast<float>(rt->height());
+            minX = std::min(minX, targetX);
+            minY = std::min(minY, targetY);
+            maxX = std::max(maxX, targetX);
+            maxY = std::max(maxY, targetY);
+        }
+
+        const int outset =
+            wsc::render::computeGaussianKernel(shadow.blurRadius).radius() + 1;
+        const int left = std::clamp(
+            static_cast<int>(std::floor(minX)) - outset, 0, rt->width());
+        const int top = std::clamp(
+            static_cast<int>(std::floor(minY)) - outset, 0, rt->height());
+        const int right = std::clamp(
+            static_cast<int>(std::ceil(maxX)) + outset, 0, rt->width());
+        const int bottom = std::clamp(
+            static_cast<int>(std::ceil(maxY)) + outset, 0, rt->height());
+        const int shadowWidth = right - left;
+        const int shadowHeight = bottom - top;
+        if (shadowWidth <= 0 || shadowHeight <= 0) {
+            continue;
+        }
+        if (!renderTargetPool_) {
+            renderTargetPool_ = std::make_unique<RenderTargetPool>(
+                this, RenderTargetPool::kDefaultMaxPooledBytes, 96u);
+        }
+        std::unique_ptr<IRenderTarget> coverageTarget =
+            renderTargetPool_->acquire(shadowWidth, shadowHeight);
+        if (!coverageTarget || !coverageTarget->isValid()) {
+            continue;
+        }
+
+        PendingSolidShadow pending;
+        pending.command = shadowCommand;
+        pending.coverageTarget = std::move(coverageTarget);
+        pending.vertexOffset =
+            static_cast<VkDeviceSize>(shadowVertices.size()) * sizeof(float);
+        pending.vertexCount = static_cast<std::uint32_t>(vertexCount);
+        const bool hasCoverage =
+            silhouette.coverage.size() == vertexCount;
+        for (std::size_t i = 0; i < vertexCount; ++i) {
+            float canvasNdcX = 0.0f;
+            float canvasNdcY = 0.0f;
+            toNdc(
+                silhouette.transform,
+                silhouette.points[i * 2],
+                silhouette.points[i * 2 + 1],
+                canvasNdcX, canvasNdcY);
+            const float targetX =
+                (canvasNdcX + 1.0f) * 0.5f
+                    * static_cast<float>(rt->width())
+                - static_cast<float>(left);
+            const float targetY =
+                (canvasNdcY + 1.0f) * 0.5f
+                    * static_cast<float>(rt->height())
+                - static_cast<float>(top);
+            shadowVertices.push_back(
+                targetX / static_cast<float>(shadowWidth) * 2.0f - 1.0f);
+            shadowVertices.push_back(
+                targetY / static_cast<float>(shadowHeight) * 2.0f - 1.0f);
+            shadowVertices.push_back(1.0f);
+            shadowVertices.push_back(1.0f);
+            shadowVertices.push_back(1.0f);
+            shadowVertices.push_back(1.0f);
+            shadowVertices.push_back(
+                hasCoverage ? silhouette.coverage[i] : 1.0f);
+        }
+        pendingSolidShadowIndices.emplace(
+            shadowCommand, pendingSolidShadows.size());
+        pendingSolidShadows.push_back(std::move(pending));
+    }
+
+    if (!pendingSolidShadows.empty()) {
+        const VkDeviceSize shadowVertexBytes =
+            static_cast<VkDeviceSize>(shadowVertices.size()) * sizeof(float);
+        bool prepared =
+            context_->ensureDrawVertexCapacity(shadowVertexBytes);
+        std::vector<VulkanRenderTarget *> shadowTargets;
+        std::vector<VkPipeline> shadowPipelines;
+        shadowTargets.reserve(pendingSolidShadows.size());
+        shadowPipelines.reserve(pendingSolidShadows.size());
+        if (prepared) {
+            std::memcpy(
+                context_->drawVertexMapping, shadowVertices.data(),
+                static_cast<std::size_t>(shadowVertexBytes));
+            for (PendingSolidShadow &pending : pendingSolidShadows) {
+                auto *target = dynamic_cast<VulkanRenderTarget *>(
+                    pending.coverageTarget.get());
+                const VkPipeline pipeline =
+                    target != nullptr
+                    ? context_->ensureSolidPipeline(
+                          target->renderPass(),
+                          VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, 0)
+                    : VK_NULL_HANDLE;
+                if (target == nullptr || !target->isValid()
+                    || pipeline == VK_NULL_HANDLE) {
+                    prepared = false;
+                    break;
+                }
+                shadowTargets.push_back(target);
+                shadowPipelines.push_back(pipeline);
+            }
+        }
+
+        VkCommandBuffer shadowCommandBuffer = VK_NULL_HANDLE;
+        if (prepared) {
+            shadowCommandBuffer = context_->beginSingleTimeCommands();
+            prepared = shadowCommandBuffer != VK_NULL_HANDLE;
+        }
+        if (prepared) {
+            for (std::size_t i = 0; i < pendingSolidShadows.size(); ++i) {
+                VulkanRenderTarget *target = shadowTargets[i];
+                VkClearValue clear{};
+                clear.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
+                VkRenderPassBeginInfo pass{};
+                pass.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+                pass.renderPass = target->renderPass();
+                pass.framebuffer = target->framebuffer();
+                pass.renderArea.extent = {
+                    static_cast<std::uint32_t>(target->width()),
+                    static_cast<std::uint32_t>(target->height())};
+                pass.clearValueCount = 1;
+                pass.pClearValues = &clear;
+                vkCmdBeginRenderPass(
+                    shadowCommandBuffer, &pass,
+                    VK_SUBPASS_CONTENTS_INLINE);
+
+                VkViewport viewport{};
+                viewport.width = static_cast<float>(target->width());
+                viewport.height = static_cast<float>(target->height());
+                viewport.maxDepth = 1.0f;
+                vkCmdSetViewport(shadowCommandBuffer, 0, 1, &viewport);
+                VkRect2D scissor{};
+                scissor.extent = {
+                    static_cast<std::uint32_t>(target->width()),
+                    static_cast<std::uint32_t>(target->height())};
+                vkCmdSetScissor(shadowCommandBuffer, 0, 1, &scissor);
+                vkCmdBindPipeline(
+                    shadowCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    shadowPipelines[i]);
+                vkCmdBindVertexBuffers(
+                    shadowCommandBuffer, 0, 1,
+                    &context_->drawVertexBuffer,
+                    &pendingSolidShadows[i].vertexOffset);
+                vkCmdDraw(
+                    shadowCommandBuffer,
+                    pendingSolidShadows[i].vertexCount, 1, 0, 0);
+                vkCmdEndRenderPass(shadowCommandBuffer);
+                VulkanContext::transitionImageLayout(
+                    shadowCommandBuffer, target->image(),
+                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            }
+            prepared =
+                context_->endSingleTimeCommands(shadowCommandBuffer);
+        }
+        if (prepared) {
+            for (VulkanRenderTarget *target : shadowTargets) {
+                target->setLayout(
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                target->markSynchronized();
+            }
+        } else {
+            for (PendingSolidShadow &pending : pendingSolidShadows) {
+                if (auto *target = dynamic_cast<VulkanRenderTarget *>(
+                        pending.coverageTarget.get())) {
+                    target->markSynchronized();
+                }
+            }
+            pendingSolidShadows.clear();
+            pendingSolidShadowIndices.clear();
+        }
+    }
+
     // Translate the real Command stream into backend-neutral primitives.
     for (const std::unique_ptr<Command> &cmd : commands) {
         if (!cmd) {
@@ -6270,85 +6494,102 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
                 continue;
             }
 
-            // 1. Render the white silhouette into a cropped coverage target.
-            std::unique_ptr<IRenderTarget> covTarget =
-                createRenderTarget(shadowWidth, shadowHeight);
+            // 1. Reuse the batched path-silhouette pass when available.
+            // Textured silhouettes continue through the standalone path.
+            std::unique_ptr<IRenderTarget> covTarget;
+            bool silhouetteReady = false;
+            const auto preparedShadow =
+                pendingSolidShadowIndices.find(shadowCmd);
+            if (preparedShadow != pendingSolidShadowIndices.end()) {
+                PendingSolidShadow &pending =
+                    pendingSolidShadows[preparedShadow->second];
+                covTarget = std::move(pending.coverageTarget);
+                silhouetteReady = covTarget != nullptr;
+            }
+            if (!silhouetteReady) {
+                covTarget = createRenderTarget(shadowWidth, shadowHeight);
+            }
             if (!covTarget || !covTarget->isValid()) {
                 continue;
             }
-            auto toNdcS = [&](const glm::mat4 &tf, float x, float y, float &ox, float &oy) {
-                float canvasNdcX = 0.0f;
-                float canvasNdcY = 0.0f;
-                toNdc(tf, x, y, canvasNdcX, canvasNdcY);
-                const float targetX =
-                    (canvasNdcX + 1.0f) * 0.5f
-                        * static_cast<float>(rt->width())
-                    - static_cast<float>(shadowLeft);
-                const float targetY =
-                    (canvasNdcY + 1.0f) * 0.5f
-                        * static_cast<float>(rt->height())
-                    - static_cast<float>(shadowTop);
-                ox = targetX / static_cast<float>(shadowWidth) * 2.0f - 1.0f;
-                oy = targetY / static_cast<float>(shadowHeight) * 2.0f - 1.0f;
-            };
-            wsc::DrawList silList;
-            if (hasImageSilhouette) {
-                // Bitmap / glyph-atlas text: the silhouette is a set of textured
-                // quads whose sampled alpha is the glyph coverage. Draw them so
-                // their alpha accumulates in the coverage target.
-                for (const DrawImageData &gi : d.imageSilhouette) {
-                    if (!gi.imageResource) {
-                        continue;
+            if (!silhouetteReady) {
+                auto toNdcS = [&](const glm::mat4 &tf, float x, float y, float &ox, float &oy) {
+                    float canvasNdcX = 0.0f;
+                    float canvasNdcY = 0.0f;
+                    toNdc(tf, x, y, canvasNdcX, canvasNdcY);
+                    const float targetX =
+                        (canvasNdcX + 1.0f) * 0.5f
+                            * static_cast<float>(rt->width())
+                        - static_cast<float>(shadowLeft);
+                    const float targetY =
+                        (canvasNdcY + 1.0f) * 0.5f
+                            * static_cast<float>(rt->height())
+                        - static_cast<float>(shadowTop);
+                    ox = targetX / static_cast<float>(shadowWidth) * 2.0f - 1.0f;
+                    oy = targetY / static_cast<float>(shadowHeight) * 2.0f - 1.0f;
+                };
+                wsc::DrawList silList;
+                if (hasImageSilhouette) {
+                    // Bitmap / glyph-atlas text: the silhouette is a set of textured
+                    // quads whose sampled alpha is the glyph coverage. Draw them so
+                    // their alpha accumulates in the coverage target.
+                    for (const DrawImageData &gi : d.imageSilhouette) {
+                        if (!gi.imageResource) {
+                            continue;
+                        }
+                        float gnx[4], gny[4];
+                        toNdcS(gi.transform, gi.x, gi.y, gnx[0], gny[0]);
+                        toNdcS(gi.transform, gi.x + gi.width, gi.y, gnx[1], gny[1]);
+                        toNdcS(gi.transform, gi.x + gi.width, gi.y + gi.height, gnx[2], gny[2]);
+                        toNdcS(gi.transform, gi.x, gi.y + gi.height, gnx[3], gny[3]);
+                        const float gu[4] = {gi.u0, gi.u1, gi.u1, gi.u0};
+                        const float gv[4] = {gi.v0, gi.v0, gi.v1, gi.v1};
+                        const int gidx[6] = {0, 1, 2, 0, 2, 3};
+                        wsc::DrawPrimitive gp;
+                        gp.kind = wsc::DrawPrimitiveKind::TexturedQuad;
+                        gp.blendMode = 0; // SrcOver over transparent
+                        gp.texture = gi.imageResource;
+                        gp.layerAlpha = gi.alpha;
+                        gp.tint[0] = 1.0f;
+                        gp.tint[1] = 1.0f;
+                        gp.tint[2] = 1.0f;
+                        gp.tint[3] = 1.0f;
+                        gp.sampling = static_cast<int>(gi.sampling);
+                        gp.tileMode = static_cast<int>(gi.tileMode);
+                        gp.useCustomSampler = true;
+                        gp.positions.reserve(12);
+                        gp.uvs.reserve(12);
+                        for (int k : gidx) {
+                            gp.positions.push_back(gnx[k]);
+                            gp.positions.push_back(gny[k]);
+                            gp.uvs.push_back(gu[k]);
+                            gp.uvs.push_back(gv[k]);
+                        }
+                        silList.push_back(std::move(gp));
                     }
-                    float gnx[4], gny[4];
-                    toNdcS(gi.transform, gi.x, gi.y, gnx[0], gny[0]);
-                    toNdcS(gi.transform, gi.x + gi.width, gi.y, gnx[1], gny[1]);
-                    toNdcS(gi.transform, gi.x + gi.width, gi.y + gi.height, gnx[2], gny[2]);
-                    toNdcS(gi.transform, gi.x, gi.y + gi.height, gnx[3], gny[3]);
-                    const float gu[4] = {gi.u0, gi.u1, gi.u1, gi.u0};
-                    const float gv[4] = {gi.v0, gi.v0, gi.v1, gi.v1};
-                    const int gidx[6] = {0, 1, 2, 0, 2, 3};
-                    wsc::DrawPrimitive gp;
-                    gp.kind = wsc::DrawPrimitiveKind::TexturedQuad;
-                    gp.blendMode = 0; // SrcOver over transparent
-                    gp.texture = gi.imageResource;
-                    gp.layerAlpha = gi.alpha;
-                    gp.tint[0] = 1.0f;
-                    gp.tint[1] = 1.0f;
-                    gp.tint[2] = 1.0f;
-                    gp.tint[3] = 1.0f;
-                    gp.sampling = static_cast<int>(gi.sampling);
-                    gp.tileMode = static_cast<int>(gi.tileMode);
-                    gp.useCustomSampler = true;
-                    gp.positions.reserve(12);
-                    gp.uvs.reserve(12);
-                    for (int k : gidx) {
-                        gp.positions.push_back(gnx[k]);
-                        gp.positions.push_back(gny[k]);
-                        gp.uvs.push_back(gu[k]);
-                        gp.uvs.push_back(gv[k]);
+                } else {
+                    wsc::DrawPrimitive sp;
+                    sp.kind = wsc::DrawPrimitiveKind::SolidTriangles;
+                    sp.blendMode = 0; // SrcOver over the cleared (transparent) target
+                    sp.positions.reserve(silCount * 2);
+                    for (std::size_t i = 0; i < silCount; ++i) {
+                        float nx = 0.0f, ny = 0.0f;
+                        toNdcS(sil.transform, sil.points[i * 2 + 0], sil.points[i * 2 + 1], nx, ny);
+                        sp.positions.push_back(nx);
+                        sp.positions.push_back(ny);
                     }
-                    silList.push_back(std::move(gp));
+                    sp.color[0] = 1.0f;
+                    sp.color[1] = 1.0f;
+                    sp.color[2] = 1.0f;
+                    sp.color[3] = 1.0f;
+                    if (sil.coverage.size() == silCount) {
+                        sp.coverage = sil.coverage;
+                    }
+                    silList.push_back(std::move(sp));
                 }
-            } else {
-                wsc::DrawPrimitive sp;
-                sp.kind = wsc::DrawPrimitiveKind::SolidTriangles;
-                sp.blendMode = 0; // SrcOver over the cleared (transparent) target
-                sp.positions.reserve(silCount * 2);
-                for (std::size_t i = 0; i < silCount; ++i) {
-                    float nx = 0.0f, ny = 0.0f;
-                    toNdcS(sil.transform, sil.points[i * 2 + 0], sil.points[i * 2 + 1], nx, ny);
-                    sp.positions.push_back(nx);
-                    sp.positions.push_back(ny);
+                if (silList.empty() || !executeDrawList(covTarget, silList)) {
+                    continue;
                 }
-                sp.color[0] = 1.0f;
-                sp.color[1] = 1.0f;
-                sp.color[2] = 1.0f;
-                sp.color[3] = 1.0f;
-                silList.push_back(std::move(sp));
-            }
-            if (silList.empty() || !executeDrawList(covTarget, silList)) {
-                continue;
             }
 
             // 2. Keep the separable blur on the GPU. The former path read the
@@ -6361,6 +6602,12 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
             if (!shadowTex || !shadowTex->isValid()) {
                 continue;
             }
+            // The queued blur still samples the coverage image. Keep the
+            // owning render target alive until the next synchronized draw
+            // submission releases all pending filter resources; otherwise
+            // VulkanRenderTarget's safety destructor must wait for the whole
+            // device once per shadow.
+            pendingFilterTargets_.push_back(std::move(covTarget));
 
             // 3. Composite the cropped result into its target-space region.
             const float leftNdc =
