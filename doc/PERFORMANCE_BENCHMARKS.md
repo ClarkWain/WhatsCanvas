@@ -16,6 +16,11 @@ environment metadata instead of presenting one favorable FPS number.
 The complete-frame suite is the primary public benchmark. The smaller targets
 remain useful when a frame regression needs to be localized.
 
+A checked-in [Windows i7-8700 / GTX 1060 reference run](../benchmarks/baselines/windows-i7-8700-gtx1060/README.md)
+demonstrates the complete report format and preserves all raw JSONL records.
+It is a reproducible single-machine baseline, not a universal score or
+cross-library ranking.
+
 ## Standard scene matrix
 
 The default resolution is 960 x 540. Every scene is deterministic and produces

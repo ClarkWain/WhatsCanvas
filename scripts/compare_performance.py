@@ -246,6 +246,7 @@ def environment_label(run: Run) -> str:
     revision = str(metadata.get("commit") or "unknown")[:12]
     return (
         f"{metadata.get('suite')} {metadata.get('version')} @ {revision}; "
+        f"{metadata.get('cpu')}; "
         f"{metadata.get('device')} ({metadata.get('driver')}); "
         f"{metadata.get('build_type')}, {metadata.get('profile')}, "
         f"{metadata.get('width')}x{metadata.get('height')}, "
@@ -257,6 +258,10 @@ def make_summary(runs: list[Run]) -> str:
     indexed = index_results(runs)
     lines = [
         "# WhatsCanvas Performance Summary",
+        "",
+        "This is a reproducible single-machine reference, not a cross-library "
+        "ranking. Compare timing only against runs with matching environment "
+        "metadata.",
         "",
         "## Environments",
         "",

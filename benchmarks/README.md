@@ -36,3 +36,7 @@ PROFILE=standard BACKENDS="software opengl vulkan" \
 See [Performance Benchmarks](../doc/PERFORMANCE_BENCHMARKS.md) for the scene
 matrix, metric definitions, `--summary` report generation, revision comparison,
 and publication rules.
+
+The checked-in
+[Windows i7-8700 / GTX 1060 reference run](baselines/windows-i7-8700-gtx1060/README.md)
+contains the generated report and all 33 raw JSONL records.

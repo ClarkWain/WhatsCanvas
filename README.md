@@ -197,7 +197,7 @@ ctest -C Debug -L smoke --output-on-failure
 - [Shadow Model](doc/SHADOW_MODEL.md)：记录 `Paint::setShadowLayer` 的当前契约、shape/text shadow 边界和后续 box-shadow 方向。
 - [Visual Regression Notes](doc/VISUAL_REGRESSION.md)：记录严格 hash 与 fuzzy PPM comparison 的适用场景和命令。
 - [Blend Mode Audit](doc/BLEND_MODE_AUDIT.md)：记录 `Paint::BlendMode` 到 GL-family blend state 的映射和限制。
-- [Performance Benchmarks](doc/PERFORMANCE_BENCHMARKS.md)：记录统一三后端帧性能套件、11 个标准场景、指标口径、JSONL 结果、版本对比与公开数据规则。
+- [Performance Benchmarks](doc/PERFORMANCE_BENCHMARKS.md)：记录统一三后端帧性能套件、11 个标准场景、指标口径、JSONL 结果、版本对比、公开数据规则与可复现参考基线。
 - [Effect Regression Matrix](doc/EFFECT_REGRESSION_MATRIX.md)：记录 gradients、shadows、blend modes、strokes 和 dashes 的回归覆盖入口。
 - [Polyline2D 互动教学](doc/polyline/polyline2d_interactive_tutorial.html)：适合理解路径描边、网格生成和相关几何细节。
 - [抗锯齿原理与实现互动教学](doc/anti_aliasing/anti_aliasing_interactive_tutorial.html)：适合理解什么是抗锯齿、不同实现方法和 WhatsCanvas 当前做法。
