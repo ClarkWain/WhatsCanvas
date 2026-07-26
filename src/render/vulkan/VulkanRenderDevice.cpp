@@ -18,6 +18,7 @@
 #include <cmath>
 #include <cstring>
 #include <optional>
+#include <unordered_map>
 
 #if defined(_WIN32)
 #define VK_USE_PLATFORM_WIN32_KHR
@@ -115,12 +116,21 @@ struct alignas(16) FilterUBO
     float options[4] = {};
     float innerShadow[4] = {};
     float innerShadowColor[4] = {};
-    float packedWeights[68] = {};
+    float weights[65][4] = {};
 };
-static_assert(sizeof(FilterUBO) == 352, "FilterUBO must match the shader std140 layout");
+static_assert(sizeof(FilterUBO) == 1120, "FilterUBO must match the shader std140 layout");
 
 struct VulkanRenderDevice::VulkanContext
 {
+    struct CachedClipMask
+    {
+        std::weak_ptr<ClipMaskResource> resource;
+        SharedImageResource texture;
+        int width = 0;
+        int height = 0;
+        std::uint64_t lastUse = 0;
+    };
+
     VkInstance instance = VK_NULL_HANDLE;
     VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
     VkDevice device = VK_NULL_HANDLE;
@@ -181,12 +191,18 @@ struct VulkanRenderDevice::VulkanContext
     VkDescriptorSetLayout filterDescriptorSetLayout = VK_NULL_HANDLE;
     VkPipelineLayout filterPipelineLayout = VK_NULL_HANDLE;
     VkPipeline filterPipeline = VK_NULL_HANDLE;
-    static constexpr std::size_t kFilterPassSlotCount = 3;
+    static constexpr std::size_t kFilterPassesPerJob = 3;
+    static constexpr std::size_t kMaxFilterJobsInFlight = 64;
+    static constexpr std::size_t kFilterPassSlotCount =
+        kFilterPassesPerJob * kMaxFilterJobsInFlight;
     VkDescriptorPool filterPassDescriptorPool = VK_NULL_HANDLE;
-    std::array<VkBuffer, kFilterPassSlotCount> filterUniformBuffers{};
-    std::array<VkDeviceMemory, kFilterPassSlotCount> filterUniformMemories{};
-    std::array<void *, kFilterPassSlotCount> filterUniformMappings{};
+    VkBuffer filterUniformBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory filterUniformMemory = VK_NULL_HANDLE;
+    void *filterUniformMapping = nullptr;
     std::array<VkDescriptorSet, kFilterPassSlotCount> filterDescriptorSets{};
+    mutable std::array<VkCommandBuffer, kMaxFilterJobsInFlight>
+        filterCommandBuffers{};
+    mutable std::size_t filterJobCursor = 0;
 
     // Synchronous draw-list execution reuses one persistently mapped vertex
     // upload buffer, one gradient UBO, and one resettable descriptor pool.
@@ -202,6 +218,9 @@ struct VulkanRenderDevice::VulkanContext
     VkDeviceSize drawGradientUniformCapacity = 0;
     VkDescriptorPool drawDescriptorPool = VK_NULL_HANDLE;
     std::uint32_t drawDescriptorCapacity = 0;
+    mutable std::unordered_map<const ClipMaskResource *, CachedClipMask>
+        clipMaskCache;
+    mutable std::uint64_t clipMaskUseSerial = 0;
 
     // Cached samplers keyed by (filter, address mode) for per-draw sampling/tile
     // modes.
@@ -233,11 +252,16 @@ struct VulkanRenderDevice::VulkanContext
 
     void destroy()
     {
+        if (device != VK_NULL_HANDLE) {
+            vkDeviceWaitIdle(device);
+        }
         // Release the external render target first (it owns view/renderpass/
         // framebuffer on this device, but not the host's image).
         externalRenderTarget.reset();
+        // Cached textures own Vulkan images and must be released before the
+        // logical device is destroyed.
+        clipMaskCache.clear();
         if (device != VK_NULL_HANDLE) {
-            vkDeviceWaitIdle(device);
             for (CachedPipeline &entry : pipelineCache) {
                 if (entry.pipeline != VK_NULL_HANDLE) {
                     vkDestroyPipeline(device, entry.pipeline, nullptr);
@@ -359,6 +383,8 @@ struct VulkanRenderDevice::VulkanContext
                 vkDestroyFence(device, immediateFence, nullptr);
                 immediateFence = VK_NULL_HANDLE;
             }
+            filterCommandBuffers.fill(VK_NULL_HANDLE);
+            filterJobCursor = 0;
             immediateCommandBuffer = VK_NULL_HANDLE;
             immediateCommandBufferInUse = false;
             if (commandPool != VK_NULL_HANDLE) {
@@ -667,7 +693,98 @@ struct VulkanRenderDevice::VulkanContext
                 device, 1, &immediateFence, VK_TRUE, UINT64_MAX);
         }
         immediateCommandBufferInUse = false;
+        if (submitResult == VK_SUCCESS && waitResult == VK_SUCCESS) {
+            // Queue ordering guarantees that every earlier asynchronous filter
+            // submission has completed when this fence signals.
+            filterJobCursor = 0;
+        } else {
+            WSC_LOG_ERROR(
+                "VulkanRenderDevice",
+                "Immediate submission failed: submit="
+                    << static_cast<int>(submitResult)
+                    << " wait=" << static_cast<int>(waitResult));
+        }
         return submitResult == VK_SUCCESS && waitResult == VK_SUCCESS;
+    }
+
+    std::optional<std::size_t> reserveFilterJob() const
+    {
+        if (filterJobCursor >= kMaxFilterJobsInFlight) {
+            return std::nullopt;
+        }
+        return filterJobCursor++;
+    }
+
+    void cancelFilterJob(std::size_t jobIndex) const
+    {
+        if (filterJobCursor == jobIndex + 1u) {
+            filterJobCursor = jobIndex;
+        }
+    }
+
+    VkCommandBuffer beginFilterCommands(std::size_t jobIndex) const
+    {
+        if (jobIndex >= kMaxFilterJobsInFlight
+            || device == VK_NULL_HANDLE || commandPool == VK_NULL_HANDLE) {
+            return VK_NULL_HANDLE;
+        }
+        VkCommandBuffer &commandBuffer = filterCommandBuffers[jobIndex];
+        if (commandBuffer == VK_NULL_HANDLE) {
+            VkCommandBufferAllocateInfo allocation{};
+            allocation.sType =
+                VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+            allocation.commandPool = commandPool;
+            allocation.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            allocation.commandBufferCount = 1;
+            if (vkAllocateCommandBuffers(
+                    device, &allocation, &commandBuffer) != VK_SUCCESS) {
+                commandBuffer = VK_NULL_HANDLE;
+                return VK_NULL_HANDLE;
+            }
+        }
+        if (vkResetCommandBuffer(commandBuffer, 0) != VK_SUCCESS) {
+            return VK_NULL_HANDLE;
+        }
+        VkCommandBufferBeginInfo begin{};
+        begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        if (vkBeginCommandBuffer(commandBuffer, &begin) != VK_SUCCESS) {
+            return VK_NULL_HANDLE;
+        }
+        return commandBuffer;
+    }
+
+    bool submitFilterCommands(VkCommandBuffer commandBuffer) const
+    {
+        if (commandBuffer == VK_NULL_HANDLE
+            || vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
+            return false;
+        }
+        VkSubmitInfo submit{};
+        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submit.commandBufferCount = 1;
+        submit.pCommandBuffers = &commandBuffer;
+        const VkResult result =
+            vkQueueSubmit(graphicsQueue, 1, &submit, VK_NULL_HANDLE);
+        if (result != VK_SUCCESS) {
+            WSC_LOG_ERROR(
+                "VulkanRenderDevice",
+                "Async filter submission failed: "
+                    << static_cast<int>(result));
+        }
+        return result == VK_SUCCESS;
+    }
+
+    bool waitForFilterCommands() const
+    {
+        if (filterJobCursor == 0) {
+            return true;
+        }
+        const bool completed = vkQueueWaitIdle(graphicsQueue) == VK_SUCCESS;
+        if (completed) {
+            filterJobCursor = 0;
+        }
+        return completed;
     }
 
     // Broad, synchronous layout transition. Simple and correct for the
@@ -737,26 +854,36 @@ struct VulkanRenderDevice::VulkanContext
         if (device == VK_NULL_HANDLE) {
             return;
         }
-        for (std::size_t i = 0; i < kFilterPassSlotCount; ++i) {
-            if (filterUniformMappings[i] != nullptr
-                && filterUniformMemories[i] != VK_NULL_HANDLE) {
-                vkUnmapMemory(device, filterUniformMemories[i]);
-            }
-            filterUniformMappings[i] = nullptr;
-            if (filterUniformBuffers[i] != VK_NULL_HANDLE) {
-                vkDestroyBuffer(device, filterUniformBuffers[i], nullptr);
-                filterUniformBuffers[i] = VK_NULL_HANDLE;
-            }
-            if (filterUniformMemories[i] != VK_NULL_HANDLE) {
-                vkFreeMemory(device, filterUniformMemories[i], nullptr);
-                filterUniformMemories[i] = VK_NULL_HANDLE;
-            }
-            filterDescriptorSets[i] = VK_NULL_HANDLE;
+        if (filterUniformMapping != nullptr
+            && filterUniformMemory != VK_NULL_HANDLE) {
+            vkUnmapMemory(device, filterUniformMemory);
         }
+        filterUniformMapping = nullptr;
+        if (filterUniformBuffer != VK_NULL_HANDLE) {
+            vkDestroyBuffer(device, filterUniformBuffer, nullptr);
+            filterUniformBuffer = VK_NULL_HANDLE;
+        }
+        if (filterUniformMemory != VK_NULL_HANDLE) {
+            vkFreeMemory(device, filterUniformMemory, nullptr);
+            filterUniformMemory = VK_NULL_HANDLE;
+        }
+        filterDescriptorSets.fill(VK_NULL_HANDLE);
         if (filterPassDescriptorPool != VK_NULL_HANDLE) {
             vkDestroyDescriptorPool(device, filterPassDescriptorPool, nullptr);
             filterPassDescriptorPool = VK_NULL_HANDLE;
         }
+        filterJobCursor = 0;
+    }
+
+    VkDeviceSize filterUniformStride() const
+    {
+        VkPhysicalDeviceProperties properties{};
+        vkGetPhysicalDeviceProperties(physicalDevice, &properties);
+        const VkDeviceSize alignment =
+            std::max<VkDeviceSize>(
+                1u, properties.limits.minUniformBufferOffsetAlignment);
+        return (sizeof(FilterUBO) + alignment - 1u)
+               / alignment * alignment;
     }
 
     bool ensureFilterPassResources()
@@ -790,17 +917,18 @@ struct VulkanRenderDevice::VulkanContext
             return false;
         }
 
-        for (std::size_t i = 0; i < kFilterPassSlotCount; ++i) {
-            if (!createHostVisibleBuffer(
-                    sizeof(FilterUBO), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                    filterUniformBuffers[i], filterUniformMemories[i])
-                || vkMapMemory(
-                       device, filterUniformMemories[i], 0,
-                       sizeof(FilterUBO), 0, &filterUniformMappings[i])
-                    != VK_SUCCESS) {
-                destroyFilterPassResources();
-                return false;
-            }
+        const VkDeviceSize uniformBytes =
+            filterUniformStride()
+            * static_cast<VkDeviceSize>(kFilterPassSlotCount);
+        if (!createHostVisibleBuffer(
+                uniformBytes, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                filterUniformBuffer, filterUniformMemory)
+            || vkMapMemory(
+                   device, filterUniformMemory, 0, uniformBytes, 0,
+                   &filterUniformMapping)
+                != VK_SUCCESS) {
+            destroyFilterPassResources();
+            return false;
         }
 
         std::array<VkDescriptorSetLayout, kFilterPassSlotCount> layouts{};
@@ -1584,7 +1712,8 @@ public:
     VulkanTextureResource(VulkanRenderDevice::VulkanContext *context, VkImage image, VkDeviceMemory memory,
                           VkImageView view, VkSampler sampler, int width, int height, int mipLevels = 1,
                           bool ownsImage = true,
-                          ImageAlphaType alphaType = ImageAlphaType::Straight)
+                          ImageAlphaType alphaType = ImageAlphaType::Straight,
+                          bool countAsImageTexture = true)
         : context_(context),
           image_(image),
           memory_(memory),
@@ -1594,9 +1723,10 @@ public:
           height_(height),
           mipLevels_(mipLevels),
           ownsImage_(ownsImage),
-          alphaType_(alphaType)
+          alphaType_(alphaType),
+          countAsImageTexture_(countAsImageTexture)
     {
-        if (context_) {
+        if (context_ && countAsImageTexture_) {
             ++context_->imageTextureCount;
         }
     }
@@ -1617,7 +1747,7 @@ public:
             if (image_ != VK_NULL_HANDLE) vkDestroyImage(context_->device, image_, nullptr);
             if (memory_ != VK_NULL_HANDLE) vkFreeMemory(context_->device, memory_, nullptr);
         }
-        if (context_->imageTextureCount > 0) {
+        if (countAsImageTexture_ && context_->imageTextureCount > 0) {
             --context_->imageTextureCount;
         }
     }
@@ -1676,6 +1806,7 @@ public:
     int width() const { return width_; }
     int height() const { return height_; }
     VulkanRenderDevice::VulkanContext *context() const { return context_; }
+    void setAlphaType(ImageAlphaType alphaType) { alphaType_ = alphaType; }
 
 private:
     VulkanRenderDevice::VulkanContext *context_ = nullptr;
@@ -1688,6 +1819,7 @@ private:
     int mipLevels_ = 1;
     bool ownsImage_ = true;
     ImageAlphaType alphaType_ = ImageAlphaType::Straight;
+    bool countAsImageTexture_ = true;
 };
 
 // Create an owning sampled RGBA8 texture from tightly-packed pixels.
@@ -2005,7 +2137,8 @@ class VulkanRenderTarget final : public IRenderTarget
 public:
     VulkanRenderTarget(VulkanRenderDevice::VulkanContext *context, int width, int height, VkImage image,
                        VkDeviceMemory memory, VkImageView view, VkRenderPass renderPass, VkFramebuffer framebuffer,
-                       bool ownsImage = true)
+                       bool ownsImage = true,
+                       SharedImageResource imageResource = {})
         : context_(context),
           width_(width),
           height_(height),
@@ -2015,7 +2148,11 @@ public:
           renderPass_(renderPass),
           framebuffer_(framebuffer),
           ownsImage_(ownsImage),
-          imageResource_(std::make_shared<VulkanImageResource>(image, width, height))
+          imageResource_(
+              imageResource
+                  ? std::move(imageResource)
+                  : std::make_shared<VulkanImageResource>(
+                        image, width, height))
     {
         if (context_) {
             ++context_->renderTargetCount;
@@ -2345,12 +2482,20 @@ bool prepareFilterPass(VulkanRenderDevice::VulkanContext *ctx,
     if (innerShadowColor != nullptr) {
         innerShadowColor->getNormalized(uniform.innerShadowColor);
     }
-    std::copy(kernel.weights.begin(), kernel.weights.end(), uniform.packedWeights);
+    for (std::size_t i = 0; i < kernel.weights.size(); ++i) {
+        uniform.weights[i][0] = kernel.weights[i];
+    }
 
-    recording.uniformBuffer = ctx->filterUniformBuffers[slotIndex];
+    const VkDeviceSize uniformOffset =
+        ctx->filterUniformStride()
+        * static_cast<VkDeviceSize>(slotIndex);
+    recording.uniformBuffer = ctx->filterUniformBuffer;
     recording.descriptorSet = ctx->filterDescriptorSets[slotIndex];
+    auto *uniformDestination =
+        static_cast<unsigned char *>(ctx->filterUniformMapping)
+        + uniformOffset;
     std::memcpy(
-        ctx->filterUniformMappings[slotIndex], &uniform, sizeof(FilterUBO));
+        uniformDestination, &uniform, sizeof(FilterUBO));
 
     VkDescriptorImageInfo imageInfo{};
     imageInfo.sampler = sourceSampler;
@@ -2363,6 +2508,7 @@ bool prepareFilterPass(VulkanRenderDevice::VulkanContext *ctx,
     originalImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     VkDescriptorBufferInfo bufferInfo{};
     bufferInfo.buffer = recording.uniformBuffer;
+    bufferInfo.offset = uniformOffset;
     bufferInfo.range = sizeof(FilterUBO);
     std::array<VkWriteDescriptorSet, 3> writes{};
     writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -2425,54 +2571,6 @@ void recordFilterPass(VulkanRenderDevice::VulkanContext *ctx,
                             &recording.descriptorSet, 0, nullptr);
     vkCmdDraw(commandBuffer, 3, 1, 0, 0);
     vkCmdEndRenderPass(commandBuffer);
-}
-
-SharedImageResource copyRenderTargetToSampledTexture(
-    VulkanRenderDevice::VulkanContext *ctx, VulkanRenderTarget *source)
-{
-    if (ctx == nullptr || source == nullptr || !source->isValid()) {
-        return {};
-    }
-    auto destination = createEmptySampledTexture(
-        ctx, source->width(), source->height(),
-        ImageAlphaType::Premultiplied);
-    if (!destination) {
-        return {};
-    }
-
-    VkCommandBuffer commandBuffer = ctx->beginSingleTimeCommands();
-    if (commandBuffer == VK_NULL_HANDLE) {
-        return {};
-    }
-    VulkanRenderDevice::VulkanContext::transitionImageLayout(
-        commandBuffer, destination->image(), VK_IMAGE_LAYOUT_UNDEFINED,
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    // A layout value alone is not a memory dependency. Issue the barrier even
-    // when the render pass already selected TRANSFER_SRC_OPTIMAL so its color
-    // writes are visible to this transfer read.
-    VulkanRenderDevice::VulkanContext::transitionImageLayout(
-        commandBuffer, source->image(), source->layout(),
-        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-
-    VkImageCopy region{};
-    region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    region.srcSubresource.layerCount = 1;
-    region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    region.dstSubresource.layerCount = 1;
-    region.extent = {static_cast<std::uint32_t>(source->width()),
-                     static_cast<std::uint32_t>(source->height()), 1};
-    vkCmdCopyImage(commandBuffer,
-                   source->image(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                   destination->image(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                   1, &region);
-    VulkanRenderDevice::VulkanContext::transitionImageLayout(
-        commandBuffer, destination->image(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    if (!ctx->endSingleTimeCommands(commandBuffer)) {
-        return {};
-    }
-    source->setLayout(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-    return destination;
 }
 
 // Locate a queue family that supports graphics operations.
@@ -2723,6 +2821,7 @@ void VulkanRenderDevice::finalizeBackend()
         if (context_->device != VK_NULL_HANDLE) {
             vkDeviceWaitIdle(context_->device);
         }
+        releasePendingFilterTargets();
         if (renderTargetPool_) {
             renderTargetPool_->clear();
         }
@@ -2731,6 +2830,30 @@ void VulkanRenderDevice::finalizeBackend()
     }
 #endif
     backendInitialized_ = false;
+}
+
+void VulkanRenderDevice::releasePendingFilterTargets() const
+{
+#if defined(WHATSCANVAS_ENABLE_VULKAN)
+    if (pendingFilterTargets_.empty() && pendingFilterImages_.empty()) {
+        return;
+    }
+    if (!renderTargetPool_) {
+        pendingFilterTargets_.clear();
+        pendingFilterImages_.clear();
+        return;
+    }
+    for (std::unique_ptr<IRenderTarget> &target : pendingFilterTargets_) {
+        if (auto *vulkanTarget =
+                dynamic_cast<VulkanRenderTarget *>(target.get())) {
+            vulkanTarget->markSynchronized();
+        }
+        renderTargetPool_->release(std::move(target));
+    }
+    pendingFilterTargets_.clear();
+    pendingFilterImages_.clear();
+    renderTargetPool_->expire();
+#endif
 }
 
 // ---------------------------------------------------------------------------
@@ -3237,12 +3360,16 @@ std::unique_ptr<IRenderTarget> VulkanRenderDevice::createRenderTarget(int width,
     VkImage image = VK_NULL_HANDLE;
     VkDeviceMemory memory = VK_NULL_HANDLE;
     VkImageView view = VK_NULL_HANDLE;
+    VkImageView sampledView = VK_NULL_HANDLE;
+    VkSampler sampler = VK_NULL_HANDLE;
     VkRenderPass renderPass = VK_NULL_HANDLE;
     VkFramebuffer framebuffer = VK_NULL_HANDLE;
 
     auto cleanup = [&]() {
         if (framebuffer != VK_NULL_HANDLE) vkDestroyFramebuffer(device, framebuffer, nullptr);
         if (renderPass != VK_NULL_HANDLE) vkDestroyRenderPass(device, renderPass, nullptr);
+        if (sampler != VK_NULL_HANDLE) vkDestroySampler(device, sampler, nullptr);
+        if (sampledView != VK_NULL_HANDLE) vkDestroyImageView(device, sampledView, nullptr);
         if (view != VK_NULL_HANDLE) vkDestroyImageView(device, view, nullptr);
         if (image != VK_NULL_HANDLE) vkDestroyImage(device, image, nullptr);
         if (memory != VK_NULL_HANDLE) vkFreeMemory(device, memory, nullptr);
@@ -3341,8 +3468,34 @@ std::unique_ptr<IRenderTarget> VulkanRenderDevice::createRenderTarget(int width,
         return nullptr;
     }
 
-    return std::make_unique<VulkanRenderTarget>(context_.get(), width, height, image, memory, view, renderPass,
-                                                framebuffer);
+    viewInfo.image = image;
+    if (vkCreateImageView(device, &viewInfo, nullptr, &sampledView)
+        != VK_SUCCESS) {
+        cleanup();
+        return nullptr;
+    }
+    VkSamplerCreateInfo samplerInfo{};
+    samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    samplerInfo.magFilter = VK_FILTER_LINEAR;
+    samplerInfo.minFilter = VK_FILTER_LINEAR;
+    samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    if (vkCreateSampler(device, &samplerInfo, nullptr, &sampler)
+        != VK_SUCCESS) {
+        cleanup();
+        return nullptr;
+    }
+
+    SharedImageResource imageResource =
+        std::make_shared<VulkanTextureResource>(
+            context_.get(), image, memory, sampledView, sampler,
+            width, height, 1, true, ImageAlphaType::Premultiplied,
+            false);
+    return std::make_unique<VulkanRenderTarget>(
+        context_.get(), width, height, image, VK_NULL_HANDLE, view,
+        renderPass, framebuffer, false, std::move(imageResource));
 #else
     (void)width;
     (void)height;
@@ -4052,6 +4205,7 @@ bool VulkanRenderDevice::renderTexturedQuad(const std::unique_ptr<IRenderTarget>
     if (!submitted) {
         return false;
     }
+    releasePendingFilterTargets();
     rt->setLayout(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     rt->markReadbackReady();
     context_->readbackImage = rt->image();
@@ -4353,27 +4507,28 @@ SharedImageResource VulkanRenderDevice::renderCommandsToImageResource(
     }
 
     if (!renderTargetPool_) {
-        renderTargetPool_ = std::make_unique<RenderTargetPool>(this);
+        renderTargetPool_ = std::make_unique<RenderTargetPool>(
+            this, RenderTargetPool::kDefaultMaxPooledBytes, 96u);
     }
     auto target = renderTargetPool_->acquire(w, h);
     if (!target || !target->isValid()) {
         return nullptr;
     }
-    // Translate + render the command stream, then snapshot the result into an
-    // owning sampled texture the caller can composite later (e.g. saveLayer).
-    if (!executeCommands(target, commands, request)) {
-        renderTargetPool_->release(std::move(target));
-        renderTargetPool_->expire();
-        return nullptr;
-    }
-    auto *renderTarget = dynamic_cast<VulkanRenderTarget *>(target.get());
-    if (renderTarget == nullptr) {
-        renderTargetPool_->release(std::move(target));
-        renderTargetPool_->expire();
-        return nullptr;
-    }
     SharedImageResource result =
-        copyRenderTargetToSampledTexture(context_.get(), renderTarget);
+        createEmptySampledTexture(
+            context_.get(), w, h, ImageAlphaType::Premultiplied);
+    if (!result) {
+        renderTargetPool_->release(std::move(target));
+        renderTargetPool_->expire();
+        return nullptr;
+    }
+    // Render and copy into the owning sampled texture in one queue submission.
+    if (!executeCommandsWithCopy(
+            target, commands, request, result)) {
+        renderTargetPool_->release(std::move(target));
+        renderTargetPool_->expire();
+        return nullptr;
+    }
     renderTargetPool_->release(std::move(target));
     renderTargetPool_->expire();
     return result;
@@ -4414,7 +4569,8 @@ SharedImageResource VulkanRenderDevice::filterImageResource(
     const int blurWidth = (width + downsample.x - 1) / downsample.x;
     const int blurHeight = (height + downsample.y - 1) / downsample.y;
     if (!renderTargetPool_) {
-        renderTargetPool_ = std::make_unique<RenderTargetPool>(this);
+        renderTargetPool_ = std::make_unique<RenderTargetPool>(
+            this, RenderTargetPool::kDefaultMaxPooledBytes, 96u);
     }
     auto targetA = renderTargetPool_->acquire(blurWidth, blurHeight);
     auto targetB = renderTargetPool_->acquire(blurWidth, blurHeight);
@@ -4449,25 +4605,34 @@ SharedImageResource VulkanRenderDevice::filterImageResource(
         }
     }
 
-    auto result = createEmptySampledTexture(context_.get(), width, height);
-    if (!result) {
-        return {};
+    std::optional<std::size_t> filterJob = context_->reserveFilterJob();
+    if (!filterJob.has_value()) {
+        if (!context_->waitForFilterCommands()) {
+            return {};
+        }
+        releasePendingFilterTargets();
+        filterJob = context_->reserveFilterJob();
+        if (!filterJob.has_value()) {
+            return {};
+        }
     }
-
+    const std::size_t slotBase =
+        filterJob.value() * VulkanContext::kFilterPassesPerJob;
     std::array<FilterPassRecording, 3> recordings{};
     if (!prepareFilterPass(
-            context_.get(), 0, passA, input->view(), sampler, kernelX,
+            context_.get(), slotBase, passA, input->view(), sampler, kernelX,
             1.0f / static_cast<float>(blurWidth), 0.0f, decal,
             1.0f, 1.0f, 1.0f, 0.0f, sourcePremultiplied, false,
             downsample.active() && !sourcePremultiplied, recordings[0])
         || !prepareFilterPass(
-            context_.get(), 1, passB, passA->view(), sampler, kernelY,
+            context_.get(), slotBase + 1u, passB, passA->view(), sampler, kernelY,
             0.0f, 1.0f / static_cast<float>(blurHeight), decal,
             !innerShadow && !downsample.active() ? filter.saturation() : 1.0f,
             !innerShadow && !downsample.active() ? filter.brightness() : 1.0f,
             !innerShadow && !downsample.active() ? filter.contrast() : 1.0f,
             !innerShadow && !downsample.active() ? filter.grain() : 0.0f,
             true, !innerShadow && !downsample.active(), false, recordings[1])) {
+        context_->cancelFilterJob(filterJob.value());
         return {};
     }
 
@@ -4476,7 +4641,7 @@ SharedImageResource VulkanRenderDevice::filterImageResource(
         const auto passThrough = wsc::render::computeGaussianKernel(0.0f);
         const wsc::Color shadow = filter.shadowColor();
         if (!prepareFilterPass(
-                context_.get(), 2, restore, passB->view(), sampler, passThrough,
+                context_.get(), slotBase + 2u, restore, passB->view(), sampler, passThrough,
                 0.0f, 0.0f, true,
                 1.0f, 1.0f, 1.0f, 0.0f,
                 true, true, false, recordings[2],
@@ -4484,23 +4649,35 @@ SharedImageResource VulkanRenderDevice::filterImageResource(
                 filter.offsetX() / static_cast<float>(width),
                 filter.offsetY() / static_cast<float>(height),
                 &shadow, sourcePremultiplied)) {
+            context_->cancelFilterJob(filterJob.value());
             return {};
         }
         finalTarget = restore;
     } else if (downsample.active()) {
         const auto passThrough = wsc::render::computeGaussianKernel(0.0f);
         if (!prepareFilterPass(
-                context_.get(), 2, restore, passB->view(), sampler, passThrough,
+                context_.get(), slotBase + 2u, restore, passB->view(), sampler, passThrough,
                 0.0f, 0.0f, decal,
                 filter.saturation(), filter.brightness(), filter.contrast(),
                 filter.grain(), true, true, false, recordings[2])) {
+            context_->cancelFilterJob(filterJob.value());
             return {};
         }
         finalTarget = restore;
     }
+    SharedImageResource result = finalTarget->getImageResource();
+    auto *resultTexture =
+        dynamic_cast<VulkanTextureResource *>(result.get());
+    if (resultTexture == nullptr || !resultTexture->isValid()) {
+        context_->cancelFilterJob(filterJob.value());
+        return {};
+    }
+    resultTexture->setAlphaType(ImageAlphaType::Straight);
 
-    VkCommandBuffer commandBuffer = context_->beginSingleTimeCommands();
+    VkCommandBuffer commandBuffer =
+        context_->beginFilterCommands(filterJob.value());
     if (commandBuffer == VK_NULL_HANDLE) {
+        context_->cancelFilterJob(filterJob.value());
         return {};
     }
 
@@ -4516,48 +4693,25 @@ SharedImageResource VulkanRenderDevice::filterImageResource(
         recordFilterPass(context_.get(), commandBuffer, restore, recordings[2]);
     }
 
-    // The final render pass already selected TRANSFER_SRC_OPTIMAL. Keep the
-    // layout but add the required color-write to transfer-read dependency.
+    // The final render target is itself an owning sampled texture. Transition
+    // it directly for consumers instead of allocating and copying a second
+    // VkImage for every filter result.
     VulkanContext::transitionImageLayout(
         commandBuffer, finalTarget->image(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-    VulkanContext::transitionImageLayout(
-        commandBuffer, result->image(), VK_IMAGE_LAYOUT_UNDEFINED,
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    VkImageCopy copy{};
-    copy.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    copy.srcSubresource.layerCount = 1;
-    copy.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    copy.dstSubresource.layerCount = 1;
-    copy.extent = {static_cast<std::uint32_t>(width),
-                   static_cast<std::uint32_t>(height), 1};
-    vkCmdCopyImage(
-        commandBuffer,
-        finalTarget->image(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-        result->image(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        1, &copy);
-    VulkanContext::transitionImageLayout(
-        commandBuffer, result->image(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
-    const bool submitted = context_->endSingleTimeCommands(commandBuffer);
+    const bool submitted = context_->submitFilterCommands(commandBuffer);
     if (!submitted) {
+        context_->cancelFilterJob(filterJob.value());
         return {};
-    }
-    passA->markSynchronized();
-    passB->markSynchronized();
-    if (restore != nullptr) {
-        restore->markSynchronized();
     }
     if (!result->isValid()) {
         return {};
     }
     passA->setLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    passB->setLayout(
-        restore != nullptr ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-                           : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    passB->setLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     if (restore != nullptr) {
-        restore->setLayout(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        restore->setLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     }
     if (executionStats != nullptr) {
         executionStats->passCount =
@@ -4570,10 +4724,13 @@ SharedImageResource VulkanRenderDevice::filterImageResource(
                 : 0u);
         executionStats->downsampled = downsample.active();
     }
-    renderTargetPool_->release(std::move(targetA));
-    renderTargetPool_->release(std::move(targetB));
-    renderTargetPool_->release(std::move(restoreTarget));
-    renderTargetPool_->expire();
+    pendingFilterTargets_.push_back(std::move(targetA));
+    pendingFilterTargets_.push_back(std::move(targetB));
+    if (restoreTarget) {
+        pendingFilterTargets_.push_back(std::move(restoreTarget));
+    }
+    pendingFilterImages_.push_back(source);
+    pendingFilterImages_.push_back(result);
     return result;
 #else
     (void)source;
@@ -4587,12 +4744,30 @@ SharedImageResource VulkanRenderDevice::filterImageResource(
 bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &target,
                                          const wsc::DrawList &drawList) const
 {
+    return executeDrawListWithCopy(target, drawList, {});
+}
+
+bool VulkanRenderDevice::executeDrawListWithCopy(
+    const std::unique_ptr<IRenderTarget> &target,
+    const wsc::DrawList &drawList,
+    const SharedImageResource &copyDestination) const
+{
 #if defined(WHATSCANVAS_ENABLE_VULKAN)
     if (!context_ || !context_->deviceReady || !target || drawList.empty()) {
         return false;
     }
     auto *rt = dynamic_cast<VulkanRenderTarget *>(target.get());
     if (rt == nullptr || !rt->isValid()) {
+        return false;
+    }
+    auto *copyTexture = copyDestination
+                            ? dynamic_cast<VulkanTextureResource *>(
+                                  copyDestination.get())
+                            : nullptr;
+    if (copyDestination
+        && (copyTexture == nullptr || !copyTexture->isValid()
+            || copyTexture->width() != rt->width()
+            || copyTexture->height() != rt->height())) {
         return false;
     }
 
@@ -4969,11 +5144,15 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
     }
 
     if (!ok) {
+        WSC_LOG_ERROR("VulkanRenderDevice",
+                      "Draw-list preparation failed.");
         return false;
     }
     const VkDeviceSize vertexBytes =
         static_cast<VkDeviceSize>(vertexUpload.size()) * sizeof(float);
     if (!context_->ensureDrawVertexCapacity(vertexBytes)) {
+        WSC_LOG_ERROR("VulkanRenderDevice",
+                      "Draw vertex upload allocation failed.");
         return false;
     }
     std::memcpy(
@@ -5044,12 +5223,41 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
         }
 
         vkCmdEndRenderPass(cmd);
+        if (copyTexture != nullptr) {
+            VulkanContext::transitionImageLayout(
+                cmd, rt->image(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+            VulkanContext::transitionImageLayout(
+                cmd, copyTexture->image(), VK_IMAGE_LAYOUT_UNDEFINED,
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+            VkImageCopy region{};
+            region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            region.srcSubresource.layerCount = 1;
+            region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            region.dstSubresource.layerCount = 1;
+            region.extent = {
+                static_cast<std::uint32_t>(rt->width()),
+                static_cast<std::uint32_t>(rt->height()), 1};
+            vkCmdCopyImage(
+                cmd, rt->image(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                copyTexture->image(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                1, &region);
+            VulkanContext::transitionImageLayout(
+                cmd, copyTexture->image(),
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        }
         submitted = context_->endSingleTimeCommands(cmd);
     }
 
     if (!submitted) {
+        WSC_LOG_ERROR(
+            "VulkanRenderDevice",
+            "Draw-list submission failed; commandBuffer="
+                << (cmd != VK_NULL_HANDLE));
         return false;
     }
+    releasePendingFilterTargets();
     rt->setLayout(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     rt->markReadbackReady();
     context_->readbackImage = rt->image();
@@ -5060,6 +5268,7 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
 #else
     (void)target;
     (void)drawList;
+    (void)copyDestination;
     return false;
 #endif
 }
@@ -5067,6 +5276,15 @@ bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &t
 bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &target,
                                          const std::vector<std::unique_ptr<Command>> &commands,
                                          const OffscreenRenderRequest &request) const
+{
+    return executeCommandsWithCopy(target, commands, request, {});
+}
+
+bool VulkanRenderDevice::executeCommandsWithCopy(
+    const std::unique_ptr<IRenderTarget> &target,
+    const std::vector<std::unique_ptr<Command>> &commands,
+    const OffscreenRenderRequest &request,
+    const SharedImageResource &copyDestination) const
 {
 #if defined(WHATSCANVAS_ENABLE_VULKAN)
     if (!context_ || !context_->deviceReady) {
@@ -5182,6 +5400,14 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
     // Backend-neutral primitives accumulated for this command stream. Declared
     // before the clip helpers so `emitClippedLayer` can append its composite.
     wsc::DrawList list;
+    struct PendingClipMaskJob
+    {
+        std::unique_ptr<IRenderTarget> target;
+        wsc::DrawPrimitive primitive;
+        SharedImageResource destination;
+        const ClipMaskResource *cacheKey = nullptr;
+    };
+    std::vector<PendingClipMaskJob> pendingClipMasks;
 
     const int maskW = static_cast<int>(w);
     const int maskH = static_cast<int>(h);
@@ -5196,10 +5422,27 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
         if (maskW <= 0 || maskH <= 0 || clip.resources.size() != 1) {
             return {};
         }
+        const SharedClipMaskResource &clipResource = clip.resources.front();
         auto *cmr =
-            dynamic_cast<VulkanClipMaskResource *>(clip.resources.front().get());
+            dynamic_cast<VulkanClipMaskResource *>(clipResource.get());
         if (cmr == nullptr || !cmr->isValid()) {
             return {};
+        }
+        auto &cache = context_->clipMaskCache;
+        const std::uint64_t useSerial = ++context_->clipMaskUseSerial;
+        auto cached = cache.find(clipResource.get());
+        if (cached != cache.end()) {
+            const SharedClipMaskResource liveResource =
+                cached->second.resource.lock();
+            if (liveResource.get() == clipResource.get()
+                && cached->second.width == maskW
+                && cached->second.height == maskH
+                && cached->second.texture
+                && cached->second.texture->isValid()) {
+                cached->second.lastUse = useSerial;
+                return cached->second.texture;
+            }
+            cache.erase(cached);
         }
         const std::vector<float> &pts = cmr->points();
         const std::vector<float> &cov = cmr->coverage();
@@ -5208,7 +5451,8 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
             return {};
         }
         if (!renderTargetPool_) {
-            renderTargetPool_ = std::make_unique<RenderTargetPool>(this);
+            renderTargetPool_ = std::make_unique<RenderTargetPool>(
+                this, RenderTargetPool::kDefaultMaxPooledBytes, 96u);
         }
         std::unique_ptr<IRenderTarget> target =
             renderTargetPool_->acquire(maskW, maskH);
@@ -5232,18 +5476,212 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
             maskPrimitive.coverage = cov;
         }
 
-        wsc::DrawList maskList;
-        maskList.push_back(std::move(maskPrimitive));
-        SharedImageResource result;
-        if (executeDrawList(target, maskList)) {
-            auto *vulkanTarget =
-                dynamic_cast<VulkanRenderTarget *>(target.get());
-            result = copyRenderTargetToSampledTexture(context_.get(),
-                                                       vulkanTarget);
+        SharedImageResource result =
+            createEmptySampledTexture(
+                context_.get(), maskW, maskH,
+                ImageAlphaType::Premultiplied);
+        if (result) {
+            constexpr std::size_t kMaxCachedClipMasks = 64;
+            for (auto it = cache.begin(); it != cache.end();) {
+                if (it->second.resource.expired()) {
+                    it = cache.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+            if (cache.size() >= kMaxCachedClipMasks) {
+                auto oldest = std::min_element(
+                    cache.begin(), cache.end(),
+                    [](const auto &a, const auto &b) {
+                        return a.second.lastUse < b.second.lastUse;
+                    });
+                if (oldest != cache.end()) {
+                    cache.erase(oldest);
+                }
+            }
+            VulkanContext::CachedClipMask entry;
+            entry.resource = clipResource;
+            entry.texture = result;
+            entry.width = maskW;
+            entry.height = maskH;
+            entry.lastUse = useSerial;
+            cache[clipResource.get()] = std::move(entry);
+
+            PendingClipMaskJob job;
+            job.target = std::move(target);
+            job.primitive = std::move(maskPrimitive);
+            job.destination = result;
+            job.cacheKey = clipResource.get();
+            pendingClipMasks.push_back(std::move(job));
         }
-        renderTargetPool_->release(std::move(target));
-        renderTargetPool_->expire();
         return result;
+    };
+
+    auto flushPendingClipMasks = [&]() -> bool {
+        if (pendingClipMasks.empty()) {
+            return true;
+        }
+
+        std::vector<float> vertices;
+        std::vector<VkDeviceSize> offsets;
+        std::vector<std::uint32_t> vertexCounts;
+        offsets.reserve(pendingClipMasks.size());
+        vertexCounts.reserve(pendingClipMasks.size());
+        for (const PendingClipMaskJob &job : pendingClipMasks) {
+            const std::size_t vertexCount =
+                job.primitive.positions.size() / 2;
+            offsets.push_back(
+                static_cast<VkDeviceSize>(vertices.size()) * sizeof(float));
+            vertexCounts.push_back(
+                static_cast<std::uint32_t>(vertexCount));
+            const bool hasCoverage =
+                job.primitive.coverage.size() == vertexCount;
+            for (std::size_t i = 0; i < vertexCount; ++i) {
+                vertices.push_back(job.primitive.positions[i * 2]);
+                vertices.push_back(job.primitive.positions[i * 2 + 1]);
+                vertices.push_back(1.0f);
+                vertices.push_back(1.0f);
+                vertices.push_back(1.0f);
+                vertices.push_back(1.0f);
+                vertices.push_back(
+                    hasCoverage ? job.primitive.coverage[i] : 1.0f);
+            }
+        }
+        const VkDeviceSize bytes =
+            static_cast<VkDeviceSize>(vertices.size()) * sizeof(float);
+        if (!context_->ensureDrawVertexCapacity(bytes)) {
+            return false;
+        }
+        std::memcpy(
+            context_->drawVertexMapping, vertices.data(),
+            static_cast<std::size_t>(bytes));
+
+        std::vector<VulkanRenderTarget *> maskTargets;
+        std::vector<VulkanTextureResource *> destinations;
+        std::vector<VkPipeline> pipelines;
+        maskTargets.reserve(pendingClipMasks.size());
+        destinations.reserve(pendingClipMasks.size());
+        pipelines.reserve(pendingClipMasks.size());
+        for (PendingClipMaskJob &job : pendingClipMasks) {
+            auto *maskTarget =
+                dynamic_cast<VulkanRenderTarget *>(job.target.get());
+            auto *destination =
+                dynamic_cast<VulkanTextureResource *>(
+                    job.destination.get());
+            VkPipeline pipeline =
+                maskTarget != nullptr
+                ? context_->ensureSolidPipeline(
+                      maskTarget->renderPass(),
+                      VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, 0)
+                : VK_NULL_HANDLE;
+            if (maskTarget == nullptr || destination == nullptr
+                || !maskTarget->isValid() || !destination->isValid()
+                || pipeline == VK_NULL_HANDLE) {
+                for (const PendingClipMaskJob &pending :
+                     pendingClipMasks) {
+                    context_->clipMaskCache.erase(pending.cacheKey);
+                }
+                return false;
+            }
+            maskTargets.push_back(maskTarget);
+            destinations.push_back(destination);
+            pipelines.push_back(pipeline);
+        }
+
+        VkCommandBuffer commandBuffer =
+            context_->beginSingleTimeCommands();
+        if (commandBuffer == VK_NULL_HANDLE) {
+            for (const PendingClipMaskJob &job : pendingClipMasks) {
+                context_->clipMaskCache.erase(job.cacheKey);
+            }
+            return false;
+        }
+        for (std::size_t i = 0; i < pendingClipMasks.size(); ++i) {
+            VulkanRenderTarget *maskTarget = maskTargets[i];
+            VulkanTextureResource *destination = destinations[i];
+
+            VkClearValue clear{};
+            clear.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
+            VkRenderPassBeginInfo pass{};
+            pass.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+            pass.renderPass = maskTarget->renderPass();
+            pass.framebuffer = maskTarget->framebuffer();
+            pass.renderArea.extent = {
+                static_cast<std::uint32_t>(maskTarget->width()),
+                static_cast<std::uint32_t>(maskTarget->height())};
+            pass.clearValueCount = 1;
+            pass.pClearValues = &clear;
+            vkCmdBeginRenderPass(
+                commandBuffer, &pass, VK_SUBPASS_CONTENTS_INLINE);
+
+            VkViewport viewport{};
+            viewport.width = static_cast<float>(maskTarget->width());
+            viewport.height = static_cast<float>(maskTarget->height());
+            viewport.maxDepth = 1.0f;
+            vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+            VkRect2D scissor{};
+            scissor.extent = {
+                static_cast<std::uint32_t>(maskTarget->width()),
+                static_cast<std::uint32_t>(maskTarget->height())};
+            vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+            vkCmdBindPipeline(
+                commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                pipelines[i]);
+            vkCmdBindVertexBuffers(
+                commandBuffer, 0, 1, &context_->drawVertexBuffer,
+                &offsets[i]);
+            vkCmdDraw(commandBuffer, vertexCounts[i], 1, 0, 0);
+            vkCmdEndRenderPass(commandBuffer);
+
+            VulkanContext::transitionImageLayout(
+                commandBuffer, maskTarget->image(),
+                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+            VulkanContext::transitionImageLayout(
+                commandBuffer, destination->image(),
+                VK_IMAGE_LAYOUT_UNDEFINED,
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+            VkImageCopy copy{};
+            copy.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            copy.srcSubresource.layerCount = 1;
+            copy.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            copy.dstSubresource.layerCount = 1;
+            copy.extent = {
+                static_cast<std::uint32_t>(maskTarget->width()),
+                static_cast<std::uint32_t>(maskTarget->height()), 1};
+            vkCmdCopyImage(
+                commandBuffer, maskTarget->image(),
+                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                destination->image(),
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+            VulkanContext::transitionImageLayout(
+                commandBuffer, destination->image(),
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        }
+
+        const bool submitted =
+            context_->endSingleTimeCommands(commandBuffer);
+        if (!submitted) {
+            for (const PendingClipMaskJob &job : pendingClipMasks) {
+                context_->clipMaskCache.erase(job.cacheKey);
+            }
+            return false;
+        }
+        releasePendingFilterTargets();
+        for (PendingClipMaskJob &job : pendingClipMasks) {
+            auto *maskTarget =
+                dynamic_cast<VulkanRenderTarget *>(job.target.get());
+            if (maskTarget != nullptr) {
+                maskTarget->setLayout(
+                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+                maskTarget->markSynchronized();
+            }
+            renderTargetPool_->release(std::move(job.target));
+        }
+        renderTargetPool_->expire();
+        pendingClipMasks.clear();
+        return true;
     };
 
     auto buildClipCoverage = [&](const ClipMaskState &clip, std::vector<float> &outCoverage) -> bool {
@@ -5930,11 +6368,15 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
     if (list.empty()) {
         return false;
     }
-    return executeDrawList(target, list);
+    if (!flushPendingClipMasks()) {
+        return false;
+    }
+    return executeDrawListWithCopy(target, list, copyDestination);
 #else
     (void)target;
     (void)commands;
     (void)request;
+    (void)copyDestination;
     return false;
 #endif
 }

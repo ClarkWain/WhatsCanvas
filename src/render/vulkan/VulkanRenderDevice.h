@@ -190,11 +190,25 @@ public:
     struct VulkanContext;
 
 private:
+    bool executeDrawListWithCopy(
+        const std::unique_ptr<IRenderTarget> &target,
+        const wsc::DrawList &drawList,
+        const SharedImageResource &copyDestination) const;
+    bool executeCommandsWithCopy(
+        const std::unique_ptr<IRenderTarget> &target,
+        const std::vector<std::unique_ptr<Command>> &commands,
+        const OffscreenRenderRequest &request,
+        const SharedImageResource &copyDestination) const;
+    void releasePendingFilterTargets() const;
+
     /// On-screen presentation swapchain, defined in the implementation file.
     /// Nested so it can access VulkanContext and the private device handles.
     class VulkanSwapchain;
 
     std::unique_ptr<VulkanContext> context_;
     mutable std::unique_ptr<RenderTargetPool> renderTargetPool_;
+    mutable std::vector<std::unique_ptr<IRenderTarget>>
+        pendingFilterTargets_;
+    mutable std::vector<SharedImageResource> pendingFilterImages_;
     bool backendInitialized_ = false;
 };
