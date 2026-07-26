@@ -22,6 +22,7 @@ build-wsl-freetype/
 build-vendored-text/
 build-validation-win/
 build-vulkan/
+build-performance-*/
 build_stub/
 build_asan/
 build-vscode/

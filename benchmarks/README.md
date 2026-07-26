@@ -1,37 +1,38 @@
 # WhatsCanvas Benchmarks
 
-This directory is reserved for repeatable local and CI benchmark assets.
+This directory contains repeatable performance workloads. Always build and
+publish benchmark results from an optimized `Release` configuration.
 
-## Current Signals
+## Benchmark targets
 
-- `build.bat` / `build.sh` emit structured `BUILD_*` timings.
-- `scripts/smoke_test.bat` / `scripts/smoke_test.sh` emit structured `SMOKE_*` timings.
-- `scripts/examples_smoke.bat` / `scripts/examples_smoke.sh` emit structured `EXAMPLES_SMOKE_*` timings.
+- `WhatsCanvasPerformanceSuite`: unified frame workloads for Software, OpenGL,
+  and Vulkan. This is the primary performance-evaluation entry point.
+- `WhatsCanvasCoreBenchmarks`: CPU microbenchmarks for layout, shaping,
+  rasterization, path metrics, command recording, and other isolated costs.
+- `WhatsCanvasImageFilterBenchmarks`: focused end-to-end frosted-glass and
+  inner-shadow filter measurements retained for filter tuning.
 
-## Intended Growth
+The unified suite writes one metadata record followed by one result record per
+scene in JSONL. It reports cold-frame time, record/submit/total distributions,
+FPS, operation throughput, readback latency, pixel hash, process memory, and
+public `RenderStats`.
 
-- record-time benchmarks for heavy path, text, and image scenes;
-- submit-time benchmarks for layer-heavy and clip-heavy workloads;
-- state-change and draw-call counters per scene;
-- readback and saveLayer latency tracking;
-- stable benchmark output suitable for local history comparison and future CI reporting.
+Use the platform runner for comparable results. It starts every scene in a
+fresh process so caches and process high-water memory from one workload do not
+contaminate the next:
 
-`WhatsCanvasCoreBenchmarks` now includes
-`software_backdrop_blur_320x180_r24`, a repeatable real-filter workload that
-reports elapsed time together with filter pass and pixel-pass diagnostics.
-
-`WhatsCanvasImageFilterBenchmarks` is the dedicated end-to-end filter harness.
-It renders four sequentially overlapping frosted-glass panels and a grid of 24
-inner-shadow controls through Software, OpenGL, or Vulkan:
-
-```sh
-./build/WhatsCanvasImageFilterBenchmarks \
-  --backend software --warmup 3 --frames 10 --width 960 --height 540
+```powershell
+cmake --build build --config Release --target WhatsCanvasPerformanceSuite
+.\scripts\run_performance_suite.ps1 `
+  -Profile standard -Backends software,opengl,vulkan
 ```
 
-Every workload emits one `FILTER_BENCHMARK` line containing median, p95, min,
-max, FPS, output hash, filter/pass counts, downsample count, pixel-work
-metrics, pooled render-target bytes, and retained CPU/GPU cache estimates. GPU
-completion is included in OpenGL timings; pixel readback and hashing are
-excluded. CI treats the short Software run as a functional smoke test and
-intentionally does not enforce machine-dependent timing thresholds.
+```sh
+cmake --build build --config Release --target WhatsCanvasPerformanceSuite
+PROFILE=standard BACKENDS="software opengl vulkan" \
+  ./scripts/run_performance_suite.sh
+```
+
+See [Performance Benchmarks](../doc/PERFORMANCE_BENCHMARKS.md) for the scene
+matrix, metric definitions, `--summary` report generation, revision comparison,
+and publication rules.
