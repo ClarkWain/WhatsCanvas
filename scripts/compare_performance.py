@@ -47,6 +47,8 @@ REQUIRED_RESULT = {
     "frames",
     "warmup",
     "cold_total_ms",
+    "record_median_ms",
+    "submit_median_ms",
     "total_median_ms",
     "total_p95_ms",
     "fps",
@@ -366,19 +368,22 @@ def make_report(
     )
     incompatible = False
     compatibility: list[str] = []
-    paired_runs: set[tuple[Path, Path]] = set()
+    compared_configurations: set[tuple[Any, ...]] = set()
     for key in common:
+        configuration = (key[0], key[2], key[3], key[4])
+        if configuration in compared_configurations:
+            continue
+        compared_configurations.add(configuration)
         base_run = baseline[key][0]
         next_run = candidate[key][0]
-        pair = (base_run.source, next_run.source)
-        if pair in paired_runs:
-            continue
-        paired_runs.add(pair)
         notes = compatibility_notes(base_run, next_run)
         if notes:
             incompatible = True
+            label = (
+                f"{key[0]} {key[2]}x{key[3]} {key[4]}"
+            )
             compatibility.extend(
-                f"{base_run.source.name} / {next_run.source.name}: {note}"
+                f"{label}: {note}"
                 for note in notes
             )
     if compatibility:
