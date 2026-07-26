@@ -10,6 +10,10 @@ set(WhatsCanvas_VERSION "@PROJECT_VERSION@")
 set_and_check(WhatsCanvas_INCLUDE_DIR "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_INCLUDEDIR@")
 set_and_check(WhatsCanvas_LIBRARY_DIR "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_LIBDIR@")
 
+# Software filtering uses standard C++ worker threads for large CPU blur passes.
+# Resolve the platform thread library before importing the static targets.
+find_dependency(Threads)
+
 # Resolve dependencies in a component-aware way. The OpenGL renderer (and the
 # FreeType/HarfBuzz configs it links) are only needed when this package actually
 # ships OpenGL AND the consumer wants it: either no explicit component list was
