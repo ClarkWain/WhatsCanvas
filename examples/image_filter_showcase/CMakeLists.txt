@@ -27,6 +27,11 @@ if (TARGET WhatsCanvas::OpenGL)
             "${CMAKE_CURRENT_LIST_DIR}/../../third_party/stb"
     )
 
+    target_compile_definitions(WhatsCanvasImageFilterShowcase
+        PRIVATE
+            WSC_SHOWCASE_CJK_FONT_PATH="${CMAKE_CURRENT_LIST_DIR}/../../third_party/harfbuzz/test/subset/data/fonts/Mplus1p-Regular.ttf"
+    )
+
     target_link_libraries(WhatsCanvasImageFilterShowcase
         PRIVATE
             WhatsCanvas::OpenGL
