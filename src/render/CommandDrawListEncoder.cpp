@@ -196,6 +196,9 @@ bool encodeImage(const DrawImageData &d, const CommandDrawListEncodeRequest &req
     applyScissor(prim, d.scissor, request);
     prim.texture = d.imageResource;
     prim.layerAlpha = d.alpha;
+    prim.roundedRadius = d.roundedRadius;
+    prim.roundedWidth = d.width;
+    prim.roundedHeight = d.height;
     prim.tint[0] = d.tintColor[0];
     prim.tint[1] = d.tintColor[1];
     prim.tint[2] = d.tintColor[2];

@@ -81,6 +81,9 @@ void DrawImageProgram::initialize()
         uniform int uGradientStopCount;
         uniform float uGradientStopPositions[8];
         uniform vec4 uGradientStopColors[8];
+        uniform bool uRoundedClip;
+        uniform vec2 uRoundedSize;
+        uniform float uRoundedRadius;
 
         float applyGradientTile(float t, out float visibility)
         {
@@ -128,6 +131,21 @@ void DrawImageProgram::initialize()
             return uGradientStopColors[uGradientStopCount - 1] * visibility;
         }
 
+        float roundedRectCoverage()
+        {
+            if (!uRoundedClip) {
+                return 1.0;
+            }
+            vec2 halfSize = uRoundedSize * 0.5;
+            float radius = min(uRoundedRadius, min(halfSize.x, halfSize.y));
+            vec2 point = vUv * uRoundedSize;
+            vec2 q = abs(point - halfSize) - (halfSize - vec2(radius));
+            float distanceToEdge =
+                length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0) - radius;
+            float aa = max(fwidth(distanceToEdge), 0.0001);
+            return smoothstep(aa * 0.5, -aa * 0.5, distanceToEdge);
+        }
+
         void main()
         {
             if (uTileMode == 3 && (vUv.x < 0.0 || vUv.x > 1.0 || vUv.y < 0.0 || vUv.y > 1.0)) {
@@ -139,6 +157,7 @@ void DrawImageProgram::initialize()
             }
 
             vec4 texColor = texture(uTexture, vUv);
+            float roundedCoverage = roundedRectCoverage();
             if (uSourcePremultiplied && texColor.a > 0.000001) {
                 texColor.rgb /= texColor.a;
             }
@@ -157,7 +176,8 @@ void DrawImageProgram::initialize()
                 // coverage. Keep it separate from the ordinary alpha path;
                 // the fixed-function dual-source blend combines it with the
                 // opaque destination per channel.
-                vec3 coverage = texColor.rgb * paintColor.a * uAlpha;
+                vec3 coverage =
+                    texColor.rgb * paintColor.a * uAlpha * roundedCoverage;
                 if (uClipEnabled != 0) {
                     coverage *= texture(uClipMask, gl_FragCoord.xy / uClipViewport).r;
                 }
@@ -173,7 +193,9 @@ void DrawImageProgram::initialize()
                 // collapse the RGB coverage to the backend-provided alpha and
                 // render a conventional grayscale mask. This keeps colored
                 // text correct instead of multiplying coverage twice.
-                vec4 color = vec4(paintColor.rgb, texColor.a * paintColor.a * uAlpha);
+                vec4 color = vec4(
+                    paintColor.rgb,
+                    texColor.a * paintColor.a * uAlpha * roundedCoverage);
                 if (uUseColorMatrix) {
                     color = clamp(uColorMatrix * color + uColorMatrixOffset, 0.0, 1.0);
                 }
@@ -186,7 +208,9 @@ void DrawImageProgram::initialize()
 #endif
                 return;
             }
-            vec4 color = vec4(texColor.rgb * paintColor.rgb, texColor.a * paintColor.a * uAlpha);
+            vec4 color = vec4(
+                texColor.rgb * paintColor.rgb,
+                texColor.a * paintColor.a * uAlpha * roundedCoverage);
             if (uUseColorMatrix) {
                 color = clamp(uColorMatrix * color + uColorMatrixOffset, 0.0, 1.0);
             }
@@ -275,6 +299,10 @@ void DrawImageProgram::draw(const RenderContext &context, const DrawImageData &d
     GammaCorrect::srgbToLinear4(tintColor);
     program_->setVec4("uTintColor", glm::vec4(tintColor[0], tintColor[1], tintColor[2], tintColor[3]));
     program_->setFloat("uAlpha", data.alpha);
+    program_->setInt("uRoundedClip", data.hasRoundedCorners() ? 1 : 0);
+    program_->setVec2(
+        "uRoundedSize", glm::vec2(data.width, data.height));
+    program_->setFloat("uRoundedRadius", data.roundedRadius);
     program_->setInt("uClearTypeMask",
                      data.clearTypeMask && context.isClearTypeBlendModeActive() ? 1 : 0);
     program_->setInt("uRgbCoverageFallback",
