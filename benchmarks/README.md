@@ -30,7 +30,8 @@ inner-shadow controls through Software, OpenGL, or Vulkan:
 ```
 
 Every workload emits one `FILTER_BENCHMARK` line containing median, p95, min,
-max, FPS, output hash, filter/pass counts, downsample count, and pixel-work
-metrics. GPU completion is included in OpenGL timings; pixel readback and
-hashing are excluded. CI treats the short Software run as a functional smoke
-test and intentionally does not enforce machine-dependent timing thresholds.
+max, FPS, output hash, filter/pass counts, downsample count, pixel-work
+metrics, pooled render-target bytes, and retained CPU/GPU cache estimates. GPU
+completion is included in OpenGL timings; pixel readback and hashing are
+excluded. CI treats the short Software run as a functional smoke test and
+intentionally does not enforce machine-dependent timing thresholds.

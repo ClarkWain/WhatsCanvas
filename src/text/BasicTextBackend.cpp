@@ -31,7 +31,7 @@ constexpr size_t kMaxRasterShapeCacheEntries = 512;
 // force an atlas resize while that frame still owns commands referencing the
 // first texture.  A 2048 atlas keeps a normal desktop scene stable and avoids
 // replacing the shared resource during command recording.
-constexpr int kDefaultGlyphAtlasSize = 4096;
+constexpr int kDefaultGlyphAtlasSize = 2048;
 
 const char *backendName(wsc::text::TextBackendKind kind)
 {

@@ -75,7 +75,38 @@ bool testStoresComplexValues()
     cache.insert(42, {1.0f, 2.0f, 3.0f});
     const std::vector<float> *value = cache.find(42);
     return expect(value != nullptr && value->size() == 3 && (*value)[1] == 2.0f,
-                  "cache should store and return complex values intact");
+                  "cache should store and return complex values intact")
+        && expect(cache.residentBytes() >= 3u * sizeof(float),
+                  "vector resident bytes should include retained element capacity");
+}
+
+bool testByteBudgetEvictsLeastRecentlyUsed()
+{
+    wsc::render::LruCache<std::vector<float>> cache(8, 6u * sizeof(float));
+    cache.insert(1, std::vector<float>(3, 1.0f));
+    cache.insert(2, std::vector<float>(3, 2.0f));
+    cache.find(1);
+    cache.insert(3, std::vector<float>(3, 3.0f));
+
+    return expect(cache.size() == 2, "byte budget should bound retained values")
+        && expect(cache.find(1) != nullptr, "recently used value should survive byte eviction")
+        && expect(cache.find(2) == nullptr, "least recently used value should be byte-evicted")
+        && expect(cache.find(3) != nullptr, "new value should be retained")
+        && expect(cache.residentBytes() <= cache.byteCapacity(),
+                  "resident bytes should remain within the configured budget");
+}
+
+bool testOversizedValueIsSoleEntry()
+{
+    wsc::render::LruCache<std::vector<float>> cache(8, 4u * sizeof(float));
+    cache.insert(1, std::vector<float>(2, 1.0f));
+    const std::vector<float> &oversized =
+        cache.insert(2, std::vector<float>(8, 2.0f));
+
+    return expect(cache.size() == 1, "an oversized value should evict other entries")
+        && expect(oversized.size() == 8, "insert should return the oversized retained value")
+        && expect(cache.find(1) == nullptr, "older values should not remain beside an oversized entry")
+        && expect(cache.find(2) != nullptr, "the oversized value should remain usable");
 }
 
 bool testClearAndResetStats()
@@ -112,6 +143,8 @@ int main()
     ok = testLruEviction() && ok;
     ok = testFindRefreshesRecency() && ok;
     ok = testStoresComplexValues() && ok;
+    ok = testByteBudgetEvictsLeastRecentlyUsed() && ok;
+    ok = testOversizedValueIsSoleEntry() && ok;
     ok = testClearAndResetStats() && ok;
     ok = testZeroCapacityIsClampedToOne() && ok;
     return ok ? 0 : 1;

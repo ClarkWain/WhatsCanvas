@@ -110,7 +110,9 @@ bool testPoolReusesMatchingSize()
 
     return expect(device.createdCount == 1, "pool should create one target for matching dimensions")
         && expect(firstIdentifier != 0, "first fake target should be inspectable")
-        && expect(secondIdentifier == firstIdentifier, "pool should return the same target for matching dimensions");
+        && expect(secondIdentifier == firstIdentifier, "pool should return the same target for matching dimensions")
+        && expect(pool.reuseCount() == 1, "pool should report a reuse")
+        && expect(pool.allocationCount() == 1, "pool should report one allocation");
 }
 
 bool testPoolExpiresIdleTargets()
@@ -143,12 +145,48 @@ bool testPoolDoesNotOverwriteReferencedImage()
         && expect(secondIdentifier != firstIdentifier, "pool must not overwrite a live offscreen image");
 }
 
+bool testPoolEnforcesByteBudget()
+{
+    FakeRenderDevice device;
+    const std::size_t oneTargetBytes =
+        16u * 16u * RenderTargetPool::kEstimatedBytesPerPixel;
+    RenderTargetPool pool(&device, oneTargetBytes * 2u, 8u);
+
+    pool.release(pool.acquire(16, 16));
+    pool.release(pool.acquire(12, 16));
+    pool.release(pool.acquire(10, 16));
+
+    return expect(pool.pooledBytes() <= pool.maxPooledBytes(),
+                  "pool should remain within its byte budget")
+        && expect(pool.pooledCount() == 2,
+                  "adding a third target should evict the oldest target")
+        && expect(pool.evictionCount() == 1,
+                  "byte-budget eviction should be observable");
+}
+
+bool testPoolRejectsOversizedTarget()
+{
+    FakeRenderDevice device;
+    RenderTargetPool pool(
+        &device, 8u * 8u * RenderTargetPool::kEstimatedBytesPerPixel, 8u);
+
+    pool.release(pool.acquire(16, 16));
+    return expect(pool.pooledCount() == 0,
+                  "a target larger than the entire budget should not be retained")
+        && expect(pool.pooledBytes() == 0,
+                  "rejecting an oversized target should retain no bytes")
+        && expect(pool.evictionCount() == 1,
+                  "oversized rejection should be observable");
+}
+
 } // namespace
 
 int main()
 {
     const bool ok = testPoolReusesMatchingSize()
         && testPoolExpiresIdleTargets()
-        && testPoolDoesNotOverwriteReferencedImage();
+        && testPoolDoesNotOverwriteReferencedImage()
+        && testPoolEnforcesByteBudget()
+        && testPoolRejectsOversizedTarget();
     return ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }
