@@ -97,7 +97,14 @@ bool testDefaultStatsAreReadable()
                   "default filter pixel-pass count should be zero")
         && expect(stats.imageTextureCount == 0, "default image texture count should be zero")
         && expect(stats.glyphAtlasTextureCount == 0, "default glyph atlas count should be zero")
-        && expect(stats.renderTargetCount == 0, "default render target count should be zero");
+        && expect(stats.glyphAtlasTextureBytes == 0, "default glyph atlas bytes should be zero")
+        && expect(stats.renderTargetCount == 0, "default render target count should be zero")
+        && expect(stats.pooledRenderTargetCount == 0, "default pooled target count should be zero")
+        && expect(stats.pooledRenderTargetBytes == 0, "default pooled target bytes should be zero")
+        && expect(stats.tessellationCacheBytes == 0, "default tessellation bytes should be zero")
+        && expect(stats.strokeCacheBytes == 0, "default stroke cache bytes should be zero")
+        && expect(stats.bitmapTextCacheSize == 0, "default bitmap text cache should be empty")
+        && expect(stats.bitmapTextCacheBytes == 0, "default bitmap text bytes should be zero");
 }
 
 bool testOffscreenStatsCountCommandsAndDraws()

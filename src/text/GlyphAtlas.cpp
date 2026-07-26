@@ -133,7 +133,7 @@ GlyphAtlasStats GlyphAtlas::stats() const
     result.width = width_;
     result.height = height_;
     result.glyphCount = entries_.size();
-    result.usedBytes = pixels_.size();
+    result.usedBytes = pixels_.size() + rgbaPixels_.size();
     result.uploadCount = uploadCount_;
     result.evictionCount = evictionCount_;
     result.resizeCount = resizeCount_;

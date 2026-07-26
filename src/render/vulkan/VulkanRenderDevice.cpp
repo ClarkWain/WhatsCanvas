@@ -3,6 +3,7 @@
 #include "../IRenderTarget.h"
 #include "../IRenderer.h"
 #include "../GaussianKernel.h"
+#include "../RenderTargetPool.h"
 #include "command/DrawCommand.h"
 
 #include <glm/glm.hpp>
@@ -2482,6 +2483,9 @@ void VulkanRenderDevice::finalizeBackend()
         if (context_->device != VK_NULL_HANDLE) {
             vkDeviceWaitIdle(context_->device);
         }
+        if (renderTargetPool_) {
+            renderTargetPool_->clear();
+        }
         // Recreate a fresh, empty context so the device can be re-initialized.
         context_ = std::make_unique<VulkanContext>();
     }
@@ -3384,6 +3388,14 @@ RenderResourceStats VulkanRenderDevice::resourceStats() const
         stats.imageTextureCount = context_->imageTextureCount;
     }
 #endif
+    if (renderTargetPool_) {
+        stats.pooledRenderTargetCount = renderTargetPool_->pooledCount();
+        stats.pooledRenderTargetBytes = renderTargetPool_->pooledBytes();
+        stats.renderTargetPoolReuseCount = renderTargetPool_->reuseCount();
+        stats.renderTargetPoolAllocationCount =
+            renderTargetPool_->allocationCount();
+        stats.renderTargetPoolEvictionCount = renderTargetPool_->evictionCount();
+    }
     return stats;
 }
 
@@ -4137,8 +4149,11 @@ SharedImageResource VulkanRenderDevice::filterImageResource(
             width, height, filter.radiusX(), filter.radiusY());
     const int blurWidth = (width + downsample.x - 1) / downsample.x;
     const int blurHeight = (height + downsample.y - 1) / downsample.y;
-    auto targetA = createRenderTarget(blurWidth, blurHeight);
-    auto targetB = createRenderTarget(blurWidth, blurHeight);
+    if (!renderTargetPool_) {
+        renderTargetPool_ = std::make_unique<RenderTargetPool>(this);
+    }
+    auto targetA = renderTargetPool_->acquire(blurWidth, blurHeight);
+    auto targetB = renderTargetPool_->acquire(blurWidth, blurHeight);
     auto *passA = dynamic_cast<VulkanRenderTarget *>(targetA.get());
     auto *passB = dynamic_cast<VulkanRenderTarget *>(targetB.get());
     if (passA == nullptr || passB == nullptr
@@ -4163,7 +4178,7 @@ SharedImageResource VulkanRenderDevice::filterImageResource(
     VulkanRenderTarget *restore = nullptr;
     std::unique_ptr<IRenderTarget> restoreTarget;
     if (downsample.active() || innerShadow) {
-        restoreTarget = createRenderTarget(width, height);
+        restoreTarget = renderTargetPool_->acquire(width, height);
         restore = dynamic_cast<VulkanRenderTarget *>(restoreTarget.get());
         if (restore == nullptr || !restore->isValid()) {
             return {};
@@ -4301,6 +4316,10 @@ SharedImageResource VulkanRenderDevice::filterImageResource(
                 : 0u);
         executionStats->downsampled = downsample.active();
     }
+    renderTargetPool_->release(std::move(targetA));
+    renderTargetPool_->release(std::move(targetB));
+    renderTargetPool_->release(std::move(restoreTarget));
+    renderTargetPool_->expire();
     return result;
 #else
     (void)source;

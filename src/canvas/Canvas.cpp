@@ -2224,9 +2224,11 @@ struct Canvas::Impl
     std::vector<LayerState> layerStack;
     // Retains transform-independent fill triangulations so repeated/static
     // shapes are not re-triangulated every frame.
-    wsc::render::LruCache<std::vector<crushedpixel::Vec2>> fillTessellationCache{256};
+    wsc::render::LruCache<std::vector<crushedpixel::Vec2>> fillTessellationCache{
+        256, 8u * 1024u * 1024u};
     // Retains transform-independent stroke meshes for the same reason.
-    wsc::render::LruCache<std::vector<crushedpixel::Vec2>> strokeTessellationCache{256};
+    wsc::render::LruCache<std::vector<crushedpixel::Vec2>> strokeTessellationCache{
+        256, 8u * 1024u * 1024u};
     bool rendererInitialized = false;
     SharedImageResource glyphAtlasImageResource;
     int glyphAtlasWidth = 0;
@@ -2241,11 +2243,34 @@ struct Canvas::Impl
         SharedImageResource resource;
         int width = 0;
         int height = 0;
+        std::size_t bytes = 0;
         std::list<std::uint64_t>::iterator orderIt;
     };
     std::unordered_map<std::uint64_t, BitmapTextCacheSlot> bitmapTextCache;
     std::list<std::uint64_t> bitmapTextCacheOrder;
     static constexpr std::size_t kBitmapTextCacheMax = 256;
+    static constexpr std::size_t kBitmapTextCacheMaxBytes = 32u * 1024u * 1024u;
+    std::size_t bitmapTextCacheBytes = 0;
+
+    void eraseBitmapTextCacheEntry(
+        std::unordered_map<std::uint64_t, BitmapTextCacheSlot>::iterator it)
+    {
+        if (it == bitmapTextCache.end()) {
+            return;
+        }
+        bitmapTextCacheBytes -= it->second.bytes;
+        bitmapTextCacheOrder.erase(it->second.orderIt);
+        bitmapTextCache.erase(it);
+    }
+
+    void evictOldestBitmapText()
+    {
+        if (bitmapTextCacheOrder.empty()) {
+            return;
+        }
+        eraseBitmapTextCacheEntry(
+            bitmapTextCache.find(bitmapTextCacheOrder.front()));
+    }
 
     SharedImageResource getOrUploadBitmapText(const wsc::text::TextRenderResult &renderedText)
     {
@@ -2265,6 +2290,9 @@ struct Canvas::Impl
                                         it->second.orderIt);
             return it->second.resource;
         }
+        if (it != bitmapTextCache.end()) {
+            eraseBitmapTextCacheEntry(it);
+        }
         // Cache miss (or size/reset invalidation): upload a fresh texture.
         SharedImageResource resource = renderer->createImageResourceRGBA(renderedText.bitmapWidth,
                                                                          renderedText.bitmapHeight,
@@ -2272,21 +2300,24 @@ struct Canvas::Impl
         if (!resource || !resource->isValid()) {
             return resource;
         }
-        while (bitmapTextCache.size() >= kBitmapTextCacheMax && !bitmapTextCacheOrder.empty()) {
-            bitmapTextCache.erase(bitmapTextCacheOrder.front());
-            bitmapTextCacheOrder.pop_front();
+        const std::size_t entryBytes = renderedText.bitmapPixels.size();
+        if (entryBytes > kBitmapTextCacheMaxBytes) {
+            return resource;
         }
-        if (it != bitmapTextCache.end()) {
-            bitmapTextCacheOrder.erase(it->second.orderIt);
-            bitmapTextCache.erase(it);
+        while (!bitmapTextCacheOrder.empty()
+               && (bitmapTextCache.size() >= kBitmapTextCacheMax
+                   || bitmapTextCacheBytes > kBitmapTextCacheMaxBytes - entryBytes)) {
+            evictOldestBitmapText();
         }
         bitmapTextCacheOrder.push_back(renderedText.bitmapContentId);
         BitmapTextCacheSlot slot;
         slot.resource = resource;
         slot.width = renderedText.bitmapWidth;
         slot.height = renderedText.bitmapHeight;
+        slot.bytes = entryBytes;
         slot.orderIt = std::prev(bitmapTextCacheOrder.end());
         bitmapTextCache.emplace(renderedText.bitmapContentId, std::move(slot));
+        bitmapTextCacheBytes += entryBytes;
         return resource;
     }
     std::uint64_t glyphAtlasRevision = 0;
@@ -2530,6 +2561,7 @@ void Canvas::Impl::releaseResources()
     glyphAtlasRevision = 0;
     bitmapTextCache.clear();
     bitmapTextCacheOrder.clear();
+    bitmapTextCacheBytes = 0;
     releaseSizeDependentResources();
     if (renderer != nullptr) {
         renderer->clear();
@@ -2762,12 +2794,27 @@ Canvas::RenderStats Canvas::getRenderStats() const
     stats.filterPixelPassCount = frameStats.filterPixelPassCount;
     stats.imageTextureCount = resourceStats.imageTextureCount;
     stats.renderTargetCount = resourceStats.renderTargetCount;
+    stats.pooledRenderTargetCount = resourceStats.pooledRenderTargetCount;
+    stats.pooledRenderTargetBytes = resourceStats.pooledRenderTargetBytes;
+    stats.renderTargetPoolReuseCount = resourceStats.renderTargetPoolReuseCount;
+    stats.renderTargetPoolAllocationCount = resourceStats.renderTargetPoolAllocationCount;
+    stats.renderTargetPoolEvictionCount = resourceStats.renderTargetPoolEvictionCount;
+    stats.glyphAtlasTextureCount =
+        impl_->glyphAtlasImageResource && impl_->glyphAtlasImageResource->isValid() ? 1u : 0u;
+    stats.glyphAtlasTextureBytes =
+        stats.glyphAtlasTextureCount == 0 ? 0u
+        : static_cast<std::size_t>(std::max(0, impl_->glyphAtlasWidth))
+            * static_cast<std::size_t>(std::max(0, impl_->glyphAtlasHeight)) * 4u;
     stats.tessellationCacheHits = impl_->fillTessellationCache.hitCount();
     stats.tessellationCacheMisses = impl_->fillTessellationCache.missCount();
     stats.tessellationCacheSize = impl_->fillTessellationCache.size();
+    stats.tessellationCacheBytes = impl_->fillTessellationCache.residentBytes();
     stats.strokeCacheHits = impl_->strokeTessellationCache.hitCount();
     stats.strokeCacheMisses = impl_->strokeTessellationCache.missCount();
     stats.strokeCacheSize = impl_->strokeTessellationCache.size();
+    stats.strokeCacheBytes = impl_->strokeTessellationCache.residentBytes();
+    stats.bitmapTextCacheSize = impl_->bitmapTextCache.size();
+    stats.bitmapTextCacheBytes = impl_->bitmapTextCacheBytes;
     return stats;
 }
 

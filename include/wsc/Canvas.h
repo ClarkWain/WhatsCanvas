@@ -70,13 +70,23 @@ public:
 		std::size_t filterPixelPassCount = 0;
 		std::size_t imageTextureCount = 0;
 		std::size_t glyphAtlasTextureCount = 0;
+		std::size_t glyphAtlasTextureBytes = 0;
 		std::size_t renderTargetCount = 0;
+		std::size_t pooledRenderTargetCount = 0;
+		std::size_t pooledRenderTargetBytes = 0;
+		std::size_t renderTargetPoolReuseCount = 0;
+		std::size_t renderTargetPoolAllocationCount = 0;
+		std::size_t renderTargetPoolEvictionCount = 0;
 		std::size_t tessellationCacheHits = 0;
 		std::size_t tessellationCacheMisses = 0;
 		std::size_t tessellationCacheSize = 0;
+		std::size_t tessellationCacheBytes = 0;
 		std::size_t strokeCacheHits = 0;
 		std::size_t strokeCacheMisses = 0;
 		std::size_t strokeCacheSize = 0;
+		std::size_t strokeCacheBytes = 0;
+		std::size_t bitmapTextCacheSize = 0;
+		std::size_t bitmapTextCacheBytes = 0;
 	};
 
 	using ReadPixelsCallback = std::function<void(std::vector<unsigned char> pixels, int width, int height)>;

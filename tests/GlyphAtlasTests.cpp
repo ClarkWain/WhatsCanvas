@@ -209,6 +209,8 @@ bool testColorGlyphUploadKeepsRgbaPixels()
     ok = expect(atlas.rgbaPixels()[pixel * 4u + 1] == 34, "RGBA view should preserve green") && ok;
     ok = expect(atlas.rgbaPixels()[pixel * 4u + 2] == 56, "RGBA view should preserve blue") && ok;
     ok = expect(atlas.rgbaPixels()[pixel * 4u + 3] == 210, "RGBA view should preserve alpha") && ok;
+    ok = expect(atlas.stats().usedBytes == atlas.pixels().size() + atlas.rgbaPixels().size(),
+                "atlas memory stats should include alpha and lazily allocated RGBA storage") && ok;
     return ok;
 }
 

@@ -8,6 +8,8 @@
 #include "../DrawList.h"
 #include "../IRenderDevice.h"
 
+class RenderTargetPool;
+
 /// Vulkan implementation of the WhatsCanvas render-device abstraction.
 ///
 /// This backend is built unconditionally so that the render-device factory can
@@ -193,5 +195,6 @@ private:
     class VulkanSwapchain;
 
     std::unique_ptr<VulkanContext> context_;
+    mutable std::unique_ptr<RenderTargetPool> renderTargetPool_;
     bool backendInitialized_ = false;
 };

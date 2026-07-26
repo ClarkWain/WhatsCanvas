@@ -57,7 +57,9 @@ runs two fixed workloads:
 
 Each `FILTER_BENCHMARK` line includes `median_ms`, `p95_ms`, `min_ms`,
 `max_ms`, `fps`, a pixel `hash`, and the public filter/pass/downsample/pixel-work
-statistics. `beginFrame`, drawing, `endFrame`, and OpenGL `glFinish` are timed;
+statistics. It also reports pooled render-target and retained-cache estimates;
+see [Memory Management](MEMORY_MANAGEMENT.md) for the budgets and field
+semantics. `beginFrame`, drawing, `endFrame`, and OpenGL `glFinish` are timed;
 readback and hashing are not.
 
 CI runs a small Software smoke workload to catch broken benchmark wiring. It
