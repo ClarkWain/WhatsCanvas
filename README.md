@@ -63,24 +63,21 @@ WhatsCanvas 的公开接口仍然是熟悉的 `Canvas` / `Paint` / `Path` / `Ima
 
 `ImageFilter` 可以处理离屏层自身内容，也可以通过 backdrop filter 采样并模糊已经绘制的场景。后者适合制作毛玻璃面板、半透明 HUD、浮层和模态界面。`frostedGlass` 在真实高斯模糊后继续完成饱和度、亮度、对比度与细颗粒处理；`innerShadow` 则从图层 alpha 生成受轮廓约束的内阴影，适合凹槽、按键、卡片和材质厚度表现。面板 tint、描边、文字和控件仍使用普通 Canvas API 绘制。
 
-![图像滤镜与毛玻璃真实渲染效果](images/image-filter-showcase.png)
+滤镜的图层语义、透明边界、降采样策略和不同后端支持情况见 [Image Filters And Backdrop Effects](doc/IMAGE_FILTERS.md)。
 
-上图由桌面 OpenGL 后端以 `1920 x 1080` 实时渲染并从 framebuffer 直接回读。高频几何位图用于直观呈现面板内外的清晰度差异；三块面板使用同一套 `frostedGlass` 材质（最大 sigma、轻微提亮增艳与稳定颗粒），底部滑轨使用低透明度冷色 `innerShadow` 表达凹槽深度，彩色进度和滑块保持清晰前景。玻璃 tint、描边、文字和控件均由 WhatsCanvas 绘制。可用 `WhatsCanvasImageFilterShowcase <输出路径> [背景图路径]` 重新生成；实现语义与后端边界见 [Image Filters And Backdrop Effects](doc/IMAGE_FILTERS.md)。
+## Showcase：材质观测台
 
-## 画质与渲染
+这张 Showcase 不是预制界面截图，而是一帧由 WhatsCanvas 完整绘制、通过桌面 OpenGL framebuffer 直接回读的 `1920 x 1080` PNG。它把几项核心能力组合成一个接近真实产品的静态画面：
 
-WhatsCanvas 在"好看"上做了成体系的深耕，且都是**分辨率无关、不依赖 MSAA、对离屏目标同样生效**的实现：
+- **主玻璃舞台**：真实 backdrop blur、透明 tint、饱和度与亮度调节共同形成有层次的毛玻璃，而不是简单半透明填充。
+- **克制的材质深度**：播放器控件和右侧样本使用冷色 `innerShadow` 表达凹面结构，避免常见的黑脏阴影。
+- **完整文字链路**：拉丁字形、CJK fallback、weight、布局与 glyph atlas 在同一画面中工作；示例额外注册便携 CJK 字体，保证跨平台输出稳定。
+- **统一渲染接口**：右下角渲染图谱表达同一 Canvas API 面向 Software、OpenGL、OpenGLES 和 Vulkan 的关系；底栏只高亮本次实际运行的 OpenGL，并显示真实滤镜统计。
+- **全 Canvas 生成**：背景光场、观测环、抽象专辑图、路径、渐变、裁剪、文字和控件全部动态绘制，没有嵌入 UI 截图。
 
-- **解析抗锯齿**：沿轮廓生成跨骑真实边缘的 ~1px 羽化带，片元着色器按覆盖度调制 alpha（细描边额外做亚像素淡化）。默认开启；如需关闭可逐 `Paint` 设置 `paint.setAntiAlias(false)`。
-- **片元级渐变**：多 stop 线性 / 径向渐变逐片元求值，避免顶点色在大三角上的分带。
-- **真高斯模糊阴影**：剪影离屏 → 可分离横 / 纵两趟高斯 → 按阴影色合成；填充、描边、文本同一条路径（`setShadowLayer`，半径 0 回退偏移近似）。
-- **抗锯齿路径裁剪**：`clipPath` 用与填充相同的解析 AA 覆盖度掩码求交集，逐片元调制 alpha，取代 1-bit stencil 硬边（矩形裁剪仍走 scissor 快路径）。
+![WhatsCanvas 材质观测台：毛玻璃、内阴影、文字回退与多后端渲染](images/image-filter-showcase.png)
 
-下图在同一场景里同时呈现这四项——抗锯齿边缘、片元级渐变、柔和高斯阴影、平滑路径裁剪：
-
-![画质综合展示：抗锯齿 / 渐变 / 高斯阴影 / 路径裁剪](images/aa/quality_showcase.png)
-
-各项的独立左右对比图可用示例 `WhatsCanvasAAShowcase <输出路径>` 复现，会在同目录生成 `aa_comparison.png`、`gradient_comparison.png`、`shadow_comparison.png`、`clip_comparison.png` 与综合图 `quality_showcase.png`。
+可用 `WhatsCanvasImageFilterShowcase <输出路径>` 重新生成。解析抗锯齿、多 stop 渐变、高斯阴影和路径裁剪等基础画质能力仍列在上方能力总览中，专项实现与验证资料可从文档入口继续查看。
 
 ## 示例
 
