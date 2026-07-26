@@ -1,4 +1,6 @@
 function(whatscanvas_add_common_dependencies project_root)
+    find_package(Threads REQUIRED)
+
     set(third_party_dir "${project_root}/third_party")
     set(glad_path "${third_party_dir}/glad")
     set(stb_path "${third_party_dir}/stb")
@@ -305,6 +307,7 @@ function(whatscanvas_add_gl_family_library target_name project_root)
             "$<BUILD_INTERFACE:WhatsCanvasGLAD>"
             "$<BUILD_INTERFACE:WhatsCanvasSTB>"
             "$<BUILD_INTERFACE:WhatsCanvasPolyline2D>"
+            Threads::Threads
             ${text_shaping_libraries}
             ${text_rasterizer_libraries}
     )
@@ -397,6 +400,7 @@ function(whatscanvas_add_software_library target_name project_root)
             "$<BUILD_INTERFACE:WhatsCanvasGLM>"
             "$<BUILD_INTERFACE:WhatsCanvasSTB>"
             "$<BUILD_INTERFACE:WhatsCanvasPolyline2D>"
+            Threads::Threads
     )
 
     if (BUILD_SHARED_LIBS)
