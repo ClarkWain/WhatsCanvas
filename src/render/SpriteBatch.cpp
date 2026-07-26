@@ -25,7 +25,7 @@ void SpriteBatch::setTexture(std::shared_ptr<ImageResource> texture)
 void SpriteBatch::add(float x, float y, float width, float height,
                        float u0, float v0, float u1, float v1,
                        float r, float g, float b, float a,
-                       const glm::mat4 &transform)
+                       const glm::mat4 &transform, float roundedRadius)
 {
     // Apply transform to the 4 corner positions.
     const glm::vec4 tl = transform * glm::vec4(x, y, 0.0f, 1.0f);
@@ -34,14 +34,26 @@ void SpriteBatch::add(float x, float y, float width, float height,
     const glm::vec4 bl = transform * glm::vec4(x, y + height, 0.0f, 1.0f);
 
     // Triangle 1: tl, tr, br
-    vertexData_.insert(vertexData_.end(), {tl.x, tl.y, u0, v0, r, g, b, a});
-    vertexData_.insert(vertexData_.end(), {tr.x, tr.y, u1, v0, r, g, b, a});
-    vertexData_.insert(vertexData_.end(), {br.x, br.y, u1, v1, r, g, b, a});
+    vertexData_.insert(vertexData_.end(), {
+        tl.x, tl.y, u0, v0, r, g, b, a,
+        0.0f, 0.0f, roundedRadius, width, height});
+    vertexData_.insert(vertexData_.end(), {
+        tr.x, tr.y, u1, v0, r, g, b, a,
+        1.0f, 0.0f, roundedRadius, width, height});
+    vertexData_.insert(vertexData_.end(), {
+        br.x, br.y, u1, v1, r, g, b, a,
+        1.0f, 1.0f, roundedRadius, width, height});
 
     // Triangle 2: tl, br, bl
-    vertexData_.insert(vertexData_.end(), {tl.x, tl.y, u0, v0, r, g, b, a});
-    vertexData_.insert(vertexData_.end(), {br.x, br.y, u1, v1, r, g, b, a});
-    vertexData_.insert(vertexData_.end(), {bl.x, bl.y, u0, v1, r, g, b, a});
+    vertexData_.insert(vertexData_.end(), {
+        tl.x, tl.y, u0, v0, r, g, b, a,
+        0.0f, 0.0f, roundedRadius, width, height});
+    vertexData_.insert(vertexData_.end(), {
+        br.x, br.y, u1, v1, r, g, b, a,
+        1.0f, 1.0f, roundedRadius, width, height});
+    vertexData_.insert(vertexData_.end(), {
+        bl.x, bl.y, u0, v1, r, g, b, a,
+        0.0f, 1.0f, roundedRadius, width, height});
 }
 
 void SpriteBatch::flush(RenderContext &context, DrawBlendMode blendMode)
@@ -79,7 +91,9 @@ void SpriteBatch::flush(RenderContext &context, DrawBlendMode blendMode)
     context.bindImageResource(texture_, DrawImageSampling::Linear, DrawImageTileMode::Clamp, false);
 
     // Draw all sprites in one call.
-    glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(vertexData_.size() / 8));
+    glDrawArrays(
+        GL_TRIANGLES, 0,
+        static_cast<GLsizei>(vertexData_.size() / 13));
 
     glBindVertexArray(0);
 }
@@ -99,31 +113,58 @@ void SpriteBatch::ensureGLInitialized()
         layout (location = 0) in vec2 aPos;
         layout (location = 1) in vec2 aUv;
         layout (location = 2) in vec4 aColor;
+        layout (location = 3) in vec2 aQuadUv;
+        layout (location = 4) in vec3 aRounded;
 
         uniform mat4 uProjection;
 
         out vec2 vUv;
         out vec4 vColor;
+        out vec2 vQuadUv;
+        out vec3 vRounded;
 
         void main()
         {
             gl_Position = uProjection * vec4(aPos, 0.0, 1.0);
             vUv = aUv;
             vColor = aColor;
+            vQuadUv = aQuadUv;
+            vRounded = aRounded;
         }
     )";
 
     const std::string fragmentSrc = std::string(wsc::opengl::shaderVersionDirective()) + R"(
         in vec2 vUv;
         in vec4 vColor;
+        in vec2 vQuadUv;
+        in vec3 vRounded;
 
         uniform sampler2D uTexture;
 
         out vec4 FragColor;
 
+        float roundedRectCoverage()
+        {
+            float radius = vRounded.x;
+            if (radius <= 0.0) {
+                return 1.0;
+            }
+            vec2 size = vRounded.yz;
+            vec2 halfSize = size * 0.5;
+            radius = min(radius, min(halfSize.x, halfSize.y));
+            vec2 point = vQuadUv * size;
+            vec2 q = abs(point - halfSize) - (halfSize - vec2(radius));
+            float distanceToEdge =
+                length(max(q, vec2(0.0)))
+                + min(max(q.x, q.y), 0.0) - radius;
+            float aa = max(fwidth(distanceToEdge), 0.0001);
+            return smoothstep(aa * 0.5, -aa * 0.5, distanceToEdge);
+        }
+
         void main()
         {
             FragColor = texture(uTexture, vUv) * vColor;
+            FragColor.a *= roundedRectCoverage();
         }
     )";
 
@@ -136,16 +177,26 @@ void SpriteBatch::ensureGLInitialized()
     glBindBuffer(GL_ARRAY_BUFFER, VBO_);
 
     // Position: 2 floats at offset 0.
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void *)0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 13 * sizeof(float), (void *)0);
     glEnableVertexAttribArray(0);
 
     // UV: 2 floats at offset 8.
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void *)(2 * sizeof(float)));
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 13 * sizeof(float), (void *)(2 * sizeof(float)));
     glEnableVertexAttribArray(1);
 
     // Color: 4 floats at offset 16.
-    glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void *)(4 * sizeof(float)));
+    glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, 13 * sizeof(float), (void *)(4 * sizeof(float)));
     glEnableVertexAttribArray(2);
+
+    glVertexAttribPointer(
+        3, 2, GL_FLOAT, GL_FALSE, 13 * sizeof(float),
+        (void *)(8 * sizeof(float)));
+    glEnableVertexAttribArray(3);
+
+    glVertexAttribPointer(
+        4, 3, GL_FLOAT, GL_FALSE, 13 * sizeof(float),
+        (void *)(10 * sizeof(float)));
+    glEnableVertexAttribArray(4);
 
     glBindVertexArray(0);
     glInitialized_ = true;

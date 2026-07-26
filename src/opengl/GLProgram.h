@@ -3,6 +3,7 @@
 #include <glad/glad.h>
 #include <string>
 #include <stdexcept>
+#include <unordered_map>
 #include <glm/glm.hpp>
 #include "render/IVolatile.h"
 
@@ -44,7 +45,9 @@ private:
     std::string vertexSrc_;
     std::string fragmentSrc_;
     std::string geometrySrc_;
+    std::unordered_map<std::string, GLint> uniformLocations_;
     GLuint compileShader(GLenum type, const std::string& source);
+    GLint uniformLocation(const std::string& name);
     void linkProgram(GLuint vertexShader, GLuint fragmentShader, GLuint geometryShader = 0);
     void checkCompileErrors(GLuint shader, const std::string& type);
     void checkLinkErrors();

@@ -7,7 +7,8 @@ GLProgram::GLProgram(GLProgram &&other) noexcept
     : program_(other.program_),
       vertexSrc_(std::move(other.vertexSrc_)),
       fragmentSrc_(std::move(other.fragmentSrc_)),
-      geometrySrc_(std::move(other.geometrySrc_))
+      geometrySrc_(std::move(other.geometrySrc_)),
+      uniformLocations_(std::move(other.uniformLocations_))
 {
     other.program_ = 0;
 }
@@ -25,6 +26,7 @@ GLProgram &GLProgram::operator=(GLProgram &&other) noexcept
         vertexSrc_ = std::move(other.vertexSrc_);
         fragmentSrc_ = std::move(other.fragmentSrc_);
         geometrySrc_ = std::move(other.geometrySrc_);
+        uniformLocations_ = std::move(other.uniformLocations_);
         other.program_ = 0;
     }
     return *this;
@@ -77,6 +79,7 @@ void GLProgram::unloadVolatile()
         glDeleteProgram(program_);
         program_ = 0;
     }
+    uniformLocations_.clear();
 }
 
 GLProgram::~GLProgram()
@@ -86,6 +89,7 @@ GLProgram::~GLProgram()
 
 void GLProgram::linkProgram(GLuint vertexShader, GLuint fragmentShader, GLuint geometryShader)
 {
+    uniformLocations_.clear();
     program_ = glCreateProgram();
     glAttachShader(program_, vertexShader);
     glAttachShader(program_, fragmentShader);
@@ -163,32 +167,44 @@ GLuint GLProgram::compileShader(GLenum type, const std::string &source)
     return shader;
 }
 
+GLint GLProgram::uniformLocation(const std::string &name)
+{
+    const auto found = uniformLocations_.find(name);
+    if (found != uniformLocations_.end()) {
+        return found->second;
+    }
+    const GLint location = glGetUniformLocation(program_, name.c_str());
+    uniformLocations_.emplace(name, location);
+    return location;
+}
+
 void GLProgram::setFloat(const std::string &name, float value)
 {
-    glUniform1f(glGetUniformLocation(program_, name.c_str()), value);
+    glUniform1f(uniformLocation(name), value);
 }
 
 void GLProgram::setInt(const std::string &name, int value)
 {
-    glUniform1i(glGetUniformLocation(program_, name.c_str()), value);
+    glUniform1i(uniformLocation(name), value);
 }
 
 void GLProgram::setVec2(const std::string &name, const glm::vec2 &value)
 {
-    glUniform2fv(glGetUniformLocation(program_, name.c_str()), 1, &value[0]);
+    glUniform2fv(uniformLocation(name), 1, &value[0]);
 }
 
 void GLProgram::setVec3(const std::string &name, const glm::vec3 &value)
 {
-    glUniform3fv(glGetUniformLocation(program_, name.c_str()), 1, &value[0]);
+    glUniform3fv(uniformLocation(name), 1, &value[0]);
 }
 
 void GLProgram::setVec4(const std::string &name, const glm::vec4 &value)
 {
-    glUniform4fv(glGetUniformLocation(program_, name.c_str()), 1, &value[0]);
+    glUniform4fv(uniformLocation(name), 1, &value[0]);
 }
 
 void GLProgram::setMat4(const std::string &name, const glm::mat4 &value)
 {
-    glUniformMatrix4fv(glGetUniformLocation(program_, name.c_str()), 1, GL_FALSE, &value[0][0]);
+    glUniformMatrix4fv(
+        uniformLocation(name), 1, GL_FALSE, &value[0][0]);
 }

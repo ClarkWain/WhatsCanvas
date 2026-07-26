@@ -59,6 +59,11 @@ struct DrawPrimitive
     /// TexturedQuad: alpha multiplier applied to the sampled texture.
     float layerAlpha = 1.0f;
 
+    /// TexturedQuad: optional uniform rounded-rectangle clip in local pixels.
+    float roundedRadius = 0.0f;
+    float roundedWidth = 0.0f;
+    float roundedHeight = 0.0f;
+
     /// TexturedQuad: RGBA tint multiplied into the sampled texture.
     float tint[4] = {1.0f, 1.0f, 1.0f, 1.0f};
 

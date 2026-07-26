@@ -3755,17 +3755,7 @@ void Canvas::drawImageNinePatch(const Image &image, const RectF &centerSrc, cons
 
 void Canvas::drawImageRounded(const Image &image, const RectF &dst, float radius, const Paint &paint)
 {
-    if (radius <= 0.0f) {
-        drawImage(image, dst, paint);
-        return;
-    }
-
-    Path clip;
-    clip.addRoundRect(dst, radius);
-    save();
-    clipPath(clip);
-    drawImage(image, dst, paint);
-    restore();
+    drawImageRounded(image, dst, radius, radius, radius, radius, paint);
 }
 
 void Canvas::drawImageRounded(const Image &image, const RectF &dst, float topLeftRadius, float topRightRadius,
@@ -3773,6 +3763,51 @@ void Canvas::drawImageRounded(const Image &image, const RectF &dst, float topLef
 {
     if (topLeftRadius <= 0.0f && topRightRadius <= 0.0f && bottomRightRadius <= 0.0f && bottomLeftRadius <= 0.0f) {
         drawImage(image, dst, paint);
+        return;
+    }
+
+    const bool uniformRadius =
+        std::abs(topLeftRadius - topRightRadius) <= 1e-6f
+        && std::abs(topLeftRadius - bottomRightRadius) <= 1e-6f
+        && std::abs(topLeftRadius - bottomLeftRadius) <= 1e-6f;
+    if (uniformRadius && impl_->currentState().clip.paths.empty()) {
+        const SharedImageResource imageResource = image.getImageResource();
+        if (!imageResource || !imageResource->isValid()
+            || image.getWidth() <= 0 || image.getHeight() <= 0) {
+            return;
+        }
+
+        const RectF normalizedDst = normalizeRect(dst);
+        if (normalizedDst.getWidth() <= 0.0f
+            || normalizedDst.getHeight() <= 0.0f) {
+            return;
+        }
+
+        DrawImageData data;
+        data.imageResource = imageResource;
+        data.x = normalizedDst.getX();
+        data.y = normalizedDst.getY();
+        data.width = normalizedDst.getWidth();
+        data.height = normalizedDst.getHeight();
+        data.roundedRadius = std::min({
+            std::max(0.0f, topLeftRadius),
+            normalizedDst.getWidth() * 0.5f,
+            normalizedDst.getHeight() * 0.5f});
+        const Color tintColor = paint.getColor();
+        data.tintColor[0] = tintColor.r();
+        data.tintColor[1] = tintColor.g();
+        data.tintColor[2] = tintColor.b();
+        data.tintColor[3] = 1.0f;
+        data.alpha = std::clamp(
+            paint.getColor().a() * paint.getAlphaF(), 0.0f, 1.0f);
+        data.sampling = toDrawImageSampling(paint.getImageSampling());
+        data.tileMode = toDrawImageTileMode(paint.getImageTileMode());
+        data.mipmapsReady = image.hasMipmaps();
+        data.transform = impl_->currentState().matrix;
+        data.scissor = impl_->makeCurrentScissorState();
+        data.blendMode = toDrawBlendMode(paint.getBlendMode());
+        applyImageColorMatrix(paint, data);
+        impl_->renderer->submit(std::make_unique<DrawImageCommand>(data));
         return;
     }
 

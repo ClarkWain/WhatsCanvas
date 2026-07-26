@@ -21,6 +21,44 @@ demonstrates the complete report format and preserves all raw JSONL records.
 It is a reproducible single-machine baseline, not a universal score or
 cross-library ranking.
 
+## Verified hotspot optimization
+
+The checked-in reference run also exposed two genuine hotspots: rounded images
+were routed through full clip masks, and Software/Vulkan shadows processed much
+more of the canvas than the shadow could affect. The optimized implementation
+uses native uniform-rounded image coverage, crops shadow work to expanded
+silhouette bounds, keeps Vulkan blur on the GPU, defers temporary target
+reclamation until GPU completion, and batches path-shadow silhouette passes.
+
+The following candidate was rerun on 2026-07-26 on the exact reference machine
+and driver, in `Release`, at 960 x 540 with the `standard` 30 + 5 frame profile.
+The baseline remains checked in rather than being overwritten, so these deltas
+remain auditable.
+
+| Backend | Scene | Reference median | Optimized median | Delta |
+| --- | --- | ---: | ---: | ---: |
+| OpenGL | `image_grid` | 191.084 ms | 0.533 ms | -99.7% |
+| Software | `image_grid` | 94.119 ms | 42.938 ms | -54.4% |
+| Vulkan | `image_grid` | 47.344 ms | 0.290 ms | -99.4% |
+| OpenGL | `shadow_grid` | 11.764 ms | 10.571 ms | -10.1% |
+| Software | `shadow_grid` | 1003.717 ms | 70.411 ms | -93.0% |
+| Vulkan | `shadow_grid` | 1129.557 ms | 14.947 ms | -98.7% |
+
+These results do not show Vulkan as generally slower than OpenGL:
+`image_grid` is faster on Vulkan in this run. The remaining `shadow_grid`
+difference, 14.947 ms versus 10.571 ms, is concentrated in 36 small
+render-target and Gaussian-filter jobs. On this GTX 1060 driver their Vulkan
+render-pass, descriptor, and command-buffer fixed costs remain more visible
+than the OpenGL driver's internal scheduling.
+
+Software and OpenGL shadow hashes are unchanged. Image hashes intentionally
+changed at rounded edges when clip-mask rasterization was replaced by native
+shader coverage. Vulkan shadow output changed when the CPU blur was replaced
+by the GPU path; its OpenGL comparison has a maximum channel difference of 1.
+The optimized revision passed all 64 Release CTest entries, including all 22
+Vulkan tests, Software golden images, OpenGL/Vulkan filter pixel parity, text,
+Unicode, examples, API documentation, and installed-package consumers.
+
 ## Standard scene matrix
 
 The default resolution is 960 x 540. Every scene is deterministic and produces

@@ -18,10 +18,24 @@ layout(push_constant) uniform Push
     float layerAlpha;   // offset 96
     int useColorMatrix; // offset 100
     int sourcePremultiplied; // offset 104
-    int useClipMask;    // offset 108
-    vec2 clipUvScale;   // offset 112
-    vec2 clipUvOffset;  // offset 120
+    int useClipMask;    // offset 108: 0 none, 1 texture, 2 rounded rect
+    vec2 clipUvScale;   // texture scale, or rounded radius/width
+    vec2 clipUvOffset;  // texture offset, or rounded height/unused
 } pc;
+
+float roundedRectCoverage()
+{
+    float radius = pc.clipUvScale.x;
+    vec2 size = vec2(pc.clipUvScale.y, pc.clipUvOffset.x);
+    vec2 halfSize = size * 0.5;
+    radius = min(radius, min(halfSize.x, halfSize.y));
+    vec2 point = vUV * size;
+    vec2 q = abs(point - halfSize) - (halfSize - vec2(radius));
+    float distanceToEdge =
+        length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0) - radius;
+    float aa = max(fwidth(distanceToEdge), 0.0001);
+    return smoothstep(aa * 0.5, -aa * 0.5, distanceToEdge);
+}
 
 void main()
 {
@@ -38,8 +52,15 @@ void main()
     float alpha = c.a * pc.layerAlpha;
     if (pc.useClipMask != 0)
     {
-        vec2 maskUV = gl_FragCoord.xy * pc.clipUvScale + pc.clipUvOffset;
-        alpha *= texture(uClipMask, maskUV).r;
+        if (pc.useClipMask == 1)
+        {
+            vec2 maskUV = gl_FragCoord.xy * pc.clipUvScale + pc.clipUvOffset;
+            alpha *= texture(uClipMask, maskUV).r;
+        }
+        else
+        {
+            alpha *= roundedRectCoverage();
+        }
     }
     outColor = vec4(c.rgb, alpha);
 }

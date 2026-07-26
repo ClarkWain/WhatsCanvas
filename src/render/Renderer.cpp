@@ -34,6 +34,11 @@ bool isSpriteBatchCompatible(const DrawImageData &data, const SharedImageResourc
         && data.tileMode == DrawImageTileMode::Clamp
         && !data.scissor.enabled
         && !data.clipMask.hasPaths()
+        && (!data.hasRoundedCorners()
+            || (nearlyEqual(data.u0, 0.0f)
+                && nearlyEqual(data.v0, 0.0f)
+                && nearlyEqual(data.u1, 1.0f)
+                && nearlyEqual(data.v1, 1.0f)))
         && data.blendMode == blendMode;
 }
 } // namespace
@@ -319,7 +324,7 @@ void Renderer::flush()
                         batch.add(data.x, data.y, data.width, data.height,
                                   data.u0, data.v0, data.u1, data.v1,
                                   tintColor[0], tintColor[1], tintColor[2], tintColor[3],
-                                  data.transform);
+                                  data.transform, data.roundedRadius);
                     }
                     batch.flush(context_, first.blendMode);
                     ++stats_.drawCallCount;
