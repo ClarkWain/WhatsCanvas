@@ -1317,6 +1317,30 @@ if (WHATSCANVAS_BUILD_BENCHMARKS AND TARGET WhatsCanvasOpenGL)
     endif()
     whatscanvas_link_gl_app(
         WhatsCanvasImageFilterBenchmarks ${CMAKE_CURRENT_SOURCE_DIR})
+
+    add_executable(WhatsCanvasPerformanceSuite
+        "${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/PerformanceSuite.cpp"
+    )
+    target_link_libraries(WhatsCanvasPerformanceSuite PRIVATE
+        WhatsCanvasOpenGL
+    )
+    target_compile_definitions(WhatsCanvasPerformanceSuite PRIVATE
+        WHATSCANVAS_PERF_BUILD_TYPE="$<CONFIG>"
+        WHATSCANVAS_PERF_VERSION="${PROJECT_VERSION}"
+    )
+    if (WHATSCANVAS_VULKAN_BACKEND_ENABLED)
+        target_compile_definitions(WhatsCanvasPerformanceSuite PRIVATE
+            WHATSCANVAS_PERF_ENABLE_VULKAN
+        )
+        target_link_libraries(WhatsCanvasPerformanceSuite PRIVATE
+            Vulkan::Vulkan
+        )
+    endif()
+    if (WIN32)
+        target_link_libraries(WhatsCanvasPerformanceSuite PRIVATE psapi)
+    endif()
+    whatscanvas_link_gl_app(
+        WhatsCanvasPerformanceSuite ${CMAKE_CURRENT_SOURCE_DIR})
 elseif (WHATSCANVAS_BUILD_BENCHMARKS AND TARGET WhatsCanvasSoftware)
     add_executable(WhatsCanvasImageFilterBenchmarks
         "${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/ImageFilterBenchmarks.cpp"
@@ -1327,6 +1351,37 @@ elseif (WHATSCANVAS_BUILD_BENCHMARKS AND TARGET WhatsCanvasSoftware)
     target_compile_definitions(WhatsCanvasImageFilterBenchmarks PRIVATE
         WHATSCANVAS_FILTER_BENCHMARK_DISABLE_OPENGL
         WHATSCANVAS_FILTER_BENCHMARK_DISABLE_VULKAN
+    )
+
+    add_executable(WhatsCanvasPerformanceSuite
+        "${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/PerformanceSuite.cpp"
+    )
+    target_link_libraries(WhatsCanvasPerformanceSuite PRIVATE
+        WhatsCanvasSoftware
+    )
+    target_compile_definitions(WhatsCanvasPerformanceSuite PRIVATE
+        WHATSCANVAS_PERF_DISABLE_OPENGL
+        WHATSCANVAS_PERF_BUILD_TYPE="$<CONFIG>"
+        WHATSCANVAS_PERF_VERSION="${PROJECT_VERSION}"
+    )
+    if (WIN32)
+        target_link_libraries(WhatsCanvasPerformanceSuite PRIVATE psapi)
+    endif()
+endif()
+
+if (BUILD_TESTING AND TARGET WhatsCanvasPerformanceSuite)
+    add_test(NAME WhatsCanvasPerformanceSuiteSmoke
+        COMMAND $<TARGET_FILE:WhatsCanvasPerformanceSuite>
+            --backend software
+            --profile quick
+            --scene solid_rects,path_cached,image_grid
+            --width 320
+            --height 180
+            --output "${CMAKE_CURRENT_BINARY_DIR}/performance_suite_smoke.jsonl"
+    )
+    set_tests_properties(WhatsCanvasPerformanceSuiteSmoke PROPERTIES
+        LABELS "smoke;benchmark;software"
+        TIMEOUT 120
     )
 endif()
 
