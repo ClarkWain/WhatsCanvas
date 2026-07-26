@@ -8,6 +8,7 @@ layout(location = 0) in vec2 vUV;
 layout(location = 0) out vec4 outColor;
 
 layout(binding = 0) uniform sampler2D uTexture;
+layout(binding = 1) uniform sampler2D uClipMask;
 
 layout(push_constant) uniform Push
 {
@@ -17,6 +18,9 @@ layout(push_constant) uniform Push
     float layerAlpha;   // offset 96
     int useColorMatrix; // offset 100
     int sourcePremultiplied; // offset 104
+    int useClipMask;    // offset 108
+    vec2 clipUvScale;   // offset 112
+    vec2 clipUvOffset;  // offset 120
 } pc;
 
 void main()
@@ -31,5 +35,11 @@ void main()
     {
         c = pc.colorMatrix * c + pc.colorOffset;
     }
-    outColor = vec4(c.rgb, c.a * pc.layerAlpha);
+    float alpha = c.a * pc.layerAlpha;
+    if (pc.useClipMask != 0)
+    {
+        vec2 maskUV = gl_FragCoord.xy * pc.clipUvScale + pc.clipUvOffset;
+        alpha *= texture(uClipMask, maskUV).r;
+    }
+    outColor = vec4(c.rgb, alpha);
 }
