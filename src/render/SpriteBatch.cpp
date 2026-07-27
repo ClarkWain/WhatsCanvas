@@ -1,6 +1,8 @@
 #include "SpriteBatch.h"
 
+#include <algorithm>
 #include <glad/glad.h>
+#include <cstdint>
 #include <glm/gtc/matrix_transform.hpp>
 
 #include "opengl/GLProgram.h"
@@ -33,21 +35,13 @@ void SpriteBatch::add(float x, float y, float width, float height,
     const glm::vec4 br = transform * glm::vec4(x + width, y + height, 0.0f, 1.0f);
     const glm::vec4 bl = transform * glm::vec4(x, y + height, 0.0f, 1.0f);
 
-    // Triangle 1: tl, tr, br
+    // Four corners are shared by the two indexed triangles.
     vertexData_.insert(vertexData_.end(), {
         tl.x, tl.y, u0, v0, r, g, b, a,
         0.0f, 0.0f, roundedRadius, width, height});
     vertexData_.insert(vertexData_.end(), {
         tr.x, tr.y, u1, v0, r, g, b, a,
         1.0f, 0.0f, roundedRadius, width, height});
-    vertexData_.insert(vertexData_.end(), {
-        br.x, br.y, u1, v1, r, g, b, a,
-        1.0f, 1.0f, roundedRadius, width, height});
-
-    // Triangle 2: tl, br, bl
-    vertexData_.insert(vertexData_.end(), {
-        tl.x, tl.y, u0, v0, r, g, b, a,
-        0.0f, 0.0f, roundedRadius, width, height});
     vertexData_.insert(vertexData_.end(), {
         br.x, br.y, u1, v1, r, g, b, a,
         1.0f, 1.0f, roundedRadius, width, height});
@@ -82,6 +76,8 @@ void SpriteBatch::flush(RenderContext &context, DrawBlendMode blendMode)
     // Upload vertex data.
     glBindVertexArray(VAO_);
     glBindBuffer(GL_ARRAY_BUFFER, VBO_);
+    const std::size_t sprites = spriteCount();
+    ensureIndexCapacity(sprites);
     glBufferData(GL_ARRAY_BUFFER,
                  static_cast<GLsizeiptr>(vertexData_.size() * sizeof(float)),
                  vertexData_.data(),
@@ -91,9 +87,9 @@ void SpriteBatch::flush(RenderContext &context, DrawBlendMode blendMode)
     context.bindImageResource(texture_, DrawImageSampling::Linear, DrawImageTileMode::Clamp, false);
 
     // Draw all sprites in one call.
-    glDrawArrays(
-        GL_TRIANGLES, 0,
-        static_cast<GLsizei>(vertexData_.size() / 13));
+    glDrawElements(
+        GL_TRIANGLES, static_cast<GLsizei>(sprites * 6u),
+        GL_UNSIGNED_INT, nullptr);
 
     glBindVertexArray(0);
 }
@@ -172,9 +168,11 @@ void SpriteBatch::ensureGLInitialized()
 
     glGenVertexArrays(1, &VAO_);
     glGenBuffers(1, &VBO_);
+    glGenBuffers(1, &EBO_);
 
     glBindVertexArray(VAO_);
     glBindBuffer(GL_ARRAY_BUFFER, VBO_);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO_);
 
     // Position: 2 floats at offset 0.
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 13 * sizeof(float), (void *)0);
@@ -202,6 +200,39 @@ void SpriteBatch::ensureGLInitialized()
     glInitialized_ = true;
 }
 
+void SpriteBatch::ensureIndexCapacity(std::size_t spriteCount)
+{
+    if (spriteCount <= indexSpriteCapacity_) {
+        return;
+    }
+
+    std::size_t nextCapacity =
+        std::max<std::size_t>(256u, indexSpriteCapacity_);
+    while (nextCapacity < spriteCount) {
+        nextCapacity *= 2u;
+    }
+
+    std::vector<std::uint32_t> indices(nextCapacity * 6u);
+    for (std::size_t sprite = 0; sprite < nextCapacity; ++sprite) {
+        const std::uint32_t vertex =
+            static_cast<std::uint32_t>(sprite * 4u);
+        const std::size_t index = sprite * 6u;
+        indices[index + 0u] = vertex + 0u;
+        indices[index + 1u] = vertex + 1u;
+        indices[index + 2u] = vertex + 2u;
+        indices[index + 3u] = vertex + 0u;
+        indices[index + 4u] = vertex + 2u;
+        indices[index + 5u] = vertex + 3u;
+    }
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO_);
+    glBufferData(
+        GL_ELEMENT_ARRAY_BUFFER,
+        static_cast<GLsizeiptr>(indices.size() * sizeof(std::uint32_t)),
+        indices.data(), GL_STATIC_DRAW);
+    indexSpriteCapacity_ = nextCapacity;
+}
+
 void SpriteBatch::releaseGLResources()
 {
     if (program_ != nullptr) {
@@ -218,6 +249,11 @@ void SpriteBatch::releaseGLResources()
         glDeleteBuffers(1, &VBO_);
         VBO_ = static_cast<unsigned int>(-1);
     }
+    if (EBO_ != static_cast<unsigned int>(-1)) {
+        glDeleteBuffers(1, &EBO_);
+        EBO_ = static_cast<unsigned int>(-1);
+    }
+    indexSpriteCapacity_ = 0;
 
     glInitialized_ = false;
 }

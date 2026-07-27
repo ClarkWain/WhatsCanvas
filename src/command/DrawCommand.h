@@ -71,6 +71,7 @@ class DrawPathCommand : public Command
 {
 public:
     explicit DrawPathCommand(const DrawPathData &data);
+    explicit DrawPathCommand(DrawPathData &&data);
     ~DrawPathCommand() override = default;
 
     void execute(RenderContext &context) override;

@@ -2056,7 +2056,7 @@ void submitStrokeMesh(IRenderer &renderer, const std::vector<crushedpixel::Vec2>
                                                strokeColor, PathDrawMode::Stroke,
                                                transform, scissor, toDrawBlendMode(paint.getBlendMode()), clipMask);
     strokeData.coverage = std::move(strokeCoverage);
-    renderer.submit(std::make_unique<DrawPathCommand>(strokeData));
+    renderer.submit(std::make_unique<DrawPathCommand>(std::move(strokeData)));
 }
 
 std::string sanitizeTextToAscii(const std::string &text)
@@ -2264,11 +2264,11 @@ struct Canvas::Impl
     // shapes are not re-triangulated every frame.
     wsc::render::LruCache<std::vector<crushedpixel::Vec2>> fillTessellationCache{
         256, 8u * 1024u * 1024u};
-    // Retains the more expensive analytic-AA expansion for common translated
-    // fills. Capacity is intentionally smaller than the base tessellation
-    // cache because each entry owns both vertices and coverage.
+    // Keep the AA cache aligned with the base tessellation cache. Equivalent
+    // translated primitives can still produce a few quantization variants;
+    // a 64-entry limit caused deterministic eviction churn in dense geometry.
     wsc::render::LruCache<AAExpandedMesh> fillAaCache{
-        64, 8u * 1024u * 1024u};
+        256, 8u * 1024u * 1024u};
     // Retains transform-independent stroke meshes for the same reason.
     wsc::render::LruCache<std::vector<crushedpixel::Vec2>> strokeTessellationCache{
         256, 8u * 1024u * 1024u};
@@ -2836,6 +2836,9 @@ Canvas::RenderStats Canvas::getRenderStats() const
     stats.downsampledFilterCount = frameStats.downsampledFilterCount;
     stats.filterInputPixelCount = frameStats.filterInputPixelCount;
     stats.filterPixelPassCount = frameStats.filterPixelPassCount;
+    stats.pathVertexCount = frameStats.pathVertexCount;
+    stats.pathUploadCount = frameStats.pathUploadCount;
+    stats.pathUploadBytes = frameStats.pathUploadBytes;
     stats.imageTextureCount = resourceStats.imageTextureCount;
     stats.renderTargetCount = resourceStats.renderTargetCount;
     stats.pooledRenderTargetCount = resourceStats.pooledRenderTargetCount;
@@ -2855,6 +2858,10 @@ Canvas::RenderStats Canvas::getRenderStats() const
     stats.tessellationCacheBytes =
         impl_->fillTessellationCache.residentBytes()
         + impl_->fillAaCache.residentBytes();
+    stats.aaCacheHits = impl_->fillAaCache.hitCount();
+    stats.aaCacheMisses = impl_->fillAaCache.missCount();
+    stats.aaCacheSize = impl_->fillAaCache.size();
+    stats.aaCacheBytes = impl_->fillAaCache.residentBytes();
     stats.strokeCacheHits = impl_->strokeTessellationCache.hitCount();
     stats.strokeCacheMisses = impl_->strokeTessellationCache.missCount();
     stats.strokeCacheSize = impl_->strokeTessellationCache.size();
@@ -3462,7 +3469,8 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
                                                                shadowPass.color, PathDrawMode::Fill,
                                                                shadowPass.transform, scissor,
                                                                toDrawBlendMode(effectivePaint.getBlendMode()), clipMask);
-                impl_->renderer->submit(std::make_unique<DrawPathCommand>(shadowFillData));
+                impl_->renderer->submit(
+                    std::make_unique<DrawPathCommand>(std::move(shadowFillData)));
             }
 
             if (drawStroke && !blurredStroke) {
@@ -3505,7 +3513,8 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
                                                  toDrawBlendMode(effectivePaint.getBlendMode()), clipMask);
         fillData.coverage = std::move(fillCoverage);
         applyPathGradient(effectivePaint, fillData);
-        impl_->renderer->submit(std::make_unique<DrawPathCommand>(fillData));
+        impl_->renderer->submit(
+            std::make_unique<DrawPathCommand>(std::move(fillData)));
     }
 
     if (drawStroke) {

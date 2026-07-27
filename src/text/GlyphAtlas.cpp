@@ -59,6 +59,22 @@ std::optional<GlyphAtlasEntry> GlyphAtlas::uploadGlyph(const GlyphKey &key, cons
         return *existing;
     }
 
+    // Whitespace and other advance-only glyphs are valid rasterizer results
+    // even though they own no pixels. Cache them as entries without consuming
+    // atlas space so hot text does not repeatedly call into the rasterizer.
+    if (bitmap.width == 0 && bitmap.height == 0
+        && bitmap.alphaPixels.empty() && bitmap.rgbaPixels.empty()) {
+        GlyphAtlasEntry entry;
+        entry.key = key;
+        entry.bearingX = bitmap.bearingX;
+        entry.bearingY = bitmap.bearingY;
+        entry.advanceX = bitmap.advanceX;
+        entry.generation = generation_;
+        entries_.push_back(entry);
+        entryIndex_[entry.key] = entries_.size() - 1u;
+        return entry;
+    }
+
     if (!hasValidPixels(bitmap)) {
         return std::nullopt;
     }

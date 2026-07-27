@@ -38,7 +38,7 @@ public:
     const std::shared_ptr<ImageResource> &texture() const { return texture_; }
 
     /// Add a sprite (quad) to the batch.
-    /// Each sprite is 6 vertices (2 triangles). Per-vertex data also carries
+    /// Each sprite is 4 indexed vertices. Per-vertex data also carries
     /// normalized quad coordinates and uniform rounded-clip parameters.
     void add(float x, float y, float width, float height,
              float u0, float v0, float u1, float v1,
@@ -53,7 +53,7 @@ public:
     void clear();
 
     /// Get the number of sprites in the current batch.
-    std::size_t spriteCount() const { return vertexData_.size() / 78; } // 6 verts * 13 floats
+    std::size_t spriteCount() const { return vertexData_.size() / 52; } // 4 verts * 13 floats
 
     /// Whether the batch has any sprites.
     bool empty() const { return vertexData_.empty(); }
@@ -65,9 +65,12 @@ private:
     // GL resources (lazily initialized).
     unsigned int VAO_ = static_cast<unsigned int>(-1);
     unsigned int VBO_ = static_cast<unsigned int>(-1);
+    unsigned int EBO_ = static_cast<unsigned int>(-1);
+    std::size_t indexSpriteCapacity_ = 0;
     GLProgram *program_ = nullptr;
     bool glInitialized_ = false;
 
     void ensureGLInitialized();
+    void ensureIndexCapacity(std::size_t spriteCount);
     void releaseGLResources();
 };

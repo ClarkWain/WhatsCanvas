@@ -26,6 +26,7 @@ using wsc::text::TextRenderResult;
 
 constexpr size_t kMaxNativeTextCacheEntries = 128;
 constexpr size_t kMaxRasterShapeCacheEntries = 512;
+constexpr size_t kMaxRasterLayoutCacheEntries = 512;
 // Windows application UI commonly combines several text sizes, weights and
 // structural branches in one deferred Software frame.  Starting at 1024 can
 // force an atlas resize while that frame still owns commands referencing the
@@ -577,6 +578,16 @@ private:
         std::size_t sourceEnd = 0;
     };
 
+    struct RasterGlyphLayout
+    {
+        std::uint64_t atlasGeneration = 0;
+        float drawXOffset = 0.0f;
+        float drawYOffset = 0.0f;
+        float width = 0.0f;
+        float height = 0.0f;
+        std::vector<TextRenderResult::GlyphAtlasQuad> quads;
+    };
+
     std::optional<std::vector<RasterTextSegment>> buildRasterTextSegments(const std::string &normalizedText,
                                                                           const Paint &paint,
                                                                           std::size_t sourceStart,
@@ -637,6 +648,32 @@ private:
     std::optional<TextRenderResult> renderRasterizedText(const std::string &normalizedText, float x, float y,
                                                          const Paint &paint) const
     {
+        const std::string layoutCacheKey =
+            rasterLayoutCacheKey(normalizedText, paint);
+        const std::uint64_t atlasGeneration =
+            glyphAtlas_.stats().generation;
+        if (const auto cached = rasterLayoutCache_.find(layoutCacheKey);
+            cached != rasterLayoutCache_.end()
+            && cached->second.atlasGeneration == atlasGeneration) {
+            touchCacheEntry(
+                layoutCacheKey, rasterLayoutCache_,
+                rasterLayoutCacheOrder_, kMaxRasterLayoutCacheEntries);
+            TextRenderResult result;
+            result.kind = TextRenderKind::GlyphAtlas;
+            result.drawX = x + cached->second.drawXOffset;
+            result.drawY = y + cached->second.drawYOffset;
+            result.width = cached->second.width;
+            result.height = cached->second.height;
+            result.glyphAtlasQuads = cached->second.quads;
+            for (TextRenderResult::GlyphAtlasQuad &quad :
+                 result.glyphAtlasQuads) {
+                quad.x += x;
+                quad.y += y;
+            }
+            populateAtlasResult(result);
+            return result;
+        }
+
         const auto shapedRun = shapeRasterizedText(normalizedText, paint);
         if (!shapedRun) {
             addDiagnosticOnce(wsc::text::TextBackendDiagnostic::Severity::Warning,
@@ -665,7 +702,7 @@ private:
         {
             wsc::text::ShapedGlyph glyph;
             wsc::text::GlyphKey key;
-            wsc::text::GlyphBitmap bitmap;
+            std::optional<wsc::text::GlyphBitmap> bitmap;
             std::optional<wsc::text::GlyphAtlasEntry> cachedEntry;
         };
 
@@ -695,11 +732,12 @@ private:
             cachedKey.weight = face->weight();
             cachedKey.slant = face->slant();
             if (const auto *cached = glyphAtlas_.find(cachedKey)) {
-                pendingGlyphs.push_back({glyph, cachedKey, {}, *cached});
+                pendingGlyphs.push_back(
+                    {glyph, std::move(cachedKey), std::nullopt, *cached});
                 continue;
             }
 
-            const auto rasterized = glyph.glyphIndex > 0
+            auto rasterized = glyph.glyphIndex > 0
                 ? rasterizer_.rasterizeGlyphIndex(*face, glyph.glyphIndex, glyph.codepoint, paint.getTextSize())
                 : rasterizer_.rasterizeGlyph(*face, glyph.codepoint, paint.getTextSize());
             if (!rasterized) {
@@ -712,7 +750,9 @@ private:
                 return std::nullopt;
             }
 
-            pendingGlyphs.push_back({glyph, rasterized->key, rasterized->bitmap, std::nullopt});
+            pendingGlyphs.push_back(
+                {glyph, std::move(rasterized->key),
+                 std::move(rasterized->bitmap), std::nullopt});
         }
 
         const float baselineY = result.drawY + paint.getTextSize();
@@ -729,12 +769,11 @@ private:
                     penX += spacing;
                 }
 
-                if (pending.cachedEntry
-                    || (pending.bitmap.width > 0 && pending.bitmap.height > 0)) {
+                if (pending.cachedEntry || pending.bitmap) {
                     const std::uint64_t generationBeforeUpload = glyphAtlas_.stats().generation;
                     const auto entry = pending.cachedEntry
                         ? pending.cachedEntry
-                        : glyphAtlas_.uploadGlyph(pending.key, pending.bitmap);
+                        : glyphAtlas_.uploadGlyph(pending.key, *pending.bitmap);
                     if (!entry) {
                         addDiagnosticOnce(wsc::text::TextBackendDiagnostic::Severity::Warning,
                                           "atlas-upload#" + std::to_string(pending.glyph.codepoint),
@@ -749,16 +788,18 @@ private:
                         break;
                     }
 
-                    TextRenderResult::GlyphAtlasQuad quad;
-                    quad.x = penX + pending.glyph.offsetX + entry->bearingX;
-                    quad.y = baselineY + pending.glyph.offsetY + entry->bearingY;
-                    quad.width = static_cast<float>(entry->width);
-                    quad.height = static_cast<float>(entry->height);
-                    quad.u0 = entry->u0;
-                    quad.v0 = entry->v0;
-                    quad.u1 = entry->u1;
-                    quad.v1 = entry->v1;
-                    result.glyphAtlasQuads.push_back(quad);
+                    if (entry->width > 0 && entry->height > 0) {
+                        TextRenderResult::GlyphAtlasQuad quad;
+                        quad.x = penX + pending.glyph.offsetX + entry->bearingX;
+                        quad.y = baselineY + pending.glyph.offsetY + entry->bearingY;
+                        quad.width = static_cast<float>(entry->width);
+                        quad.height = static_cast<float>(entry->height);
+                        quad.u0 = entry->u0;
+                        quad.v0 = entry->v0;
+                        quad.u1 = entry->u1;
+                        quad.v1 = entry->v1;
+                        result.glyphAtlasQuads.push_back(quad);
+                    }
                 }
 
                 penX += pending.glyph.advanceX;
@@ -786,18 +827,42 @@ private:
             return std::nullopt;
         }
 
-        result.atlasWidth = glyphAtlas_.stats().width;
-        result.atlasHeight = glyphAtlas_.stats().height;
+        RasterGlyphLayout cachedLayout;
+        cachedLayout.atlasGeneration = glyphAtlas_.stats().generation;
+        cachedLayout.drawXOffset = result.drawX - x;
+        cachedLayout.drawYOffset = result.drawY - y;
+        cachedLayout.width = result.width;
+        cachedLayout.height = result.height;
+        cachedLayout.quads = result.glyphAtlasQuads;
+        for (TextRenderResult::GlyphAtlasQuad &quad :
+             cachedLayout.quads) {
+            quad.x -= x;
+            quad.y -= y;
+        }
+        rasterLayoutCache_[layoutCacheKey] = std::move(cachedLayout);
+        touchCacheEntry(
+            layoutCacheKey, rasterLayoutCache_,
+            rasterLayoutCacheOrder_, kMaxRasterLayoutCacheEntries);
+        populateAtlasResult(result);
+        return result;
+    }
+
+    void populateAtlasResult(TextRenderResult &result) const
+    {
+        const wsc::text::GlyphAtlasStats stats = glyphAtlas_.stats();
+        result.atlasWidth = stats.width;
+        result.atlasHeight = stats.height;
         // The Canvas owns this backend for its entire lifetime, so returning
-        // an atlas view is safe. Copying the 4096x4096 alpha texture once per
-        // label dominated every interactive repaint (hundreds of MB/frame).
+        // an atlas view is safe.
         result.atlasAlphaPixelsView = &glyphAtlas_.pixels();
         if (glyphAtlas_.hasColorPixels()) {
-            result.atlasPixelFormat = wsc::text::GlyphAtlasPixelFormat::RGBA;
+            result.atlasPixelFormat =
+                wsc::text::GlyphAtlasPixelFormat::RGBA;
             result.atlasRgbaPixelsView = &glyphAtlas_.rgbaPixels();
         }
-        result.atlasRevision = glyphAtlas_.stats().uploadCount;
-        const std::vector<wsc::text::GlyphAtlasDirtyRect> dirtyRects = glyphAtlas_.consumeDirtyRects();
+        result.atlasRevision = stats.uploadCount;
+        const std::vector<wsc::text::GlyphAtlasDirtyRect> dirtyRects =
+            glyphAtlas_.consumeDirtyRects();
         result.atlasDirtyRects.reserve(dirtyRects.size());
         for (const wsc::text::GlyphAtlasDirtyRect &dirtyRect : dirtyRects) {
             TextRenderResult::GlyphAtlasDirtyRect resultRect;
@@ -807,7 +872,6 @@ private:
             resultRect.height = dirtyRect.height;
             result.atlasDirtyRects.push_back(resultRect);
         }
-        return result;
     }
 
     std::optional<wsc::text::ShapedTextRun> shapeRasterizedText(const std::string &normalizedText,
@@ -975,7 +1039,17 @@ private:
     {
         return text + '\x1f' + paint.getFontFamily() + '\x1f' + std::to_string(paint.getTextSize()) + '\x1f'
                + std::to_string(paint.getLetterSpacing()) + '\x1f' + std::to_string(paint.getFontWeight()) + '\x1f'
-               + std::to_string(static_cast<int>(paint.getFontSlant()));
+               + std::to_string(static_cast<int>(paint.getFontSlant())) + '\x1f'
+               + paint.getTextLocale();
+    }
+
+    static std::string rasterLayoutCacheKey(
+        const std::string &text, const Paint &paint)
+    {
+        return rasterShapeCacheKey(text, paint) + '\x1f'
+            + std::to_string(static_cast<int>(paint.getTextAlign()))
+            + '\x1f'
+            + std::to_string(static_cast<int>(paint.getTextBaseline()));
     }
 
     static std::string rasterFaceCacheKey(std::uint32_t codepoint, const Paint &paint)
@@ -989,6 +1063,8 @@ private:
     {
         rasterShapeCache_.clear();
         rasterShapeCacheOrder_.clear();
+        rasterLayoutCache_.clear();
+        rasterLayoutCacheOrder_.clear();
         rasterFaceCache_.clear();
     }
 
@@ -1000,7 +1076,8 @@ private:
                std::to_string(paint.getTextSize()) + '\x1f' +
                std::to_string(paint.getLetterSpacing()) + '\x1f' +
                std::to_string(paint.getFontWeight()) + '\x1f' +
-               std::to_string(static_cast<int>(paint.getFontSlant()));
+               std::to_string(static_cast<int>(paint.getFontSlant())) + '\x1f' +
+               paint.getTextLocale();
     }
 
     wsc::text::NativeTextMeasure getNativeMeasure(const std::string &text, const Paint &paint) const
@@ -1045,6 +1122,8 @@ private:
     std::unique_ptr<wsc::text::ITextBackend> directWriteBackend_;
     mutable std::unordered_map<std::string, wsc::text::ShapedTextRun> rasterShapeCache_;
     mutable std::deque<std::string> rasterShapeCacheOrder_;
+    mutable std::unordered_map<std::string, RasterGlyphLayout> rasterLayoutCache_;
+    mutable std::deque<std::string> rasterLayoutCacheOrder_;
     mutable std::unordered_map<std::string, const wsc::FontFace *> rasterFaceCache_;
     mutable std::vector<wsc::text::TextBackendDiagnostic> diagnostics_;
     mutable std::unordered_set<std::string> diagnosticKeys_;

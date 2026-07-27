@@ -68,6 +68,9 @@ public:
 		std::size_t downsampledFilterCount = 0;
 		std::size_t filterInputPixelCount = 0;
 		std::size_t filterPixelPassCount = 0;
+		std::size_t pathVertexCount = 0;
+		std::size_t pathUploadCount = 0;
+		std::size_t pathUploadBytes = 0;
 		std::size_t imageTextureCount = 0;
 		std::size_t glyphAtlasTextureCount = 0;
 		std::size_t glyphAtlasTextureBytes = 0;
@@ -81,6 +84,10 @@ public:
 		std::size_t tessellationCacheMisses = 0;
 		std::size_t tessellationCacheSize = 0;
 		std::size_t tessellationCacheBytes = 0;
+		std::size_t aaCacheHits = 0;
+		std::size_t aaCacheMisses = 0;
+		std::size_t aaCacheSize = 0;
+		std::size_t aaCacheBytes = 0;
 		std::size_t strokeCacheHits = 0;
 		std::size_t strokeCacheMisses = 0;
 		std::size_t strokeCacheSize = 0;
