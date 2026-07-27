@@ -8,6 +8,7 @@
 #include "IRenderer.h"
 #include "RenderContext.h"
 #include "FrameStats.h"
+#include "command/DrawData.h"
 
 // Forward declaration for backend type enum.
 enum class RenderBackendType;
@@ -75,6 +76,13 @@ private:
     bool backendInitialized_ = false;
     mutable FrameStats stats_;
     std::unique_ptr<SpriteBatch> spriteBatch_;
+
+    // Reused OpenGL path-batch storage. Keeping the packet alive across frames
+    // avoids reallocating its large vertex and attribute streams. The retained
+    // geometry references also make pointer-based topology reuse unambiguous.
+    DrawPathData pathBatchScratch_;
+    std::vector<std::shared_ptr<const DrawPathGeometry>>
+        pathBatchTopology_;
 
     // Main render target for devices that render command streams into a target
     // (usesDeviceCommandExecution()); unused by the OpenGL execute() path.
