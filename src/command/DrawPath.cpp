@@ -297,6 +297,15 @@ void DrawPathProgram::release()
     initialized_ = false;
 }
 
+void DrawPathProgram::beginFrame()
+{
+    frameUploadCount_ = 0;
+    frameUploadBytes_ = 0;
+    positionBuffer_.beginFrame();
+    colorBuffer_.beginFrame();
+    coverageBuffer_.beginFrame();
+}
+
 void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &data)
 {
     if (!DrawValidation::validateProgram(initialized_, "DrawPathProgram::draw")) {
@@ -307,24 +316,34 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
         return;
     }
 
-    // Upload vertex data via stream buffers
-    positionBuffer_.upload(data.points.data(), data.points.size());
+    const StreamBuffer::UploadRange positions =
+        positionBuffer_.uploadRange(data.points.data(), data.points.size());
+    ++frameUploadCount_;
+    frameUploadBytes_ += data.points.size() * sizeof(float);
 
+    StreamBuffer::UploadRange colors;
     if (data.hasVertexColors()) {
         if (data.vertexColorsLinear) {
-            colorBuffer_.upload(data.colors.data(), data.colors.size());
+            colors = colorBuffer_.uploadRange(
+                data.colors.data(), data.colors.size());
         } else {
             std::vector<float> linearColors = data.colors;
             for (std::size_t i = 0; i + 3 < linearColors.size(); i += 4) {
                 GammaCorrect::srgbToLinear4(linearColors.data() + i);
             }
-            colorBuffer_.upload(
+            colors = colorBuffer_.uploadRange(
                 linearColors.data(), linearColors.size());
         }
+        ++frameUploadCount_;
+        frameUploadBytes_ += data.colors.size() * sizeof(float);
     }
 
+    StreamBuffer::UploadRange coverage;
     if (data.hasCoverage()) {
-        coverageBuffer_.upload(data.coverage.data(), data.coverage.size());
+        coverage = coverageBuffer_.uploadRange(
+            data.coverage.data(), data.coverage.size());
+        ++frameUploadCount_;
+        frameUploadBytes_ += data.coverage.size() * sizeof(float);
     }
 
     // Set the projection matrix
@@ -390,8 +409,22 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
 
     // Bind VAO and draw (StreamBuffer already bound the data via upload)
     glBindVertexArray(VAO_);
+    glBindBuffer(GL_ARRAY_BUFFER, positions.buffer);
+    glVertexAttribPointer(
+        0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float),
+        reinterpret_cast<const void *>(positions.byteOffset));
+    if (data.hasVertexColors()) {
+        glBindBuffer(GL_ARRAY_BUFFER, colors.buffer);
+        glVertexAttribPointer(
+            1, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
+            reinterpret_cast<const void *>(colors.byteOffset));
+    }
 
     if (data.hasCoverage()) {
+        glBindBuffer(GL_ARRAY_BUFFER, coverage.buffer);
+        glVertexAttribPointer(
+            2, 1, GL_FLOAT, GL_FALSE, sizeof(float),
+            reinterpret_cast<const void *>(coverage.byteOffset));
         glEnableVertexAttribArray(2);
     } else {
         glDisableVertexAttribArray(2);

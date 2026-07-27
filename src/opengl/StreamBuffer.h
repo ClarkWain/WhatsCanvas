@@ -11,6 +11,12 @@
 class StreamBuffer
 {
 public:
+    struct UploadRange
+    {
+        GLuint buffer = 0;
+        std::size_t byteOffset = 0;
+    };
+
     StreamBuffer() = default;
     ~StreamBuffer();
 
@@ -23,9 +29,15 @@ public:
     /// Release the GL buffer.
     void release();
 
+    /// Start a new frame using fresh backing storage.
+    void beginFrame();
+
     /// Upload vertex data to the GPU buffer, growing if necessary.
     /// Returns the GL buffer handle for binding.
     GLuint upload(const float *data, std::size_t floatCount);
+
+    /// Append vertex data and return its offset in the current frame stream.
+    UploadRange uploadRange(const float *data, std::size_t floatCount);
 
     /// Get the current GL buffer handle (0 if not initialized).
     GLuint handle() const { return buffer_; }
@@ -37,7 +49,10 @@ public:
     bool isInitialized() const { return buffer_ != 0; }
 
 private:
+    void allocateStorage(std::size_t capacity);
+
     GLuint buffer_ = 0;
     std::size_t capacity_ = 0;
+    std::size_t writeOffset_ = 0;
     static constexpr std::size_t GROW_FACTOR = 2;
 };

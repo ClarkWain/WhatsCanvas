@@ -95,6 +95,33 @@ bool testDuplicateUploadHitsCache()
     return ok;
 }
 
+bool testZeroAreaGlyphHitsCacheWithoutDirtyingTexture()
+{
+    wsc::text::GlyphAtlas atlas(32, 16, 1);
+    wsc::text::GlyphBitmap whitespace;
+    whitespace.advanceX = 5.0f;
+
+    const auto first = atlas.uploadGlyph(makeKey(' '), whitespace);
+    whitespace.advanceX = 99.0f;
+    const auto second = atlas.uploadGlyph(makeKey(' '), whitespace);
+
+    bool ok = expect(first.has_value() && second.has_value(),
+                     "zero-area glyph should be cached as a valid entry");
+    ok = expect(first->width == 0 && first->height == 0,
+                "zero-area glyph should not allocate atlas pixels") && ok;
+    ok = expect(second->advanceX == 5.0f,
+                "duplicate zero-area glyph should reuse cached metrics") && ok;
+    ok = expect(atlas.find(makeKey(' ')) != nullptr,
+                "zero-area glyph should be findable") && ok;
+    ok = expect(atlas.stats().glyphCount == 1,
+                "zero-area glyph should count as a cached glyph") && ok;
+    ok = expect(atlas.stats().uploadCount == 0,
+                "zero-area glyph should not count as a texture upload") && ok;
+    ok = expect(atlas.consumeDirtyRects().empty(),
+                "zero-area glyph should not dirty atlas pixels") && ok;
+    return ok;
+}
+
 bool testResizeAndOversizedGlyph()
 {
     wsc::text::GlyphAtlas atlas(12, 8, 1);
@@ -221,6 +248,7 @@ int main()
     bool ok = true;
     ok = testUploadAndFind() && ok;
     ok = testDuplicateUploadHitsCache() && ok;
+    ok = testZeroAreaGlyphHitsCacheWithoutDirtyingTexture() && ok;
     ok = testResizeAndOversizedGlyph() && ok;
     ok = testLookupIndexClearsAfterReset() && ok;
     ok = testDirtyRectsCollapseToFullAtlas() && ok;

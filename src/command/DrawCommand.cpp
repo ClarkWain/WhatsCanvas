@@ -45,6 +45,11 @@ DrawPathCommand::DrawPathCommand(const DrawPathData &data)
 {
 }
 
+DrawPathCommand::DrawPathCommand(DrawPathData &&data)
+    : Command(Type::Path), data_(std::move(data))
+{
+}
+
 void DrawPathCommand::execute(RenderContext &context)
 {
     context.applyClipState(data_.scissor, data_.clipMask);

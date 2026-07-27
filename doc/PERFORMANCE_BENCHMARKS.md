@@ -16,6 +16,10 @@ environment metadata instead of presenting one favorable FPS number.
 The complete-frame suite is the primary public benchmark. The smaller targets
 remain useful when a frame regression needs to be localized.
 
+The active bottleneck analysis, prioritized implementation backlog, and
+quantitative acceptance targets are tracked in
+[Performance Optimization TODO](PERFORMANCE_OPTIMIZATION_TODO.md).
+
 A checked-in [Windows i7-8700 / GTX 1060 reference run](../benchmarks/baselines/windows-i7-8700-gtx1060/README.md)
 demonstrates the complete report format and preserves all raw JSONL records.
 It is a reproducible single-machine baseline, not a universal score or
@@ -294,6 +298,23 @@ All three NanoVG captures passed their scene quality gates. This exposes a real
 WhatsCanvas weakness in per-frame path construction/tessellation and text
 recording; the image batching path is already competitive. See the
 [raw baseline and methodology](../benchmarks/baselines/cross-library-nanovg-windows-i7-8700-gtx1060/README.md).
+
+The first optimization pass has now been remeasured with five independent
+processes on the same machine. The median of process medians was:
+
+| Scene | Before | After | Improvement | NanoVG GL3 | Remaining gap |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `geometry_stress` | 25.659 ms | 15.73 ms | 38.7% | 4.316 ms | 3.64x |
+| `image_grid` | 0.308 ms | 0.29 ms | within noise | 0.372 ms | none demonstrated |
+| `contract_text_latin` | 15.911 ms | 4.78 ms | 70.0% | 3.334 ms | 1.43x |
+
+Every process produced the same scene hashes. The text improvement comes from
+resolved glyph-layout caching, zero-area glyph caching, and four-vertex indexed
+sprite quads. Geometry improved through move-only command handoff, append-only
+per-frame path streams, and removal of deterministic AA-cache churn. Geometry
+still expands simple primitives into generic triangle-soup paths, so its
+remaining gap requires the semantic primitive and indexed-AA work tracked in
+the [performance optimization backlog](PERFORMANCE_OPTIMIZATION_TODO.md).
 
 ## CI policy
 

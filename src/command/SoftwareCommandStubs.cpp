@@ -30,6 +30,10 @@ DrawPathCommand::DrawPathCommand(const DrawPathData &data)
     : Command(Type::Path), data_(data)
 {
 }
+DrawPathCommand::DrawPathCommand(DrawPathData &&data)
+    : Command(Type::Path), data_(std::move(data))
+{
+}
 void DrawPathCommand::execute(RenderContext &) {}
 
 DrawImageCommand::DrawImageCommand(const DrawImageData &data)
