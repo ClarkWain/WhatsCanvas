@@ -289,6 +289,89 @@ int main()
     if (!pixelIs(pixels, width, 16, 12, 255, 0, 0, 255, "image top-left red")) return 1;
     if (!pixelIs(pixels, width, 48, 36, 255, 255, 0, 255, "image bottom-right yellow")) return 1;
 
+    // Different per-image alpha values are folded into packed vertex tints.
+    // Non-overlapping quads may safely join an earlier compatible batch, so
+    // rounded and square images each become one draw without changing painter
+    // order. Seven submissions exercise repeated asynchronous reuse before the
+    // final readback; busy GPUs rotate through the three frame slots while
+    // already-signaled slots are reclaimed in place.
+    const std::vector<unsigned char> whiteTexel = {
+        255, 255, 255, 255};
+    auto whiteImage =
+        device.createImageResourceRGBA(1, 1, whiteTexel);
+    if (!whiteImage || !whiteImage->isValid()) {
+        std::cerr
+            << "[VulkanCommandTests] FAIL: could not create "
+               "batch image."
+            << std::endl;
+        return 1;
+    }
+    std::vector<std::unique_ptr<Command>> textureBatchCommands;
+    constexpr float alphas[4] = {0.25f, 0.5f, 0.75f, 1.0f};
+    for (int column = 0; column < 4; ++column) {
+        DrawImageData batchImageData;
+        batchImageData.imageResource = whiteImage;
+        batchImageData.x = static_cast<float>(column * 16);
+        batchImageData.y = 0.0f;
+        batchImageData.width = 14.0f;
+        batchImageData.height = static_cast<float>(height);
+        batchImageData.alpha = alphas[column];
+        batchImageData.tintColor[0] = 1.0f;
+        batchImageData.tintColor[1] = 0.0f;
+        batchImageData.tintColor[2] = 0.0f;
+        batchImageData.tintColor[3] = 1.0f;
+        batchImageData.roundedRadius =
+            (column % 2) == 0 ? 4.0f : 0.0f;
+        batchImageData.sampling = DrawImageSampling::Nearest;
+        textureBatchCommands.push_back(
+            std::make_unique<DrawImageCommand>(batchImageData));
+    }
+    for (int frame = 0; frame < 7; ++frame) {
+        if (!device.executeCommands(
+                target, textureBatchCommands, request)) {
+            std::cerr
+                << "[VulkanCommandTests] FAIL: async texture "
+                   "batch frame "
+                << frame << " failed." << std::endl;
+            return 1;
+        }
+        if (device.lastExecutionDrawCallCount() != 2u) {
+            std::cerr
+                << "[VulkanCommandTests] FAIL: texture batch "
+                   "used "
+                << device.lastExecutionDrawCallCount()
+                << " draws, expected 2." << std::endl;
+            return 1;
+        }
+    }
+    if (!device.readPixelsRGBA(width, height, pixels)) {
+        std::cerr
+            << "[VulkanCommandTests] FAIL: async texture batch "
+               "readback failed."
+            << std::endl;
+        return 1;
+    }
+    if (!pixelNear(
+            pixels, width, 7, height / 2,
+            64, 0, 0, 64, 2, "batch alpha 25%")) {
+        return 1;
+    }
+    if (!pixelNear(
+            pixels, width, 23, height / 2,
+            128, 0, 0, 128, 2, "batch alpha 50%")) {
+        return 1;
+    }
+    if (!pixelNear(
+            pixels, width, 39, height / 2,
+            191, 0, 0, 191, 2, "batch alpha 75%")) {
+        return 1;
+    }
+    if (!pixelIs(
+            pixels, width, 55, height / 2,
+            255, 0, 0, 255, "batch alpha 100%")) {
+        return 1;
+    }
+
     // A vertex-color path (baked gradient): a full-canvas quad, left red, right blue.
     DrawPathData gradientData;
     gradientData.points = {
@@ -357,6 +440,8 @@ int main()
     lineCommands.clear();
     imageData.imageResource.reset();
     imageCommands.clear();
+    textureBatchCommands.clear();
+    whiteImage.reset();
     gradientCommands.clear();
     layerCommands.clear();
     layerImage.reset();

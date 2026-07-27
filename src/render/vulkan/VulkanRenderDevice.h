@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -208,6 +209,8 @@ private:
         const OffscreenRenderRequest &request,
         const SharedImageResource &copyDestination) const;
     void releasePendingFilterTargets() const;
+    void releaseDrawFrameTargets(std::size_t frameIndex) const;
+    void releaseAllDrawFrameTargets() const;
 
     /// On-screen presentation swapchain, defined in the implementation file.
     /// Nested so it can access VulkanContext and the private device handles.
@@ -218,6 +221,11 @@ private:
     mutable std::vector<std::unique_ptr<IRenderTarget>>
         pendingFilterTargets_;
     mutable std::vector<SharedImageResource> pendingFilterImages_;
+    static constexpr std::size_t kDrawFramesInFlight = 3;
+    mutable std::array<
+        std::vector<std::unique_ptr<IRenderTarget>>,
+        kDrawFramesInFlight>
+        drawFrameTargets_;
     mutable std::size_t lastExecutionDrawCallCount_ = 0;
     mutable std::size_t lastExecutionMergedBatchCount_ = 0;
     bool backendInitialized_ = false;
