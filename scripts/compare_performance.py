@@ -67,11 +67,13 @@ SCENE_ORDER = {
             "rounded_ui",
             "path_cached",
             "path_churn",
+            "geometry_stress",
             "image_grid",
             "clip_layers",
             "shadow_grid",
             "text_cached",
             "text_churn",
+            "text_stress",
             "frosted_glass",
             "inner_shadow",
         )

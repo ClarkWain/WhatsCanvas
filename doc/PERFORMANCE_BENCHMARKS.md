@@ -19,7 +19,9 @@ remain useful when a frame regression needs to be localized.
 A checked-in [Windows i7-8700 / GTX 1060 reference run](../benchmarks/baselines/windows-i7-8700-gtx1060/README.md)
 demonstrates the complete report format and preserves all raw JSONL records.
 It is a reproducible single-machine baseline, not a universal score or
-cross-library ranking.
+cross-library ranking. That historical run used the former 960 x 540,
+11-scene matrix, so it documents earlier work but is not dimension-compatible
+with the current 1080p suite.
 
 ## Verified hotspot optimization
 
@@ -61,8 +63,10 @@ Unicode, examples, API documentation, and installed-package consumers.
 
 ## Standard scene matrix
 
-The default resolution is 960 x 540. Every scene is deterministic and produces
-a fixed validation-frame hash after timing has completed.
+The default resolution is 1920 x 1080. Every scene is deterministic and
+produces a fixed validation-frame hash after timing has completed. The default
+matches a widely deployed desktop display workload while `--width` and
+`--height` remain available for controlled investigations.
 
 | Scene | Coverage | Cache mode | Operations/frame |
 | --- | --- | --- | ---: |
@@ -70,16 +74,21 @@ a fixed validation-frame hash after timing has completed.
 | `rounded_ui` | Rounded UI surfaces and anti-aliased edges | churn | 120 |
 | `path_cached` | Repeated complex path geometry | hot | 160 |
 | `path_churn` | Per-frame path construction and tessellation | churn | 160 |
+| `geometry_stress` | 2,304 mixed rectangles, rounded rectangles, circles, ovals, and custom paths | churn | 2,304 |
 | `image_grid` | Reused RGBA texture scaling and sampling | hot | 96 |
 | `clip_layers` | Nested clips, transforms, and layers | churn | 144 |
 | `shadow_grid` | Shape shadows with varied radii | churn | 36 |
 | `text_cached` | Repeated shaped text and glyph-atlas reuse | hot | 120 |
 | `text_churn` | Changing text content and glyph lookup pressure | churn | 120 |
+| `text_stress` | 576 multilingual text calls, expanding to roughly 8,000 cached glyph commands | hot | 576 |
 | `frosted_glass` | Backdrop capture, blur, and layer composition | hot | 4 |
 | `inner_shadow` | Filtered controls with inner shadows | hot | 24 |
 
 Hot and churn variants are deliberate. A renderer should show both steady-state
-cache efficiency and the cost of changing content.
+cache efficiency and the cost of changing content. The stress scenes are also
+deliberately large enough to expose command recording, glyph-atlas switching,
+batching, tessellation, and submission bottlenecks that small UI samples can
+hide.
 
 ## Profiles
 

@@ -1374,7 +1374,7 @@ if (BUILD_TESTING AND TARGET WhatsCanvasPerformanceSuite)
         COMMAND $<TARGET_FILE:WhatsCanvasPerformanceSuite>
             --backend software
             --profile quick
-            --scene solid_rects,path_cached,image_grid
+            --scene solid_rects,path_cached,geometry_stress,image_grid,text_stress
             --width 320
             --height 180
             --output "${CMAKE_CURRENT_BINARY_DIR}/performance_suite_smoke.jsonl"

@@ -57,7 +57,7 @@ type, dimensions, warmup, and frame count:
 ```sh
 cmake --build build --target WhatsCanvasImageFilterBenchmarks --config Release
 ./build/WhatsCanvasImageFilterBenchmarks \
-  --backend software --warmup 3 --frames 10 --width 960 --height 540
+  --backend software --warmup 3 --frames 10 --width 1920 --height 1080
 ```
 
 Each `FILTER_BENCHMARK` line includes a deterministic output hash, pooled
