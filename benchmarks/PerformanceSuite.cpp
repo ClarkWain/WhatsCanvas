@@ -1456,7 +1456,7 @@ std::string metadataJson(
          << ",\"library_version\":\""
          << jsonEscape(WHATSCANVAS_PERF_VERSION) << "\""
          << ",\"synchronization\":\"gpu_complete\""
-         << ",\"cross_library_contract\":\"1.0.0\""
+         << ",\"cross_library_contract\":\"1.1.0\""
          << ",\"version\":\"" << jsonEscape(WHATSCANVAS_PERF_VERSION) << "\""
          << ",\"commit\":\""
          << jsonEscape(environmentValue("WHATSCANVAS_PERF_COMMIT")) << "\""

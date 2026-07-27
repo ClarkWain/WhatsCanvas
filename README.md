@@ -199,6 +199,7 @@ ctest -C Debug -L smoke --output-on-failure
 - [Blend Mode Audit](doc/BLEND_MODE_AUDIT.md)：记录 `Paint::BlendMode` 到 GL-family blend state 的映射和限制。
 - [Performance Benchmarks](doc/PERFORMANCE_BENCHMARKS.md)：记录统一三后端 1080p 帧性能套件、14 个标准场景、指标口径、JSONL 结果、版本对比、公开数据规则与可复现参考基线。
 - [Cross-Library Benchmarks](doc/CROSS_LIBRARY_BENCHMARKS.md)：规定固定场景、字体与图像输入、同步计时、适配器接口和像素质量门禁，避免用降质输出换取跨库性能数字。
+- [NanoVG 对比基线](benchmarks/baselines/cross-library-nanovg-windows-i7-8700-gtx1060/README.md)：保留三轮 1080p Release 同质量对比及全部原始 JSONL，直观展示动态几何、图片和固定字体场景的真实差距。
 - [Effect Regression Matrix](doc/EFFECT_REGRESSION_MATRIX.md)：记录 gradients、shadows、blend modes、strokes 和 dashes 的回归覆盖入口。
 - [Polyline2D 互动教学](doc/polyline/polyline2d_interactive_tutorial.html)：适合理解路径描边、网格生成和相关几何细节。
 - [抗锯齿原理与实现互动教学](doc/anti_aliasing/anti_aliasing_interactive_tutorial.html)：适合理解什么是抗锯齿、不同实现方法和 WhatsCanvas 当前做法。
