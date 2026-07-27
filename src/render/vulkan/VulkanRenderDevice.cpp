@@ -213,6 +213,10 @@ struct VulkanRenderDevice::VulkanContext
     VkDeviceMemory drawVertexMemory = VK_NULL_HANDLE;
     void *drawVertexMapping = nullptr;
     VkDeviceSize drawVertexCapacity = 0;
+    VkBuffer drawIndexBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory drawIndexMemory = VK_NULL_HANDLE;
+    void *drawIndexMapping = nullptr;
+    VkDeviceSize drawIndexCapacity = 0;
     VkBuffer drawGradientUniformBuffer = VK_NULL_HANDLE;
     VkDeviceMemory drawGradientUniformMemory = VK_NULL_HANDLE;
     void *drawGradientUniformMapping = nullptr;
@@ -1008,6 +1012,14 @@ struct VulkanRenderDevice::VulkanContext
             drawVertexCapacity);
     }
 
+    bool ensureDrawIndexCapacity(VkDeviceSize required)
+    {
+        return ensureMappedBuffer(
+            required, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+            drawIndexBuffer, drawIndexMemory, drawIndexMapping,
+            drawIndexCapacity);
+    }
+
     VkDeviceSize gradientUniformStride() const
     {
         VkPhysicalDeviceProperties properties{};
@@ -1078,6 +1090,9 @@ struct VulkanRenderDevice::VulkanContext
         destroyMappedBuffer(
             drawVertexBuffer, drawVertexMemory, drawVertexMapping,
             drawVertexCapacity);
+        destroyMappedBuffer(
+            drawIndexBuffer, drawIndexMemory, drawIndexMapping,
+            drawIndexCapacity);
         destroyMappedBuffer(
             drawGradientUniformBuffer, drawGradientUniformMemory,
             drawGradientUniformMapping, drawGradientUniformCapacity);
@@ -4973,6 +4988,8 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
         VkPipeline pipeline = VK_NULL_HANDLE;
         VkDeviceSize vertexOffset = 0;
         std::uint32_t vertexCount = 0;
+        VkDeviceSize indexOffset = 0;
+        std::uint32_t indexCount = 0;
         VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
         VkPipelineLayout descriptorLayout = VK_NULL_HANDLE;
         bool pushLayerAlpha = false;
@@ -4986,6 +5003,7 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
     std::vector<RecordedDraw> draws;
     draws.reserve(drawList.size());
     std::vector<float> vertexUpload;
+    std::vector<std::uint32_t> indexUpload;
 
     bool ok = true;
     std::size_t gradientIndex = 0;
@@ -5067,7 +5085,22 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
         std::vector<float> vertices;
         if (prim.kind == wsc::DrawPrimitiveKind::SolidTriangles) {
             const std::size_t vertexCount = prim.positions.size() / 2;
-            if (vertexCount < 3 || (vertexCount % 3) != 0) {
+            const std::size_t elementCount =
+                prim.indices.empty() ? vertexCount : prim.indices.size();
+            if ((prim.positions.size() % 2u) != 0u || vertexCount < 3
+                || elementCount < 3 || (elementCount % 3u) != 0u
+                || vertexCount
+                    > std::numeric_limits<std::uint32_t>::max()
+                || elementCount
+                    > std::numeric_limits<std::uint32_t>::max()) {
+                ok = false;
+                break;
+            }
+            if (std::any_of(
+                    prim.indices.begin(), prim.indices.end(),
+                    [vertexCount](std::uint32_t index) {
+                        return index >= vertexCount;
+                    })) {
                 ok = false;
                 break;
             }
@@ -5098,6 +5131,16 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
                                               prim.color[3]);
             }
             draw.vertexCount = static_cast<std::uint32_t>(vertexCount);
+            if (!prim.indices.empty()) {
+                draw.indexOffset =
+                    static_cast<VkDeviceSize>(indexUpload.size())
+                    * sizeof(std::uint32_t);
+                draw.indexCount =
+                    static_cast<std::uint32_t>(prim.indices.size());
+                indexUpload.insert(
+                    indexUpload.end(), prim.indices.begin(),
+                    prim.indices.end());
+            }
         } else if (prim.kind == wsc::DrawPrimitiveKind::TexturedQuad) {
             auto *tex = dynamic_cast<VulkanTextureResource *>(prim.texture.get());
             if (tex == nullptr || !tex->isValid()) {
@@ -5374,6 +5417,19 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
     std::memcpy(
         context_->drawVertexMapping, vertexUpload.data(),
         static_cast<std::size_t>(vertexBytes));
+    const VkDeviceSize indexBytes =
+        static_cast<VkDeviceSize>(indexUpload.size())
+        * sizeof(std::uint32_t);
+    if (!context_->ensureDrawIndexCapacity(indexBytes)) {
+        WSC_LOG_ERROR("VulkanRenderDevice",
+                      "Draw index upload allocation failed.");
+        return false;
+    }
+    if (indexBytes > 0) {
+        std::memcpy(
+            context_->drawIndexMapping, indexUpload.data(),
+            static_cast<std::size_t>(indexBytes));
+    }
 
     VkCommandBuffer cmd = context_->beginSingleTimeCommands();
     bool submitted = false;
@@ -5435,7 +5491,14 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
             }
             vkCmdBindVertexBuffers(
                 cmd, 0, 1, &context_->drawVertexBuffer, &d.vertexOffset);
-            vkCmdDraw(cmd, d.vertexCount, 1, 0, 0);
+            if (d.indexCount > 0) {
+                vkCmdBindIndexBuffer(
+                    cmd, context_->drawIndexBuffer, d.indexOffset,
+                    VK_INDEX_TYPE_UINT32);
+                vkCmdDrawIndexed(cmd, d.indexCount, 1, 0, 0, 0);
+            } else {
+                vkCmdDraw(cmd, d.vertexCount, 1, 0, 0);
+            }
         }
 
         vkCmdEndRenderPass(cmd);
@@ -6340,6 +6403,7 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
     }
 
     std::size_t solidVertexBudget = 0;
+    std::size_t solidIndexBudget = 0;
     for (const std::unique_ptr<Command> &command : commands) {
         if (command && command->type() == Command::Type::Path) {
             const DrawPathData &path =
@@ -6347,7 +6411,9 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
                     command.get())->data();
             if (!path.hasShaderGradient()
                 && !path.clipMask.hasPaths()) {
-                solidVertexBudget += path.getElementCount();
+                solidVertexBudget += path.hasIndices()
+                    ? path.getPointCount() : path.getElementCount();
+                solidIndexBudget += path.getElementCount();
             }
         }
     }
@@ -6364,6 +6430,9 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
                 }
                 if (!prim.coverage.empty()) {
                     prim.coverage.reserve(solidVertexBudget);
+                }
+                if (!prim.indices.empty()) {
+                    prim.indices.reserve(solidIndexBudget);
                 }
             }
             list.push_back(std::move(prim));
@@ -6390,6 +6459,39 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
         if (previousVertices == 0 || incomingVertices == 0) {
             list.push_back(std::move(prim));
             return;
+        }
+        const std::size_t maxIndex =
+            std::numeric_limits<std::uint32_t>::max();
+        if ((!previous.indices.empty() || !prim.indices.empty())
+            && (previousVertices > maxIndex
+                || incomingVertices > maxIndex - previousVertices)) {
+            list.push_back(std::move(prim));
+            return;
+        }
+
+        if (!previous.indices.empty() || !prim.indices.empty()) {
+            if (previous.indices.empty()) {
+                previous.indices.reserve(solidIndexBudget);
+                for (std::size_t vertex = 0;
+                     vertex < previousVertices; ++vertex) {
+                    previous.indices.push_back(
+                        static_cast<std::uint32_t>(vertex));
+                }
+            }
+            if (prim.indices.empty()) {
+                for (std::size_t vertex = 0;
+                     vertex < incomingVertices; ++vertex) {
+                    previous.indices.push_back(
+                        static_cast<std::uint32_t>(
+                            previousVertices + vertex));
+                }
+            } else {
+                for (const std::uint32_t index : prim.indices) {
+                    previous.indices.push_back(
+                        static_cast<std::uint32_t>(
+                            previousVertices + index));
+                }
+            }
         }
 
         if (previous.colors.empty()) {
@@ -6472,12 +6574,19 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
                     continue;
                 }
             }
+            const bool retainIndices =
+                d.hasIndices() && !clipped && !d.hasShaderGradient();
+            const std::size_t emittedVertexCount =
+                retainIndices ? sourceVertexCount : vertexCount;
+            const auto emittedSourceIndex = [&](std::size_t vertex) {
+                return retainIndices ? vertex : sourceIndex(vertex);
+            };
             wsc::DrawPrimitive prim;
             prim.blendMode = mapBlend(d.blendMode);
             applyPrimitiveScissor(prim, d.scissor);
-            prim.positions.reserve(vertexCount * 2);
-            for (std::size_t i = 0; i < vertexCount; ++i) {
-                const std::size_t source = sourceIndex(i);
+            prim.positions.reserve(emittedVertexCount * 2);
+            for (std::size_t i = 0; i < emittedVertexCount; ++i) {
+                const std::size_t source = emittedSourceIndex(i);
                 float nx = 0.0f, ny = 0.0f;
                 toNdc(
                     d.transform,
@@ -6498,9 +6607,11 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
                     // Bake the fill's own analytic-AA coverage into per-vertex alpha
                     // (the clip pipeline has no coverage attribute); the clip shader
                     // then multiplies by the mask coverage as well.
-                    prim.colors.resize(vertexCount * 4);
-                    for (std::size_t i = 0; i < vertexCount; ++i) {
-                        const std::size_t source = sourceIndex(i);
+                    prim.colors.resize(emittedVertexCount * 4);
+                    for (std::size_t i = 0;
+                         i < emittedVertexCount; ++i) {
+                        const std::size_t source =
+                            emittedSourceIndex(i);
                         prim.colors[i * 4 + 0] = d.color[0];
                         prim.colors[i * 4 + 1] = d.color[1];
                         prim.colors[i * 4 + 2] = d.color[2];
@@ -6517,9 +6628,11 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
             if (d.hasShaderGradient()) {
                 prim.kind = wsc::DrawPrimitiveKind::GradientFill;
                 // Local (canvas-space) positions matching the transformed geometry.
-                prim.localPositions.reserve(vertexCount * 2);
-                for (std::size_t i = 0; i < vertexCount; ++i) {
-                    const std::size_t source = sourceIndex(i);
+                prim.localPositions.reserve(emittedVertexCount * 2);
+                for (std::size_t i = 0;
+                     i < emittedVertexCount; ++i) {
+                    const std::size_t source =
+                        emittedSourceIndex(i);
                     const glm::vec4 p =
                         d.transform
                         * glm::vec4(
@@ -6547,10 +6660,21 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
                 }
             } else {
                 prim.kind = wsc::DrawPrimitiveKind::SolidTriangles;
+                if (retainIndices) {
+                    prim.indices.reserve(vertexCount);
+                    for (std::size_t element = 0;
+                         element < vertexCount; ++element) {
+                        prim.indices.push_back(
+                            static_cast<std::uint32_t>(
+                                d.getIndex(element)));
+                    }
+                }
                 if (d.hasVertexColors()) {
-                    prim.colors.reserve(vertexCount * 4u);
-                    for (std::size_t i = 0; i < vertexCount; ++i) {
-                        const std::size_t source = sourceIndex(i);
+                    prim.colors.reserve(emittedVertexCount * 4u);
+                    for (std::size_t i = 0;
+                         i < emittedVertexCount; ++i) {
+                        const std::size_t source =
+                            emittedSourceIndex(i);
                         for (std::size_t channel = 0; channel < 4; ++channel) {
                             prim.colors.push_back(
                                 d.vertexColorAt(source, channel));
@@ -6558,10 +6682,11 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
                     }
                 }
                 if (d.hasCoverage()) {
-                    prim.coverage.reserve(vertexCount);
-                    for (std::size_t i = 0; i < vertexCount; ++i) {
+                    prim.coverage.reserve(emittedVertexCount);
+                    for (std::size_t i = 0;
+                         i < emittedVertexCount; ++i) {
                         prim.coverage.push_back(
-                            d.coverageAt(sourceIndex(i)));
+                            d.coverageAt(emittedSourceIndex(i)));
                     }
                 }
                 prim.color[0] = d.color[0];

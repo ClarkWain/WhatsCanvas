@@ -31,14 +31,17 @@ int main()
     data.points = {
         0.0f, 0.0f,
         16.0f, 0.0f,
+        16.0f, 16.0f,
         0.0f, 16.0f
     };
+    data.indices = {0, 1, 2, 0, 2, 3};
     data.packedColors = {
         255, 0, 0, 255,
         0, 128, 0, 255,
-        0, 0, 255, 64
+        0, 0, 255, 64,
+        255, 255, 255, 255
     };
-    data.packedCoverage = {255, 128, 0};
+    data.packedCoverage = {255, 128, 0, 255};
     data.color[0] = 1.0f;
     data.color[1] = 1.0f;
     data.color[2] = 1.0f;
@@ -68,7 +71,15 @@ int main()
 
     const wsc::DrawPrimitive &primitive = drawList.front();
     return expect(
-               primitive.colors.size() == 12,
+               primitive.positions.size() == 8,
+               "encoder should retain unique indexed vertices")
+            && expect(
+               primitive.indices
+                   == std::vector<std::uint32_t>(
+                       {0, 1, 2, 0, 2, 3}),
+               "encoder should preserve triangle indices")
+            && expect(
+               primitive.colors.size() == 16,
                "encoder should emit decoded RGBA values")
             && expect(
                near(primitive.colors[5], 128.0f / 255.0f),
@@ -77,7 +88,7 @@ int main()
                near(primitive.colors[11], 64.0f / 255.0f),
                "encoder should preserve packed alpha")
             && expect(
-               primitive.coverage.size() == 3,
+               primitive.coverage.size() == 4,
                "encoder should emit decoded coverage values")
             && expect(
                near(primitive.coverage[1], 128.0f / 255.0f),
