@@ -1,5 +1,6 @@
 
 #include "DrawPath.h"
+#include <algorithm>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -256,6 +257,7 @@ void DrawPathProgram::initialize()
     positionBuffer_.initialize(4096);
     colorBuffer_.initialize(8192);
     coverageBuffer_.initialize(2048);
+    indexBuffer_.initialize(4096);
 
     // Bind the VAO and configure vertex attributes
     glBindVertexArray(VAO_);
@@ -292,6 +294,7 @@ void DrawPathProgram::release()
     positionBuffer_.release();
     colorBuffer_.release();
     coverageBuffer_.release();
+    indexBuffer_.release();
     gradientStopBuffer_.release();
 
     initialized_ = false;
@@ -304,6 +307,7 @@ void DrawPathProgram::beginFrame()
     positionBuffer_.beginFrame();
     colorBuffer_.beginFrame();
     coverageBuffer_.beginFrame();
+    indexBuffer_.beginFrame();
 }
 
 void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &data)
@@ -316,10 +320,28 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
         return;
     }
 
+    const std::vector<float> &points = data.pointData();
+    const std::vector<float> &coverageData = data.coverageData();
+    const std::vector<std::uint32_t> &indexData = data.indexData();
+    if (data.hasIndices()) {
+        const std::size_t vertexCount = data.getPointCount();
+        const bool invalidIndex =
+            std::any_of(
+                indexData.begin(), indexData.end(),
+                [vertexCount](std::uint32_t index) {
+                    return index >= vertexCount;
+                });
+        if ((indexData.size() % 3u) != 0u || invalidIndex) {
+            WSC_LOG_WARN(
+                "DrawValidation",
+                "DrawPathProgram::draw: invalid triangle index data, draw call skipped.");
+            return;
+        }
+    }
     const StreamBuffer::UploadRange positions =
-        positionBuffer_.uploadRange(data.points.data(), data.points.size());
+        positionBuffer_.uploadRange(points.data(), points.size());
     ++frameUploadCount_;
-    frameUploadBytes_ += data.points.size() * sizeof(float);
+    frameUploadBytes_ += points.size() * sizeof(float);
 
     StreamBuffer::UploadRange colors;
     if (data.hasVertexColors()) {
@@ -341,9 +363,18 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
     StreamBuffer::UploadRange coverage;
     if (data.hasCoverage()) {
         coverage = coverageBuffer_.uploadRange(
-            data.coverage.data(), data.coverage.size());
+            coverageData.data(), coverageData.size());
         ++frameUploadCount_;
-        frameUploadBytes_ += data.coverage.size() * sizeof(float);
+        frameUploadBytes_ += coverageData.size() * sizeof(float);
+    }
+
+    StreamBuffer::UploadRange indices;
+    if (data.hasIndices()) {
+        indices = indexBuffer_.uploadRange(
+            indexData.data(), indexData.size());
+        ++frameUploadCount_;
+        frameUploadBytes_ +=
+            indexData.size() * sizeof(std::uint32_t);
     }
 
     // Set the projection matrix
@@ -431,17 +462,16 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
         glVertexAttrib1f(2, 1.0f);
     }
 
-    if (data.drawMode == PathDrawMode::Fill)
-    {
-        glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(data.getPointCount()));
-    }
-    else if (data.drawMode == PathDrawMode::Stroke)
-    {
-        glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(data.getPointCount()));
-    }
-    else if (data.drawMode == PathDrawMode::FillAndStroke)
-    {
-        glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(data.getPointCount()));
+    if (data.hasIndices()) {
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indices.buffer);
+        glDrawElements(
+            GL_TRIANGLES, static_cast<GLsizei>(indexData.size()),
+            GL_UNSIGNED_INT,
+            reinterpret_cast<const void *>(indices.byteOffset));
+    } else {
+        glDrawArrays(
+            GL_TRIANGLES, 0,
+            static_cast<GLsizei>(data.getPointCount()));
     }
 
     glBindVertexArray(0);

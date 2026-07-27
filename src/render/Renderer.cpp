@@ -1,6 +1,9 @@
 // Renderer.cpp
 #include "Renderer.h"
 
+#include <algorithm>
+#include <cstdint>
+
 #include "command/DrawCommand.h"
 #include "command/DrawPath.h"
 #include "RenderDeviceFactory.h"
@@ -19,7 +22,10 @@
 
 namespace {
 constexpr float kMergeEpsilon = 0.001f;
-constexpr std::size_t kMaxPathBatchVertices = 32768u;
+// Indexed AA keeps dense frames compact enough to submit in one stream packet.
+// 65K vertices still bounds temporary merge storage while avoiding an
+// otherwise artificial batch break in the 1080p geometry stress scene.
+constexpr std::size_t kMaxPathBatchVertices = 65536u;
 
 bool nearlyEqual(float lhs, float rhs)
 {
@@ -449,19 +455,23 @@ void Renderer::flush()
 
         if (j > i + 1) {
             std::size_t totalVertices = 0;
+            std::size_t totalElements = 0;
             bool needsVertexColors = first.hasVertexColors();
             bool needsCoverage = first.hasCoverage();
+            bool needsIndices = first.hasIndices();
             bool flattenTransforms = false;
             for (std::size_t m = i; m < j; ++m) {
                 const auto &next =
                     static_cast<DrawPathCommand *>(
                         commands_[m].get())->data();
                 totalVertices += next.getPointCount();
+                totalElements += next.getElementCount();
                 flattenTransforms =
                     flattenTransforms || next.transform != first.transform;
                 needsVertexColors =
                     needsVertexColors || next.hasVertexColors();
                 needsCoverage = needsCoverage || next.hasCoverage();
+                needsIndices = needsIndices || next.hasIndices();
                 for (int c = 0; c < 4; ++c) {
                     needsVertexColors =
                         needsVertexColors
@@ -470,9 +480,11 @@ void Renderer::flush()
             }
 
             DrawPathData merged = first;
+            merged.sharedGeometry.reset();
             merged.points.clear();
             merged.colors.clear();
             merged.coverage.clear();
+            merged.indices.clear();
             merged.vertexColorsLinear = needsVertexColors;
             if (flattenTransforms) {
                 merged.transform = glm::mat4(1.0f);
@@ -484,28 +496,53 @@ void Renderer::flush()
             if (needsCoverage) {
                 merged.coverage.reserve(totalVertices);
             }
+            if (needsIndices) {
+                merged.indices.reserve(totalElements);
+            }
 
             for (std::size_t m = i; m < j; ++m) {
                 const auto &next =
                     static_cast<DrawPathCommand *>(
                         commands_[m].get())->data();
+                const std::vector<float> &nextPoints =
+                    next.pointData();
+                const std::vector<float> &nextCoverage =
+                    next.coverageData();
+                const std::vector<std::uint32_t> &nextIndices =
+                    next.indexData();
                 const std::size_t vertexCount = next.getPointCount();
+                const std::uint32_t baseVertex =
+                    static_cast<std::uint32_t>(
+                        merged.points.size() / 2u);
+                const std::size_t pointStart =
+                    merged.points.size();
+                merged.points.resize(
+                    pointStart + vertexCount * 2u);
                 if (flattenTransforms) {
+                    const glm::mat4 &transform = next.transform;
                     for (std::size_t vertex = 0;
                          vertex < vertexCount; ++vertex) {
-                        const glm::vec4 transformed =
-                            next.transform
-                            * glm::vec4(
-                                next.points[vertex * 2u],
-                                next.points[vertex * 2u + 1u],
-                                0.0f, 1.0f);
-                        merged.points.push_back(transformed.x);
-                        merged.points.push_back(transformed.y);
+                        const float x =
+                            nextPoints[vertex * 2u];
+                        const float y =
+                            nextPoints[vertex * 2u + 1u];
+                        merged.points[
+                            pointStart + vertex * 2u] =
+                            transform[0][0] * x
+                            + transform[1][0] * y
+                            + transform[3][0];
+                        merged.points[
+                            pointStart + vertex * 2u + 1u] =
+                            transform[0][1] * x
+                            + transform[1][1] * y
+                            + transform[3][1];
                     }
                 } else {
-                    merged.points.insert(
-                        merged.points.end(), next.points.begin(),
-                        next.points.end());
+                    std::copy(
+                        nextPoints.begin(), nextPoints.end(),
+                        merged.points.begin()
+                            + static_cast<std::ptrdiff_t>(
+                                pointStart));
                 }
                 if (needsVertexColors) {
                     if (next.hasVertexColors()) {
@@ -528,12 +565,18 @@ void Renderer::flush()
                             next.color[2], next.color[3]
                         };
                         GammaCorrect::srgbToLinear4(linearColor);
+                        const std::size_t colorStart =
+                            merged.colors.size();
+                        merged.colors.resize(
+                            colorStart + vertexCount * 4u);
                         for (std::size_t vertex = 0;
                              vertex < vertexCount; ++vertex) {
-                            merged.colors.insert(
-                                merged.colors.end(),
-                                std::begin(linearColor),
-                                std::end(linearColor));
+                            std::copy_n(
+                                linearColor, 4u,
+                                merged.colors.begin()
+                                    + static_cast<std::ptrdiff_t>(
+                                        colorStart
+                                        + vertex * 4u));
                         }
                     }
                 }
@@ -541,10 +584,35 @@ void Renderer::flush()
                     if (next.hasCoverage()) {
                         merged.coverage.insert(
                             merged.coverage.end(),
-                            next.coverage.begin(), next.coverage.end());
+                            nextCoverage.begin(), nextCoverage.end());
                     } else {
                         merged.coverage.insert(
                             merged.coverage.end(), vertexCount, 1.0f);
+                    }
+                }
+                if (needsIndices) {
+                    const std::size_t indexStart =
+                        merged.indices.size();
+                    const std::size_t incomingIndexCount =
+                        next.hasIndices()
+                            ? nextIndices.size()
+                            : vertexCount;
+                    merged.indices.resize(
+                        indexStart + incomingIndexCount);
+                    if (next.hasIndices()) {
+                        for (std::size_t index = 0;
+                             index < nextIndices.size(); ++index) {
+                            merged.indices[indexStart + index] =
+                                baseVertex + nextIndices[index];
+                        }
+                    } else {
+                        for (std::size_t vertex = 0;
+                             vertex < vertexCount; ++vertex) {
+                            merged.indices[indexStart + vertex] =
+                                baseVertex
+                                + static_cast<std::uint32_t>(
+                                    vertex);
+                        }
                     }
                 }
             }
@@ -552,11 +620,15 @@ void Renderer::flush()
             DrawPathCommand mergedCmd(std::move(merged));
             mergedCmd.execute(context_);
             stats_.pathVertexCount += totalVertices;
+            if (needsIndices) {
+                stats_.pathIndexCount += totalElements;
+            }
             ++stats_.drawCallCount;
             ++stats_.mergedBatchCount;
             i = j;
         } else {
             stats_.pathVertexCount += first.getPointCount();
+            stats_.pathIndexCount += first.indexData().size();
             executeCommand(commands_[i]);
             ++i;
         }

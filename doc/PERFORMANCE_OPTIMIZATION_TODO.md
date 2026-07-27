@@ -42,6 +42,29 @@ offset after one per-frame orphan, and raised the AA cache capacity enough to
 hold the 253 stable stress-scene entries. Geometry record and submit medians
 fell from 12.212/13.067 ms to 8.66/6.95 ms respectively.
 
+## Optimization pass 2
+
+The indexed-AA and shared-geometry pass was measured with another five
+independent processes under the same contract:
+
+| Scene | Baseline | Pass 1 | Pass 2 | NanoVG reference | Remaining gap |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `geometry_stress` | 25.659 ms | 15.73 ms | 8.68 ms | 4.316 ms | 2.01x |
+| `contract_text_latin` | 15.911 ms | 4.78 ms | 4.42 ms | 3.334 ms | 1.33x |
+| `image_grid` | 0.308 ms | 0.29 ms | 0.31 ms | 0.372 ms | none demonstrated |
+
+Geometry is now 66.2% faster than the original baseline and 44.8% faster than
+pass 1. The AA triangle order and coverage are unchanged, but duplicate
+triangle vertices are represented once and referenced by an index stream.
+Cached AA geometry is immutable and shared by commands, so a cache hit no
+longer allocates and copies point, coverage, and index vectors. Batch assembly
+uses direct affine writes into pre-sized storage.
+
+The stress scene now submits 62,984 vertices and 269,598 indices in one draw,
+instead of 269,598 duplicated vertices in nine draws. Path upload traffic fell
+from 7,548,744 to 2,841,944 bytes (62.4%). All five runs retained the original
+pixel hashes, and all 66 Release tests passed.
+
 ## Root cause
 
 The common problem is **early expansion and late batching**. Images retain
@@ -116,7 +139,9 @@ by 46.8%, and captured hashes remained unchanged.
 
 - [ ] Record Rect, RRect, Circle, Oval, GlyphRun, and Image as typed commands.
 - [ ] Add a `FrameCompiler` producing compact draw packets backed by frame arenas.
-- [ ] Use indexed convex fills and contour AA strips.
+- [ ] Use indexed convex fills and contour AA strips. Pass 2 indexes the
+      existing AA triangle ordering and removes duplicate vertices; producing
+      the fill and fringe directly from contours remains.
 - [ ] Keep generic Path tessellation as the complex-shape fallback.
 - [ ] Store color and affine transform as packed instance/uniform data rather
       than expanding them to every vertex.
@@ -125,6 +150,11 @@ by 46.8%, and captured hashes remained unchanged.
 Acceptance target: reduce geometry vertex count by at least 60%, upload bytes
 by at least 65%, and bring the 1080p geometry scene below 10 ms on the reference
 machine while preserving the quality gate.
+
+Pass 2 status: partially met. Vertex count fell by 76.6% and the scene reached
+8.68 ms with unchanged hashes. Upload bytes fell by 62.4%, just short of the
+65% target; 16-bit index packets or a semantic primitive packet can close that
+remaining traffic target without lossy color packing.
 
 ## P2: backend convergence
 

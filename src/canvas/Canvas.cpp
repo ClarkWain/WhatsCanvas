@@ -365,12 +365,14 @@ DrawGradientTileMode toDrawGradientTileMode(Paint::ShaderTileMode tileMode)
 
 Color applyPaintAlpha(const Paint &paint, const Color &color);
 
-DrawPathData makeDrawPathData(const std::vector<float> &points, float width, const Color &color,
+DrawPathData makeDrawPathData(std::vector<float> points, float width, const Color &color,
                               PathDrawMode mode, const glm::mat4 &transform, const ScissorState &scissor,
                               DrawBlendMode blendMode, const ClipMaskState &clipMask = {})
 {
     DrawPathData data{
-        points,
+        std::move(points),
+        {},
+        {},
         {},
         {},
         width,
@@ -934,13 +936,102 @@ std::vector<float> flattenPoints(const std::vector<crushedpixel::Vec2> &points)
 struct AAExpandedMesh {
     std::vector<crushedpixel::Vec2> vertices;
     std::vector<float> coverage;
+    std::vector<std::uint32_t> indices;
 
     std::size_t residentBytes() const
     {
         return vertices.capacity() * sizeof(crushedpixel::Vec2)
-            + coverage.capacity() * sizeof(float);
+            + coverage.capacity() * sizeof(float)
+            + indices.capacity() * sizeof(std::uint32_t);
     }
 };
+
+struct SharedAAExpandedMesh {
+    std::shared_ptr<const DrawPathGeometry> geometry;
+
+    std::size_t residentBytes() const
+    {
+        return geometry ? geometry->residentBytes() : 0;
+    }
+};
+
+SharedAAExpandedMesh shareAAExpandedMesh(AAExpandedMesh mesh)
+{
+    auto geometry = std::make_shared<DrawPathGeometry>();
+    geometry->points = flattenPoints(mesh.vertices);
+    geometry->coverage = std::move(mesh.coverage);
+    geometry->indices = std::move(mesh.indices);
+    return {std::move(geometry)};
+}
+
+struct AAIndexedVertexKey {
+    std::uint32_t x = 0;
+    std::uint32_t y = 0;
+    std::uint32_t coverage = 0;
+
+    bool operator==(const AAIndexedVertexKey &other) const
+    {
+        return x == other.x && y == other.y
+            && coverage == other.coverage;
+    }
+};
+
+struct AAIndexedVertexKeyHasher {
+    std::size_t operator()(const AAIndexedVertexKey &key) const
+    {
+        std::size_t hash = key.x;
+        hash ^= static_cast<std::size_t>(key.y)
+            + 0x9e3779b9u + (hash << 6u) + (hash >> 2u);
+        hash ^= static_cast<std::size_t>(key.coverage)
+            + 0x9e3779b9u + (hash << 6u) + (hash >> 2u);
+        return hash;
+    }
+};
+
+std::uint32_t floatBitPattern(float value)
+{
+    std::uint32_t bits = 0;
+    std::memcpy(&bits, &value, sizeof(bits));
+    return bits;
+}
+
+AAExpandedMesh indexAAExpandedMesh(AAExpandedMesh soup)
+{
+    AAExpandedMesh indexed;
+    if (soup.vertices.size() != soup.coverage.size()) {
+        return soup;
+    }
+
+    indexed.vertices.reserve(soup.vertices.size());
+    indexed.coverage.reserve(soup.coverage.size());
+    indexed.indices.reserve(soup.vertices.size());
+    std::unordered_map<
+        AAIndexedVertexKey, std::uint32_t,
+        AAIndexedVertexKeyHasher> vertexIndices;
+    vertexIndices.reserve(soup.vertices.size());
+
+    for (std::size_t i = 0; i < soup.vertices.size(); ++i) {
+        const crushedpixel::Vec2 &vertex = soup.vertices[i];
+        const AAIndexedVertexKey key{
+            floatBitPattern(vertex.x),
+            floatBitPattern(vertex.y),
+            floatBitPattern(soup.coverage[i])
+        };
+        const auto found = vertexIndices.find(key);
+        if (found != vertexIndices.end()) {
+            indexed.indices.push_back(found->second);
+            continue;
+        }
+
+        const std::uint32_t index =
+            static_cast<std::uint32_t>(indexed.vertices.size());
+        indexed.vertices.push_back(vertex);
+        indexed.coverage.push_back(soup.coverage[i]);
+        indexed.indices.push_back(index);
+        vertexIndices.emplace(key, index);
+    }
+    return indexed;
+}
 
 /// Average uniform device-space scale of the linear (2x2) part of a transform.
 float averageDeviceScale(const glm::mat4 &transform)
@@ -965,14 +1056,18 @@ float computeLocalFringe(const glm::mat4 &transform)
 /// feather-width outside, so the perceived edge stays on the real silhouette
 /// and the shape keeps its nominal size. Adjacent fringe quads share per-vertex
 /// mitred inner/outer positions, so the band is seamless.
-AAExpandedMesh expandTrianglesWithAA(const std::vector<crushedpixel::Vec2> &triangles, float fringe)
+AAExpandedMesh expandTrianglesWithAA(
+    const std::vector<crushedpixel::Vec2> &triangles, float fringe,
+    bool buildIndex = true)
 {
     AAExpandedMesh mesh;
     const std::size_t triVertCount = triangles.size();
     if (triVertCount < 3 || !(fringe > 0.0f) || !std::isfinite(fringe)) {
         mesh.vertices = triangles;
         mesh.coverage.assign(triVertCount, 1.0f);
-        return mesh;
+        return buildIndex
+            ? indexAAExpandedMesh(std::move(mesh))
+            : mesh;
     }
 
     const std::size_t triCount = triVertCount / 3;
@@ -1122,7 +1217,9 @@ AAExpandedMesh expandTrianglesWithAA(const std::vector<crushedpixel::Vec2> &tria
         pushVert(innerA, 1.0f); pushVert(outerB, 0.0f); pushVert(innerB, 1.0f);
     }
 
-    return mesh;
+    return buildIndex
+        ? indexAAExpandedMesh(std::move(mesh))
+        : mesh;
 }
 
 float lerp(float start, float end, float progress)
@@ -2044,18 +2141,21 @@ void submitStrokeMesh(IRenderer &renderer, const std::vector<crushedpixel::Vec2>
 
     std::vector<float> strokePoints;
     std::vector<float> strokeCoverage;
+    std::vector<std::uint32_t> strokeIndices;
     if (antiAlias) {
         AAExpandedMesh aa = expandTrianglesWithAA(strokeMesh, computeLocalFringe(transform));
         strokePoints = flattenPoints(aa.vertices);
         strokeCoverage = std::move(aa.coverage);
+        strokeIndices = std::move(aa.indices);
     } else {
         strokePoints = flattenPoints(strokeMesh);
     }
 
-    DrawPathData strokeData = makeDrawPathData(strokePoints, strokePaint.getStrokeWidth(),
+    DrawPathData strokeData = makeDrawPathData(std::move(strokePoints), strokePaint.getStrokeWidth(),
                                                strokeColor, PathDrawMode::Stroke,
                                                transform, scissor, toDrawBlendMode(paint.getBlendMode()), clipMask);
     strokeData.coverage = std::move(strokeCoverage);
+    strokeData.indices = std::move(strokeIndices);
     renderer.submit(std::make_unique<DrawPathCommand>(std::move(strokeData)));
 }
 
@@ -2267,7 +2367,7 @@ struct Canvas::Impl
     // Keep the AA cache aligned with the base tessellation cache. Equivalent
     // translated primitives can still produce a few quantization variants;
     // a 64-entry limit caused deterministic eviction churn in dense geometry.
-    wsc::render::LruCache<AAExpandedMesh> fillAaCache{
+    wsc::render::LruCache<SharedAAExpandedMesh> fillAaCache{
         256, 8u * 1024u * 1024u};
     // Retains transform-independent stroke meshes for the same reason.
     wsc::render::LruCache<std::vector<crushedpixel::Vec2>> strokeTessellationCache{
@@ -2837,6 +2937,7 @@ Canvas::RenderStats Canvas::getRenderStats() const
     stats.filterInputPixelCount = frameStats.filterInputPixelCount;
     stats.filterPixelPassCount = frameStats.filterPixelPassCount;
     stats.pathVertexCount = frameStats.pathVertexCount;
+    stats.pathIndexCount = frameStats.pathIndexCount;
     stats.pathUploadCount = frameStats.pathUploadCount;
     stats.pathUploadBytes = frameStats.pathUploadBytes;
     stats.imageTextureCount = resourceStats.imageTextureCount;
@@ -3489,29 +3590,30 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
 
     if (drawFill && fillTriangles && !fillTriangles->empty()) {
         std::vector<float> fillPoints;
-        std::vector<float> fillCoverage;
+        std::shared_ptr<const DrawPathGeometry> sharedGeometry;
         if (effectivePaint.isAntiAlias()) {
             const float fringe =
                 computeLocalFringe(impl_->currentState().matrix);
             std::uint64_t aaKey = fillTessellationKey;
             hashFloat(aaKey, fringe);
-            const AAExpandedMesh *aa =
+            const SharedAAExpandedMesh *aa =
                 impl_->fillAaCache.find(aaKey);
             if (aa == nullptr) {
                 aa = &impl_->fillAaCache.insert(
                     aaKey,
-                    expandTrianglesWithAA(*fillTriangles, fringe));
+                    shareAAExpandedMesh(
+                        expandTrianglesWithAA(
+                            *fillTriangles, fringe)));
             }
-            fillPoints = flattenPoints(aa->vertices);
-            fillCoverage = aa->coverage;
+            sharedGeometry = aa->geometry;
         } else {
             fillPoints = flattenPoints(*fillTriangles);
         }
-        DrawPathData fillData = makeDrawPathData(fillPoints, effectivePaint.getStrokeWidth(),
+        DrawPathData fillData = makeDrawPathData(std::move(fillPoints), effectivePaint.getStrokeWidth(),
                                                  applyPaintAlpha(effectivePaint, effectivePaint.getFillColor()), PathDrawMode::Fill,
                                                  fillTransform, scissor,
                                                  toDrawBlendMode(effectivePaint.getBlendMode()), clipMask);
-        fillData.coverage = std::move(fillCoverage);
+        fillData.sharedGeometry = std::move(sharedGeometry);
         applyPathGradient(effectivePaint, fillData);
         impl_->renderer->submit(
             std::make_unique<DrawPathCommand>(std::move(fillData)));
@@ -5444,7 +5546,8 @@ ClipMaskState Canvas::Impl::makeCurrentClipMaskState() const
                 for (std::size_t i = 0; i + 1 < clipPath.mask.points.size(); i += 2) {
                     tris.emplace_back(clipPath.mask.points[i], clipPath.mask.points[i + 1]);
                 }
-                AAExpandedMesh aa = expandTrianglesWithAA(tris, computeLocalFringe(clipPath.mask.transform));
+                AAExpandedMesh aa = expandTrianglesWithAA(
+                    tris, computeLocalFringe(clipPath.mask.transform), false);
                 clipPath.mask.points = flattenPoints(aa.vertices);
                 clipPath.mask.coverage = std::move(aa.coverage);
             }

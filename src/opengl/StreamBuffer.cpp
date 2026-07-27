@@ -65,14 +65,29 @@ GLuint StreamBuffer::upload(const float *data, std::size_t floatCount)
 StreamBuffer::UploadRange StreamBuffer::uploadRange(
     const float *data, std::size_t floatCount)
 {
-    if (floatCount == 0) {
+    return uploadRangeBytes(data, floatCount);
+}
+
+StreamBuffer::UploadRange StreamBuffer::uploadRange(
+    const std::uint32_t *data, std::size_t indexCount)
+{
+    static_assert(
+        sizeof(std::uint32_t) == sizeof(float),
+        "StreamBuffer storage assumes 32-bit elements");
+    return uploadRangeBytes(data, indexCount);
+}
+
+StreamBuffer::UploadRange StreamBuffer::uploadRangeBytes(
+    const void *data, std::size_t elementCount)
+{
+    if (elementCount == 0) {
         return {buffer_, 0};
     }
     if (buffer_ == 0) {
-        initialize(std::max<std::size_t>(4096u, floatCount));
+        initialize(std::max<std::size_t>(4096u, elementCount));
     }
 
-    const std::size_t required = writeOffset_ + floatCount;
+    const std::size_t required = writeOffset_ + elementCount;
     if (required > capacity_) {
         std::size_t nextCapacity = capacity_;
         while (required > nextCapacity) {
@@ -88,8 +103,8 @@ StreamBuffer::UploadRange StreamBuffer::uploadRange(
     const std::size_t byteOffset = writeOffset_ * sizeof(float);
     glBufferSubData(
         GL_ARRAY_BUFFER, static_cast<GLintptr>(byteOffset),
-        static_cast<GLsizeiptr>(floatCount * sizeof(float)), data);
-    writeOffset_ += floatCount;
+        static_cast<GLsizeiptr>(elementCount * sizeof(float)), data);
+    writeOffset_ += elementCount;
     return {buffer_, byteOffset};
 }
 
