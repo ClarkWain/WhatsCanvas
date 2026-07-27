@@ -20,6 +20,9 @@ option(WHATSCANVAS_BUILD_OPENGL "Build the desktop OpenGL renderer library targe
 option(WHATSCANVAS_BUILD_OPENGLES "Build the OpenGL ES renderer library target." OFF)
 option(WHATSCANVAS_BUILD_SOFTWARE "Build the dependency-free CPU (software) renderer library target." ON)
 option(WHATSCANVAS_BUILD_BENCHMARKS "Build lightweight benchmark executables." ON)
+option(WHATSCANVAS_BUILD_NANOVG_BENCHMARK_ADAPTER "Build the optional NanoVG cross-library benchmark adapter." OFF)
+set(WHATSCANVAS_NANOVG_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.nanovg"
+    CACHE PATH "Path to a NanoVG source checkout used only by its benchmark adapter.")
 option(WHATSCANVAS_INSTALL_GLFW "Install GLFW when WhatsCanvas is embedded by a package that exports a GLFW-dependent target." OFF)
 option(WHATSCANVAS_ENABLE_OPENTYPE_SHAPING "Enable optional OpenType text shaping adapter hooks when a supported shaper is available." OFF)
 option(WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER "Enable optional FreeType glyph rasterizer when FreeType is available." ON)
@@ -1385,6 +1388,61 @@ if (BUILD_TESTING AND TARGET WhatsCanvasPerformanceSuite)
         LABELS "smoke;benchmark;software"
         TIMEOUT 120
     )
+endif()
+
+if (WHATSCANVAS_BUILD_BENCHMARKS
+    AND WHATSCANVAS_BUILD_NANOVG_BENCHMARK_ADAPTER
+    AND TARGET WhatsCanvasOpenGL)
+    if (NOT EXISTS "${WHATSCANVAS_NANOVG_SOURCE_DIR}/src/nanovg.c"
+        OR NOT EXISTS "${WHATSCANVAS_NANOVG_SOURCE_DIR}/src/nanovg_gl.h")
+        message(FATAL_ERROR
+            "NanoVG benchmark adapter requested, but WHATSCANVAS_NANOVG_SOURCE_DIR "
+            "does not contain a NanoVG checkout.")
+    endif()
+    execute_process(
+        COMMAND git -C "${WHATSCANVAS_NANOVG_SOURCE_DIR}" rev-parse HEAD
+        OUTPUT_VARIABLE WHATSCANVAS_NANOVG_REVISION
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    if (NOT WHATSCANVAS_NANOVG_REVISION)
+        set(WHATSCANVAS_NANOVG_REVISION "unknown")
+    endif()
+    whatscanvas_add_glfw_dependency("${CMAKE_CURRENT_SOURCE_DIR}")
+    add_executable(WhatsCanvasNanoVGBenchmarkAdapter
+        "${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/adapters/NanoVGBenchmarkAdapter.cpp"
+        "${WHATSCANVAS_NANOVG_SOURCE_DIR}/src/nanovg.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/glad/src/glad.c"
+    )
+    target_include_directories(WhatsCanvasNanoVGBenchmarkAdapter PRIVATE
+        "${WHATSCANVAS_NANOVG_SOURCE_DIR}/src"
+        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/glad/include"
+    )
+    target_compile_definitions(WhatsCanvasNanoVGBenchmarkAdapter PRIVATE
+        _CRT_SECURE_NO_WARNINGS
+        WHATSCANVAS_NANOVG_VERSION="${WHATSCANVAS_NANOVG_REVISION}"
+        WHATSCANVAS_NANOVG_BUILD_TYPE="$<CONFIG>"
+        WHATSCANVAS_NANOVG_CONTRACT_FONT="${CMAKE_CURRENT_SOURCE_DIR}/third_party/harfbuzz/perf/fonts/Roboto-Regular.ttf"
+    )
+    target_link_libraries(WhatsCanvasNanoVGBenchmarkAdapter PRIVATE
+        glfw
+        OpenGL::GL
+    )
+    if (BUILD_TESTING)
+        add_test(NAME WhatsCanvasNanoVGBenchmarkAdapterSmoke
+            COMMAND $<TARGET_FILE:WhatsCanvasNanoVGBenchmarkAdapter>
+                --profile quick
+                --scene geometry_stress
+                --width 320
+                --height 180
+                --output "${CMAKE_CURRENT_BINARY_DIR}/nanovg_adapter_smoke.jsonl"
+                --capture-dir "${CMAKE_CURRENT_BINARY_DIR}/nanovg_adapter_captures"
+        )
+        set_tests_properties(WhatsCanvasNanoVGBenchmarkAdapterSmoke PROPERTIES
+            LABELS "smoke;benchmark;adapter;nanovg;opengl"
+            TIMEOUT 120
+        )
+    endif()
 endif()
 
 if (BUILD_TESTING AND Python3_Interpreter_FOUND)

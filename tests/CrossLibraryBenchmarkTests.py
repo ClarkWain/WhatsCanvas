@@ -72,6 +72,20 @@ class CrossLibraryBenchmarkTests(unittest.TestCase):
             )
         )
 
+    def test_text_contract_accepts_rasterizer_delta_but_rejects_blank(self):
+        contract_path = (
+            Path(__file__).resolve().parents[1]
+            / "benchmarks"
+            / "cross_library"
+            / "contract.json"
+        )
+        contract = json.loads(contract_path.read_text(encoding="utf-8"))
+        thresholds = contract["scenes"]["contract_text_latin"]["quality"]
+        nanovg = MODULE.QualityMetrics(7.744, 26.566, 225, 0.08551)
+        blank = MODULE.QualityMetrics(9.917, 32.413, 225, 0.10246)
+        self.assertTrue(MODULE.quality_passes(nanovg, thresholds))
+        self.assertFalse(MODULE.quality_passes(blank, thresholds))
+
     def test_jsonl_rejects_debug_build(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "debug.jsonl"
