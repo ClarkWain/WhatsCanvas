@@ -17,6 +17,8 @@ For releases and downloadable artifacts, see the
   performance suite.
 - Added a machine-readable cross-library benchmark contract, fixed-font Latin
   scene, adapter runner, pixel-quality gates, and self-calibration tests.
+- Added an optional NanoVG GL3 benchmark adapter and a checked-in,
+  quality-gated three-process 1080p comparison baseline.
 
 ### Changed
 - Changed the unified performance suite default resolution from 960 x 540 to

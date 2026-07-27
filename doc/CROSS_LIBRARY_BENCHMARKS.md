@@ -73,9 +73,41 @@ synchronization. It then computes RGB mean absolute error, RMSE, maximum
 channel delta, and the fraction of pixels exceeding the scene's channel
 threshold.
 
+Text thresholds allow normal grayscale rasterizer and kerning differences
+between FreeType/HarfBuzz and stb/fontstash implementations. They remain below
+the measured error of an empty background-only capture, so omitting the text
+still fails the quality gate.
+
 Exit code `0` means every candidate passed its quality gates. Exit code `2`
 means execution was valid but at least one image failed quality. Other nonzero
 codes indicate an invalid adapter, missing output, or execution failure.
+
+## NanoVG adapter
+
+NanoVG is the first checked adapter implementation. Its upstream source remains
+an external checkout and is never copied into WhatsCanvas:
+
+```powershell
+git clone https://github.com/memononen/nanovg .nanovg
+cmake -S . -B build `
+  -DWHATSCANVAS_BUILD_NANOVG_BENCHMARK_ADAPTER=ON `
+  -DWHATSCANVAS_NANOVG_SOURCE_DIR="$PWD/.nanovg"
+cmake --build build --config Release `
+  --target WhatsCanvasPerformanceSuite WhatsCanvasNanoVGBenchmarkAdapter
+python scripts/cross_library_benchmark.py `
+  --reference "whatscanvas=build/Release/WhatsCanvasPerformanceSuite.exe --backend opengl" `
+  --adapter "nanovg=build/Release/WhatsCanvasNanoVGBenchmarkAdapter.exe --backend opengl" `
+  --profile standard `
+  --output-dir build/cross-library-nanovg
+```
+
+The adapter uses NanoVG GL3 with geometry antialiasing and stencil strokes. It
+does not enable NanoVG debug checks or window MSAA. Both sides use the same
+hidden OpenGL 3.3 framebuffer and wait for `glFinish`.
+
+The checked-in
+[Windows i7-8700 / GTX 1060 NanoVG comparison](../benchmarks/baselines/cross-library-nanovg-windows-i7-8700-gtx1060/README.md)
+preserves three independent Standard runs and all raw JSONL records.
 
 ## Publishing results
 

@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "name": "WhatsCanvas Cross-Library 2D Contract",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "default_width": 1920,
   "default_height": 1080,
   "pixel_format": "RGB8_sRGB_PPM_P6",
@@ -68,14 +68,15 @@
         "8x72 calls",
         "grayscale glyph antialiasing",
         "no LCD subpixel rendering",
-        "UTF-8 shaping with kerning and ligatures enabled",
+        "native UTF-8 text path with kerning; shaping differences remain quality-scored",
+        "no pre-rendered text bitmap or whole-string texture cache",
         "validation frame index 0"
       ],
       "quality": {
         "channel_threshold": 32,
-        "max_mean_absolute_error": 3.0,
-        "max_root_mean_square_error": 18.0,
-        "max_changed_pixel_fraction": 0.12
+        "max_mean_absolute_error": 8.0,
+        "max_root_mean_square_error": 27.0,
+        "max_changed_pixel_fraction": 0.10
       }
     }
   }

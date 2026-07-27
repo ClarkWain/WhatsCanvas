@@ -280,6 +280,21 @@ same semantics. Do not compare asynchronous GPU submission against synchronized
 complete-frame time. When an effect has no equivalent implementation, mark the
 scene unsupported instead of substituting an easier effect.
 
+The first quality-gated NanoVG GL3 baseline is now checked in. On the Windows
+i7-8700 / GTX 1060 machine, the median of three independent 1080p Standard
+process medians was:
+
+| Scene | WhatsCanvas OpenGL | NanoVG GL3 | Result |
+| --- | ---: | ---: | --- |
+| `geometry_stress` | 25.659 ms | 4.316 ms | NanoVG 5.95x faster |
+| `image_grid` | 0.308 ms | 0.372 ms | WhatsCanvas 1.21x faster |
+| `contract_text_latin` | 15.911 ms | 3.334 ms | NanoVG 4.77x faster |
+
+All three NanoVG captures passed their scene quality gates. This exposes a real
+WhatsCanvas weakness in per-frame path construction/tessellation and text
+recording; the image batching path is already competitive. See the
+[raw baseline and methodology](../benchmarks/baselines/cross-library-nanovg-windows-i7-8700-gtx1060/README.md).
+
 ## CI policy
 
 Shared hosted runners execute the `quick` Software subset to validate build

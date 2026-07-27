@@ -3,6 +3,7 @@
 build/
 out/
 .love2dgame/
+/.nanovg/
 *.suo
 *.user
 *.ppm
