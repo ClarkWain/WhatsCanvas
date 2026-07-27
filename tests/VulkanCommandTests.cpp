@@ -106,6 +106,76 @@ int main()
     if (!pixelIs(pixels, width, width / 2, height / 2, 255, 0, 0, 255, "center red")) return 1;
     if (!pixelIs(pixels, width, 0, 0, 0, 0, 0, 0, "corner clear")) return 1;
 
+    // Three compatible indexed paths exercise direct solid-path batching:
+    // index rebasing, uniform-to-vertex color expansion, packed vertex colors,
+    // and missing analytic coverage all need to remain aligned.
+    const auto makeIndexedQuad = [height](
+                                     float left, float right,
+                                     float red, float green,
+                                     float blue) {
+        DrawPathData data;
+        data.points = {
+            left, 0.0f, right, 0.0f,
+            right, static_cast<float>(height),
+            left, static_cast<float>(height),
+        };
+        data.shortIndices = {0, 1, 2, 0, 2, 3};
+        data.color[0] = red;
+        data.color[1] = green;
+        data.color[2] = blue;
+        data.color[3] = 1.0f;
+        data.drawMode = PathDrawMode::Fill;
+        return data;
+    };
+    DrawPathData redQuad =
+        makeIndexedQuad(0.0f, 20.0f, 1.0f, 0.0f, 0.0f);
+    DrawPathData greenQuad =
+        makeIndexedQuad(22.0f, 42.0f, 0.0f, 1.0f, 0.0f);
+    greenQuad.packedCoverage = {255, 255, 255, 255};
+    DrawPathData blueQuad =
+        makeIndexedQuad(44.0f, 64.0f, 0.0f, 0.0f, 0.0f);
+    blueQuad.packedColors = {
+        0, 0, 255, 255, 0, 0, 255, 255,
+        0, 0, 255, 255, 0, 0, 255, 255,
+    };
+    std::vector<std::unique_ptr<Command>> batchedCommands;
+    batchedCommands.push_back(
+        std::make_unique<DrawPathCommand>(redQuad));
+    batchedCommands.push_back(
+        std::make_unique<DrawPathCommand>(greenQuad));
+    batchedCommands.push_back(
+        std::make_unique<DrawPathCommand>(blueQuad));
+    if (!device.executeCommands(
+            target, batchedCommands, request)) {
+        std::cerr
+            << "[VulkanCommandTests] FAIL: executeCommands "
+               "(indexed batch) returned false."
+            << std::endl;
+        return 1;
+    }
+    if (!device.readPixelsRGBA(width, height, pixels)) {
+        std::cerr
+            << "[VulkanCommandTests] FAIL: indexed batch "
+               "readback failed."
+            << std::endl;
+        return 1;
+    }
+    if (!pixelIs(
+            pixels, width, 10, height / 2,
+            255, 0, 0, 255, "indexed batch red")) {
+        return 1;
+    }
+    if (!pixelIs(
+            pixels, width, 32, height / 2,
+            0, 255, 0, 255, "indexed batch green")) {
+        return 1;
+    }
+    if (!pixelIs(
+            pixels, width, 54, height / 2,
+            0, 0, 255, 255, "indexed batch blue")) {
+        return 1;
+    }
+
     // A full-canvas green quad restricted by a top-left Canvas-space scissor.
     // ScissorState stores a bottom-left Y for the command stream; the shared
     // encoder converts it to the top-left convention used by DrawPrimitive and
@@ -281,6 +351,7 @@ int main()
               << "\"." << std::endl;
 
     commands.clear();
+    batchedCommands.clear();
     scissoredCommands.clear();
     pointCommands.clear();
     lineCommands.clear();

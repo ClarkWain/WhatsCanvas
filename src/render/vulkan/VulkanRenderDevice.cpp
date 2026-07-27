@@ -4951,14 +4951,59 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
     std::uint32_t texturedCount = 0;
     std::uint32_t clipCount = 0;
     std::uint32_t gradientCount = 0;
+    std::size_t vertexFloatBudget = 0;
+    std::size_t indexBudget = 0;
+    bool validUploadBudget = true;
+    const auto addVertexBudget =
+        [&](std::size_t vertexCount, std::size_t stride) {
+            const std::size_t maxSize =
+                std::numeric_limits<std::size_t>::max();
+            if (vertexCount
+                > (maxSize - vertexFloatBudget) / stride) {
+                validUploadBudget = false;
+                return;
+            }
+            vertexFloatBudget += vertexCount * stride;
+        };
     for (const wsc::DrawPrimitive &prim : drawList) {
         if (prim.kind == wsc::DrawPrimitiveKind::TexturedQuad) {
             ++texturedCount;
+            const std::size_t explicitVerts =
+                prim.positions.size() / 2u;
+            if (explicitVerts >= 3
+                && (explicitVerts % 3u) == 0u
+                && prim.uvs.size() == prim.positions.size()) {
+                addVertexBudget(explicitVerts, 5u);
+            } else {
+                addVertexBudget(6u, 5u);
+            }
         } else if (prim.kind == wsc::DrawPrimitiveKind::ClipFill) {
             ++clipCount;
+            if (!prim.positions.empty()
+                && prim.uvs.size() == prim.positions.size()) {
+                addVertexBudget(
+                    prim.positions.size() / 2u, 8u);
+            } else {
+                addVertexBudget(6u, 8u);
+            }
         } else if (prim.kind == wsc::DrawPrimitiveKind::GradientFill) {
             ++gradientCount;
+            addVertexBudget(
+                prim.positions.size() / 2u, 4u);
+        } else {
+            addVertexBudget(
+                prim.positions.size() / 2u, 7u);
+            if (prim.indices.size()
+                > std::numeric_limits<std::size_t>::max()
+                    - indexBudget) {
+                validUploadBudget = false;
+            } else {
+                indexBudget += prim.indices.size();
+            }
         }
+    }
+    if (!validUploadBudget) {
+        return false;
     }
 
     if (texturedCount > 0 && context_->ensureTexturePipeline(rt->renderPass(), 0) == VK_NULL_HANDLE) {
@@ -5003,7 +5048,9 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
     std::vector<RecordedDraw> draws;
     draws.reserve(drawList.size());
     std::vector<float> vertexUpload;
+    vertexUpload.reserve(vertexFloatBudget);
     std::vector<std::uint32_t> indexUpload;
+    indexUpload.reserve(indexBudget);
 
     bool ok = true;
     std::size_t gradientIndex = 0;
@@ -5082,7 +5129,10 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
         draw.scissorY = prim.scissorY;
         draw.scissorWidth = prim.scissorWidth;
         draw.scissorHeight = prim.scissorHeight;
-        std::vector<float> vertices;
+        draw.vertexOffset =
+            static_cast<VkDeviceSize>(vertexUpload.size())
+            * sizeof(float);
+        std::vector<float> &vertices = vertexUpload;
         if (prim.kind == wsc::DrawPrimitiveKind::SolidTriangles) {
             const std::size_t vertexCount = prim.positions.size() / 2;
             const std::size_t elementCount =
@@ -5108,27 +5158,22 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
                                                           prim.blendMode);
             const bool perVertexColor = prim.colors.size() == vertexCount * 4;
             const bool perVertexCoverage = prim.coverage.size() == vertexCount;
-            if (perVertexColor || perVertexCoverage) {
-                vertices.reserve(vertexCount * 7);
-                for (std::size_t v = 0; v < vertexCount; ++v) {
-                    vertices.push_back(prim.positions[v * 2 + 0]);
-                    vertices.push_back(prim.positions[v * 2 + 1]);
-                    if (perVertexColor) {
-                        vertices.push_back(prim.colors[v * 4 + 0]);
-                        vertices.push_back(prim.colors[v * 4 + 1]);
-                        vertices.push_back(prim.colors[v * 4 + 2]);
-                        vertices.push_back(prim.colors[v * 4 + 3]);
-                    } else {
-                        vertices.push_back(prim.color[0]);
-                        vertices.push_back(prim.color[1]);
-                        vertices.push_back(prim.color[2]);
-                        vertices.push_back(prim.color[3]);
-                    }
-                    vertices.push_back(perVertexCoverage ? prim.coverage[v] : 1.0f);
+            for (std::size_t v = 0; v < vertexCount; ++v) {
+                vertices.push_back(prim.positions[v * 2 + 0]);
+                vertices.push_back(prim.positions[v * 2 + 1]);
+                if (perVertexColor) {
+                    vertices.push_back(prim.colors[v * 4 + 0]);
+                    vertices.push_back(prim.colors[v * 4 + 1]);
+                    vertices.push_back(prim.colors[v * 4 + 2]);
+                    vertices.push_back(prim.colors[v * 4 + 3]);
+                } else {
+                    vertices.push_back(prim.color[0]);
+                    vertices.push_back(prim.color[1]);
+                    vertices.push_back(prim.color[2]);
+                    vertices.push_back(prim.color[3]);
                 }
-            } else {
-                vertices = buildSolidVertices(prim.positions, prim.color[0], prim.color[1], prim.color[2],
-                                              prim.color[3]);
+                vertices.push_back(
+                    perVertexCoverage ? prim.coverage[v] : 1.0f);
             }
             draw.vertexCount = static_cast<std::uint32_t>(vertexCount);
             if (!prim.indices.empty()) {
@@ -5234,7 +5279,6 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
             if (explicitVerts >= 3 && (explicitVerts % 3) == 0 && prim.uvs.size() == prim.positions.size()) {
                 const bool perVertexTint =
                     prim.packedTints.size() == explicitVerts;
-                vertices.reserve(explicitVerts * 5u);
                 constexpr std::uint32_t whiteTint = 0xffffffffu;
                 for (std::size_t v = 0; v < explicitVerts; ++v) {
                     appendTexturedVertex(
@@ -5248,7 +5292,7 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
                 }
                 draw.vertexCount = static_cast<std::uint32_t>(explicitVerts);
             } else {
-                vertices = {
+                const std::array<float, 30> quad = {
                     -1.0f, -1.0f, 0.0f, 0.0f,
                     packedRgba8AsFloat(0xffffffffu),
                      1.0f, -1.0f, 1.0f, 0.0f,
@@ -5262,6 +5306,8 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
                     -1.0f,  1.0f, 0.0f, 1.0f,
                     packedRgba8AsFloat(0xffffffffu),
                 };
+                vertices.insert(
+                    vertices.end(), quad.begin(), quad.end());
                 draw.vertexCount = 6;
             }
         } else if (prim.kind == wsc::DrawPrimitiveKind::ClipFill) {
@@ -5287,7 +5333,6 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
                 // fragment's alpha by the mask sampled at its screen-space UV.
                 const std::size_t vc = prim.positions.size() / 2;
                 const bool perVertexColor = prim.colors.size() == vc * 4;
-                vertices.reserve(vc * 8);
                 for (std::size_t v = 0; v < vc; ++v) {
                     vertices.push_back(prim.positions[v * 2 + 0]);
                     vertices.push_back(prim.positions[v * 2 + 1]);
@@ -5308,11 +5353,13 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
                 draw.vertexCount = static_cast<std::uint32_t>(vc);
             } else {
                 // Full-target quad (fills the whole target, clipped to the mask).
-                vertices = {
+                const std::array<float, 48> quad = {
                     -1.0f, -1.0f, r, g, b, a, 0.0f, 0.0f, 1.0f, -1.0f, r, g, b, a, 1.0f, 0.0f,
                     1.0f,  1.0f,  r, g, b, a, 1.0f, 1.0f, -1.0f, -1.0f, r, g, b, a, 0.0f, 0.0f,
                     1.0f,  1.0f,  r, g, b, a, 1.0f, 1.0f, -1.0f, 1.0f,  r, g, b, a, 0.0f, 1.0f,
                 };
+                vertices.insert(
+                    vertices.end(), quad.begin(), quad.end());
                 draw.vertexCount = 6;
             }
         } else { // GradientFill
@@ -5381,7 +5428,6 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
                 break;
             }
             draw.descriptorLayout = context_->gradientPipelineLayout;
-            vertices.reserve(vertexCount * 4);
             for (std::size_t v = 0; v < vertexCount; ++v) {
                 vertices.push_back(prim.positions[v * 2 + 0]);
                 vertices.push_back(prim.positions[v * 2 + 1]);
@@ -5395,10 +5441,6 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
             ok = false;
             break;
         }
-        draw.vertexOffset =
-            static_cast<VkDeviceSize>(vertexUpload.size()) * sizeof(float);
-        vertexUpload.insert(
-            vertexUpload.end(), vertices.begin(), vertices.end());
         draws.push_back(draw);
     }
 
@@ -6573,6 +6615,178 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
                 if (invalidIndex) {
                     continue;
                 }
+            }
+            if (!clipped && !d.hasShaderGradient()) {
+                wsc::DrawPrimitive state;
+                state.kind =
+                    wsc::DrawPrimitiveKind::SolidTriangles;
+                state.blendMode = mapBlend(d.blendMode);
+                applyPrimitiveScissor(state, d.scissor);
+
+                const std::size_t incomingVertices =
+                    d.hasIndices() ? sourceVertexCount : vertexCount;
+                bool canMerge = false;
+                if (!list.empty()) {
+                    const wsc::DrawPrimitive &previous =
+                        list.back();
+                    const bool sameScissor =
+                        previous.scissorEnabled
+                            == state.scissorEnabled
+                        && previous.scissorX == state.scissorX
+                        && previous.scissorY == state.scissorY
+                        && previous.scissorWidth
+                            == state.scissorWidth
+                        && previous.scissorHeight
+                            == state.scissorHeight;
+                    canMerge =
+                        previous.kind
+                            == wsc::DrawPrimitiveKind::
+                                SolidTriangles
+                        && previous.blendMode == state.blendMode
+                        && sameScissor;
+                    if (canMerge
+                        && (!previous.indices.empty()
+                            || d.hasIndices())) {
+                        const std::size_t previousVertices =
+                            previous.positions.size() / 2u;
+                        const std::size_t maxIndex =
+                            std::numeric_limits<
+                                std::uint32_t>::max();
+                        canMerge =
+                            previousVertices <= maxIndex
+                            && incomingVertices
+                                <= maxIndex - previousVertices;
+                    }
+                }
+
+                if (!canMerge) {
+                    state.color[0] = d.color[0];
+                    state.color[1] = d.color[1];
+                    state.color[2] = d.color[2];
+                    state.color[3] = d.color[3];
+                    if (list.empty()
+                        && solidVertexBudget > incomingVertices) {
+                        state.positions.reserve(
+                            solidVertexBudget * 2u);
+                        if (d.hasVertexColors()) {
+                            state.colors.reserve(
+                                solidVertexBudget * 4u);
+                        }
+                        if (d.hasCoverage()) {
+                            state.coverage.reserve(
+                                solidVertexBudget);
+                        }
+                        if (d.hasIndices()) {
+                            state.indices.reserve(
+                                solidIndexBudget);
+                        }
+                    }
+                    list.push_back(std::move(state));
+                }
+
+                wsc::DrawPrimitive &batch = list.back();
+                const std::size_t previousVertices =
+                    batch.positions.size() / 2u;
+
+                if (!batch.indices.empty() || d.hasIndices()) {
+                    if (batch.indices.empty()) {
+                        batch.indices.reserve(solidIndexBudget);
+                        for (std::size_t vertex = 0;
+                             vertex < previousVertices;
+                             ++vertex) {
+                            batch.indices.push_back(
+                                static_cast<std::uint32_t>(
+                                    vertex));
+                        }
+                    }
+                    if (d.hasIndices()) {
+                        for (std::size_t element = 0;
+                             element < vertexCount; ++element) {
+                            batch.indices.push_back(
+                                static_cast<std::uint32_t>(
+                                    previousVertices
+                                    + d.getIndex(element)));
+                        }
+                    } else {
+                        for (std::size_t vertex = 0;
+                             vertex < incomingVertices;
+                             ++vertex) {
+                            batch.indices.push_back(
+                                static_cast<std::uint32_t>(
+                                    previousVertices + vertex));
+                        }
+                    }
+                }
+
+                if (canMerge && batch.colors.empty()) {
+                    batch.colors.reserve(
+                        solidVertexBudget * 4u);
+                    for (std::size_t vertex = 0;
+                         vertex < previousVertices; ++vertex) {
+                        batch.colors.insert(
+                            batch.colors.end(),
+                            std::begin(batch.color),
+                            std::end(batch.color));
+                    }
+                }
+                if (d.hasVertexColors()) {
+                    if (batch.colors.empty()) {
+                        batch.colors.reserve(
+                            solidVertexBudget * 4u);
+                    }
+                    for (std::size_t vertex = 0;
+                         vertex < incomingVertices; ++vertex) {
+                        for (std::size_t channel = 0;
+                             channel < 4; ++channel) {
+                            batch.colors.push_back(
+                                d.vertexColorAt(
+                                    vertex, channel));
+                        }
+                    }
+                } else if (!batch.colors.empty()) {
+                    for (std::size_t vertex = 0;
+                         vertex < incomingVertices; ++vertex) {
+                        batch.colors.insert(
+                            batch.colors.end(),
+                            std::begin(d.color),
+                            std::end(d.color));
+                    }
+                }
+
+                if (!batch.coverage.empty()
+                    || d.hasCoverage()) {
+                    if (batch.coverage.empty()) {
+                        batch.coverage.reserve(
+                            solidVertexBudget);
+                        batch.coverage.assign(
+                            previousVertices, 1.0f);
+                    }
+                    if (d.hasCoverage()) {
+                        for (std::size_t vertex = 0;
+                             vertex < incomingVertices;
+                             ++vertex) {
+                            batch.coverage.push_back(
+                                d.coverageAt(vertex));
+                        }
+                    } else {
+                        batch.coverage.insert(
+                            batch.coverage.end(),
+                            incomingVertices, 1.0f);
+                    }
+                }
+
+                for (std::size_t vertex = 0;
+                     vertex < incomingVertices; ++vertex) {
+                    float nx = 0.0f;
+                    float ny = 0.0f;
+                    toNdc(
+                        d.transform,
+                        points[vertex * 2 + 0],
+                        points[vertex * 2 + 1], nx, ny);
+                    batch.positions.push_back(nx);
+                    batch.positions.push_back(ny);
+                }
+                continue;
             }
             const bool retainIndices =
                 d.hasIndices() && !clipped && !d.hasShaderGradient();
