@@ -121,6 +121,38 @@ bool testDistinctShapesUseDistinctEntries()
                   "distinct shapes should occupy distinct cache entries");
 }
 
+bool testTranslatedPrimitivesReuseParameterizedMeshes()
+{
+    auto canvasOwner = Canvas::create(Canvas::Backend::OpenGL, 0, 0);
+    Canvas &canvas = *canvasOwner;
+    canvas.setSize(256, 256);
+
+    Paint fill;
+    fill.setStyle(Paint::Style::FILL);
+    fill.setColor(Color(90, 170, 230));
+
+    canvas.drawRect(RectF(10.0f, 12.0f, 40.0f, 24.0f), fill);
+    canvas.drawRect(RectF(150.0f, 90.0f, 40.0f, 24.0f), fill);
+    canvas.drawRoundRect(
+        RectF(20.0f, 50.0f, 60.0f, 36.0f), 8.0f, fill);
+    canvas.drawRoundRect(
+        RectF(130.0f, 160.0f, 60.0f, 36.0f), 8.0f, fill);
+    canvas.drawCircle(35.0f, 180.0f, 16.0f, fill);
+    canvas.drawCircle(210.0f, 40.0f, 16.0f, fill);
+
+    const Canvas::RenderStats stats = canvas.getRenderStats();
+    return expect(
+               stats.tessellationCacheMisses == 3
+                   && stats.tessellationCacheHits == 3
+                   && stats.tessellationCacheSize == 3,
+               "translated primitives should share parameterized fill meshes")
+        && expect(
+               stats.aaCacheMisses == 3
+                   && stats.aaCacheHits == 3
+                   && stats.aaCacheSize == 3,
+               "translated primitives should share parameterized AA meshes");
+}
+
 bool testStrokeOnlyDoesNotPopulateFillCache()
 {
     auto canvasOwner = Canvas::create(Canvas::Backend::OpenGL, 0, 0);
@@ -214,6 +246,7 @@ int main()
     ok = testIdenticalFillReusesTessellation() && ok;
     ok = testTransformDoesNotInvalidateTessellation() && ok;
     ok = testDistinctShapesUseDistinctEntries() && ok;
+    ok = testTranslatedPrimitivesReuseParameterizedMeshes() && ok;
     ok = testStrokeOnlyDoesNotPopulateFillCache() && ok;
     ok = testIdenticalStrokeReusesMesh() && ok;
     ok = testClipMaskSharesFillTessellationCache() && ok;

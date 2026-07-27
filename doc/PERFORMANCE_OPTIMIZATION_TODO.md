@@ -84,6 +84,33 @@ medians are 3.07/3.40 ms. The 269,598-element index stream uses 539,196 bytes,
 and total path upload traffic is 2,302,748 bytes, 69.5% below the original.
 All quality hashes remain unchanged and all 66 Release tests pass.
 
+## Optimization pass 4
+
+The fourth pass keeps reusable Rect, RRect, Circle, and Oval meshes under
+parameterized local-space keys, pools fixed-size path command allocations, and
+uses normalized RGBA8/coverage8 attributes for merged solid-color OpenGL
+packets. Float vertex colors remain active for arbitrary per-vertex data and
+whenever gamma correction is enabled. Release builds also skip the redundant
+full index-bound scan for library-generated packets; Debug retains it.
+
+Seven alternating WhatsCanvas/NanoVG processes on the reference machine
+produced the following median of process medians:
+
+| Scene | Original | Pass 3 | Pass 4 | Paired NanoVG | Current gap |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `geometry_stress` | 25.659 ms | 6.45 ms | 4.682 ms | 3.965 ms | 1.18x |
+
+Pass 4 records in 1.767 ms and submits in 2.956 ms. Total path upload fell from
+2,302,748 to 1,357,988 bytes, while retaining 62,984 vertices, 269,598 16-bit
+indices, one draw, and four stream uploads. Compared with the original result,
+the scene is 81.8% faster and uploads 82.0% fewer bytes.
+
+Canonical local-space curve evaluation changed 171 of 2,073,600 pixels
+(0.0082%) relative to pass 3. Every changed channel differs by exactly one
+8-bit level (RMSE 0.0069), so the quality gate remains comfortably satisfied.
+All seven runs produced the same `5e7e67fb8b9ca579` hash, the complete Release
+build passed, and all 66 Release tests passed.
+
 ## Root cause
 
 The common problem is **early expansion and late batching**. Images retain
@@ -94,18 +121,19 @@ Canvas layer, then copied, transformed, widened, and merged again during
 
 ### Verified geometry costs
 
-- More than 262,144 vertices are generated for 2,304 simple shapes.
+- The original path generated more than 262,144 vertices for 2,304 simple
+  shapes; indexed AA now reduces this to 62,984 vertices.
 - Analytic AA is expanded from triangle soup. A clean convex `n`-gon uses
   approximately `9n - 6` vertices instead of a contour fill plus fringe strip.
-- Path merge performs another complete transform, color, and coverage expansion.
-- Nine batches upload three separate streams, producing about 27 buffer uploads.
-- Each upload currently overwrites offset zero, which can make the driver wait
-  for an earlier draw using the same storage.
-- Rect, rounded rect, circle, and oval use the generic Path pipeline.
-- Short-lived Path, contour, mesh, command, and merged vectors create allocation
-  and memory-copy pressure.
-- Exact float-bit cache keys fragment equivalent translated primitive meshes;
-  the 64-entry AA cache can churn under the stress scene.
+- Path merge still performs another complete transform, attribute expansion,
+  and index-offset pass.
+- The current scene uses one indexed draw and four stream uploads.
+- OpenGL streams append by offset after one orphan per frame.
+- Rect, rounded rect, circle, and oval now use parameterized reusable meshes.
+- Fixed-size path commands use a bounded thread-local reuse pool; merged vectors
+  still create memory-copy pressure.
+- Generic paths retain exact float-bit content keys; typed primitives no longer
+  fragment their cache entries by translation.
 
 ### Verified text costs
 
@@ -126,7 +154,7 @@ Canvas layer, then copied, transformed, widened, and merged again during
 - [ ] Separate `endFrame` CPU work from GPU completion wait.
 - [ ] Count input, tessellated, AA-expanded, merged, and uploaded vertices.
 - [x] Count path upload calls and bytes.
-- [ ] Report fill and AA cache hits, misses, and evictions separately.
+- [x] Report fill and AA cache hits and misses separately.
 - [ ] Count text normalization, shape cache hits, atlas hits, raster calls,
       zero-area glyph hits, generated quads, and atlas dirty bytes.
 - [ ] Count command allocations, payload copy bytes, arena high-water marks,
@@ -164,7 +192,7 @@ by 46.8%, and captured hashes remained unchanged.
 - [ ] Keep generic Path tessellation as the complex-shape fallback.
 - [ ] Store color and affine transform as packed instance/uniform data rather
       than expanding them to every vertex.
-- [ ] Quantize primitive cache keys and build reusable local-space geometry.
+- [x] Use parameterized primitive cache keys and reusable local-space geometry.
 
 Acceptance target: reduce geometry vertex count by at least 60%, upload bytes
 by at least 65%, and bring the 1080p geometry scene below 10 ms on the reference
@@ -172,6 +200,10 @@ machine while preserving the quality gate.
 
 Pass 3 status: met. Vertex count fell by 76.6%, upload bytes fell by 69.5%,
 and the scene reached 6.45 ms with unchanged hashes.
+
+Pass 4 status: the scene reached 4.682 ms, 1.18x the paired NanoVG result.
+Upload bytes are 82.0% below the original, with a maximum one-level channel
+difference in 0.0082% of pixels.
 
 ## P2: backend convergence
 

@@ -1,6 +1,7 @@
 #include "command/DrawCommand.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <iterator>
 #include <utility>
 
@@ -10,6 +11,7 @@
 #include "command/DrawImage.h"
 #include "command/DrawLines.h"
 #include "command/DrawPath.h"
+#include "command/DrawPathCommandPool.h"
 #include "command/DrawPoints.h"
 #include "command/DrawText.h"
 #include "opengl/GaussianBlurProgram.h"
@@ -48,6 +50,19 @@ DrawPathCommand::DrawPathCommand(const DrawPathData &data)
 DrawPathCommand::DrawPathCommand(DrawPathData &&data)
     : Command(Type::Path), data_(std::move(data))
 {
+}
+
+void *DrawPathCommand::operator new(std::size_t size)
+{
+    if (size != sizeof(DrawPathCommand)) {
+        return ::operator new(size);
+    }
+    return wsc::detail::allocateDrawPathCommand(size);
+}
+
+void DrawPathCommand::operator delete(void *memory) noexcept
+{
+    wsc::detail::releaseDrawPathCommand(memory);
 }
 
 void DrawPathCommand::execute(RenderContext &context)

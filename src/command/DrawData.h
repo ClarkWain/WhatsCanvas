@@ -71,7 +71,9 @@ struct DrawPathData {
 
     std::vector<float> points;    // Path points, each storing x/y coordinates
     std::vector<float> colors;    // Optional per-vertex colors, each storing r/g/b/a
+    std::vector<std::uint8_t> packedColors; // Optional normalized RGBA8 merged colors
     std::vector<float> coverage;  // Optional per-vertex analytic-AA coverage in [0,1]
+    std::vector<std::uint8_t> packedCoverage; // Optional normalized 8-bit merged coverage
     std::vector<std::uint32_t> indices; // Optional triangle indices into points
     std::vector<std::uint16_t> shortIndices; // Compact merged packet indices
     std::shared_ptr<const DrawPathGeometry> sharedGeometry;
@@ -106,8 +108,12 @@ struct DrawPathData {
         return sharedGeometry ? sharedGeometry->indices : indices;
     }
     size_t getPointCount() const { return pointData().size() / 2; }
-    bool hasVertexColors() const { return colors.size() == getPointCount() * 4; }
-    bool hasCoverage() const { return coverageData().size() == getPointCount(); }
+    bool hasFloatVertexColors() const { return colors.size() == getPointCount() * 4; }
+    bool hasPackedVertexColors() const { return packedColors.size() == getPointCount() * 4; }
+    bool hasVertexColors() const { return hasFloatVertexColors() || hasPackedVertexColors(); }
+    bool hasFloatCoverage() const { return coverageData().size() == getPointCount(); }
+    bool hasPackedCoverage() const { return packedCoverage.size() == getPointCount(); }
+    bool hasCoverage() const { return hasFloatCoverage() || hasPackedCoverage(); }
     bool hasShortIndices() const { return !shortIndices.empty(); }
     bool hasLongIndices() const { return !indexData().empty(); }
     bool hasIndices() const { return hasShortIndices() || hasLongIndices(); }
