@@ -9,6 +9,14 @@ static const std::uint32_t kTexturedVertSpv[] =
 #include "TexturedVertSpv.h"
 ;
 
+static const std::uint32_t kTexturedInstancedVertSpv[] =
+#include "TexturedInstancedVertSpv.h"
+;
+
 static const std::uint32_t kTexturedFragSpv[] =
 #include "TexturedFragSpv.h"
+;
+
+static const std::uint32_t kTexturedFastFragSpv[] =
+#include "TexturedFastFragSpv.h"
 ;

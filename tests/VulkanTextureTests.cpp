@@ -99,9 +99,55 @@ int main()
     if (!pixelIs(pixels, width, 16, 12, 255, 0, 255, 255, "updated top-left magenta")) return 1;
     if (!pixelIs(pixels, width, 48, 36, 255, 255, 0, 255, "bottom-right still yellow")) return 1;
 
+    // Alpha-only glyph-atlas storage uses R8 plus a view swizzle that exposes
+    // white RGB and coverage in alpha. Verify both sampling and dirty updates.
+    const std::vector<unsigned char> alphaTexels = {0, 64, 128, 255};
+    auto alphaTexture =
+        device.createImageResourceAlpha8(2, 2, alphaTexels);
+    if (!alphaTexture || !alphaTexture->isValid()
+        || !alphaTexture->isAlphaOnly()) {
+        std::cerr
+            << "[VulkanTextureTests] FAIL: could not create Alpha8 texture."
+            << std::endl;
+        return 1;
+    }
+    if (!device.renderTexturedQuad(target, alphaTexture)
+        || !device.readPixelsRGBA(width, height, pixels)) {
+        std::cerr
+            << "[VulkanTextureTests] FAIL: Alpha8 render/readback failed."
+            << std::endl;
+        return 1;
+    }
+    if (!pixelIs(
+            pixels, width, 16, 12, 0, 0, 0, 0,
+            "Alpha8 transparent texel")) {
+        return 1;
+    }
+    if (!pixelIs(
+            pixels, width, 48, 12, 64, 64, 64, 64,
+            "Alpha8 quarter coverage")) {
+        return 1;
+    }
+    const unsigned char opaque = 255;
+    if (!device.updateImageResourceAlpha8(
+            alphaTexture, 0, 0, 1, 1, &opaque)
+        || !device.renderTexturedQuad(target, alphaTexture)
+        || !device.readPixelsRGBA(width, height, pixels)) {
+        std::cerr
+            << "[VulkanTextureTests] FAIL: Alpha8 partial update failed."
+            << std::endl;
+        return 1;
+    }
+    if (!pixelIs(
+            pixels, width, 16, 12, 255, 255, 255, 255,
+            "updated Alpha8 opaque texel")) {
+        return 1;
+    }
+
     std::cout << "[VulkanTextureTests] PASS: texture sample + partial update verified on \""
               << device.selectedDeviceName() << "\"." << std::endl;
 
+    alphaTexture.reset();
     texture.reset();
     target.reset();
     device.finalizeBackend();
