@@ -458,6 +458,9 @@ void Renderer::flush()
             std::size_t totalVertices = 0;
             std::size_t totalElements = 0;
             bool needsVertexColors = first.hasVertexColors();
+            bool canPackUniformColors =
+                !GammaCorrect::enabled()
+                && !first.hasVertexColors();
             bool needsCoverage = first.hasCoverage();
             bool needsIndices = first.hasIndices();
             bool flattenTransforms = false;
@@ -471,6 +474,9 @@ void Renderer::flush()
                     flattenTransforms || next.transform != first.transform;
                 needsVertexColors =
                     needsVertexColors || next.hasVertexColors();
+                canPackUniformColors =
+                    canPackUniformColors
+                    && !next.hasVertexColors();
                 needsCoverage = needsCoverage || next.hasCoverage();
                 needsIndices = needsIndices || next.hasIndices();
                 for (int c = 0; c < 4; ++c) {
@@ -484,10 +490,15 @@ void Renderer::flush()
             merged.sharedGeometry.reset();
             merged.points.clear();
             merged.colors.clear();
+            merged.packedColors.clear();
             merged.coverage.clear();
+            merged.packedCoverage.clear();
             merged.indices.clear();
             merged.shortIndices.clear();
-            merged.vertexColorsLinear = needsVertexColors;
+            const bool usePackedColors =
+                needsVertexColors && canPackUniformColors;
+            merged.vertexColorsLinear =
+                needsVertexColors && !usePackedColors;
             const bool useShortIndices =
                 needsIndices
                 && totalVertices
@@ -499,10 +510,15 @@ void Renderer::flush()
             }
             merged.points.reserve(totalVertices * 2u);
             if (needsVertexColors) {
-                merged.colors.reserve(totalVertices * 4u);
+                if (usePackedColors) {
+                    merged.packedColors.reserve(
+                        totalVertices * 4u);
+                } else {
+                    merged.colors.reserve(totalVertices * 4u);
+                }
             }
             if (needsCoverage) {
-                merged.coverage.reserve(totalVertices);
+                merged.packedCoverage.reserve(totalVertices);
             }
             if (needsIndices) {
                 if (useShortIndices) {
@@ -555,7 +571,32 @@ void Renderer::flush()
                                 pointStart));
                 }
                 if (needsVertexColors) {
-                    if (next.hasVertexColors()) {
+                    if (usePackedColors) {
+                        std::uint8_t packedColor[4] = {};
+                        for (std::size_t channel = 0;
+                             channel < 4u; ++channel) {
+                            packedColor[channel] =
+                                static_cast<std::uint8_t>(
+                                    std::clamp(
+                                        std::lround(
+                                            next.color[channel]
+                                            * 255.0f),
+                                        0l, 255l));
+                        }
+                        const std::size_t colorStart =
+                            merged.packedColors.size();
+                        merged.packedColors.resize(
+                            colorStart + vertexCount * 4u);
+                        for (std::size_t vertex = 0;
+                             vertex < vertexCount; ++vertex) {
+                            std::copy_n(
+                                packedColor, 4u,
+                                merged.packedColors.begin()
+                                    + static_cast<std::ptrdiff_t>(
+                                        colorStart
+                                        + vertex * 4u));
+                        }
+                    } else if (next.hasFloatVertexColors()) {
                         const std::size_t colorStart =
                             merged.colors.size();
                         merged.colors.insert(
@@ -568,6 +609,19 @@ void Renderer::flush()
                                 GammaCorrect::srgbToLinear4(
                                     merged.colors.data() + color);
                             }
+                        }
+                    } else if (next.hasPackedVertexColors()) {
+                        const std::size_t colorStart =
+                            merged.colors.size();
+                        merged.colors.resize(
+                            colorStart + vertexCount * 4u);
+                        for (std::size_t color = 0;
+                             color < next.packedColors.size();
+                             ++color) {
+                            merged.colors[colorStart + color] =
+                                static_cast<float>(
+                                    next.packedColors[color])
+                                / 255.0f;
                         }
                     } else {
                         float linearColor[4] = {
@@ -591,13 +645,31 @@ void Renderer::flush()
                     }
                 }
                 if (needsCoverage) {
-                    if (next.hasCoverage()) {
-                        merged.coverage.insert(
-                            merged.coverage.end(),
-                            nextCoverage.begin(), nextCoverage.end());
+                    if (next.hasPackedCoverage()) {
+                        merged.packedCoverage.insert(
+                            merged.packedCoverage.end(),
+                            next.packedCoverage.begin(),
+                            next.packedCoverage.end());
+                    } else if (next.hasFloatCoverage()) {
+                        const std::size_t coverageStart =
+                            merged.packedCoverage.size();
+                        merged.packedCoverage.resize(
+                            coverageStart + vertexCount);
+                        for (std::size_t vertex = 0;
+                             vertex < vertexCount; ++vertex) {
+                            merged.packedCoverage[
+                                coverageStart + vertex] =
+                                static_cast<std::uint8_t>(
+                                    std::clamp(
+                                        std::lround(
+                                            nextCoverage[vertex]
+                                            * 255.0f),
+                                        0l, 255l));
+                        }
                     } else {
-                        merged.coverage.insert(
-                            merged.coverage.end(), vertexCount, 1.0f);
+                        merged.packedCoverage.insert(
+                            merged.packedCoverage.end(),
+                            vertexCount, 255u);
                     }
                 }
                 if (needsIndices) {

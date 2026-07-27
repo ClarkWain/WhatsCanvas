@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstddef>
+
 #include "command/DrawData.h"
 
 class RenderContext;
@@ -67,12 +69,15 @@ private:
 // **********************************
 // ***** DrawPathCommand class *****
 // **********************************
-class DrawPathCommand : public Command
+class DrawPathCommand final : public Command
 {
 public:
     explicit DrawPathCommand(const DrawPathData &data);
     explicit DrawPathCommand(DrawPathData &&data);
     ~DrawPathCommand() override = default;
+
+    static void *operator new(std::size_t size);
+    static void operator delete(void *memory) noexcept;
 
     void execute(RenderContext &context) override;
 

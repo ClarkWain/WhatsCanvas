@@ -325,8 +325,9 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
     const std::vector<float> &coverageData = data.coverageData();
     const std::vector<std::uint32_t> &indexData = data.indexData();
     if (data.hasIndices()) {
-        const std::size_t vertexCount = data.getPointCount();
         bool invalidIndex = false;
+#if !defined(NDEBUG)
+        const std::size_t vertexCount = data.getPointCount();
         for (std::size_t element = 0;
              element < data.getElementCount(); ++element) {
             if (data.getIndex(element) >= vertexCount) {
@@ -334,8 +335,8 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
                 break;
             }
         }
-        if ((data.getElementCount() % 3u) != 0u
-            || invalidIndex) {
+#endif
+        if ((data.getElementCount() % 3u) != 0u || invalidIndex) {
             WSC_LOG_WARN(
                 "DrawValidation",
                 "DrawPathProgram::draw: invalid triangle index data, draw call skipped.");
@@ -348,7 +349,13 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
     frameUploadBytes_ += points.size() * sizeof(float);
 
     StreamBuffer::UploadRange colors;
-    if (data.hasVertexColors()) {
+    if (data.hasPackedVertexColors()) {
+        colors = colorBuffer_.uploadRange(
+            data.packedColors.data(),
+            data.packedColors.size());
+        ++frameUploadCount_;
+        frameUploadBytes_ += data.packedColors.size();
+    } else if (data.hasFloatVertexColors()) {
         if (data.vertexColorsLinear) {
             colors = colorBuffer_.uploadRange(
                 data.colors.data(), data.colors.size());
@@ -365,7 +372,13 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
     }
 
     StreamBuffer::UploadRange coverage;
-    if (data.hasCoverage()) {
+    if (data.hasPackedCoverage()) {
+        coverage = coverageBuffer_.uploadRange(
+            data.packedCoverage.data(),
+            data.packedCoverage.size());
+        ++frameUploadCount_;
+        frameUploadBytes_ += data.packedCoverage.size();
+    } else if (data.hasFloatCoverage()) {
         coverage = coverageBuffer_.uploadRange(
             coverageData.data(), coverageData.size());
         ++frameUploadCount_;
@@ -459,16 +472,32 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
         reinterpret_cast<const void *>(positions.byteOffset));
     if (data.hasVertexColors()) {
         glBindBuffer(GL_ARRAY_BUFFER, colors.buffer);
-        glVertexAttribPointer(
-            1, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
-            reinterpret_cast<const void *>(colors.byteOffset));
+        if (data.hasPackedVertexColors()) {
+            glVertexAttribPointer(
+                1, 4, GL_UNSIGNED_BYTE, GL_TRUE,
+                4 * sizeof(std::uint8_t),
+                reinterpret_cast<const void *>(
+                    colors.byteOffset));
+        } else {
+            glVertexAttribPointer(
+                1, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float),
+                reinterpret_cast<const void *>(colors.byteOffset));
+        }
     }
 
     if (data.hasCoverage()) {
         glBindBuffer(GL_ARRAY_BUFFER, coverage.buffer);
-        glVertexAttribPointer(
-            2, 1, GL_FLOAT, GL_FALSE, sizeof(float),
-            reinterpret_cast<const void *>(coverage.byteOffset));
+        if (data.hasPackedCoverage()) {
+            glVertexAttribPointer(
+                2, 1, GL_UNSIGNED_BYTE, GL_TRUE,
+                sizeof(std::uint8_t),
+                reinterpret_cast<const void *>(
+                    coverage.byteOffset));
+        } else {
+            glVertexAttribPointer(
+                2, 1, GL_FLOAT, GL_FALSE, sizeof(float),
+                reinterpret_cast<const void *>(coverage.byteOffset));
+        }
         glEnableVertexAttribArray(2);
     } else {
         glDisableVertexAttribArray(2);
