@@ -339,7 +339,6 @@ bool encodeCommandsToDrawList(const std::vector<std::unique_ptr<Command>> &comma
                 continue;
             }
             const std::vector<float> &points = d.pointData();
-            const std::vector<float> &coverage = d.coverageData();
             const auto sourceIndex = [&](std::size_t element) {
                 return d.hasIndices()
                     ? static_cast<std::size_t>(
@@ -393,20 +392,17 @@ bool encodeCommandsToDrawList(const std::vector<std::unique_ptr<Command>> &comma
                     prim.colors.reserve(vertexCount * 4u);
                     for (std::size_t i = 0; i < vertexCount; ++i) {
                         const std::size_t source = sourceIndex(i);
-                        prim.colors.insert(
-                            prim.colors.end(),
-                            d.colors.begin()
-                                + static_cast<std::ptrdiff_t>(source * 4u),
-                            d.colors.begin()
-                                + static_cast<std::ptrdiff_t>(
-                                    source * 4u + 4u));
+                        for (std::size_t channel = 0; channel < 4; ++channel) {
+                            prim.colors.push_back(
+                                d.vertexColorAt(source, channel));
+                        }
                     }
                 }
                 if (d.hasCoverage()) {
                     prim.coverage.reserve(vertexCount);
                     for (std::size_t i = 0; i < vertexCount; ++i) {
                         prim.coverage.push_back(
-                            coverage[sourceIndex(i)]);
+                            d.coverageAt(sourceIndex(i)));
                     }
                 }
                 prim.color[0] = d.color[0];
