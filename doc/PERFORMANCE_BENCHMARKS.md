@@ -316,6 +316,22 @@ still expands simple primitives into generic triangle-soup paths, so its
 remaining gap requires the semantic primitive and indexed-AA work tracked in
 the [performance optimization backlog](PERFORMANCE_OPTIMIZATION_TODO.md).
 
+The second geometry pass retained the same quality contract and again used the
+median of five independent process medians:
+
+| Scene | Original | Pass 1 | Pass 2 | NanoVG GL3 | Pass 2 gap |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `geometry_stress` | 25.659 ms | 15.73 ms | 8.68 ms | 4.316 ms | 2.01x |
+| `image_grid` | 0.308 ms | 0.29 ms | 0.31 ms | 0.372 ms | within noise |
+| `contract_text_latin` | 15.911 ms | 4.78 ms | 4.42 ms | 3.334 ms | 1.33x |
+
+Indexed AA reduced the geometry stream from 269,598 duplicated vertices to
+62,984 vertices plus indices. Immutable shared cache geometry removed repeated
+per-command vector copies, and pre-sized affine batch assembly reduced submit
+work. The scene now uses one draw and uploads 2,841,944 path bytes instead of
+7,548,744. Captured hashes remain `44121eb5a074425f`, `432ad28b33a51375`,
+and `737cad1b0d1169f2` for geometry, image, and text respectively.
+
 ## CI policy
 
 Shared hosted runners execute the `quick` Software subset to validate build

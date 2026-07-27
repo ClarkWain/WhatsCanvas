@@ -1,4 +1,6 @@
 #pragma once
+#include <cstdint>
+#include <memory>
 #include <vector>
 #include <glm/glm.hpp>
 #include "render/RenderTypes.h"
@@ -51,12 +53,27 @@ enum class DrawGradientTileMode {
     Decal
 };
 
+struct DrawPathGeometry {
+    std::vector<float> points;
+    std::vector<float> coverage;
+    std::vector<std::uint32_t> indices;
+
+    std::size_t residentBytes() const
+    {
+        return points.capacity() * sizeof(float)
+            + coverage.capacity() * sizeof(float)
+            + indices.capacity() * sizeof(std::uint32_t);
+    }
+};
+
 struct DrawPathData {
     static constexpr std::size_t kMaxGradientStops = 8;
 
     std::vector<float> points;    // Path points, each storing x/y coordinates
     std::vector<float> colors;    // Optional per-vertex colors, each storing r/g/b/a
     std::vector<float> coverage;  // Optional per-vertex analytic-AA coverage in [0,1]
+    std::vector<std::uint32_t> indices; // Optional triangle indices into points
+    std::shared_ptr<const DrawPathGeometry> sharedGeometry;
     float width = 1.0f;           // Stroke width
     float color[4];               // RGBA color
     PathDrawMode drawMode;        // Draw mode
@@ -75,9 +92,23 @@ struct DrawPathData {
     float gradientStopPositions[kMaxGradientStops] = {};
     float gradientStopColors[kMaxGradientStops * 4] = {};
     bool vertexColorsLinear = false; // OpenGL upload can skip repeated conversion
-    size_t getPointCount() const { return points.size() / 2; }
+    const std::vector<float> &pointData() const
+    {
+        return sharedGeometry ? sharedGeometry->points : points;
+    }
+    const std::vector<float> &coverageData() const
+    {
+        return sharedGeometry ? sharedGeometry->coverage : coverage;
+    }
+    const std::vector<std::uint32_t> &indexData() const
+    {
+        return sharedGeometry ? sharedGeometry->indices : indices;
+    }
+    size_t getPointCount() const { return pointData().size() / 2; }
     bool hasVertexColors() const { return colors.size() == getPointCount() * 4; }
-    bool hasCoverage() const { return coverage.size() == getPointCount(); }
+    bool hasCoverage() const { return coverageData().size() == getPointCount(); }
+    bool hasIndices() const { return !indexData().empty(); }
+    size_t getElementCount() const { return hasIndices() ? indexData().size() : getPointCount(); }
     bool hasShaderGradient() const { return gradientType != DrawGradientType::None && gradientStopCount > 0; }
 };
 

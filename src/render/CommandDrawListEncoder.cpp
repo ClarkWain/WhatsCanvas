@@ -103,8 +103,13 @@ bool pathCoversCanvas(const DrawPathData &d, const CommandDrawListEncodeRequest 
     float minY = static_cast<float>(request.canvasHeight);
     float maxX = 0.0f;
     float maxY = 0.0f;
+    const std::vector<float> &points = d.pointData();
     for (std::size_t i = 0; i < d.getPointCount(); ++i) {
-        const glm::vec4 p = d.transform * glm::vec4(d.points[i * 2 + 0], d.points[i * 2 + 1], 0.0f, 1.0f);
+        const glm::vec4 p =
+            d.transform
+            * glm::vec4(
+                points[i * 2 + 0], points[i * 2 + 1],
+                0.0f, 1.0f);
         minX = std::min(minX, p.x);
         minY = std::min(minY, p.y);
         maxX = std::max(maxX, p.x);
@@ -327,17 +332,40 @@ bool encodeCommandsToDrawList(const std::vector<std::unique_ptr<Command>> &comma
                 out.push_back(std::move(prim));
                 continue;
             }
-            const std::size_t vertexCount = d.getPointCount();
-            if (vertexCount < 3 || (vertexCount % 3) != 0) {
+            const std::size_t sourceVertexCount = d.getPointCount();
+            const std::size_t vertexCount = d.getElementCount();
+            if (sourceVertexCount < 3 || vertexCount < 3
+                || (vertexCount % 3) != 0) {
                 continue;
+            }
+            const std::vector<float> &points = d.pointData();
+            const std::vector<float> &coverage = d.coverageData();
+            const std::vector<std::uint32_t> &indices = d.indexData();
+            const auto sourceIndex = [&](std::size_t element) {
+                return d.hasIndices()
+                    ? static_cast<std::size_t>(indices[element])
+                    : element;
+            };
+            if (d.hasIndices()
+                && std::any_of(
+                    indices.begin(), indices.end(),
+                    [sourceVertexCount](std::uint32_t index) {
+                        return index >= sourceVertexCount;
+                    })) {
+                setError(error, "path command contains an invalid index");
+                return false;
             }
             wsc::DrawPrimitive prim;
             prim.blendMode = mapBlend(d.blendMode);
             applyScissor(prim, d.scissor, request);
             prim.positions.reserve(vertexCount * 2);
             for (std::size_t i = 0; i < vertexCount; ++i) {
+                const std::size_t source = sourceIndex(i);
                 float nx = 0.0f, ny = 0.0f;
-                toNdc(request, d.transform, d.points[i * 2 + 0], d.points[i * 2 + 1], nx, ny);
+                toNdc(
+                    request, d.transform,
+                    points[source * 2 + 0],
+                    points[source * 2 + 1], nx, ny);
                 prim.positions.push_back(nx);
                 prim.positions.push_back(ny);
             }
@@ -345,8 +373,13 @@ bool encodeCommandsToDrawList(const std::vector<std::unique_ptr<Command>> &comma
                 prim.kind = wsc::DrawPrimitiveKind::GradientFill;
                 prim.localPositions.reserve(vertexCount * 2);
                 for (std::size_t i = 0; i < vertexCount; ++i) {
+                    const std::size_t source = sourceIndex(i);
                     const glm::vec4 p =
-                        d.transform * glm::vec4(d.points[i * 2 + 0], d.points[i * 2 + 1], 0.0f, 1.0f);
+                        d.transform
+                        * glm::vec4(
+                            points[source * 2 + 0],
+                            points[source * 2 + 1],
+                            0.0f, 1.0f);
                     prim.localPositions.push_back(p.x);
                     prim.localPositions.push_back(p.y);
                 }
@@ -354,10 +387,24 @@ bool encodeCommandsToDrawList(const std::vector<std::unique_ptr<Command>> &comma
             } else {
                 prim.kind = wsc::DrawPrimitiveKind::SolidTriangles;
                 if (d.hasVertexColors()) {
-                    prim.colors = d.colors;
+                    prim.colors.reserve(vertexCount * 4u);
+                    for (std::size_t i = 0; i < vertexCount; ++i) {
+                        const std::size_t source = sourceIndex(i);
+                        prim.colors.insert(
+                            prim.colors.end(),
+                            d.colors.begin()
+                                + static_cast<std::ptrdiff_t>(source * 4u),
+                            d.colors.begin()
+                                + static_cast<std::ptrdiff_t>(
+                                    source * 4u + 4u));
+                    }
                 }
                 if (d.hasCoverage()) {
-                    prim.coverage = d.coverage;
+                    prim.coverage.reserve(vertexCount);
+                    for (std::size_t i = 0; i < vertexCount; ++i) {
+                        prim.coverage.push_back(
+                            coverage[sourceIndex(i)]);
+                    }
                 }
                 prim.color[0] = d.color[0];
                 prim.color[1] = d.color[1];

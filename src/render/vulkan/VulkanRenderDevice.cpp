@@ -6347,7 +6347,7 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
                     command.get())->data();
             if (!path.hasShaderGradient()
                 && !path.clipMask.hasPaths()) {
-                solidVertexBudget += path.getPointCount();
+                solidVertexBudget += path.getElementCount();
             }
         }
     }
@@ -6445,8 +6445,26 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
             const auto *pathCmd = static_cast<const DrawPathCommand *>(cmd.get());
             const DrawPathData &d = pathCmd->data();
             const bool clipped = d.clipMask.hasPaths();
-            const std::size_t vertexCount = d.getPointCount();
-            if (vertexCount < 3 || (vertexCount % 3) != 0) {
+            const std::size_t sourceVertexCount = d.getPointCount();
+            const std::size_t vertexCount = d.getElementCount();
+            if (sourceVertexCount < 3 || vertexCount < 3
+                || (vertexCount % 3) != 0) {
+                continue;
+            }
+            const std::vector<float> &points = d.pointData();
+            const std::vector<float> &coverage = d.coverageData();
+            const std::vector<std::uint32_t> &indices = d.indexData();
+            const auto sourceIndex = [&](std::size_t element) {
+                return d.hasIndices()
+                    ? static_cast<std::size_t>(indices[element])
+                    : element;
+            };
+            if (d.hasIndices()
+                && std::any_of(
+                    indices.begin(), indices.end(),
+                    [sourceVertexCount](std::uint32_t index) {
+                        return index >= sourceVertexCount;
+                    })) {
                 continue;
             }
             wsc::DrawPrimitive prim;
@@ -6454,8 +6472,12 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
             applyPrimitiveScissor(prim, d.scissor);
             prim.positions.reserve(vertexCount * 2);
             for (std::size_t i = 0; i < vertexCount; ++i) {
+                const std::size_t source = sourceIndex(i);
                 float nx = 0.0f, ny = 0.0f;
-                toNdc(d.transform, d.points[i * 2 + 0], d.points[i * 2 + 1], nx, ny);
+                toNdc(
+                    d.transform,
+                    points[source * 2 + 0],
+                    points[source * 2 + 1], nx, ny);
                 prim.positions.push_back(nx);
                 prim.positions.push_back(ny);
             }
@@ -6473,10 +6495,12 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
                     // then multiplies by the mask coverage as well.
                     prim.colors.resize(vertexCount * 4);
                     for (std::size_t i = 0; i < vertexCount; ++i) {
+                        const std::size_t source = sourceIndex(i);
                         prim.colors[i * 4 + 0] = d.color[0];
                         prim.colors[i * 4 + 1] = d.color[1];
                         prim.colors[i * 4 + 2] = d.color[2];
-                        prim.colors[i * 4 + 3] = d.color[3] * d.coverage[i];
+                        prim.colors[i * 4 + 3] =
+                            d.color[3] * coverage[source];
                     }
                 }
                 if (!emitClippedSolid(prim, d.clipMask)) {
@@ -6490,8 +6514,13 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
                 // Local (canvas-space) positions matching the transformed geometry.
                 prim.localPositions.reserve(vertexCount * 2);
                 for (std::size_t i = 0; i < vertexCount; ++i) {
+                    const std::size_t source = sourceIndex(i);
                     const glm::vec4 p =
-                        d.transform * glm::vec4(d.points[i * 2 + 0], d.points[i * 2 + 1], 0.0f, 1.0f);
+                        d.transform
+                        * glm::vec4(
+                            points[source * 2 + 0],
+                            points[source * 2 + 1],
+                            0.0f, 1.0f);
                     prim.localPositions.push_back(p.x);
                     prim.localPositions.push_back(p.y);
                 }
@@ -6514,10 +6543,25 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
             } else {
                 prim.kind = wsc::DrawPrimitiveKind::SolidTriangles;
                 if (d.hasVertexColors()) {
-                    prim.colors = d.colors;
+                    prim.colors.reserve(vertexCount * 4u);
+                    for (std::size_t i = 0; i < vertexCount; ++i) {
+                        const std::size_t source = sourceIndex(i);
+                        prim.colors.insert(
+                            prim.colors.end(),
+                            d.colors.begin()
+                                + static_cast<std::ptrdiff_t>(
+                                    source * 4u),
+                            d.colors.begin()
+                                + static_cast<std::ptrdiff_t>(
+                                    source * 4u + 4u));
+                    }
                 }
                 if (d.hasCoverage()) {
-                    prim.coverage = d.coverage; // analytic-AA edge feathering
+                    prim.coverage.reserve(vertexCount);
+                    for (std::size_t i = 0; i < vertexCount; ++i) {
+                        prim.coverage.push_back(
+                            coverage[sourceIndex(i)]);
+                    }
                 }
                 prim.color[0] = d.color[0];
                 prim.color[1] = d.color[1];

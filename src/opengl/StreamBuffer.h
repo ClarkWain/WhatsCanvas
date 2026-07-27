@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <vector>
 
 #include <glad/glad.h>
@@ -39,6 +40,11 @@ public:
     /// Append vertex data and return its offset in the current frame stream.
     UploadRange uploadRange(const float *data, std::size_t floatCount);
 
+    /// Append 32-bit index data. OpenGL buffer objects are untyped, so the
+    /// caller may bind the returned buffer as GL_ELEMENT_ARRAY_BUFFER.
+    UploadRange uploadRange(
+        const std::uint32_t *data, std::size_t indexCount);
+
     /// Get the current GL buffer handle (0 if not initialized).
     GLuint handle() const { return buffer_; }
 
@@ -50,6 +56,8 @@ public:
 
 private:
     void allocateStorage(std::size_t capacity);
+    UploadRange uploadRangeBytes(
+        const void *data, std::size_t elementCount);
 
     GLuint buffer_ = 0;
     std::size_t capacity_ = 0;

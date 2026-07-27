@@ -46,6 +46,7 @@ private:
     StreamBuffer positionBuffer_;
     StreamBuffer colorBuffer_;
     StreamBuffer coverageBuffer_;
+    StreamBuffer indexBuffer_;
     TexelBuffer gradientStopBuffer_;
     std::size_t frameUploadCount_ = 0;
     std::size_t frameUploadBytes_ = 0;
