@@ -111,9 +111,21 @@ struct DrawPathData {
     bool hasFloatVertexColors() const { return colors.size() == getPointCount() * 4; }
     bool hasPackedVertexColors() const { return packedColors.size() == getPointCount() * 4; }
     bool hasVertexColors() const { return hasFloatVertexColors() || hasPackedVertexColors(); }
+    float vertexColorAt(std::size_t vertex, std::size_t channel) const
+    {
+        return hasPackedVertexColors()
+            ? static_cast<float>(packedColors[vertex * 4 + channel]) / 255.0f
+            : colors[vertex * 4 + channel];
+    }
     bool hasFloatCoverage() const { return coverageData().size() == getPointCount(); }
     bool hasPackedCoverage() const { return packedCoverage.size() == getPointCount(); }
     bool hasCoverage() const { return hasFloatCoverage() || hasPackedCoverage(); }
+    float coverageAt(std::size_t vertex) const
+    {
+        return hasPackedCoverage()
+            ? static_cast<float>(packedCoverage[vertex]) / 255.0f
+            : coverageData()[vertex];
+    }
     bool hasShortIndices() const { return !shortIndices.empty(); }
     bool hasLongIndices() const { return !indexData().empty(); }
     bool hasIndices() const { return hasShortIndices() || hasLongIndices(); }
