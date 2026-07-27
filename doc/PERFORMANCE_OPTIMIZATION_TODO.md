@@ -111,6 +111,33 @@ Canonical local-space curve evaluation changed 171 of 2,073,600 pixels
 All seven runs produced the same `5e7e67fb8b9ca579` hash, the complete Release
 build passed, and all 66 Release tests passed.
 
+## Optimization pass 5
+
+The fifth pass keeps the OpenGL merged path packet alive across frames, so its
+large vectors retain capacity. When an immutable shared-geometry sequence is
+unchanged, the renderer also reuses the already rebased 16-bit index topology
+and packed coverage bytes. Shared ownership of the topology entries prevents
+pointer-reuse ambiguity, and a dedicated OpenGL regression covers both a cache
+hit and a same-size, reordered-topology invalidation.
+
+Simple solid fills now compute their final color and blend mode directly from
+the immutable `Paint` plus current graphics state. Translated primitive meshes
+update only the matrix translation column instead of constructing and
+multiplying two general 4 x 4 matrices.
+
+Eight WhatsCanvas and eight NanoVG processes run in ABBA order produced:
+
+| Scene | Original | Pass 4 | Pass 5 | Paired NanoVG | Result |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `geometry_stress` | 25.659 ms | 4.682 ms | 2.690 ms | 3.947 ms | WhatsCanvas 31.8% faster |
+
+Pass 5 record/submit medians are 1.486/1.199 ms, versus NanoVG's
+1.611/2.372 ms. The draw count, upload count, upload bytes, vertex count, and
+index count are unchanged; the improvement is entirely reduced CPU staging
+work. All eight runs produced `5e7e67fb8b9ca579`, and the image/text control
+hashes also remain unchanged. The complete Release build and all 66 Release
+tests pass.
+
 ## Root cause
 
 The common problem is **early expansion and late batching**. Images retain
@@ -130,8 +157,10 @@ Canvas layer, then copied, transformed, widened, and merged again during
 - The current scene uses one indexed draw and four stream uploads.
 - OpenGL streams append by offset after one orphan per frame.
 - Rect, rounded rect, circle, and oval now use parameterized reusable meshes.
-- Fixed-size path commands use a bounded thread-local reuse pool; merged vectors
-  still create memory-copy pressure.
+- Fixed-size path commands use a bounded thread-local reuse pool.
+- Merged vectors retain capacity across frames. Stable immutable geometry
+  sequences reuse rebased indices and packed coverage; transformed positions
+  and per-shape colors are still rebuilt because they may change each frame.
 - Generic paths retain exact float-bit content keys; typed primitives no longer
   fragment their cache entries by translation.
 
@@ -168,7 +197,8 @@ Canvas layer, then copied, transformed, widened, and merged again during
 - [ ] Return stable shape/layout views instead of copying glyph vectors.
 - [ ] Use O(1) LRU maintenance and interned face identifiers.
 - [x] Add move construction for owning draw command payloads.
-- [ ] Reuse frame-level path merge and text staging storage.
+- [x] Reuse frame-level path merge staging storage.
+- [ ] Reuse frame-level text staging storage.
 - [x] Append OpenGL path streams by offset; orphan once per frame or use a
       fenced ring buffer instead of overwriting offset zero per batch.
 - [ ] Emit compact text vertices or instanced glyph quads. Pass 1 changed
@@ -204,6 +234,11 @@ and the scene reached 6.45 ms with unchanged hashes.
 Pass 4 status: the scene reached 4.682 ms, 1.18x the paired NanoVG result.
 Upload bytes are 82.0% below the original, with a maximum one-level channel
 difference in 0.0082% of pixels.
+
+Pass 5 status: the scene reached 2.690 ms, 31.8% faster than the paired NanoVG
+result under the same 1080p geometry contract. This is a scene-specific result,
+not a claim that every WhatsCanvas workload is faster than every NanoVG
+workload.
 
 ## P2: backend convergence
 

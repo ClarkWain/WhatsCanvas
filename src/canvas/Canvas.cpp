@@ -376,6 +376,17 @@ bool canUseSimpleFillPath(const Paint &paint)
         && !paint.hasCornerPathEffect();
 }
 
+glm::mat4 translatedPathTransform(
+    const glm::mat4 &transform, float x, float y)
+{
+    glm::mat4 translated = transform;
+    translated[3] =
+        transform[0] * x
+        + transform[1] * y
+        + transform[3];
+    return translated;
+}
+
 DrawPathData makeDrawPathData(std::vector<float> points, float width, const Color &color,
                               PathDrawMode mode, const glm::mat4 &transform, const ScissorState &scissor,
                               DrawBlendMode blendMode, const ClipMaskState &clipMask = {})
@@ -2879,11 +2890,11 @@ bool Canvas::Impl::submitSimpleFill(
         return true;
     }
 
-    const Paint effectivePaint = applyStateToPaint(paint);
+    const GraphicsState &state = currentState();
     DrawPathData data;
-    if (effectivePaint.isAntiAlias()) {
+    if (paint.isAntiAlias()) {
         const float fringe =
-            computeLocalFringe(currentState().matrix);
+            computeLocalFringe(state.matrix);
         std::uint64_t aaKey = fillKey;
         hashFloat(aaKey, fringe);
         const SharedAAExpandedMesh *aa =
@@ -2899,10 +2910,10 @@ bool Canvas::Impl::submitSimpleFill(
     } else {
         data.points = flattenPoints(*fillTriangles);
     }
-    data.width = effectivePaint.getStrokeWidth();
+    data.width = paint.getStrokeWidth();
     const Color color = applyPaintAlpha(
-        effectivePaint,
-        effectivePaint.getFillColor());
+        paint,
+        modulateColor(paint.getFillColor(), state.color));
     data.color[0] = color.r();
     data.color[1] = color.g();
     data.color[2] = color.b();
@@ -2912,7 +2923,9 @@ bool Canvas::Impl::submitSimpleFill(
     data.transform = transform;
     data.scissor = makeCurrentScissorState();
     data.blendMode =
-        toDrawBlendMode(effectivePaint.getBlendMode());
+        state.blendMode != DrawBlendMode::SrcOver
+            ? state.blendMode
+            : toDrawBlendMode(paint.getBlendMode());
     data.clipMask = makeCurrentClipMaskState();
     renderer->submit(
         std::make_unique<DrawPathCommand>(
@@ -2956,11 +2969,11 @@ bool Canvas::Impl::submitSimpleFillPrimitive(
         return true;
     }
 
-    const Paint effectivePaint = applyStateToPaint(paint);
+    const GraphicsState &state = currentState();
     DrawPathData data;
-    if (effectivePaint.isAntiAlias()) {
+    if (paint.isAntiAlias()) {
         const float fringe =
-            computeLocalFringe(currentState().matrix);
+            computeLocalFringe(state.matrix);
         std::uint64_t aaKey = fillKey;
         hashFloat(aaKey, fringe);
         const SharedAAExpandedMesh *aa =
@@ -2977,10 +2990,10 @@ bool Canvas::Impl::submitSimpleFillPrimitive(
         data.points = flattenPoints(*fillTriangles);
     }
 
-    data.width = effectivePaint.getStrokeWidth();
+    data.width = paint.getStrokeWidth();
     const Color color = applyPaintAlpha(
-        effectivePaint,
-        effectivePaint.getFillColor());
+        paint,
+        modulateColor(paint.getFillColor(), state.color));
     data.color[0] = color.r();
     data.color[1] = color.g();
     data.color[2] = color.b();
@@ -2988,13 +3001,13 @@ bool Canvas::Impl::submitSimpleFillPrimitive(
     data.drawMode = PathDrawMode::Fill;
     data.capStyle = PathCapStyle::Bevel;
     data.transform =
-        currentState().matrix
-        * glm::translate(
-            glm::mat4(1.0f),
-            glm::vec3(originX, originY, 0.0f));
+        translatedPathTransform(
+            state.matrix, originX, originY);
     data.scissor = makeCurrentScissorState();
     data.blendMode =
-        toDrawBlendMode(effectivePaint.getBlendMode());
+        state.blendMode != DrawBlendMode::SrcOver
+            ? state.blendMode
+            : toDrawBlendMode(paint.getBlendMode());
     data.clipMask = makeCurrentClipMaskState();
     renderer->submit(
         std::make_unique<DrawPathCommand>(

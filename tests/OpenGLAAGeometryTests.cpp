@@ -94,6 +94,58 @@ int main()
     std::cout << "[OpenGLAAGeometryTests] max alpha " << static_cast<int>(maximumAlpha)
               << ", over-covered pixels " << overCoveredPixels << '\n';
 
+    canvas->setDevicePixelRatio(1.0f);
+    paint.setColor(wsc::Color::WHITE);
+    auto renderTopologyPair = [&](bool reversed) {
+        canvas->beginFrame();
+        canvas->drawColor(wsc::Color::BLACK);
+        if (!reversed) {
+            canvas->drawRect(
+                wsc::RectF(8.0f, 8.0f, 20.0f, 20.0f), paint);
+            canvas->drawCircle(72.0f, 18.0f, 10.0f, paint);
+        } else {
+            canvas->drawCircle(18.0f, 72.0f, 10.0f, paint);
+            canvas->drawRect(
+                wsc::RectF(62.0f, 62.0f, 20.0f, 20.0f), paint);
+        }
+        canvas->endFrame();
+        std::vector<unsigned char> frame;
+        ok = expect(
+            canvas->readPixelsRGBA(frame),
+            "topology cache frame must be readable") && ok;
+        return frame;
+    };
+
+    const std::vector<unsigned char> topologyA =
+        renderTopologyPair(false);
+    const std::vector<unsigned char> topologyARepeat =
+        renderTopologyPair(false);
+    ok = expect(
+        topologyA == topologyARepeat,
+        "reused shared path topology must render identically") && ok;
+
+    const std::vector<unsigned char> topologyB =
+        renderTopologyPair(true);
+    auto redAt = [&](int x, int y) {
+        return topologyB[
+            (static_cast<std::size_t>(y) * kWidth
+             + static_cast<std::size_t>(x))
+                * 4u];
+    };
+    ok = expect(
+        topologyB.size()
+            == static_cast<std::size_t>(kWidth * kHeight * 4),
+        "topology invalidation frame must be readable") && ok;
+    if (topologyB.size()
+        == static_cast<std::size_t>(kWidth * kHeight * 4)) {
+        ok = expect(
+            redAt(18, 72) > 250 && redAt(72, 72) > 250,
+            "changed shared path topology must rebuild valid indices") && ok;
+        ok = expect(
+            redAt(18, 18) < 5 && redAt(72, 18) < 5,
+            "changed shared path topology must not reuse stale positions") && ok;
+    }
+
     canvas.reset();
     glfwDestroyWindow(window);
     glfwTerminate();
