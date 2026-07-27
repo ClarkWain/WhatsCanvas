@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <iterator>
 #include <thread>
 
 #include <glm/glm.hpp>
@@ -616,8 +617,6 @@ void rasterizeTriangles(std::uint8_t *framebuffer, int width, int height,
     }
     const bool hasColors = colors.size() >= vertexCount * 4;
     const bool hasCoverage = coverage.size() >= vertexCount;
-    const bool needsBarycentrics =
-        grad.type != 0 || hasColors || hasCoverage;
 
     auto makeVertex = [&](std::size_t index) {
         const glm::vec4 device = transform * glm::vec4(points[index * 2], points[index * 2 + 1], 0.0f, 1.0f);
@@ -658,6 +657,11 @@ void rasterizeTriangles(std::uint8_t *framebuffer, int width, int height,
         const bool tl0 = edgeIsTopLeft(v1.x, v1.y, v2.x, v2.y);
         const bool tl1 = edgeIsTopLeft(v2.x, v2.y, v0.x, v0.y);
         const bool tl2 = edgeIsTopLeft(v0.x, v0.y, v1.x, v1.y);
+        const bool triangleNeedsBarycentrics =
+            grad.type != 0 || hasColors
+            || v0.coverage != 1.0f
+            || v1.coverage != 1.0f
+            || v2.coverage != 1.0f;
 
         int minX = static_cast<int>(std::floor(std::min({v0.x, v1.x, v2.x})));
         int maxX = static_cast<int>(std::ceil(std::max({v0.x, v1.x, v2.x})));
@@ -688,7 +692,7 @@ void rasterizeTriangles(std::uint8_t *framebuffer, int width, int height,
                 std::uint8_t *dst =
                     framebuffer
                     + (static_cast<std::size_t>(py) * width + px) * 4u;
-                if (!needsBarycentrics) {
+                if (!triangleNeedsBarycentrics) {
                     const float srcA = uniformColor[3] * clipCov;
                     if (srcA > 0.0f || blendMode == DrawBlendMode::Clear) {
                         blendPixel(dst, uniformColor[0], uniformColor[1],
@@ -881,6 +885,45 @@ void rasterizeImage(std::uint8_t *framebuffer, int width, int height, const Draw
         return;
     }
 
+    const bool axisAligned =
+        c0.y == c1.y && c1.x == c2.x
+        && c2.y == c3.y && c3.x == c0.x
+        && rectWidth > 0.0f && rectHeight > 0.0f;
+    if (axisAligned) {
+        const int beginX = std::max(
+            0, static_cast<int>(std::ceil(c0.x - 0.5f)));
+        const int endX = std::min(
+            width, static_cast<int>(std::ceil(c1.x - 0.5f)));
+        const int beginY = std::max(
+            0, static_cast<int>(std::ceil(c0.y - 0.5f)));
+        const int endY = std::min(
+            height, static_cast<int>(std::ceil(c3.y - 0.5f)));
+        const float inverseWidth = 1.0f / rectWidth;
+        const float inverseHeight = 1.0f / rectHeight;
+        for (int py = beginY; py < endY; ++py) {
+            const float ty =
+                (static_cast<float>(py) + 0.5f - c0.y)
+                * inverseHeight;
+            const float v = data.v0 + (data.v1 - data.v0) * ty;
+            const float localY =
+                data.y + data.height * ty;
+            for (int px = beginX; px < endX; ++px) {
+                const float tx =
+                    (static_cast<float>(px) + 0.5f - c0.x)
+                    * inverseWidth;
+                const float u =
+                    data.u0 + (data.u1 - data.u0) * tx;
+                float tex[4];
+                image->sample(u, v, samplingMode, tileMode, tex);
+                compositeImagePixel(
+                    framebuffer, width, px, py, tex, data, clip,
+                    roundedImageCoverage(
+                        data, data.x + data.width * tx, localY));
+            }
+        }
+        return;
+    }
+
     for (int t = 0; t < 6; t += 3) {
         IV v0 = tris[t];
         IV v1 = tris[t + 1];
@@ -932,6 +975,34 @@ void rasterizeImage(std::uint8_t *framebuffer, int width, int height, const Draw
                     roundedImageCoverage(data, localX, localY));
             }
         }
+    }
+}
+
+void rasterizeImageBatch(
+    std::uint8_t *framebuffer, int width, int height,
+    const DrawImageBatchData &batch, const glm::mat4 &extra,
+    const RasterClip &clip)
+{
+    DrawImageData image;
+    image.imageResource = batch.imageResource;
+    std::copy(
+        std::begin(batch.tintColor), std::end(batch.tintColor),
+        std::begin(image.tintColor));
+    image.alpha = batch.alpha;
+    image.transform = extra * batch.transform;
+    image.scissor = batch.scissor;
+    image.blendMode = batch.blendMode;
+    image.clipMask = batch.clipMask;
+    for (const DrawImageBatchQuad &quad : batch.quads) {
+        image.x = quad.x;
+        image.y = quad.y;
+        image.width = quad.width;
+        image.height = quad.height;
+        image.u0 = quad.u0;
+        image.v0 = quad.v0;
+        image.u1 = quad.u1;
+        image.v1 = quad.v1;
+        rasterizeImage(framebuffer, width, height, image, clip);
     }
 }
 
@@ -1553,6 +1624,14 @@ void executeCommandList(std::uint8_t *framebuffer, int width, int height, int ca
             DrawImageData data = static_cast<const DrawImageCommand &>(command).data();
             data.transform = extra * data.transform;
             rasterizeImage(framebuffer, width, height, data, clipFor(data.scissor, data.clipMask));
+            break;
+        }
+        case Command::Type::ImageBatch: {
+            const DrawImageBatchData &data =
+                static_cast<const DrawImageBatchCommand &>(command).data();
+            rasterizeImageBatch(
+                framebuffer, width, height, data, extra,
+                clipFor(data.scissor, data.clipMask));
             break;
         }
         case Command::Type::Shadow: {

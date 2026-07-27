@@ -61,6 +61,42 @@ The optimized revision passed all 64 Release CTest entries, including all 22
 Vulkan tests, Software golden images, OpenGL/Vulkan filter pixel parity, text,
 Unicode, examples, API documentation, and installed-package consumers.
 
+## Verified 1080p stress optimization
+
+The 1080p stress scenes exposed a second set of bottlenecks that smaller scenes
+hid: OpenGL recreated sprite GPU objects during every flush, text recorded one
+command per atlas glyph, repeated translated shapes rebuilt identical meshes,
+and Software rasterization paid triangle interpolation costs for simple quads
+and uniform anti-aliased interiors.
+
+The candidate was measured on 2026-07-27 on the same Windows i7-8700 / GTX 1060
+machine in `Release`. Each scene ran in a fresh process at 1920 x 1080. The
+standard profile uses 30 timed frames after 5 warmup frames; the more variable
+Software text result uses the thorough 120 + 20 profile.
+
+| Backend | Scene | Before median | Optimized median | Delta | Commands / draws |
+| --- | --- | ---: | ---: | ---: | ---: |
+| OpenGL | `geometry_stress` | 43.890 ms | 24.759 ms | -43.6% | 2,305 / 2,305 |
+| OpenGL | `text_stress` | 893.640 ms | 13.459 ms | -98.5% | 577 / 194 |
+| Vulkan | `geometry_stress` | 50.940 ms | 25.990 ms | -49.0% | 2,305 / 1 |
+| Vulkan | `text_stress` | 34.910 ms | 16.134 ms | -53.8% | 577 / 577 |
+| Software | `geometry_stress` | 157.090 ms | 103.599 ms | -34.1% | 2,305 / 2,305 |
+| Software | `text_stress` | 79.960 ms | 60.348 ms | -24.5% | 577 / 577 |
+
+OpenGL now retains one sprite batch's program, VAO, and buffers across frames.
+Glyph runs sharing atlas and render state use one compact image-batch command.
+Vulkan lowers compatible solid geometry to one primitive without losing
+per-vertex color or analytic-AA coverage. Translation-normalized fill and AA
+meshes are reused under byte-bounded LRU caches, and Software has direct raster
+paths for axis-aligned image quads and uniform interior triangles.
+
+OpenGL and Vulkan validation hashes stayed stable through these optimizations.
+Software's normalized translated geometry and direct quad interpolation can
+differ from the former two-triangle arithmetic by at most one channel value;
+the measured comparison changed 0.001543% of pixels with maximum channel delta
+1 and mean channel delta 0.000005. Text output converges to the same validation
+hash across Software, OpenGL, and Vulkan.
+
 ## Standard scene matrix
 
 The default resolution is 1920 x 1080. Every scene is deterministic and

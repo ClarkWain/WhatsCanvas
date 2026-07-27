@@ -665,13 +665,45 @@ bool tryResolveAxisAlignedRectClip(const Path &path, const glm::mat4 &transform,
     return true;
 }
 
+bool factorContourTranslation(std::vector<PathContour> &contours, glm::mat4 &transform)
+{
+    const auto anchorContour = std::find_if(
+        contours.begin(), contours.end(),
+        [](const PathContour &contour) {
+            return !contour.points.empty();
+        });
+    if (anchorContour == contours.end()) {
+        return false;
+    }
+
+    const crushedpixel::Vec2 anchor = anchorContour->points.front();
+    if (!std::isfinite(anchor.x) || !std::isfinite(anchor.y)
+        || (std::abs(anchor.x) <= kPointEpsilon
+            && std::abs(anchor.y) <= kPointEpsilon)) {
+        return false;
+    }
+
+    for (PathContour &contour : contours) {
+        for (crushedpixel::Vec2 &point : contour.points) {
+            point.x -= anchor.x;
+            point.y -= anchor.y;
+        }
+    }
+    transform *= glm::translate(
+        glm::mat4(1.0f),
+        glm::vec3(anchor.x, anchor.y, 0.0f));
+    return true;
+}
+
 bool buildClipMaskPath(const Path &path, const glm::mat4 &transform, ClipMaskPath &maskPath,
                        wsc::render::LruCache<std::vector<crushedpixel::Vec2>> *tessellationCache = nullptr)
 {
-    const auto contours = extractContours(path);
+    auto contours = extractContours(path);
     if (contours.empty()) {
         return false;
     }
+    glm::mat4 meshTransform = transform;
+    factorContourTranslation(contours, meshTransform);
 
     // The clip mask is the fill triangulation of the path, so it shares the fill
     // tessellation cache: a shape used as both a fill and a clip triangulates once.
@@ -693,7 +725,7 @@ bool buildClipMaskPath(const Path &path, const glm::mat4 &transform, ClipMaskPat
     }
 
     maskPath.points = flattenPoints(*fillTriangles);
-    maskPath.transform = transform;
+    maskPath.transform = meshTransform;
     return true;
 }
 
@@ -902,6 +934,12 @@ std::vector<float> flattenPoints(const std::vector<crushedpixel::Vec2> &points)
 struct AAExpandedMesh {
     std::vector<crushedpixel::Vec2> vertices;
     std::vector<float> coverage;
+
+    std::size_t residentBytes() const
+    {
+        return vertices.capacity() * sizeof(crushedpixel::Vec2)
+            + coverage.capacity() * sizeof(float);
+    }
 };
 
 /// Average uniform device-space scale of the linear (2x2) part of a transform.
@@ -2226,6 +2264,11 @@ struct Canvas::Impl
     // shapes are not re-triangulated every frame.
     wsc::render::LruCache<std::vector<crushedpixel::Vec2>> fillTessellationCache{
         256, 8u * 1024u * 1024u};
+    // Retains the more expensive analytic-AA expansion for common translated
+    // fills. Capacity is intentionally smaller than the base tessellation
+    // cache because each entry owns both vertices and coverage.
+    wsc::render::LruCache<AAExpandedMesh> fillAaCache{
+        64, 8u * 1024u * 1024u};
     // Retains transform-independent stroke meshes for the same reason.
     wsc::render::LruCache<std::vector<crushedpixel::Vec2>> strokeTessellationCache{
         256, 8u * 1024u * 1024u};
@@ -2553,6 +2596,7 @@ void Canvas::Impl::releaseResources()
 {
     layerStack.clear();
     fillTessellationCache.clear();
+    fillAaCache.clear();
     strokeTessellationCache.clear();
     glyphAtlasImageResource.reset();
     glyphAtlasWidth = 0;
@@ -2808,7 +2852,9 @@ Canvas::RenderStats Canvas::getRenderStats() const
     stats.tessellationCacheHits = impl_->fillTessellationCache.hitCount();
     stats.tessellationCacheMisses = impl_->fillTessellationCache.missCount();
     stats.tessellationCacheSize = impl_->fillTessellationCache.size();
-    stats.tessellationCacheBytes = impl_->fillTessellationCache.residentBytes();
+    stats.tessellationCacheBytes =
+        impl_->fillTessellationCache.residentBytes()
+        + impl_->fillAaCache.residentBytes();
     stats.strokeCacheHits = impl_->strokeTessellationCache.hitCount();
     stats.strokeCacheMisses = impl_->strokeTessellationCache.missCount();
     stats.strokeCacheSize = impl_->strokeTessellationCache.size();
@@ -3328,7 +3374,7 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
         sourcePath = &effectedPath;
     }
 
-    const auto contours = extractContours(*sourcePath);
+    auto contours = extractContours(*sourcePath);
     if (contours.empty()) {
         return;
     }
@@ -3339,15 +3385,34 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
         || effectivePaint.getStyle() == Paint::Style::FILL_AND_STROKE;
     const ScissorState scissor = impl_->makeCurrentScissorState();
     const ClipMaskState clipMask = impl_->makeCurrentClipMaskState();
+    glm::mat4 fillTransform = impl_->currentState().matrix;
+
+    // Translation does not affect fill tessellation. Factor it out for simple
+    // fills so identical geometry at different positions shares one cache
+    // entry and one local mesh.
+    const bool normalizeTranslatedFill =
+        drawFill && !drawStroke
+        && !effectivePaint.hasShadowLayer()
+        && !effectivePaint.hasLinearGradient()
+        && !effectivePaint.hasRadialGradient();
+    if (normalizeTranslatedFill) {
+        factorContourTranslation(contours, fillTransform);
+    }
 
     const std::vector<crushedpixel::Vec2> *fillTriangles = nullptr;
+    std::uint64_t fillTessellationKey = 0;
     if (drawFill) {
-        const std::uint64_t tessKey = hashFillTessellation(contours, sourcePath->getFillType());
-        if (const auto *cached = impl_->fillTessellationCache.find(tessKey)) {
+        fillTessellationKey =
+            hashFillTessellation(contours, sourcePath->getFillType());
+        if (const auto *cached =
+                impl_->fillTessellationCache.find(
+                    fillTessellationKey)) {
             fillTriangles = cached;
         } else {
             fillTriangles = &impl_->fillTessellationCache.insert(
-                tessKey, triangulateContours(contours, sourcePath->getFillType()));
+                fillTessellationKey,
+                triangulateContours(
+                    contours, sourcePath->getFillType()));
         }
     }
 
@@ -3418,15 +3483,25 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
         std::vector<float> fillPoints;
         std::vector<float> fillCoverage;
         if (effectivePaint.isAntiAlias()) {
-            AAExpandedMesh aa = expandTrianglesWithAA(*fillTriangles, computeLocalFringe(impl_->currentState().matrix));
-            fillPoints = flattenPoints(aa.vertices);
-            fillCoverage = std::move(aa.coverage);
+            const float fringe =
+                computeLocalFringe(impl_->currentState().matrix);
+            std::uint64_t aaKey = fillTessellationKey;
+            hashFloat(aaKey, fringe);
+            const AAExpandedMesh *aa =
+                impl_->fillAaCache.find(aaKey);
+            if (aa == nullptr) {
+                aa = &impl_->fillAaCache.insert(
+                    aaKey,
+                    expandTrianglesWithAA(*fillTriangles, fringe));
+            }
+            fillPoints = flattenPoints(aa->vertices);
+            fillCoverage = aa->coverage;
         } else {
             fillPoints = flattenPoints(*fillTriangles);
         }
         DrawPathData fillData = makeDrawPathData(fillPoints, effectivePaint.getStrokeWidth(),
                                                  applyPaintAlpha(effectivePaint, effectivePaint.getFillColor()), PathDrawMode::Fill,
-                                                 impl_->currentState().matrix, scissor,
+                                                 fillTransform, scissor,
                                                  toDrawBlendMode(effectivePaint.getBlendMode()), clipMask);
         fillData.coverage = std::move(fillCoverage);
         applyPathGradient(effectivePaint, fillData);
@@ -4039,6 +4114,41 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
         const ScissorState scissor = impl_->makeCurrentScissorState();
         const ClipMaskState clipMask = impl_->makeCurrentClipMaskState();
         const auto submitAtlasText = [&](const Color &textColor, const glm::mat4 &transform, bool useFillShader = false) {
+            const bool simpleBatch =
+                !scissor.enabled && !clipMask.hasPaths()
+                && (!useFillShader
+                    || (!paint.hasLinearGradient()
+                        && !paint.hasRadialGradient()));
+            if (simpleBatch) {
+                DrawImageBatchData batch;
+                batch.imageResource = imageResource;
+                batch.quads.reserve(atlasQuads.size());
+                batch.tintColor[0] = textColor.r();
+                batch.tintColor[1] = textColor.g();
+                batch.tintColor[2] = textColor.b();
+                batch.tintColor[3] = 1.0f;
+                batch.alpha = textColor.a();
+                batch.transform = transform;
+                batch.blendMode =
+                    toDrawBlendMode(paint.getBlendMode());
+                for (const auto &quad : atlasQuads) {
+                    DrawImageBatchQuad imageQuad;
+                    imageQuad.x = quad.x;
+                    imageQuad.y = quad.y;
+                    imageQuad.width = quad.width;
+                    imageQuad.height = quad.height;
+                    imageQuad.u0 = quad.u0;
+                    imageQuad.v0 = quad.v0;
+                    imageQuad.u1 = quad.u1;
+                    imageQuad.v1 = quad.v1;
+                    batch.quads.push_back(imageQuad);
+                }
+                impl_->renderer->submit(
+                    std::make_unique<DrawImageBatchCommand>(
+                        std::move(batch)));
+                return;
+            }
+
             for (const auto &quad : atlasQuads) {
                 DrawImageData data;
                 data.imageResource = imageResource;

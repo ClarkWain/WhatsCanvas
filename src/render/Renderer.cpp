@@ -8,6 +8,7 @@
 
 #include <cmath>
 #include <iostream>
+#include <iterator>
 #include <glm/glm.hpp>
 
 #include "core/LogInternal.h"
@@ -39,6 +40,18 @@ bool isSpriteBatchCompatible(const DrawImageData &data, const SharedImageResourc
                 && nearlyEqual(data.v0, 0.0f)
                 && nearlyEqual(data.u1, 1.0f)
                 && nearlyEqual(data.v1, 1.0f)))
+        && data.blendMode == blendMode;
+}
+
+bool isSpriteBatchCompatible(
+    const DrawImageBatchData &data, const SharedImageResource &texture,
+    DrawBlendMode blendMode)
+{
+    return data.imageResource == texture
+        && data.imageResource
+        && data.imageResource->isValid()
+        && !data.scissor.enabled
+        && !data.clipMask.hasPaths()
         && data.blendMode == blendMode;
 }
 } // namespace
@@ -81,6 +94,10 @@ void Renderer::finalizeBackend()
     if (!backendInitialized_ || device_ == nullptr) {
         return;
     }
+
+    // SpriteBatch owns GL programs and buffers. Release them while the caller's
+    // graphics context is still current, before finalizing the render device.
+    spriteBatch_.reset();
 
     // Release device-owned render targets before the backend (and its GPU
     // device) is torn down, so their handles are not destroyed against a dead
@@ -296,6 +313,61 @@ void Renderer::flush()
 
     std::size_t i = 0;
     while (i < commands_.size()) {
+        if (commands_[i]->type() == Command::Type::ImageBatch) {
+            const auto &first =
+                static_cast<DrawImageBatchCommand *>(
+                    commands_[i].get())->data();
+            if (isSpriteBatchCompatible(
+                    first, first.imageResource, first.blendMode)) {
+                if (!spriteBatch_) {
+                    spriteBatch_ = std::make_unique<SpriteBatch>();
+                }
+                spriteBatch_->clear();
+                spriteBatch_->setTexture(first.imageResource);
+
+                std::size_t j = i;
+                while (j < commands_.size()
+                       && commands_[j]->type()
+                           == Command::Type::ImageBatch) {
+                    const auto &batch =
+                        static_cast<DrawImageBatchCommand *>(
+                            commands_[j].get())->data();
+                    if (!isSpriteBatchCompatible(
+                            batch, first.imageResource,
+                            first.blendMode)) {
+                        break;
+                    }
+                    float tintColor[4] = {
+                        batch.tintColor[0],
+                        batch.tintColor[1],
+                        batch.tintColor[2],
+                        batch.tintColor[3] * batch.alpha
+                    };
+                    GammaCorrect::srgbToLinear4(tintColor);
+                    for (const DrawImageBatchQuad &quad : batch.quads) {
+                        spriteBatch_->add(
+                            quad.x, quad.y, quad.width, quad.height,
+                            quad.u0, quad.v0, quad.u1, quad.v1,
+                            tintColor[0], tintColor[1], tintColor[2],
+                            tintColor[3], batch.transform);
+                    }
+                    ++j;
+                }
+
+                if (!spriteBatch_->empty()) {
+                    const std::size_t spriteCount =
+                        spriteBatch_->spriteCount();
+                    spriteBatch_->flush(context_, first.blendMode);
+                    ++stats_.drawCallCount;
+                    if (spriteCount > 1) {
+                        ++stats_.mergedBatchCount;
+                    }
+                    i = j;
+                    continue;
+                }
+            }
+        }
+
         if (commands_[i]->type() == Command::Type::Image) {
             auto *imageCmd = static_cast<DrawImageCommand *>(commands_[i].get());
             const auto &first = imageCmd->data();
@@ -310,8 +382,11 @@ void Renderer::flush()
                 }
 
                 if (j > i + 1) {
-                    SpriteBatch batch;
-                    batch.setTexture(first.imageResource);
+                    if (!spriteBatch_) {
+                        spriteBatch_ = std::make_unique<SpriteBatch>();
+                    }
+                    spriteBatch_->clear();
+                    spriteBatch_->setTexture(first.imageResource);
                     for (std::size_t m = i; m < j; ++m) {
                         const auto &data = static_cast<DrawImageCommand *>(commands_[m].get())->data();
                         float tintColor[4] = {
@@ -321,12 +396,13 @@ void Renderer::flush()
                             data.tintColor[3] * data.alpha
                         };
                         GammaCorrect::srgbToLinear4(tintColor);
-                        batch.add(data.x, data.y, data.width, data.height,
-                                  data.u0, data.v0, data.u1, data.v1,
-                                  tintColor[0], tintColor[1], tintColor[2], tintColor[3],
-                                  data.transform, data.roundedRadius);
+                        spriteBatch_->add(
+                            data.x, data.y, data.width, data.height,
+                            data.u0, data.v0, data.u1, data.v1,
+                            tintColor[0], tintColor[1], tintColor[2],
+                            tintColor[3], data.transform, data.roundedRadius);
                     }
-                    batch.flush(context_, first.blendMode);
+                    spriteBatch_->flush(context_, first.blendMode);
                     ++stats_.drawCallCount;
                     ++stats_.mergedBatchCount;
                     i = j;
@@ -341,16 +417,8 @@ void Renderer::flush()
             continue;
         }
 
-        auto *pathCmd = static_cast<DrawPathCommand *>(commands_[i].get());
-        if (pathCmd->data().hasVertexColors() || pathCmd->data().hasShaderGradient()) {
-            // Per-vertex colours and shader gradients carry per-shape state that
-            // cannot be shared across a merged draw call, so render individually.
-            executeCommand(commands_[i]);
-            ++i;
-            continue;
-        }
-
-        // Try to merge consecutive compatible DrawPathCommands.
+        auto *pathCmd =
+            static_cast<DrawPathCommand *>(commands_[i].get());
         const auto &first = pathCmd->data();
 
         std::size_t j = i + 1;
@@ -361,30 +429,75 @@ void Renderer::flush()
 
             auto *nextPathCmd = static_cast<DrawPathCommand *>(commands_[j].get());
             const auto &next = nextPathCmd->data();
-            if (!wsc::render::canMergePathData(first, next)) {
+            if (!wsc::render::canBatchPathData(first, next)) {
                 break;
             }
             ++j;
         }
 
         if (j > i + 1) {
-            // Pre-scan total point count for efficient reservation.
-            std::size_t totalPoints = first.points.size();
-            for (std::size_t m = i + 1; m < j; ++m) {
-                totalPoints += static_cast<DrawPathCommand *>(commands_[m].get())->data().points.size();
+            std::size_t totalVertices = 0;
+            bool needsVertexColors = first.hasVertexColors();
+            bool needsCoverage = first.hasCoverage();
+            for (std::size_t m = i; m < j; ++m) {
+                const auto &next =
+                    static_cast<DrawPathCommand *>(
+                        commands_[m].get())->data();
+                totalVertices += next.getPointCount();
+                needsVertexColors =
+                    needsVertexColors || next.hasVertexColors();
+                needsCoverage = needsCoverage || next.hasCoverage();
+                for (int c = 0; c < 4; ++c) {
+                    needsVertexColors =
+                        needsVertexColors
+                        || !nearlyEqual(first.color[c], next.color[c]);
+                }
             }
 
             DrawPathData merged = first;
-            merged.points.reserve(totalPoints);
-            if (first.hasCoverage()) {
-                merged.coverage.reserve(totalPoints / 2);
+            merged.points.clear();
+            merged.colors.clear();
+            merged.coverage.clear();
+            merged.points.reserve(totalVertices * 2u);
+            if (needsVertexColors) {
+                merged.colors.reserve(totalVertices * 4u);
+            }
+            if (needsCoverage) {
+                merged.coverage.reserve(totalVertices);
             }
 
-            for (std::size_t m = i + 1; m < j; ++m) {
-                const auto &next = static_cast<DrawPathCommand *>(commands_[m].get())->data();
-                merged.points.insert(merged.points.end(), next.points.begin(), next.points.end());
-                if (first.hasCoverage()) {
-                    merged.coverage.insert(merged.coverage.end(), next.coverage.begin(), next.coverage.end());
+            for (std::size_t m = i; m < j; ++m) {
+                const auto &next =
+                    static_cast<DrawPathCommand *>(
+                        commands_[m].get())->data();
+                const std::size_t vertexCount = next.getPointCount();
+                merged.points.insert(
+                    merged.points.end(), next.points.begin(),
+                    next.points.end());
+                if (needsVertexColors) {
+                    if (next.hasVertexColors()) {
+                        merged.colors.insert(
+                            merged.colors.end(), next.colors.begin(),
+                            next.colors.end());
+                    } else {
+                        for (std::size_t vertex = 0;
+                             vertex < vertexCount; ++vertex) {
+                            merged.colors.insert(
+                                merged.colors.end(),
+                                std::begin(next.color),
+                                std::end(next.color));
+                        }
+                    }
+                }
+                if (needsCoverage) {
+                    if (next.hasCoverage()) {
+                        merged.coverage.insert(
+                            merged.coverage.end(),
+                            next.coverage.begin(), next.coverage.end());
+                    } else {
+                        merged.coverage.insert(
+                            merged.coverage.end(), vertexCount, 1.0f);
+                    }
                 }
             }
 
@@ -425,7 +538,12 @@ bool Renderer::flushViaDeviceCommands()
 
     const bool ok = device_->executeCommands(mainTarget_, commands_, request);
     if (ok) {
-        stats_.drawCallCount += commands_.size();
+        const std::size_t deviceDrawCalls =
+            device_->lastExecutionDrawCallCount();
+        stats_.drawCallCount +=
+            deviceDrawCalls > 0 ? deviceDrawCalls : commands_.size();
+        stats_.mergedBatchCount +=
+            device_->lastExecutionMergedBatchCount();
     }
     return ok;
 }

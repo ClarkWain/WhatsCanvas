@@ -8,6 +8,13 @@
 
 namespace {
 
+struct ResidentValue
+{
+    std::size_t bytes = 0;
+
+    std::size_t residentBytes() const { return bytes; }
+};
+
 bool expect(bool condition, const std::string &message)
 {
     if (condition) {
@@ -96,6 +103,22 @@ bool testByteBudgetEvictsLeastRecentlyUsed()
                   "resident bytes should remain within the configured budget");
 }
 
+bool testCustomResidentByteAccounting()
+{
+    wsc::render::LruCache<ResidentValue> cache(8, 12);
+    cache.insert(1, ResidentValue{8});
+    cache.insert(2, ResidentValue{8});
+
+    return expect(cache.size() == 1,
+                  "custom resident byte accounting should enforce the byte budget")
+        && expect(cache.find(1) == nullptr,
+                  "custom resident byte accounting should evict the oldest value")
+        && expect(cache.find(2) != nullptr,
+                  "custom resident byte accounting should retain the newest value")
+        && expect(cache.residentBytes() == 8,
+                  "resident bytes should come from the value's residentBytes method");
+}
+
 bool testOversizedValueIsSoleEntry()
 {
     wsc::render::LruCache<std::vector<float>> cache(8, 4u * sizeof(float));
@@ -144,6 +167,7 @@ int main()
     ok = testFindRefreshesRecency() && ok;
     ok = testStoresComplexValues() && ok;
     ok = testByteBudgetEvictsLeastRecentlyUsed() && ok;
+    ok = testCustomResidentByteAccounting() && ok;
     ok = testOversizedValueIsSoleEntry() && ok;
     ok = testClearAndResetStats() && ok;
     ok = testZeroCapacityIsClampedToOne() && ok;

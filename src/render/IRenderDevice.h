@@ -62,6 +62,8 @@ public:
     virtual bool executeCommands(const std::unique_ptr<IRenderTarget> & /*target*/,
                                  const std::vector<std::unique_ptr<Command>> & /*commands*/,
                                  const OffscreenRenderRequest & /*request*/) const { return false; }
+    virtual std::size_t lastExecutionDrawCallCount() const { return 0; }
+    virtual std::size_t lastExecutionMergedBatchCount() const { return 0; }
 
     /// Whether this backend can present to an on-screen window (build a
     /// swapchain from a NativeSurface). Default false: the device is

@@ -182,6 +182,14 @@ public:
     bool executeCommands(const std::unique_ptr<IRenderTarget> &target,
                          const std::vector<std::unique_ptr<Command>> &commands,
                          const OffscreenRenderRequest &request) const override;
+    std::size_t lastExecutionDrawCallCount() const override
+    {
+        return lastExecutionDrawCallCount_;
+    }
+    std::size_t lastExecutionMergedBatchCount() const override
+    {
+        return lastExecutionMergedBatchCount_;
+    }
 
     /// Vulkan drives its main-target frame through executeCommands().
     bool usesDeviceCommandExecution() const override { return true; }
@@ -210,5 +218,7 @@ private:
     mutable std::vector<std::unique_ptr<IRenderTarget>>
         pendingFilterTargets_;
     mutable std::vector<SharedImageResource> pendingFilterImages_;
+    mutable std::size_t lastExecutionDrawCallCount_ = 0;
+    mutable std::size_t lastExecutionMergedBatchCount_ = 0;
     bool backendInitialized_ = false;
 };
