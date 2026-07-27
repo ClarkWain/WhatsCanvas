@@ -11,7 +11,10 @@
 // concrete and instantiable without any OpenGL symbols.
 
 #include "command/DrawCommand.h"
+#include "command/DrawPathCommandPool.h"
 
+#include <cstddef>
+#include <new>
 #include <utility>
 
 DrawPointsCommand::DrawPointsCommand(const DrawPointsData &data)
@@ -33,6 +36,17 @@ DrawPathCommand::DrawPathCommand(const DrawPathData &data)
 DrawPathCommand::DrawPathCommand(DrawPathData &&data)
     : Command(Type::Path), data_(std::move(data))
 {
+}
+void *DrawPathCommand::operator new(std::size_t size)
+{
+    if (size != sizeof(DrawPathCommand)) {
+        return ::operator new(size);
+    }
+    return wsc::detail::allocateDrawPathCommand(size);
+}
+void DrawPathCommand::operator delete(void *memory) noexcept
+{
+    wsc::detail::releaseDrawPathCommand(memory);
 }
 void DrawPathCommand::execute(RenderContext &) {}
 

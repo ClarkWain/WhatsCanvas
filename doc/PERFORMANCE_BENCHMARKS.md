@@ -346,6 +346,24 @@ indices occupy 539,196 bytes, confirming a 16-bit stream; total path upload is
 2,302,748 bytes, down 69.5% from the original. Complex geometry semantics keep
 the generic path pipeline, and all captures retain their prior hashes.
 
+The fourth geometry pass introduced parameterized local-space primitive meshes,
+normalized RGBA8/coverage8 attributes for merged solid packets, a bounded
+thread-local path-command pool, and a Release trusted-index fast path. Seven
+alternating WhatsCanvas/NanoVG processes produced:
+
+| Scene | Original | Pass 3 | Pass 4 | Paired NanoVG GL3 | Pass 4 gap |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `geometry_stress` | 25.659 ms | 6.45 ms | 4.682 ms | 3.965 ms | 1.18x |
+
+The current record/submit medians are 1.767/2.956 ms. The scene still uses one
+draw, 62,984 vertices, and 269,598 16-bit indices, but total path upload is now
+1,357,988 bytes: 41.0% below pass 3 and 82.0% below the original. All seven
+processes produced `5e7e67fb8b9ca579`.
+
+The parameterized curve cache changes only 171 of 2,073,600 pixels relative to
+pass 3 (0.0082%). Every changed channel is one 8-bit level, with RMSE 0.0069.
+The complete Release build and all 66 Release tests pass.
+
 ## CI policy
 
 Shared hosted runners execute the `quick` Software subset to validate build

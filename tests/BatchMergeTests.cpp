@@ -191,6 +191,31 @@ bool testShortIndexAccessors()
                "generic index access should decode 16-bit indices");
 }
 
+bool testPackedAttributeAccessors()
+{
+    DrawPathData data = makeSolidFill();
+    data.packedColors = {
+        255, 0, 0, 255,
+        0, 255, 0, 255,
+        0, 0, 255, 255
+    };
+    data.packedCoverage = {255, 128, 0};
+    return expect(
+               data.hasPackedVertexColors()
+                   && data.hasVertexColors(),
+               "RGBA8 packet should report per-vertex colors")
+        && expect(
+               !data.hasFloatVertexColors(),
+               "RGBA8 packet must not report float colors")
+        && expect(
+               data.hasPackedCoverage()
+                   && data.hasCoverage(),
+               "8-bit packet should report analytic coverage")
+        && expect(
+               !data.hasFloatCoverage(),
+               "8-bit packet must not report float coverage");
+}
+
 bool testDifferingStateDoesNotMerge()
 {
     DrawPathData other = makeSolidFill();
@@ -226,6 +251,7 @@ int main()
     ok = testBroaderBatchFlattensAffineTransforms() && ok;
     ok = testSharedIndexedGeometryAccessors() && ok;
     ok = testShortIndexAccessors() && ok;
+    ok = testPackedAttributeAccessors() && ok;
     ok = testDifferingStateDoesNotMerge() && ok;
     return ok ? 0 : 1;
 }

@@ -964,6 +964,136 @@ std::vector<float> flattenPoints(const std::vector<crushedpixel::Vec2> &points)
     return flattened;
 }
 
+enum class SimpleFillPrimitiveKind : std::uint8_t {
+    Rectangle,
+    RoundRect,
+    Ellipse
+};
+
+struct SimpleFillPrimitive {
+    SimpleFillPrimitiveKind kind = SimpleFillPrimitiveKind::Rectangle;
+    float width = 0.0f;
+    float height = 0.0f;
+    std::array<float, 4> radii{};
+    std::array<int, 4> cornerSegments{};
+    int ellipseSegments = 0;
+};
+
+std::uint64_t hashSimpleFillPrimitive(const SimpleFillPrimitive &primitive)
+{
+    std::uint64_t hash = kFnvOffsetBasis;
+    // Keep primitive cache entries in a separate domain from path-content keys.
+    hashUint64(hash, 0x5753435052494dull);
+    hashUint64(hash, static_cast<std::uint64_t>(primitive.kind));
+    hashFloat(hash, primitive.width);
+    hashFloat(hash, primitive.height);
+    for (float radius : primitive.radii) {
+        hashFloat(hash, radius);
+    }
+    for (int segments : primitive.cornerSegments) {
+        hashUint64(hash, static_cast<std::uint64_t>(segments));
+    }
+    hashUint64(
+        hash, static_cast<std::uint64_t>(primitive.ellipseSegments));
+    return hash;
+}
+
+std::vector<crushedpixel::Vec2> buildSimpleFillPrimitivePoints(
+    const SimpleFillPrimitive &primitive)
+{
+    std::vector<crushedpixel::Vec2> points;
+    switch (primitive.kind) {
+    case SimpleFillPrimitiveKind::Rectangle:
+        points.reserve(4);
+        points.emplace_back(0.0f, 0.0f);
+        points.emplace_back(primitive.width, 0.0f);
+        points.emplace_back(primitive.width, primitive.height);
+        points.emplace_back(0.0f, primitive.height);
+        break;
+    case SimpleFillPrimitiveKind::RoundRect: {
+        constexpr float kPi = 3.14159265358979323846f;
+        const float topLeft = primitive.radii[0];
+        const float topRight = primitive.radii[1];
+        const float bottomRight = primitive.radii[2];
+        const float bottomLeft = primitive.radii[3];
+        points.reserve(
+            static_cast<std::size_t>(
+                primitive.cornerSegments[0]
+                + primitive.cornerSegments[1]
+                + primitive.cornerSegments[2]
+                + primitive.cornerSegments[3] + 4));
+        appendSafePoint(points, topLeft, 0.0f);
+        appendSafePoint(points, primitive.width - topRight, 0.0f);
+        if (topRight > 0.0f) {
+            appendQuarterArcPoints(
+                points, primitive.width - topRight, topRight,
+                topRight, -0.5f * kPi, 0.0f,
+                primitive.cornerSegments[1]);
+        } else {
+            appendSafePoint(points, primitive.width, 0.0f);
+        }
+        appendSafePoint(
+            points, primitive.width,
+            primitive.height - bottomRight);
+        if (bottomRight > 0.0f) {
+            appendQuarterArcPoints(
+                points, primitive.width - bottomRight,
+                primitive.height - bottomRight, bottomRight,
+                0.0f, 0.5f * kPi,
+                primitive.cornerSegments[2]);
+        } else {
+            appendSafePoint(
+                points, primitive.width, primitive.height);
+        }
+        appendSafePoint(points, bottomLeft, primitive.height);
+        if (bottomLeft > 0.0f) {
+            appendQuarterArcPoints(
+                points, bottomLeft,
+                primitive.height - bottomLeft, bottomLeft,
+                0.5f * kPi, kPi,
+                primitive.cornerSegments[3]);
+        } else {
+            appendSafePoint(points, 0.0f, primitive.height);
+        }
+        appendSafePoint(points, 0.0f, topLeft);
+        if (topLeft > 0.0f) {
+            appendQuarterArcPoints(
+                points, topLeft, topLeft, topLeft,
+                kPi, 1.5f * kPi,
+                primitive.cornerSegments[0]);
+        } else {
+            appendSafePoint(points, 0.0f, 0.0f);
+        }
+        break;
+    }
+    case SimpleFillPrimitiveKind::Ellipse: {
+        if (primitive.ellipseSegments < 3) {
+            break;
+        }
+        constexpr float kPi = 3.14159265358979323846f;
+        const float radiusX = primitive.width * 0.5f;
+        const float radiusY = primitive.height * 0.5f;
+        const float angleStep =
+            2.0f * kPi
+            / static_cast<float>(primitive.ellipseSegments);
+        points.reserve(
+            static_cast<std::size_t>(
+                primitive.ellipseSegments) + 1u);
+        appendSafePoint(points, primitive.width, radiusY);
+        for (int i = 1; i <= primitive.ellipseSegments; ++i) {
+            const float angle =
+                angleStep * static_cast<float>(i);
+            appendSafePoint(
+                points,
+                radiusX + radiusX * std::cos(angle),
+                radiusY + radiusY * std::sin(angle));
+        }
+        break;
+    }
+    }
+    return points;
+}
+
 /// Analytic anti-aliasing: a triangle soup expanded with a feathered fringe.
 struct AAExpandedMesh {
     std::vector<crushedpixel::Vec2> vertices;
@@ -2376,6 +2506,10 @@ struct Canvas::Impl
     bool submitSimpleFill(
         std::vector<crushedpixel::Vec2> points,
         const Paint &paint);
+    bool submitSimpleFillPrimitive(
+        const SimpleFillPrimitive &primitive,
+        float originX, float originY,
+        const Paint &paint);
     void releaseSizeDependentResources();
     SharedImageResource getOrUpdateGlyphAtlasResource(const wsc::text::TextRenderResult &renderedText);
     bool getClipBounds(RectF &bounds) const;
@@ -2776,6 +2910,88 @@ bool Canvas::Impl::submitSimpleFill(
     data.drawMode = PathDrawMode::Fill;
     data.capStyle = PathCapStyle::Bevel;
     data.transform = transform;
+    data.scissor = makeCurrentScissorState();
+    data.blendMode =
+        toDrawBlendMode(effectivePaint.getBlendMode());
+    data.clipMask = makeCurrentClipMaskState();
+    renderer->submit(
+        std::make_unique<DrawPathCommand>(
+            std::move(data)));
+    return true;
+}
+
+bool Canvas::Impl::submitSimpleFillPrimitive(
+    const SimpleFillPrimitive &primitive,
+    float originX, float originY,
+    const Paint &paint)
+{
+    if (!canUseSimpleFillPath(paint)) {
+        return false;
+    }
+    if (renderer == nullptr
+        || !isFinitePoint(originX, originY)
+        || !(primitive.width > 0.0f)
+        || !(primitive.height > 0.0f)) {
+        return true;
+    }
+
+    const std::uint64_t fillKey =
+        hashSimpleFillPrimitive(primitive);
+    const std::vector<crushedpixel::Vec2> *fillTriangles =
+        fillTessellationCache.find(fillKey);
+    if (fillTriangles == nullptr) {
+        PathContour contour;
+        contour.points =
+            buildSimpleFillPrimitivePoints(primitive);
+        contour.closed = true;
+        std::vector<PathContour> contours;
+        contours.reserve(1);
+        contours.push_back(std::move(contour));
+        fillTriangles = &fillTessellationCache.insert(
+            fillKey,
+            triangulateContours(
+                contours, Path::FillType::WINDING));
+    }
+    if (fillTriangles->empty()) {
+        return true;
+    }
+
+    const Paint effectivePaint = applyStateToPaint(paint);
+    DrawPathData data;
+    if (effectivePaint.isAntiAlias()) {
+        const float fringe =
+            computeLocalFringe(currentState().matrix);
+        std::uint64_t aaKey = fillKey;
+        hashFloat(aaKey, fringe);
+        const SharedAAExpandedMesh *aa =
+            fillAaCache.find(aaKey);
+        if (aa == nullptr) {
+            aa = &fillAaCache.insert(
+                aaKey,
+                shareAAExpandedMesh(
+                    expandTrianglesWithAA(
+                        *fillTriangles, fringe)));
+        }
+        data.sharedGeometry = aa->geometry;
+    } else {
+        data.points = flattenPoints(*fillTriangles);
+    }
+
+    data.width = effectivePaint.getStrokeWidth();
+    const Color color = applyPaintAlpha(
+        effectivePaint,
+        effectivePaint.getFillColor());
+    data.color[0] = color.r();
+    data.color[1] = color.g();
+    data.color[2] = color.b();
+    data.color[3] = color.a();
+    data.drawMode = PathDrawMode::Fill;
+    data.capStyle = PathCapStyle::Bevel;
+    data.transform =
+        currentState().matrix
+        * glm::translate(
+            glm::mat4(1.0f),
+            glm::vec3(originX, originY, 0.0f));
     data.scissor = makeCurrentScissorState();
     data.blendMode =
         toDrawBlendMode(effectivePaint.getBlendMode());
@@ -3317,18 +3533,15 @@ void Canvas::drawRect(const RectF &rect, const Paint &paint)
     }
 
     if (canUseSimpleFillPath(paint)) {
-        const float left = normalized.getX();
-        const float top = normalized.getY();
-        const float right = left + normalized.getWidth();
-        const float bottom = top + normalized.getHeight();
-        std::vector<crushedpixel::Vec2> points;
-        points.reserve(4);
-        points.emplace_back(left, top);
-        points.emplace_back(right, top);
-        points.emplace_back(right, bottom);
-        points.emplace_back(left, bottom);
-        if (impl_->submitSimpleFill(
-                std::move(points), paint)) {
+        SimpleFillPrimitive primitive;
+        primitive.kind =
+            SimpleFillPrimitiveKind::Rectangle;
+        primitive.width = normalized.getWidth();
+        primitive.height = normalized.getHeight();
+        if (impl_->submitSimpleFillPrimitive(
+                primitive,
+                normalized.getX(), normalized.getY(),
+                paint)) {
             return;
         }
     }
@@ -3403,6 +3616,12 @@ void Canvas::drawRoundRect(const RectF &rect, float topLeftRadius, float topRigh
             radius, 0.5f * kPi, deviceScale, 4, 24);
         return std::clamp(std::max(estimated, toleranceSegments), 4, 24);
     };
+    const std::array<int, 4> segmentCounts = {
+        cornerSegments(topLeft),
+        cornerSegments(topRight),
+        cornerSegments(bottomRight),
+        cornerSegments(bottomLeft)
+    };
 
     const float left = normalized.getX();
     const float top = normalized.getY();
@@ -3410,55 +3629,17 @@ void Canvas::drawRoundRect(const RectF &rect, float topLeftRadius, float topRigh
     const float bottom = top + height;
 
     if (canUseSimpleFillPath(paint)) {
-        std::vector<crushedpixel::Vec2> points;
-        points.reserve(
-            static_cast<std::size_t>(
-                cornerSegments(topLeft)
-                + cornerSegments(topRight)
-                + cornerSegments(bottomRight)
-                + cornerSegments(bottomLeft)
-                + 4));
-        appendSafePoint(points, left + topLeft, top);
-        appendSafePoint(points, right - topRight, top);
-        if (topRight > 0.0f) {
-            appendQuarterArcPoints(
-                points, right - topRight, top + topRight,
-                topRight, -0.5f * kPi, 0.0f,
-                cornerSegments(topRight));
-        } else {
-            appendSafePoint(points, right, top);
-        }
-        appendSafePoint(points, right, bottom - bottomRight);
-        if (bottomRight > 0.0f) {
-            appendQuarterArcPoints(
-                points, right - bottomRight,
-                bottom - bottomRight, bottomRight,
-                0.0f, 0.5f * kPi,
-                cornerSegments(bottomRight));
-        } else {
-            appendSafePoint(points, right, bottom);
-        }
-        appendSafePoint(points, left + bottomLeft, bottom);
-        if (bottomLeft > 0.0f) {
-            appendQuarterArcPoints(
-                points, left + bottomLeft,
-                bottom - bottomLeft, bottomLeft,
-                0.5f * kPi, kPi,
-                cornerSegments(bottomLeft));
-        } else {
-            appendSafePoint(points, left, bottom);
-        }
-        appendSafePoint(points, left, top + topLeft);
-        if (topLeft > 0.0f) {
-            appendQuarterArcPoints(
-                points, left + topLeft, top + topLeft,
-                topLeft, kPi, 1.5f * kPi,
-                cornerSegments(topLeft));
-        } else {
-            appendSafePoint(points, left, top);
-        }
-        if (impl_->submitSimpleFill(
-                std::move(points), paint)) {
+        SimpleFillPrimitive primitive;
+        primitive.kind =
+            SimpleFillPrimitiveKind::RoundRect;
+        primitive.width = width;
+        primitive.height = height;
+        primitive.radii = {
+            topLeft, topRight, bottomRight, bottomLeft
+        };
+        primitive.cornerSegments = segmentCounts;
+        if (impl_->submitSimpleFillPrimitive(
+                primitive, left, top, paint)) {
             return;
         }
     }
@@ -3468,7 +3649,7 @@ void Canvas::drawRoundRect(const RectF &rect, float topLeftRadius, float topRigh
     path.lineTo(right - topRight, top);
     if (topRight > 0.0f) {
         addQuarterArc(path, right - topRight, top + topRight, topRight,
-                      -0.5f * kPi, 0.0f, cornerSegments(topRight));
+                      -0.5f * kPi, 0.0f, segmentCounts[1]);
     } else {
         path.lineTo(right, top);
     }
@@ -3476,7 +3657,7 @@ void Canvas::drawRoundRect(const RectF &rect, float topLeftRadius, float topRigh
     path.lineTo(right, bottom - bottomRight);
     if (bottomRight > 0.0f) {
         addQuarterArc(path, right - bottomRight, bottom - bottomRight, bottomRight,
-                      0.0f, 0.5f * kPi, cornerSegments(bottomRight));
+                      0.0f, 0.5f * kPi, segmentCounts[2]);
     } else {
         path.lineTo(right, bottom);
     }
@@ -3484,7 +3665,7 @@ void Canvas::drawRoundRect(const RectF &rect, float topLeftRadius, float topRigh
     path.lineTo(left + bottomLeft, bottom);
     if (bottomLeft > 0.0f) {
         addQuarterArc(path, left + bottomLeft, bottom - bottomLeft, bottomLeft,
-                      0.5f * kPi, kPi, cornerSegments(bottomLeft));
+                      0.5f * kPi, kPi, segmentCounts[3]);
     } else {
         path.lineTo(left, bottom);
     }
@@ -3492,7 +3673,7 @@ void Canvas::drawRoundRect(const RectF &rect, float topLeftRadius, float topRigh
     path.lineTo(left, top + topLeft);
     if (topLeft > 0.0f) {
         addQuarterArc(path, left + topLeft, top + topLeft, topLeft,
-                      kPi, 1.5f * kPi, cornerSegments(topLeft));
+                      kPi, 1.5f * kPi, segmentCounts[0]);
     } else {
         path.lineTo(left, top);
     }
@@ -3551,26 +3732,16 @@ void Canvas::drawCircle(float centerX, float centerY, float radius, const Paint 
     }
 
     if (canUseSimpleFillPath(paint)) {
-        constexpr float kPi =
-            3.14159265358979323846f;
-        const float angleStep =
-            (2.0f * kPi)
-            / static_cast<float>(segments);
-        std::vector<crushedpixel::Vec2> points;
-        points.reserve(
-            static_cast<std::size_t>(segments) + 1u);
-        appendSafePoint(
-            points, centerX + radius, centerY);
-        for (int i = 1; i <= segments; ++i) {
-            const float angle =
-                angleStep * static_cast<float>(i);
-            appendSafePoint(
-                points,
-                centerX + radius * std::cos(angle),
-                centerY + radius * std::sin(angle));
-        }
-        if (impl_->submitSimpleFill(
-                std::move(points), paint)) {
+        SimpleFillPrimitive primitive;
+        primitive.kind =
+            SimpleFillPrimitiveKind::Ellipse;
+        primitive.width = radius * 2.0f;
+        primitive.height = radius * 2.0f;
+        primitive.ellipseSegments = segments;
+        if (impl_->submitSimpleFillPrimitive(
+                primitive,
+                centerX - radius, centerY - radius,
+                paint)) {
             return;
         }
     }
@@ -3610,26 +3781,16 @@ void Canvas::drawOval(const RectF &bounds, const Paint &paint)
     }
 
     if (canUseSimpleFillPath(paint)) {
-        constexpr float kPi =
-            3.14159265358979323846f;
-        const float angleStep =
-            (2.0f * kPi)
-            / static_cast<float>(segments);
-        std::vector<crushedpixel::Vec2> points;
-        points.reserve(
-            static_cast<std::size_t>(segments) + 1u);
-        appendSafePoint(
-            points, centerX + radiusX, centerY);
-        for (int i = 1; i <= segments; ++i) {
-            const float angle =
-                angleStep * static_cast<float>(i);
-            appendSafePoint(
-                points,
-                centerX + radiusX * std::cos(angle),
-                centerY + radiusY * std::sin(angle));
-        }
-        if (impl_->submitSimpleFill(
-                std::move(points), paint)) {
+        SimpleFillPrimitive primitive;
+        primitive.kind =
+            SimpleFillPrimitiveKind::Ellipse;
+        primitive.width = width;
+        primitive.height = height;
+        primitive.ellipseSegments = segments;
+        if (impl_->submitSimpleFillPrimitive(
+                primitive,
+                normalized.getX(), normalized.getY(),
+                paint)) {
             return;
         }
     }

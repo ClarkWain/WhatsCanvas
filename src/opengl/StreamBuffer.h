@@ -46,6 +46,8 @@ public:
         const std::uint32_t *data, std::size_t indexCount);
     UploadRange uploadRange(
         const std::uint16_t *data, std::size_t indexCount);
+    UploadRange uploadRange(
+        const std::uint8_t *data, std::size_t byteCount);
 
     /// Get the current GL buffer handle (0 if not initialized).
     GLuint handle() const { return buffer_; }
