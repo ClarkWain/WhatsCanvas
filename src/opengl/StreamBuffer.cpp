@@ -138,7 +138,7 @@ StreamBuffer::UploadRange StreamBuffer::uploadRangeBytes(
     glBufferSubData(
         GL_ARRAY_BUFFER, static_cast<GLintptr>(byteOffset),
         static_cast<GLsizeiptr>(byteCount), data);
-    writeOffsetBytes_ += byteCount;
+    writeOffsetBytes_ = byteOffset + byteCount;
     return {buffer_, byteOffset};
 }
 

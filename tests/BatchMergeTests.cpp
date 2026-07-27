@@ -7,6 +7,7 @@
 // the broader per-vertex renderer batch predicate, guarding against a solid
 // fill inheriting gradient state or analytic-AA coverage becoming misaligned.
 
+#include <cmath>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -25,6 +26,11 @@ bool expect(bool condition, const std::string &message)
     }
     std::cerr << "EXPECTATION FAILED: " << message << std::endl;
     return false;
+}
+
+bool near(float actual, float expected)
+{
+    return std::fabs(actual - expected) < 0.0001f;
 }
 
 // A minimal solid triangle fill with all merge-relevant fields set to fixed,
@@ -213,7 +219,14 @@ bool testPackedAttributeAccessors()
                "8-bit packet should report analytic coverage")
         && expect(
                !data.hasFloatCoverage(),
-               "8-bit packet must not report float coverage");
+               "8-bit packet must not report float coverage")
+        && expect(
+               near(data.vertexColorAt(1, 1), 1.0f)
+                   && near(data.vertexColorAt(1, 0), 0.0f),
+               "generic color access should decode RGBA8 channels")
+        && expect(
+               near(data.coverageAt(1), 128.0f / 255.0f),
+               "generic coverage access should decode normalized 8-bit values");
 }
 
 bool testDifferingStateDoesNotMerge()
