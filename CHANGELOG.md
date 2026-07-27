@@ -15,6 +15,8 @@ For releases and downloadable artifacts, see the
   image-filter benchmark.
 - Added dense mixed-geometry and multilingual text stress scenes to the unified
   performance suite.
+- Added a machine-readable cross-library benchmark contract, fixed-font Latin
+  scene, adapter runner, pixel-quality gates, and self-calibration tests.
 
 ### Changed
 - Changed the unified performance suite default resolution from 960 x 540 to
@@ -38,6 +40,9 @@ For releases and downloadable artifacts, see the
   resulting backend draw-call count instead of the pre-merge command count.
 - Accelerated Software rendering with an axis-aligned textured-quad scan path
   and a uniform-interior triangle path that skips unused barycentric work.
+- Batched compatible OpenGL path geometry across affine transforms with bounded
+  vertex chunks, and batched Vulkan textured quads with packed per-vertex tint
+  plus per-frame descriptor-set reuse.
 
 ## [0.1.16] - 2026-07-25
 

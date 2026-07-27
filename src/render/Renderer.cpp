@@ -18,6 +18,7 @@
 
 namespace {
 constexpr float kMergeEpsilon = 0.001f;
+constexpr std::size_t kMaxPathBatchVertices = 32768u;
 
 bool nearlyEqual(float lhs, float rhs)
 {
@@ -422,6 +423,7 @@ void Renderer::flush()
         const auto &first = pathCmd->data();
 
         std::size_t j = i + 1;
+        std::size_t batchVertexCount = first.getPointCount();
         while (j < commands_.size()) {
             if (commands_[j]->type() != Command::Type::Path) {
                 break;
@@ -432,6 +434,12 @@ void Renderer::flush()
             if (!wsc::render::canBatchPathData(first, next)) {
                 break;
             }
+            const std::size_t nextVertexCount = next.getPointCount();
+            if (batchVertexCount + nextVertexCount
+                    > kMaxPathBatchVertices) {
+                break;
+            }
+            batchVertexCount += nextVertexCount;
             ++j;
         }
 
@@ -439,11 +447,14 @@ void Renderer::flush()
             std::size_t totalVertices = 0;
             bool needsVertexColors = first.hasVertexColors();
             bool needsCoverage = first.hasCoverage();
+            bool flattenTransforms = false;
             for (std::size_t m = i; m < j; ++m) {
                 const auto &next =
                     static_cast<DrawPathCommand *>(
                         commands_[m].get())->data();
                 totalVertices += next.getPointCount();
+                flattenTransforms =
+                    flattenTransforms || next.transform != first.transform;
                 needsVertexColors =
                     needsVertexColors || next.hasVertexColors();
                 needsCoverage = needsCoverage || next.hasCoverage();
@@ -458,6 +469,10 @@ void Renderer::flush()
             merged.points.clear();
             merged.colors.clear();
             merged.coverage.clear();
+            merged.vertexColorsLinear = needsVertexColors;
+            if (flattenTransforms) {
+                merged.transform = glm::mat4(1.0f);
+            }
             merged.points.reserve(totalVertices * 2u);
             if (needsVertexColors) {
                 merged.colors.reserve(totalVertices * 4u);
@@ -471,21 +486,50 @@ void Renderer::flush()
                     static_cast<DrawPathCommand *>(
                         commands_[m].get())->data();
                 const std::size_t vertexCount = next.getPointCount();
-                merged.points.insert(
-                    merged.points.end(), next.points.begin(),
-                    next.points.end());
+                if (flattenTransforms) {
+                    for (std::size_t vertex = 0;
+                         vertex < vertexCount; ++vertex) {
+                        const glm::vec4 transformed =
+                            next.transform
+                            * glm::vec4(
+                                next.points[vertex * 2u],
+                                next.points[vertex * 2u + 1u],
+                                0.0f, 1.0f);
+                        merged.points.push_back(transformed.x);
+                        merged.points.push_back(transformed.y);
+                    }
+                } else {
+                    merged.points.insert(
+                        merged.points.end(), next.points.begin(),
+                        next.points.end());
+                }
                 if (needsVertexColors) {
                     if (next.hasVertexColors()) {
+                        const std::size_t colorStart =
+                            merged.colors.size();
                         merged.colors.insert(
                             merged.colors.end(), next.colors.begin(),
                             next.colors.end());
+                        if (!next.vertexColorsLinear) {
+                            for (std::size_t color = colorStart;
+                                 color + 3u < merged.colors.size();
+                                 color += 4u) {
+                                GammaCorrect::srgbToLinear4(
+                                    merged.colors.data() + color);
+                            }
+                        }
                     } else {
+                        float linearColor[4] = {
+                            next.color[0], next.color[1],
+                            next.color[2], next.color[3]
+                        };
+                        GammaCorrect::srgbToLinear4(linearColor);
                         for (std::size_t vertex = 0;
                              vertex < vertexCount; ++vertex) {
                             merged.colors.insert(
                                 merged.colors.end(),
-                                std::begin(next.color),
-                                std::end(next.color));
+                                std::begin(linearColor),
+                                std::end(linearColor));
                         }
                     }
                 }

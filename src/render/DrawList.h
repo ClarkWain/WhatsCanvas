@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <vector>
 
 #include "RenderTypes.h"
@@ -47,10 +48,12 @@ struct DrawPrimitive
     /// SolidTriangles / ClipFill: RGBA fill color in [0,1].
     float color[4] = {1.0f, 1.0f, 1.0f, 1.0f};
 
-    /// SolidTriangles: optional per-vertex RGBA colors (4 floats per vertex,
-    /// matching the vertex count implied by `positions`). When present, they
-    /// override the uniform `color` and are fragment-interpolated.
+    /// SolidTriangles: optional per-vertex RGBA colors overriding `color`.
     std::vector<float> colors;
+
+    /// TexturedQuad: optional packed RGBA8_UNORM tint multiplied with `tint`.
+    /// Packing keeps a batched textured vertex at 20 bytes instead of 32.
+    std::vector<std::uint32_t> packedTints;
 
     /// SolidTriangles: optional per-vertex analytic-AA coverage in [0,1] (1 per
     /// vertex). When present, it modulates the fill alpha (edge feathering).

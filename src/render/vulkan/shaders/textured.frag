@@ -4,6 +4,7 @@
 // optional tint, 4x4 color matrix (+ offset), and a layer-alpha multiplier.
 
 layout(location = 0) in vec2 vUV;
+layout(location = 1) in vec4 vTint;
 
 layout(location = 0) out vec4 outColor;
 
@@ -44,7 +45,8 @@ void main()
     {
         sampled.rgb /= sampled.a;
     }
-    vec4 c = vec4(sampled.rgb * pc.tint.rgb, sampled.a * pc.tint.a);
+    vec4 tint = pc.tint * vTint;
+    vec4 c = vec4(sampled.rgb * tint.rgb, sampled.a * tint.a);
     if (pc.useColorMatrix != 0)
     {
         c = pc.colorMatrix * c + pc.colorOffset;

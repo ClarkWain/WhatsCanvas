@@ -74,6 +74,7 @@ struct DrawPathData {
     int gradientStopCount = 0;
     float gradientStopPositions[kMaxGradientStops] = {};
     float gradientStopColors[kMaxGradientStops * 4] = {};
+    bool vertexColorsLinear = false; // OpenGL upload can skip repeated conversion
     size_t getPointCount() const { return points.size() / 2; }
     bool hasVertexColors() const { return colors.size() == getPointCount() * 4; }
     bool hasCoverage() const { return coverage.size() == getPointCount(); }
