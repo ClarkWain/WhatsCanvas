@@ -74,6 +74,7 @@ SCENE_ORDER = {
             "text_cached",
             "text_churn",
             "text_stress",
+            "contract_text_latin",
             "frosted_glass",
             "inner_shadow",
         )

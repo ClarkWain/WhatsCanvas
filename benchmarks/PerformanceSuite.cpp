@@ -57,6 +57,10 @@
 #define WHATSCANVAS_PERF_VERSION "unknown"
 #endif
 
+#ifndef WHATSCANVAS_PERF_CONTRACT_FONT
+#define WHATSCANVAS_PERF_CONTRACT_FONT ""
+#endif
+
 namespace {
 
 using Clock = std::chrono::steady_clock;
@@ -112,6 +116,7 @@ struct ProcessMemory
 struct SceneResources
 {
     wsc::Image image;
+    bool contractFontReady = false;
 };
 
 using DrawScene = void (*)(
@@ -1154,6 +1159,48 @@ void drawTextStress(
     }
 }
 
+void drawContractTextLatin(
+    wsc::Canvas &canvas, SceneResources &resources,
+    int width, int height, int)
+{
+    canvas.drawColor(wsc::Color(247, 248, 251, 255));
+    if (!resources.contractFontReady) {
+        return;
+    }
+    constexpr int columns = 8;
+    constexpr int rows = 72;
+    static const std::array<std::string, 6> samples = {{
+        "Canvas rendering Aa 123",
+        "OpenType shaping AV fi",
+        "Glyph atlas 0123456789",
+        "Vector paths and images",
+        "Quick brown fox 24680",
+        "Reusable 2D render batch",
+    }};
+    const float columnWidth = static_cast<float>(width) / columns;
+    const float rowHeight = static_cast<float>(height) / rows;
+    const float textSize =
+        std::clamp(rowHeight * 0.76f, 10.0f, 18.0f);
+    for (int row = 0; row < rows; ++row) {
+        for (int column = 0; column < columns; ++column) {
+            const int index = row * columns + column;
+            wsc::Paint paint;
+            paint.setColor(wsc::Color(
+                18 + (index * 13) % 82,
+                28 + (index * 17) % 92,
+                42 + (index * 19) % 108, 255));
+            paint.setTextSize(textSize);
+            paint.setFontFamily("CrossLibraryRoboto");
+            canvas.drawText(
+                samples[static_cast<std::size_t>(index)
+                        % samples.size()],
+                column * columnWidth + 4.0f,
+                (row + 0.82f) * rowHeight,
+                paint);
+        }
+    }
+}
+
 void drawFilterBackground(wsc::Canvas &canvas, int width, int height)
 {
     wsc::Paint gradient;
@@ -1250,9 +1297,9 @@ void drawInnerShadow(
     }
 }
 
-const std::array<Scene, 13> &scenes()
+const std::array<Scene, 14> &scenes()
 {
-    static const std::array<Scene, 13> value = {{
+    static const std::array<Scene, 14> value = {{
         {"solid_rects", "raster", "churn", 576, drawSolidRects},
         {"rounded_ui", "raster", "churn", 120, drawRoundedUi},
         {"path_cached", "path", "hot", 160, drawPathCached},
@@ -1264,6 +1311,7 @@ const std::array<Scene, 13> &scenes()
         {"text_cached", "text", "hot", 120, drawTextCached},
         {"text_churn", "text", "churn", 120, drawTextChurn},
         {"text_stress", "text", "hot", 576, drawTextStress},
+        {"contract_text_latin", "text", "hot", 576, drawContractTextLatin},
         {"frosted_glass", "filter", "hot", 4, drawFrostedGlass},
         {"inner_shadow", "filter", "hot", 24, drawInnerShadow},
     }};
@@ -1350,7 +1398,8 @@ FrameTimings renderFrame(
 }
 
 bool initializeResources(
-    wsc::Canvas &canvas, SceneResources &resources, std::string &error)
+    wsc::Canvas &canvas, SceneResources &resources, const Options &options,
+    std::string &error)
 {
     constexpr int imageWidth = 128;
     constexpr int imageHeight = 128;
@@ -1376,6 +1425,21 @@ bool initializeResources(
         error = "failed to create benchmark image";
         return false;
     }
+    if (sceneSelected(options.sceneFilter, "contract_text_latin")) {
+        const std::filesystem::path contractFont =
+            WHATSCANVAS_PERF_CONTRACT_FONT;
+        if (std::filesystem::is_regular_file(contractFont)) {
+            resources.contractFontReady = canvas.registerFontFace(
+                wsc::FontFace::fromFile(
+                    wsc::FontDescriptor("CrossLibraryRoboto"),
+                    contractFont.string()));
+        }
+        if (!resources.contractFontReady) {
+            error = "failed to register cross-library contract font: "
+                + contractFont.string();
+            return false;
+        }
+    }
     return true;
 }
 
@@ -1388,6 +1452,11 @@ std::string metadataJson(
     json << std::fixed << std::setprecision(6)
          << "{\"type\":\"metadata\",\"schema\":" << kSchemaVersion
          << ",\"suite\":\"WhatsCanvasPerformanceSuite\""
+         << ",\"library\":\"WhatsCanvas\""
+         << ",\"library_version\":\""
+         << jsonEscape(WHATSCANVAS_PERF_VERSION) << "\""
+         << ",\"synchronization\":\"gpu_complete\""
+         << ",\"cross_library_contract\":\"1.0.0\""
          << ",\"version\":\"" << jsonEscape(WHATSCANVAS_PERF_VERSION) << "\""
          << ",\"commit\":\""
          << jsonEscape(environmentValue("WHATSCANVAS_PERF_COMMIT")) << "\""
@@ -1589,7 +1658,8 @@ int main(int argc, char **argv)
             return 4;
         }
         SceneResources resources;
-        if (!initializeResources(context.canvas(), resources, error)) {
+        if (!initializeResources(
+                context.canvas(), resources, options, error)) {
             std::cerr << "PERF_ERROR backend=" << backendName(options.backend)
                       << " message=\"" << error << "\"\n";
             return 5;

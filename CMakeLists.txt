@@ -1327,6 +1327,7 @@ if (WHATSCANVAS_BUILD_BENCHMARKS AND TARGET WhatsCanvasOpenGL)
     target_compile_definitions(WhatsCanvasPerformanceSuite PRIVATE
         WHATSCANVAS_PERF_BUILD_TYPE="$<CONFIG>"
         WHATSCANVAS_PERF_VERSION="${PROJECT_VERSION}"
+        WHATSCANVAS_PERF_CONTRACT_FONT="${CMAKE_CURRENT_SOURCE_DIR}/third_party/harfbuzz/perf/fonts/Roboto-Regular.ttf"
     )
     if (WHATSCANVAS_VULKAN_BACKEND_ENABLED)
         target_compile_definitions(WhatsCanvasPerformanceSuite PRIVATE
@@ -1363,6 +1364,7 @@ elseif (WHATSCANVAS_BUILD_BENCHMARKS AND TARGET WhatsCanvasSoftware)
         WHATSCANVAS_PERF_DISABLE_OPENGL
         WHATSCANVAS_PERF_BUILD_TYPE="$<CONFIG>"
         WHATSCANVAS_PERF_VERSION="${PROJECT_VERSION}"
+        WHATSCANVAS_PERF_CONTRACT_FONT="${CMAKE_CURRENT_SOURCE_DIR}/third_party/harfbuzz/perf/fonts/Roboto-Regular.ttf"
     )
     if (WIN32)
         target_link_libraries(WhatsCanvasPerformanceSuite PRIVATE psapi)
@@ -1382,6 +1384,17 @@ if (BUILD_TESTING AND TARGET WhatsCanvasPerformanceSuite)
     set_tests_properties(WhatsCanvasPerformanceSuiteSmoke PROPERTIES
         LABELS "smoke;benchmark;software"
         TIMEOUT 120
+    )
+endif()
+
+if (BUILD_TESTING AND Python3_Interpreter_FOUND)
+    add_test(NAME WhatsCanvasCrossLibraryBenchmarkTests
+        COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/CrossLibraryBenchmarkTests.py"
+    )
+    set_tests_properties(WhatsCanvasCrossLibraryBenchmarkTests PROPERTIES
+        LABELS "unit;benchmark;adapter"
+        TIMEOUT 30
     )
 endif()
 

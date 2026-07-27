@@ -244,6 +244,12 @@ int main()
                 std::cerr << "[VulkanTextTests] FAIL: glyph atlas executeCommands returned false." << std::endl;
                 return 1;
             }
+            if (device.lastExecutionDrawCallCount() != 1u) {
+                std::cerr
+                    << "[VulkanTextTests] FAIL: compatible glyph quads were not texture-batched."
+                    << std::endl;
+                return 1;
+            }
             std::vector<unsigned char> px;
             if (!device.readPixelsRGBA(width, height, px)) {
                 return 1;
@@ -306,6 +312,12 @@ int main()
             }
             if (!device.executeCommands(dirtyTarget, dirtyCommands, request)) {
                 std::cerr << "[VulkanTextTests] FAIL: dirty glyph atlas executeCommands returned false." << std::endl;
+                return 1;
+            }
+            if (device.lastExecutionDrawCallCount() != 1u) {
+                std::cerr
+                    << "[VulkanTextTests] FAIL: updated glyph quads were not texture-batched."
+                    << std::endl;
                 return 1;
             }
             if (!device.readPixelsRGBA(width, height, px) || !hasVisiblePixel(px)) {

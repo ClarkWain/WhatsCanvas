@@ -97,6 +97,20 @@ the measured comparison changed 0.001543% of pixels with maximum channel delta
 1 and mean channel delta 0.000005. Text output converges to the same validation
 hash across Software, OpenGL, and Vulkan.
 
+The subsequent batching pass reduced OpenGL `geometry_stress` from 2,305 GPU
+draws to 9 by flattening compatible 2D affine transforms into bounded
+per-vertex batches. Standard medians observed during the pass ranged from
+19.777 ms to 25.565 ms, with the previous 24.759 ms result inside that range,
+so the draw-count reduction is verified but no stable frame-time improvement
+is claimed. The pixel hash remained `44121eb5a074425f`.
+
+Vulkan now combines compatible atlas/image quads using packed RGBA8 per-vertex
+tints and reuses identical sampled-image descriptor sets within a frame.
+`text_stress` fell from 577 GPU draws to 194 while retaining pixel hash
+`6554c1da7b50ade0`. Its final serial standard median was 16.320 ms versus the
+previous 16.134 ms, a 1.2% difference within run variability; this is likewise
+a structural batching improvement, not a timing-speedup claim.
+
 ## Standard scene matrix
 
 The default resolution is 1920 x 1080. Every scene is deterministic and
@@ -117,6 +131,7 @@ matches a widely deployed desktop display workload while `--width` and
 | `text_cached` | Repeated shaped text and glyph-atlas reuse | hot | 120 |
 | `text_churn` | Changing text content and glyph lookup pressure | churn | 120 |
 | `text_stress` | 576 multilingual text calls, expanding to roughly 8,000 cached glyph commands | hot | 576 |
+| `contract_text_latin` | 576 fixed Roboto Latin calls for cross-library comparison | hot | 576 |
 | `frosted_glass` | Backdrop capture, blur, and layer composition | hot | 4 |
 | `inner_shadow` | Filtered controls with inner shadows | hot | 24 |
 
@@ -241,10 +256,18 @@ python3 scripts/compare_performance.py \
 
 ## Cross-library comparisons
 
-The JSONL schema is intentionally simple enough for an adapter implemented with
-another 2D library. A fair adapter must render the same scene at the same
-resolution with equivalent anti-aliasing, clipping, blending, text, filtering,
-and synchronization. It must publish:
+The executable
+[`cross_library_benchmark.py`](../scripts/cross_library_benchmark.py) runner and
+machine-readable
+[`contract.json`](../benchmarks/cross_library/contract.json) quality-gate
+external adapters before comparing synchronized complete-frame timing. See the
+[cross-library benchmark contract](CROSS_LIBRARY_BENCHMARKS.md) for the adapter
+CLI, fixed assets, required JSONL metadata, quality thresholds, and publication
+rules.
+
+A fair adapter must render the same scene at the same resolution with
+equivalent anti-aliasing, clipping, blending, text, sampling, and
+synchronization. It must publish:
 
 - adapter source and exact dependency revisions;
 - optimized compiler flags and backend/device metadata;
