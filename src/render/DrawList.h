@@ -56,7 +56,8 @@ struct DrawPrimitive
     std::vector<float> colors;
 
     /// TexturedQuad: optional packed RGBA8_UNORM tint multiplied with `tint`.
-    /// Packing keeps a batched textured vertex at 20 bytes instead of 32.
+    /// Packing keeps color data compact while allowing adjacent quads with
+    /// different tint/alpha values to share one backend draw.
     std::vector<std::uint32_t> packedTints;
 
     /// SolidTriangles: optional per-vertex analytic-AA coverage in [0,1] (1 per

@@ -223,6 +223,36 @@ struct VulkanRenderDevice::VulkanContext
     VkDeviceSize drawGradientUniformCapacity = 0;
     VkDescriptorPool drawDescriptorPool = VK_NULL_HANDLE;
     std::uint32_t drawDescriptorCapacity = 0;
+
+    // Main draw submissions rotate through three independently fenced slots.
+    // Command buffers and host-coherent upload buffers stay allocated and
+    // mapped across frames; a slot is only rewritten after its fence signals.
+    static constexpr std::size_t kDrawFramesInFlight = 3;
+    struct DrawFrameResources
+    {
+        VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
+        VkFence fence = VK_NULL_HANDLE;
+        bool submitted = false;
+        VkBuffer vertexBuffer = VK_NULL_HANDLE;
+        VkDeviceMemory vertexMemory = VK_NULL_HANDLE;
+        void *vertexMapping = nullptr;
+        VkDeviceSize vertexCapacity = 0;
+        VkBuffer indexBuffer = VK_NULL_HANDLE;
+        VkDeviceMemory indexMemory = VK_NULL_HANDLE;
+        void *indexMapping = nullptr;
+        VkDeviceSize indexCapacity = 0;
+        VkBuffer gradientUniformBuffer = VK_NULL_HANDLE;
+        VkDeviceMemory gradientUniformMemory = VK_NULL_HANDLE;
+        void *gradientUniformMapping = nullptr;
+        VkDeviceSize gradientUniformCapacity = 0;
+        VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
+        std::uint32_t descriptorCapacity = 0;
+        std::vector<SharedImageResource> retainedImages;
+    };
+    mutable std::array<DrawFrameResources, kDrawFramesInFlight>
+        drawFrames{};
+    mutable std::size_t nextDrawFrame = 0;
+    mutable std::size_t lastDrawFrame = kDrawFramesInFlight;
     mutable std::unordered_map<const ClipMaskResource *, CachedClipMask>
         clipMaskCache;
     mutable std::uint64_t clipMaskUseSerial = 0;
@@ -702,6 +732,9 @@ struct VulkanRenderDevice::VulkanContext
             // Queue ordering guarantees that every earlier asynchronous filter
             // submission has completed when this fence signals.
             filterJobCursor = 0;
+            for (DrawFrameResources &frame : drawFrames) {
+                frame.submitted = false;
+            }
         } else {
             WSC_LOG_ERROR(
                 "VulkanRenderDevice",
@@ -1082,6 +1115,225 @@ struct VulkanRenderDevice::VulkanContext
         return drawDescriptorPool;
     }
 
+    VkDescriptorPool prepareFrameDescriptorPool(
+        DrawFrameResources &frame, std::uint32_t requiredSets)
+    {
+        if (requiredSets == 0) {
+            return VK_NULL_HANDLE;
+        }
+        if (frame.descriptorPool == VK_NULL_HANDLE
+            || frame.descriptorCapacity < requiredSets) {
+            if (frame.descriptorPool != VK_NULL_HANDLE) {
+                vkDestroyDescriptorPool(
+                    device, frame.descriptorPool, nullptr);
+                frame.descriptorPool = VK_NULL_HANDLE;
+            }
+            std::uint32_t capacity = 64;
+            while (capacity < requiredSets
+                   && capacity
+                       <= std::numeric_limits<std::uint32_t>::max()
+                           / 2u) {
+                capacity *= 2u;
+            }
+            capacity = std::max(capacity, requiredSets);
+            std::array<VkDescriptorPoolSize, 2> poolSizes{};
+            poolSizes[0] = {
+                VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                capacity * 2u};
+            poolSizes[1] = {
+                VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, capacity};
+            VkDescriptorPoolCreateInfo poolInfo{};
+            poolInfo.sType =
+                VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+            poolInfo.maxSets = capacity;
+            poolInfo.poolSizeCount =
+                static_cast<std::uint32_t>(poolSizes.size());
+            poolInfo.pPoolSizes = poolSizes.data();
+            if (vkCreateDescriptorPool(
+                    device, &poolInfo, nullptr,
+                    &frame.descriptorPool) != VK_SUCCESS) {
+                frame.descriptorPool = VK_NULL_HANDLE;
+                frame.descriptorCapacity = 0;
+                return VK_NULL_HANDLE;
+            }
+            frame.descriptorCapacity = capacity;
+        } else if (vkResetDescriptorPool(
+                       device, frame.descriptorPool, 0)
+                   != VK_SUCCESS) {
+            return VK_NULL_HANDLE;
+        }
+        return frame.descriptorPool;
+    }
+
+    std::optional<std::size_t> acquireDrawFrame(
+        VkDeviceSize vertexBytes, VkDeviceSize indexBytes,
+        std::size_t gradientCount, std::uint32_t descriptorSets)
+    {
+        const auto reclaimIfComplete =
+            [&](std::size_t frameIndex) {
+                DrawFrameResources &candidate =
+                    drawFrames[frameIndex];
+                if (!candidate.submitted) {
+                    return true;
+                }
+                if (candidate.fence != VK_NULL_HANDLE
+                    && vkGetFenceStatus(device, candidate.fence)
+                        == VK_SUCCESS) {
+                    candidate.submitted = false;
+                    return true;
+                }
+                return false;
+            };
+
+        std::size_t frameIndex = kDrawFramesInFlight;
+        if (lastDrawFrame < kDrawFramesInFlight
+            && reclaimIfComplete(lastDrawFrame)) {
+            frameIndex = lastDrawFrame;
+        } else {
+            for (std::size_t offset = 0;
+                 offset < kDrawFramesInFlight; ++offset) {
+                const std::size_t candidate =
+                    (nextDrawFrame + offset)
+                    % kDrawFramesInFlight;
+                if (reclaimIfComplete(candidate)) {
+                    frameIndex = candidate;
+                    break;
+                }
+            }
+        }
+        if (frameIndex == kDrawFramesInFlight) {
+            frameIndex = nextDrawFrame % kDrawFramesInFlight;
+        }
+        nextDrawFrame =
+            (frameIndex + 1u) % kDrawFramesInFlight;
+        DrawFrameResources &frame = drawFrames[frameIndex];
+        if (frame.submitted) {
+            if (frame.fence == VK_NULL_HANDLE
+                || vkWaitForFences(
+                       device, 1, &frame.fence, VK_TRUE, UINT64_MAX)
+                       != VK_SUCCESS) {
+                return std::nullopt;
+            }
+            frame.submitted = false;
+        }
+        if (!ensureMappedBuffer(
+                vertexBytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                frame.vertexBuffer, frame.vertexMemory,
+                frame.vertexMapping, frame.vertexCapacity)
+            || !ensureMappedBuffer(
+                indexBytes, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+                frame.indexBuffer, frame.indexMemory,
+                frame.indexMapping, frame.indexCapacity)) {
+            return std::nullopt;
+        }
+        const VkDeviceSize gradientBytes =
+            gradientUniformStride()
+            * static_cast<VkDeviceSize>(gradientCount);
+        if (!ensureMappedBuffer(
+                gradientBytes, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                frame.gradientUniformBuffer,
+                frame.gradientUniformMemory,
+                frame.gradientUniformMapping,
+                frame.gradientUniformCapacity)) {
+            return std::nullopt;
+        }
+        if (descriptorSets > 0
+            && prepareFrameDescriptorPool(frame, descriptorSets)
+                == VK_NULL_HANDLE) {
+            return std::nullopt;
+        }
+        return frameIndex;
+    }
+
+    VkCommandBuffer beginDrawFrameCommands(std::size_t frameIndex)
+    {
+        if (frameIndex >= kDrawFramesInFlight) {
+            return VK_NULL_HANDLE;
+        }
+        DrawFrameResources &frame = drawFrames[frameIndex];
+        if (frame.commandBuffer == VK_NULL_HANDLE) {
+            VkCommandBufferAllocateInfo allocation{};
+            allocation.sType =
+                VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+            allocation.commandPool = commandPool;
+            allocation.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            allocation.commandBufferCount = 1;
+            if (vkAllocateCommandBuffers(
+                    device, &allocation, &frame.commandBuffer)
+                != VK_SUCCESS) {
+                frame.commandBuffer = VK_NULL_HANDLE;
+                return VK_NULL_HANDLE;
+            }
+        }
+        if (vkResetCommandBuffer(frame.commandBuffer, 0)
+            != VK_SUCCESS) {
+            return VK_NULL_HANDLE;
+        }
+        VkCommandBufferBeginInfo begin{};
+        begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        if (vkBeginCommandBuffer(frame.commandBuffer, &begin)
+            != VK_SUCCESS) {
+            return VK_NULL_HANDLE;
+        }
+        return frame.commandBuffer;
+    }
+
+    bool submitDrawFrame(std::size_t frameIndex)
+    {
+        if (frameIndex >= kDrawFramesInFlight) {
+            return false;
+        }
+        DrawFrameResources &frame = drawFrames[frameIndex];
+        if (frame.commandBuffer == VK_NULL_HANDLE
+            || vkEndCommandBuffer(frame.commandBuffer) != VK_SUCCESS) {
+            return false;
+        }
+        if (frame.fence == VK_NULL_HANDLE) {
+            VkFenceCreateInfo fenceInfo{};
+            fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+            if (vkCreateFence(
+                    device, &fenceInfo, nullptr, &frame.fence)
+                != VK_SUCCESS) {
+                frame.fence = VK_NULL_HANDLE;
+                return false;
+            }
+        }
+        if (vkResetFences(device, 1, &frame.fence) != VK_SUCCESS) {
+            return false;
+        }
+        VkSubmitInfo submit{};
+        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submit.commandBufferCount = 1;
+        submit.pCommandBuffers = &frame.commandBuffer;
+        if (vkQueueSubmit(
+                graphicsQueue, 1, &submit, frame.fence)
+            != VK_SUCCESS) {
+            return false;
+        }
+        frame.submitted = true;
+        lastDrawFrame = frameIndex;
+        return true;
+    }
+
+    bool waitForDrawFrames() const
+    {
+        for (DrawFrameResources &frame : drawFrames) {
+            if (!frame.submitted) {
+                continue;
+            }
+            if (frame.fence == VK_NULL_HANDLE
+                || vkWaitForFences(
+                       device, 1, &frame.fence, VK_TRUE, UINT64_MAX)
+                       != VK_SUCCESS) {
+                return false;
+            }
+            frame.submitted = false;
+        }
+        filterJobCursor = 0;
+        return true;
+    }
+
     void destroyDrawResources()
     {
         if (device == VK_NULL_HANDLE) {
@@ -1101,6 +1353,33 @@ struct VulkanRenderDevice::VulkanContext
             drawDescriptorPool = VK_NULL_HANDLE;
         }
         drawDescriptorCapacity = 0;
+        for (DrawFrameResources &frame : drawFrames) {
+            destroyMappedBuffer(
+                frame.vertexBuffer, frame.vertexMemory,
+                frame.vertexMapping, frame.vertexCapacity);
+            destroyMappedBuffer(
+                frame.indexBuffer, frame.indexMemory,
+                frame.indexMapping, frame.indexCapacity);
+            destroyMappedBuffer(
+                frame.gradientUniformBuffer,
+                frame.gradientUniformMemory,
+                frame.gradientUniformMapping,
+                frame.gradientUniformCapacity);
+            if (frame.descriptorPool != VK_NULL_HANDLE) {
+                vkDestroyDescriptorPool(
+                    device, frame.descriptorPool, nullptr);
+                frame.descriptorPool = VK_NULL_HANDLE;
+            }
+            if (frame.fence != VK_NULL_HANDLE) {
+                vkDestroyFence(device, frame.fence, nullptr);
+                frame.fence = VK_NULL_HANDLE;
+            }
+            frame.descriptorCapacity = 0;
+            frame.submitted = false;
+            frame.retainedImages.clear();
+        }
+        nextDrawFrame = 0;
+        lastDrawFrame = kDrawFramesInFlight;
     }
 
     void copyBufferToImage(VkCommandBuffer cmd, VkBuffer buffer, VkImage image, int x, int y, int width,
@@ -1226,7 +1505,6 @@ struct VulkanRenderDevice::VulkanContext
         attrs[2].binding = 0;
         attrs[2].format = VK_FORMAT_R8G8B8A8_UNORM;
         attrs[2].offset = 4 * sizeof(float);
-
         VkPipelineVertexInputStateCreateInfo vertexInput{};
         vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
         vertexInput.vertexBindingDescriptionCount = 1;
@@ -1700,18 +1978,6 @@ bool sameFloatArray(
     return std::equal(left, left + count, right);
 }
 
-std::uint32_t packRgba8(const float *color)
-{
-    auto channel = [](float value) {
-        return static_cast<std::uint32_t>(
-            std::lround(std::clamp(value, 0.0f, 1.0f) * 255.0f));
-    };
-    return channel(color[0])
-        | (channel(color[1]) << 8u)
-        | (channel(color[2]) << 16u)
-        | (channel(color[3]) << 24u);
-}
-
 float packedRgba8AsFloat(std::uint32_t packed)
 {
     float storage = 0.0f;
@@ -1732,6 +1998,21 @@ void appendTexturedVertex(
     vertices.push_back(packedRgba8AsFloat(packedTint));
 }
 
+std::uint32_t effectivePackedTint(
+    std::uint32_t packed, const float *uniformTint, float layerAlpha)
+{
+    auto combine = [&](std::uint32_t shift, float multiplier) {
+        const float channel =
+            static_cast<float>((packed >> shift) & 0xffu) / 255.0f;
+        return static_cast<std::uint32_t>(std::lround(
+            std::clamp(channel * multiplier, 0.0f, 1.0f) * 255.0f));
+    };
+    return combine(0u, uniformTint[0])
+        | (combine(8u, uniformTint[1]) << 8u)
+        | (combine(16u, uniformTint[2]) << 16u)
+        | (combine(24u, uniformTint[3] * layerAlpha) << 24u);
+}
+
 bool canBatchTexturedPrimitives(
     const wsc::DrawPrimitive &left,
     const wsc::DrawPrimitive &right)
@@ -1749,12 +2030,13 @@ bool canBatchTexturedPrimitives(
         || left.scissorY != right.scissorY
         || left.scissorWidth != right.scissorWidth
         || left.scissorHeight != right.scissorHeight
-        || left.layerAlpha != right.layerAlpha
         || left.roundedRadius != right.roundedRadius
         || left.sampling != right.sampling
         || left.tileMode != right.tileMode
         || left.useCustomSampler != right.useCustomSampler
-        || left.hasColorMatrix != right.hasColorMatrix) {
+        || left.hasColorMatrix != right.hasColorMatrix
+        || (left.hasColorMatrix
+            && left.layerAlpha != right.layerAlpha)) {
         return false;
     }
     if (left.roundedRadius > 0.0f
@@ -1777,17 +2059,93 @@ bool canBatchTexturedPrimitives(
                 left.clipUvOffset, right.clipUvOffset, 2u));
 }
 
+bool drawPrimitivesOverlap(
+    const wsc::DrawPrimitive &left,
+    const wsc::DrawPrimitive &right)
+{
+    if (left.positions.size() < 6u || right.positions.size() < 6u
+        || (left.positions.size() % 6u) != 0u
+        || (right.positions.size() % 6u) != 0u) {
+        return true;
+    }
+    constexpr float epsilon = 1e-6f;
+    for (std::size_t leftVertex = 0;
+         leftVertex < left.positions.size() / 2u;
+         leftVertex += 3u) {
+        float leftMinX = left.positions[leftVertex * 2u];
+        float leftMaxX = leftMinX;
+        float leftMinY = left.positions[leftVertex * 2u + 1u];
+        float leftMaxY = leftMinY;
+        for (std::size_t vertex = 1; vertex < 3u; ++vertex) {
+            const float x =
+                left.positions[(leftVertex + vertex) * 2u];
+            const float y =
+                left.positions[(leftVertex + vertex) * 2u + 1u];
+            leftMinX = std::min(leftMinX, x);
+            leftMaxX = std::max(leftMaxX, x);
+            leftMinY = std::min(leftMinY, y);
+            leftMaxY = std::max(leftMaxY, y);
+        }
+        for (std::size_t rightVertex = 0;
+             rightVertex < right.positions.size() / 2u;
+             rightVertex += 3u) {
+            float rightMinX = right.positions[rightVertex * 2u];
+            float rightMaxX = rightMinX;
+            float rightMinY =
+                right.positions[rightVertex * 2u + 1u];
+            float rightMaxY = rightMinY;
+            for (std::size_t vertex = 1; vertex < 3u; ++vertex) {
+                const float x =
+                    right.positions[
+                        (rightVertex + vertex) * 2u];
+                const float y =
+                    right.positions[
+                        (rightVertex + vertex) * 2u + 1u];
+                rightMinX = std::min(rightMinX, x);
+                rightMaxX = std::max(rightMaxX, x);
+                rightMinY = std::min(rightMinY, y);
+                rightMaxY = std::max(rightMaxY, y);
+            }
+            if (leftMaxX > rightMinX + epsilon
+                && rightMaxX > leftMinX + epsilon
+                && leftMaxY > rightMinY + epsilon
+                && rightMaxY > leftMinY + epsilon) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 void appendTexturedBatch(
     wsc::DrawList &list, wsc::DrawPrimitive primitive)
 {
-    if (list.empty()
-        || !canBatchTexturedPrimitives(
-            list.back(), primitive)) {
+    std::size_t batchIndex = list.size();
+    for (std::size_t index = list.size(); index > 0u; --index) {
+        wsc::DrawPrimitive &candidate = list[index - 1u];
+        if (canBatchTexturedPrimitives(candidate, primitive)) {
+            batchIndex = index - 1u;
+            break;
+        }
+        // Cross-batch reordering is intended for individual image quads.
+        // Large atlas/image batches can contain thousands of triangles; use
+        // strict adjacent batching for them to keep command translation linear.
+        if (primitive.positions.size() > 12u) {
+            break;
+        }
+        // Moving this draw ahead of a non-overlapping primitive cannot change
+        // compositing. Stop at the first actual overlap to preserve painter's
+        // order for every potentially visible interaction.
+        if (drawPrimitivesOverlap(candidate, primitive)) {
+            break;
+        }
+    }
+    if (batchIndex == list.size()) {
         list.push_back(std::move(primitive));
         return;
     }
 
-    wsc::DrawPrimitive &batch = list.back();
+    wsc::DrawPrimitive &batch = list[batchIndex];
     const std::size_t batchVertexCount =
         batch.positions.size() / 2u;
     const std::size_t incomingVertexCount =
@@ -1795,36 +2153,63 @@ void appendTexturedBatch(
     const bool needsVertexTint =
         !batch.packedTints.empty()
         || !primitive.packedTints.empty()
-        || !sameFloatArray(batch.tint, primitive.tint, 4u);
+        || !sameFloatArray(batch.tint, primitive.tint, 4u)
+        || (!batch.hasColorMatrix
+            && batch.layerAlpha != primitive.layerAlpha);
     if (needsVertexTint) {
-        if (batch.packedTints.empty()) {
-            batch.packedTints.reserve(
-                batchVertexCount + incomingVertexCount);
-            const std::uint32_t packedBatchTint =
-                packRgba8(batch.tint);
-            for (std::size_t vertex = 0;
-                 vertex < batchVertexCount; ++vertex) {
-                batch.packedTints.push_back(packedBatchTint);
+        const bool batchHasPacked =
+            batch.packedTints.size() == batchVertexCount;
+        if (!batchHasPacked) {
+            batch.packedTints.assign(
+                batchVertexCount,
+                effectivePackedTint(
+                    0xffffffffu, batch.tint,
+                    batch.hasColorMatrix
+                        ? 1.0f : batch.layerAlpha));
+        }
+        const bool batchNeedsPromotion =
+            batchHasPacked
+            && (batch.tint[0] != 1.0f || batch.tint[1] != 1.0f
+                || batch.tint[2] != 1.0f
+                || batch.tint[3] != 1.0f
+                || (!batch.hasColorMatrix
+                    && batch.layerAlpha != 1.0f));
+        if (batchNeedsPromotion) {
+            for (std::uint32_t &packed : batch.packedTints) {
+                packed = effectivePackedTint(
+                    packed, batch.tint,
+                    batch.hasColorMatrix
+                        ? 1.0f : batch.layerAlpha);
             }
         }
-        if (primitive.packedTints.size()
-                == incomingVertexCount) {
+        batch.packedTints.reserve(
+            batchVertexCount + incomingVertexCount);
+        const bool incomingHasPacked =
+            primitive.packedTints.size() == incomingVertexCount;
+        if (incomingHasPacked) {
+            for (std::uint32_t packed : primitive.packedTints) {
+                batch.packedTints.push_back(effectivePackedTint(
+                    packed, primitive.tint,
+                    primitive.hasColorMatrix
+                        ? 1.0f : primitive.layerAlpha));
+            }
+        } else {
+            const std::uint32_t packed =
+                effectivePackedTint(
+                    0xffffffffu, primitive.tint,
+                    primitive.hasColorMatrix
+                        ? 1.0f : primitive.layerAlpha);
             batch.packedTints.insert(
                 batch.packedTints.end(),
-                primitive.packedTints.begin(),
-                primitive.packedTints.end());
-        } else {
-            const std::uint32_t packedPrimitiveTint =
-                packRgba8(primitive.tint);
-            for (std::size_t vertex = 0;
-                 vertex < incomingVertexCount; ++vertex) {
-                batch.packedTints.push_back(
-                    packedPrimitiveTint);
-            }
+                incomingVertexCount, packed);
         }
         std::fill(
             std::begin(batch.tint), std::end(batch.tint), 1.0f);
+        if (!batch.hasColorMatrix) {
+            batch.layerAlpha = 1.0f;
+        }
     }
+
     batch.positions.insert(
         batch.positions.end(),
         primitive.positions.begin(), primitive.positions.end());
@@ -2980,6 +3365,7 @@ void VulkanRenderDevice::finalizeBackend()
         if (context_->device != VK_NULL_HANDLE) {
             vkDeviceWaitIdle(context_->device);
         }
+        releaseAllDrawFrameTargets();
         releasePendingFilterTargets();
         if (renderTargetPool_) {
             renderTargetPool_->clear();
@@ -3012,6 +3398,46 @@ void VulkanRenderDevice::releasePendingFilterTargets() const
     pendingFilterTargets_.clear();
     pendingFilterImages_.clear();
     renderTargetPool_->expire();
+#endif
+}
+
+void VulkanRenderDevice::releaseDrawFrameTargets(
+    std::size_t frameIndex) const
+{
+#if defined(WHATSCANVAS_ENABLE_VULKAN)
+    if (frameIndex >= drawFrameTargets_.size()) {
+        return;
+    }
+    auto &targets = drawFrameTargets_[frameIndex];
+    for (std::unique_ptr<IRenderTarget> &target : targets) {
+        if (auto *vulkanTarget =
+                dynamic_cast<VulkanRenderTarget *>(target.get())) {
+            vulkanTarget->markSynchronized();
+        }
+        if (renderTargetPool_) {
+            renderTargetPool_->release(std::move(target));
+        }
+    }
+    targets.clear();
+    if (context_
+        && frameIndex < context_->drawFrames.size()) {
+        context_->drawFrames[frameIndex].retainedImages.clear();
+    }
+    if (renderTargetPool_) {
+        renderTargetPool_->expire();
+    }
+#else
+    (void)frameIndex;
+#endif
+}
+
+void VulkanRenderDevice::releaseAllDrawFrameTargets() const
+{
+#if defined(WHATSCANVAS_ENABLE_VULKAN)
+    for (std::size_t frameIndex = 0;
+         frameIndex < drawFrameTargets_.size(); ++frameIndex) {
+        releaseDrawFrameTargets(frameIndex);
+    }
 #endif
 }
 
@@ -3867,6 +4293,11 @@ bool VulkanRenderDevice::readPixelsRGBA(int width, int height, std::vector<unsig
         pixels.clear();
         return false;
     }
+    if (!context_->waitForDrawFrames()) {
+        pixels.clear();
+        return false;
+    }
+    releaseAllDrawFrameTargets();
 
     const VkDeviceSize bufferSize = static_cast<VkDeviceSize>(width) * static_cast<VkDeviceSize>(height) * 4u;
 
@@ -5018,13 +5449,23 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
 
     const std::uint32_t samplerSets = texturedCount + clipCount;
     const std::uint32_t totalSets = samplerSets + gradientCount;
-    VkDescriptorPool pool =
-        context_->prepareDrawDescriptorPool(totalSets);
-    if (totalSets > 0 && pool == VK_NULL_HANDLE) {
+    const VkDeviceSize reservedVertexBytes =
+        static_cast<VkDeviceSize>(vertexFloatBudget) * sizeof(float);
+    const VkDeviceSize reservedIndexBytes =
+        static_cast<VkDeviceSize>(indexBudget)
+        * sizeof(std::uint32_t);
+    const std::optional<std::size_t> acquiredFrame =
+        context_->acquireDrawFrame(
+            reservedVertexBytes, reservedIndexBytes,
+            gradientCount, totalSets);
+    if (!acquiredFrame.has_value()) {
         return false;
     }
-    if (gradientCount > 0
-        && !context_->ensureDrawGradientCapacity(gradientCount)) {
+    const std::size_t frameIndex = acquiredFrame.value();
+    releaseDrawFrameTargets(frameIndex);
+    auto &frame = context_->drawFrames[frameIndex];
+    VkDescriptorPool pool = frame.descriptorPool;
+    if (totalSets > 0 && pool == VK_NULL_HANDLE) {
         return false;
     }
 
@@ -5396,7 +5837,7 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
                 * static_cast<VkDeviceSize>(gradientIndex++);
             auto *uniformDestination =
                 static_cast<unsigned char *>(
-                    context_->drawGradientUniformMapping)
+                    frame.gradientUniformMapping)
                 + uniformOffset;
             std::memcpy(uniformDestination, &ubo, sizeof(GradientUBO));
 
@@ -5410,7 +5851,7 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
                 break;
             }
             VkDescriptorBufferInfo bufferInfo{};
-            bufferInfo.buffer = context_->drawGradientUniformBuffer;
+            bufferInfo.buffer = frame.gradientUniformBuffer;
             bufferInfo.offset = uniformOffset;
             bufferInfo.range = sizeof(GradientUBO);
             VkWriteDescriptorSet write{};
@@ -5451,29 +5892,20 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
     }
     const VkDeviceSize vertexBytes =
         static_cast<VkDeviceSize>(vertexUpload.size()) * sizeof(float);
-    if (!context_->ensureDrawVertexCapacity(vertexBytes)) {
-        WSC_LOG_ERROR("VulkanRenderDevice",
-                      "Draw vertex upload allocation failed.");
-        return false;
-    }
     std::memcpy(
-        context_->drawVertexMapping, vertexUpload.data(),
+        frame.vertexMapping, vertexUpload.data(),
         static_cast<std::size_t>(vertexBytes));
     const VkDeviceSize indexBytes =
         static_cast<VkDeviceSize>(indexUpload.size())
         * sizeof(std::uint32_t);
-    if (!context_->ensureDrawIndexCapacity(indexBytes)) {
-        WSC_LOG_ERROR("VulkanRenderDevice",
-                      "Draw index upload allocation failed.");
-        return false;
-    }
     if (indexBytes > 0) {
         std::memcpy(
-            context_->drawIndexMapping, indexUpload.data(),
+            frame.indexMapping, indexUpload.data(),
             static_cast<std::size_t>(indexBytes));
     }
 
-    VkCommandBuffer cmd = context_->beginSingleTimeCommands();
+    VkCommandBuffer cmd =
+        context_->beginDrawFrameCommands(frameIndex);
     bool submitted = false;
     if (cmd != VK_NULL_HANDLE) {
         VkClearValue clearValue{};
@@ -5532,10 +5964,10 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
                 }
             }
             vkCmdBindVertexBuffers(
-                cmd, 0, 1, &context_->drawVertexBuffer, &d.vertexOffset);
+                cmd, 0, 1, &frame.vertexBuffer, &d.vertexOffset);
             if (d.indexCount > 0) {
                 vkCmdBindIndexBuffer(
-                    cmd, context_->drawIndexBuffer, d.indexOffset,
+                    cmd, frame.indexBuffer, d.indexOffset,
                     VK_INDEX_TYPE_UINT32);
                 vkCmdDrawIndexed(cmd, d.indexCount, 1, 0, 0, 0);
             } else {
@@ -5568,7 +6000,7 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         }
-        submitted = context_->endSingleTimeCommands(cmd);
+        submitted = context_->submitDrawFrame(frameIndex);
     }
 
     if (!submitted) {
@@ -5578,7 +6010,30 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
                 << (cmd != VK_NULL_HANDLE));
         return false;
     }
-    releasePendingFilterTargets();
+    auto &retainedImages = frame.retainedImages;
+    retainedImages.reserve(
+        retainedImages.size() + drawList.size() * 2u + 1u);
+    for (const wsc::DrawPrimitive &primitive : drawList) {
+        if (primitive.texture) {
+            retainedImages.push_back(primitive.texture);
+        }
+        if (primitive.clipTexture) {
+            retainedImages.push_back(primitive.clipTexture);
+        }
+    }
+    if (copyDestination) {
+        retainedImages.push_back(copyDestination);
+    }
+    retainedImages.insert(
+        retainedImages.end(),
+        pendingFilterImages_.begin(), pendingFilterImages_.end());
+    pendingFilterImages_.clear();
+    auto &retainedTargets = drawFrameTargets_[frameIndex];
+    for (std::unique_ptr<IRenderTarget> &pending :
+         pendingFilterTargets_) {
+        retainedTargets.push_back(std::move(pending));
+    }
+    pendingFilterTargets_.clear();
     rt->setLayout(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     rt->markReadbackReady();
     context_->readbackImage = rt->image();
