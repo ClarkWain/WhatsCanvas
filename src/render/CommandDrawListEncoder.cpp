@@ -340,20 +340,23 @@ bool encodeCommandsToDrawList(const std::vector<std::unique_ptr<Command>> &comma
             }
             const std::vector<float> &points = d.pointData();
             const std::vector<float> &coverage = d.coverageData();
-            const std::vector<std::uint32_t> &indices = d.indexData();
             const auto sourceIndex = [&](std::size_t element) {
                 return d.hasIndices()
-                    ? static_cast<std::size_t>(indices[element])
+                    ? static_cast<std::size_t>(
+                        d.getIndex(element))
                     : element;
             };
-            if (d.hasIndices()
-                && std::any_of(
-                    indices.begin(), indices.end(),
-                    [sourceVertexCount](std::uint32_t index) {
-                        return index >= sourceVertexCount;
-                    })) {
-                setError(error, "path command contains an invalid index");
-                return false;
+            if (d.hasIndices()) {
+                for (std::size_t element = 0;
+                     element < d.getElementCount(); ++element) {
+                    if (d.getIndex(element)
+                        >= sourceVertexCount) {
+                        setError(
+                            error,
+                            "path command contains an invalid index");
+                        return false;
+                    }
+                }
             }
             wsc::DrawPrimitive prim;
             prim.blendMode = mapBlend(d.blendMode);

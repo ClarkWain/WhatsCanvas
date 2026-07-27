@@ -44,23 +44,29 @@ public:
     /// caller may bind the returned buffer as GL_ELEMENT_ARRAY_BUFFER.
     UploadRange uploadRange(
         const std::uint32_t *data, std::size_t indexCount);
+    UploadRange uploadRange(
+        const std::uint16_t *data, std::size_t indexCount);
 
     /// Get the current GL buffer handle (0 if not initialized).
     GLuint handle() const { return buffer_; }
 
     /// Get the current capacity in floats.
-    std::size_t capacity() const { return capacity_; }
+    std::size_t capacity() const
+    {
+        return capacityBytes_ / sizeof(float);
+    }
 
     /// Whether the buffer has been initialized.
     bool isInitialized() const { return buffer_ != 0; }
 
 private:
-    void allocateStorage(std::size_t capacity);
+    void allocateStorage(std::size_t byteCapacity);
     UploadRange uploadRangeBytes(
-        const void *data, std::size_t elementCount);
+        const void *data, std::size_t byteCount,
+        std::size_t alignment);
 
     GLuint buffer_ = 0;
-    std::size_t capacity_ = 0;
-    std::size_t writeOffset_ = 0;
+    std::size_t capacityBytes_ = 0;
+    std::size_t writeOffsetBytes_ = 0;
     static constexpr std::size_t GROW_FACTOR = 2;
 };
