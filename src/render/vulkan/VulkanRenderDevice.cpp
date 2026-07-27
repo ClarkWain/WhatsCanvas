@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <iostream>
+#include <iterator>
 #include "core/LogInternal.h"
 #include <vector>
 
@@ -5297,6 +5298,8 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
     const SharedImageResource &copyDestination) const
 {
 #if defined(WHATSCANVAS_ENABLE_VULKAN)
+    lastExecutionDrawCallCount_ = 0;
+    lastExecutionMergedBatchCount_ = 0;
     if (!context_ || !context_->deviceReady) {
         return false;
     }
@@ -6131,6 +6134,102 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
         }
     }
 
+    std::size_t solidVertexBudget = 0;
+    for (const std::unique_ptr<Command> &command : commands) {
+        if (command && command->type() == Command::Type::Path) {
+            const DrawPathData &path =
+                static_cast<const DrawPathCommand *>(
+                    command.get())->data();
+            if (!path.hasShaderGradient()
+                && !path.clipMask.hasPaths()) {
+                solidVertexBudget += path.getPointCount();
+            }
+        }
+    }
+
+    auto appendSolidBatch = [&](wsc::DrawPrimitive prim) {
+        if (prim.kind != wsc::DrawPrimitiveKind::SolidTriangles
+            || list.empty()) {
+            if (prim.kind
+                    == wsc::DrawPrimitiveKind::SolidTriangles
+                && solidVertexBudget > prim.positions.size() / 2u) {
+                prim.positions.reserve(solidVertexBudget * 2u);
+                if (!prim.colors.empty()) {
+                    prim.colors.reserve(solidVertexBudget * 4u);
+                }
+                if (!prim.coverage.empty()) {
+                    prim.coverage.reserve(solidVertexBudget);
+                }
+            }
+            list.push_back(std::move(prim));
+            return;
+        }
+        wsc::DrawPrimitive &previous = list.back();
+        const bool sameScissor =
+            previous.scissorEnabled == prim.scissorEnabled
+            && previous.scissorX == prim.scissorX
+            && previous.scissorY == prim.scissorY
+            && previous.scissorWidth == prim.scissorWidth
+            && previous.scissorHeight == prim.scissorHeight;
+        if (previous.kind != wsc::DrawPrimitiveKind::SolidTriangles
+            || previous.blendMode != prim.blendMode
+            || !sameScissor) {
+            list.push_back(std::move(prim));
+            return;
+        }
+
+        const std::size_t previousVertices =
+            previous.positions.size() / 2u;
+        const std::size_t incomingVertices =
+            prim.positions.size() / 2u;
+        if (previousVertices == 0 || incomingVertices == 0) {
+            list.push_back(std::move(prim));
+            return;
+        }
+
+        if (previous.colors.empty()) {
+            previous.colors.reserve(solidVertexBudget * 4u);
+            for (std::size_t vertex = 0;
+                 vertex < previousVertices; ++vertex) {
+                previous.colors.insert(
+                    previous.colors.end(),
+                    std::begin(previous.color),
+                    std::end(previous.color));
+            }
+        }
+        if (prim.colors.size() == incomingVertices * 4u) {
+            previous.colors.insert(
+                previous.colors.end(), prim.colors.begin(),
+                prim.colors.end());
+        } else {
+            for (std::size_t vertex = 0;
+                 vertex < incomingVertices; ++vertex) {
+                previous.colors.insert(
+                    previous.colors.end(),
+                    std::begin(prim.color), std::end(prim.color));
+            }
+        }
+
+        if (!previous.coverage.empty() || !prim.coverage.empty()) {
+            if (previous.coverage.empty()) {
+                previous.coverage.reserve(solidVertexBudget);
+                previous.coverage.assign(previousVertices, 1.0f);
+            }
+            if (prim.coverage.size() == incomingVertices) {
+                previous.coverage.insert(
+                    previous.coverage.end(), prim.coverage.begin(),
+                    prim.coverage.end());
+            } else {
+                previous.coverage.insert(
+                    previous.coverage.end(),
+                    incomingVertices, 1.0f);
+            }
+        }
+        previous.positions.insert(
+            previous.positions.end(), prim.positions.begin(),
+            prim.positions.end());
+    };
+
     // Translate the real Command stream into backend-neutral primitives.
     for (const std::unique_ptr<Command> &cmd : commands) {
         if (!cmd) {
@@ -6228,7 +6327,7 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
                 }
                 continue;
             }
-            list.push_back(std::move(prim));
+            appendSolidBatch(std::move(prim));
         } else if (cmd->type() == Command::Type::Points) {
             const auto *pointsCmd = static_cast<const DrawPointsCommand *>(cmd.get());
             const DrawPointsData &d = pointsCmd->data();
@@ -6346,6 +6445,57 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
                     continue;
                 }
                 continue;
+            }
+            list.push_back(std::move(prim));
+        } else if (cmd->type() == Command::Type::ImageBatch) {
+            const auto *batchCmd =
+                static_cast<const DrawImageBatchCommand *>(cmd.get());
+            const DrawImageBatchData &d = batchCmd->data();
+            if (!d.imageResource || d.quads.empty()
+                || d.clipMask.hasPaths()) {
+                continue;
+            }
+            wsc::DrawPrimitive prim;
+            prim.kind = wsc::DrawPrimitiveKind::TexturedQuad;
+            prim.blendMode = mapBlend(d.blendMode);
+            applyPrimitiveScissor(prim, d.scissor);
+            prim.texture = d.imageResource;
+            prim.layerAlpha = d.alpha;
+            prim.tint[0] = d.tintColor[0];
+            prim.tint[1] = d.tintColor[1];
+            prim.tint[2] = d.tintColor[2];
+            prim.tint[3] = d.tintColor[3];
+            prim.sampling =
+                static_cast<int>(DrawImageSampling::Linear);
+            prim.tileMode =
+                static_cast<int>(DrawImageTileMode::Clamp);
+            prim.useCustomSampler = true;
+            prim.positions.reserve(d.quads.size() * 12u);
+            prim.uvs.reserve(d.quads.size() * 12u);
+            constexpr int indices[6] = {0, 1, 2, 0, 2, 3};
+            for (const DrawImageBatchQuad &quad : d.quads) {
+                float nx[4], ny[4];
+                toNdc(
+                    d.transform, quad.x, quad.y, nx[0], ny[0]);
+                toNdc(
+                    d.transform, quad.x + quad.width, quad.y,
+                    nx[1], ny[1]);
+                toNdc(
+                    d.transform, quad.x + quad.width,
+                    quad.y + quad.height, nx[2], ny[2]);
+                toNdc(
+                    d.transform, quad.x, quad.y + quad.height,
+                    nx[3], ny[3]);
+                const float uu[4] = {
+                    quad.u0, quad.u1, quad.u1, quad.u0};
+                const float vv[4] = {
+                    quad.v0, quad.v0, quad.v1, quad.v1};
+                for (int index : indices) {
+                    prim.positions.push_back(nx[index]);
+                    prim.positions.push_back(ny[index]);
+                    prim.uvs.push_back(uu[index]);
+                    prim.uvs.push_back(vv[index]);
+                }
             }
             list.push_back(std::move(prim));
         } else if (cmd->type() == Command::Type::Text) {
@@ -6671,7 +6821,16 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
     if (!flushPendingClipMasks()) {
         return false;
     }
-    return executeDrawListWithCopy(target, list, copyDestination);
+    const bool rendered =
+        executeDrawListWithCopy(target, list, copyDestination);
+    if (rendered) {
+        lastExecutionDrawCallCount_ = list.size();
+        if (commands.size() > list.size()) {
+            lastExecutionMergedBatchCount_ =
+                commands.size() - list.size();
+        }
+    }
+    return rendered;
 #else
     (void)target;
     (void)commands;

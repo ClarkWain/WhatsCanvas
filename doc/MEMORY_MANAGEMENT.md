@@ -10,6 +10,7 @@ backend resources directly.
 | Resource | Default bound | Policy |
 | --- | ---: | --- |
 | Fill tessellation cache | 8 MiB, 256 entries | LRU by retained vector capacity |
+| Fill anti-alias mesh cache | 8 MiB, 64 entries | LRU by retained vertex and coverage capacity |
 | Stroke tessellation cache | 8 MiB, 256 entries | LRU by retained vector capacity |
 | GPU bitmap-text cache | 32 MiB, 256 entries | LRU by uploaded RGBA byte count |
 | Render-target pool | 32 MiB, 12 targets | Oldest idle target is evicted first |
@@ -29,7 +30,8 @@ Call `Canvas::getRenderStats()` after a frame. The memory-related fields are:
 - `pooledRenderTargetCount` and `pooledRenderTargetBytes`
 - `renderTargetPoolReuseCount`, `renderTargetPoolAllocationCount`, and
   `renderTargetPoolEvictionCount`
-- `tessellationCacheBytes` and `strokeTessellationCacheBytes`
+- `tessellationCacheBytes` (fill triangulation plus anti-alias meshes) and
+  `strokeCacheBytes`
 - `bitmapTextCacheSize` and `bitmapTextCacheBytes`
 
 The values describe resources retained by WhatsCanvas. They are not process

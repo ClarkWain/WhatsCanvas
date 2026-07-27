@@ -133,6 +133,30 @@ struct DrawImageData {
     bool hasRoundedCorners() const { return roundedRadius > 0.0f; }
 };
 
+struct DrawImageBatchQuad {
+    float x = 0.0f;
+    float y = 0.0f;
+    float width = 0.0f;
+    float height = 0.0f;
+    float u0 = 0.0f;
+    float v0 = 0.0f;
+    float u1 = 1.0f;
+    float v1 = 1.0f;
+};
+
+/// Compact batch for atlas-backed glyph runs and other compatible image
+/// quads. Complex image state remains represented by DrawImageData.
+struct DrawImageBatchData {
+    SharedImageResource imageResource;
+    std::vector<DrawImageBatchQuad> quads;
+    float tintColor[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+    float alpha = 1.0f;
+    glm::mat4 transform = glm::mat4(1.0f);
+    ScissorState scissor;
+    DrawBlendMode blendMode = DrawBlendMode::SrcOver;
+    ClipMaskState clipMask;
+};
+
 struct DrawTextData {
     static constexpr std::size_t kMaxGradientStops = 8;
 

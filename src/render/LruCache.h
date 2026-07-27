@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <list>
+#include <type_traits>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -11,7 +12,7 @@ namespace wsc::render {
 
 namespace detail {
 
-template <typename Value>
+template <typename Value, typename = void>
 struct CacheValueBytes
 {
     static std::size_t measure(const Value &)
@@ -20,8 +21,20 @@ struct CacheValueBytes
     }
 };
 
+template <typename Value>
+struct CacheValueBytes<
+    Value,
+    std::void_t<decltype(
+        std::declval<const Value &>().residentBytes())>>
+{
+    static std::size_t measure(const Value &value)
+    {
+        return value.residentBytes();
+    }
+};
+
 template <typename Value, typename Allocator>
-struct CacheValueBytes<std::vector<Value, Allocator>>
+struct CacheValueBytes<std::vector<Value, Allocator>, void>
 {
     static std::size_t measure(const std::vector<Value, Allocator> &value)
     {

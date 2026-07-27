@@ -11,6 +11,7 @@
 
 // Forward declaration for backend type enum.
 enum class RenderBackendType;
+class SpriteBatch;
 
 class Renderer : public IRenderer
 {
@@ -73,6 +74,7 @@ private:
     RenderContext context_;
     bool backendInitialized_ = false;
     mutable FrameStats stats_;
+    std::unique_ptr<SpriteBatch> spriteBatch_;
 
     // Main render target for devices that render command streams into a target
     // (usesDeviceCommandExecution()); unused by the OpenGL execute() path.

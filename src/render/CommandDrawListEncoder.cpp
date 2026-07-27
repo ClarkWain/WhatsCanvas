@@ -226,6 +226,62 @@ bool encodeImage(const DrawImageData &d, const CommandDrawListEncodeRequest &req
     return true;
 }
 
+bool encodeImageBatch(
+    const DrawImageBatchData &d,
+    const CommandDrawListEncodeRequest &request,
+    wsc::DrawList &out, std::string *error)
+{
+    if (!d.imageResource || d.clipMask.hasPaths()) {
+        setError(
+            error,
+            "image batch requires an image resource and cannot carry a clip mask");
+        return false;
+    }
+    if (d.quads.empty()) {
+        return true;
+    }
+
+    wsc::DrawPrimitive prim;
+    prim.kind = wsc::DrawPrimitiveKind::TexturedQuad;
+    prim.blendMode = mapBlend(d.blendMode);
+    applyScissor(prim, d.scissor, request);
+    prim.texture = d.imageResource;
+    prim.layerAlpha = d.alpha;
+    prim.tint[0] = d.tintColor[0];
+    prim.tint[1] = d.tintColor[1];
+    prim.tint[2] = d.tintColor[2];
+    prim.tint[3] = d.tintColor[3];
+    prim.sampling = static_cast<int>(DrawImageSampling::Linear);
+    prim.tileMode = static_cast<int>(DrawImageTileMode::Clamp);
+    prim.useCustomSampler = true;
+    prim.positions.reserve(d.quads.size() * 12u);
+    prim.uvs.reserve(d.quads.size() * 12u);
+    constexpr int indices[6] = {0, 1, 2, 0, 2, 3};
+    for (const DrawImageBatchQuad &quad : d.quads) {
+        float nx[4], ny[4];
+        toNdc(request, d.transform, quad.x, quad.y, nx[0], ny[0]);
+        toNdc(
+            request, d.transform, quad.x + quad.width, quad.y,
+            nx[1], ny[1]);
+        toNdc(
+            request, d.transform, quad.x + quad.width,
+            quad.y + quad.height, nx[2], ny[2]);
+        toNdc(
+            request, d.transform, quad.x, quad.y + quad.height,
+            nx[3], ny[3]);
+        const float uu[4] = {quad.u0, quad.u1, quad.u1, quad.u0};
+        const float vv[4] = {quad.v0, quad.v0, quad.v1, quad.v1};
+        for (int index : indices) {
+            prim.positions.push_back(nx[index]);
+            prim.positions.push_back(ny[index]);
+            prim.uvs.push_back(uu[index]);
+            prim.uvs.push_back(vv[index]);
+        }
+    }
+    out.push_back(std::move(prim));
+    return true;
+}
+
 } // namespace
 
 bool encodeCommandsToDrawList(const std::vector<std::unique_ptr<Command>> &commands,
@@ -386,6 +442,12 @@ bool encodeCommandsToDrawList(const std::vector<std::unique_ptr<Command>> &comma
         } else if (cmd->type() == Command::Type::Image) {
             const auto *imageCmd = static_cast<const DrawImageCommand *>(cmd.get());
             if (!encodeImage(imageCmd->data(), request, out, error)) {
+                return false;
+            }
+        } else if (cmd->type() == Command::Type::ImageBatch) {
+            const auto *batchCmd =
+                static_cast<const DrawImageBatchCommand *>(cmd.get());
+            if (!encodeImageBatch(batchCmd->data(), request, out, error)) {
                 return false;
             }
         } else if (cmd->type() == Command::Type::Text) {
