@@ -214,6 +214,15 @@ SharedImageResource Renderer::createImageResourceRGBA(int width, int height, con
     return device_ == nullptr ? SharedImageResource() : device_->createImageResourceRGBA(width, height, pixels);
 }
 
+SharedImageResource Renderer::createImageResourceAlpha8(
+    int width, int height,
+    const std::vector<unsigned char> &pixels) const
+{
+    return device_ == nullptr
+        ? SharedImageResource()
+        : device_->createImageResourceAlpha8(width, height, pixels);
+}
+
 SharedImageResource Renderer::createImageResourceFromImageData(int width, int height, int channels,
                                                                const unsigned char *pixels, bool generateMipmaps) const
 {
@@ -227,6 +236,16 @@ bool Renderer::updateImageResourceRGBA(const SharedImageResource &imageResource,
 {
     return device_ != nullptr
         && device_->updateImageResourceRGBA(imageResource, x, y, width, height, pixels, regenerateMipmaps);
+}
+
+bool Renderer::updateImageResourceAlpha8(
+    const SharedImageResource &imageResource,
+    int x, int y, int width, int height,
+    const unsigned char *pixels) const
+{
+    return device_ != nullptr
+        && device_->updateImageResourceAlpha8(
+            imageResource, x, y, width, height, pixels);
 }
 
 SharedImageResource Renderer::wrapExternalImageResource(ImageResourceHandle handle) const

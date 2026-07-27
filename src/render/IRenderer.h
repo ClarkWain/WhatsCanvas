@@ -38,10 +38,23 @@ public:
     virtual bool readPixelsRGBA(std::vector<unsigned char> &pixels) const = 0;
     virtual SharedClipMaskResource createClipMaskResource(const ClipMaskPath &maskPath) const = 0;
     virtual SharedImageResource createImageResourceRGBA(int width, int height, const std::vector<unsigned char> &pixels) const = 0;
+    virtual SharedImageResource createImageResourceAlpha8(
+        int /*width*/, int /*height*/,
+        const std::vector<unsigned char> & /*pixels*/) const
+    {
+        return {};
+    }
     virtual SharedImageResource createImageResourceFromImageData(int width, int height, int channels,
                                                                  const unsigned char *pixels, bool generateMipmaps) const = 0;
     virtual bool updateImageResourceRGBA(const SharedImageResource &imageResource, int x, int y, int width, int height,
                                          const unsigned char *pixels, bool regenerateMipmaps) const = 0;
+    virtual bool updateImageResourceAlpha8(
+        const SharedImageResource & /*imageResource*/,
+        int /*x*/, int /*y*/, int /*width*/, int /*height*/,
+        const unsigned char * /*pixels*/) const
+    {
+        return false;
+    }
     virtual SharedImageResource wrapExternalImageResource(ImageResourceHandle handle) const = 0;
     virtual const FrameStats &frameStats() const = 0;
     virtual void resetFrameStats() = 0;

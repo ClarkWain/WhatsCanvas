@@ -160,7 +160,9 @@ struct VulkanRenderDevice::VulkanContext
 
     // M5 textured-quad pipeline.
     VkShaderModule texVertModule = VK_NULL_HANDLE;
+    VkShaderModule texInstancedVertModule = VK_NULL_HANDLE;
     VkShaderModule texFragModule = VK_NULL_HANDLE;
+    VkShaderModule texFastFragModule = VK_NULL_HANDLE;
     VkDescriptorSetLayout texDescriptorSetLayout = VK_NULL_HANDLE;
     VkPipelineLayout texPipelineLayout = VK_NULL_HANDLE;
     // Textured pipelines cached per blend mode (the layout + descriptor set
@@ -171,6 +173,9 @@ struct VulkanRenderDevice::VulkanContext
         VkPipeline pipeline;
     };
     std::vector<CachedBlendPipeline> texPipelineCache;
+    std::vector<CachedBlendPipeline> texInstancedPipelineCache;
+    std::vector<CachedBlendPipeline> texFastPipelineCache;
+    std::vector<CachedBlendPipeline> texInstancedFastPipelineCache;
 
     // M7 clip pipeline (position + color + mask UV; samples an R-channel mask).
     VkShaderModule clipVertModule = VK_NULL_HANDLE;
@@ -237,10 +242,16 @@ struct VulkanRenderDevice::VulkanContext
         VkDeviceMemory vertexMemory = VK_NULL_HANDLE;
         void *vertexMapping = nullptr;
         VkDeviceSize vertexCapacity = 0;
+        VkBuffer deviceVertexBuffer = VK_NULL_HANDLE;
+        VkDeviceMemory deviceVertexMemory = VK_NULL_HANDLE;
+        VkDeviceSize deviceVertexCapacity = 0;
         VkBuffer indexBuffer = VK_NULL_HANDLE;
         VkDeviceMemory indexMemory = VK_NULL_HANDLE;
         void *indexMapping = nullptr;
         VkDeviceSize indexCapacity = 0;
+        VkBuffer deviceIndexBuffer = VK_NULL_HANDLE;
+        VkDeviceMemory deviceIndexMemory = VK_NULL_HANDLE;
+        VkDeviceSize deviceIndexCapacity = 0;
         VkBuffer gradientUniformBuffer = VK_NULL_HANDLE;
         VkDeviceMemory gradientUniformMemory = VK_NULL_HANDLE;
         void *gradientUniformMapping = nullptr;
@@ -311,6 +322,31 @@ struct VulkanRenderDevice::VulkanContext
                 }
             }
             texPipelineCache.clear();
+            for (CachedBlendPipeline &entry :
+                 texInstancedPipelineCache) {
+                if (entry.pipeline != VK_NULL_HANDLE) {
+                    vkDestroyPipeline(
+                        device, entry.pipeline, nullptr);
+                    entry.pipeline = VK_NULL_HANDLE;
+                }
+            }
+            texInstancedPipelineCache.clear();
+            for (CachedBlendPipeline &entry : texFastPipelineCache) {
+                if (entry.pipeline != VK_NULL_HANDLE) {
+                    vkDestroyPipeline(device, entry.pipeline, nullptr);
+                    entry.pipeline = VK_NULL_HANDLE;
+                }
+            }
+            texFastPipelineCache.clear();
+            for (CachedBlendPipeline &entry :
+                 texInstancedFastPipelineCache) {
+                if (entry.pipeline != VK_NULL_HANDLE) {
+                    vkDestroyPipeline(
+                        device, entry.pipeline, nullptr);
+                    entry.pipeline = VK_NULL_HANDLE;
+                }
+            }
+            texInstancedFastPipelineCache.clear();
             if (texPipelineLayout != VK_NULL_HANDLE) {
                 vkDestroyPipelineLayout(device, texPipelineLayout, nullptr);
                 texPipelineLayout = VK_NULL_HANDLE;
@@ -323,9 +359,18 @@ struct VulkanRenderDevice::VulkanContext
                 vkDestroyShaderModule(device, texVertModule, nullptr);
                 texVertModule = VK_NULL_HANDLE;
             }
+            if (texInstancedVertModule != VK_NULL_HANDLE) {
+                vkDestroyShaderModule(
+                    device, texInstancedVertModule, nullptr);
+                texInstancedVertModule = VK_NULL_HANDLE;
+            }
             if (texFragModule != VK_NULL_HANDLE) {
                 vkDestroyShaderModule(device, texFragModule, nullptr);
                 texFragModule = VK_NULL_HANDLE;
+            }
+            if (texFastFragModule != VK_NULL_HANDLE) {
+                vkDestroyShaderModule(device, texFastFragModule, nullptr);
+                texFastFragModule = VK_NULL_HANDLE;
             }
             for (CachedBlendPipeline &entry : clipPipelineCache) {
                 if (entry.pipeline != VK_NULL_HANDLE) {
@@ -887,6 +932,55 @@ struct VulkanRenderDevice::VulkanContext
         return true;
     }
 
+    bool createDeviceLocalBuffer(
+        VkDeviceSize size, VkBufferUsageFlags usage,
+        VkBuffer &outBuffer, VkDeviceMemory &outMemory) const
+    {
+        VkBufferCreateInfo bufferInfo{};
+        bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        bufferInfo.size = size;
+        bufferInfo.usage = usage;
+        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        if (vkCreateBuffer(
+                device, &bufferInfo, nullptr, &outBuffer)
+            != VK_SUCCESS) {
+            return false;
+        }
+
+        VkMemoryRequirements requirements{};
+        vkGetBufferMemoryRequirements(
+            device, outBuffer, &requirements);
+        const auto typeIndex = findMemoryType(
+            requirements.memoryTypeBits,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        if (!typeIndex.has_value()) {
+            vkDestroyBuffer(device, outBuffer, nullptr);
+            outBuffer = VK_NULL_HANDLE;
+            return false;
+        }
+
+        VkMemoryAllocateInfo allocation{};
+        allocation.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocation.allocationSize = requirements.size;
+        allocation.memoryTypeIndex = typeIndex.value();
+        if (vkAllocateMemory(
+                device, &allocation, nullptr, &outMemory)
+            != VK_SUCCESS) {
+            vkDestroyBuffer(device, outBuffer, nullptr);
+            outBuffer = VK_NULL_HANDLE;
+            return false;
+        }
+        if (vkBindBufferMemory(device, outBuffer, outMemory, 0)
+            != VK_SUCCESS) {
+            vkDestroyBuffer(device, outBuffer, nullptr);
+            vkFreeMemory(device, outMemory, nullptr);
+            outBuffer = VK_NULL_HANDLE;
+            outMemory = VK_NULL_HANDLE;
+            return false;
+        }
+        return true;
+    }
+
     void destroyFilterPassResources()
     {
         if (device == VK_NULL_HANDLE) {
@@ -1031,6 +1125,44 @@ struct VulkanRenderDevice::VulkanContext
             || vkMapMemory(
                    device, memory, 0, nextCapacity, 0, &mapping) != VK_SUCCESS) {
             destroyMappedBuffer(buffer, memory, mapping, capacity);
+            return false;
+        }
+        capacity = nextCapacity;
+        return true;
+    }
+
+    void destroyDeviceBuffer(
+        VkBuffer &buffer, VkDeviceMemory &memory,
+        VkDeviceSize &capacity)
+    {
+        if (buffer != VK_NULL_HANDLE) {
+            vkDestroyBuffer(device, buffer, nullptr);
+            buffer = VK_NULL_HANDLE;
+        }
+        if (memory != VK_NULL_HANDLE) {
+            vkFreeMemory(device, memory, nullptr);
+            memory = VK_NULL_HANDLE;
+        }
+        capacity = 0;
+    }
+
+    bool ensureDeviceBuffer(
+        VkDeviceSize required, VkBufferUsageFlags usage,
+        VkBuffer &buffer, VkDeviceMemory &memory,
+        VkDeviceSize &capacity)
+    {
+        if (required == 0) {
+            return true;
+        }
+        if (buffer != VK_NULL_HANDLE && capacity >= required) {
+            return true;
+        }
+        destroyDeviceBuffer(buffer, memory, capacity);
+        const VkDeviceSize nextCapacity =
+            nextBufferCapacity(required);
+        if (!createDeviceLocalBuffer(
+                nextCapacity, usage, buffer, memory)) {
+            destroyDeviceBuffer(buffer, memory, capacity);
             return false;
         }
         capacity = nextCapacity;
@@ -1217,11 +1349,15 @@ struct VulkanRenderDevice::VulkanContext
             frame.submitted = false;
         }
         if (!ensureMappedBuffer(
-                vertexBytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                vertexBytes,
+                VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
+                    | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                 frame.vertexBuffer, frame.vertexMemory,
                 frame.vertexMapping, frame.vertexCapacity)
             || !ensureMappedBuffer(
-                indexBytes, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+                indexBytes,
+                VK_BUFFER_USAGE_INDEX_BUFFER_BIT
+                    | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                 frame.indexBuffer, frame.indexMemory,
                 frame.indexMapping, frame.indexCapacity)) {
             return std::nullopt;
@@ -1357,9 +1493,17 @@ struct VulkanRenderDevice::VulkanContext
             destroyMappedBuffer(
                 frame.vertexBuffer, frame.vertexMemory,
                 frame.vertexMapping, frame.vertexCapacity);
+            destroyDeviceBuffer(
+                frame.deviceVertexBuffer,
+                frame.deviceVertexMemory,
+                frame.deviceVertexCapacity);
             destroyMappedBuffer(
                 frame.indexBuffer, frame.indexMemory,
                 frame.indexMapping, frame.indexCapacity);
+            destroyDeviceBuffer(
+                frame.deviceIndexBuffer,
+                frame.deviceIndexMemory,
+                frame.deviceIndexCapacity);
             destroyMappedBuffer(
                 frame.gradientUniformBuffer,
                 frame.gradientUniformMemory,
@@ -1429,9 +1573,16 @@ struct VulkanRenderDevice::VulkanContext
     // Lazily build (and cache) a textured pipeline for the given blend mode. The
     // pipeline layout + descriptor set layout are created once and shared.
     // Returns VK_NULL_HANDLE on failure.
-    VkPipeline ensureTexturePipeline(VkRenderPass renderPass, int blendMode)
+    VkPipeline ensureTexturePipeline(
+        VkRenderPass renderPass, int blendMode,
+        bool instanced = false, bool fast = false)
     {
-        for (const CachedBlendPipeline &entry : texPipelineCache) {
+        std::vector<CachedBlendPipeline> &cache = fast
+            ? (instanced ? texInstancedFastPipelineCache
+                         : texFastPipelineCache)
+            : (instanced ? texInstancedPipelineCache
+                         : texPipelineCache);
+        for (const CachedBlendPipeline &entry : cache) {
             if (entry.blendMode == blendMode) {
                 return entry.pipeline;
             }
@@ -1476,35 +1627,63 @@ struct VulkanRenderDevice::VulkanContext
                 return VK_NULL_HANDLE;
             }
         }
+        if (instanced
+            && texInstancedVertModule == VK_NULL_HANDLE) {
+            texInstancedVertModule = createShaderModule(
+                kTexturedInstancedVertSpv,
+                sizeof(kTexturedInstancedVertSpv));
+            if (texInstancedVertModule == VK_NULL_HANDLE) {
+                return VK_NULL_HANDLE;
+            }
+        }
+        if (fast && texFastFragModule == VK_NULL_HANDLE) {
+            texFastFragModule = createShaderModule(
+                kTexturedFastFragSpv,
+                sizeof(kTexturedFastFragSpv));
+            if (texFastFragModule == VK_NULL_HANDLE) {
+                return VK_NULL_HANDLE;
+            }
+        }
 
         std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
         stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
         stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-        stages[0].module = texVertModule;
+        stages[0].module =
+            instanced ? texInstancedVertModule : texVertModule;
         stages[0].pName = "main";
         stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
         stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-        stages[1].module = texFragModule;
+        stages[1].module =
+            fast ? texFastFragModule : texFragModule;
         stages[1].pName = "main";
 
         VkVertexInputBindingDescription binding{};
         binding.binding = 0;
-        binding.stride = 5 * sizeof(float);
-        binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+        binding.stride =
+            (instanced ? 9u : 5u) * sizeof(float);
+        binding.inputRate =
+            instanced ? VK_VERTEX_INPUT_RATE_INSTANCE
+                      : VK_VERTEX_INPUT_RATE_VERTEX;
 
         std::array<VkVertexInputAttributeDescription, 3> attrs{};
         attrs[0].location = 0;
         attrs[0].binding = 0;
-        attrs[0].format = VK_FORMAT_R32G32_SFLOAT;
+        attrs[0].format =
+            instanced ? VK_FORMAT_R32G32B32A32_SFLOAT
+                      : VK_FORMAT_R32G32_SFLOAT;
         attrs[0].offset = 0;
         attrs[1].location = 1;
         attrs[1].binding = 0;
-        attrs[1].format = VK_FORMAT_R32G32_SFLOAT;
-        attrs[1].offset = 2 * sizeof(float);
+        attrs[1].format =
+            instanced ? VK_FORMAT_R32G32B32A32_SFLOAT
+                      : VK_FORMAT_R32G32_SFLOAT;
+        attrs[1].offset =
+            (instanced ? 4u : 2u) * sizeof(float);
         attrs[2].location = 2;
         attrs[2].binding = 0;
         attrs[2].format = VK_FORMAT_R8G8B8A8_UNORM;
-        attrs[2].offset = 4 * sizeof(float);
+        attrs[2].offset =
+            (instanced ? 8u : 4u) * sizeof(float);
         VkPipelineVertexInputStateCreateInfo vertexInput{};
         vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
         vertexInput.vertexBindingDescriptionCount = 1;
@@ -1514,7 +1693,9 @@ struct VulkanRenderDevice::VulkanContext
 
         VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
         inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-        inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        inputAssembly.topology = instanced
+            ? VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP
+            : VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 
         VkPipelineViewportStateCreateInfo viewportState{};
         viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -1565,7 +1746,7 @@ struct VulkanRenderDevice::VulkanContext
             != VK_SUCCESS) {
             return VK_NULL_HANDLE;
         }
-        texPipelineCache.push_back({blendMode, pipeline});
+        cache.push_back({blendMode, pipeline});
         return pipeline;
     }
 
@@ -2013,6 +2194,64 @@ std::uint32_t effectivePackedTint(
         | (combine(24u, uniformTint[3] * layerAlpha) << 24u);
 }
 
+bool canInstanceTexturedPrimitive(
+    const wsc::DrawPrimitive &primitive)
+{
+    if (primitive.kind != wsc::DrawPrimitiveKind::TexturedQuad
+        || !primitive.texture
+        || !primitive.texture->isAlphaOnly()
+        || primitive.positions.size() < 12u
+        || primitive.positions.size() != primitive.uvs.size()) {
+        return false;
+    }
+    const std::size_t vertexCount =
+        primitive.positions.size() / 2u;
+    if ((vertexCount % 6u) != 0u) {
+        return false;
+    }
+    const bool hasPackedTints =
+        primitive.packedTints.size() == vertexCount;
+    for (std::size_t base = 0; base < vertexCount; base += 6u) {
+        const auto value = [&](const std::vector<float> &values,
+                               std::size_t vertex,
+                               std::size_t component) {
+            return values[(base + vertex) * 2u + component];
+        };
+        const auto isAxisAlignedQuad =
+            [&](const std::vector<float> &values) {
+                return value(values, 0u, 0u)
+                           == value(values, 3u, 0u)
+                    && value(values, 0u, 1u)
+                           == value(values, 3u, 1u)
+                    && value(values, 2u, 0u)
+                           == value(values, 4u, 0u)
+                    && value(values, 2u, 1u)
+                           == value(values, 4u, 1u)
+                    && value(values, 0u, 1u)
+                           == value(values, 1u, 1u)
+                    && value(values, 1u, 0u)
+                           == value(values, 2u, 0u)
+                    && value(values, 2u, 1u)
+                           == value(values, 5u, 1u)
+                    && value(values, 5u, 0u)
+                           == value(values, 0u, 0u);
+            };
+        if (!isAxisAlignedQuad(primitive.positions)
+            || !isAxisAlignedQuad(primitive.uvs)) {
+            return false;
+        }
+        if (hasPackedTints) {
+            const std::uint32_t tint = primitive.packedTints[base];
+            for (std::size_t vertex = 1u; vertex < 6u; ++vertex) {
+                if (primitive.packedTints[base + vertex] != tint) {
+                    return false;
+                }
+            }
+        }
+    }
+    return true;
+}
+
 bool canBatchTexturedPrimitives(
     const wsc::DrawPrimitive &left,
     const wsc::DrawPrimitive &right)
@@ -2255,9 +2494,10 @@ class VulkanTextureResource final : public ImageResource
 public:
     VulkanTextureResource(VulkanRenderDevice::VulkanContext *context, VkImage image, VkDeviceMemory memory,
                           VkImageView view, VkSampler sampler, int width, int height, int mipLevels = 1,
-                          bool ownsImage = true,
-                          ImageAlphaType alphaType = ImageAlphaType::Straight,
-                          bool countAsImageTexture = true)
+                           bool ownsImage = true,
+                           ImageAlphaType alphaType = ImageAlphaType::Straight,
+                           bool countAsImageTexture = true,
+                           std::uint32_t bytesPerPixel = 4u)
         : context_(context),
           image_(image),
           memory_(memory),
@@ -2268,7 +2508,8 @@ public:
           mipLevels_(mipLevels),
           ownsImage_(ownsImage),
           alphaType_(alphaType),
-          countAsImageTexture_(countAsImageTexture)
+          countAsImageTexture_(countAsImageTexture),
+          bytesPerPixel_(bytesPerPixel)
     {
         if (context_ && countAsImageTexture_) {
             ++context_->imageTextureCount;
@@ -2301,17 +2542,36 @@ public:
         return image_ != VK_NULL_HANDLE && view_ != VK_NULL_HANDLE && sampler_ != VK_NULL_HANDLE;
     }
     ImageAlphaType alphaType() const override { return alphaType_; }
+    bool isAlphaOnly() const override { return bytesPerPixel_ == 1u; }
 
     void bind(const RenderContext & /*context*/) const override {}
 
     bool updateRGBA(int x, int y, int width, int height, const unsigned char *pixels,
                     bool /*regenerateMipmaps*/) override
     {
+        return bytesPerPixel_ == 4u
+            && updatePixels(x, y, width, height, pixels);
+    }
+
+    bool updateAlpha8(
+        int x, int y, int width, int height,
+        const unsigned char *pixels)
+    {
+        return bytesPerPixel_ == 1u
+            && updatePixels(x, y, width, height, pixels);
+    }
+
+    bool updatePixels(
+        int x, int y, int width, int height,
+        const unsigned char *pixels)
+    {
         if (!isValid() || pixels == nullptr || width <= 0 || height <= 0 || x < 0 || y < 0 || x + width > width_
             || y + height > height_) {
             return false;
         }
-        const VkDeviceSize bytes = static_cast<VkDeviceSize>(width) * static_cast<VkDeviceSize>(height) * 4u;
+        const VkDeviceSize bytes =
+            static_cast<VkDeviceSize>(width)
+            * static_cast<VkDeviceSize>(height) * bytesPerPixel_;
         VkBuffer staging = VK_NULL_HANDLE;
         VkDeviceMemory stagingMemory = VK_NULL_HANDLE;
         if (!context_->createHostVisibleBuffer(bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, staging, stagingMemory)) {
@@ -2364,12 +2624,16 @@ private:
     bool ownsImage_ = true;
     ImageAlphaType alphaType_ = ImageAlphaType::Straight;
     bool countAsImageTexture_ = true;
+    std::uint32_t bytesPerPixel_ = 4u;
 };
 
-// Create an owning sampled RGBA8 texture from tightly-packed pixels.
+// Create an owning sampled texture from tightly-packed pixels.
 std::shared_ptr<VulkanTextureResource> createSampledTexture(VulkanRenderDevice::VulkanContext *ctx, int width,
-                                                            int height, const unsigned char *pixels, bool nearest,
-                                                            bool generateMips = false){
+                                                             int height, const unsigned char *pixels, bool nearest,
+                                                             bool generateMips = false,
+                                                             VkFormat format = kRenderTargetFormat,
+                                                             std::uint32_t bytesPerPixel = 4u,
+                                                             bool alphaMask = false){
     if (ctx == nullptr || ctx->device == VK_NULL_HANDLE || width <= 0 || height <= 0 || pixels == nullptr) {
         return nullptr;
     }
@@ -2389,7 +2653,7 @@ std::shared_ptr<VulkanTextureResource> createSampledTexture(VulkanRenderDevice::
     VkImageCreateInfo imageInfo{};
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     imageInfo.imageType = VK_IMAGE_TYPE_2D;
-    imageInfo.format = kRenderTargetFormat;
+    imageInfo.format = format;
     imageInfo.extent = {static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height), 1};
     const std::uint32_t mipLevels =
         generateMips
@@ -2425,7 +2689,9 @@ std::shared_ptr<VulkanTextureResource> createSampledTexture(VulkanRenderDevice::
     vkBindImageMemory(device, image, memory, 0);
 
     // Upload pixels via a host-visible staging buffer.
-    const VkDeviceSize bytes = static_cast<VkDeviceSize>(width) * static_cast<VkDeviceSize>(height) * 4u;
+    const VkDeviceSize bytes =
+        static_cast<VkDeviceSize>(width)
+        * static_cast<VkDeviceSize>(height) * bytesPerPixel;
     VkBuffer staging = VK_NULL_HANDLE;
     VkDeviceMemory stagingMemory = VK_NULL_HANDLE;
     if (!ctx->createHostVisibleBuffer(bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, staging, stagingMemory)) {
@@ -2535,7 +2801,13 @@ std::shared_ptr<VulkanTextureResource> createSampledTexture(VulkanRenderDevice::
     viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     viewInfo.image = image;
     viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    viewInfo.format = kRenderTargetFormat;
+    viewInfo.format = format;
+    if (alphaMask) {
+        viewInfo.components.r = VK_COMPONENT_SWIZZLE_ONE;
+        viewInfo.components.g = VK_COMPONENT_SWIZZLE_ONE;
+        viewInfo.components.b = VK_COMPONENT_SWIZZLE_ONE;
+        viewInfo.components.a = VK_COMPONENT_SWIZZLE_R;
+    }
     viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     viewInfo.subresourceRange.levelCount = mipLevels;
     viewInfo.subresourceRange.layerCount = 1;
@@ -2559,7 +2831,9 @@ std::shared_ptr<VulkanTextureResource> createSampledTexture(VulkanRenderDevice::
     }
 
     return std::make_shared<VulkanTextureResource>(ctx, image, memory, view, sampler, width, height,
-                                                   static_cast<int>(mipLevels));
+                                                   static_cast<int>(mipLevels),
+                                                   true, ImageAlphaType::Straight,
+                                                   true, bytesPerPixel);
 }
 
 std::shared_ptr<VulkanTextureResource> createEmptySampledTexture(
@@ -4575,7 +4849,7 @@ bool VulkanRenderDevice::renderClippedSolid(const std::unique_ptr<IRenderTarget>
 }
 
 SharedImageResource VulkanRenderDevice::createImageResourceRGBA(int width, int height,
-                                                                const std::vector<unsigned char> &pixels) const
+                                                                 const std::vector<unsigned char> &pixels) const
 {
 #if defined(WHATSCANVAS_ENABLE_VULKAN)
     if (!context_ || !context_->deviceReady || width <= 0 || height <= 0
@@ -4583,6 +4857,29 @@ SharedImageResource VulkanRenderDevice::createImageResourceRGBA(int width, int h
         return nullptr;
     }
     return createSampledTexture(context_.get(), width, height, pixels.data(), /*nearest=*/true);
+#else
+    (void)width;
+    (void)height;
+    (void)pixels;
+    return nullptr;
+#endif
+}
+
+SharedImageResource VulkanRenderDevice::createImageResourceAlpha8(
+    int width, int height,
+    const std::vector<unsigned char> &pixels) const
+{
+#if defined(WHATSCANVAS_ENABLE_VULKAN)
+    if (!context_ || !context_->deviceReady || width <= 0 || height <= 0
+        || pixels.size()
+            < static_cast<std::size_t>(width)
+                * static_cast<std::size_t>(height)) {
+        return nullptr;
+    }
+    return createSampledTexture(
+        context_.get(), width, height, pixels.data(),
+        /*nearest=*/true, /*generateMips=*/false,
+        VK_FORMAT_R8_UNORM, 1u, /*alphaMask=*/true);
 #else
     (void)width;
     (void)height;
@@ -4641,8 +4938,8 @@ SharedImageResource VulkanRenderDevice::createImageResourceFromImageData(int wid
 }
 
 bool VulkanRenderDevice::updateImageResourceRGBA(const SharedImageResource &imageResource, int x, int y, int width,
-                                                 int height, const unsigned char *pixels,
-                                                 bool regenerateMipmaps) const
+                                                  int height, const unsigned char *pixels,
+                                                  bool regenerateMipmaps) const
 {
 #if defined(WHATSCANVAS_ENABLE_VULKAN)
     if (!imageResource) {
@@ -4657,6 +4954,27 @@ bool VulkanRenderDevice::updateImageResourceRGBA(const SharedImageResource &imag
     (void)height;
     (void)pixels;
     (void)regenerateMipmaps;
+    return false;
+#endif
+}
+
+bool VulkanRenderDevice::updateImageResourceAlpha8(
+    const SharedImageResource &imageResource,
+    int x, int y, int width, int height,
+    const unsigned char *pixels) const
+{
+#if defined(WHATSCANVAS_ENABLE_VULKAN)
+    auto *texture =
+        dynamic_cast<VulkanTextureResource *>(imageResource.get());
+    return texture != nullptr
+        && texture->updateAlpha8(x, y, width, height, pixels);
+#else
+    (void)imageResource;
+    (void)x;
+    (void)y;
+    (void)width;
+    (void)height;
+    (void)pixels;
     return false;
 #endif
 }
@@ -5380,6 +5698,7 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
     VkDevice device = context_->device;
 
     std::uint32_t texturedCount = 0;
+    std::uint32_t instancedTexturedCount = 0;
     std::uint32_t clipCount = 0;
     std::uint32_t gradientCount = 0;
     std::size_t vertexFloatBudget = 0;
@@ -5401,7 +5720,10 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
             ++texturedCount;
             const std::size_t explicitVerts =
                 prim.positions.size() / 2u;
-            if (explicitVerts >= 3
+            if (canInstanceTexturedPrimitive(prim)) {
+                ++instancedTexturedCount;
+                addVertexBudget(explicitVerts / 6u, 9u);
+            } else if (explicitVerts >= 3
                 && (explicitVerts % 3u) == 0u
                 && prim.uvs.size() == prim.positions.size()) {
                 addVertexBudget(explicitVerts, 5u);
@@ -5437,7 +5759,12 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
         return false;
     }
 
-    if (texturedCount > 0 && context_->ensureTexturePipeline(rt->renderPass(), 0) == VK_NULL_HANDLE) {
+    if (texturedCount > instancedTexturedCount
+        && context_->ensureTexturePipeline(rt->renderPass(), 0) == VK_NULL_HANDLE) {
+        return false;
+    }
+    if (instancedTexturedCount > 0
+        && context_->ensureTexturePipeline(rt->renderPass(), 0, true) == VK_NULL_HANDLE) {
         return false;
     }
     if (clipCount > 0 && context_->ensureClipPipeline(rt->renderPass(), 0) == VK_NULL_HANDLE) {
@@ -5474,6 +5801,7 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
         VkPipeline pipeline = VK_NULL_HANDLE;
         VkDeviceSize vertexOffset = 0;
         std::uint32_t vertexCount = 0;
+        std::uint32_t instanceCount = 1;
         VkDeviceSize indexOffset = 0;
         std::uint32_t indexCount = 0;
         VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
@@ -5641,7 +5969,16 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
                 ok = false;
                 break;
             }
-            draw.pipeline = context_->ensureTexturePipeline(rt->renderPass(), prim.blendMode);
+            const bool instanced = canInstanceTexturedPrimitive(prim);
+            const bool fastTexturePath =
+                !prim.hasColorMatrix
+                && prim.texture->alphaType()
+                    != ImageAlphaType::Premultiplied
+                && clipTex == nullptr
+                && prim.roundedRadius <= 0.0f;
+            draw.pipeline = context_->ensureTexturePipeline(
+                rt->renderPass(), prim.blendMode, instanced,
+                fastTexturePath);
             if (draw.pipeline == VK_NULL_HANDLE) {
                 ok = false;
                 break;
@@ -5717,7 +6054,28 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
                 break;
             }
             const std::size_t explicitVerts = prim.positions.size() / 2;
-            if (explicitVerts >= 3 && (explicitVerts % 3) == 0 && prim.uvs.size() == prim.positions.size()) {
+            if (instanced) {
+                constexpr std::uint32_t whiteTint = 0xffffffffu;
+                const bool perVertexTint =
+                    prim.packedTints.size() == explicitVerts;
+                const std::size_t quadCount = explicitVerts / 6u;
+                for (std::size_t quad = 0; quad < quadCount; ++quad) {
+                    const std::size_t base = quad * 6u;
+                    vertices.push_back(prim.positions[base * 2u]);
+                    vertices.push_back(prim.positions[base * 2u + 1u]);
+                    vertices.push_back(prim.positions[(base + 2u) * 2u]);
+                    vertices.push_back(prim.positions[(base + 2u) * 2u + 1u]);
+                    vertices.push_back(prim.uvs[base * 2u]);
+                    vertices.push_back(prim.uvs[base * 2u + 1u]);
+                    vertices.push_back(prim.uvs[(base + 2u) * 2u]);
+                    vertices.push_back(prim.uvs[(base + 2u) * 2u + 1u]);
+                    vertices.push_back(packedRgba8AsFloat(
+                        perVertexTint ? prim.packedTints[base] : whiteTint));
+                }
+                draw.vertexCount = 4;
+                draw.instanceCount =
+                    static_cast<std::uint32_t>(quadCount);
+            } else if (explicitVerts >= 3 && (explicitVerts % 3) == 0 && prim.uvs.size() == prim.positions.size()) {
                 const bool perVertexTint =
                     prim.packedTints.size() == explicitVerts;
                 constexpr std::uint32_t whiteTint = 0xffffffffu;
@@ -5903,11 +6261,89 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
             frame.indexMapping, indexUpload.data(),
             static_cast<std::size_t>(indexBytes));
     }
+    constexpr VkDeviceSize kDeviceLocalUploadThreshold =
+        256u * 1024u;
+    constexpr std::size_t kDeviceLocalDrawThreshold = 16u;
+    const bool amortizeDeviceLocalCopy =
+        draws.size() >= kDeviceLocalDrawThreshold;
+    const bool useDeviceVertexBuffer =
+        amortizeDeviceLocalCopy
+        && vertexBytes >= kDeviceLocalUploadThreshold
+        && context_->ensureDeviceBuffer(
+            vertexBytes,
+            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
+                | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            frame.deviceVertexBuffer,
+            frame.deviceVertexMemory,
+            frame.deviceVertexCapacity);
+    const bool useDeviceIndexBuffer =
+        amortizeDeviceLocalCopy
+        && indexBytes >= kDeviceLocalUploadThreshold
+        && context_->ensureDeviceBuffer(
+            indexBytes,
+            VK_BUFFER_USAGE_INDEX_BUFFER_BIT
+                | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            frame.deviceIndexBuffer,
+            frame.deviceIndexMemory,
+            frame.deviceIndexCapacity);
 
     VkCommandBuffer cmd =
         context_->beginDrawFrameCommands(frameIndex);
     bool submitted = false;
     if (cmd != VK_NULL_HANDLE) {
+        const VkBuffer activeVertexBuffer =
+            useDeviceVertexBuffer
+                ? frame.deviceVertexBuffer : frame.vertexBuffer;
+        const VkBuffer activeIndexBuffer =
+            useDeviceIndexBuffer
+                ? frame.deviceIndexBuffer : frame.indexBuffer;
+        std::array<VkBufferMemoryBarrier, 2> uploadBarriers{};
+        std::uint32_t uploadBarrierCount = 0;
+        if (useDeviceVertexBuffer && vertexBytes > 0) {
+            VkBufferCopy copy{};
+            copy.size = vertexBytes;
+            vkCmdCopyBuffer(
+                cmd, frame.vertexBuffer,
+                frame.deviceVertexBuffer, 1, &copy);
+            VkBufferMemoryBarrier &barrier =
+                uploadBarriers[uploadBarrierCount++];
+            barrier.sType =
+                VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+            barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            barrier.dstAccessMask =
+                VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
+            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.buffer = frame.deviceVertexBuffer;
+            barrier.offset = 0;
+            barrier.size = vertexBytes;
+        }
+        if (useDeviceIndexBuffer && indexBytes > 0) {
+            VkBufferCopy copy{};
+            copy.size = indexBytes;
+            vkCmdCopyBuffer(
+                cmd, frame.indexBuffer,
+                frame.deviceIndexBuffer, 1, &copy);
+            VkBufferMemoryBarrier &barrier =
+                uploadBarriers[uploadBarrierCount++];
+            barrier.sType =
+                VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+            barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            barrier.dstAccessMask = VK_ACCESS_INDEX_READ_BIT;
+            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.buffer = frame.deviceIndexBuffer;
+            barrier.offset = 0;
+            barrier.size = indexBytes;
+        }
+        if (uploadBarrierCount > 0) {
+            vkCmdPipelineBarrier(
+                cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                VK_PIPELINE_STAGE_VERTEX_INPUT_BIT, 0,
+                0, nullptr, uploadBarrierCount,
+                uploadBarriers.data(), 0, nullptr);
+        }
+
         VkClearValue clearValue{};
         clearValue.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
         VkRenderPassBeginInfo renderPassInfo{};
@@ -5964,14 +6400,14 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
                 }
             }
             vkCmdBindVertexBuffers(
-                cmd, 0, 1, &frame.vertexBuffer, &d.vertexOffset);
+                cmd, 0, 1, &activeVertexBuffer, &d.vertexOffset);
             if (d.indexCount > 0) {
                 vkCmdBindIndexBuffer(
-                    cmd, frame.indexBuffer, d.indexOffset,
+                    cmd, activeIndexBuffer, d.indexOffset,
                     VK_INDEX_TYPE_UINT32);
                 vkCmdDrawIndexed(cmd, d.indexCount, 1, 0, 0, 0);
             } else {
-                vkCmdDraw(cmd, d.vertexCount, 1, 0, 0);
+                vkCmdDraw(cmd, d.vertexCount, d.instanceCount, 0, 0);
             }
         }
 
