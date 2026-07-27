@@ -11,6 +11,8 @@
 #include <string>
 #include <vector>
 
+#include <glm/gtc/matrix_transform.hpp>
+
 #include "command/DrawData.h"
 #include "render/PathMerge.h"
 
@@ -114,6 +116,32 @@ bool testBroaderBatchSupportsPerVertexAttributes()
         "renderer batch must still reject gradients");
 }
 
+bool testBroaderBatchFlattensAffineTransforms()
+{
+    DrawPathData translated = makeSolidFill();
+    translated.transform = glm::translate(
+        glm::mat4(1.0f), glm::vec3(40.0f, 20.0f, 0.0f));
+    if (!expect(
+            wsc::render::canBatchPathData(
+                makeSolidFill(), translated),
+            "renderer batch should flatten differing affine transforms")) {
+        return false;
+    }
+    if (!expect(
+            !wsc::render::canMergePathData(
+                makeSolidFill(), translated),
+            "strict uniform merge should still require the same transform")) {
+        return false;
+    }
+
+    DrawPathData perspective = makeSolidFill();
+    perspective.transform[0][3] = 0.01f;
+    return expect(
+        !wsc::render::canBatchPathData(
+            makeSolidFill(), perspective),
+        "renderer batch must reject perspective transforms");
+}
+
 bool testDifferingStateDoesNotMerge()
 {
     DrawPathData other = makeSolidFill();
@@ -146,6 +174,7 @@ int main()
     ok = testAntiAliasedFillsMerge() && ok;
     ok = testCoverageMismatchDoesNotMerge() && ok;
     ok = testBroaderBatchSupportsPerVertexAttributes() && ok;
+    ok = testBroaderBatchFlattensAffineTransforms() && ok;
     ok = testDifferingStateDoesNotMerge() && ok;
     return ok ? 0 : 1;
 }

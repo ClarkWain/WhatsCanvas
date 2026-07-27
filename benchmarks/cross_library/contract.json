@@ -1,0 +1,82 @@
+{
+  "schema": 1,
+  "name": "WhatsCanvas Cross-Library 2D Contract",
+  "version": "1.0.0",
+  "default_width": 1920,
+  "default_height": 1080,
+  "pixel_format": "RGB8_sRGB_PPM_P6",
+  "alpha_model": "src_over_straight_input",
+  "coordinate_system": "top_left_origin_pixel_centers_at_half",
+  "timing": {
+    "profile": "standard",
+    "frames": 30,
+    "warmup": 5,
+    "required_scope": "record_plus_synchronized_render_completion",
+    "readback_excluded": true
+  },
+  "assets": {
+    "font_regular": "../../third_party/harfbuzz/perf/fonts/Roboto-Regular.ttf",
+    "font_family": "CrossLibraryRoboto",
+    "image": {
+      "kind": "procedural_rgba8",
+      "width": 128,
+      "height": 128,
+      "definition": "PerformanceSuite.cpp initializeResources"
+    }
+  },
+  "scenes": {
+    "geometry_stress": {
+      "operations_per_frame": 2304,
+      "canonical_source": "../PerformanceSuite.cpp:drawGeometryStress",
+      "requirements": [
+        "64x36 cells",
+        "src-over blending",
+        "analytic or equivalent antialiasing enabled",
+        "rect, round-rect, circle, oval, triangle, diamond cycle",
+        "validation frame index 0"
+      ],
+      "quality": {
+        "channel_threshold": 24,
+        "max_mean_absolute_error": 3.0,
+        "max_root_mean_square_error": 15.0,
+        "max_changed_pixel_fraction": 0.12
+      }
+    },
+    "image_grid": {
+      "operations_per_frame": 96,
+      "canonical_source": "../PerformanceSuite.cpp:drawImageGrid",
+      "requirements": [
+        "12x8 cells",
+        "linear sampling",
+        "clamp addressing",
+        "straight-alpha source over",
+        "one-third uniform 7px rounded clips",
+        "validation frame index 0"
+      ],
+      "quality": {
+        "channel_threshold": 16,
+        "max_mean_absolute_error": 2.0,
+        "max_root_mean_square_error": 10.0,
+        "max_changed_pixel_fraction": 0.08
+      }
+    },
+    "contract_text_latin": {
+      "operations_per_frame": 576,
+      "canonical_source": "../PerformanceSuite.cpp:drawContractTextLatin",
+      "requirements": [
+        "Roboto-Regular.ttf from assets.font_regular",
+        "8x72 calls",
+        "grayscale glyph antialiasing",
+        "no LCD subpixel rendering",
+        "UTF-8 shaping with kerning and ligatures enabled",
+        "validation frame index 0"
+      ],
+      "quality": {
+        "channel_threshold": 32,
+        "max_mean_absolute_error": 3.0,
+        "max_root_mean_square_error": 18.0,
+        "max_changed_pixel_fraction": 0.12
+      }
+    }
+  }
+}

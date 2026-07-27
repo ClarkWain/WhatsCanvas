@@ -18,7 +18,21 @@ namespace wsc::render {
 
 inline constexpr float kPathMergeEpsilon = 0.001f;
 
-inline bool hasCompatiblePathBatchState(
+inline bool isAffine2DPathTransform(const glm::mat4 &transform)
+{
+    return std::abs(transform[0][2]) <= kPathMergeEpsilon
+        && std::abs(transform[0][3]) <= kPathMergeEpsilon
+        && std::abs(transform[1][2]) <= kPathMergeEpsilon
+        && std::abs(transform[1][3]) <= kPathMergeEpsilon
+        && std::abs(transform[2][0]) <= kPathMergeEpsilon
+        && std::abs(transform[2][1]) <= kPathMergeEpsilon
+        && std::abs(transform[2][2] - 1.0f) <= kPathMergeEpsilon
+        && std::abs(transform[2][3]) <= kPathMergeEpsilon
+        && std::abs(transform[3][2]) <= kPathMergeEpsilon
+        && std::abs(transform[3][3] - 1.0f) <= kPathMergeEpsilon;
+}
+
+inline bool hasCompatiblePathBatchStateWithoutTransform(
     const DrawPathData &a, const DrawPathData &b)
 {
     if (a.hasShaderGradient() || b.hasShaderGradient()) {
@@ -31,9 +45,6 @@ inline bool hasCompatiblePathBatchState(
         return false;
     }
     if (a.blendMode != b.blendMode) {
-        return false;
-    }
-    if (a.transform != b.transform) {
         return false;
     }
     if (a.scissor.enabled != b.scissor.enabled
@@ -49,13 +60,25 @@ inline bool hasCompatiblePathBatchState(
     return true;
 }
 
+inline bool hasCompatiblePathBatchState(
+    const DrawPathData &a, const DrawPathData &b)
+{
+    return hasCompatiblePathBatchStateWithoutTransform(a, b)
+        && a.transform == b.transform;
+}
+
 /// Broader compatibility used by the renderer's per-vertex path batch. Solid
 /// colors and analytic coverage may differ because they are expanded to
-/// aligned per-vertex attributes before submission.
+/// aligned per-vertex attributes before submission. Different 2D affine
+/// transforms are flattened into the merged vertex stream; perspective and
+/// 3D transforms remain separate to preserve clip-space behavior.
 inline bool canBatchPathData(
     const DrawPathData &a, const DrawPathData &b)
 {
-    return hasCompatiblePathBatchState(a, b);
+    return hasCompatiblePathBatchStateWithoutTransform(a, b)
+        && (a.transform == b.transform
+            || (isAffine2DPathTransform(a.transform)
+                && isAffine2DPathTransform(b.transform)));
 }
 
 inline bool canMergePathData(const DrawPathData &a, const DrawPathData &b)

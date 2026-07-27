@@ -311,11 +311,16 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
     positionBuffer_.upload(data.points.data(), data.points.size());
 
     if (data.hasVertexColors()) {
-        std::vector<float> linearColors = data.colors;
-        for (std::size_t i = 0; i + 3 < linearColors.size(); i += 4) {
-            GammaCorrect::srgbToLinear4(linearColors.data() + i);
+        if (data.vertexColorsLinear) {
+            colorBuffer_.upload(data.colors.data(), data.colors.size());
+        } else {
+            std::vector<float> linearColors = data.colors;
+            for (std::size_t i = 0; i + 3 < linearColors.size(); i += 4) {
+                GammaCorrect::srgbToLinear4(linearColors.data() + i);
+            }
+            colorBuffer_.upload(
+                linearColors.data(), linearColors.size());
         }
-        colorBuffer_.upload(linearColors.data(), linearColors.size());
     }
 
     if (data.hasCoverage()) {
