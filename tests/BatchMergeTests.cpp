@@ -142,6 +142,33 @@ bool testBroaderBatchFlattensAffineTransforms()
         "renderer batch must reject perspective transforms");
 }
 
+bool testSharedIndexedGeometryAccessors()
+{
+    auto geometry = std::make_shared<DrawPathGeometry>();
+    geometry->points = {
+        0.0f, 0.0f,
+        10.0f, 0.0f,
+        10.0f, 10.0f,
+        0.0f, 10.0f
+    };
+    geometry->coverage = {1.0f, 1.0f, 0.0f, 0.0f};
+    geometry->indices = {0, 1, 2, 0, 2, 3};
+
+    DrawPathData data = makeSolidFill();
+    data.points.clear();
+    data.sharedGeometry = geometry;
+    return expect(
+               data.getPointCount() == 4,
+               "shared path geometry should provide vertex data")
+        && expect(
+               data.getElementCount() == 6 && data.hasIndices(),
+               "shared path geometry should provide triangle indices")
+        && expect(
+               data.hasCoverage()
+                   && data.coverageData()[2] == 0.0f,
+               "shared path geometry should provide AA coverage");
+}
+
 bool testDifferingStateDoesNotMerge()
 {
     DrawPathData other = makeSolidFill();
@@ -175,6 +202,7 @@ int main()
     ok = testCoverageMismatchDoesNotMerge() && ok;
     ok = testBroaderBatchSupportsPerVertexAttributes() && ok;
     ok = testBroaderBatchFlattensAffineTransforms() && ok;
+    ok = testSharedIndexedGeometryAccessors() && ok;
     ok = testDifferingStateDoesNotMerge() && ok;
     return ok ? 0 : 1;
 }

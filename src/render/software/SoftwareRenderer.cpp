@@ -607,7 +607,9 @@ float roundedImageCoverage(
 /// pixel from the gradient instead of the interpolated vertex colour.
 void rasterizeTriangles(std::uint8_t *framebuffer, int width, int height,
                         const std::vector<float> &points, const std::vector<float> &colors,
-                        const std::vector<float> &coverage, const float uniformColor[4],
+                        const std::vector<float> &coverage,
+                        const std::vector<std::uint32_t> &indices,
+                        const float uniformColor[4],
                         const glm::mat4 &transform, DrawBlendMode blendMode, const GradientDesc &grad,
                         const RasterClip &clip)
 {
@@ -617,6 +619,8 @@ void rasterizeTriangles(std::uint8_t *framebuffer, int width, int height,
     }
     const bool hasColors = colors.size() >= vertexCount * 4;
     const bool hasCoverage = coverage.size() >= vertexCount;
+    const std::size_t elementCount =
+        indices.empty() ? vertexCount : indices.size();
 
     auto makeVertex = [&](std::size_t index) {
         const glm::vec4 device = transform * glm::vec4(points[index * 2], points[index * 2 + 1], 0.0f, 1.0f);
@@ -640,10 +644,16 @@ void rasterizeTriangles(std::uint8_t *framebuffer, int width, int height,
         return v;
     };
 
-    for (std::size_t t = 0; t + 2 < vertexCount; t += 3) {
-        Vertex v0 = makeVertex(t);
-        Vertex v1 = makeVertex(t + 1);
-        Vertex v2 = makeVertex(t + 2);
+    for (std::size_t t = 0; t + 2 < elementCount; t += 3) {
+        const std::size_t i0 = indices.empty() ? t : indices[t];
+        const std::size_t i1 = indices.empty() ? t + 1u : indices[t + 1u];
+        const std::size_t i2 = indices.empty() ? t + 2u : indices[t + 2u];
+        if (i0 >= vertexCount || i1 >= vertexCount || i2 >= vertexCount) {
+            continue;
+        }
+        Vertex v0 = makeVertex(i0);
+        Vertex v1 = makeVertex(i1);
+        Vertex v2 = makeVertex(i2);
 
         float area = edge(v0.x, v0.y, v1.x, v1.y, v2.x, v2.y);
         if (std::fabs(area) < 1e-7f) {
@@ -787,7 +797,7 @@ void rasterizeLines(std::uint8_t *framebuffer, int width, int height, const Draw
             quads.push_back(verts[idx * 2 + 1]);
         }
     }
-    rasterizeTriangles(framebuffer, width, height, quads, {}, {}, data.color, data.transform, data.blendMode,
+    rasterizeTriangles(framebuffer, width, height, quads, {}, {}, {}, data.color, data.transform, data.blendMode,
                        GradientDesc{}, clip);
 }
 
@@ -810,7 +820,7 @@ void rasterizePoints(std::uint8_t *framebuffer, int width, int height, const Dra
         }
     }
     // The square is already in device space, so raster with an identity transform.
-    rasterizeTriangles(framebuffer, width, height, quads, {}, {}, data.color, glm::mat4(1.0f), data.blendMode,
+    rasterizeTriangles(framebuffer, width, height, quads, {}, {}, {}, data.color, glm::mat4(1.0f), data.blendMode,
                        GradientDesc{}, clip);
 }
 
@@ -1596,14 +1606,16 @@ void executeCommandList(std::uint8_t *framebuffer, int width, int height, int ca
         switch (command.type()) {
         case Command::Type::Path: {
             const DrawPathData &data = static_cast<const DrawPathCommand &>(command).data();
-            rasterizeTriangles(framebuffer, width, height, data.points, data.colors, data.coverage, data.color,
+            rasterizeTriangles(
+                framebuffer, width, height, data.pointData(),
+                data.colors, data.coverageData(), data.indexData(), data.color,
                                extra * data.transform, data.blendMode, makeGradientDesc(data),
                                clipFor(data.scissor, data.clipMask));
             break;
         }
         case Command::Type::Text: {
             const DrawTextData &data = static_cast<const DrawTextCommand &>(command).data();
-            rasterizeTriangles(framebuffer, width, height, data.vertices, {}, {}, data.color,
+            rasterizeTriangles(framebuffer, width, height, data.vertices, {}, {}, {}, data.color,
                                extra * data.transform, data.blendMode, GradientDesc{},
                                clipFor(data.scissor, data.clipMask));
             break;

@@ -15,6 +15,7 @@ struct FrameStats
     std::size_t filterInputPixelCount = 0;  ///< Input pixels submitted to filters.
     std::size_t filterPixelPassCount = 0;   ///< Pixels processed across passes.
     std::size_t pathVertexCount = 0;        ///< Path vertices submitted after batching.
+    std::size_t pathIndexCount = 0;         ///< Path indices submitted after batching.
     std::size_t pathUploadCount = 0;        ///< OpenGL path stream uploads.
     std::size_t pathUploadBytes = 0;        ///< OpenGL path stream bytes.
 
@@ -30,6 +31,7 @@ struct FrameStats
         filterInputPixelCount = 0;
         filterPixelPassCount = 0;
         pathVertexCount = 0;
+        pathIndexCount = 0;
         pathUploadCount = 0;
         pathUploadBytes = 0;
     }
