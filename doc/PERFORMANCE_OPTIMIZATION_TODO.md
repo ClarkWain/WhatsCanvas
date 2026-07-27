@@ -65,6 +65,25 @@ instead of 269,598 duplicated vertices in nine draws. Path upload traffic fell
 from 7,548,744 to 2,841,944 bytes (62.4%). All five runs retained the original
 pixel hashes, and all 66 Release tests passed.
 
+## Optimization pass 3
+
+The third pass added automatic 16/32-bit index packets and a guarded simple
+fill path for solid single-contour geometry. Rectangles, rounded rectangles,
+circles, ovals, triangles, diamonds, and other eligible fills skip Path object
+construction or the generic multi-contour setup. Strokes, shadows, gradients,
+path effects, even-odd fills, and multi-contour paths retain the full pipeline.
+
+| Scene | Baseline | Pass 2 | Pass 3 | NanoVG reference | Remaining gap |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `geometry_stress` | 25.659 ms | 8.68 ms | 6.45 ms | 4.316 ms | 1.49x |
+| `contract_text_latin` | 15.911 ms | 4.42 ms | 4.81 ms | 3.334 ms | 1.44x |
+| `image_grid` | 0.308 ms | 0.31 ms | 0.27 ms | 0.372 ms | none demonstrated |
+
+Geometry is now 74.9% faster than the original baseline. Its record/submit
+medians are 3.07/3.40 ms. The 269,598-element index stream uses 539,196 bytes,
+and total path upload traffic is 2,302,748 bytes, 69.5% below the original.
+All quality hashes remain unchanged and all 66 Release tests pass.
+
 ## Root cause
 
 The common problem is **early expansion and late batching**. Images retain
@@ -151,10 +170,8 @@ Acceptance target: reduce geometry vertex count by at least 60%, upload bytes
 by at least 65%, and bring the 1080p geometry scene below 10 ms on the reference
 machine while preserving the quality gate.
 
-Pass 2 status: partially met. Vertex count fell by 76.6% and the scene reached
-8.68 ms with unchanged hashes. Upload bytes fell by 62.4%, just short of the
-65% target; 16-bit index packets or a semantic primitive packet can close that
-remaining traffic target without lossy color packing.
+Pass 3 status: met. Vertex count fell by 76.6%, upload bytes fell by 69.5%,
+and the scene reached 6.45 ms with unchanged hashes.
 
 ## P2: backend convergence
 

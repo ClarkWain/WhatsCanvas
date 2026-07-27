@@ -169,6 +169,28 @@ bool testSharedIndexedGeometryAccessors()
                "shared path geometry should provide AA coverage");
 }
 
+bool testShortIndexAccessors()
+{
+    DrawPathData data;
+    data.points = {
+        0.0f, 0.0f,
+        10.0f, 0.0f,
+        10.0f, 10.0f,
+        0.0f, 10.0f
+    };
+    data.shortIndices = {0, 1, 2, 0, 2, 3};
+    return expect(
+               data.hasShortIndices()
+                   && data.hasIndices(),
+               "16-bit packet should report indexed geometry")
+        && expect(
+               data.getElementCount() == 6,
+               "16-bit packet should report its element count")
+        && expect(
+               data.getIndex(4) == 2u,
+               "generic index access should decode 16-bit indices");
+}
+
 bool testDifferingStateDoesNotMerge()
 {
     DrawPathData other = makeSolidFill();
@@ -203,6 +225,7 @@ int main()
     ok = testBroaderBatchSupportsPerVertexAttributes() && ok;
     ok = testBroaderBatchFlattensAffineTransforms() && ok;
     ok = testSharedIndexedGeometryAccessors() && ok;
+    ok = testShortIndexAccessors() && ok;
     ok = testDifferingStateDoesNotMerge() && ok;
     return ok ? 0 : 1;
 }

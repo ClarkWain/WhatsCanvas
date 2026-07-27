@@ -73,6 +73,7 @@ struct DrawPathData {
     std::vector<float> colors;    // Optional per-vertex colors, each storing r/g/b/a
     std::vector<float> coverage;  // Optional per-vertex analytic-AA coverage in [0,1]
     std::vector<std::uint32_t> indices; // Optional triangle indices into points
+    std::vector<std::uint16_t> shortIndices; // Compact merged packet indices
     std::shared_ptr<const DrawPathGeometry> sharedGeometry;
     float width = 1.0f;           // Stroke width
     float color[4];               // RGBA color
@@ -107,8 +108,22 @@ struct DrawPathData {
     size_t getPointCount() const { return pointData().size() / 2; }
     bool hasVertexColors() const { return colors.size() == getPointCount() * 4; }
     bool hasCoverage() const { return coverageData().size() == getPointCount(); }
-    bool hasIndices() const { return !indexData().empty(); }
-    size_t getElementCount() const { return hasIndices() ? indexData().size() : getPointCount(); }
+    bool hasShortIndices() const { return !shortIndices.empty(); }
+    bool hasLongIndices() const { return !indexData().empty(); }
+    bool hasIndices() const { return hasShortIndices() || hasLongIndices(); }
+    size_t getElementCount() const
+    {
+        if (hasShortIndices()) {
+            return shortIndices.size();
+        }
+        return hasLongIndices() ? indexData().size() : getPointCount();
+    }
+    std::uint32_t getIndex(size_t element) const
+    {
+        return hasShortIndices()
+            ? static_cast<std::uint32_t>(shortIndices[element])
+            : indexData()[element];
+    }
     bool hasShaderGradient() const { return gradientType != DrawGradientType::None && gradientStopCount > 0; }
 };
 

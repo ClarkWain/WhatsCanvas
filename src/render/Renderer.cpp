@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <limits>
 
 #include "command/DrawCommand.h"
 #include "command/DrawPath.h"
@@ -485,7 +486,14 @@ void Renderer::flush()
             merged.colors.clear();
             merged.coverage.clear();
             merged.indices.clear();
+            merged.shortIndices.clear();
             merged.vertexColorsLinear = needsVertexColors;
+            const bool useShortIndices =
+                needsIndices
+                && totalVertices
+                    <= static_cast<std::size_t>(
+                        std::numeric_limits<std::uint16_t>::max())
+                        + 1u;
             if (flattenTransforms) {
                 merged.transform = glm::mat4(1.0f);
             }
@@ -497,7 +505,11 @@ void Renderer::flush()
                 merged.coverage.reserve(totalVertices);
             }
             if (needsIndices) {
-                merged.indices.reserve(totalElements);
+                if (useShortIndices) {
+                    merged.shortIndices.reserve(totalElements);
+                } else {
+                    merged.indices.reserve(totalElements);
+                }
             }
 
             for (std::size_t m = i; m < j; ++m) {
@@ -508,8 +520,6 @@ void Renderer::flush()
                     next.pointData();
                 const std::vector<float> &nextCoverage =
                     next.coverageData();
-                const std::vector<std::uint32_t> &nextIndices =
-                    next.indexData();
                 const std::size_t vertexCount = next.getPointCount();
                 const std::uint32_t baseVertex =
                     static_cast<std::uint32_t>(
@@ -591,27 +601,41 @@ void Renderer::flush()
                     }
                 }
                 if (needsIndices) {
-                    const std::size_t indexStart =
-                        merged.indices.size();
                     const std::size_t incomingIndexCount =
                         next.hasIndices()
-                            ? nextIndices.size()
+                            ? next.getElementCount()
                             : vertexCount;
-                    merged.indices.resize(
-                        indexStart + incomingIndexCount);
-                    if (next.hasIndices()) {
+                    if (useShortIndices) {
+                        const std::size_t indexStart =
+                            merged.shortIndices.size();
+                        merged.shortIndices.resize(
+                            indexStart + incomingIndexCount);
                         for (std::size_t index = 0;
-                             index < nextIndices.size(); ++index) {
-                            merged.indices[indexStart + index] =
-                                baseVertex + nextIndices[index];
+                             index < incomingIndexCount; ++index) {
+                            const std::uint32_t sourceIndex =
+                                next.hasIndices()
+                                    ? next.getIndex(index)
+                                    : static_cast<std::uint32_t>(
+                                        index);
+                            merged.shortIndices[
+                                indexStart + index] =
+                                static_cast<std::uint16_t>(
+                                    baseVertex + sourceIndex);
                         }
                     } else {
-                        for (std::size_t vertex = 0;
-                             vertex < vertexCount; ++vertex) {
-                            merged.indices[indexStart + vertex] =
-                                baseVertex
-                                + static_cast<std::uint32_t>(
-                                    vertex);
+                        const std::size_t indexStart =
+                            merged.indices.size();
+                        merged.indices.resize(
+                            indexStart + incomingIndexCount);
+                        for (std::size_t index = 0;
+                             index < incomingIndexCount; ++index) {
+                            const std::uint32_t sourceIndex =
+                                next.hasIndices()
+                                    ? next.getIndex(index)
+                                    : static_cast<std::uint32_t>(
+                                        index);
+                            merged.indices[indexStart + index] =
+                                baseVertex + sourceIndex;
                         }
                     }
                 }
@@ -628,13 +652,15 @@ void Renderer::flush()
             i = j;
         } else {
             stats_.pathVertexCount += first.getPointCount();
-            stats_.pathIndexCount += first.indexData().size();
+            stats_.pathIndexCount += first.hasIndices()
+                ? first.getElementCount() : 0u;
             executeCommand(commands_[i]);
             ++i;
         }
     }
     stats_.pathUploadCount += pathProgram->frameUploadCount();
     stats_.pathUploadBytes += pathProgram->frameUploadBytes();
+    stats_.pathIndexBytes += pathProgram->frameIndexBytes();
 }
 
 bool Renderer::flushViaDeviceCommands()

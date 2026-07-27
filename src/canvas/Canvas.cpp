@@ -130,6 +130,9 @@ struct PathContour {
 };
 
 std::vector<float> flattenPoints(const std::vector<crushedpixel::Vec2> &points);
+void appendSafePoint(
+    std::vector<crushedpixel::Vec2> &points,
+    float x, float y);
 std::vector<PathContour> extractContours(const Path &path);
 std::vector<crushedpixel::Vec2> triangulateContours(const std::vector<PathContour> &contours,
                                                     Path::FillType fillType);
@@ -365,24 +368,30 @@ DrawGradientTileMode toDrawGradientTileMode(Paint::ShaderTileMode tileMode)
 
 Color applyPaintAlpha(const Paint &paint, const Color &color);
 
+bool canUseSimpleFillPath(const Paint &paint)
+{
+    return paint.getStyle() == Paint::Style::FILL
+        && paint.getShaderType() == Paint::ShaderType::SOLID
+        && !paint.hasShadowLayer()
+        && !paint.hasCornerPathEffect();
+}
+
 DrawPathData makeDrawPathData(std::vector<float> points, float width, const Color &color,
                               PathDrawMode mode, const glm::mat4 &transform, const ScissorState &scissor,
                               DrawBlendMode blendMode, const ClipMaskState &clipMask = {})
 {
-    DrawPathData data{
-        std::move(points),
-        {},
-        {},
-        {},
-        {},
-        width,
-        {color.r(), color.g(), color.b(), color.a()},
-        mode,
-        PathCapStyle::Bevel,
-        transform,
-        scissor,
-        blendMode
-    };
+    DrawPathData data;
+    data.points = std::move(points);
+    data.width = width;
+    data.color[0] = color.r();
+    data.color[1] = color.g();
+    data.color[2] = color.b();
+    data.color[3] = color.a();
+    data.drawMode = mode;
+    data.capStyle = PathCapStyle::Bevel;
+    data.transform = transform;
+    data.scissor = scissor;
+    data.blendMode = blendMode;
     data.clipMask = clipMask;
     return data;
 }
@@ -841,6 +850,29 @@ void addQuarterArc(Path &path, float centerX, float centerY, float radius,
     for (int i = 1; i <= segments; ++i) {
         const float angle = startAngle + angleStep * static_cast<float>(i);
         path.lineTo(centerX + radius * std::cos(angle), centerY + radius * std::sin(angle));
+    }
+}
+
+void appendQuarterArcPoints(
+    std::vector<crushedpixel::Vec2> &points,
+    float centerX, float centerY, float radius,
+    float startAngle, float endAngle, int segments)
+{
+    if (radius <= 0.0f || segments <= 0) {
+        return;
+    }
+
+    const float angleStep =
+        (endAngle - startAngle)
+        / static_cast<float>(segments);
+    for (int i = 1; i <= segments; ++i) {
+        const float angle =
+            startAngle
+            + angleStep * static_cast<float>(i);
+        appendSafePoint(
+            points,
+            centerX + radius * std::cos(angle),
+            centerY + radius * std::sin(angle));
     }
 }
 
@@ -2341,6 +2373,9 @@ struct Canvas::Impl
     GraphicsState &currentState();
     const GraphicsState &currentState() const;
     Paint applyStateToPaint(const Paint &paint) const;
+    bool submitSimpleFill(
+        std::vector<crushedpixel::Vec2> points,
+        const Paint &paint);
     void releaseSizeDependentResources();
     SharedImageResource getOrUpdateGlyphAtlasResource(const wsc::text::TextRenderResult &renderedText);
     bool getClipBounds(RectF &bounds) const;
@@ -2675,6 +2710,82 @@ Paint Canvas::Impl::applyStateToPaint(const Paint &paint) const
     return effectivePaint;
 }
 
+bool Canvas::Impl::submitSimpleFill(
+    std::vector<crushedpixel::Vec2> points,
+    const Paint &paint)
+{
+    if (!canUseSimpleFillPath(paint)) {
+        return false;
+    }
+    if (points.size() < 3 || renderer == nullptr) {
+        return true;
+    }
+
+    std::vector<PathContour> contours;
+    contours.reserve(1);
+    PathContour contour;
+    contour.points = std::move(points);
+    contour.closed = true;
+    contours.push_back(std::move(contour));
+
+    glm::mat4 transform = currentState().matrix;
+    factorContourTranslation(contours, transform);
+    const std::uint64_t fillKey =
+        hashFillTessellation(
+            contours, Path::FillType::WINDING);
+    const std::vector<crushedpixel::Vec2> *fillTriangles =
+        fillTessellationCache.find(fillKey);
+    if (fillTriangles == nullptr) {
+        fillTriangles = &fillTessellationCache.insert(
+            fillKey,
+            triangulateContours(
+                contours, Path::FillType::WINDING));
+    }
+    if (fillTriangles->empty()) {
+        return true;
+    }
+
+    const Paint effectivePaint = applyStateToPaint(paint);
+    DrawPathData data;
+    if (effectivePaint.isAntiAlias()) {
+        const float fringe =
+            computeLocalFringe(currentState().matrix);
+        std::uint64_t aaKey = fillKey;
+        hashFloat(aaKey, fringe);
+        const SharedAAExpandedMesh *aa =
+            fillAaCache.find(aaKey);
+        if (aa == nullptr) {
+            aa = &fillAaCache.insert(
+                aaKey,
+                shareAAExpandedMesh(
+                    expandTrianglesWithAA(
+                        *fillTriangles, fringe)));
+        }
+        data.sharedGeometry = aa->geometry;
+    } else {
+        data.points = flattenPoints(*fillTriangles);
+    }
+    data.width = effectivePaint.getStrokeWidth();
+    const Color color = applyPaintAlpha(
+        effectivePaint,
+        effectivePaint.getFillColor());
+    data.color[0] = color.r();
+    data.color[1] = color.g();
+    data.color[2] = color.b();
+    data.color[3] = color.a();
+    data.drawMode = PathDrawMode::Fill;
+    data.capStyle = PathCapStyle::Bevel;
+    data.transform = transform;
+    data.scissor = makeCurrentScissorState();
+    data.blendMode =
+        toDrawBlendMode(effectivePaint.getBlendMode());
+    data.clipMask = makeCurrentClipMaskState();
+    renderer->submit(
+        std::make_unique<DrawPathCommand>(
+            std::move(data)));
+    return true;
+}
+
 bool Canvas::Impl::ensureRendererInitialized()
 {
     if (renderer == nullptr) {
@@ -2938,6 +3049,7 @@ Canvas::RenderStats Canvas::getRenderStats() const
     stats.filterPixelPassCount = frameStats.filterPixelPassCount;
     stats.pathVertexCount = frameStats.pathVertexCount;
     stats.pathIndexCount = frameStats.pathIndexCount;
+    stats.pathIndexBytes = frameStats.pathIndexBytes;
     stats.pathUploadCount = frameStats.pathUploadCount;
     stats.pathUploadBytes = frameStats.pathUploadBytes;
     stats.imageTextureCount = resourceStats.imageTextureCount;
@@ -3204,6 +3316,23 @@ void Canvas::drawRect(const RectF &rect, const Paint &paint)
         return;
     }
 
+    if (canUseSimpleFillPath(paint)) {
+        const float left = normalized.getX();
+        const float top = normalized.getY();
+        const float right = left + normalized.getWidth();
+        const float bottom = top + normalized.getHeight();
+        std::vector<crushedpixel::Vec2> points;
+        points.reserve(4);
+        points.emplace_back(left, top);
+        points.emplace_back(right, top);
+        points.emplace_back(right, bottom);
+        points.emplace_back(left, bottom);
+        if (impl_->submitSimpleFill(
+                std::move(points), paint)) {
+            return;
+        }
+    }
+
     Path path;
     path.addRect(normalized);
     drawPath(path, paint);
@@ -3279,6 +3408,60 @@ void Canvas::drawRoundRect(const RectF &rect, float topLeftRadius, float topRigh
     const float top = normalized.getY();
     const float right = left + width;
     const float bottom = top + height;
+
+    if (canUseSimpleFillPath(paint)) {
+        std::vector<crushedpixel::Vec2> points;
+        points.reserve(
+            static_cast<std::size_t>(
+                cornerSegments(topLeft)
+                + cornerSegments(topRight)
+                + cornerSegments(bottomRight)
+                + cornerSegments(bottomLeft)
+                + 4));
+        appendSafePoint(points, left + topLeft, top);
+        appendSafePoint(points, right - topRight, top);
+        if (topRight > 0.0f) {
+            appendQuarterArcPoints(
+                points, right - topRight, top + topRight,
+                topRight, -0.5f * kPi, 0.0f,
+                cornerSegments(topRight));
+        } else {
+            appendSafePoint(points, right, top);
+        }
+        appendSafePoint(points, right, bottom - bottomRight);
+        if (bottomRight > 0.0f) {
+            appendQuarterArcPoints(
+                points, right - bottomRight,
+                bottom - bottomRight, bottomRight,
+                0.0f, 0.5f * kPi,
+                cornerSegments(bottomRight));
+        } else {
+            appendSafePoint(points, right, bottom);
+        }
+        appendSafePoint(points, left + bottomLeft, bottom);
+        if (bottomLeft > 0.0f) {
+            appendQuarterArcPoints(
+                points, left + bottomLeft,
+                bottom - bottomLeft, bottomLeft,
+                0.5f * kPi, kPi,
+                cornerSegments(bottomLeft));
+        } else {
+            appendSafePoint(points, left, bottom);
+        }
+        appendSafePoint(points, left, top + topLeft);
+        if (topLeft > 0.0f) {
+            appendQuarterArcPoints(
+                points, left + topLeft, top + topLeft,
+                topLeft, kPi, 1.5f * kPi,
+                cornerSegments(topLeft));
+        } else {
+            appendSafePoint(points, left, top);
+        }
+        if (impl_->submitSimpleFill(
+                std::move(points), paint)) {
+            return;
+        }
+    }
 
     Path path;
     path.moveTo(left + topLeft, top);
@@ -3367,6 +3550,31 @@ void Canvas::drawCircle(float centerX, float centerY, float radius, const Paint 
         return;
     }
 
+    if (canUseSimpleFillPath(paint)) {
+        constexpr float kPi =
+            3.14159265358979323846f;
+        const float angleStep =
+            (2.0f * kPi)
+            / static_cast<float>(segments);
+        std::vector<crushedpixel::Vec2> points;
+        points.reserve(
+            static_cast<std::size_t>(segments) + 1u);
+        appendSafePoint(
+            points, centerX + radius, centerY);
+        for (int i = 1; i <= segments; ++i) {
+            const float angle =
+                angleStep * static_cast<float>(i);
+            appendSafePoint(
+                points,
+                centerX + radius * std::cos(angle),
+                centerY + radius * std::sin(angle));
+        }
+        if (impl_->submitSimpleFill(
+                std::move(points), paint)) {
+            return;
+        }
+    }
+
     Path path;
     addEllipse(path, centerX, centerY, radius, radius, segments);
     drawPath(path, paint);
@@ -3399,6 +3607,31 @@ void Canvas::drawOval(const RectF &bounds, const Paint &paint)
         radiusX, radiusY, averageDeviceScale(impl_->currentState().matrix));
     if (segments <= 0) {
         return;
+    }
+
+    if (canUseSimpleFillPath(paint)) {
+        constexpr float kPi =
+            3.14159265358979323846f;
+        const float angleStep =
+            (2.0f * kPi)
+            / static_cast<float>(segments);
+        std::vector<crushedpixel::Vec2> points;
+        points.reserve(
+            static_cast<std::size_t>(segments) + 1u);
+        appendSafePoint(
+            points, centerX + radiusX, centerY);
+        for (int i = 1; i <= segments; ++i) {
+            const float angle =
+                angleStep * static_cast<float>(i);
+            appendSafePoint(
+                points,
+                centerX + radiusX * std::cos(angle),
+                centerY + radiusY * std::sin(angle));
+        }
+        if (impl_->submitSimpleFill(
+                std::move(points), paint)) {
+            return;
+        }
     }
 
     Path path;
@@ -3474,11 +3707,11 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
         return;
     }
 
-    const Paint effectivePaint = impl_->applyStateToPaint(paint);
     Path effectedPath;
     const Path *sourcePath = &path;
-    if (effectivePaint.hasCornerPathEffect()) {
-        effectedPath = path.roundedCorners(effectivePaint.getCornerPathEffectRadius());
+    if (paint.hasCornerPathEffect()) {
+        effectedPath = path.roundedCorners(
+            paint.getCornerPathEffectRadius());
         sourcePath = &effectedPath;
     }
 
@@ -3487,6 +3720,20 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
         return;
     }
 
+    if (canUseSimpleFillPath(paint)
+        && sourcePath->getFillType()
+            == Path::FillType::WINDING
+        && contours.size() == 1u
+        && contours.front().closed) {
+        if (impl_->submitSimpleFill(
+                std::move(contours.front().points),
+                paint)) {
+            return;
+        }
+    }
+
+    const Paint effectivePaint =
+        impl_->applyStateToPaint(paint);
     const bool drawFill = effectivePaint.getStyle() == Paint::Style::FILL
         || effectivePaint.getStyle() == Paint::Style::FILL_AND_STROKE;
     const bool drawStroke = effectivePaint.getStyle() == Paint::Style::STROKE

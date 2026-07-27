@@ -332,6 +332,20 @@ work. The scene now uses one draw and uploads 2,841,944 path bytes instead of
 7,548,744. Captured hashes remain `44121eb5a074425f`, `432ad28b33a51375`,
 and `737cad1b0d1169f2` for geometry, image, and text respectively.
 
+The third pass added 16-bit merged index packets and a guarded simple solid-fill
+path. Five-process geometry measurement and a nine-process text check produced:
+
+| Scene | Original | Pass 2 | Pass 3 | NanoVG GL3 | Pass 3 gap |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `geometry_stress` | 25.659 ms | 8.68 ms | 6.45 ms | 4.316 ms | 1.49x |
+| `image_grid` | 0.308 ms | 0.31 ms | 0.27 ms | 0.372 ms | within noise |
+| `contract_text_latin` | 15.911 ms | 4.42 ms | 4.81 ms | 3.334 ms | 1.44x |
+
+The geometry scene records in 3.07 ms and submits in 3.40 ms. Its 269,598
+indices occupy 539,196 bytes, confirming a 16-bit stream; total path upload is
+2,302,748 bytes, down 69.5% from the original. Complex geometry semantics keep
+the generic path pipeline, and all captures retain their prior hashes.
+
 ## CI policy
 
 Shared hosted runners execute the `quick` Software subset to validate build
