@@ -2,6 +2,7 @@
 #include "Renderer.h"
 
 #include "command/DrawCommand.h"
+#include "command/DrawPath.h"
 #include "RenderDeviceFactory.h"
 #include "IRenderTarget.h"
 #include "SpriteBatch.h"
@@ -297,6 +298,9 @@ void Renderer::flush()
         return;
     }
 
+    DrawPathProgram *pathProgram = DrawPathProgram::getInstance();
+    pathProgram->beginFrame();
+
     auto executeCommand = [&](const std::unique_ptr<Command> &command) {
         command->execute(context_);
         ++stats_.drawCallCount;
@@ -545,16 +549,20 @@ void Renderer::flush()
                 }
             }
 
-            DrawPathCommand mergedCmd(merged);
+            DrawPathCommand mergedCmd(std::move(merged));
             mergedCmd.execute(context_);
+            stats_.pathVertexCount += totalVertices;
             ++stats_.drawCallCount;
             ++stats_.mergedBatchCount;
             i = j;
         } else {
+            stats_.pathVertexCount += first.getPointCount();
             executeCommand(commands_[i]);
             ++i;
         }
     }
+    stats_.pathUploadCount += pathProgram->frameUploadCount();
+    stats_.pathUploadBytes += pathProgram->frameUploadBytes();
 }
 
 bool Renderer::flushViaDeviceCommands()

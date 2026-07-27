@@ -1609,12 +1609,25 @@ bool runScene(
          << ",\"filter_pass_count\":" << stats.filterPassCount
          << ",\"filter_pixel_pass_count\":"
          << stats.filterPixelPassCount
+         << ",\"path_vertex_count\":" << stats.pathVertexCount
+         << ",\"path_upload_count\":" << stats.pathUploadCount
+         << ",\"path_upload_bytes\":" << stats.pathUploadBytes
          << ",\"pooled_render_target_bytes\":"
          << stats.pooledRenderTargetBytes
          << ",\"glyph_atlas_texture_bytes\":"
          << stats.glyphAtlasTextureBytes
+         << ",\"tessellation_cache_hits\":"
+         << stats.tessellationCacheHits
+         << ",\"tessellation_cache_misses\":"
+         << stats.tessellationCacheMisses
          << ",\"tessellation_cache_bytes\":"
          << stats.tessellationCacheBytes
+         << ",\"aa_cache_hits\":" << stats.aaCacheHits
+         << ",\"aa_cache_misses\":" << stats.aaCacheMisses
+         << ",\"aa_cache_size\":" << stats.aaCacheSize
+         << ",\"aa_cache_bytes\":" << stats.aaCacheBytes
+         << ",\"stroke_cache_hits\":" << stats.strokeCacheHits
+         << ",\"stroke_cache_misses\":" << stats.strokeCacheMisses
          << ",\"stroke_cache_bytes\":" << stats.strokeCacheBytes
          << ",\"bitmap_text_cache_bytes\":"
          << stats.bitmapTextCacheBytes
