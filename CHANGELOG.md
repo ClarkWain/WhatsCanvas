@@ -13,8 +13,12 @@ For releases and downloadable artifacts, see the
 - Added retained-memory diagnostics for glyph atlases, tessellation and bitmap
   text caches, and pooled render targets through `Canvas::RenderStats` and the
   image-filter benchmark.
+- Added dense mixed-geometry and multilingual text stress scenes to the unified
+  performance suite.
 
 ### Changed
+- Changed the unified performance suite default resolution from 960 x 540 to
+  1920 x 1080.
 - Bounded geometry, bitmap-text, and render-target caches by byte budgets;
   reused OpenGL/Vulkan filter targets; reduced the initial portable glyph atlas
   to 2048 x 2048; and removed one full-size floating-point working buffer from
