@@ -521,8 +521,16 @@ bool OpenGLRenderDevice::executeDrawList(const wsc::DrawList &drawList, int widt
 
         if (prim.kind == wsc::DrawPrimitiveKind::SolidTriangles || prim.kind == wsc::DrawPrimitiveKind::GradientFill) {
             const std::size_t vertexCount = prim.positions.size() / 2u;
-            if (vertexCount < 3 || (vertexCount % 3u) != 0u) {
+            const std::size_t elementCount =
+                prim.indices.empty() ? vertexCount : prim.indices.size();
+            if ((prim.positions.size() % 2u) != 0u || vertexCount < 3
+                || elementCount < 3 || (elementCount % 3u) != 0u) {
                 return false;
+            }
+            for (const std::uint32_t index : prim.indices) {
+                if (index >= vertexCount) {
+                    return false;
+                }
             }
             DrawPathData data;
             data.points.reserve(prim.positions.size());
@@ -530,6 +538,7 @@ bool OpenGLRenderDevice::executeDrawList(const wsc::DrawList &drawList, int widt
                 data.points.push_back(fromNdcX(prim.positions[i * 2u + 0u], width));
                 data.points.push_back(fromNdcY(prim.positions[i * 2u + 1u], height));
             }
+            data.indices = prim.indices;
             data.colors = prim.colors;
             data.coverage = prim.coverage;
             data.color[0] = prim.color[0];

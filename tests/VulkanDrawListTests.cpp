@@ -61,9 +61,10 @@ int main()
     background.kind = wsc::DrawPrimitiveKind::SolidTriangles;
     background.blendMode = 0; // SrcOver
     background.positions = {
-        -1.0f, -1.0f, 1.0f, -1.0f, 1.0f, 1.0f,
-        -1.0f, -1.0f, 1.0f,  1.0f, -1.0f, 1.0f,
+        -1.0f, -1.0f, 1.0f, -1.0f,
+         1.0f,  1.0f, -1.0f, 1.0f,
     };
+    background.indices = {0, 1, 2, 0, 2, 3};
     background.color[0] = 0.0f;
     background.color[1] = 1.0f;
     background.color[2] = 0.0f;
@@ -109,6 +110,7 @@ int main()
     wsc::DrawPrimitive bg2;
     bg2.kind = wsc::DrawPrimitiveKind::SolidTriangles;
     bg2.positions = background.positions;
+    bg2.indices = background.indices;
     bg2.color[0] = 0.0f;
     bg2.color[1] = 0.0f;
     bg2.color[2] = 0.0f;

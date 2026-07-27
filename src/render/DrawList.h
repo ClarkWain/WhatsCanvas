@@ -36,10 +36,14 @@ struct DrawPrimitive
     int scissorHeight = 0;
 
     /// SolidTriangles: interleaved x,y vertex positions in normalized device
-    /// coordinates (3 vertices per triangle).
+    /// coordinates. When `indices` is empty, positions contain 3 vertices per
+    /// triangle.
     /// TexturedQuad: optional explicit NDC quad as a triangle list (x,y pairs);
     /// when empty, the full target is used.
     std::vector<float> positions;
+
+    /// SolidTriangles: optional triangle-list indices into `positions`.
+    std::vector<std::uint32_t> indices;
 
     /// TexturedQuad: optional per-vertex UVs (u,v pairs) matching `positions`;
     /// when empty, full 0..1 UVs are used.
