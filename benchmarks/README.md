@@ -6,7 +6,9 @@ publish benchmark results from an optimized `Release` configuration.
 ## Benchmark targets
 
 - `WhatsCanvasPerformanceSuite`: unified frame workloads for Software, OpenGL,
-  and Vulkan. This is the primary performance-evaluation entry point.
+  and Vulkan. Its 13 scenes default to 1920 x 1080 and include dense
+  multilingual text and mixed-geometry stress workloads. This is the primary
+  performance-evaluation entry point.
 - `WhatsCanvasCoreBenchmarks`: CPU microbenchmarks for layout, shaping,
   rasterization, path metrics, command recording, and other isolated costs.
 - `WhatsCanvasImageFilterBenchmarks`: focused end-to-end frosted-glass and
@@ -39,4 +41,7 @@ and publication rules.
 
 The checked-in
 [Windows i7-8700 / GTX 1060 reference run](baselines/windows-i7-8700-gtx1060/README.md)
-contains the generated report and all 33 raw JSONL records.
+contains the generated report and all 33 raw JSONL records. It is a historical
+960 x 540 reference from the earlier 11-scene suite and must not be compared
+directly with the current 1080p default; create a fresh matching baseline for
+timing verdicts.

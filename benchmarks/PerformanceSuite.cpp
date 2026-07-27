@@ -61,8 +61,8 @@ namespace {
 
 using Clock = std::chrono::steady_clock;
 
-constexpr int kDefaultWidth = 960;
-constexpr int kDefaultHeight = 540;
+constexpr int kDefaultWidth = 1920;
+constexpr int kDefaultHeight = 1080;
 constexpr int kMaxDimension = 8192;
 constexpr std::uint64_t kMaxPixels = UINT64_C(100000000);
 constexpr int kSchemaVersion = 1;
@@ -894,6 +894,78 @@ void drawPathChurn(
     drawPaths(canvas, resources, width, height, frame, true);
 }
 
+void drawGeometryStress(
+    wsc::Canvas &canvas, SceneResources &, int width, int height, int frame)
+{
+    canvas.drawColor(wsc::Color(13, 17, 25, 255));
+    constexpr int columns = 64;
+    constexpr int rows = 36;
+    const float cellWidth = static_cast<float>(width) / columns;
+    const float cellHeight = static_cast<float>(height) / rows;
+    const float inset =
+        std::max(1.0f, std::min(cellWidth, cellHeight) * 0.12f);
+    const float phase = static_cast<float>(frame % 8) * 0.0625f;
+
+    for (int row = 0; row < rows; ++row) {
+        for (int column = 0; column < columns; ++column) {
+            const int index = row * columns + column;
+            const float left = column * cellWidth + inset + phase;
+            const float top = row * cellHeight + inset;
+            const float shapeWidth = cellWidth - inset * 2.0f;
+            const float shapeHeight = cellHeight - inset * 2.0f;
+            const wsc::RectF bounds(
+                left, top, shapeWidth, shapeHeight);
+            wsc::Paint paint = solid(wsc::Color(
+                35 + (index * 37) % 205,
+                45 + (index * 53) % 195,
+                55 + (index * 71) % 185,
+                160 + (index * 17) % 96));
+
+            switch (index % 6) {
+            case 0:
+                canvas.drawRect(bounds, paint);
+                break;
+            case 1:
+                canvas.drawRoundRect(
+                    bounds, std::min(shapeWidth, shapeHeight) * 0.24f,
+                    paint);
+                break;
+            case 2:
+                canvas.drawCircle(
+                    left + shapeWidth * 0.5f,
+                    top + shapeHeight * 0.5f,
+                    std::min(shapeWidth, shapeHeight) * 0.45f,
+                    paint);
+                break;
+            case 3:
+                canvas.drawOval(bounds, paint);
+                break;
+            case 4: {
+                wsc::Path triangle;
+                triangle.moveTo(left + shapeWidth * 0.5f, top);
+                triangle.lineTo(left + shapeWidth, top + shapeHeight);
+                triangle.lineTo(left, top + shapeHeight);
+                triangle.close();
+                canvas.drawPath(triangle, paint);
+                break;
+            }
+            default: {
+                wsc::Path diamond;
+                diamond.moveTo(left + shapeWidth * 0.5f, top);
+                diamond.lineTo(
+                    left + shapeWidth, top + shapeHeight * 0.5f);
+                diamond.lineTo(
+                    left + shapeWidth * 0.5f, top + shapeHeight);
+                diamond.lineTo(left, top + shapeHeight * 0.5f);
+                diamond.close();
+                canvas.drawPath(diamond, paint);
+                break;
+            }
+            }
+        }
+    }
+}
+
 void drawImageGrid(
     wsc::Canvas &canvas, SceneResources &resources,
     int width, int height, int frame)
@@ -1045,6 +1117,43 @@ void drawTextChurn(
     drawTextScene(canvas, resources, width, height, frame, true);
 }
 
+void drawTextStress(
+    wsc::Canvas &canvas, SceneResources &, int width, int height, int)
+{
+    canvas.drawColor(wsc::Color(247, 248, 251, 255));
+    constexpr int columns = 8;
+    constexpr int rows = 72;
+    static const std::array<std::string, 6> samples = {{
+        "Canvas rendering Aa 123",
+        u8"\u4e2d\u6587\u6392\u7248 Canvas 123",
+        u8"Arabic \u0645\u0631\u062d\u0628\u0627 42",
+        u8"Devanagari \u0928\u092e\u0938\u094d\u0924\u0947",
+        "OpenType shaping AV fi",
+        "Glyph atlas 0123456789",
+    }};
+    const float columnWidth = static_cast<float>(width) / columns;
+    const float rowHeight = static_cast<float>(height) / rows;
+    const float textSize =
+        std::clamp(rowHeight * 0.76f, 10.0f, 18.0f);
+    for (int row = 0; row < rows; ++row) {
+        for (int column = 0; column < columns; ++column) {
+            const int index = row * columns + column;
+            wsc::Paint paint;
+            paint.setColor(wsc::Color(
+                18 + (index * 13) % 82,
+                28 + (index * 17) % 92,
+                42 + (index * 19) % 108, 255));
+            paint.setTextSize(textSize);
+            paint.setFontWeight(index % 7 == 0 ? 700 : 400);
+            canvas.drawText(
+                samples[static_cast<std::size_t>(index) % samples.size()],
+                column * columnWidth + 4.0f,
+                (row + 0.82f) * rowHeight,
+                paint);
+        }
+    }
+}
+
 void drawFilterBackground(wsc::Canvas &canvas, int width, int height)
 {
     wsc::Paint gradient;
@@ -1141,18 +1250,20 @@ void drawInnerShadow(
     }
 }
 
-const std::array<Scene, 11> &scenes()
+const std::array<Scene, 13> &scenes()
 {
-    static const std::array<Scene, 11> value = {{
+    static const std::array<Scene, 13> value = {{
         {"solid_rects", "raster", "churn", 576, drawSolidRects},
         {"rounded_ui", "raster", "churn", 120, drawRoundedUi},
         {"path_cached", "path", "hot", 160, drawPathCached},
         {"path_churn", "path", "churn", 160, drawPathChurn},
+        {"geometry_stress", "geometry", "churn", 2304, drawGeometryStress},
         {"image_grid", "image", "hot", 96, drawImageGrid},
         {"clip_layers", "layer", "churn", 144, drawClipLayers},
         {"shadow_grid", "effect", "churn", 36, drawShadows},
         {"text_cached", "text", "hot", 120, drawTextCached},
         {"text_churn", "text", "churn", 120, drawTextChurn},
+        {"text_stress", "text", "hot", 576, drawTextStress},
         {"frosted_glass", "filter", "hot", 4, drawFrostedGlass},
         {"inner_shadow", "filter", "hot", 24, drawInnerShadow},
     }};
