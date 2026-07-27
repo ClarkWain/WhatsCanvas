@@ -33,6 +33,44 @@ bool nearlyEqual(float lhs, float rhs)
     return std::abs(lhs - rhs) <= kMergeEpsilon;
 }
 
+void resetPathBatchState(
+    const DrawPathData &source, DrawPathData &target)
+{
+    target.sharedGeometry.reset();
+    target.points.clear();
+    target.colors.clear();
+    target.packedColors.clear();
+    target.coverage.clear();
+    target.indices.clear();
+    // packedCoverage and shortIndices may contain a reusable topology packet.
+    // The caller clears them after deciding whether the cache still matches.
+
+    target.width = source.width;
+    std::copy_n(source.color, 4u, target.color);
+    target.drawMode = source.drawMode;
+    target.capStyle = source.capStyle;
+    target.transform = source.transform;
+    target.scissor = source.scissor;
+    target.blendMode = source.blendMode;
+    target.clipMask = source.clipMask;
+    target.gradientType = source.gradientType;
+    target.gradientTileMode = source.gradientTileMode;
+    std::copy_n(source.gradientStart, 2u, target.gradientStart);
+    std::copy_n(source.gradientEnd, 2u, target.gradientEnd);
+    std::copy_n(source.radialCenter, 2u, target.radialCenter);
+    target.radialRadius = source.radialRadius;
+    target.gradientStopCount = source.gradientStopCount;
+    std::copy_n(
+        source.gradientStopPositions,
+        DrawPathData::kMaxGradientStops,
+        target.gradientStopPositions);
+    std::copy_n(
+        source.gradientStopColors,
+        DrawPathData::kMaxGradientStops * 4u,
+        target.gradientStopColors);
+    target.vertexColorsLinear = source.vertexColorsLinear;
+}
+
 bool isSpriteBatchCompatible(const DrawImageData &data, const SharedImageResource &texture, DrawBlendMode blendMode)
 {
     return data.imageResource == texture
@@ -464,6 +502,7 @@ void Renderer::flush()
             bool needsCoverage = first.hasCoverage();
             bool needsIndices = first.hasIndices();
             bool flattenTransforms = false;
+            bool immutableSharedTopology = true;
             for (std::size_t m = i; m < j; ++m) {
                 const auto &next =
                     static_cast<DrawPathCommand *>(
@@ -479,6 +518,11 @@ void Renderer::flush()
                     && !next.hasVertexColors();
                 needsCoverage = needsCoverage || next.hasCoverage();
                 needsIndices = needsIndices || next.hasIndices();
+                immutableSharedTopology =
+                    immutableSharedTopology
+                    && next.sharedGeometry != nullptr
+                    && next.shortIndices.empty()
+                    && next.packedCoverage.empty();
                 for (int c = 0; c < 4; ++c) {
                     needsVertexColors =
                         needsVertexColors
@@ -486,15 +530,8 @@ void Renderer::flush()
                 }
             }
 
-            DrawPathData merged = first;
-            merged.sharedGeometry.reset();
-            merged.points.clear();
-            merged.colors.clear();
-            merged.packedColors.clear();
-            merged.coverage.clear();
-            merged.packedCoverage.clear();
-            merged.indices.clear();
-            merged.shortIndices.clear();
+            DrawPathData &merged = pathBatchScratch_;
+            resetPathBatchState(first, merged);
             const bool usePackedColors =
                 needsVertexColors && canPackUniformColors;
             merged.vertexColorsLinear =
@@ -505,6 +542,32 @@ void Renderer::flush()
                     <= static_cast<std::size_t>(
                         std::numeric_limits<std::uint16_t>::max())
                         + 1u;
+            bool reuseSharedTopology =
+                immutableSharedTopology
+                && useShortIndices
+                && pathBatchTopology_.size() == j - i
+                && merged.shortIndices.size() == totalElements
+                && (!needsCoverage
+                    || merged.packedCoverage.size()
+                        == totalVertices);
+            if (reuseSharedTopology) {
+                for (std::size_t m = i; m < j; ++m) {
+                    const auto &next =
+                        static_cast<DrawPathCommand *>(
+                            commands_[m].get())->data();
+                    if (pathBatchTopology_[m - i]
+                            != next.sharedGeometry) {
+                        reuseSharedTopology = false;
+                        break;
+                    }
+                }
+            }
+            if (!reuseSharedTopology) {
+                merged.shortIndices.clear();
+                merged.packedCoverage.clear();
+            } else if (!needsCoverage) {
+                merged.packedCoverage.clear();
+            }
             if (flattenTransforms) {
                 merged.transform = glm::mat4(1.0f);
             }
@@ -518,11 +581,15 @@ void Renderer::flush()
                 }
             }
             if (needsCoverage) {
-                merged.packedCoverage.reserve(totalVertices);
+                if (!reuseSharedTopology) {
+                    merged.packedCoverage.reserve(totalVertices);
+                }
             }
             if (needsIndices) {
                 if (useShortIndices) {
-                    merged.shortIndices.reserve(totalElements);
+                    if (!reuseSharedTopology) {
+                        merged.shortIndices.reserve(totalElements);
+                    }
                 } else {
                     merged.indices.reserve(totalElements);
                 }
@@ -644,7 +711,7 @@ void Renderer::flush()
                         }
                     }
                 }
-                if (needsCoverage) {
+                if (needsCoverage && !reuseSharedTopology) {
                     if (next.hasPackedCoverage()) {
                         merged.packedCoverage.insert(
                             merged.packedCoverage.end(),
@@ -672,7 +739,7 @@ void Renderer::flush()
                             vertexCount, 255u);
                     }
                 }
-                if (needsIndices) {
+                if (needsIndices && !reuseSharedTopology) {
                     const std::size_t incomingIndexCount =
                         next.hasIndices()
                             ? next.getElementCount()
@@ -713,8 +780,27 @@ void Renderer::flush()
                 }
             }
 
-            DrawPathCommand mergedCmd(std::move(merged));
-            mergedCmd.execute(context_);
+            if (immutableSharedTopology
+                && useShortIndices
+                && !reuseSharedTopology) {
+                pathBatchTopology_.clear();
+                pathBatchTopology_.reserve(j - i);
+                for (std::size_t m = i; m < j; ++m) {
+                    const auto &next =
+                        static_cast<DrawPathCommand *>(
+                            commands_[m].get())->data();
+                    pathBatchTopology_.push_back(
+                        next.sharedGeometry);
+                }
+            } else if (!immutableSharedTopology
+                       || !useShortIndices) {
+                pathBatchTopology_.clear();
+            }
+
+            context_.applyClipState(
+                merged.scissor, merged.clipMask);
+            context_.applyBlendMode(merged.blendMode);
+            pathProgram->draw(context_, merged);
             stats_.pathVertexCount += totalVertices;
             if (needsIndices) {
                 stats_.pathIndexCount += totalElements;

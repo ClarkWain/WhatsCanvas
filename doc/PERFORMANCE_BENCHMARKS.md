@@ -364,6 +364,25 @@ The parameterized curve cache changes only 171 of 2,073,600 pixels relative to
 pass 3 (0.0082%). Every changed channel is one 8-bit level, with RMSE 0.0069.
 The complete Release build and all 66 Release tests pass.
 
+The fifth geometry pass retained the merged path packet across frames, reused
+its stable shared-geometry index topology and packed coverage stream, and
+removed full `Paint` copies and general 4 x 4 matrix multiplication from the
+simple solid-fill recording path. Eight WhatsCanvas and eight NanoVG processes
+run in ABBA order produced:
+
+| Scene | Original | Pass 4 | Pass 5 | Paired NanoVG GL3 | Pass 5 result |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `geometry_stress` | 25.659 ms | 4.682 ms | 2.690 ms | 3.947 ms | WhatsCanvas 31.8% faster |
+
+Pass 5 records in 1.486 ms and submits in 1.199 ms, compared with NanoVG's
+1.611/2.372 ms on the same machine and run sequence. Upload volume and draw
+structure are unchanged at 1,357,988 bytes, four uploads, and one draw: the
+gain comes from eliminating CPU allocation and reconstruction work before the
+same GPU packet is uploaded. All eight WhatsCanvas processes retained
+`5e7e67fb8b9ca579`; image and text control hashes remain
+`432ad28b33a51375` and `737cad1b0d1169f2`. The complete Release build and all
+66 Release tests pass.
+
 ## CI policy
 
 Shared hosted runners execute the `quick` Software subset to validate build
