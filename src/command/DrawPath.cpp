@@ -304,6 +304,7 @@ void DrawPathProgram::beginFrame()
 {
     frameUploadCount_ = 0;
     frameUploadBytes_ = 0;
+    frameIndexBytes_ = 0;
     positionBuffer_.beginFrame();
     colorBuffer_.beginFrame();
     coverageBuffer_.beginFrame();
@@ -325,13 +326,16 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
     const std::vector<std::uint32_t> &indexData = data.indexData();
     if (data.hasIndices()) {
         const std::size_t vertexCount = data.getPointCount();
-        const bool invalidIndex =
-            std::any_of(
-                indexData.begin(), indexData.end(),
-                [vertexCount](std::uint32_t index) {
-                    return index >= vertexCount;
-                });
-        if ((indexData.size() % 3u) != 0u || invalidIndex) {
+        bool invalidIndex = false;
+        for (std::size_t element = 0;
+             element < data.getElementCount(); ++element) {
+            if (data.getIndex(element) >= vertexCount) {
+                invalidIndex = true;
+                break;
+            }
+        }
+        if ((data.getElementCount() % 3u) != 0u
+            || invalidIndex) {
             WSC_LOG_WARN(
                 "DrawValidation",
                 "DrawPathProgram::draw: invalid triangle index data, draw call skipped.");
@@ -370,11 +374,20 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
 
     StreamBuffer::UploadRange indices;
     if (data.hasIndices()) {
-        indices = indexBuffer_.uploadRange(
-            indexData.data(), indexData.size());
+        if (data.hasShortIndices()) {
+            indices = indexBuffer_.uploadRange(
+                data.shortIndices.data(),
+                data.shortIndices.size());
+        } else {
+            indices = indexBuffer_.uploadRange(
+                indexData.data(), indexData.size());
+        }
         ++frameUploadCount_;
-        frameUploadBytes_ +=
-            indexData.size() * sizeof(std::uint32_t);
+        const std::size_t indexBytes = data.hasShortIndices()
+            ? data.shortIndices.size() * sizeof(std::uint16_t)
+            : indexData.size() * sizeof(std::uint32_t);
+        frameUploadBytes_ += indexBytes;
+        frameIndexBytes_ += indexBytes;
     }
 
     // Set the projection matrix
@@ -465,8 +478,10 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
     if (data.hasIndices()) {
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indices.buffer);
         glDrawElements(
-            GL_TRIANGLES, static_cast<GLsizei>(indexData.size()),
-            GL_UNSIGNED_INT,
+            GL_TRIANGLES,
+            static_cast<GLsizei>(data.getElementCount()),
+            data.hasShortIndices()
+                ? GL_UNSIGNED_SHORT : GL_UNSIGNED_INT,
             reinterpret_cast<const void *>(indices.byteOffset));
     } else {
         glDrawArrays(

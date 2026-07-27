@@ -1611,6 +1611,7 @@ bool runScene(
          << stats.filterPixelPassCount
          << ",\"path_vertex_count\":" << stats.pathVertexCount
          << ",\"path_index_count\":" << stats.pathIndexCount
+         << ",\"path_index_bytes\":" << stats.pathIndexBytes
          << ",\"path_upload_count\":" << stats.pathUploadCount
          << ",\"path_upload_bytes\":" << stats.pathUploadBytes
          << ",\"pooled_render_target_bytes\":"

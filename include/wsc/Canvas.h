@@ -70,6 +70,7 @@ public:
 		std::size_t filterPixelPassCount = 0;
 		std::size_t pathVertexCount = 0;
 		std::size_t pathIndexCount = 0;
+		std::size_t pathIndexBytes = 0;
 		std::size_t pathUploadCount = 0;
 		std::size_t pathUploadBytes = 0;
 		std::size_t imageTextureCount = 0;

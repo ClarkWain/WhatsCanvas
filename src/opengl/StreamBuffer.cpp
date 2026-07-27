@@ -13,9 +13,11 @@ void StreamBuffer::initialize(std::size_t initialCapacity)
         return;
     }
 
-    capacity_ = std::max<std::size_t>(1u, initialCapacity);
+    capacityBytes_ =
+        std::max<std::size_t>(1u, initialCapacity)
+        * sizeof(float);
     glGenBuffers(1, &buffer_);
-    allocateStorage(capacity_);
+    allocateStorage(capacityBytes_);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 }
 
@@ -24,16 +26,16 @@ void StreamBuffer::release()
     if (buffer_ != 0) {
         glDeleteBuffers(1, &buffer_);
         buffer_ = 0;
-        capacity_ = 0;
-        writeOffset_ = 0;
+        capacityBytes_ = 0;
+        writeOffsetBytes_ = 0;
     }
 }
 
 void StreamBuffer::beginFrame()
 {
-    writeOffset_ = 0;
-    if (buffer_ != 0 && capacity_ > 0) {
-        allocateStorage(capacity_);
+    writeOffsetBytes_ = 0;
+    if (buffer_ != 0 && capacityBytes_ > 0) {
+        allocateStorage(capacityBytes_);
     }
 }
 
@@ -44,20 +46,21 @@ GLuint StreamBuffer::upload(const float *data, std::size_t floatCount)
     }
 
     // Grow buffer if needed.
-    if (floatCount > capacity_) {
-        while (floatCount > capacity_) {
-            capacity_ *= GROW_FACTOR;
+    const std::size_t byteCount = floatCount * sizeof(float);
+    if (byteCount > capacityBytes_) {
+        while (byteCount > capacityBytes_) {
+            capacityBytes_ *= GROW_FACTOR;
         }
         glBindBuffer(GL_ARRAY_BUFFER, buffer_);
         glBufferData(GL_ARRAY_BUFFER,
-                     static_cast<GLsizeiptr>(capacity_ * sizeof(float)),
+                     static_cast<GLsizeiptr>(capacityBytes_),
                      nullptr,
                      GL_DYNAMIC_DRAW);
     }
 
     glBindBuffer(GL_ARRAY_BUFFER, buffer_);
     glBufferSubData(GL_ARRAY_BUFFER, 0,
-                    static_cast<GLsizeiptr>(floatCount * sizeof(float)),
+                    static_cast<GLsizeiptr>(byteCount),
                     data);
     return buffer_;
 }
@@ -65,54 +68,78 @@ GLuint StreamBuffer::upload(const float *data, std::size_t floatCount)
 StreamBuffer::UploadRange StreamBuffer::uploadRange(
     const float *data, std::size_t floatCount)
 {
-    return uploadRangeBytes(data, floatCount);
+    return uploadRangeBytes(
+        data, floatCount * sizeof(float), alignof(float));
 }
 
 StreamBuffer::UploadRange StreamBuffer::uploadRange(
     const std::uint32_t *data, std::size_t indexCount)
 {
-    static_assert(
-        sizeof(std::uint32_t) == sizeof(float),
-        "StreamBuffer storage assumes 32-bit elements");
-    return uploadRangeBytes(data, indexCount);
+    return uploadRangeBytes(
+        data, indexCount * sizeof(std::uint32_t),
+        alignof(std::uint32_t));
+}
+
+StreamBuffer::UploadRange StreamBuffer::uploadRange(
+    const std::uint16_t *data, std::size_t indexCount)
+{
+    return uploadRangeBytes(
+        data, indexCount * sizeof(std::uint16_t),
+        alignof(std::uint16_t));
 }
 
 StreamBuffer::UploadRange StreamBuffer::uploadRangeBytes(
-    const void *data, std::size_t elementCount)
+    const void *data, std::size_t byteCount,
+    std::size_t alignment)
 {
-    if (elementCount == 0) {
+    if (byteCount == 0) {
         return {buffer_, 0};
     }
     if (buffer_ == 0) {
-        initialize(std::max<std::size_t>(4096u, elementCount));
+        const std::size_t initialFloatCapacity =
+            std::max<std::size_t>(
+                4096u,
+                (byteCount + sizeof(float) - 1u)
+                    / sizeof(float));
+        initialize(initialFloatCapacity);
     }
 
-    const std::size_t required = writeOffset_ + elementCount;
-    if (required > capacity_) {
-        std::size_t nextCapacity = capacity_;
+    const auto alignedOffset =
+        [alignment](std::size_t offset) {
+            const std::size_t safeAlignment =
+                std::max<std::size_t>(1u, alignment);
+            return (offset + safeAlignment - 1u)
+                / safeAlignment * safeAlignment;
+        };
+    std::size_t byteOffset =
+        alignedOffset(writeOffsetBytes_);
+    const std::size_t required =
+        byteOffset + byteCount;
+    if (required > capacityBytes_) {
+        std::size_t nextCapacity = capacityBytes_;
         while (required > nextCapacity) {
             nextCapacity *= GROW_FACTOR;
         }
-        capacity_ = nextCapacity;
-        allocateStorage(capacity_);
+        capacityBytes_ = nextCapacity;
+        allocateStorage(capacityBytes_);
         // The previous store remains alive for already queued draws.
-        writeOffset_ = 0;
+        writeOffsetBytes_ = 0;
+        byteOffset = 0;
     }
 
     glBindBuffer(GL_ARRAY_BUFFER, buffer_);
-    const std::size_t byteOffset = writeOffset_ * sizeof(float);
     glBufferSubData(
         GL_ARRAY_BUFFER, static_cast<GLintptr>(byteOffset),
-        static_cast<GLsizeiptr>(elementCount * sizeof(float)), data);
-    writeOffset_ += elementCount;
+        static_cast<GLsizeiptr>(byteCount), data);
+    writeOffsetBytes_ += byteCount;
     return {buffer_, byteOffset};
 }
 
-void StreamBuffer::allocateStorage(std::size_t capacity)
+void StreamBuffer::allocateStorage(std::size_t byteCapacity)
 {
     glBindBuffer(GL_ARRAY_BUFFER, buffer_);
     glBufferData(
         GL_ARRAY_BUFFER,
-        static_cast<GLsizeiptr>(capacity * sizeof(float)),
+        static_cast<GLsizeiptr>(byteCapacity),
         nullptr, GL_STREAM_DRAW);
 }
