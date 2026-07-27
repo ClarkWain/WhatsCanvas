@@ -12,6 +12,8 @@
 
 #include "command/DrawCommand.h"
 
+#include <utility>
+
 DrawPointsCommand::DrawPointsCommand(const DrawPointsData &data)
     : Command(Type::Points), data_(data)
 {
@@ -35,6 +37,12 @@ DrawImageCommand::DrawImageCommand(const DrawImageData &data)
 {
 }
 void DrawImageCommand::execute(RenderContext &) {}
+
+DrawImageBatchCommand::DrawImageBatchCommand(DrawImageBatchData data)
+    : Command(Type::ImageBatch), data_(std::move(data))
+{
+}
+void DrawImageBatchCommand::execute(RenderContext &) {}
 
 DrawTextCommand::DrawTextCommand(const DrawTextData &data)
     : Command(Type::Text), data_(data)

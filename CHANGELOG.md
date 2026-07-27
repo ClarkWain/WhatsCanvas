@@ -31,6 +31,13 @@ For releases and downloadable artifacts, see the
   shader coverage, OpenGL sprite batching, cropped Software/Vulkan shadow work,
   GPU-only Vulkan blur, deferred temporary-target reclamation, and batched
   Vulkan path-shadow silhouette submissions.
+- Reused OpenGL sprite GPU resources across frames and recorded compatible
+  glyph-atlas quads as compact image batches instead of one command per glyph.
+- Normalized translated fill geometry for reusable tessellation and anti-alias
+  mesh caching, merged compatible Vulkan solid primitives, and reported the
+  resulting backend draw-call count instead of the pre-merge command count.
+- Accelerated Software rendering with an axis-aligned textured-quad scan path
+  and a uniform-interior triangle path that skips unused barycentric work.
 
 ## [0.1.16] - 2026-07-25
 

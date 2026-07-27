@@ -10,7 +10,15 @@ class RenderContext;
 class Command
 {
 public:
-    enum class Type : std::uint8_t { Points, Lines, Path, Image, Text, Shadow };
+    enum class Type : std::uint8_t {
+        Points,
+        Lines,
+        Path,
+        Image,
+        ImageBatch,
+        Text,
+        Shadow
+    };
 
     virtual ~Command() = default;
     virtual void execute(RenderContext &context) = 0;
@@ -84,6 +92,19 @@ public:
 
 private:
     DrawImageData data_;
+};
+
+class DrawImageBatchCommand : public Command
+{
+public:
+    explicit DrawImageBatchCommand(DrawImageBatchData data);
+    ~DrawImageBatchCommand() override = default;
+
+    void execute(RenderContext &context) override;
+    const DrawImageBatchData &data() const { return data_; }
+
+private:
+    DrawImageBatchData data_;
 };
 
 class DrawTextCommand : public Command

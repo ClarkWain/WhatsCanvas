@@ -1,5 +1,9 @@
 #include "command/DrawCommand.h"
 
+#include <algorithm>
+#include <iterator>
+#include <utility>
+
 #include <glad/glad.h>
 #include <glm/glm.hpp>
 
@@ -60,6 +64,36 @@ void DrawImageCommand::execute(RenderContext &context)
         context.applyBlendMode(data_.blendMode);
     }
     DrawImageProgram::getInstance()->draw(context, data_);
+}
+
+DrawImageBatchCommand::DrawImageBatchCommand(DrawImageBatchData data)
+    : Command(Type::ImageBatch), data_(std::move(data))
+{
+}
+
+void DrawImageBatchCommand::execute(RenderContext &context)
+{
+    for (const DrawImageBatchQuad &quad : data_.quads) {
+        DrawImageData image;
+        image.imageResource = data_.imageResource;
+        image.x = quad.x;
+        image.y = quad.y;
+        image.width = quad.width;
+        image.height = quad.height;
+        image.u0 = quad.u0;
+        image.v0 = quad.v0;
+        image.u1 = quad.u1;
+        image.v1 = quad.v1;
+        std::copy(
+            std::begin(data_.tintColor), std::end(data_.tintColor),
+            std::begin(image.tintColor));
+        image.alpha = data_.alpha;
+        image.transform = data_.transform;
+        image.scissor = data_.scissor;
+        image.blendMode = data_.blendMode;
+        image.clipMask = data_.clipMask;
+        DrawImageCommand(image).execute(context);
+    }
 }
 
 DrawTextCommand::DrawTextCommand(const DrawTextData &data)

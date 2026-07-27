@@ -3,10 +3,9 @@
 // Renderer::flush() merges adjacent path draws into one draw call by keeping
 // the first command's per-draw state and appending the following commands'
 // geometry. That is only valid when the two commands share every piece of
-// per-shape state. These tests exercise the pure compatibility predicate
-// (wsc::render::canMergePathData) that gates the merge, guarding against the
-// regression where a solid fill after a gradient inherited the gradient's
-// shader state, and where analytic-AA coverage was dropped across a merge.
+// per-shape state. These tests exercise both the strict uniform predicate and
+// the broader per-vertex renderer batch predicate, guarding against a solid
+// fill inheriting gradient state or analytic-AA coverage becoming misaligned.
 
 #include <iostream>
 #include <string>
@@ -93,6 +92,28 @@ bool testCoverageMismatchDoesNotMerge()
                   "coverage presence mismatch must not merge (order independent)");
 }
 
+bool testBroaderBatchSupportsPerVertexAttributes()
+{
+    DrawPathData differentColor = makeSolidFill();
+    differentColor.color[0] = 0.9f;
+    if (!expect(
+            wsc::render::canBatchPathData(
+                makeSolidFill(), differentColor),
+            "renderer batch should encode differing colors per vertex")) {
+        return false;
+    }
+    if (!expect(
+            wsc::render::canBatchPathData(
+                makeSolidFill(), makeAntiAliasedFill()),
+            "renderer batch should fill missing coverage with one")) {
+        return false;
+    }
+    return expect(
+        !wsc::render::canBatchPathData(
+            makeSolidFill(), makeGradientFill()),
+        "renderer batch must still reject gradients");
+}
+
 bool testDifferingStateDoesNotMerge()
 {
     DrawPathData other = makeSolidFill();
@@ -124,6 +145,7 @@ int main()
     ok = testTwoGradientsDoNotMerge() && ok;
     ok = testAntiAliasedFillsMerge() && ok;
     ok = testCoverageMismatchDoesNotMerge() && ok;
+    ok = testBroaderBatchSupportsPerVertexAttributes() && ok;
     ok = testDifferingStateDoesNotMerge() && ok;
     return ok ? 0 : 1;
 }
