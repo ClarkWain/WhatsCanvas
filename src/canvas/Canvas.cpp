@@ -5694,6 +5694,9 @@ void Canvas::Impl::restoreLayer(const LayerState &layer)
     request.viewportY = -(height - layerBottom);
     request.scissorOffsetX = -layerLeft;
     request.scissorOffsetY = -(height - layerBottom);
+    request.allowDirectTargetSampling =
+        !layer.options.hasImageFilter()
+        && !layer.options.hasBackdropFilter();
 
     std::vector<std::unique_ptr<Command>> layerCommands;
     std::size_t generatedBackdropCommandCount = 0;

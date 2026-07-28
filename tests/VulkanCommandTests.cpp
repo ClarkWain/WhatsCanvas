@@ -525,6 +525,35 @@ int main()
     if (!pixelIs(pixels, width, width / 2, height / 2, 255, 0, 0, 255, "layer center red")) return 1;
     if (!pixelIs(pixels, width, 0, 0, 0, 0, 0, 0, "layer corner clear")) return 1;
 
+    // Plain saveLayer composition may sample the render target directly. Keep
+    // this opt-in path separate from the default independent-image contract
+    // used by asynchronous filters.
+    OffscreenRenderRequest directRequest = request;
+    directRequest.allowDirectTargetSampling = true;
+    auto directLayerImage =
+        device.renderCommandsToImageResource(layerCommands, directRequest);
+    auto directDestination = device.createRenderTarget(width, height);
+    if (!directLayerImage || !directLayerImage->isValid()
+        || !directDestination || !directDestination->isValid()
+        || !device.renderTexturedQuad(
+            directDestination, directLayerImage)
+        || !device.readPixelsRGBA(width, height, pixels)) {
+        std::cerr
+            << "[VulkanCommandTests] FAIL: direct layer sampling failed."
+            << std::endl;
+        return 1;
+    }
+    if (!pixelIs(
+            pixels, width, width / 2, height / 2,
+            255, 0, 0, 255, "direct layer center red")) {
+        return 1;
+    }
+    if (!pixelIs(
+            pixels, width, 0, 0,
+            0, 0, 0, 0, "direct layer corner clear")) {
+        return 1;
+    }
+
     std::cout << "[VulkanCommandTests] PASS: translated a real Command stream on \"" << device.selectedDeviceName()
               << "\"." << std::endl;
 
@@ -540,6 +569,8 @@ int main()
     gradientCommands.clear();
     layerCommands.clear();
     layerImage.reset();
+    directLayerImage.reset();
+    directDestination.reset();
     image.reset();
     dst4.reset();
     target.reset();
