@@ -34,11 +34,13 @@ class OpenGLImageResource final : public ImageResource
 {
 public:
     explicit OpenGLImageResource(ImageResourceHandle handle, bool ownsHandle,
-                                 ImageOrigin origin, ImageAlphaType alphaType)
+                                  ImageOrigin origin, ImageAlphaType alphaType,
+                                  bool alphaOnly)
         : handle_(handle),
           ownsHandle_(ownsHandle),
           origin_(origin),
-          alphaType_(alphaType)
+          alphaType_(alphaType),
+          alphaOnly_(alphaOnly)
     {
         if (handle_.isValid()) {
             ++g_activeImageTextureResourceCount;
@@ -64,6 +66,7 @@ public:
     void setOrigin(ImageOrigin origin) { origin_ = origin; }
     ImageAlphaType alphaType() const override { return alphaType_; }
     void setAlphaType(ImageAlphaType alphaType) { alphaType_ = alphaType; }
+    bool isAlphaOnly() const override { return alphaOnly_; }
 
     void bind(const RenderContext &context) const override
     {
@@ -76,6 +79,15 @@ public:
         return wsc::opengl::updateTextureRGBA(handle_, x, y, width, height, pixels, regenerateMipmaps);
     }
 
+    bool updateAlpha8(
+        int x, int y, int width, int height,
+        const unsigned char *pixels)
+    {
+        return alphaOnly_
+            && wsc::opengl::updateTextureAlpha8(
+                handle_, x, y, width, height, pixels);
+    }
+
     GLuint texture() const { return static_cast<GLuint>(handle_.value); }
 
 private:
@@ -83,6 +95,7 @@ private:
     bool ownsHandle_ = true;
     ImageOrigin origin_ = ImageOrigin::TopLeft;
     ImageAlphaType alphaType_ = ImageAlphaType::Straight;
+    bool alphaOnly_ = false;
 };
 
 class OpenGLClipMaskResource final : public ClipMaskResource
@@ -264,14 +277,15 @@ private:
 SharedImageResource createSharedOpenGLImageResource(
     ImageResourceHandle handle, bool ownsHandle = true,
     ImageOrigin origin = ImageOrigin::TopLeft,
-    ImageAlphaType alphaType = ImageAlphaType::Straight)
+    ImageAlphaType alphaType = ImageAlphaType::Straight,
+    bool alphaOnly = false)
 {
     if (!handle.isValid()) {
         return {};
     }
 
     return std::make_shared<OpenGLImageResource>(
-        handle, ownsHandle, origin, alphaType);
+        handle, ownsHandle, origin, alphaType, alphaOnly);
 }
 
 void initializeSharedRenderBackend()
@@ -460,6 +474,15 @@ SharedImageResource OpenGLRenderDevice::createImageResourceRGBA(int width, int h
     return createSharedOpenGLImageResource(wsc::opengl::createTextureRGBA(width, height, pixels));
 }
 
+SharedImageResource OpenGLRenderDevice::createImageResourceAlpha8(
+    int width, int height,
+    const std::vector<unsigned char> &pixels) const
+{
+    return createSharedOpenGLImageResource(
+        wsc::opengl::createTextureAlpha8(width, height, pixels),
+        true, ImageOrigin::TopLeft, ImageAlphaType::Straight, true);
+}
+
 SharedImageResource OpenGLRenderDevice::createImageResourceFromImageData(int width, int height, int channels,
                                                                          const unsigned char *pixels,
                                                                          bool generateMipmaps) const
@@ -474,6 +497,18 @@ bool OpenGLRenderDevice::updateImageResourceRGBA(const SharedImageResource &imag
 {
     return imageResource && imageResource->isValid()
         && imageResource->updateRGBA(x, y, width, height, pixels, regenerateMipmaps);
+}
+
+bool OpenGLRenderDevice::updateImageResourceAlpha8(
+    const SharedImageResource &imageResource,
+    int x, int y, int width, int height,
+    const unsigned char *pixels) const
+{
+    auto *texture =
+        dynamic_cast<OpenGLImageResource *>(imageResource.get());
+    return texture != nullptr && texture->isValid()
+        && texture->updateAlpha8(
+            x, y, width, height, pixels);
 }
 
 SharedImageResource OpenGLRenderDevice::wrapExternalImageResource(ImageResourceHandle handle) const
@@ -521,8 +556,16 @@ bool OpenGLRenderDevice::executeDrawList(const wsc::DrawList &drawList, int widt
 
         if (prim.kind == wsc::DrawPrimitiveKind::SolidTriangles || prim.kind == wsc::DrawPrimitiveKind::GradientFill) {
             const std::size_t vertexCount = prim.positions.size() / 2u;
-            if (vertexCount < 3 || (vertexCount % 3u) != 0u) {
+            const std::size_t elementCount =
+                prim.indices.empty() ? vertexCount : prim.indices.size();
+            if ((prim.positions.size() % 2u) != 0u || vertexCount < 3
+                || elementCount < 3 || (elementCount % 3u) != 0u) {
                 return false;
+            }
+            for (const std::uint32_t index : prim.indices) {
+                if (index >= vertexCount) {
+                    return false;
+                }
             }
             DrawPathData data;
             data.points.reserve(prim.positions.size());
@@ -530,6 +573,7 @@ bool OpenGLRenderDevice::executeDrawList(const wsc::DrawList &drawList, int widt
                 data.points.push_back(fromNdcX(prim.positions[i * 2u + 0u], width));
                 data.points.push_back(fromNdcY(prim.positions[i * 2u + 1u], height));
             }
+            data.indices = prim.indices;
             data.colors = prim.colors;
             data.coverage = prim.coverage;
             data.color[0] = prim.color[0];

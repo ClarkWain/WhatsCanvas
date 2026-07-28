@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <list>
 #include <type_traits>
 #include <unordered_map>
@@ -44,7 +45,8 @@ struct CacheValueBytes<std::vector<Value, Allocator>, void>
 
 } // namespace detail
 
-/// A small, fixed-capacity least-recently-used cache keyed by a 64-bit hash.
+/// A small, fixed-capacity least-recently-used cache keyed by a stable value
+/// (a 64-bit hash by default).
 ///
 /// Used to retain transform-independent CPU geometry (e.g. path tessellations)
 /// across frames so identical shapes are not rebuilt every frame. Lookups move
@@ -53,7 +55,9 @@ struct CacheValueBytes<std::vector<Value, Allocator>, void>
 /// entire byte budget is retained as the sole entry so insert() can continue to
 /// return a stable reference. Hit/miss/eviction counters support observability
 /// and test acceptance.
-template <typename Value>
+template <typename Value,
+          typename Key = std::uint64_t,
+          typename Hash = std::hash<Key>>
 class LruCache
 {
 public:
@@ -66,7 +70,7 @@ public:
 
     /// Returns a stable pointer to the cached value and marks it as
     /// most-recently-used, or nullptr on a miss. Updates hit/miss counters.
-    const Value *find(std::uint64_t key)
+    const Value *find(const Key &key)
     {
         auto it = index_.find(key);
         if (it == index_.end()) {
@@ -81,7 +85,7 @@ public:
     /// Inserts (or replaces) a value, evicting the least-recently-used entry if
     /// the capacity would be exceeded. Returns a reference to the stored value,
     /// valid until the entry is evicted or the cache is cleared.
-    const Value &insert(std::uint64_t key, Value value)
+    const Value &insert(Key key, Value value)
     {
         const std::size_t valueBytes = detail::CacheValueBytes<Value>::measure(value);
         auto it = index_.find(key);
@@ -99,8 +103,8 @@ public:
                    || wouldExceedByteBudget(valueBytes))) {
             evictOldest();
         }
-        order_.emplace_front(key, std::move(value));
-        index_.emplace(key, order_.begin());
+        order_.emplace_front(std::move(key), std::move(value));
+        index_.emplace(order_.front().first, order_.begin());
         residentBytes_ += valueBytes;
         return order_.front().second;
     }
@@ -149,14 +153,14 @@ private:
         }
     }
 
-    using Entry = std::pair<std::uint64_t, Value>;
+    using Entry = std::pair<Key, Value>;
     using EntryList = std::list<Entry>;
 
     std::size_t maxEntries_;
     std::size_t maxResidentBytes_ = 0;
     std::size_t residentBytes_ = 0;
     EntryList order_; // front = most-recently-used, back = least-recently-used
-    std::unordered_map<std::uint64_t, typename EntryList::iterator> index_;
+    std::unordered_map<Key, typename EntryList::iterator, Hash> index_;
     std::size_t hitCount_ = 0;
     std::size_t missCount_ = 0;
     std::size_t evictionCount_ = 0;

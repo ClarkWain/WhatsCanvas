@@ -167,8 +167,45 @@ void Renderer::submit(std::unique_ptr<Command> &&command)
     commands_.push_back(std::move(command));
 }
 
+bool Renderer::tryAppendImageBatch(
+    const DrawImageBatchData &batch)
+{
+    if (commands_.size() <= imageBatchAppendFloor_
+        || batch.quads.empty()
+        || batch.scissor.enabled || batch.clipMask.hasPaths()
+        || batch.tintColor[0] != 1.0f
+        || batch.tintColor[1] != 1.0f
+        || batch.tintColor[2] != 1.0f
+        || batch.tintColor[3] != 1.0f
+        || batch.alpha != 1.0f
+        || commands_.back()->type() != Command::Type::ImageBatch) {
+        return false;
+    }
+    auto &previous = static_cast<DrawImageBatchCommand *>(
+                         commands_.back().get())
+                         ->data();
+    if (previous.imageResource != batch.imageResource
+        || previous.scissor.enabled
+        || previous.clipMask.hasPaths()
+        || previous.blendMode != batch.blendMode
+        || previous.transform != batch.transform
+        || previous.tintColor[0] != 1.0f
+        || previous.tintColor[1] != 1.0f
+        || previous.tintColor[2] != 1.0f
+        || previous.tintColor[3] != 1.0f
+        || previous.alpha != 1.0f) {
+        return false;
+    }
+    previous.quads.insert(
+        previous.quads.end(), batch.quads.begin(), batch.quads.end());
+    return true;
+}
+
 size_t Renderer::commandCount() const
 {
+    // Canvas uses this value to mark layer command ranges. Prevent subsequent
+    // batches from mutating a command that is now outside the new range.
+    imageBatchAppendFloor_ = commands_.size();
     return commands_.size();
 }
 
@@ -184,6 +221,7 @@ std::vector<std::unique_ptr<Command>> Renderer::takeCommandsFrom(size_t index)
         taken.push_back(std::move(commands_[i]));
     }
     commands_.erase(commands_.begin() + static_cast<std::ptrdiff_t>(index), commands_.end());
+    imageBatchAppendFloor_ = commands_.size();
     return taken;
 }
 
@@ -192,6 +230,7 @@ void Renderer::appendCommands(std::vector<std::unique_ptr<Command>> &&commands)
     for (auto &command : commands) {
         commands_.push_back(std::move(command));
     }
+    imageBatchAppendFloor_ = commands_.size();
 }
 
 bool Renderer::readPixelsRGBA(std::vector<unsigned char> &pixels) const
@@ -214,6 +253,15 @@ SharedImageResource Renderer::createImageResourceRGBA(int width, int height, con
     return device_ == nullptr ? SharedImageResource() : device_->createImageResourceRGBA(width, height, pixels);
 }
 
+SharedImageResource Renderer::createImageResourceAlpha8(
+    int width, int height,
+    const std::vector<unsigned char> &pixels) const
+{
+    return device_ == nullptr
+        ? SharedImageResource()
+        : device_->createImageResourceAlpha8(width, height, pixels);
+}
+
 SharedImageResource Renderer::createImageResourceFromImageData(int width, int height, int channels,
                                                                const unsigned char *pixels, bool generateMipmaps) const
 {
@@ -227,6 +275,16 @@ bool Renderer::updateImageResourceRGBA(const SharedImageResource &imageResource,
 {
     return device_ != nullptr
         && device_->updateImageResourceRGBA(imageResource, x, y, width, height, pixels, regenerateMipmaps);
+}
+
+bool Renderer::updateImageResourceAlpha8(
+    const SharedImageResource &imageResource,
+    int x, int y, int width, int height,
+    const unsigned char *pixels) const
+{
+    return device_ != nullptr
+        && device_->updateImageResourceAlpha8(
+            imageResource, x, y, width, height, pixels);
 }
 
 SharedImageResource Renderer::wrapExternalImageResource(ImageResourceHandle handle) const
@@ -327,6 +385,7 @@ void Renderer::resetRenderState()
 void Renderer::clear()
 {
     commands_.clear();
+    imageBatchAppendFloor_ = 0;
 }
 
 void Renderer::flush()
@@ -374,6 +433,10 @@ void Renderer::flush()
                 }
                 spriteBatch_->clear();
                 spriteBatch_->setTexture(first.imageResource);
+                const bool compactGlyphBatch =
+                    first.imageResource->isAlphaOnly()
+                    && first.transform[0][1] == 0.0f
+                    && first.transform[1][0] == 0.0f;
 
                 std::size_t j = i;
                 while (j < commands_.size()
@@ -387,19 +450,59 @@ void Renderer::flush()
                             first.blendMode)) {
                         break;
                     }
+                    if (compactGlyphBatch
+                        && (batch.transform[0][1] != 0.0f
+                            || batch.transform[1][0] != 0.0f)) {
+                        break;
+                    }
                     float tintColor[4] = {
                         batch.tintColor[0],
                         batch.tintColor[1],
                         batch.tintColor[2],
                         batch.tintColor[3] * batch.alpha
                     };
-                    GammaCorrect::srgbToLinear4(tintColor);
+                    std::uint32_t cachedPackedTint = 0u;
+                    float cachedTint[4] = {};
+                    bool hasCachedTint = false;
                     for (const DrawImageBatchQuad &quad : batch.quads) {
-                        spriteBatch_->add(
-                            quad.x, quad.y, quad.width, quad.height,
-                            quad.u0, quad.v0, quad.u1, quad.v1,
-                            tintColor[0], tintColor[1], tintColor[2],
-                            tintColor[3], batch.transform);
+                        if (!hasCachedTint
+                            || cachedPackedTint
+                                != quad.packedTint) {
+                            cachedPackedTint = quad.packedTint;
+                            cachedTint[0] = static_cast<float>(
+                                quad.packedTint & 0xffu)
+                                / 255.0f * tintColor[0];
+                            cachedTint[1] = static_cast<float>(
+                                (quad.packedTint >> 8u) & 0xffu)
+                                / 255.0f * tintColor[1];
+                            cachedTint[2] = static_cast<float>(
+                                (quad.packedTint >> 16u) & 0xffu)
+                                / 255.0f * tintColor[2];
+                            cachedTint[3] = static_cast<float>(
+                                (quad.packedTint >> 24u) & 0xffu)
+                                / 255.0f * tintColor[3];
+                            GammaCorrect::srgbToLinear4(cachedTint);
+                            hasCachedTint = true;
+                        }
+                        if (compactGlyphBatch) {
+                            spriteBatch_->addInstance(
+                                quad.x, quad.y,
+                                quad.width, quad.height,
+                                quad.u0, quad.v0,
+                                quad.u1, quad.v1,
+                                cachedTint[0], cachedTint[1],
+                                cachedTint[2], cachedTint[3],
+                                batch.transform);
+                        } else {
+                            spriteBatch_->add(
+                                quad.x, quad.y,
+                                quad.width, quad.height,
+                                quad.u0, quad.v0,
+                                quad.u1, quad.v1,
+                                cachedTint[0], cachedTint[1],
+                                cachedTint[2], cachedTint[3],
+                                batch.transform);
+                        }
                     }
                     ++j;
                 }

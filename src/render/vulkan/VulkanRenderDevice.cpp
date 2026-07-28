@@ -154,13 +154,16 @@ struct VulkanRenderDevice::VulkanContext
     {
         VkPrimitiveTopology topology;
         int blendMode;
+        bool compactAttributes;
         VkPipeline pipeline;
     };
     std::vector<CachedPipeline> pipelineCache;
 
     // M5 textured-quad pipeline.
     VkShaderModule texVertModule = VK_NULL_HANDLE;
+    VkShaderModule texInstancedVertModule = VK_NULL_HANDLE;
     VkShaderModule texFragModule = VK_NULL_HANDLE;
+    VkShaderModule texFastFragModule = VK_NULL_HANDLE;
     VkDescriptorSetLayout texDescriptorSetLayout = VK_NULL_HANDLE;
     VkPipelineLayout texPipelineLayout = VK_NULL_HANDLE;
     // Textured pipelines cached per blend mode (the layout + descriptor set
@@ -171,6 +174,9 @@ struct VulkanRenderDevice::VulkanContext
         VkPipeline pipeline;
     };
     std::vector<CachedBlendPipeline> texPipelineCache;
+    std::vector<CachedBlendPipeline> texInstancedPipelineCache;
+    std::vector<CachedBlendPipeline> texFastPipelineCache;
+    std::vector<CachedBlendPipeline> texInstancedFastPipelineCache;
 
     // M7 clip pipeline (position + color + mask UV; samples an R-channel mask).
     VkShaderModule clipVertModule = VK_NULL_HANDLE;
@@ -213,12 +219,66 @@ struct VulkanRenderDevice::VulkanContext
     VkDeviceMemory drawVertexMemory = VK_NULL_HANDLE;
     void *drawVertexMapping = nullptr;
     VkDeviceSize drawVertexCapacity = 0;
+    VkBuffer drawIndexBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory drawIndexMemory = VK_NULL_HANDLE;
+    void *drawIndexMapping = nullptr;
+    VkDeviceSize drawIndexCapacity = 0;
     VkBuffer drawGradientUniformBuffer = VK_NULL_HANDLE;
     VkDeviceMemory drawGradientUniformMemory = VK_NULL_HANDLE;
     void *drawGradientUniformMapping = nullptr;
     VkDeviceSize drawGradientUniformCapacity = 0;
     VkDescriptorPool drawDescriptorPool = VK_NULL_HANDLE;
     std::uint32_t drawDescriptorCapacity = 0;
+
+    // Main draw submissions rotate through three independently fenced slots.
+    // Command buffers and host-coherent upload buffers stay allocated and
+    // mapped across frames; a slot is only rewritten after its fence signals.
+    static constexpr std::size_t kDrawFramesInFlight = 3;
+    struct SampledDescriptorCacheEntry
+    {
+        SharedImageResource texture;
+        VkSampler sampler = VK_NULL_HANDLE;
+        SharedImageResource clipTexture;
+        VkSampler clipSampler = VK_NULL_HANDLE;
+        VkDescriptorSetLayout layout = VK_NULL_HANDLE;
+        VkDescriptorSet set = VK_NULL_HANDLE;
+    };
+    struct DrawFrameResources
+    {
+        VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
+        VkFence fence = VK_NULL_HANDLE;
+        bool submitted = false;
+        VkBuffer vertexBuffer = VK_NULL_HANDLE;
+        VkDeviceMemory vertexMemory = VK_NULL_HANDLE;
+        void *vertexMapping = nullptr;
+        VkDeviceSize vertexCapacity = 0;
+        VkBuffer deviceVertexBuffer = VK_NULL_HANDLE;
+        VkDeviceMemory deviceVertexMemory = VK_NULL_HANDLE;
+        VkDeviceSize deviceVertexCapacity = 0;
+        VkBuffer indexBuffer = VK_NULL_HANDLE;
+        VkDeviceMemory indexMemory = VK_NULL_HANDLE;
+        void *indexMapping = nullptr;
+        VkDeviceSize indexCapacity = 0;
+        VkBuffer deviceIndexBuffer = VK_NULL_HANDLE;
+        VkDeviceMemory deviceIndexMemory = VK_NULL_HANDLE;
+        VkDeviceSize deviceIndexCapacity = 0;
+        VkBuffer gradientUniformBuffer = VK_NULL_HANDLE;
+        VkDeviceMemory gradientUniformMemory = VK_NULL_HANDLE;
+        void *gradientUniformMapping = nullptr;
+        VkDeviceSize gradientUniformCapacity = 0;
+        VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
+        std::uint32_t descriptorCapacity = 0;
+        std::uint32_t allocatedDescriptorSets = 0;
+        std::vector<SampledDescriptorCacheEntry> sampledDescriptors;
+        std::vector<VkDescriptorSet> gradientDescriptorSets;
+        std::uint64_t commandSignature = 0;
+        bool commandSignatureValid = false;
+        std::vector<SharedImageResource> retainedImages;
+    };
+    mutable std::array<DrawFrameResources, kDrawFramesInFlight>
+        drawFrames{};
+    mutable std::size_t nextDrawFrame = 0;
+    mutable std::size_t lastDrawFrame = kDrawFramesInFlight;
     mutable std::unordered_map<const ClipMaskResource *, CachedClipMask>
         clipMaskCache;
     mutable std::uint64_t clipMaskUseSerial = 0;
@@ -277,6 +337,31 @@ struct VulkanRenderDevice::VulkanContext
                 }
             }
             texPipelineCache.clear();
+            for (CachedBlendPipeline &entry :
+                 texInstancedPipelineCache) {
+                if (entry.pipeline != VK_NULL_HANDLE) {
+                    vkDestroyPipeline(
+                        device, entry.pipeline, nullptr);
+                    entry.pipeline = VK_NULL_HANDLE;
+                }
+            }
+            texInstancedPipelineCache.clear();
+            for (CachedBlendPipeline &entry : texFastPipelineCache) {
+                if (entry.pipeline != VK_NULL_HANDLE) {
+                    vkDestroyPipeline(device, entry.pipeline, nullptr);
+                    entry.pipeline = VK_NULL_HANDLE;
+                }
+            }
+            texFastPipelineCache.clear();
+            for (CachedBlendPipeline &entry :
+                 texInstancedFastPipelineCache) {
+                if (entry.pipeline != VK_NULL_HANDLE) {
+                    vkDestroyPipeline(
+                        device, entry.pipeline, nullptr);
+                    entry.pipeline = VK_NULL_HANDLE;
+                }
+            }
+            texInstancedFastPipelineCache.clear();
             if (texPipelineLayout != VK_NULL_HANDLE) {
                 vkDestroyPipelineLayout(device, texPipelineLayout, nullptr);
                 texPipelineLayout = VK_NULL_HANDLE;
@@ -289,9 +374,18 @@ struct VulkanRenderDevice::VulkanContext
                 vkDestroyShaderModule(device, texVertModule, nullptr);
                 texVertModule = VK_NULL_HANDLE;
             }
+            if (texInstancedVertModule != VK_NULL_HANDLE) {
+                vkDestroyShaderModule(
+                    device, texInstancedVertModule, nullptr);
+                texInstancedVertModule = VK_NULL_HANDLE;
+            }
             if (texFragModule != VK_NULL_HANDLE) {
                 vkDestroyShaderModule(device, texFragModule, nullptr);
                 texFragModule = VK_NULL_HANDLE;
+            }
+            if (texFastFragModule != VK_NULL_HANDLE) {
+                vkDestroyShaderModule(device, texFastFragModule, nullptr);
+                texFastFragModule = VK_NULL_HANDLE;
             }
             for (CachedBlendPipeline &entry : clipPipelineCache) {
                 if (entry.pipeline != VK_NULL_HANDLE) {
@@ -495,10 +589,14 @@ struct VulkanRenderDevice::VulkanContext
     // Lazily build (and cache) a solid-color pipeline for the given topology and
     // blend mode. All render targets use compatible render passes, so pipelines
     // are reused across targets. Returns VK_NULL_HANDLE on failure.
-    VkPipeline ensureSolidPipeline(VkRenderPass renderPass, VkPrimitiveTopology topology, int blendMode)
+    VkPipeline ensureSolidPipeline(
+        VkRenderPass renderPass, VkPrimitiveTopology topology,
+        int blendMode, bool compactAttributes = false)
     {
         for (const CachedPipeline &entry : pipelineCache) {
-            if (entry.topology == topology && entry.blendMode == blendMode) {
+            if (entry.topology == topology
+                && entry.blendMode == blendMode
+                && entry.compactAttributes == compactAttributes) {
                 return entry.pipeline;
             }
         }
@@ -533,7 +631,9 @@ struct VulkanRenderDevice::VulkanContext
 
         VkVertexInputBindingDescription binding{};
         binding.binding = 0;
-        binding.stride = 7 * sizeof(float);
+        binding.stride = compactAttributes
+            ? sizeof(wsc::CompactSolidVertex)
+            : 7 * sizeof(float);
         binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
         std::array<VkVertexInputAttributeDescription, 3> attrs{};
@@ -543,12 +643,18 @@ struct VulkanRenderDevice::VulkanContext
         attrs[0].offset = 0;
         attrs[1].location = 1;
         attrs[1].binding = 0;
-        attrs[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+        attrs[1].format = compactAttributes
+            ? VK_FORMAT_R8G8B8A8_UNORM
+            : VK_FORMAT_R32G32B32A32_SFLOAT;
         attrs[1].offset = 2 * sizeof(float);
         attrs[2].location = 2;
         attrs[2].binding = 0;
-        attrs[2].format = VK_FORMAT_R32_SFLOAT;
-        attrs[2].offset = 6 * sizeof(float);
+        attrs[2].format = compactAttributes
+            ? VK_FORMAT_R8_UNORM
+            : VK_FORMAT_R32_SFLOAT;
+        attrs[2].offset = compactAttributes
+            ? 3 * sizeof(std::uint32_t)
+            : 6 * sizeof(float);
 
         VkPipelineVertexInputStateCreateInfo vertexInput{};
         vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -609,7 +715,8 @@ struct VulkanRenderDevice::VulkanContext
         if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline) != VK_SUCCESS) {
             return VK_NULL_HANDLE;
         }
-        pipelineCache.push_back({topology, blendMode, pipeline});
+        pipelineCache.push_back(
+            {topology, blendMode, compactAttributes, pipeline});
         return pipeline;
     }
 
@@ -698,6 +805,9 @@ struct VulkanRenderDevice::VulkanContext
             // Queue ordering guarantees that every earlier asynchronous filter
             // submission has completed when this fence signals.
             filterJobCursor = 0;
+            for (DrawFrameResources &frame : drawFrames) {
+                frame.submitted = false;
+            }
         } else {
             WSC_LOG_ERROR(
                 "VulkanRenderDevice",
@@ -847,6 +957,55 @@ struct VulkanRenderDevice::VulkanContext
         }
 
         vkBindBufferMemory(device, outBuffer, outMemory, 0);
+        return true;
+    }
+
+    bool createDeviceLocalBuffer(
+        VkDeviceSize size, VkBufferUsageFlags usage,
+        VkBuffer &outBuffer, VkDeviceMemory &outMemory) const
+    {
+        VkBufferCreateInfo bufferInfo{};
+        bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        bufferInfo.size = size;
+        bufferInfo.usage = usage;
+        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        if (vkCreateBuffer(
+                device, &bufferInfo, nullptr, &outBuffer)
+            != VK_SUCCESS) {
+            return false;
+        }
+
+        VkMemoryRequirements requirements{};
+        vkGetBufferMemoryRequirements(
+            device, outBuffer, &requirements);
+        const auto typeIndex = findMemoryType(
+            requirements.memoryTypeBits,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        if (!typeIndex.has_value()) {
+            vkDestroyBuffer(device, outBuffer, nullptr);
+            outBuffer = VK_NULL_HANDLE;
+            return false;
+        }
+
+        VkMemoryAllocateInfo allocation{};
+        allocation.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocation.allocationSize = requirements.size;
+        allocation.memoryTypeIndex = typeIndex.value();
+        if (vkAllocateMemory(
+                device, &allocation, nullptr, &outMemory)
+            != VK_SUCCESS) {
+            vkDestroyBuffer(device, outBuffer, nullptr);
+            outBuffer = VK_NULL_HANDLE;
+            return false;
+        }
+        if (vkBindBufferMemory(device, outBuffer, outMemory, 0)
+            != VK_SUCCESS) {
+            vkDestroyBuffer(device, outBuffer, nullptr);
+            vkFreeMemory(device, outMemory, nullptr);
+            outBuffer = VK_NULL_HANDLE;
+            outMemory = VK_NULL_HANDLE;
+            return false;
+        }
         return true;
     }
 
@@ -1000,12 +1159,58 @@ struct VulkanRenderDevice::VulkanContext
         return true;
     }
 
+    void destroyDeviceBuffer(
+        VkBuffer &buffer, VkDeviceMemory &memory,
+        VkDeviceSize &capacity)
+    {
+        if (buffer != VK_NULL_HANDLE) {
+            vkDestroyBuffer(device, buffer, nullptr);
+            buffer = VK_NULL_HANDLE;
+        }
+        if (memory != VK_NULL_HANDLE) {
+            vkFreeMemory(device, memory, nullptr);
+            memory = VK_NULL_HANDLE;
+        }
+        capacity = 0;
+    }
+
+    bool ensureDeviceBuffer(
+        VkDeviceSize required, VkBufferUsageFlags usage,
+        VkBuffer &buffer, VkDeviceMemory &memory,
+        VkDeviceSize &capacity)
+    {
+        if (required == 0) {
+            return true;
+        }
+        if (buffer != VK_NULL_HANDLE && capacity >= required) {
+            return true;
+        }
+        destroyDeviceBuffer(buffer, memory, capacity);
+        const VkDeviceSize nextCapacity =
+            nextBufferCapacity(required);
+        if (!createDeviceLocalBuffer(
+                nextCapacity, usage, buffer, memory)) {
+            destroyDeviceBuffer(buffer, memory, capacity);
+            return false;
+        }
+        capacity = nextCapacity;
+        return true;
+    }
+
     bool ensureDrawVertexCapacity(VkDeviceSize required)
     {
         return ensureMappedBuffer(
             required, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
             drawVertexBuffer, drawVertexMemory, drawVertexMapping,
             drawVertexCapacity);
+    }
+
+    bool ensureDrawIndexCapacity(VkDeviceSize required)
+    {
+        return ensureMappedBuffer(
+            required, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+            drawIndexBuffer, drawIndexMemory, drawIndexMapping,
+            drawIndexCapacity);
     }
 
     VkDeviceSize gradientUniformStride() const
@@ -1070,6 +1275,259 @@ struct VulkanRenderDevice::VulkanContext
         return drawDescriptorPool;
     }
 
+    VkDescriptorPool prepareFrameDescriptorPool(
+        DrawFrameResources &frame, std::uint32_t requiredSets)
+    {
+        if (requiredSets == 0) {
+            return VK_NULL_HANDLE;
+        }
+        if (frame.descriptorPool == VK_NULL_HANDLE
+            || frame.descriptorCapacity < requiredSets) {
+            if (frame.descriptorPool != VK_NULL_HANDLE) {
+                vkDestroyDescriptorPool(
+                    device, frame.descriptorPool, nullptr);
+                frame.descriptorPool = VK_NULL_HANDLE;
+            }
+            std::uint32_t capacity = 64;
+            while (capacity < requiredSets
+                   && capacity
+                       <= std::numeric_limits<std::uint32_t>::max()
+                           / 2u) {
+                capacity *= 2u;
+            }
+            capacity = std::max(capacity, requiredSets);
+            std::array<VkDescriptorPoolSize, 2> poolSizes{};
+            poolSizes[0] = {
+                VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                capacity * 2u};
+            poolSizes[1] = {
+                VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, capacity};
+            VkDescriptorPoolCreateInfo poolInfo{};
+            poolInfo.sType =
+                VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+            poolInfo.maxSets = capacity;
+            poolInfo.poolSizeCount =
+                static_cast<std::uint32_t>(poolSizes.size());
+            poolInfo.pPoolSizes = poolSizes.data();
+            if (vkCreateDescriptorPool(
+                    device, &poolInfo, nullptr,
+                    &frame.descriptorPool) != VK_SUCCESS) {
+                frame.descriptorPool = VK_NULL_HANDLE;
+                frame.descriptorCapacity = 0;
+                return VK_NULL_HANDLE;
+            }
+            frame.descriptorCapacity = capacity;
+            frame.allocatedDescriptorSets = 0;
+            frame.sampledDescriptors.clear();
+            frame.gradientDescriptorSets.clear();
+            frame.commandSignatureValid = false;
+        } else if (frame.allocatedDescriptorSets
+                       > frame.descriptorCapacity - requiredSets) {
+            if (vkResetDescriptorPool(
+                    device, frame.descriptorPool, 0)
+                != VK_SUCCESS) {
+                return VK_NULL_HANDLE;
+            }
+            frame.allocatedDescriptorSets = 0;
+            frame.sampledDescriptors.clear();
+            frame.gradientDescriptorSets.clear();
+            frame.commandSignatureValid = false;
+        }
+        return frame.descriptorPool;
+    }
+
+    std::optional<std::size_t> acquireDrawFrame(
+        VkDeviceSize vertexBytes, VkDeviceSize indexBytes,
+        std::size_t gradientCount, std::uint32_t descriptorSets)
+    {
+        const auto reclaimIfComplete =
+            [&](std::size_t frameIndex) {
+                DrawFrameResources &candidate =
+                    drawFrames[frameIndex];
+                if (!candidate.submitted) {
+                    return true;
+                }
+                if (candidate.fence != VK_NULL_HANDLE
+                    && vkGetFenceStatus(device, candidate.fence)
+                        == VK_SUCCESS) {
+                    candidate.submitted = false;
+                    return true;
+                }
+                return false;
+            };
+
+        std::size_t frameIndex = kDrawFramesInFlight;
+        if (lastDrawFrame < kDrawFramesInFlight
+            && reclaimIfComplete(lastDrawFrame)) {
+            frameIndex = lastDrawFrame;
+        } else {
+            for (std::size_t offset = 0;
+                 offset < kDrawFramesInFlight; ++offset) {
+                const std::size_t candidate =
+                    (nextDrawFrame + offset)
+                    % kDrawFramesInFlight;
+                if (reclaimIfComplete(candidate)) {
+                    frameIndex = candidate;
+                    break;
+                }
+            }
+        }
+        if (frameIndex == kDrawFramesInFlight) {
+            frameIndex = nextDrawFrame % kDrawFramesInFlight;
+        }
+        nextDrawFrame =
+            (frameIndex + 1u) % kDrawFramesInFlight;
+        DrawFrameResources &frame = drawFrames[frameIndex];
+        if (frame.submitted) {
+            if (frame.fence == VK_NULL_HANDLE
+                || vkWaitForFences(
+                       device, 1, &frame.fence, VK_TRUE, UINT64_MAX)
+                       != VK_SUCCESS) {
+                return std::nullopt;
+            }
+            frame.submitted = false;
+        }
+        if (!ensureMappedBuffer(
+                vertexBytes,
+                VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
+                    | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                frame.vertexBuffer, frame.vertexMemory,
+                frame.vertexMapping, frame.vertexCapacity)
+            || !ensureMappedBuffer(
+                indexBytes,
+                VK_BUFFER_USAGE_INDEX_BUFFER_BIT
+                    | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                frame.indexBuffer, frame.indexMemory,
+                frame.indexMapping, frame.indexCapacity)) {
+            return std::nullopt;
+        }
+        const VkDeviceSize gradientBytes =
+            gradientUniformStride()
+            * static_cast<VkDeviceSize>(gradientCount);
+        const VkBuffer previousGradientBuffer =
+            frame.gradientUniformBuffer;
+        if (!ensureMappedBuffer(
+                gradientBytes, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                frame.gradientUniformBuffer,
+                frame.gradientUniformMemory,
+                frame.gradientUniformMapping,
+                frame.gradientUniformCapacity)) {
+            return std::nullopt;
+        }
+        if (previousGradientBuffer != VK_NULL_HANDLE
+            && previousGradientBuffer
+                != frame.gradientUniformBuffer
+            && frame.descriptorPool != VK_NULL_HANDLE) {
+            if (vkResetDescriptorPool(
+                    device, frame.descriptorPool, 0)
+                != VK_SUCCESS) {
+                return std::nullopt;
+            }
+            frame.allocatedDescriptorSets = 0;
+            frame.sampledDescriptors.clear();
+            frame.gradientDescriptorSets.clear();
+            frame.commandSignatureValid = false;
+        }
+        if (descriptorSets > 0
+            && prepareFrameDescriptorPool(frame, descriptorSets)
+                == VK_NULL_HANDLE) {
+            return std::nullopt;
+        }
+        return frameIndex;
+    }
+
+    VkCommandBuffer beginDrawFrameCommands(std::size_t frameIndex)
+    {
+        if (frameIndex >= kDrawFramesInFlight) {
+            return VK_NULL_HANDLE;
+        }
+        DrawFrameResources &frame = drawFrames[frameIndex];
+        if (frame.commandBuffer == VK_NULL_HANDLE) {
+            VkCommandBufferAllocateInfo allocation{};
+            allocation.sType =
+                VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+            allocation.commandPool = commandPool;
+            allocation.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            allocation.commandBufferCount = 1;
+            if (vkAllocateCommandBuffers(
+                    device, &allocation, &frame.commandBuffer)
+                != VK_SUCCESS) {
+                frame.commandBuffer = VK_NULL_HANDLE;
+                return VK_NULL_HANDLE;
+            }
+        }
+        if (vkResetCommandBuffer(frame.commandBuffer, 0)
+            != VK_SUCCESS) {
+            return VK_NULL_HANDLE;
+        }
+        VkCommandBufferBeginInfo begin{};
+        begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        if (vkBeginCommandBuffer(frame.commandBuffer, &begin)
+            != VK_SUCCESS) {
+            return VK_NULL_HANDLE;
+        }
+        return frame.commandBuffer;
+    }
+
+    bool submitDrawFrame(
+        std::size_t frameIndex, bool commandAlreadyExecutable = false)
+    {
+        if (frameIndex >= kDrawFramesInFlight) {
+            return false;
+        }
+        DrawFrameResources &frame = drawFrames[frameIndex];
+        if (frame.commandBuffer == VK_NULL_HANDLE
+            || (!commandAlreadyExecutable
+                && vkEndCommandBuffer(frame.commandBuffer)
+                    != VK_SUCCESS)) {
+            return false;
+        }
+        if (frame.fence == VK_NULL_HANDLE) {
+            VkFenceCreateInfo fenceInfo{};
+            fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+            if (vkCreateFence(
+                    device, &fenceInfo, nullptr, &frame.fence)
+                != VK_SUCCESS) {
+                frame.fence = VK_NULL_HANDLE;
+                return false;
+            }
+        }
+        if (vkResetFences(device, 1, &frame.fence) != VK_SUCCESS) {
+            return false;
+        }
+        VkSubmitInfo submit{};
+        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submit.commandBufferCount = 1;
+        submit.pCommandBuffers = &frame.commandBuffer;
+        if (vkQueueSubmit(
+                graphicsQueue, 1, &submit, frame.fence)
+            != VK_SUCCESS) {
+            return false;
+        }
+        frame.submitted = true;
+        lastDrawFrame = frameIndex;
+        return true;
+    }
+
+    bool waitForDrawFrames() const
+    {
+        for (DrawFrameResources &frame : drawFrames) {
+            if (!frame.submitted) {
+                continue;
+            }
+            if (frame.fence == VK_NULL_HANDLE
+                || vkWaitForFences(
+                       device, 1, &frame.fence, VK_TRUE, UINT64_MAX)
+                       != VK_SUCCESS) {
+                return false;
+            }
+            frame.submitted = false;
+        }
+        filterJobCursor = 0;
+        return true;
+    }
+
     void destroyDrawResources()
     {
         if (device == VK_NULL_HANDLE) {
@@ -1079,6 +1537,9 @@ struct VulkanRenderDevice::VulkanContext
             drawVertexBuffer, drawVertexMemory, drawVertexMapping,
             drawVertexCapacity);
         destroyMappedBuffer(
+            drawIndexBuffer, drawIndexMemory, drawIndexMapping,
+            drawIndexCapacity);
+        destroyMappedBuffer(
             drawGradientUniformBuffer, drawGradientUniformMemory,
             drawGradientUniformMapping, drawGradientUniformCapacity);
         if (drawDescriptorPool != VK_NULL_HANDLE) {
@@ -1086,6 +1547,46 @@ struct VulkanRenderDevice::VulkanContext
             drawDescriptorPool = VK_NULL_HANDLE;
         }
         drawDescriptorCapacity = 0;
+        for (DrawFrameResources &frame : drawFrames) {
+            destroyMappedBuffer(
+                frame.vertexBuffer, frame.vertexMemory,
+                frame.vertexMapping, frame.vertexCapacity);
+            destroyDeviceBuffer(
+                frame.deviceVertexBuffer,
+                frame.deviceVertexMemory,
+                frame.deviceVertexCapacity);
+            destroyMappedBuffer(
+                frame.indexBuffer, frame.indexMemory,
+                frame.indexMapping, frame.indexCapacity);
+            destroyDeviceBuffer(
+                frame.deviceIndexBuffer,
+                frame.deviceIndexMemory,
+                frame.deviceIndexCapacity);
+            destroyMappedBuffer(
+                frame.gradientUniformBuffer,
+                frame.gradientUniformMemory,
+                frame.gradientUniformMapping,
+                frame.gradientUniformCapacity);
+            if (frame.descriptorPool != VK_NULL_HANDLE) {
+                vkDestroyDescriptorPool(
+                    device, frame.descriptorPool, nullptr);
+                frame.descriptorPool = VK_NULL_HANDLE;
+            }
+            if (frame.fence != VK_NULL_HANDLE) {
+                vkDestroyFence(device, frame.fence, nullptr);
+                frame.fence = VK_NULL_HANDLE;
+            }
+            frame.descriptorCapacity = 0;
+            frame.allocatedDescriptorSets = 0;
+            frame.sampledDescriptors.clear();
+            frame.gradientDescriptorSets.clear();
+            frame.commandSignature = 0;
+            frame.commandSignatureValid = false;
+            frame.submitted = false;
+            frame.retainedImages.clear();
+        }
+        nextDrawFrame = 0;
+        lastDrawFrame = kDrawFramesInFlight;
     }
 
     void copyBufferToImage(VkCommandBuffer cmd, VkBuffer buffer, VkImage image, int x, int y, int width,
@@ -1135,9 +1636,16 @@ struct VulkanRenderDevice::VulkanContext
     // Lazily build (and cache) a textured pipeline for the given blend mode. The
     // pipeline layout + descriptor set layout are created once and shared.
     // Returns VK_NULL_HANDLE on failure.
-    VkPipeline ensureTexturePipeline(VkRenderPass renderPass, int blendMode)
+    VkPipeline ensureTexturePipeline(
+        VkRenderPass renderPass, int blendMode,
+        bool instanced = false, bool fast = false)
     {
-        for (const CachedBlendPipeline &entry : texPipelineCache) {
+        std::vector<CachedBlendPipeline> &cache = fast
+            ? (instanced ? texInstancedFastPipelineCache
+                         : texFastPipelineCache)
+            : (instanced ? texInstancedPipelineCache
+                         : texPipelineCache);
+        for (const CachedBlendPipeline &entry : cache) {
             if (entry.blendMode == blendMode) {
                 return entry.pipeline;
             }
@@ -1182,46 +1690,82 @@ struct VulkanRenderDevice::VulkanContext
                 return VK_NULL_HANDLE;
             }
         }
+        if (instanced
+            && texInstancedVertModule == VK_NULL_HANDLE) {
+            texInstancedVertModule = createShaderModule(
+                kTexturedInstancedVertSpv,
+                sizeof(kTexturedInstancedVertSpv));
+            if (texInstancedVertModule == VK_NULL_HANDLE) {
+                return VK_NULL_HANDLE;
+            }
+        }
+        if (fast && texFastFragModule == VK_NULL_HANDLE) {
+            texFastFragModule = createShaderModule(
+                kTexturedFastFragSpv,
+                sizeof(kTexturedFastFragSpv));
+            if (texFastFragModule == VK_NULL_HANDLE) {
+                return VK_NULL_HANDLE;
+            }
+        }
 
         std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
         stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
         stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-        stages[0].module = texVertModule;
+        stages[0].module =
+            instanced ? texInstancedVertModule : texVertModule;
         stages[0].pName = "main";
         stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
         stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-        stages[1].module = texFragModule;
+        stages[1].module =
+            fast ? texFastFragModule : texFragModule;
         stages[1].pName = "main";
 
         VkVertexInputBindingDescription binding{};
         binding.binding = 0;
-        binding.stride = 5 * sizeof(float);
-        binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+        binding.stride =
+            instanced
+                ? sizeof(wsc::TexturedQuadInstance)
+                : 5u * sizeof(float);
+        binding.inputRate =
+            instanced ? VK_VERTEX_INPUT_RATE_INSTANCE
+                      : VK_VERTEX_INPUT_RATE_VERTEX;
 
-        std::array<VkVertexInputAttributeDescription, 3> attrs{};
+        std::array<VkVertexInputAttributeDescription, 4> attrs{};
         attrs[0].location = 0;
         attrs[0].binding = 0;
-        attrs[0].format = VK_FORMAT_R32G32_SFLOAT;
+        attrs[0].format =
+            instanced ? VK_FORMAT_R32G32B32A32_SFLOAT
+                      : VK_FORMAT_R32G32_SFLOAT;
         attrs[0].offset = 0;
         attrs[1].location = 1;
         attrs[1].binding = 0;
-        attrs[1].format = VK_FORMAT_R32G32_SFLOAT;
-        attrs[1].offset = 2 * sizeof(float);
+        attrs[1].format =
+            instanced ? VK_FORMAT_R32G32B32A32_SFLOAT
+                      : VK_FORMAT_R32G32_SFLOAT;
+        attrs[1].offset =
+            (instanced ? 4u : 2u) * sizeof(float);
         attrs[2].location = 2;
         attrs[2].binding = 0;
         attrs[2].format = VK_FORMAT_R8G8B8A8_UNORM;
-        attrs[2].offset = 4 * sizeof(float);
-
+        attrs[2].offset =
+            (instanced ? 8u : 4u) * sizeof(float);
+        attrs[3].location = 3;
+        attrs[3].binding = 0;
+        attrs[3].format = VK_FORMAT_R32G32B32_SFLOAT;
+        attrs[3].offset = 9u * sizeof(float);
         VkPipelineVertexInputStateCreateInfo vertexInput{};
         vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
         vertexInput.vertexBindingDescriptionCount = 1;
         vertexInput.pVertexBindingDescriptions = &binding;
-        vertexInput.vertexAttributeDescriptionCount = static_cast<std::uint32_t>(attrs.size());
+        vertexInput.vertexAttributeDescriptionCount =
+            instanced ? static_cast<std::uint32_t>(attrs.size()) : 3u;
         vertexInput.pVertexAttributeDescriptions = attrs.data();
 
         VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
         inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-        inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        inputAssembly.topology = instanced
+            ? VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP
+            : VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 
         VkPipelineViewportStateCreateInfo viewportState{};
         viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -1272,7 +1816,7 @@ struct VulkanRenderDevice::VulkanContext
             != VK_SUCCESS) {
             return VK_NULL_HANDLE;
         }
-        texPipelineCache.push_back({blendMode, pipeline});
+        cache.push_back({blendMode, pipeline});
         return pipeline;
     }
 
@@ -1685,18 +2229,6 @@ bool sameFloatArray(
     return std::equal(left, left + count, right);
 }
 
-std::uint32_t packRgba8(const float *color)
-{
-    auto channel = [](float value) {
-        return static_cast<std::uint32_t>(
-            std::lround(std::clamp(value, 0.0f, 1.0f) * 255.0f));
-    };
-    return channel(color[0])
-        | (channel(color[1]) << 8u)
-        | (channel(color[2]) << 16u)
-        | (channel(color[3]) << 24u);
-}
-
 float packedRgba8AsFloat(std::uint32_t packed)
 {
     float storage = 0.0f;
@@ -1717,15 +2249,92 @@ void appendTexturedVertex(
     vertices.push_back(packedRgba8AsFloat(packedTint));
 }
 
+std::uint32_t effectivePackedTint(
+    std::uint32_t packed, const float *uniformTint, float layerAlpha)
+{
+    auto combine = [&](std::uint32_t shift, float multiplier) {
+        const float channel =
+            static_cast<float>((packed >> shift) & 0xffu) / 255.0f;
+        return static_cast<std::uint32_t>(std::lround(
+            std::clamp(channel * multiplier, 0.0f, 1.0f) * 255.0f));
+    };
+    return combine(0u, uniformTint[0])
+        | (combine(8u, uniformTint[1]) << 8u)
+        | (combine(16u, uniformTint[2]) << 16u)
+        | (combine(24u, uniformTint[3] * layerAlpha) << 24u);
+}
+
+bool canInstanceTexturedPrimitive(
+    const wsc::DrawPrimitive &primitive)
+{
+    if (primitive.kind != wsc::DrawPrimitiveKind::TexturedQuad
+        || !primitive.texture) {
+        return false;
+    }
+    if (!primitive.texturedInstances.empty()) {
+        return primitive.positions.empty() && primitive.uvs.empty();
+    }
+    if (primitive.positions.size() < 12u
+        || primitive.positions.size() != primitive.uvs.size()) {
+        return false;
+    }
+    const std::size_t vertexCount =
+        primitive.positions.size() / 2u;
+    if ((vertexCount % 6u) != 0u) {
+        return false;
+    }
+    const bool hasPackedTints =
+        primitive.packedTints.size() == vertexCount;
+    for (std::size_t base = 0; base < vertexCount; base += 6u) {
+        const auto value = [&](const std::vector<float> &values,
+                               std::size_t vertex,
+                               std::size_t component) {
+            return values[(base + vertex) * 2u + component];
+        };
+        const auto isAxisAlignedQuad =
+            [&](const std::vector<float> &values) {
+                return value(values, 0u, 0u)
+                           == value(values, 3u, 0u)
+                    && value(values, 0u, 1u)
+                           == value(values, 3u, 1u)
+                    && value(values, 2u, 0u)
+                           == value(values, 4u, 0u)
+                    && value(values, 2u, 1u)
+                           == value(values, 4u, 1u)
+                    && value(values, 0u, 1u)
+                           == value(values, 1u, 1u)
+                    && value(values, 1u, 0u)
+                           == value(values, 2u, 0u)
+                    && value(values, 2u, 1u)
+                           == value(values, 5u, 1u)
+                    && value(values, 5u, 0u)
+                           == value(values, 0u, 0u);
+            };
+        if (!isAxisAlignedQuad(primitive.positions)
+            || !isAxisAlignedQuad(primitive.uvs)) {
+            return false;
+        }
+        if (hasPackedTints) {
+            const std::uint32_t tint = primitive.packedTints[base];
+            for (std::size_t vertex = 1u; vertex < 6u; ++vertex) {
+                if (primitive.packedTints[base + vertex] != tint) {
+                    return false;
+                }
+            }
+        }
+    }
+    return true;
+}
+
 bool canBatchTexturedPrimitives(
     const wsc::DrawPrimitive &left,
     const wsc::DrawPrimitive &right)
 {
+    const bool leftCompact = !left.texturedInstances.empty();
+    const bool rightCompact = !right.texturedInstances.empty();
     if (left.kind != wsc::DrawPrimitiveKind::TexturedQuad
         || right.kind != wsc::DrawPrimitiveKind::TexturedQuad
-        || left.positions.empty() || right.positions.empty()
-        || left.positions.size() != left.uvs.size()
-        || right.positions.size() != right.uvs.size()
+        || leftCompact != rightCompact
         || left.texture != right.texture
         || left.clipTexture != right.clipTexture
         || left.blendMode != right.blendMode
@@ -1734,15 +2343,27 @@ bool canBatchTexturedPrimitives(
         || left.scissorY != right.scissorY
         || left.scissorWidth != right.scissorWidth
         || left.scissorHeight != right.scissorHeight
-        || left.layerAlpha != right.layerAlpha
-        || left.roundedRadius != right.roundedRadius
+        || (!leftCompact
+            && left.roundedRadius != right.roundedRadius)
         || left.sampling != right.sampling
         || left.tileMode != right.tileMode
         || left.useCustomSampler != right.useCustomSampler
-        || left.hasColorMatrix != right.hasColorMatrix) {
+        || left.hasColorMatrix != right.hasColorMatrix
+        || (left.hasColorMatrix
+            && left.layerAlpha != right.layerAlpha)) {
         return false;
     }
-    if (left.roundedRadius > 0.0f
+    if (leftCompact) {
+        if (!left.positions.empty() || !left.uvs.empty()
+            || !right.positions.empty() || !right.uvs.empty()) {
+            return false;
+        }
+    } else if (left.positions.empty() || right.positions.empty()
+        || left.positions.size() != left.uvs.size()
+        || right.positions.size() != right.uvs.size()) {
+        return false;
+    }
+    if (!leftCompact && left.roundedRadius > 0.0f
         && (left.roundedWidth != right.roundedWidth
             || left.roundedHeight != right.roundedHeight)) {
         return false;
@@ -1762,17 +2383,104 @@ bool canBatchTexturedPrimitives(
                 left.clipUvOffset, right.clipUvOffset, 2u));
 }
 
+bool drawPrimitivesOverlap(
+    const wsc::DrawPrimitive &left,
+    const wsc::DrawPrimitive &right)
+{
+    if (left.positions.size() < 6u || right.positions.size() < 6u
+        || (left.positions.size() % 6u) != 0u
+        || (right.positions.size() % 6u) != 0u) {
+        return true;
+    }
+    constexpr float epsilon = 1e-6f;
+    for (std::size_t leftVertex = 0;
+         leftVertex < left.positions.size() / 2u;
+         leftVertex += 3u) {
+        float leftMinX = left.positions[leftVertex * 2u];
+        float leftMaxX = leftMinX;
+        float leftMinY = left.positions[leftVertex * 2u + 1u];
+        float leftMaxY = leftMinY;
+        for (std::size_t vertex = 1; vertex < 3u; ++vertex) {
+            const float x =
+                left.positions[(leftVertex + vertex) * 2u];
+            const float y =
+                left.positions[(leftVertex + vertex) * 2u + 1u];
+            leftMinX = std::min(leftMinX, x);
+            leftMaxX = std::max(leftMaxX, x);
+            leftMinY = std::min(leftMinY, y);
+            leftMaxY = std::max(leftMaxY, y);
+        }
+        for (std::size_t rightVertex = 0;
+             rightVertex < right.positions.size() / 2u;
+             rightVertex += 3u) {
+            float rightMinX = right.positions[rightVertex * 2u];
+            float rightMaxX = rightMinX;
+            float rightMinY =
+                right.positions[rightVertex * 2u + 1u];
+            float rightMaxY = rightMinY;
+            for (std::size_t vertex = 1; vertex < 3u; ++vertex) {
+                const float x =
+                    right.positions[
+                        (rightVertex + vertex) * 2u];
+                const float y =
+                    right.positions[
+                        (rightVertex + vertex) * 2u + 1u];
+                rightMinX = std::min(rightMinX, x);
+                rightMaxX = std::max(rightMaxX, x);
+                rightMinY = std::min(rightMinY, y);
+                rightMaxY = std::max(rightMaxY, y);
+            }
+            if (leftMaxX > rightMinX + epsilon
+                && rightMaxX > leftMinX + epsilon
+                && leftMaxY > rightMinY + epsilon
+                && rightMaxY > leftMinY + epsilon) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 void appendTexturedBatch(
     wsc::DrawList &list, wsc::DrawPrimitive primitive)
 {
-    if (list.empty()
-        || !canBatchTexturedPrimitives(
-            list.back(), primitive)) {
+    std::size_t batchIndex = list.size();
+    for (std::size_t index = list.size(); index > 0u; --index) {
+        wsc::DrawPrimitive &candidate = list[index - 1u];
+        if (canBatchTexturedPrimitives(candidate, primitive)) {
+            batchIndex = index - 1u;
+            break;
+        }
+        // Cross-batch reordering is intended for individual image quads.
+        // Large atlas/image batches can contain thousands of triangles; use
+        // strict adjacent batching for them to keep command translation linear.
+        if (primitive.texturedInstances.size() > 1u
+            || primitive.positions.size() > 12u) {
+            break;
+        }
+        // Moving this draw ahead of a non-overlapping primitive cannot change
+        // compositing. Stop at the first actual overlap to preserve painter's
+        // order for every potentially visible interaction.
+        if (drawPrimitivesOverlap(candidate, primitive)) {
+            break;
+        }
+    }
+    if (batchIndex == list.size()) {
         list.push_back(std::move(primitive));
         return;
     }
 
-    wsc::DrawPrimitive &batch = list.back();
+    wsc::DrawPrimitive &batch = list[batchIndex];
+    if (!primitive.texturedInstances.empty()) {
+        batch.texturedInstances.insert(
+            batch.texturedInstances.end(),
+            primitive.texturedInstances.begin(),
+            primitive.texturedInstances.end());
+        batch.hasPerInstanceRounded =
+            batch.hasPerInstanceRounded
+            || primitive.hasPerInstanceRounded;
+        return;
+    }
     const std::size_t batchVertexCount =
         batch.positions.size() / 2u;
     const std::size_t incomingVertexCount =
@@ -1780,36 +2488,63 @@ void appendTexturedBatch(
     const bool needsVertexTint =
         !batch.packedTints.empty()
         || !primitive.packedTints.empty()
-        || !sameFloatArray(batch.tint, primitive.tint, 4u);
+        || !sameFloatArray(batch.tint, primitive.tint, 4u)
+        || (!batch.hasColorMatrix
+            && batch.layerAlpha != primitive.layerAlpha);
     if (needsVertexTint) {
-        if (batch.packedTints.empty()) {
-            batch.packedTints.reserve(
-                batchVertexCount + incomingVertexCount);
-            const std::uint32_t packedBatchTint =
-                packRgba8(batch.tint);
-            for (std::size_t vertex = 0;
-                 vertex < batchVertexCount; ++vertex) {
-                batch.packedTints.push_back(packedBatchTint);
+        const bool batchHasPacked =
+            batch.packedTints.size() == batchVertexCount;
+        if (!batchHasPacked) {
+            batch.packedTints.assign(
+                batchVertexCount,
+                effectivePackedTint(
+                    0xffffffffu, batch.tint,
+                    batch.hasColorMatrix
+                        ? 1.0f : batch.layerAlpha));
+        }
+        const bool batchNeedsPromotion =
+            batchHasPacked
+            && (batch.tint[0] != 1.0f || batch.tint[1] != 1.0f
+                || batch.tint[2] != 1.0f
+                || batch.tint[3] != 1.0f
+                || (!batch.hasColorMatrix
+                    && batch.layerAlpha != 1.0f));
+        if (batchNeedsPromotion) {
+            for (std::uint32_t &packed : batch.packedTints) {
+                packed = effectivePackedTint(
+                    packed, batch.tint,
+                    batch.hasColorMatrix
+                        ? 1.0f : batch.layerAlpha);
             }
         }
-        if (primitive.packedTints.size()
-                == incomingVertexCount) {
+        batch.packedTints.reserve(
+            batchVertexCount + incomingVertexCount);
+        const bool incomingHasPacked =
+            primitive.packedTints.size() == incomingVertexCount;
+        if (incomingHasPacked) {
+            for (std::uint32_t packed : primitive.packedTints) {
+                batch.packedTints.push_back(effectivePackedTint(
+                    packed, primitive.tint,
+                    primitive.hasColorMatrix
+                        ? 1.0f : primitive.layerAlpha));
+            }
+        } else {
+            const std::uint32_t packed =
+                effectivePackedTint(
+                    0xffffffffu, primitive.tint,
+                    primitive.hasColorMatrix
+                        ? 1.0f : primitive.layerAlpha);
             batch.packedTints.insert(
                 batch.packedTints.end(),
-                primitive.packedTints.begin(),
-                primitive.packedTints.end());
-        } else {
-            const std::uint32_t packedPrimitiveTint =
-                packRgba8(primitive.tint);
-            for (std::size_t vertex = 0;
-                 vertex < incomingVertexCount; ++vertex) {
-                batch.packedTints.push_back(
-                    packedPrimitiveTint);
-            }
+                incomingVertexCount, packed);
         }
         std::fill(
             std::begin(batch.tint), std::end(batch.tint), 1.0f);
+        if (!batch.hasColorMatrix) {
+            batch.layerAlpha = 1.0f;
+        }
     }
+
     batch.positions.insert(
         batch.positions.end(),
         primitive.positions.begin(), primitive.positions.end());
@@ -1855,9 +2590,10 @@ class VulkanTextureResource final : public ImageResource
 public:
     VulkanTextureResource(VulkanRenderDevice::VulkanContext *context, VkImage image, VkDeviceMemory memory,
                           VkImageView view, VkSampler sampler, int width, int height, int mipLevels = 1,
-                          bool ownsImage = true,
-                          ImageAlphaType alphaType = ImageAlphaType::Straight,
-                          bool countAsImageTexture = true)
+                           bool ownsImage = true,
+                           ImageAlphaType alphaType = ImageAlphaType::Straight,
+                           bool countAsImageTexture = true,
+                           std::uint32_t bytesPerPixel = 4u)
         : context_(context),
           image_(image),
           memory_(memory),
@@ -1868,7 +2604,8 @@ public:
           mipLevels_(mipLevels),
           ownsImage_(ownsImage),
           alphaType_(alphaType),
-          countAsImageTexture_(countAsImageTexture)
+          countAsImageTexture_(countAsImageTexture),
+          bytesPerPixel_(bytesPerPixel)
     {
         if (context_ && countAsImageTexture_) {
             ++context_->imageTextureCount;
@@ -1901,17 +2638,36 @@ public:
         return image_ != VK_NULL_HANDLE && view_ != VK_NULL_HANDLE && sampler_ != VK_NULL_HANDLE;
     }
     ImageAlphaType alphaType() const override { return alphaType_; }
+    bool isAlphaOnly() const override { return bytesPerPixel_ == 1u; }
 
     void bind(const RenderContext & /*context*/) const override {}
 
     bool updateRGBA(int x, int y, int width, int height, const unsigned char *pixels,
                     bool /*regenerateMipmaps*/) override
     {
+        return bytesPerPixel_ == 4u
+            && updatePixels(x, y, width, height, pixels);
+    }
+
+    bool updateAlpha8(
+        int x, int y, int width, int height,
+        const unsigned char *pixels)
+    {
+        return bytesPerPixel_ == 1u
+            && updatePixels(x, y, width, height, pixels);
+    }
+
+    bool updatePixels(
+        int x, int y, int width, int height,
+        const unsigned char *pixels)
+    {
         if (!isValid() || pixels == nullptr || width <= 0 || height <= 0 || x < 0 || y < 0 || x + width > width_
             || y + height > height_) {
             return false;
         }
-        const VkDeviceSize bytes = static_cast<VkDeviceSize>(width) * static_cast<VkDeviceSize>(height) * 4u;
+        const VkDeviceSize bytes =
+            static_cast<VkDeviceSize>(width)
+            * static_cast<VkDeviceSize>(height) * bytesPerPixel_;
         VkBuffer staging = VK_NULL_HANDLE;
         VkDeviceMemory stagingMemory = VK_NULL_HANDLE;
         if (!context_->createHostVisibleBuffer(bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, staging, stagingMemory)) {
@@ -1964,12 +2720,16 @@ private:
     bool ownsImage_ = true;
     ImageAlphaType alphaType_ = ImageAlphaType::Straight;
     bool countAsImageTexture_ = true;
+    std::uint32_t bytesPerPixel_ = 4u;
 };
 
-// Create an owning sampled RGBA8 texture from tightly-packed pixels.
+// Create an owning sampled texture from tightly-packed pixels.
 std::shared_ptr<VulkanTextureResource> createSampledTexture(VulkanRenderDevice::VulkanContext *ctx, int width,
-                                                            int height, const unsigned char *pixels, bool nearest,
-                                                            bool generateMips = false){
+                                                             int height, const unsigned char *pixels, bool nearest,
+                                                             bool generateMips = false,
+                                                             VkFormat format = kRenderTargetFormat,
+                                                             std::uint32_t bytesPerPixel = 4u,
+                                                             bool alphaMask = false){
     if (ctx == nullptr || ctx->device == VK_NULL_HANDLE || width <= 0 || height <= 0 || pixels == nullptr) {
         return nullptr;
     }
@@ -1989,7 +2749,7 @@ std::shared_ptr<VulkanTextureResource> createSampledTexture(VulkanRenderDevice::
     VkImageCreateInfo imageInfo{};
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     imageInfo.imageType = VK_IMAGE_TYPE_2D;
-    imageInfo.format = kRenderTargetFormat;
+    imageInfo.format = format;
     imageInfo.extent = {static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height), 1};
     const std::uint32_t mipLevels =
         generateMips
@@ -2025,7 +2785,9 @@ std::shared_ptr<VulkanTextureResource> createSampledTexture(VulkanRenderDevice::
     vkBindImageMemory(device, image, memory, 0);
 
     // Upload pixels via a host-visible staging buffer.
-    const VkDeviceSize bytes = static_cast<VkDeviceSize>(width) * static_cast<VkDeviceSize>(height) * 4u;
+    const VkDeviceSize bytes =
+        static_cast<VkDeviceSize>(width)
+        * static_cast<VkDeviceSize>(height) * bytesPerPixel;
     VkBuffer staging = VK_NULL_HANDLE;
     VkDeviceMemory stagingMemory = VK_NULL_HANDLE;
     if (!ctx->createHostVisibleBuffer(bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, staging, stagingMemory)) {
@@ -2135,7 +2897,13 @@ std::shared_ptr<VulkanTextureResource> createSampledTexture(VulkanRenderDevice::
     viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     viewInfo.image = image;
     viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    viewInfo.format = kRenderTargetFormat;
+    viewInfo.format = format;
+    if (alphaMask) {
+        viewInfo.components.r = VK_COMPONENT_SWIZZLE_ONE;
+        viewInfo.components.g = VK_COMPONENT_SWIZZLE_ONE;
+        viewInfo.components.b = VK_COMPONENT_SWIZZLE_ONE;
+        viewInfo.components.a = VK_COMPONENT_SWIZZLE_R;
+    }
     viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     viewInfo.subresourceRange.levelCount = mipLevels;
     viewInfo.subresourceRange.layerCount = 1;
@@ -2159,7 +2927,9 @@ std::shared_ptr<VulkanTextureResource> createSampledTexture(VulkanRenderDevice::
     }
 
     return std::make_shared<VulkanTextureResource>(ctx, image, memory, view, sampler, width, height,
-                                                   static_cast<int>(mipLevels));
+                                                   static_cast<int>(mipLevels),
+                                                   true, ImageAlphaType::Straight,
+                                                   true, bytesPerPixel);
 }
 
 std::shared_ptr<VulkanTextureResource> createEmptySampledTexture(
@@ -2965,6 +3735,7 @@ void VulkanRenderDevice::finalizeBackend()
         if (context_->device != VK_NULL_HANDLE) {
             vkDeviceWaitIdle(context_->device);
         }
+        releaseAllDrawFrameTargets();
         releasePendingFilterTargets();
         if (renderTargetPool_) {
             renderTargetPool_->clear();
@@ -2997,6 +3768,46 @@ void VulkanRenderDevice::releasePendingFilterTargets() const
     pendingFilterTargets_.clear();
     pendingFilterImages_.clear();
     renderTargetPool_->expire();
+#endif
+}
+
+void VulkanRenderDevice::releaseDrawFrameTargets(
+    std::size_t frameIndex) const
+{
+#if defined(WHATSCANVAS_ENABLE_VULKAN)
+    if (frameIndex >= drawFrameTargets_.size()) {
+        return;
+    }
+    auto &targets = drawFrameTargets_[frameIndex];
+    for (std::unique_ptr<IRenderTarget> &target : targets) {
+        if (auto *vulkanTarget =
+                dynamic_cast<VulkanRenderTarget *>(target.get())) {
+            vulkanTarget->markSynchronized();
+        }
+        if (renderTargetPool_) {
+            renderTargetPool_->release(std::move(target));
+        }
+    }
+    targets.clear();
+    if (context_
+        && frameIndex < context_->drawFrames.size()) {
+        context_->drawFrames[frameIndex].retainedImages.clear();
+    }
+    if (renderTargetPool_) {
+        renderTargetPool_->expire();
+    }
+#else
+    (void)frameIndex;
+#endif
+}
+
+void VulkanRenderDevice::releaseAllDrawFrameTargets() const
+{
+#if defined(WHATSCANVAS_ENABLE_VULKAN)
+    for (std::size_t frameIndex = 0;
+         frameIndex < drawFrameTargets_.size(); ++frameIndex) {
+        releaseDrawFrameTargets(frameIndex);
+    }
 #endif
 }
 
@@ -3852,6 +4663,11 @@ bool VulkanRenderDevice::readPixelsRGBA(int width, int height, std::vector<unsig
         pixels.clear();
         return false;
     }
+    if (!context_->waitForDrawFrames()) {
+        pixels.clear();
+        return false;
+    }
+    releaseAllDrawFrameTargets();
 
     const VkDeviceSize bufferSize = static_cast<VkDeviceSize>(width) * static_cast<VkDeviceSize>(height) * 4u;
 
@@ -4129,7 +4945,7 @@ bool VulkanRenderDevice::renderClippedSolid(const std::unique_ptr<IRenderTarget>
 }
 
 SharedImageResource VulkanRenderDevice::createImageResourceRGBA(int width, int height,
-                                                                const std::vector<unsigned char> &pixels) const
+                                                                 const std::vector<unsigned char> &pixels) const
 {
 #if defined(WHATSCANVAS_ENABLE_VULKAN)
     if (!context_ || !context_->deviceReady || width <= 0 || height <= 0
@@ -4137,6 +4953,29 @@ SharedImageResource VulkanRenderDevice::createImageResourceRGBA(int width, int h
         return nullptr;
     }
     return createSampledTexture(context_.get(), width, height, pixels.data(), /*nearest=*/true);
+#else
+    (void)width;
+    (void)height;
+    (void)pixels;
+    return nullptr;
+#endif
+}
+
+SharedImageResource VulkanRenderDevice::createImageResourceAlpha8(
+    int width, int height,
+    const std::vector<unsigned char> &pixels) const
+{
+#if defined(WHATSCANVAS_ENABLE_VULKAN)
+    if (!context_ || !context_->deviceReady || width <= 0 || height <= 0
+        || pixels.size()
+            < static_cast<std::size_t>(width)
+                * static_cast<std::size_t>(height)) {
+        return nullptr;
+    }
+    return createSampledTexture(
+        context_.get(), width, height, pixels.data(),
+        /*nearest=*/true, /*generateMips=*/false,
+        VK_FORMAT_R8_UNORM, 1u, /*alphaMask=*/true);
 #else
     (void)width;
     (void)height;
@@ -4195,8 +5034,8 @@ SharedImageResource VulkanRenderDevice::createImageResourceFromImageData(int wid
 }
 
 bool VulkanRenderDevice::updateImageResourceRGBA(const SharedImageResource &imageResource, int x, int y, int width,
-                                                 int height, const unsigned char *pixels,
-                                                 bool regenerateMipmaps) const
+                                                  int height, const unsigned char *pixels,
+                                                  bool regenerateMipmaps) const
 {
 #if defined(WHATSCANVAS_ENABLE_VULKAN)
     if (!imageResource) {
@@ -4211,6 +5050,27 @@ bool VulkanRenderDevice::updateImageResourceRGBA(const SharedImageResource &imag
     (void)height;
     (void)pixels;
     (void)regenerateMipmaps;
+    return false;
+#endif
+}
+
+bool VulkanRenderDevice::updateImageResourceAlpha8(
+    const SharedImageResource &imageResource,
+    int x, int y, int width, int height,
+    const unsigned char *pixels) const
+{
+#if defined(WHATSCANVAS_ENABLE_VULKAN)
+    auto *texture =
+        dynamic_cast<VulkanTextureResource *>(imageResource.get());
+    return texture != nullptr
+        && texture->updateAlpha8(x, y, width, height, pixels);
+#else
+    (void)imageResource;
+    (void)x;
+    (void)y;
+    (void)width;
+    (void)height;
+    (void)pixels;
     return false;
 #endif
 }
@@ -4674,17 +5534,26 @@ SharedImageResource VulkanRenderDevice::renderCommandsToImageResource(
     if (!target || !target->isValid()) {
         return nullptr;
     }
+    if (request.allowDirectTargetSampling) {
+        if (!executeCommandsWithCopy(
+                target, commands, request, {}, true)) {
+            renderTargetPool_->release(std::move(target));
+            renderTargetPool_->expire();
+            return nullptr;
+        }
+        // The pool will not reuse the target while the composite command keeps
+        // the returned image resource externally referenced.
+        SharedImageResource result = target->getImageResource();
+        renderTargetPool_->release(std::move(target));
+        return result;
+    }
+
     SharedImageResource result =
         createEmptySampledTexture(
             context_.get(), w, h, ImageAlphaType::Premultiplied);
-    if (!result) {
-        renderTargetPool_->release(std::move(target));
-        renderTargetPool_->expire();
-        return nullptr;
-    }
-    // Render and copy into the owning sampled texture in one queue submission.
-    if (!executeCommandsWithCopy(
-            target, commands, request, result)) {
+    if (!result
+        || !executeCommandsWithCopy(
+            target, commands, request, result, false)) {
         renderTargetPool_->release(std::move(target));
         renderTargetPool_->expire();
         return nullptr;
@@ -4904,16 +5773,18 @@ SharedImageResource VulkanRenderDevice::filterImageResource(
 bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &target,
                                          const wsc::DrawList &drawList) const
 {
-    return executeDrawListWithCopy(target, drawList, {});
+    return executeDrawListWithCopy(target, drawList, {}, false);
 }
 
 bool VulkanRenderDevice::executeDrawListWithCopy(
     const std::unique_ptr<IRenderTarget> &target,
     const wsc::DrawList &drawList,
-    const SharedImageResource &copyDestination) const
+    const SharedImageResource &copyDestination,
+    bool prepareTargetForSampling) const
 {
 #if defined(WHATSCANVAS_ENABLE_VULKAN)
-    if (!context_ || !context_->deviceReady || !target || drawList.empty()) {
+    if (!context_ || !context_->deviceReady || !target
+        || drawList.empty()) {
         return false;
     }
     auto *rt = dynamic_cast<VulkanRenderTarget *>(target.get());
@@ -4934,19 +5805,86 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
     VkDevice device = context_->device;
 
     std::uint32_t texturedCount = 0;
+    std::uint32_t instancedTexturedCount = 0;
     std::uint32_t clipCount = 0;
     std::uint32_t gradientCount = 0;
+    std::size_t vertexFloatBudget = 0;
+    std::size_t indexBudget = 0;
+    bool validUploadBudget = true;
+    const auto addVertexBudget =
+        [&](std::size_t vertexCount, std::size_t stride) {
+            const std::size_t maxSize =
+                std::numeric_limits<std::size_t>::max();
+            if (vertexCount
+                > (maxSize - vertexFloatBudget) / stride) {
+                validUploadBudget = false;
+                return;
+            }
+            vertexFloatBudget += vertexCount * stride;
+        };
     for (const wsc::DrawPrimitive &prim : drawList) {
         if (prim.kind == wsc::DrawPrimitiveKind::TexturedQuad) {
             ++texturedCount;
+            const std::size_t explicitVerts =
+                prim.positions.size() / 2u;
+            if (canInstanceTexturedPrimitive(prim)) {
+                ++instancedTexturedCount;
+                const std::size_t instanceCount =
+                    prim.texturedInstances.empty()
+                        ? explicitVerts / 6u
+                        : prim.texturedInstances.size();
+                addVertexBudget(instanceCount, 12u);
+            } else if (explicitVerts >= 3
+                && (explicitVerts % 3u) == 0u
+                && prim.uvs.size() == prim.positions.size()) {
+                addVertexBudget(explicitVerts, 5u);
+            } else {
+                addVertexBudget(6u, 5u);
+            }
         } else if (prim.kind == wsc::DrawPrimitiveKind::ClipFill) {
             ++clipCount;
+            if (!prim.positions.empty()
+                && prim.uvs.size() == prim.positions.size()) {
+                addVertexBudget(
+                    prim.positions.size() / 2u, 8u);
+            } else {
+                addVertexBudget(6u, 8u);
+            }
         } else if (prim.kind == wsc::DrawPrimitiveKind::GradientFill) {
             ++gradientCount;
+            addVertexBudget(
+                prim.positions.size() / 2u, 4u);
+        } else {
+            const std::size_t solidVertexCount =
+                !prim.compactVertices.empty()
+                    ? prim.compactVertices.size()
+                    : prim.positions.size() / 2u;
+            addVertexBudget(
+                solidVertexCount,
+                prim.compactSolidAttributes ? 4u : 7u);
+            const std::size_t primitiveIndexCount =
+                !prim.shortIndices.empty()
+                    ? prim.shortIndices.size()
+                    : prim.indices.size();
+            if (primitiveIndexCount
+                > std::numeric_limits<std::size_t>::max()
+                    - indexBudget) {
+                validUploadBudget = false;
+            } else {
+                indexBudget += primitiveIndexCount;
+            }
         }
     }
+    if (!validUploadBudget) {
+        return false;
+    }
 
-    if (texturedCount > 0 && context_->ensureTexturePipeline(rt->renderPass(), 0) == VK_NULL_HANDLE) {
+    if (texturedCount > instancedTexturedCount
+        && context_->ensureTexturePipeline(rt->renderPass(), 0) == VK_NULL_HANDLE) {
+        return false;
+    }
+    if (instancedTexturedCount > 0
+        && context_->ensureTexturePipeline(rt->renderPass(), 0, true) == VK_NULL_HANDLE) {
         return false;
     }
     if (clipCount > 0 && context_->ensureClipPipeline(rt->renderPass(), 0) == VK_NULL_HANDLE) {
@@ -4958,13 +5896,33 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
 
     const std::uint32_t samplerSets = texturedCount + clipCount;
     const std::uint32_t totalSets = samplerSets + gradientCount;
-    VkDescriptorPool pool =
-        context_->prepareDrawDescriptorPool(totalSets);
-    if (totalSets > 0 && pool == VK_NULL_HANDLE) {
+    const VkDeviceSize reservedVertexBytes =
+        static_cast<VkDeviceSize>(vertexFloatBudget) * sizeof(float);
+    const std::size_t indexPaddingBudget =
+        drawList.size() <= std::numeric_limits<std::size_t>::max() / 3u
+            ? drawList.size() * 3u
+            : std::numeric_limits<std::size_t>::max();
+    if (indexBudget
+            > (std::numeric_limits<std::size_t>::max()
+                - indexPaddingBudget) / sizeof(std::uint32_t)) {
         return false;
     }
-    if (gradientCount > 0
-        && !context_->ensureDrawGradientCapacity(gradientCount)) {
+    const VkDeviceSize reservedIndexBytes =
+        static_cast<VkDeviceSize>(
+            indexBudget * sizeof(std::uint32_t)
+            + indexPaddingBudget);
+    const std::optional<std::size_t> acquiredFrame =
+        context_->acquireDrawFrame(
+            reservedVertexBytes, reservedIndexBytes,
+            gradientCount, totalSets);
+    if (!acquiredFrame.has_value()) {
+        return false;
+    }
+    const std::size_t frameIndex = acquiredFrame.value();
+    releaseDrawFrameTargets(frameIndex);
+    auto &frame = context_->drawFrames[frameIndex];
+    VkDescriptorPool pool = frame.descriptorPool;
+    if (totalSets > 0 && pool == VK_NULL_HANDLE) {
         return false;
     }
 
@@ -4973,6 +5931,10 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
         VkPipeline pipeline = VK_NULL_HANDLE;
         VkDeviceSize vertexOffset = 0;
         std::uint32_t vertexCount = 0;
+        std::uint32_t instanceCount = 1;
+        VkDeviceSize indexOffset = 0;
+        std::uint32_t indexCount = 0;
+        VkIndexType indexType = VK_INDEX_TYPE_UINT32;
         VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
         VkPipelineLayout descriptorLayout = VK_NULL_HANDLE;
         bool pushLayerAlpha = false;
@@ -4985,36 +5947,45 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
     };
     std::vector<RecordedDraw> draws;
     draws.reserve(drawList.size());
-    std::vector<float> vertexUpload;
+    std::vector<float> &vertexUpload =
+        drawVertexUploadScratch_;
+    vertexUpload.clear();
+    vertexUpload.reserve(vertexFloatBudget);
+    std::vector<unsigned char> &indexUpload =
+        drawIndexUploadScratch_;
+    indexUpload.clear();
+    indexUpload.reserve(
+        static_cast<std::size_t>(reservedIndexBytes));
+    const bool directCompactSolidUpload =
+        drawList.size() == 1u
+        && drawList.front().kind
+            == wsc::DrawPrimitiveKind::SolidTriangles
+        && drawList.front().compactSolidAttributes
+        && !drawList.front().compactVertices.empty();
+    VkDeviceSize directVertexBytes = 0;
+    VkDeviceSize directIndexBytes = 0;
 
     bool ok = true;
     std::size_t gradientIndex = 0;
 
-    struct SampledSetCacheEntry
-    {
-        VulkanTextureResource *texture = nullptr;
-        VkSampler sampler = VK_NULL_HANDLE;
-        VulkanTextureResource *clipTexture = nullptr;
-        VkSampler clipSampler = VK_NULL_HANDLE;
-        VkDescriptorSetLayout layout = VK_NULL_HANDLE;
-        VkDescriptorSet set = VK_NULL_HANDLE;
-    };
-    std::vector<SampledSetCacheEntry> sampledSetCache;
-    sampledSetCache.reserve(texturedCount + clipCount);
-
     // Bind texture resources to descriptor sets. Textured draws bind a second
     // optional clip mask; one-sampler layouts leave it null. Reuse identical
-    // bindings within the frame so batched atlas draws do not repeat descriptor
-    // allocation and vkUpdateDescriptorSets work.
-    auto allocSampledSet = [&](VulkanTextureResource *tex, VkDescriptorSetLayout layout,
-                               VkSampler sampler, VulkanTextureResource *clipTex = nullptr,
-                               VkSampler clipSampler = VK_NULL_HANDLE) -> VkDescriptorSet {
+    // bindings across reuse of a fenced frame slot, so stable textures avoid
+    // descriptor-pool resets, allocation, and vkUpdateDescriptorSets work.
+    auto allocSampledSet =
+        [&](const SharedImageResource &textureResource,
+            VulkanTextureResource *tex,
+            VkDescriptorSetLayout layout, VkSampler sampler,
+            const SharedImageResource &clipResource = {},
+            VulkanTextureResource *clipTex = nullptr,
+            VkSampler clipSampler = VK_NULL_HANDLE) -> VkDescriptorSet {
+        auto &sampledSetCache = frame.sampledDescriptors;
         const auto cached = std::find_if(
             sampledSetCache.begin(), sampledSetCache.end(),
-            [&](const SampledSetCacheEntry &entry) {
-                return entry.texture == tex
+            [&](const VulkanContext::SampledDescriptorCacheEntry &entry) {
+                return entry.texture.get() == tex
                     && entry.sampler == sampler
-                    && entry.clipTexture == clipTex
+                    && entry.clipTexture.get() == clipTex
                     && entry.clipSampler == clipSampler
                     && entry.layout == layout;
             });
@@ -5031,6 +6002,7 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
         if (vkAllocateDescriptorSets(device, &setAlloc, &set) != VK_SUCCESS) {
             return VK_NULL_HANDLE;
         }
+        ++frame.allocatedDescriptorSets;
         std::array<VkDescriptorImageInfo, 2> descriptors{};
         descriptors[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         descriptors[0].imageView = tex->view();
@@ -5053,7 +6025,8 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
         }
         vkUpdateDescriptorSets(device, descriptorCount, writes.data(), 0, nullptr);
         sampledSetCache.push_back(
-            {tex, sampler, clipTex, clipSampler, layout, set});
+            {textureResource, sampler, clipResource,
+             clipSampler, layout, set});
         return set;
     };
 
@@ -5064,19 +6037,163 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
         draw.scissorY = prim.scissorY;
         draw.scissorWidth = prim.scissorWidth;
         draw.scissorHeight = prim.scissorHeight;
-        std::vector<float> vertices;
+        draw.vertexOffset =
+            directCompactSolidUpload
+                ? 0
+                : static_cast<VkDeviceSize>(
+                      vertexUpload.size())
+                    * sizeof(float);
+        std::vector<float> &vertices = vertexUpload;
         if (prim.kind == wsc::DrawPrimitiveKind::SolidTriangles) {
-            const std::size_t vertexCount = prim.positions.size() / 2;
-            if (vertexCount < 3 || (vertexCount % 3) != 0) {
+            const bool hasCompactVertices =
+                !prim.compactVertices.empty();
+            const std::size_t vertexCount =
+                hasCompactVertices
+                    ? prim.compactVertices.size()
+                    : prim.positions.size() / 2u;
+            const std::size_t elementCount =
+                !prim.shortIndices.empty()
+                    ? prim.shortIndices.size()
+                    : (prim.indices.empty()
+                           ? vertexCount : prim.indices.size());
+            if ((!hasCompactVertices
+                    && (prim.positions.size() % 2u) != 0u)
+                || vertexCount < 3
+                || elementCount < 3 || (elementCount % 3u) != 0u
+                || vertexCount
+                    > std::numeric_limits<std::uint32_t>::max()
+                || elementCount
+                    > std::numeric_limits<std::uint32_t>::max()) {
                 ok = false;
                 break;
             }
-            draw.pipeline = context_->ensureSolidPipeline(rt->renderPass(), VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-                                                          prim.blendMode);
+            const bool invalidLongIndex =
+                !prim.indicesTrusted
+                && std::any_of(
+                    prim.indices.begin(), prim.indices.end(),
+                    [vertexCount](std::uint32_t index) {
+                        return index >= vertexCount;
+                    });
+            const bool invalidShortIndex =
+                !prim.indicesTrusted
+                && std::any_of(
+                    prim.shortIndices.begin(),
+                    prim.shortIndices.end(),
+                    [vertexCount](std::uint16_t index) {
+                        return index >= vertexCount;
+                    });
+            if (invalidLongIndex || invalidShortIndex
+                || (!prim.indices.empty()
+                    && !prim.shortIndices.empty())) {
+                ok = false;
+                break;
+            }
+            const bool compactAttributes =
+                prim.compactSolidAttributes;
+            if (hasCompactVertices
+                && !compactAttributes) {
+                ok = false;
+                break;
+            }
+            draw.pipeline = context_->ensureSolidPipeline(
+                rt->renderPass(),
+                VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+                prim.blendMode, compactAttributes);
             const bool perVertexColor = prim.colors.size() == vertexCount * 4;
             const bool perVertexCoverage = prim.coverage.size() == vertexCount;
-            if (perVertexColor || perVertexCoverage) {
-                vertices.reserve(vertexCount * 7);
+            const bool packedVertexColor =
+                prim.packedColors.size() == vertexCount * 4u;
+            const bool packedVertexCoverage =
+                prim.packedCoverage.size() == vertexCount;
+            if (hasCompactVertices) {
+                const std::size_t byteCount =
+                    prim.compactVertices.size()
+                    * sizeof(wsc::CompactSolidVertex);
+                if (directCompactSolidUpload) {
+                    std::memcpy(
+                        frame.vertexMapping,
+                        prim.compactVertices.data(),
+                        byteCount);
+                    directVertexBytes =
+                        static_cast<VkDeviceSize>(
+                            byteCount);
+                } else {
+                    const std::size_t destination =
+                        vertices.size();
+                    const std::size_t floatCount =
+                        byteCount / sizeof(float);
+                    vertices.resize(
+                        destination + floatCount);
+                    std::memcpy(
+                        vertices.data() + destination,
+                        prim.compactVertices.data(),
+                        byteCount);
+                }
+            } else if (compactAttributes) {
+                const auto toUnorm8 = [](float value) {
+                    return static_cast<std::uint8_t>(
+                        std::clamp(
+                            std::lround(value * 255.0f),
+                            0l, 255l));
+                };
+                std::uint32_t uniformColor = 0u;
+                if (!packedVertexColor) {
+                    uniformColor =
+                        static_cast<std::uint32_t>(
+                            toUnorm8(prim.color[0]))
+                        | (static_cast<std::uint32_t>(
+                               toUnorm8(prim.color[1]))
+                           << 8u)
+                        | (static_cast<std::uint32_t>(
+                               toUnorm8(prim.color[2]))
+                           << 16u)
+                        | (static_cast<std::uint32_t>(
+                               toUnorm8(prim.color[3]))
+                           << 24u);
+                }
+                for (std::size_t v = 0; v < vertexCount; ++v) {
+                    wsc::CompactSolidVertex vertex;
+                    vertex.x = prim.positions[v * 2u];
+                    vertex.y = prim.positions[v * 2u + 1u];
+                    if (packedVertexColor) {
+                        std::memcpy(
+                            &vertex.color,
+                            prim.packedColors.data() + v * 4u,
+                            sizeof(vertex.color));
+                    } else if (perVertexColor) {
+                        const float *color =
+                            prim.colors.data() + v * 4u;
+                        vertex.color =
+                            static_cast<std::uint32_t>(
+                                toUnorm8(color[0]))
+                            | (static_cast<std::uint32_t>(
+                                   toUnorm8(color[1]))
+                               << 8u)
+                            | (static_cast<std::uint32_t>(
+                                   toUnorm8(color[2]))
+                               << 16u)
+                            | (static_cast<std::uint32_t>(
+                                   toUnorm8(color[3]))
+                               << 24u);
+                    } else {
+                        vertex.color = uniformColor;
+                    }
+                    vertex.coverage = packedVertexCoverage
+                        ? prim.packedCoverage[v]
+                        : toUnorm8(
+                              perVertexCoverage
+                                  ? prim.coverage[v] : 1.0f);
+                    const std::size_t destination =
+                        vertices.size();
+                    vertices.resize(
+                        destination
+                        + sizeof(wsc::CompactSolidVertex)
+                            / sizeof(float));
+                    std::memcpy(
+                        vertices.data() + destination,
+                        &vertex, sizeof(vertex));
+                }
+            } else {
                 for (std::size_t v = 0; v < vertexCount; ++v) {
                     vertices.push_back(prim.positions[v * 2 + 0]);
                     vertices.push_back(prim.positions[v * 2 + 1]);
@@ -5091,13 +6208,125 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
                         vertices.push_back(prim.color[2]);
                         vertices.push_back(prim.color[3]);
                     }
-                    vertices.push_back(perVertexCoverage ? prim.coverage[v] : 1.0f);
+                    vertices.push_back(
+                        perVertexCoverage
+                            ? prim.coverage[v] : 1.0f);
                 }
-            } else {
-                vertices = buildSolidVertices(prim.positions, prim.color[0], prim.color[1], prim.color[2],
-                                              prim.color[3]);
             }
             draw.vertexCount = static_cast<std::uint32_t>(vertexCount);
+            if (!prim.shortIndices.empty()
+                || !prim.indices.empty()) {
+                const bool useShortIndices =
+                    !prim.shortIndices.empty()
+                    || vertexCount
+                        <= static_cast<std::size_t>(
+                            std::numeric_limits<std::uint16_t>::max())
+                            + 1u;
+                if (directCompactSolidUpload) {
+                    draw.indexOffset = 0;
+                    draw.indexCount =
+                        static_cast<std::uint32_t>(
+                            !prim.shortIndices.empty()
+                                ? prim.shortIndices.size()
+                                : prim.indices.size());
+                    draw.indexType = useShortIndices
+                        ? VK_INDEX_TYPE_UINT16
+                        : VK_INDEX_TYPE_UINT32;
+                    if (!prim.shortIndices.empty()) {
+                        directIndexBytes =
+                            static_cast<VkDeviceSize>(
+                                prim.shortIndices.size()
+                                * sizeof(std::uint16_t));
+                        std::memcpy(
+                            frame.indexMapping,
+                            prim.shortIndices.data(),
+                            static_cast<std::size_t>(
+                                directIndexBytes));
+                    } else if (!useShortIndices) {
+                        directIndexBytes =
+                            static_cast<VkDeviceSize>(
+                                prim.indices.size()
+                                * sizeof(std::uint32_t));
+                        std::memcpy(
+                            frame.indexMapping,
+                            prim.indices.data(),
+                            static_cast<std::size_t>(
+                                directIndexBytes));
+                    } else {
+                        directIndexBytes =
+                            static_cast<VkDeviceSize>(
+                                prim.indices.size()
+                                * sizeof(std::uint16_t));
+                        auto *destination =
+                            static_cast<unsigned char *>(
+                                frame.indexMapping);
+                        for (std::size_t i = 0;
+                             i < prim.indices.size(); ++i) {
+                            const std::uint16_t index =
+                                static_cast<std::uint16_t>(
+                                    prim.indices[i]);
+                            std::memcpy(
+                                destination
+                                    + i * sizeof(index),
+                                &index, sizeof(index));
+                        }
+                    }
+                } else {
+                    const std::size_t alignment =
+                        useShortIndices
+                            ? alignof(std::uint16_t)
+                            : alignof(std::uint32_t);
+                    const std::size_t alignedOffset =
+                        (indexUpload.size() + alignment - 1u)
+                        / alignment * alignment;
+                    indexUpload.resize(alignedOffset);
+                    draw.indexOffset =
+                        static_cast<VkDeviceSize>(alignedOffset);
+                    draw.indexCount =
+                        static_cast<std::uint32_t>(
+                            !prim.shortIndices.empty()
+                                ? prim.shortIndices.size()
+                                : prim.indices.size());
+                    draw.indexType = useShortIndices
+                        ? VK_INDEX_TYPE_UINT16
+                        : VK_INDEX_TYPE_UINT32;
+                    if (useShortIndices) {
+                        const std::size_t byteCount =
+                            draw.indexCount
+                            * sizeof(std::uint16_t);
+                        indexUpload.resize(
+                            alignedOffset + byteCount);
+                        unsigned char *destination =
+                            indexUpload.data() + alignedOffset;
+                        if (!prim.shortIndices.empty()) {
+                            std::memcpy(
+                                destination,
+                                prim.shortIndices.data(),
+                                byteCount);
+                        } else {
+                            for (std::size_t i = 0;
+                                 i < prim.indices.size(); ++i) {
+                                const std::uint16_t index =
+                                    static_cast<std::uint16_t>(
+                                        prim.indices[i]);
+                                std::memcpy(
+                                    destination
+                                        + i * sizeof(index),
+                                    &index, sizeof(index));
+                            }
+                        }
+                    } else {
+                        const std::size_t byteCount =
+                            prim.indices.size()
+                            * sizeof(std::uint32_t);
+                        indexUpload.resize(
+                            alignedOffset + byteCount);
+                        std::memcpy(
+                            indexUpload.data() + alignedOffset,
+                            prim.indices.data(), byteCount);
+                    }
+                }
+            }
         } else if (prim.kind == wsc::DrawPrimitiveKind::TexturedQuad) {
             auto *tex = dynamic_cast<VulkanTextureResource *>(prim.texture.get());
             if (tex == nullptr || !tex->isValid()) {
@@ -5112,7 +6341,17 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
                 ok = false;
                 break;
             }
-            draw.pipeline = context_->ensureTexturePipeline(rt->renderPass(), prim.blendMode);
+            const bool instanced = canInstanceTexturedPrimitive(prim);
+            const bool fastTexturePath =
+                !prim.hasColorMatrix
+                && prim.texture->alphaType()
+                    != ImageAlphaType::Premultiplied
+                && clipTex == nullptr
+                && prim.roundedRadius <= 0.0f
+                && !prim.hasPerInstanceRounded;
+            draw.pipeline = context_->ensureTexturePipeline(
+                rt->renderPass(), prim.blendMode, instanced,
+                fastTexturePath);
             if (draw.pipeline == VK_NULL_HANDLE) {
                 ok = false;
                 break;
@@ -5128,6 +6367,12 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
                 draw.push.clipUvScale[1] = prim.clipUvScale[1];
                 draw.push.clipUvOffset[0] = prim.clipUvOffset[0];
                 draw.push.clipUvOffset[1] = prim.clipUvOffset[1];
+            } else if (prim.hasPerInstanceRounded) {
+                draw.push.useClipMask = 3;
+                draw.push.clipUvScale[0] = 0.0f;
+                draw.push.clipUvScale[1] = 0.0f;
+                draw.push.clipUvOffset[0] = 0.0f;
+                draw.push.clipUvOffset[1] = 0.0f;
             } else if (prim.roundedRadius > 0.0f) {
                 draw.push.useClipMask = 2;
                 draw.push.clipUvScale[0] = prim.roundedRadius;
@@ -5177,21 +6422,77 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
                 ok = false;
                 break;
             }
-            VulkanTextureResource *boundClip = clipTex != nullptr ? clipTex : tex;
+            VulkanTextureResource *boundClip =
+                clipTex != nullptr
+                    ? clipTex
+                    : (fastTexturePath ? nullptr : tex);
+            const SharedImageResource boundClipResource =
+                clipTex != nullptr
+                    ? prim.clipTexture
+                    : (fastTexturePath
+                           ? SharedImageResource{} : prim.texture);
             const VkSampler boundClipSampler =
-                clipTex != nullptr ? clipTex->sampler() : sampler;
+                clipTex != nullptr
+                    ? clipTex->sampler()
+                    : (fastTexturePath ? VK_NULL_HANDLE : sampler);
             draw.descriptorSet =
-                allocSampledSet(tex, context_->texDescriptorSetLayout, sampler,
-                                boundClip, boundClipSampler);
+                allocSampledSet(
+                    prim.texture, tex,
+                    context_->texDescriptorSetLayout, sampler,
+                    boundClipResource, boundClip,
+                    boundClipSampler);
             if (draw.descriptorSet == VK_NULL_HANDLE) {
                 ok = false;
                 break;
             }
             const std::size_t explicitVerts = prim.positions.size() / 2;
-            if (explicitVerts >= 3 && (explicitVerts % 3) == 0 && prim.uvs.size() == prim.positions.size()) {
+            if (instanced) {
+                const std::size_t quadCount =
+                    prim.texturedInstances.empty()
+                        ? explicitVerts / 6u
+                        : prim.texturedInstances.size();
+                if (!prim.texturedInstances.empty()) {
+                    for (const wsc::TexturedQuadInstance &instance
+                         : prim.texturedInstances) {
+                        vertices.push_back(instance.x0);
+                        vertices.push_back(instance.y0);
+                        vertices.push_back(instance.x1);
+                        vertices.push_back(instance.y1);
+                        vertices.push_back(instance.u0);
+                        vertices.push_back(instance.v0);
+                        vertices.push_back(instance.u1);
+                        vertices.push_back(instance.v1);
+                        vertices.push_back(
+                            packedRgba8AsFloat(instance.packedTint));
+                        vertices.push_back(instance.roundedRadius);
+                        vertices.push_back(instance.roundedWidth);
+                        vertices.push_back(instance.roundedHeight);
+                    }
+                } else {
+                    constexpr std::uint32_t whiteTint = 0xffffffffu;
+                    const bool perVertexTint =
+                        prim.packedTints.size() == explicitVerts;
+                    for (std::size_t quad = 0; quad < quadCount; ++quad) {
+                        const std::size_t base = quad * 6u;
+                        vertices.push_back(prim.positions[base * 2u]);
+                        vertices.push_back(prim.positions[base * 2u + 1u]);
+                        vertices.push_back(prim.positions[(base + 2u) * 2u]);
+                        vertices.push_back(prim.positions[(base + 2u) * 2u + 1u]);
+                        vertices.push_back(prim.uvs[base * 2u]);
+                        vertices.push_back(prim.uvs[base * 2u + 1u]);
+                        vertices.push_back(prim.uvs[(base + 2u) * 2u]);
+                        vertices.push_back(prim.uvs[(base + 2u) * 2u + 1u]);
+                        vertices.push_back(packedRgba8AsFloat(
+                            perVertexTint
+                                ? prim.packedTints[base] : whiteTint));
+                    }
+                }
+                draw.vertexCount = 4;
+                draw.instanceCount =
+                    static_cast<std::uint32_t>(quadCount);
+            } else if (explicitVerts >= 3 && (explicitVerts % 3) == 0 && prim.uvs.size() == prim.positions.size()) {
                 const bool perVertexTint =
                     prim.packedTints.size() == explicitVerts;
-                vertices.reserve(explicitVerts * 5u);
                 constexpr std::uint32_t whiteTint = 0xffffffffu;
                 for (std::size_t v = 0; v < explicitVerts; ++v) {
                     appendTexturedVertex(
@@ -5205,7 +6506,7 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
                 }
                 draw.vertexCount = static_cast<std::uint32_t>(explicitVerts);
             } else {
-                vertices = {
+                const std::array<float, 30> quad = {
                     -1.0f, -1.0f, 0.0f, 0.0f,
                     packedRgba8AsFloat(0xffffffffu),
                      1.0f, -1.0f, 1.0f, 0.0f,
@@ -5219,6 +6520,8 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
                     -1.0f,  1.0f, 0.0f, 1.0f,
                     packedRgba8AsFloat(0xffffffffu),
                 };
+                vertices.insert(
+                    vertices.end(), quad.begin(), quad.end());
                 draw.vertexCount = 6;
             }
         } else if (prim.kind == wsc::DrawPrimitiveKind::ClipFill) {
@@ -5233,7 +6536,9 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
                 break;
             }
             draw.descriptorLayout = context_->clipPipelineLayout;
-            draw.descriptorSet = allocSampledSet(mask, context_->clipDescriptorSetLayout, mask->sampler());
+            draw.descriptorSet = allocSampledSet(
+                prim.texture, mask,
+                context_->clipDescriptorSetLayout, mask->sampler());
             if (draw.descriptorSet == VK_NULL_HANDLE) {
                 ok = false;
                 break;
@@ -5244,7 +6549,6 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
                 // fragment's alpha by the mask sampled at its screen-space UV.
                 const std::size_t vc = prim.positions.size() / 2;
                 const bool perVertexColor = prim.colors.size() == vc * 4;
-                vertices.reserve(vc * 8);
                 for (std::size_t v = 0; v < vc; ++v) {
                     vertices.push_back(prim.positions[v * 2 + 0]);
                     vertices.push_back(prim.positions[v * 2 + 1]);
@@ -5265,11 +6569,13 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
                 draw.vertexCount = static_cast<std::uint32_t>(vc);
             } else {
                 // Full-target quad (fills the whole target, clipped to the mask).
-                vertices = {
+                const std::array<float, 48> quad = {
                     -1.0f, -1.0f, r, g, b, a, 0.0f, 0.0f, 1.0f, -1.0f, r, g, b, a, 1.0f, 0.0f,
                     1.0f,  1.0f,  r, g, b, a, 1.0f, 1.0f, -1.0f, -1.0f, r, g, b, a, 0.0f, 0.0f,
                     1.0f,  1.0f,  r, g, b, a, 1.0f, 1.0f, -1.0f, 1.0f,  r, g, b, a, 0.0f, 1.0f,
                 };
+                vertices.insert(
+                    vertices.end(), quad.begin(), quad.end());
                 draw.vertexCount = 6;
             }
         } else { // GradientFill
@@ -5301,36 +6607,52 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
                     ubo.stopColors[i][c] = has ? prim.gradientStopColors[i * 4 + c] : 0.0f;
                 }
             }
+            const std::size_t gradientSlot = gradientIndex++;
             const VkDeviceSize uniformOffset =
                 context_->gradientUniformStride()
-                * static_cast<VkDeviceSize>(gradientIndex++);
+                * static_cast<VkDeviceSize>(gradientSlot);
             auto *uniformDestination =
                 static_cast<unsigned char *>(
-                    context_->drawGradientUniformMapping)
+                    frame.gradientUniformMapping)
                 + uniformOffset;
             std::memcpy(uniformDestination, &ubo, sizeof(GradientUBO));
 
-            VkDescriptorSetAllocateInfo setAlloc{};
-            setAlloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-            setAlloc.descriptorPool = pool;
-            setAlloc.descriptorSetCount = 1;
-            setAlloc.pSetLayouts = &context_->gradientDescriptorSetLayout;
-            if (vkAllocateDescriptorSets(device, &setAlloc, &draw.descriptorSet) != VK_SUCCESS) {
-                ok = false;
-                break;
+            if (gradientSlot < frame.gradientDescriptorSets.size()) {
+                draw.descriptorSet =
+                    frame.gradientDescriptorSets[gradientSlot];
+            } else {
+                VkDescriptorSetAllocateInfo setAlloc{};
+                setAlloc.sType =
+                    VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+                setAlloc.descriptorPool = pool;
+                setAlloc.descriptorSetCount = 1;
+                setAlloc.pSetLayouts =
+                    &context_->gradientDescriptorSetLayout;
+                if (vkAllocateDescriptorSets(
+                        device, &setAlloc, &draw.descriptorSet)
+                    != VK_SUCCESS) {
+                    ok = false;
+                    break;
+                }
+                ++frame.allocatedDescriptorSets;
+                frame.gradientDescriptorSets.push_back(
+                    draw.descriptorSet);
+                VkDescriptorBufferInfo bufferInfo{};
+                bufferInfo.buffer = frame.gradientUniformBuffer;
+                bufferInfo.offset = uniformOffset;
+                bufferInfo.range = sizeof(GradientUBO);
+                VkWriteDescriptorSet write{};
+                write.sType =
+                    VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write.dstSet = draw.descriptorSet;
+                write.dstBinding = 0;
+                write.descriptorCount = 1;
+                write.descriptorType =
+                    VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                write.pBufferInfo = &bufferInfo;
+                vkUpdateDescriptorSets(
+                    device, 1, &write, 0, nullptr);
             }
-            VkDescriptorBufferInfo bufferInfo{};
-            bufferInfo.buffer = context_->drawGradientUniformBuffer;
-            bufferInfo.offset = uniformOffset;
-            bufferInfo.range = sizeof(GradientUBO);
-            VkWriteDescriptorSet write{};
-            write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write.dstSet = draw.descriptorSet;
-            write.dstBinding = 0;
-            write.descriptorCount = 1;
-            write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-            write.pBufferInfo = &bufferInfo;
-            vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
 
             draw.pipeline = context_->ensureGradientPipeline(rt->renderPass(), prim.blendMode);
             if (draw.pipeline == VK_NULL_HANDLE) {
@@ -5338,7 +6660,6 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
                 break;
             }
             draw.descriptorLayout = context_->gradientPipelineLayout;
-            vertices.reserve(vertexCount * 4);
             for (std::size_t v = 0; v < vertexCount; ++v) {
                 vertices.push_back(prim.positions[v * 2 + 0]);
                 vertices.push_back(prim.positions[v * 2 + 1]);
@@ -5352,10 +6673,6 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
             ok = false;
             break;
         }
-        draw.vertexOffset =
-            static_cast<VkDeviceSize>(vertexUpload.size()) * sizeof(float);
-        vertexUpload.insert(
-            vertexUpload.end(), vertices.begin(), vertices.end());
         draws.push_back(draw);
     }
 
@@ -5365,105 +6682,294 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
         return false;
     }
     const VkDeviceSize vertexBytes =
-        static_cast<VkDeviceSize>(vertexUpload.size()) * sizeof(float);
-    if (!context_->ensureDrawVertexCapacity(vertexBytes)) {
-        WSC_LOG_ERROR("VulkanRenderDevice",
-                      "Draw vertex upload allocation failed.");
-        return false;
+        directCompactSolidUpload
+            ? directVertexBytes
+            : static_cast<VkDeviceSize>(
+                  vertexUpload.size()) * sizeof(float);
+    if (!directCompactSolidUpload && vertexBytes > 0) {
+        std::memcpy(
+            frame.vertexMapping, vertexUpload.data(),
+            static_cast<std::size_t>(vertexBytes));
     }
-    std::memcpy(
-        context_->drawVertexMapping, vertexUpload.data(),
-        static_cast<std::size_t>(vertexBytes));
+    const VkDeviceSize indexBytes =
+        directCompactSolidUpload
+            ? directIndexBytes
+            : static_cast<VkDeviceSize>(indexUpload.size());
+    if (!directCompactSolidUpload && indexBytes > 0) {
+        std::memcpy(
+            frame.indexMapping, indexUpload.data(),
+            static_cast<std::size_t>(indexBytes));
+    }
+    constexpr VkDeviceSize kDeviceLocalUploadThreshold =
+        256u * 1024u;
+    constexpr std::size_t kDeviceLocalDrawThreshold = 16u;
+    const bool amortizeDeviceLocalCopy =
+        draws.size() >= kDeviceLocalDrawThreshold;
+    const bool useDeviceVertexBuffer =
+        amortizeDeviceLocalCopy
+        && vertexBytes >= kDeviceLocalUploadThreshold
+        && context_->ensureDeviceBuffer(
+            vertexBytes,
+            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
+                | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            frame.deviceVertexBuffer,
+            frame.deviceVertexMemory,
+            frame.deviceVertexCapacity);
+    const bool useDeviceIndexBuffer =
+        amortizeDeviceLocalCopy
+        && indexBytes >= kDeviceLocalUploadThreshold
+        && context_->ensureDeviceBuffer(
+            indexBytes,
+            VK_BUFFER_USAGE_INDEX_BUFFER_BIT
+                | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            frame.deviceIndexBuffer,
+            frame.deviceIndexMemory,
+            frame.deviceIndexCapacity);
 
-    VkCommandBuffer cmd = context_->beginSingleTimeCommands();
+    const VkBuffer activeVertexBuffer =
+        useDeviceVertexBuffer
+            ? frame.deviceVertexBuffer : frame.vertexBuffer;
+    const VkBuffer activeIndexBuffer =
+        useDeviceIndexBuffer
+            ? frame.deviceIndexBuffer : frame.indexBuffer;
+    std::uint64_t commandSignature = 1469598103934665603ull;
+    const auto hashBytes = [&](const void *data, std::size_t size) {
+        const auto *bytes =
+            static_cast<const unsigned char *>(data);
+        for (std::size_t i = 0; i < size; ++i) {
+            commandSignature ^=
+                static_cast<std::uint64_t>(bytes[i]);
+            commandSignature *= 1099511628211ull;
+        }
+    };
+    const auto hashValue = [&](const auto &value) {
+        hashBytes(&value, sizeof(value));
+    };
+    hashValue(rt->renderPass());
+    hashValue(rt->framebuffer());
+    hashValue(rt->image());
+    hashValue(activeVertexBuffer);
+    hashValue(activeIndexBuffer);
+    hashValue(vertexBytes);
+    hashValue(indexBytes);
+    hashValue(useDeviceVertexBuffer);
+    hashValue(useDeviceIndexBuffer);
+    const std::size_t drawCount = draws.size();
+    hashValue(drawCount);
+    for (const RecordedDraw &draw : draws) {
+        hashValue(draw.pipeline);
+        hashValue(draw.vertexOffset);
+        hashValue(draw.vertexCount);
+        hashValue(draw.instanceCount);
+        hashValue(draw.indexOffset);
+        hashValue(draw.indexCount);
+        hashValue(draw.indexType);
+        hashValue(draw.descriptorSet);
+        hashValue(draw.descriptorLayout);
+        hashValue(draw.pushLayerAlpha);
+        if (draw.pushLayerAlpha) {
+            hashBytes(&draw.push, sizeof(draw.push));
+        }
+        hashValue(draw.scissorEnabled);
+        hashValue(draw.scissorX);
+        hashValue(draw.scissorY);
+        hashValue(draw.scissorWidth);
+        hashValue(draw.scissorHeight);
+    }
+    const VkImage copyImage =
+        copyTexture != nullptr
+            ? copyTexture->image() : VK_NULL_HANDLE;
+    hashValue(copyImage);
+    hashValue(prepareTargetForSampling);
+    const int targetWidth = rt->width();
+    const int targetHeight = rt->height();
+    hashValue(targetWidth);
+    hashValue(targetHeight);
+
+    const bool reuseRecordedCommands =
+        frame.commandSignatureValid
+        && frame.commandSignature == commandSignature
+        && frame.commandBuffer != VK_NULL_HANDLE;
+    VkCommandBuffer cmd = reuseRecordedCommands
+        ? frame.commandBuffer
+        : context_->beginDrawFrameCommands(frameIndex);
     bool submitted = false;
     if (cmd != VK_NULL_HANDLE) {
-        VkClearValue clearValue{};
-        clearValue.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
-        VkRenderPassBeginInfo renderPassInfo{};
-        renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-        renderPassInfo.renderPass = rt->renderPass();
-        renderPassInfo.framebuffer = rt->framebuffer();
-        renderPassInfo.renderArea.offset = {0, 0};
-        renderPassInfo.renderArea.extent = {static_cast<std::uint32_t>(rt->width()),
-                                            static_cast<std::uint32_t>(rt->height())};
-        renderPassInfo.clearValueCount = 1;
-        renderPassInfo.pClearValues = &clearValue;
-        vkCmdBeginRenderPass(cmd, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-
-        VkViewport viewport{};
-        viewport.width = static_cast<float>(rt->width());
-        viewport.height = static_cast<float>(rt->height());
-        viewport.maxDepth = 1.0f;
-        vkCmdSetViewport(cmd, 0, 1, &viewport);
-        VkRect2D scissor{};
-        scissor.extent = {static_cast<std::uint32_t>(rt->width()), static_cast<std::uint32_t>(rt->height())};
-        vkCmdSetScissor(cmd, 0, 1, &scissor);
-
-        for (const RecordedDraw &d : draws) {
-            if (d.scissorEnabled) {
-                const int left = std::clamp(d.scissorX, 0, rt->width());
-                const int top = std::clamp(d.scissorY, 0, rt->height());
-                const int right =
-                    std::clamp(d.scissorX + d.scissorWidth, left, rt->width());
-                const int bottom =
-                    std::clamp(d.scissorY + d.scissorHeight, top, rt->height());
-                if (right <= left || bottom <= top) {
-                    continue;
-                }
-                scissor.offset = {left, top};
-                scissor.extent = {
-                    static_cast<std::uint32_t>(right - left),
-                    static_cast<std::uint32_t>(bottom - top),
-                };
-            } else {
-                scissor.offset = {0, 0};
-                scissor.extent = {
-                    static_cast<std::uint32_t>(rt->width()),
-                    static_cast<std::uint32_t>(rt->height()),
-                };
+        if (!reuseRecordedCommands) {
+            std::array<VkBufferMemoryBarrier, 2> uploadBarriers{};
+            std::uint32_t uploadBarrierCount = 0;
+            if (useDeviceVertexBuffer && vertexBytes > 0) {
+                VkBufferCopy copy{};
+                copy.size = vertexBytes;
+                vkCmdCopyBuffer(
+                    cmd, frame.vertexBuffer,
+                    frame.deviceVertexBuffer, 1, &copy);
+                VkBufferMemoryBarrier &barrier =
+                    uploadBarriers[uploadBarrierCount++];
+                barrier.sType =
+                    VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+                barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+                barrier.dstAccessMask =
+                    VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
+                barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                barrier.buffer = frame.deviceVertexBuffer;
+                barrier.offset = 0;
+                barrier.size = vertexBytes;
             }
-            vkCmdSetScissor(cmd, 0, 1, &scissor);
-            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, d.pipeline);
-            if (d.descriptorSet != VK_NULL_HANDLE) {
-                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, d.descriptorLayout, 0, 1,
-                                        &d.descriptorSet, 0, nullptr);
-                if (d.pushLayerAlpha) {
-                    vkCmdPushConstants(cmd, d.descriptorLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0,
-                                       sizeof(TexPushConstants), &d.push);
-                }
+            if (useDeviceIndexBuffer && indexBytes > 0) {
+                VkBufferCopy copy{};
+                copy.size = indexBytes;
+                vkCmdCopyBuffer(
+                    cmd, frame.indexBuffer,
+                    frame.deviceIndexBuffer, 1, &copy);
+                VkBufferMemoryBarrier &barrier =
+                    uploadBarriers[uploadBarrierCount++];
+                barrier.sType =
+                    VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+                barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+                barrier.dstAccessMask = VK_ACCESS_INDEX_READ_BIT;
+                barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                barrier.buffer = frame.deviceIndexBuffer;
+                barrier.offset = 0;
+                barrier.size = indexBytes;
             }
-            vkCmdBindVertexBuffers(
-                cmd, 0, 1, &context_->drawVertexBuffer, &d.vertexOffset);
-            vkCmdDraw(cmd, d.vertexCount, 1, 0, 0);
-        }
+            if (uploadBarrierCount > 0) {
+                vkCmdPipelineBarrier(
+                    cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                    VK_PIPELINE_STAGE_VERTEX_INPUT_BIT, 0,
+                    0, nullptr, uploadBarrierCount,
+                    uploadBarriers.data(), 0, nullptr);
+            }
 
-        vkCmdEndRenderPass(cmd);
-        if (copyTexture != nullptr) {
-            VulkanContext::transitionImageLayout(
-                cmd, rt->image(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-            VulkanContext::transitionImageLayout(
-                cmd, copyTexture->image(), VK_IMAGE_LAYOUT_UNDEFINED,
-                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-            VkImageCopy region{};
-            region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-            region.srcSubresource.layerCount = 1;
-            region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-            region.dstSubresource.layerCount = 1;
-            region.extent = {
+            VkClearValue clearValue{};
+            clearValue.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
+            VkRenderPassBeginInfo renderPassInfo{};
+            renderPassInfo.sType =
+                VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+            renderPassInfo.renderPass = rt->renderPass();
+            renderPassInfo.framebuffer = rt->framebuffer();
+            renderPassInfo.renderArea.offset = {0, 0};
+            renderPassInfo.renderArea.extent = {
                 static_cast<std::uint32_t>(rt->width()),
-                static_cast<std::uint32_t>(rt->height()), 1};
-            vkCmdCopyImage(
-                cmd, rt->image(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                copyTexture->image(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                1, &region);
-            VulkanContext::transitionImageLayout(
-                cmd, copyTexture->image(),
-                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                static_cast<std::uint32_t>(rt->height())};
+            renderPassInfo.clearValueCount = 1;
+            renderPassInfo.pClearValues = &clearValue;
+            vkCmdBeginRenderPass(
+                cmd, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+            VkViewport viewport{};
+            viewport.width = static_cast<float>(rt->width());
+            viewport.height = static_cast<float>(rt->height());
+            viewport.maxDepth = 1.0f;
+            vkCmdSetViewport(cmd, 0, 1, &viewport);
+            VkRect2D scissor{};
+            scissor.extent = {
+                static_cast<std::uint32_t>(rt->width()),
+                static_cast<std::uint32_t>(rt->height())};
+            vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+            for (const RecordedDraw &d : draws) {
+                if (d.scissorEnabled) {
+                    const int left =
+                        std::clamp(d.scissorX, 0, rt->width());
+                    const int top =
+                        std::clamp(d.scissorY, 0, rt->height());
+                    const int right = std::clamp(
+                        d.scissorX + d.scissorWidth,
+                        left, rt->width());
+                    const int bottom = std::clamp(
+                        d.scissorY + d.scissorHeight,
+                        top, rt->height());
+                    if (right <= left || bottom <= top) {
+                        continue;
+                    }
+                    scissor.offset = {left, top};
+                    scissor.extent = {
+                        static_cast<std::uint32_t>(right - left),
+                        static_cast<std::uint32_t>(bottom - top),
+                    };
+                } else {
+                    scissor.offset = {0, 0};
+                    scissor.extent = {
+                        static_cast<std::uint32_t>(rt->width()),
+                        static_cast<std::uint32_t>(rt->height()),
+                    };
+                }
+                vkCmdSetScissor(cmd, 0, 1, &scissor);
+                vkCmdBindPipeline(
+                    cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    d.pipeline);
+                if (d.descriptorSet != VK_NULL_HANDLE) {
+                    vkCmdBindDescriptorSets(
+                        cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                        d.descriptorLayout, 0, 1,
+                        &d.descriptorSet, 0, nullptr);
+                    if (d.pushLayerAlpha) {
+                        vkCmdPushConstants(
+                            cmd, d.descriptorLayout,
+                            VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                            sizeof(TexPushConstants), &d.push);
+                    }
+                }
+                vkCmdBindVertexBuffers(
+                    cmd, 0, 1, &activeVertexBuffer,
+                    &d.vertexOffset);
+                if (d.indexCount > 0) {
+                    vkCmdBindIndexBuffer(
+                        cmd, activeIndexBuffer, d.indexOffset,
+                        d.indexType);
+                    vkCmdDrawIndexed(
+                        cmd, d.indexCount, 1, 0, 0, 0);
+                } else {
+                    vkCmdDraw(
+                        cmd, d.vertexCount, d.instanceCount,
+                        0, 0);
+                }
+            }
+
+            vkCmdEndRenderPass(cmd);
+            if (copyTexture != nullptr) {
+                VulkanContext::transitionImageLayout(
+                    cmd, rt->image(),
+                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+                VulkanContext::transitionImageLayout(
+                    cmd, copyTexture->image(),
+                    VK_IMAGE_LAYOUT_UNDEFINED,
+                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+                VkImageCopy region{};
+                region.srcSubresource.aspectMask =
+                    VK_IMAGE_ASPECT_COLOR_BIT;
+                region.srcSubresource.layerCount = 1;
+                region.dstSubresource.aspectMask =
+                    VK_IMAGE_ASPECT_COLOR_BIT;
+                region.dstSubresource.layerCount = 1;
+                region.extent = {
+                    static_cast<std::uint32_t>(rt->width()),
+                    static_cast<std::uint32_t>(rt->height()), 1};
+                vkCmdCopyImage(
+                    cmd, rt->image(),
+                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    copyTexture->image(),
+                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    1, &region);
+                VulkanContext::transitionImageLayout(
+                    cmd, copyTexture->image(),
+                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            } else if (prepareTargetForSampling) {
+                VulkanContext::transitionImageLayout(
+                    cmd, rt->image(),
+                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            }
+            frame.commandSignature = commandSignature;
+            frame.commandSignatureValid = true;
         }
-        submitted = context_->endSingleTimeCommands(cmd);
+        submitted = context_->submitDrawFrame(
+            frameIndex, reuseRecordedCommands);
     }
 
     if (!submitted) {
@@ -5473,18 +6979,46 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
                 << (cmd != VK_NULL_HANDLE));
         return false;
     }
-    releasePendingFilterTargets();
-    rt->setLayout(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-    rt->markReadbackReady();
-    context_->readbackImage = rt->image();
-    context_->readbackLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    context_->readbackWidth = rt->width();
-    context_->readbackHeight = rt->height();
+    auto &retainedImages = frame.retainedImages;
+    retainedImages.reserve(
+        retainedImages.size() + drawList.size() * 2u + 1u);
+    for (const wsc::DrawPrimitive &primitive : drawList) {
+        if (primitive.texture) {
+            retainedImages.push_back(primitive.texture);
+        }
+        if (primitive.clipTexture) {
+            retainedImages.push_back(primitive.clipTexture);
+        }
+    }
+    if (copyDestination) {
+        retainedImages.push_back(copyDestination);
+    }
+    retainedImages.insert(
+        retainedImages.end(),
+        pendingFilterImages_.begin(), pendingFilterImages_.end());
+    pendingFilterImages_.clear();
+    auto &retainedTargets = drawFrameTargets_[frameIndex];
+    for (std::unique_ptr<IRenderTarget> &pending :
+         pendingFilterTargets_) {
+        retainedTargets.push_back(std::move(pending));
+    }
+    pendingFilterTargets_.clear();
+    if (prepareTargetForSampling) {
+        rt->setLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    } else {
+        rt->setLayout(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        rt->markReadbackReady();
+        context_->readbackImage = rt->image();
+        context_->readbackLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        context_->readbackWidth = rt->width();
+        context_->readbackHeight = rt->height();
+    }
     return true;
 #else
     (void)target;
     (void)drawList;
     (void)copyDestination;
+    (void)prepareTargetForSampling;
     return false;
 #endif
 }
@@ -5493,14 +7027,16 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
                                          const std::vector<std::unique_ptr<Command>> &commands,
                                          const OffscreenRenderRequest &request) const
 {
-    return executeCommandsWithCopy(target, commands, request, {});
+    return executeCommandsWithCopy(
+        target, commands, request, {}, false);
 }
 
 bool VulkanRenderDevice::executeCommandsWithCopy(
     const std::unique_ptr<IRenderTarget> &target,
     const std::vector<std::unique_ptr<Command>> &commands,
     const OffscreenRenderRequest &request,
-    const SharedImageResource &copyDestination) const
+    const SharedImageResource &copyDestination,
+    bool prepareTargetForSampling) const
 {
 #if defined(WHATSCANVAS_ENABLE_VULKAN)
     lastExecutionDrawCallCount_ = 0;
@@ -5561,18 +7097,29 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
     // Project a canvas-space point through a transform to Vulkan NDC using the
     // same cropped viewport semantics as OpenGLRenderTarget::activate().
     auto toNdc = [&](const glm::mat4 &tf, float x, float y, float &ox, float &oy) {
-        const glm::vec4 p = tf * glm::vec4(x, y, 0.0f, 1.0f);
-        const float targetX = p.x + static_cast<float>(request.viewportX);
+        const float transformedX =
+            tf[0][0] * x + tf[1][0] * y + tf[3][0];
+        const float transformedY =
+            tf[0][1] * x + tf[1][1] * y + tf[3][1];
+        const float targetX =
+            transformedX + static_cast<float>(request.viewportX);
         const float targetY =
-            p.y + static_cast<float>(rt->height() - request.viewportY) - h;
-        ox = targetX / static_cast<float>(rt->width()) * 2.0f - 1.0f;
-        oy = targetY / static_cast<float>(rt->height()) * 2.0f - 1.0f;
+            transformedY
+            + static_cast<float>(
+                rt->height() - request.viewportY) - h;
+        ox = targetX / static_cast<float>(rt->width())
+            * 2.0f - 1.0f;
+        oy = targetY / static_cast<float>(rt->height())
+            * 2.0f - 1.0f;
     };
     auto toFullCanvasNdc = [&](const glm::mat4 &tf, float x, float y,
                                float &ox, float &oy) {
-        const glm::vec4 p = tf * glm::vec4(x, y, 0.0f, 1.0f);
-        ox = p.x / w * 2.0f - 1.0f;
-        oy = p.y / h * 2.0f - 1.0f;
+        const float transformedX =
+            tf[0][0] * x + tf[1][0] * y + tf[3][0];
+        const float transformedY =
+            tf[0][1] * x + tf[1][1] * y + tf[3][1];
+        ox = transformedX / w * 2.0f - 1.0f;
+        oy = transformedY / h * 2.0f - 1.0f;
     };
     auto targetNdcToCanvasUv = [&](float nx, float ny) {
         const float targetX =
@@ -6340,17 +7887,88 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
     }
 
     std::size_t solidVertexBudget = 0;
+    std::size_t solidIndexBudget = 0;
+    bool compactSolidPathAttributes = true;
+    bool simpleSolidFrame = !commands.empty();
+    bool immutableSolidTopology = true;
+    bool solidCoverageRequired = false;
     for (const std::unique_ptr<Command> &command : commands) {
-        if (command && command->type() == Command::Type::Path) {
-            const DrawPathData &path =
+        if (!command
+            || command->type() != Command::Type::Path) {
+            simpleSolidFrame = false;
+            continue;
+        }
+        const DrawPathData &path =
+            static_cast<const DrawPathCommand *>(
+                command.get())->data();
+        if (path.hasShaderGradient()
+            || path.clipMask.hasPaths()) {
+            simpleSolidFrame = false;
+            continue;
+        }
+        solidVertexBudget += path.hasIndices()
+            ? path.getPointCount() : path.getElementCount();
+        solidIndexBudget += path.getElementCount();
+        compactSolidPathAttributes =
+            compactSolidPathAttributes
+            && !path.hasVertexColors();
+        immutableSolidTopology =
+            immutableSolidTopology
+            && path.sharedGeometry != nullptr
+            && path.shortIndices.empty()
+            && path.packedCoverage.empty();
+        solidCoverageRequired =
+            solidCoverageRequired || path.hasCoverage();
+    }
+    const bool useShortSolidIndices =
+        solidVertexBudget
+        <= static_cast<std::size_t>(
+            std::numeric_limits<std::uint16_t>::max())
+            + 1u;
+    bool reuseSolidTopology =
+        simpleSolidFrame
+        && compactSolidPathAttributes
+        && immutableSolidTopology
+        && useShortSolidIndices
+        && solidBatchTopology_.size() == commands.size()
+        && solidBatchScratch_.shortIndices.size()
+            == solidIndexBudget
+        && (!solidCoverageRequired
+            || solidBatchScratch_.packedCoverage.size()
+                == solidVertexBudget);
+    if (reuseSolidTopology) {
+        for (std::size_t i = 0;
+             i < commands.size(); ++i) {
+            const auto *path =
                 static_cast<const DrawPathCommand *>(
-                    command.get())->data();
-            if (!path.hasShaderGradient()
-                && !path.clipMask.hasPaths()) {
-                solidVertexBudget += path.getElementCount();
+                    commands[i].get());
+            if (solidBatchTopology_[i]
+                    != path->data().sharedGeometry) {
+                reuseSolidTopology = false;
+                break;
             }
         }
     }
+    const auto toUnorm8 = [](float value) {
+        return static_cast<std::uint8_t>(
+            std::clamp(
+                std::lround(value * 255.0f),
+                0l, 255l));
+    };
+    const auto packedColor =
+        [&](const float color[4]) {
+            return static_cast<std::uint32_t>(
+                       toUnorm8(color[0]))
+                | (static_cast<std::uint32_t>(
+                       toUnorm8(color[1]))
+                   << 8u)
+                | (static_cast<std::uint32_t>(
+                       toUnorm8(color[2]))
+                   << 16u)
+                | (static_cast<std::uint32_t>(
+                       toUnorm8(color[3]))
+                   << 24u);
+        };
 
     auto appendSolidBatch = [&](wsc::DrawPrimitive prim) {
         if (prim.kind != wsc::DrawPrimitiveKind::SolidTriangles
@@ -6364,6 +7982,9 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
                 }
                 if (!prim.coverage.empty()) {
                     prim.coverage.reserve(solidVertexBudget);
+                }
+                if (!prim.indices.empty()) {
+                    prim.indices.reserve(solidIndexBudget);
                 }
             }
             list.push_back(std::move(prim));
@@ -6390,6 +8011,49 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
         if (previousVertices == 0 || incomingVertices == 0) {
             list.push_back(std::move(prim));
             return;
+        }
+        if (!previous.shortIndices.empty()
+            || !prim.shortIndices.empty()) {
+            list.push_back(std::move(prim));
+            return;
+        }
+        const std::size_t maxIndex =
+            std::numeric_limits<std::uint32_t>::max();
+        if ((!previous.indices.empty() || !prim.indices.empty())
+            && (previousVertices > maxIndex
+                || incomingVertices > maxIndex - previousVertices)) {
+            list.push_back(std::move(prim));
+            return;
+        }
+        previous.compactSolidAttributes =
+            previous.compactSolidAttributes
+            && prim.compactSolidAttributes;
+        previous.indicesTrusted =
+            previous.indicesTrusted && prim.indicesTrusted;
+
+        if (!previous.indices.empty() || !prim.indices.empty()) {
+            if (previous.indices.empty()) {
+                previous.indices.reserve(solidIndexBudget);
+                for (std::size_t vertex = 0;
+                     vertex < previousVertices; ++vertex) {
+                    previous.indices.push_back(
+                        static_cast<std::uint32_t>(vertex));
+                }
+            }
+            if (prim.indices.empty()) {
+                for (std::size_t vertex = 0;
+                     vertex < incomingVertices; ++vertex) {
+                    previous.indices.push_back(
+                        static_cast<std::uint32_t>(
+                            previousVertices + vertex));
+                }
+            } else {
+                for (const std::uint32_t index : prim.indices) {
+                    previous.indices.push_back(
+                        static_cast<std::uint32_t>(
+                            previousVertices + index));
+                }
+            }
         }
 
         if (previous.colors.empty()) {
@@ -6460,6 +8124,7 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
             };
             if (d.hasIndices()) {
                 bool invalidIndex = false;
+#if !defined(NDEBUG)
                 for (std::size_t element = 0;
                      element < d.getElementCount(); ++element) {
                     if (d.getIndex(element)
@@ -6468,16 +8133,351 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
                         break;
                     }
                 }
+#endif
                 if (invalidIndex) {
                     continue;
                 }
             }
+            if (!clipped && !d.hasShaderGradient()) {
+                wsc::DrawPrimitive state;
+                state.kind =
+                    wsc::DrawPrimitiveKind::SolidTriangles;
+                state.blendMode = mapBlend(d.blendMode);
+                state.compactSolidAttributes =
+                    compactSolidPathAttributes;
+                state.indicesTrusted = true;
+                applyPrimitiveScissor(state, d.scissor);
+
+                const std::size_t incomingVertices =
+                    d.hasIndices() ? sourceVertexCount : vertexCount;
+                bool canMerge = false;
+                if (!list.empty()) {
+                    const wsc::DrawPrimitive &previous =
+                        list.back();
+                    const bool sameScissor =
+                        previous.scissorEnabled
+                            == state.scissorEnabled
+                        && previous.scissorX == state.scissorX
+                        && previous.scissorY == state.scissorY
+                        && previous.scissorWidth
+                            == state.scissorWidth
+                        && previous.scissorHeight
+                            == state.scissorHeight;
+                    canMerge =
+                        previous.kind
+                            == wsc::DrawPrimitiveKind::
+                                SolidTriangles
+                        && previous.blendMode == state.blendMode
+                        && sameScissor;
+                    if (canMerge
+                        && (!previous.shortIndices.empty()
+                            || !previous.indices.empty()
+                            || d.hasIndices())) {
+                        const std::size_t previousVertices =
+                            !previous.compactVertices.empty()
+                                ? previous.compactVertices.size()
+                                : previous.positions.size() / 2u;
+                        const std::size_t maxIndex =
+                            std::numeric_limits<
+                                std::uint32_t>::max();
+                        canMerge =
+                            previousVertices <= maxIndex
+                            && incomingVertices
+                                <= maxIndex - previousVertices;
+                    }
+                }
+
+                if (!canMerge) {
+                    state.color[0] = d.color[0];
+                    state.color[1] = d.color[1];
+                    state.color[2] = d.color[2];
+                    state.color[3] = d.color[3];
+                    if (list.empty() && simpleSolidFrame) {
+                        state.compactVertices =
+                            std::move(
+                                solidBatchScratch_.compactVertices);
+                        state.positions =
+                            std::move(
+                                solidBatchScratch_.positions);
+                        state.indices =
+                            std::move(
+                                solidBatchScratch_.indices);
+                        state.shortIndices =
+                            std::move(
+                                solidBatchScratch_.shortIndices);
+                        state.colors =
+                            std::move(
+                                solidBatchScratch_.colors);
+                        state.packedColors =
+                            std::move(
+                                solidBatchScratch_.packedColors);
+                        state.coverage =
+                            std::move(
+                                solidBatchScratch_.coverage);
+                        state.packedCoverage =
+                            std::move(
+                                solidBatchScratch_.packedCoverage);
+                        state.compactVertices.clear();
+                        state.positions.clear();
+                        state.indices.clear();
+                        if (!reuseSolidTopology) {
+                            state.shortIndices.clear();
+                        }
+                        state.colors.clear();
+                        state.packedColors.clear();
+                        state.coverage.clear();
+                        if (!reuseSolidTopology) {
+                            state.packedCoverage.clear();
+                        } else if (!solidCoverageRequired) {
+                            state.packedCoverage.clear();
+                        }
+                    }
+                    if (list.empty()
+                        && solidVertexBudget > incomingVertices) {
+                        if (compactSolidPathAttributes) {
+                            state.compactVertices.reserve(
+                                solidVertexBudget);
+                        } else {
+                            state.positions.reserve(
+                                solidVertexBudget * 2u);
+                        }
+                        if (!compactSolidPathAttributes
+                            && d.hasVertexColors()) {
+                            state.colors.reserve(
+                                solidVertexBudget * 4u);
+                        }
+                        if (!compactSolidPathAttributes
+                            && d.hasCoverage()) {
+                            state.coverage.reserve(
+                                solidVertexBudget);
+                        } else if (compactSolidPathAttributes
+                                   && solidCoverageRequired) {
+                            state.packedCoverage.reserve(
+                                solidVertexBudget);
+                        }
+                        if (d.hasIndices()) {
+                            if (useShortSolidIndices) {
+                                state.shortIndices.reserve(
+                                    solidIndexBudget);
+                            } else {
+                                state.indices.reserve(
+                                    solidIndexBudget);
+                            }
+                        }
+                    }
+                    list.push_back(std::move(state));
+                }
+
+                wsc::DrawPrimitive &batch = list.back();
+                batch.compactSolidAttributes =
+                    batch.compactSolidAttributes
+                    && compactSolidPathAttributes;
+                const std::size_t previousVertices =
+                    compactSolidPathAttributes
+                        ? batch.compactVertices.size()
+                        : batch.positions.size() / 2u;
+
+                if (!reuseSolidTopology
+                    && (!batch.shortIndices.empty()
+                    || !batch.indices.empty()
+                    || d.hasIndices())) {
+                    if (useShortSolidIndices) {
+                        if (batch.shortIndices.empty()) {
+                            batch.shortIndices.reserve(
+                                solidIndexBudget);
+                            for (std::size_t vertex = 0;
+                                 vertex < previousVertices;
+                                 ++vertex) {
+                                batch.shortIndices.push_back(
+                                    static_cast<std::uint16_t>(
+                                        vertex));
+                            }
+                        }
+                        if (d.hasIndices()) {
+                            for (std::size_t element = 0;
+                                 element < vertexCount; ++element) {
+                                batch.shortIndices.push_back(
+                                    static_cast<std::uint16_t>(
+                                        previousVertices
+                                        + d.getIndex(element)));
+                            }
+                        } else {
+                            for (std::size_t vertex = 0;
+                                 vertex < incomingVertices;
+                                 ++vertex) {
+                                batch.shortIndices.push_back(
+                                    static_cast<std::uint16_t>(
+                                        previousVertices
+                                        + vertex));
+                            }
+                        }
+                    } else {
+                        if (batch.indices.empty()) {
+                            batch.indices.reserve(
+                                solidIndexBudget);
+                            for (std::size_t vertex = 0;
+                                 vertex < previousVertices;
+                                 ++vertex) {
+                                batch.indices.push_back(
+                                    static_cast<std::uint32_t>(
+                                        vertex));
+                            }
+                        }
+                        if (d.hasIndices()) {
+                            for (std::size_t element = 0;
+                                 element < vertexCount; ++element) {
+                                batch.indices.push_back(
+                                    static_cast<std::uint32_t>(
+                                        previousVertices
+                                        + d.getIndex(element)));
+                            }
+                        } else {
+                            for (std::size_t vertex = 0;
+                                 vertex < incomingVertices;
+                                 ++vertex) {
+                                batch.indices.push_back(
+                                    static_cast<std::uint32_t>(
+                                        previousVertices
+                                        + vertex));
+                            }
+                        }
+                    }
+                }
+
+                if (!compactSolidPathAttributes
+                    && canMerge && batch.colors.empty()) {
+                    batch.colors.reserve(
+                        solidVertexBudget * 4u);
+                    for (std::size_t vertex = 0;
+                         vertex < previousVertices; ++vertex) {
+                        batch.colors.insert(
+                            batch.colors.end(),
+                            std::begin(batch.color),
+                            std::end(batch.color));
+                    }
+                }
+                if (!compactSolidPathAttributes
+                    && d.hasVertexColors()) {
+                    if (batch.colors.empty()) {
+                        batch.colors.reserve(
+                            solidVertexBudget * 4u);
+                    }
+                    for (std::size_t vertex = 0;
+                         vertex < incomingVertices; ++vertex) {
+                        for (std::size_t channel = 0;
+                             channel < 4; ++channel) {
+                            batch.colors.push_back(
+                                d.vertexColorAt(
+                                    vertex, channel));
+                        }
+                    }
+                } else if (!compactSolidPathAttributes
+                           && !batch.colors.empty()) {
+                    for (std::size_t vertex = 0;
+                         vertex < incomingVertices; ++vertex) {
+                        batch.colors.insert(
+                            batch.colors.end(),
+                            std::begin(d.color),
+                            std::end(d.color));
+                    }
+                }
+
+                if (!compactSolidPathAttributes
+                    && (!batch.coverage.empty()
+                               || d.hasCoverage())) {
+                    if (batch.coverage.empty()) {
+                        batch.coverage.reserve(
+                            solidVertexBudget);
+                        batch.coverage.assign(
+                            previousVertices, 1.0f);
+                    }
+                    if (d.hasCoverage()) {
+                        for (std::size_t vertex = 0;
+                             vertex < incomingVertices;
+                             ++vertex) {
+                            batch.coverage.push_back(
+                                d.coverageAt(vertex));
+                        }
+                    } else {
+                        batch.coverage.insert(
+                            batch.coverage.end(),
+                            incomingVertices, 1.0f);
+                    }
+                } else if (compactSolidPathAttributes
+                           && solidCoverageRequired
+                           && !reuseSolidTopology) {
+                    if (batch.packedCoverage.empty()) {
+                        batch.packedCoverage.assign(
+                            previousVertices, 255u);
+                    }
+                    if (d.hasPackedCoverage()) {
+                        batch.packedCoverage.insert(
+                            batch.packedCoverage.end(),
+                            d.packedCoverage.begin(),
+                            d.packedCoverage.end());
+                    } else if (d.hasFloatCoverage()) {
+                        for (std::size_t vertex = 0;
+                             vertex < incomingVertices;
+                             ++vertex) {
+                            batch.packedCoverage.push_back(
+                                toUnorm8(
+                                    d.coverageAt(vertex)));
+                        }
+                    } else {
+                        batch.packedCoverage.insert(
+                            batch.packedCoverage.end(),
+                            incomingVertices, 255u);
+                    }
+                }
+
+                if (compactSolidPathAttributes) {
+                    const std::uint32_t color =
+                        packedColor(d.color);
+                    for (std::size_t vertex = 0;
+                         vertex < incomingVertices; ++vertex) {
+                        wsc::CompactSolidVertex packed;
+                        toNdc(
+                            d.transform,
+                            points[vertex * 2u],
+                            points[vertex * 2u + 1u],
+                            packed.x, packed.y);
+                        packed.color = color;
+                        packed.coverage =
+                            solidCoverageRequired
+                                ? batch.packedCoverage[
+                                      previousVertices + vertex]
+                                : 255u;
+                        batch.compactVertices.push_back(
+                            packed);
+                    }
+                } else {
+                    for (std::size_t vertex = 0;
+                         vertex < incomingVertices; ++vertex) {
+                        float nx = 0.0f;
+                        float ny = 0.0f;
+                        toNdc(
+                            d.transform,
+                            points[vertex * 2 + 0],
+                            points[vertex * 2 + 1], nx, ny);
+                        batch.positions.push_back(nx);
+                        batch.positions.push_back(ny);
+                    }
+                }
+                continue;
+            }
+            const bool retainIndices =
+                d.hasIndices() && !clipped && !d.hasShaderGradient();
+            const std::size_t emittedVertexCount =
+                retainIndices ? sourceVertexCount : vertexCount;
+            const auto emittedSourceIndex = [&](std::size_t vertex) {
+                return retainIndices ? vertex : sourceIndex(vertex);
+            };
             wsc::DrawPrimitive prim;
             prim.blendMode = mapBlend(d.blendMode);
             applyPrimitiveScissor(prim, d.scissor);
-            prim.positions.reserve(vertexCount * 2);
-            for (std::size_t i = 0; i < vertexCount; ++i) {
-                const std::size_t source = sourceIndex(i);
+            prim.positions.reserve(emittedVertexCount * 2);
+            for (std::size_t i = 0; i < emittedVertexCount; ++i) {
+                const std::size_t source = emittedSourceIndex(i);
                 float nx = 0.0f, ny = 0.0f;
                 toNdc(
                     d.transform,
@@ -6498,9 +8498,11 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
                     // Bake the fill's own analytic-AA coverage into per-vertex alpha
                     // (the clip pipeline has no coverage attribute); the clip shader
                     // then multiplies by the mask coverage as well.
-                    prim.colors.resize(vertexCount * 4);
-                    for (std::size_t i = 0; i < vertexCount; ++i) {
-                        const std::size_t source = sourceIndex(i);
+                    prim.colors.resize(emittedVertexCount * 4);
+                    for (std::size_t i = 0;
+                         i < emittedVertexCount; ++i) {
+                        const std::size_t source =
+                            emittedSourceIndex(i);
                         prim.colors[i * 4 + 0] = d.color[0];
                         prim.colors[i * 4 + 1] = d.color[1];
                         prim.colors[i * 4 + 2] = d.color[2];
@@ -6517,9 +8519,11 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
             if (d.hasShaderGradient()) {
                 prim.kind = wsc::DrawPrimitiveKind::GradientFill;
                 // Local (canvas-space) positions matching the transformed geometry.
-                prim.localPositions.reserve(vertexCount * 2);
-                for (std::size_t i = 0; i < vertexCount; ++i) {
-                    const std::size_t source = sourceIndex(i);
+                prim.localPositions.reserve(emittedVertexCount * 2);
+                for (std::size_t i = 0;
+                     i < emittedVertexCount; ++i) {
+                    const std::size_t source =
+                        emittedSourceIndex(i);
                     const glm::vec4 p =
                         d.transform
                         * glm::vec4(
@@ -6547,10 +8551,21 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
                 }
             } else {
                 prim.kind = wsc::DrawPrimitiveKind::SolidTriangles;
+                if (retainIndices) {
+                    prim.indices.reserve(vertexCount);
+                    for (std::size_t element = 0;
+                         element < vertexCount; ++element) {
+                        prim.indices.push_back(
+                            static_cast<std::uint32_t>(
+                                d.getIndex(element)));
+                    }
+                }
                 if (d.hasVertexColors()) {
-                    prim.colors.reserve(vertexCount * 4u);
-                    for (std::size_t i = 0; i < vertexCount; ++i) {
-                        const std::size_t source = sourceIndex(i);
+                    prim.colors.reserve(emittedVertexCount * 4u);
+                    for (std::size_t i = 0;
+                         i < emittedVertexCount; ++i) {
+                        const std::size_t source =
+                            emittedSourceIndex(i);
                         for (std::size_t channel = 0; channel < 4; ++channel) {
                             prim.colors.push_back(
                                 d.vertexColorAt(source, channel));
@@ -6558,10 +8573,11 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
                     }
                 }
                 if (d.hasCoverage()) {
-                    prim.coverage.reserve(vertexCount);
-                    for (std::size_t i = 0; i < vertexCount; ++i) {
+                    prim.coverage.reserve(emittedVertexCount);
+                    for (std::size_t i = 0;
+                         i < emittedVertexCount; ++i) {
                         prim.coverage.push_back(
-                            d.coverageAt(sourceIndex(i)));
+                            d.coverageAt(emittedSourceIndex(i)));
                     }
                 }
                 prim.color[0] = d.color[0];
@@ -6680,13 +8696,33 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
             prim.sampling = static_cast<int>(d.sampling);
             prim.tileMode = static_cast<int>(d.tileMode);
             prim.useCustomSampler = true;
-            prim.positions.reserve(12);
-            prim.uvs.reserve(12);
-            for (int k : idx) {
-                prim.positions.push_back(nx[k]);
-                prim.positions.push_back(ny[k]);
-                prim.uvs.push_back(uu[k]);
-                prim.uvs.push_back(vv[k]);
+            const bool compactImage =
+                !d.hasColorMatrix
+                && nx[0] == nx[3] && ny[0] == ny[1]
+                && nx[1] == nx[2] && ny[2] == ny[3];
+            if (compactImage) {
+                prim.texturedInstances.push_back({
+                    nx[0], ny[0], nx[2], ny[2],
+                    d.u0, d.v0, d.u1, d.v1,
+                    effectivePackedTint(
+                        0xffffffffu, prim.tint,
+                        prim.layerAlpha),
+                    d.roundedRadius, d.width, d.height});
+                prim.hasPerInstanceRounded =
+                    d.roundedRadius > 0.0f;
+                std::fill(
+                    std::begin(prim.tint),
+                    std::end(prim.tint), 1.0f);
+                prim.layerAlpha = 1.0f;
+            } else {
+                prim.positions.reserve(12);
+                prim.uvs.reserve(12);
+                for (int k : idx) {
+                    prim.positions.push_back(nx[k]);
+                    prim.positions.push_back(ny[k]);
+                    prim.uvs.push_back(uu[k]);
+                    prim.uvs.push_back(vv[k]);
+                }
             }
             if (d.clipMask.hasPaths()) {
                 // Clipped image: render the textured quad in isolation, then
@@ -6720,10 +8756,44 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
             prim.tileMode =
                 static_cast<int>(DrawImageTileMode::Clamp);
             prim.useCustomSampler = true;
-            prim.positions.reserve(d.quads.size() * 12u);
-            prim.uvs.reserve(d.quads.size() * 12u);
+            const bool compactBatch =
+                d.transform[0][1] == 0.0f
+                && d.transform[1][0] == 0.0f;
+            if (compactBatch) {
+                prim.texturedInstances.reserve(d.quads.size());
+            } else {
+                prim.positions.reserve(d.quads.size() * 12u);
+                prim.uvs.reserve(d.quads.size() * 12u);
+                prim.packedTints.reserve(d.quads.size() * 6u);
+            }
+            const bool identityTint =
+                prim.tint[0] == 1.0f
+                && prim.tint[1] == 1.0f
+                && prim.tint[2] == 1.0f
+                && prim.tint[3] == 1.0f
+                && prim.layerAlpha == 1.0f;
             constexpr int indices[6] = {0, 1, 2, 0, 2, 3};
             for (const DrawImageBatchQuad &quad : d.quads) {
+                if (compactBatch) {
+                    float x0 = 0.0f;
+                    float y0 = 0.0f;
+                    float x1 = 0.0f;
+                    float y1 = 0.0f;
+                    toNdc(
+                        d.transform, quad.x, quad.y, x0, y0);
+                    toNdc(
+                        d.transform, quad.x + quad.width,
+                        quad.y + quad.height, x1, y1);
+                    prim.texturedInstances.push_back({
+                        x0, y0, x1, y1,
+                        quad.u0, quad.v0, quad.u1, quad.v1,
+                        identityTint
+                            ? quad.packedTint
+                            : effectivePackedTint(
+                                  quad.packedTint, prim.tint,
+                                  prim.layerAlpha)});
+                    continue;
+                }
                 float nx[4], ny[4];
                 toNdc(
                     d.transform, quad.x, quad.y, nx[0], ny[0]);
@@ -6745,7 +8815,14 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
                     prim.positions.push_back(ny[index]);
                     prim.uvs.push_back(uu[index]);
                     prim.uvs.push_back(vv[index]);
+                    prim.packedTints.push_back(
+                        quad.packedTint);
                 }
+            }
+            if (compactBatch) {
+                std::fill(
+                    std::begin(prim.tint), std::end(prim.tint), 1.0f);
+                prim.layerAlpha = 1.0f;
             }
             appendTexturedBatch(list, std::move(prim));
         } else if (cmd->type() == Command::Type::Text) {
@@ -7072,7 +9149,9 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
         return false;
     }
     const bool rendered =
-        executeDrawListWithCopy(target, list, copyDestination);
+        executeDrawListWithCopy(
+            target, list, copyDestination,
+            prepareTargetForSampling);
     if (rendered) {
         lastExecutionDrawCallCount_ = list.size();
         if (commands.size() > list.size()) {
@@ -7080,12 +9159,48 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
                 commands.size() - list.size();
         }
     }
+    if (simpleSolidFrame && immutableSolidTopology) {
+        if (!reuseSolidTopology) {
+            solidBatchTopology_.clear();
+            solidBatchTopology_.reserve(commands.size());
+            for (const std::unique_ptr<Command> &command
+                 : commands) {
+                const auto *path =
+                    static_cast<const DrawPathCommand *>(
+                        command.get());
+                solidBatchTopology_.push_back(
+                    path->data().sharedGeometry);
+            }
+        }
+    } else {
+        solidBatchTopology_.clear();
+    }
+    if (simpleSolidFrame && list.size() == 1u) {
+        wsc::DrawPrimitive &batch = list.front();
+        solidBatchScratch_.compactVertices =
+            std::move(batch.compactVertices);
+        solidBatchScratch_.positions =
+            std::move(batch.positions);
+        solidBatchScratch_.indices =
+            std::move(batch.indices);
+        solidBatchScratch_.shortIndices =
+            std::move(batch.shortIndices);
+        solidBatchScratch_.colors =
+            std::move(batch.colors);
+        solidBatchScratch_.packedColors =
+            std::move(batch.packedColors);
+        solidBatchScratch_.coverage =
+            std::move(batch.coverage);
+        solidBatchScratch_.packedCoverage =
+            std::move(batch.packedCoverage);
+    }
     return rendered;
 #else
     (void)target;
     (void)commands;
     (void)request;
     (void)copyDestination;
+    (void)prepareTargetForSampling;
     return false;
 #endif
 }

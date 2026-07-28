@@ -191,6 +191,24 @@ def run_key(run: Run, result: dict[str, Any]) -> tuple[Any, ...]:
         result["width"],
         result["height"],
         run.metadata["profile"],
+        result.get("workload_mode", "fixed"),
+        result.get("operations_per_frame", 0),
+        result.get("workload_seed", 1),
+        result.get("texture_count", 1),
+        result.get("rounded_ratio", 0.0),
+        result.get("state_change_rate", 0.0),
+        result.get("text_length", 0),
+    )
+
+
+def workload_label(result: dict[str, Any]) -> str:
+    scene = str(result["scene"])
+    mode = str(result.get("workload_mode", "fixed"))
+    if mode == "fixed":
+        return scene
+    return (
+        f"{scene} [{mode}, n={result.get('operations_per_frame', 0)}, "
+        f"seed={result.get('workload_seed', 1)}]"
     )
 
 
@@ -315,7 +333,7 @@ def make_summary(runs: list[Run]) -> str:
     )
     for _, result in ordered:
         lines.append(
-            f"| {result['backend']} | {result['scene']} | "
+            f"| {result['backend']} | {workload_label(result)} | "
             f"{result['total_median_ms']:.3f} ms | "
             f"{result['total_p95_ms']:.3f} ms | "
             f"{result['fps']:.1f} | {result['cold_total_ms']:.3f} ms | "
@@ -427,10 +445,15 @@ def make_report(
         status = "REGRESSION" if median_delta > threshold else "ok"
         if status == "REGRESSION":
             regressions.append(
-                (f"{base_result['backend']}/{base_result['scene']}", median_delta)
+                (
+                    f"{base_result['backend']}/"
+                    f"{workload_label(base_result)}",
+                    median_delta,
+                )
             )
         lines.append(
-            f"| {base_result['backend']} | {base_result['scene']} | "
+            f"| {base_result['backend']} | "
+            f"{workload_label(base_result)} | "
             f"{base_result['total_median_ms']:.3f} ms | "
             f"{next_result['total_median_ms']:.3f} ms | "
             f"{format_delta(median_delta)} | {format_delta(p95_delta)} | "

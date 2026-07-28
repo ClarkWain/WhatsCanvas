@@ -104,10 +104,18 @@ void DrawImageBatchCommand::execute(RenderContext &context)
         image.v0 = quad.v0;
         image.u1 = quad.u1;
         image.v1 = quad.v1;
-        std::copy(
-            std::begin(data_.tintColor), std::end(data_.tintColor),
-            std::begin(image.tintColor));
-        image.alpha = data_.alpha;
+        image.tintColor[0] = data_.tintColor[0]
+            * static_cast<float>(quad.packedTint & 0xffu) / 255.0f;
+        image.tintColor[1] = data_.tintColor[1]
+            * static_cast<float>((quad.packedTint >> 8u) & 0xffu)
+                / 255.0f;
+        image.tintColor[2] = data_.tintColor[2]
+            * static_cast<float>((quad.packedTint >> 16u) & 0xffu)
+                / 255.0f;
+        image.tintColor[3] = data_.tintColor[3];
+        image.alpha = data_.alpha
+            * static_cast<float>((quad.packedTint >> 24u) & 0xffu)
+                / 255.0f;
         image.transform = data_.transform;
         image.scissor = data_.scissor;
         image.blendMode = data_.blendMode;
