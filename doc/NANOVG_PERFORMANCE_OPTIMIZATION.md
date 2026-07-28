@@ -13,6 +13,8 @@
 
 后续提交继续优化了 OpenGL glyph atlas 和 Vulkan 的几何、文本、纹理提交路径。更新至 `4a6bf46` 后，同机八组 ABBA 复测中，OpenGL `geometry_stress` 为 2.851 ms，对应 NanoVG 3.999 ms，仍快 28.7%；`contract_text_latin` 为 3.091 ms，对应 NanoVG 3.364 ms，首次在这组配对样本中快 8.1%。Vulkan 的八进程中位数则达到几何 2.809 ms、图片 0.367 ms、文本 2.964 ms。
 
+更新至 `bb966ff` 后，基准又从固定场景扩展为可改变规模、seed、数据和结构的参数化矩阵，并修复了大规模动态文本的布局缓存抖动。最新三轮质量门禁对比的进程中位数再次取中位数后，OpenGL 几何、图片、拉丁文本分别为 2.742、0.295、3.056 ms，NanoVG GL3 分别为 4.124、0.329、3.259 ms。Vulkan 无滤镜图层还可以直接采样离屏 render target，`clip_layers` 从 41.38 ms 降到三进程中位数 31.34 ms。
+
 这些结果仍限定于特定机器、场景和同步方式，不表示 WhatsCanvas 的每种工作负载都快于 NanoVG，也不能把 Vulkan 数字与 NanoVG GL3 当作同后端排名。本文更重要的价值，是展示如何从一个可信的性能差距出发，逐层找到并删除真实浪费。
 
 文中的代码均由对应提交的真实实现提炼而来，为突出思路省略了错误处理、日志、命名空间和部分兼容分支；完整实现应以文末列出的提交和当前源码为准。
@@ -963,7 +965,7 @@ Vulkan 后端还把 vertex/index scratch 保存在 device 对象中跨帧复用�
 
 这与 Pass 5 的思想一致：缓存的是不会变化的提交结构，而不是盲目缓存整帧像素或动态属性。
 
-### 9.8 当前结果
+### 9.8 `4a6bf46` 阶段结果
 
 文档更新时在同一台 Windows 10、i7-8700、GTX 1060 3GB、驱动 560.94 机器上，以 Release、1920 × 1080、5 warmup、30 timed frames、GPU 完成同步重新验证当前 `4a6bf46`。
 
@@ -984,6 +986,72 @@ OpenGL 与 NanoVG 各运行八个独立进程，使用 ABBA 顺序，对“每�
 图片场景中，OpenGL 0.287 ms、NanoVG 0.307 ms，绝对差只有 0.020 ms。这个结果说明 WhatsCanvas 没有落后，但不适合宣传成稳定的数量级优势。
 
 OpenGL 几何和文字 hash 仍为 `5e7e67fb8b9ca579`、`737cad1b0d1169f2`，与优化前的质量控制值一致。新增 indexed geometry、compact solid、Alpha8 更新、实例 batch 和动态 tint command-buffer 复用都有回归覆盖；本次更新针对性运行的四个 Release 测试全部通过。
+
+### 9.9 参数化矩阵：避免只对固定对象数优化
+
+固定的 `geometry_stress`、`image_grid` 和 `contract_text_latin` 适合作为跨版本、跨库回归锚点，但任何单一对象数都可能被质疑为针对性优化。提交 `3f82973 feat(benchmarks): add parameterized performance matrix` 为几何、图片和文字增加了以下维度：
+
+- `stable`：资源、内容和命令 topology 保持稳定；
+- `dynamic-data`：位置、颜色或文本选择变化，但命令结构稳定；
+- `dynamic-structure`：图元、纹理、文本、字号、样式和部分渲染状态都可以变化；
+- `--operations`、`--seed`、`--texture-count`、`--rounded-ratio`、`--state-change-rate`、`--text-length`：控制规模、资源基数和变化强度。
+
+runner 会让每个 workload/seed 在独立 Release 进程中运行，保存原始 JSONL，并输出 JSON、CSV、Markdown 和缩放曲线。这样可以同时看到缓存命中路径、数据变化路径、结构变化路径，以及跨越单批上限后的增长曲线。
+
+参数化矩阵立即暴露了一个真实问题：1024 次生成文本绘制、32 字符、6.25% 状态变化的 `dynamic-structure` 工作负载中，OpenGL 一度需要 61.49 ms。它不是 GPU 填充率问题，record 已占 59.33 ms；旧文本缓存只有 512 项，而工作集超过缓存容量，并且每次 LRU touch 都在线性扫描 `deque`，导致大量 shaping/layout 条目反复淘汰和重建。
+
+提交 `58b5129 perf(text): eliminate dynamic layout cache thrashing` 将字符串 key 纳入通用哈希 LRU、把 shape/layout 容量提高到 2048，并让 layout 缓存保存与绘制坐标无关的 glyph quad。三组 seed、标准 profile（5 warmup + 30 timed）、1920 × 1080 的进程中位数再次取中位数如下：
+
+| OpenGL 1024 次文本绘制 | 优化前 | 当前 | 改善 |
+| --- | ---: | ---: | ---: |
+| `stable` | 7.99 ms | 6.17 ms | 快 22.8% |
+| `dynamic-data` | 9.28 ms | 6.26 ms | 快 32.5% |
+| `dynamic-structure` | 61.49 ms | **7.65 ms** | **快 87.6%，约 8.04×** |
+
+同一组当前 workload 在 Vulkan 上分别为 5.84、5.76、8.07 ms。`dynamic-structure` 仍会产生约 116 至 127 个 draw，而稳定和数据变化场景只需要 2 个 draw；即使如此，两后端都保持在约 8 ms，而不是依赖固定字符串和单一提交结构才获得好成绩。
+
+这组结果不与 NanoVG 直接排名，因为当前 NanoVG adapter 尚未实现相同的参数化语义。它的作用是证明 WhatsCanvas 的优化覆盖不同规模和变化模式，而不仅是 2304 个固定 topology 图形。
+
+### 9.10 Vulkan 图层合成：删除一次全尺寸复制
+
+参数化矩阵完成后，14 个固定 1080p 场景的扫描将 `clip_layers` 定位为 Vulkan 最明显的通用瓶颈：144 次嵌套裁剪、变换和图层在 Vulkan 上需要 41.38 ms，而 OpenGL 为 16.92 ms。profile 显示 Vulkan 的 40.89 ms 几乎全部发生在 record 阶段。
+
+旧 Vulkan 离屏链路为了返回可采样图像，会执行：
+
+```text
+pooled render target
+  -> render layer commands
+  -> allocate independent sampled texture
+  -> copy the full layer image
+  -> composite sampled texture
+```
+
+这个独立纹理对异步滤镜是必要的，但普通 `saveLayer` 会在恢复时立即合成，不需要再复制一份同尺寸像素。提交 `bb966ff perf(vulkan): avoid copies for direct layer composition` 为离屏请求增加受控的 `allowDirectTargetSampling`：无 image filter、无 backdrop filter 时，把 render target 转换为 `VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL` 并直接返回其 image resource；资源仍被合成命令持有，因此 render-target pool 不会过早复用它。
+
+带滤镜的图层明确不启用这条路径。它们仍使用独立 sampled texture，以保证异步滤镜输入的生命周期和确定性；优化过程中观察到的滤镜 hash 波动也因此没有被带入最终实现。
+
+| Vulkan `clip_layers`，1080p | 完整帧 | record | submit | FPS | 像素 hash |
+| --- | ---: | ---: | ---: | ---: | --- |
+| 优化前参考进程 | 41.377 ms | 40.894 ms | 0.691 ms | 24.2 | `4cce05d0b8531e45` |
+| 优化后进程 1 | 29.588 ms | 29.281 ms | 0.310 ms | 33.8 | `4cce05d0b8531e45` |
+| 优化后进程 2 | 32.877 ms | 32.562 ms | 0.323 ms | 30.4 | `4cce05d0b8531e45` |
+| 优化后进程 3 | 31.344 ms | 31.045 ms | 0.318 ms | 31.9 | `4cce05d0b8531e45` |
+
+优化后三进程中位数为 31.344 ms，相对优化前参考进程快 24.2%。优化前只有一个同配置参考进程，因此这个百分比适合作为明确的方向性改善，不应冒充置信区间；三次优化后结果和一致像素 hash 则说明收益与输出都可重复。
+
+Vulkan 在这个场景中仍约为 OpenGL 16.92 ms 的 1.85 倍，说明剩余问题不再只是最终复制，还包括每层命令编译、render target/layout 切换、资源绑定和小图层固定成本。复杂图层仍是下一阶段的最高价值 Vulkan 性能目标。
+
+### 9.11 当前跨库复测
+
+参数化矩阵和文本缓存修复完成后，又运行三次完整的跨库标准合同。每次都启动新的 WhatsCanvas 和 NanoVG adapter 进程，使用 Release、1920 × 1080、5 warmup、30 timed frames 和 GPU 完成同步；表中主值是三个进程帧中位数的中位数，括号内是三进程范围：
+
+| 场景 | WhatsCanvas OpenGL | NanoVG GL3 | 当前差异 | 质量门 |
+| --- | ---: | ---: | ---: | --- |
+| `geometry_stress` | **2.742 ms**（2.667-2.835） | 4.124 ms（4.112-4.153） | WhatsCanvas 快 33.5% | PASS |
+| `image_grid` | **0.295 ms**（0.272-0.318） | 0.329 ms（0.307-0.357） | WhatsCanvas 快 10.3% | PASS |
+| `contract_text_latin` | **3.056 ms**（2.625-3.265） | 3.259 ms（3.215-3.330） | WhatsCanvas 快 6.2% | PASS |
+
+图片和文字的绝对差较小，尤其文字三次运行的范围有重叠，不应宣传成跨机器的稳定领先。几何的三次范围没有重叠，是当前最明确的优势场景。三组 adapter 输出都通过各自场景的像素 MAE、RMSE 和 changed-pixel 阈值；文字因为字体栅格器不同允许受控差异，不代表两张图逐像素相同。
 
 ## 10. 性能差距是怎样一步步缩小的
 
@@ -1252,19 +1320,27 @@ OpenGL GPU 时间应使用延迟读取的 timer query，避免即时读取再次
 
 当前 OpenGL Renderer 只有一份 `pathBatchScratch_` 和一份 `pathBatchTopology_`。单批场景可以稳定复用，但超过 65,536 顶点后，不同批次会依次覆盖这份状态。后续应让缓存按稳定 batch identity 保存，或者把 topology packet 提前编译到 frame compiler。
 
-同时应补充以下规模扫描：
+参数化矩阵已经补上可扩展规模扫描。`standard` 使用 256/1024/4096 个图形，`thorough` 扩展到 64/256/1024/4096/16384，并分别覆盖：
 
 ```text
-512 / 1024 / 2048 / 2304 / 2500 / 4096 / 5000 / 8192 shapes
-
-分别测试：
-    仅平移、颜色变化
-    顺序变化
-    尺寸/圆角变化
-    路径 topology 每帧变化
+stable
+dynamic-data
+dynamic-structure
 ```
 
-只有把 batch 数、topology hit/miss、上传字节和 record/submit 曲线一起发布，才能回答“5000 个动态图形是否仍快于 NanoVG”，而不是用 2304 个单点猜测。
+runner 已自动报告 draw reduction、record、submit、吞吐量和缩放曲线。仍未完成的是按稳定 batch identity 保留多批 topology、把 topology hit/miss 加入公开报告、让 NanoVG 等外部 adapter 实现相同参数语义，以及在更多 GPU/驱动上保存 standard/thorough 原始结果。
+
+### 14.6 Vulkan 复杂图层
+
+无滤镜 `saveLayer` 已删除全尺寸复制，但 `clip_layers` 仍比 OpenGL 慢约 1.85 倍。后续应优先测量并减少：
+
+- 每层重复的 command/DrawingList 编译；
+- 小 render target 的创建、复用和 layout transition；
+- descriptor 与 sampled-image 绑定变化；
+- 可以在同一 render pass 或同一提交中完成的相邻图层；
+- 保持滤镜输入生命周期正确前提下的 filtered-layer copy 范围。
+
+验收不应只看总时间，还必须保持 `clip_layers`、`frosted_glass`、`inner_shadow` 的像素 hash 稳定，并分别报告 filtered/unfiltered layer 路径。
 
 ## 15. 如何复现基础对比
 
@@ -1325,12 +1401,15 @@ WhatsCanvas 与 NanoVG 的差距不是通过某个单一“大优化”消失的
 - 后续 Vulkan 提交让 indexed geometry、16 字节 compact solid vertex 和 short index 一直存活到 mapped frame upload；
 - OpenGL/Vulkan glyph atlas 改用 Alpha8 和 48 字节 instance，删除四顶点展开；
 - Vulkan frame slot 继续复用 descriptor、command buffer 和稳定提交结构。
+- 参数化矩阵用规模、seed、数据变化和结构变化验证优化的适用范围；
+- 哈希 LRU 和更合理的文本工作集容量将 1024 次动态结构文本从 61.49 ms 降到 7.65 ms；
+- Vulkan 普通图层直接采样离屏 render target，将 `clip_layers` 从 41.38 ms 降到 31.34 ms，同时保持像素 hash。
 
 最值得保留的结论是：
 
 > 性能优化的核心不是更快地重复同一份工作，而是让系统知道哪些工作已经做过、哪些数据没有变化，并让最终可提交结果跨帧存活。
 
-NanoVG 展示了连续数组和紧凑状态的价值；WhatsCanvas 在此基础上加入 indexed geometry、单 draw 合批、实例化和稳定 packet 复用，最终在动态几何合同的 Pass 5 配对样本中从慢 5.95 倍走到快 31.8%。后续当前 HEAD 复测仍快 28.7%，文字合同也从慢 4.77 倍缩小到本次配对样本快 8.1%；Vulkan 则证明同一设计原则可以跨 API 落地，而不是 OpenGL 特例。
+NanoVG 展示了连续数组和紧凑状态的价值；WhatsCanvas 在此基础上加入 indexed geometry、单 draw 合批、实例化和稳定 packet 复用，最终在动态几何合同的 Pass 5 配对样本中从慢 5.95 倍走到快 31.8%。最新三进程质量门禁复测中，OpenGL 几何、图片和拉丁文本分别比 NanoVG 快 33.5%、10.3% 和 6.2%；参数化文本矩阵与 Vulkan 图层优化则证明这些方法可以继续覆盖动态结构和复杂后端资源路径，而不是停在一个固定 OpenGL 场景。
 
 ## 参考
 
@@ -1352,3 +1431,6 @@ NanoVG 展示了连续数组和紧凑状态的价值；WhatsCanvas 在此基础�
 - `1baed30`：OpenGL glyph atlas 实例化
 - `e72b9d9`：Vulkan 16 字节 compact solid vertex、short index 与 direct mapped upload
 - `4a6bf46`：Vulkan descriptor/command reuse 与统一圆角纹理实例批次
+- `3f82973`：参数化性能矩阵、规模/seed/动态模式与多格式报告
+- `58b5129`：文本哈希 LRU、布局坐标解耦与动态工作集修复
+- `bb966ff`：Vulkan 无滤镜图层直接采样离屏 render target
