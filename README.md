@@ -197,7 +197,7 @@ ctest -C Debug -L smoke --output-on-failure
 - [Shadow Model](doc/SHADOW_MODEL.md)：记录 `Paint::setShadowLayer` 的当前契约、shape/text shadow 边界和后续 box-shadow 方向。
 - [Visual Regression Notes](doc/VISUAL_REGRESSION.md)：记录严格 hash 与 fuzzy PPM comparison 的适用场景和命令。
 - [Blend Mode Audit](doc/BLEND_MODE_AUDIT.md)：记录 `Paint::BlendMode` 到 GL-family blend state 的映射和限制。
-- [Performance Benchmarks](doc/PERFORMANCE_BENCHMARKS.md)：记录统一三后端 1080p 帧性能套件、14 个标准场景、指标口径、JSONL 结果、版本对比、公开数据规则与可复现参考基线。
+- [Performance Benchmarks](doc/PERFORMANCE_BENCHMARKS.md)：记录统一三后端 1080p 帧性能套件、14 个固定回归场景，以及几何/图片/文字的参数化规模、seed、动态模式矩阵，包含 JSONL、CSV、Markdown 报告和可复现参考基线。
 - [Cross-Library Benchmarks](doc/CROSS_LIBRARY_BENCHMARKS.md)：规定固定场景、字体与图像输入、同步计时、适配器接口和像素质量门禁，避免用降质输出换取跨库性能数字。
 - [NanoVG 对比基线](benchmarks/baselines/cross-library-nanovg-windows-i7-8700-gtx1060/README.md)：保留三轮 1080p Release 同质量对比及全部原始 JSONL，直观展示动态几何、图片和固定字体场景的真实差距。
 - [Effect Regression Matrix](doc/EFFECT_REGRESSION_MATRIX.md)：记录 gradients、shadows、blend modes、strokes 和 dashes 的回归覆盖入口。

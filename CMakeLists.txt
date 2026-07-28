@@ -1408,6 +1408,24 @@ if (BUILD_TESTING AND TARGET WhatsCanvasPerformanceSuite)
         LABELS "smoke;benchmark;software"
         TIMEOUT 120
     )
+    if (Python3_Interpreter_FOUND)
+        add_test(NAME WhatsCanvasPerformanceMatrixSmoke
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_CURRENT_SOURCE_DIR}/scripts/run_benchmark_matrix.py"
+                --executable $<TARGET_FILE:WhatsCanvasPerformanceSuite>
+                --backend software
+                --preset smoke
+                --profile quick
+                --width 320
+                --height 180
+                --output-dir
+                    "${CMAKE_CURRENT_BINARY_DIR}/performance_matrix_smoke"
+        )
+        set_tests_properties(WhatsCanvasPerformanceMatrixSmoke PROPERTIES
+            LABELS "smoke;benchmark;performance;software"
+            TIMEOUT 180
+        )
+    endif()
 endif()
 
 if (WHATSCANVAS_BUILD_BENCHMARKS
@@ -1472,6 +1490,14 @@ if (BUILD_TESTING AND Python3_Interpreter_FOUND)
     )
     set_tests_properties(WhatsCanvasCrossLibraryBenchmarkTests PROPERTIES
         LABELS "unit;benchmark;adapter"
+        TIMEOUT 30
+    )
+    add_test(NAME WhatsCanvasPerformanceMatrixTests
+        COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/PerformanceMatrixTests.py"
+    )
+    set_tests_properties(WhatsCanvasPerformanceMatrixTests PROPERTIES
+        LABELS "unit;benchmark;performance"
         TIMEOUT 30
     )
 endif()
