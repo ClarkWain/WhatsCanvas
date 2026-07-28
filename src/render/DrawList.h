@@ -31,7 +31,13 @@ struct TexturedQuadInstance
     float u1 = 1.0f;
     float v1 = 1.0f;
     std::uint32_t packedTint = 0xffffffffu;
+    float roundedRadius = 0.0f;
+    float roundedWidth = 0.0f;
+    float roundedHeight = 0.0f;
 };
+static_assert(
+    sizeof(TexturedQuadInstance) == 48,
+    "textured quad instances must remain 48 bytes");
 
 /// Compact solid vertex shared by streaming backends.
 struct CompactSolidVertex
@@ -91,6 +97,10 @@ struct DrawPrimitive
     /// TexturedQuad: optional compact instances for axis-aligned quads. When
     /// present, `positions` and `uvs` remain empty.
     std::vector<TexturedQuadInstance> texturedInstances;
+
+    /// TexturedQuad: at least one compact instance carries rounded-corner
+    /// parameters, so the backend must select the rounded instance shader path.
+    bool hasPerInstanceRounded = false;
 
     /// SolidTriangles / ClipFill: RGBA fill color in [0,1].
     float color[4] = {1.0f, 1.0f, 1.0f, 1.0f};

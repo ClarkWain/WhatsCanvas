@@ -4,6 +4,7 @@
 
 layout(location = 0) in vec2 vUV;
 layout(location = 1) in vec4 vTint;
+layout(location = 2) in vec3 vRounded;
 
 layout(location = 0) out vec4 outColor;
 

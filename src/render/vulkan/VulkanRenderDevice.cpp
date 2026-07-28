@@ -234,6 +234,15 @@ struct VulkanRenderDevice::VulkanContext
     // Command buffers and host-coherent upload buffers stay allocated and
     // mapped across frames; a slot is only rewritten after its fence signals.
     static constexpr std::size_t kDrawFramesInFlight = 3;
+    struct SampledDescriptorCacheEntry
+    {
+        SharedImageResource texture;
+        VkSampler sampler = VK_NULL_HANDLE;
+        SharedImageResource clipTexture;
+        VkSampler clipSampler = VK_NULL_HANDLE;
+        VkDescriptorSetLayout layout = VK_NULL_HANDLE;
+        VkDescriptorSet set = VK_NULL_HANDLE;
+    };
     struct DrawFrameResources
     {
         VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
@@ -259,6 +268,11 @@ struct VulkanRenderDevice::VulkanContext
         VkDeviceSize gradientUniformCapacity = 0;
         VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
         std::uint32_t descriptorCapacity = 0;
+        std::uint32_t allocatedDescriptorSets = 0;
+        std::vector<SampledDescriptorCacheEntry> sampledDescriptors;
+        std::vector<VkDescriptorSet> gradientDescriptorSets;
+        std::uint64_t commandSignature = 0;
+        bool commandSignatureValid = false;
         std::vector<SharedImageResource> retainedImages;
     };
     mutable std::array<DrawFrameResources, kDrawFramesInFlight>
@@ -1303,10 +1317,21 @@ struct VulkanRenderDevice::VulkanContext
                 return VK_NULL_HANDLE;
             }
             frame.descriptorCapacity = capacity;
-        } else if (vkResetDescriptorPool(
-                       device, frame.descriptorPool, 0)
-                   != VK_SUCCESS) {
-            return VK_NULL_HANDLE;
+            frame.allocatedDescriptorSets = 0;
+            frame.sampledDescriptors.clear();
+            frame.gradientDescriptorSets.clear();
+            frame.commandSignatureValid = false;
+        } else if (frame.allocatedDescriptorSets
+                       > frame.descriptorCapacity - requiredSets) {
+            if (vkResetDescriptorPool(
+                    device, frame.descriptorPool, 0)
+                != VK_SUCCESS) {
+                return VK_NULL_HANDLE;
+            }
+            frame.allocatedDescriptorSets = 0;
+            frame.sampledDescriptors.clear();
+            frame.gradientDescriptorSets.clear();
+            frame.commandSignatureValid = false;
         }
         return frame.descriptorPool;
     }
@@ -1379,6 +1404,8 @@ struct VulkanRenderDevice::VulkanContext
         const VkDeviceSize gradientBytes =
             gradientUniformStride()
             * static_cast<VkDeviceSize>(gradientCount);
+        const VkBuffer previousGradientBuffer =
+            frame.gradientUniformBuffer;
         if (!ensureMappedBuffer(
                 gradientBytes, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                 frame.gradientUniformBuffer,
@@ -1386,6 +1413,20 @@ struct VulkanRenderDevice::VulkanContext
                 frame.gradientUniformMapping,
                 frame.gradientUniformCapacity)) {
             return std::nullopt;
+        }
+        if (previousGradientBuffer != VK_NULL_HANDLE
+            && previousGradientBuffer
+                != frame.gradientUniformBuffer
+            && frame.descriptorPool != VK_NULL_HANDLE) {
+            if (vkResetDescriptorPool(
+                    device, frame.descriptorPool, 0)
+                != VK_SUCCESS) {
+                return std::nullopt;
+            }
+            frame.allocatedDescriptorSets = 0;
+            frame.sampledDescriptors.clear();
+            frame.gradientDescriptorSets.clear();
+            frame.commandSignatureValid = false;
         }
         if (descriptorSets > 0
             && prepareFrameDescriptorPool(frame, descriptorSets)
@@ -1429,14 +1470,17 @@ struct VulkanRenderDevice::VulkanContext
         return frame.commandBuffer;
     }
 
-    bool submitDrawFrame(std::size_t frameIndex)
+    bool submitDrawFrame(
+        std::size_t frameIndex, bool commandAlreadyExecutable = false)
     {
         if (frameIndex >= kDrawFramesInFlight) {
             return false;
         }
         DrawFrameResources &frame = drawFrames[frameIndex];
         if (frame.commandBuffer == VK_NULL_HANDLE
-            || vkEndCommandBuffer(frame.commandBuffer) != VK_SUCCESS) {
+            || (!commandAlreadyExecutable
+                && vkEndCommandBuffer(frame.commandBuffer)
+                    != VK_SUCCESS)) {
             return false;
         }
         if (frame.fence == VK_NULL_HANDLE) {
@@ -1533,6 +1577,11 @@ struct VulkanRenderDevice::VulkanContext
                 frame.fence = VK_NULL_HANDLE;
             }
             frame.descriptorCapacity = 0;
+            frame.allocatedDescriptorSets = 0;
+            frame.sampledDescriptors.clear();
+            frame.gradientDescriptorSets.clear();
+            frame.commandSignature = 0;
+            frame.commandSignatureValid = false;
             frame.submitted = false;
             frame.retainedImages.clear();
         }
@@ -1674,12 +1723,14 @@ struct VulkanRenderDevice::VulkanContext
         VkVertexInputBindingDescription binding{};
         binding.binding = 0;
         binding.stride =
-            (instanced ? 9u : 5u) * sizeof(float);
+            instanced
+                ? sizeof(wsc::TexturedQuadInstance)
+                : 5u * sizeof(float);
         binding.inputRate =
             instanced ? VK_VERTEX_INPUT_RATE_INSTANCE
                       : VK_VERTEX_INPUT_RATE_VERTEX;
 
-        std::array<VkVertexInputAttributeDescription, 3> attrs{};
+        std::array<VkVertexInputAttributeDescription, 4> attrs{};
         attrs[0].location = 0;
         attrs[0].binding = 0;
         attrs[0].format =
@@ -1698,11 +1749,16 @@ struct VulkanRenderDevice::VulkanContext
         attrs[2].format = VK_FORMAT_R8G8B8A8_UNORM;
         attrs[2].offset =
             (instanced ? 8u : 4u) * sizeof(float);
+        attrs[3].location = 3;
+        attrs[3].binding = 0;
+        attrs[3].format = VK_FORMAT_R32G32B32_SFLOAT;
+        attrs[3].offset = 9u * sizeof(float);
         VkPipelineVertexInputStateCreateInfo vertexInput{};
         vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
         vertexInput.vertexBindingDescriptionCount = 1;
         vertexInput.pVertexBindingDescriptions = &binding;
-        vertexInput.vertexAttributeDescriptionCount = static_cast<std::uint32_t>(attrs.size());
+        vertexInput.vertexAttributeDescriptionCount =
+            instanced ? static_cast<std::uint32_t>(attrs.size()) : 3u;
         vertexInput.pVertexAttributeDescriptions = attrs.data();
 
         VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
@@ -2212,8 +2268,7 @@ bool canInstanceTexturedPrimitive(
     const wsc::DrawPrimitive &primitive)
 {
     if (primitive.kind != wsc::DrawPrimitiveKind::TexturedQuad
-        || !primitive.texture
-        || !primitive.texture->isAlphaOnly()) {
+        || !primitive.texture) {
         return false;
     }
     if (!primitive.texturedInstances.empty()) {
@@ -2288,7 +2343,8 @@ bool canBatchTexturedPrimitives(
         || left.scissorY != right.scissorY
         || left.scissorWidth != right.scissorWidth
         || left.scissorHeight != right.scissorHeight
-        || left.roundedRadius != right.roundedRadius
+        || (!leftCompact
+            && left.roundedRadius != right.roundedRadius)
         || left.sampling != right.sampling
         || left.tileMode != right.tileMode
         || left.useCustomSampler != right.useCustomSampler
@@ -2307,7 +2363,7 @@ bool canBatchTexturedPrimitives(
         || right.positions.size() != right.uvs.size()) {
         return false;
     }
-    if (left.roundedRadius > 0.0f
+    if (!leftCompact && left.roundedRadius > 0.0f
         && (left.roundedWidth != right.roundedWidth
             || left.roundedHeight != right.roundedHeight)) {
         return false;
@@ -2420,6 +2476,9 @@ void appendTexturedBatch(
             batch.texturedInstances.end(),
             primitive.texturedInstances.begin(),
             primitive.texturedInstances.end());
+        batch.hasPerInstanceRounded =
+            batch.hasPerInstanceRounded
+            || primitive.hasPerInstanceRounded;
         return;
     }
     const std::size_t batchVertexCount =
@@ -5714,7 +5773,8 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
     const SharedImageResource &copyDestination) const
 {
 #if defined(WHATSCANVAS_ENABLE_VULKAN)
-    if (!context_ || !context_->deviceReady || !target || drawList.empty()) {
+    if (!context_ || !context_->deviceReady || !target
+        || drawList.empty()) {
         return false;
     }
     auto *rt = dynamic_cast<VulkanRenderTarget *>(target.get());
@@ -5763,7 +5823,7 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
                     prim.texturedInstances.empty()
                         ? explicitVerts / 6u
                         : prim.texturedInstances.size();
-                addVertexBudget(instanceCount, 9u);
+                addVertexBudget(instanceCount, 12u);
             } else if (explicitVerts >= 3
                 && (explicitVerts % 3u) == 0u
                 && prim.uvs.size() == prim.positions.size()) {
@@ -5898,31 +5958,24 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
     bool ok = true;
     std::size_t gradientIndex = 0;
 
-    struct SampledSetCacheEntry
-    {
-        VulkanTextureResource *texture = nullptr;
-        VkSampler sampler = VK_NULL_HANDLE;
-        VulkanTextureResource *clipTexture = nullptr;
-        VkSampler clipSampler = VK_NULL_HANDLE;
-        VkDescriptorSetLayout layout = VK_NULL_HANDLE;
-        VkDescriptorSet set = VK_NULL_HANDLE;
-    };
-    std::vector<SampledSetCacheEntry> sampledSetCache;
-    sampledSetCache.reserve(texturedCount + clipCount);
-
     // Bind texture resources to descriptor sets. Textured draws bind a second
     // optional clip mask; one-sampler layouts leave it null. Reuse identical
-    // bindings within the frame so batched atlas draws do not repeat descriptor
-    // allocation and vkUpdateDescriptorSets work.
-    auto allocSampledSet = [&](VulkanTextureResource *tex, VkDescriptorSetLayout layout,
-                               VkSampler sampler, VulkanTextureResource *clipTex = nullptr,
-                               VkSampler clipSampler = VK_NULL_HANDLE) -> VkDescriptorSet {
+    // bindings across reuse of a fenced frame slot, so stable textures avoid
+    // descriptor-pool resets, allocation, and vkUpdateDescriptorSets work.
+    auto allocSampledSet =
+        [&](const SharedImageResource &textureResource,
+            VulkanTextureResource *tex,
+            VkDescriptorSetLayout layout, VkSampler sampler,
+            const SharedImageResource &clipResource = {},
+            VulkanTextureResource *clipTex = nullptr,
+            VkSampler clipSampler = VK_NULL_HANDLE) -> VkDescriptorSet {
+        auto &sampledSetCache = frame.sampledDescriptors;
         const auto cached = std::find_if(
             sampledSetCache.begin(), sampledSetCache.end(),
-            [&](const SampledSetCacheEntry &entry) {
-                return entry.texture == tex
+            [&](const VulkanContext::SampledDescriptorCacheEntry &entry) {
+                return entry.texture.get() == tex
                     && entry.sampler == sampler
-                    && entry.clipTexture == clipTex
+                    && entry.clipTexture.get() == clipTex
                     && entry.clipSampler == clipSampler
                     && entry.layout == layout;
             });
@@ -5939,6 +5992,7 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
         if (vkAllocateDescriptorSets(device, &setAlloc, &set) != VK_SUCCESS) {
             return VK_NULL_HANDLE;
         }
+        ++frame.allocatedDescriptorSets;
         std::array<VkDescriptorImageInfo, 2> descriptors{};
         descriptors[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         descriptors[0].imageView = tex->view();
@@ -5961,7 +6015,8 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
         }
         vkUpdateDescriptorSets(device, descriptorCount, writes.data(), 0, nullptr);
         sampledSetCache.push_back(
-            {tex, sampler, clipTex, clipSampler, layout, set});
+            {textureResource, sampler, clipResource,
+             clipSampler, layout, set});
         return set;
     };
 
@@ -6282,7 +6337,8 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
                 && prim.texture->alphaType()
                     != ImageAlphaType::Premultiplied
                 && clipTex == nullptr
-                && prim.roundedRadius <= 0.0f;
+                && prim.roundedRadius <= 0.0f
+                && !prim.hasPerInstanceRounded;
             draw.pipeline = context_->ensureTexturePipeline(
                 rt->renderPass(), prim.blendMode, instanced,
                 fastTexturePath);
@@ -6301,6 +6357,12 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
                 draw.push.clipUvScale[1] = prim.clipUvScale[1];
                 draw.push.clipUvOffset[0] = prim.clipUvOffset[0];
                 draw.push.clipUvOffset[1] = prim.clipUvOffset[1];
+            } else if (prim.hasPerInstanceRounded) {
+                draw.push.useClipMask = 3;
+                draw.push.clipUvScale[0] = 0.0f;
+                draw.push.clipUvScale[1] = 0.0f;
+                draw.push.clipUvOffset[0] = 0.0f;
+                draw.push.clipUvOffset[1] = 0.0f;
             } else if (prim.roundedRadius > 0.0f) {
                 draw.push.useClipMask = 2;
                 draw.push.clipUvScale[0] = prim.roundedRadius;
@@ -6350,12 +6412,25 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
                 ok = false;
                 break;
             }
-            VulkanTextureResource *boundClip = clipTex != nullptr ? clipTex : tex;
+            VulkanTextureResource *boundClip =
+                clipTex != nullptr
+                    ? clipTex
+                    : (fastTexturePath ? nullptr : tex);
+            const SharedImageResource boundClipResource =
+                clipTex != nullptr
+                    ? prim.clipTexture
+                    : (fastTexturePath
+                           ? SharedImageResource{} : prim.texture);
             const VkSampler boundClipSampler =
-                clipTex != nullptr ? clipTex->sampler() : sampler;
+                clipTex != nullptr
+                    ? clipTex->sampler()
+                    : (fastTexturePath ? VK_NULL_HANDLE : sampler);
             draw.descriptorSet =
-                allocSampledSet(tex, context_->texDescriptorSetLayout, sampler,
-                                boundClip, boundClipSampler);
+                allocSampledSet(
+                    prim.texture, tex,
+                    context_->texDescriptorSetLayout, sampler,
+                    boundClipResource, boundClip,
+                    boundClipSampler);
             if (draw.descriptorSet == VK_NULL_HANDLE) {
                 ok = false;
                 break;
@@ -6379,6 +6454,9 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
                         vertices.push_back(instance.v1);
                         vertices.push_back(
                             packedRgba8AsFloat(instance.packedTint));
+                        vertices.push_back(instance.roundedRadius);
+                        vertices.push_back(instance.roundedWidth);
+                        vertices.push_back(instance.roundedHeight);
                     }
                 } else {
                     constexpr std::uint32_t whiteTint = 0xffffffffu;
@@ -6448,7 +6526,9 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
                 break;
             }
             draw.descriptorLayout = context_->clipPipelineLayout;
-            draw.descriptorSet = allocSampledSet(mask, context_->clipDescriptorSetLayout, mask->sampler());
+            draw.descriptorSet = allocSampledSet(
+                prim.texture, mask,
+                context_->clipDescriptorSetLayout, mask->sampler());
             if (draw.descriptorSet == VK_NULL_HANDLE) {
                 ok = false;
                 break;
@@ -6517,36 +6597,52 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
                     ubo.stopColors[i][c] = has ? prim.gradientStopColors[i * 4 + c] : 0.0f;
                 }
             }
+            const std::size_t gradientSlot = gradientIndex++;
             const VkDeviceSize uniformOffset =
                 context_->gradientUniformStride()
-                * static_cast<VkDeviceSize>(gradientIndex++);
+                * static_cast<VkDeviceSize>(gradientSlot);
             auto *uniformDestination =
                 static_cast<unsigned char *>(
                     frame.gradientUniformMapping)
                 + uniformOffset;
             std::memcpy(uniformDestination, &ubo, sizeof(GradientUBO));
 
-            VkDescriptorSetAllocateInfo setAlloc{};
-            setAlloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-            setAlloc.descriptorPool = pool;
-            setAlloc.descriptorSetCount = 1;
-            setAlloc.pSetLayouts = &context_->gradientDescriptorSetLayout;
-            if (vkAllocateDescriptorSets(device, &setAlloc, &draw.descriptorSet) != VK_SUCCESS) {
-                ok = false;
-                break;
+            if (gradientSlot < frame.gradientDescriptorSets.size()) {
+                draw.descriptorSet =
+                    frame.gradientDescriptorSets[gradientSlot];
+            } else {
+                VkDescriptorSetAllocateInfo setAlloc{};
+                setAlloc.sType =
+                    VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+                setAlloc.descriptorPool = pool;
+                setAlloc.descriptorSetCount = 1;
+                setAlloc.pSetLayouts =
+                    &context_->gradientDescriptorSetLayout;
+                if (vkAllocateDescriptorSets(
+                        device, &setAlloc, &draw.descriptorSet)
+                    != VK_SUCCESS) {
+                    ok = false;
+                    break;
+                }
+                ++frame.allocatedDescriptorSets;
+                frame.gradientDescriptorSets.push_back(
+                    draw.descriptorSet);
+                VkDescriptorBufferInfo bufferInfo{};
+                bufferInfo.buffer = frame.gradientUniformBuffer;
+                bufferInfo.offset = uniformOffset;
+                bufferInfo.range = sizeof(GradientUBO);
+                VkWriteDescriptorSet write{};
+                write.sType =
+                    VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write.dstSet = draw.descriptorSet;
+                write.dstBinding = 0;
+                write.descriptorCount = 1;
+                write.descriptorType =
+                    VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                write.pBufferInfo = &bufferInfo;
+                vkUpdateDescriptorSets(
+                    device, 1, &write, 0, nullptr);
             }
-            VkDescriptorBufferInfo bufferInfo{};
-            bufferInfo.buffer = frame.gradientUniformBuffer;
-            bufferInfo.offset = uniformOffset;
-            bufferInfo.range = sizeof(GradientUBO);
-            VkWriteDescriptorSet write{};
-            write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write.dstSet = draw.descriptorSet;
-            write.dstBinding = 0;
-            write.descriptorCount = 1;
-            write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-            write.pBufferInfo = &bufferInfo;
-            vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
 
             draw.pipeline = context_->ensureGradientPipeline(rt->renderPass(), prim.blendMode);
             if (draw.pipeline == VK_NULL_HANDLE) {
@@ -6580,7 +6676,7 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
             ? directVertexBytes
             : static_cast<VkDeviceSize>(
                   vertexUpload.size()) * sizeof(float);
-    if (!directCompactSolidUpload) {
+    if (!directCompactSolidUpload && vertexBytes > 0) {
         std::memcpy(
             frame.vertexMapping, vertexUpload.data(),
             static_cast<std::size_t>(vertexBytes));
@@ -6620,156 +6716,244 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
             frame.deviceIndexMemory,
             frame.deviceIndexCapacity);
 
-    VkCommandBuffer cmd =
-        context_->beginDrawFrameCommands(frameIndex);
+    const VkBuffer activeVertexBuffer =
+        useDeviceVertexBuffer
+            ? frame.deviceVertexBuffer : frame.vertexBuffer;
+    const VkBuffer activeIndexBuffer =
+        useDeviceIndexBuffer
+            ? frame.deviceIndexBuffer : frame.indexBuffer;
+    std::uint64_t commandSignature = 1469598103934665603ull;
+    const auto hashBytes = [&](const void *data, std::size_t size) {
+        const auto *bytes =
+            static_cast<const unsigned char *>(data);
+        for (std::size_t i = 0; i < size; ++i) {
+            commandSignature ^=
+                static_cast<std::uint64_t>(bytes[i]);
+            commandSignature *= 1099511628211ull;
+        }
+    };
+    const auto hashValue = [&](const auto &value) {
+        hashBytes(&value, sizeof(value));
+    };
+    hashValue(rt->renderPass());
+    hashValue(rt->framebuffer());
+    hashValue(rt->image());
+    hashValue(activeVertexBuffer);
+    hashValue(activeIndexBuffer);
+    hashValue(vertexBytes);
+    hashValue(indexBytes);
+    hashValue(useDeviceVertexBuffer);
+    hashValue(useDeviceIndexBuffer);
+    const std::size_t drawCount = draws.size();
+    hashValue(drawCount);
+    for (const RecordedDraw &draw : draws) {
+        hashValue(draw.pipeline);
+        hashValue(draw.vertexOffset);
+        hashValue(draw.vertexCount);
+        hashValue(draw.instanceCount);
+        hashValue(draw.indexOffset);
+        hashValue(draw.indexCount);
+        hashValue(draw.indexType);
+        hashValue(draw.descriptorSet);
+        hashValue(draw.descriptorLayout);
+        hashValue(draw.pushLayerAlpha);
+        if (draw.pushLayerAlpha) {
+            hashBytes(&draw.push, sizeof(draw.push));
+        }
+        hashValue(draw.scissorEnabled);
+        hashValue(draw.scissorX);
+        hashValue(draw.scissorY);
+        hashValue(draw.scissorWidth);
+        hashValue(draw.scissorHeight);
+    }
+    const VkImage copyImage =
+        copyTexture != nullptr
+            ? copyTexture->image() : VK_NULL_HANDLE;
+    hashValue(copyImage);
+    const int targetWidth = rt->width();
+    const int targetHeight = rt->height();
+    hashValue(targetWidth);
+    hashValue(targetHeight);
+
+    const bool reuseRecordedCommands =
+        frame.commandSignatureValid
+        && frame.commandSignature == commandSignature
+        && frame.commandBuffer != VK_NULL_HANDLE;
+    VkCommandBuffer cmd = reuseRecordedCommands
+        ? frame.commandBuffer
+        : context_->beginDrawFrameCommands(frameIndex);
     bool submitted = false;
     if (cmd != VK_NULL_HANDLE) {
-        const VkBuffer activeVertexBuffer =
-            useDeviceVertexBuffer
-                ? frame.deviceVertexBuffer : frame.vertexBuffer;
-        const VkBuffer activeIndexBuffer =
-            useDeviceIndexBuffer
-                ? frame.deviceIndexBuffer : frame.indexBuffer;
-        std::array<VkBufferMemoryBarrier, 2> uploadBarriers{};
-        std::uint32_t uploadBarrierCount = 0;
-        if (useDeviceVertexBuffer && vertexBytes > 0) {
-            VkBufferCopy copy{};
-            copy.size = vertexBytes;
-            vkCmdCopyBuffer(
-                cmd, frame.vertexBuffer,
-                frame.deviceVertexBuffer, 1, &copy);
-            VkBufferMemoryBarrier &barrier =
-                uploadBarriers[uploadBarrierCount++];
-            barrier.sType =
-                VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
-            barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-            barrier.dstAccessMask =
-                VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
-            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            barrier.buffer = frame.deviceVertexBuffer;
-            barrier.offset = 0;
-            barrier.size = vertexBytes;
-        }
-        if (useDeviceIndexBuffer && indexBytes > 0) {
-            VkBufferCopy copy{};
-            copy.size = indexBytes;
-            vkCmdCopyBuffer(
-                cmd, frame.indexBuffer,
-                frame.deviceIndexBuffer, 1, &copy);
-            VkBufferMemoryBarrier &barrier =
-                uploadBarriers[uploadBarrierCount++];
-            barrier.sType =
-                VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
-            barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-            barrier.dstAccessMask = VK_ACCESS_INDEX_READ_BIT;
-            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            barrier.buffer = frame.deviceIndexBuffer;
-            barrier.offset = 0;
-            barrier.size = indexBytes;
-        }
-        if (uploadBarrierCount > 0) {
-            vkCmdPipelineBarrier(
-                cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                VK_PIPELINE_STAGE_VERTEX_INPUT_BIT, 0,
-                0, nullptr, uploadBarrierCount,
-                uploadBarriers.data(), 0, nullptr);
-        }
-
-        VkClearValue clearValue{};
-        clearValue.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
-        VkRenderPassBeginInfo renderPassInfo{};
-        renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-        renderPassInfo.renderPass = rt->renderPass();
-        renderPassInfo.framebuffer = rt->framebuffer();
-        renderPassInfo.renderArea.offset = {0, 0};
-        renderPassInfo.renderArea.extent = {static_cast<std::uint32_t>(rt->width()),
-                                            static_cast<std::uint32_t>(rt->height())};
-        renderPassInfo.clearValueCount = 1;
-        renderPassInfo.pClearValues = &clearValue;
-        vkCmdBeginRenderPass(cmd, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-
-        VkViewport viewport{};
-        viewport.width = static_cast<float>(rt->width());
-        viewport.height = static_cast<float>(rt->height());
-        viewport.maxDepth = 1.0f;
-        vkCmdSetViewport(cmd, 0, 1, &viewport);
-        VkRect2D scissor{};
-        scissor.extent = {static_cast<std::uint32_t>(rt->width()), static_cast<std::uint32_t>(rt->height())};
-        vkCmdSetScissor(cmd, 0, 1, &scissor);
-
-        for (const RecordedDraw &d : draws) {
-            if (d.scissorEnabled) {
-                const int left = std::clamp(d.scissorX, 0, rt->width());
-                const int top = std::clamp(d.scissorY, 0, rt->height());
-                const int right =
-                    std::clamp(d.scissorX + d.scissorWidth, left, rt->width());
-                const int bottom =
-                    std::clamp(d.scissorY + d.scissorHeight, top, rt->height());
-                if (right <= left || bottom <= top) {
-                    continue;
-                }
-                scissor.offset = {left, top};
-                scissor.extent = {
-                    static_cast<std::uint32_t>(right - left),
-                    static_cast<std::uint32_t>(bottom - top),
-                };
-            } else {
-                scissor.offset = {0, 0};
-                scissor.extent = {
-                    static_cast<std::uint32_t>(rt->width()),
-                    static_cast<std::uint32_t>(rt->height()),
-                };
+        if (!reuseRecordedCommands) {
+            std::array<VkBufferMemoryBarrier, 2> uploadBarriers{};
+            std::uint32_t uploadBarrierCount = 0;
+            if (useDeviceVertexBuffer && vertexBytes > 0) {
+                VkBufferCopy copy{};
+                copy.size = vertexBytes;
+                vkCmdCopyBuffer(
+                    cmd, frame.vertexBuffer,
+                    frame.deviceVertexBuffer, 1, &copy);
+                VkBufferMemoryBarrier &barrier =
+                    uploadBarriers[uploadBarrierCount++];
+                barrier.sType =
+                    VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+                barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+                barrier.dstAccessMask =
+                    VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
+                barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                barrier.buffer = frame.deviceVertexBuffer;
+                barrier.offset = 0;
+                barrier.size = vertexBytes;
             }
-            vkCmdSetScissor(cmd, 0, 1, &scissor);
-            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, d.pipeline);
-            if (d.descriptorSet != VK_NULL_HANDLE) {
-                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, d.descriptorLayout, 0, 1,
-                                        &d.descriptorSet, 0, nullptr);
-                if (d.pushLayerAlpha) {
-                    vkCmdPushConstants(cmd, d.descriptorLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0,
-                                       sizeof(TexPushConstants), &d.push);
-                }
+            if (useDeviceIndexBuffer && indexBytes > 0) {
+                VkBufferCopy copy{};
+                copy.size = indexBytes;
+                vkCmdCopyBuffer(
+                    cmd, frame.indexBuffer,
+                    frame.deviceIndexBuffer, 1, &copy);
+                VkBufferMemoryBarrier &barrier =
+                    uploadBarriers[uploadBarrierCount++];
+                barrier.sType =
+                    VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+                barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+                barrier.dstAccessMask = VK_ACCESS_INDEX_READ_BIT;
+                barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                barrier.buffer = frame.deviceIndexBuffer;
+                barrier.offset = 0;
+                barrier.size = indexBytes;
             }
-            vkCmdBindVertexBuffers(
-                cmd, 0, 1, &activeVertexBuffer, &d.vertexOffset);
-            if (d.indexCount > 0) {
-                vkCmdBindIndexBuffer(
-                    cmd, activeIndexBuffer, d.indexOffset,
-                    d.indexType);
-                vkCmdDrawIndexed(cmd, d.indexCount, 1, 0, 0, 0);
-            } else {
-                vkCmdDraw(cmd, d.vertexCount, d.instanceCount, 0, 0);
+            if (uploadBarrierCount > 0) {
+                vkCmdPipelineBarrier(
+                    cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                    VK_PIPELINE_STAGE_VERTEX_INPUT_BIT, 0,
+                    0, nullptr, uploadBarrierCount,
+                    uploadBarriers.data(), 0, nullptr);
             }
-        }
 
-        vkCmdEndRenderPass(cmd);
-        if (copyTexture != nullptr) {
-            VulkanContext::transitionImageLayout(
-                cmd, rt->image(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-            VulkanContext::transitionImageLayout(
-                cmd, copyTexture->image(), VK_IMAGE_LAYOUT_UNDEFINED,
-                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-            VkImageCopy region{};
-            region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-            region.srcSubresource.layerCount = 1;
-            region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-            region.dstSubresource.layerCount = 1;
-            region.extent = {
+            VkClearValue clearValue{};
+            clearValue.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
+            VkRenderPassBeginInfo renderPassInfo{};
+            renderPassInfo.sType =
+                VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+            renderPassInfo.renderPass = rt->renderPass();
+            renderPassInfo.framebuffer = rt->framebuffer();
+            renderPassInfo.renderArea.offset = {0, 0};
+            renderPassInfo.renderArea.extent = {
                 static_cast<std::uint32_t>(rt->width()),
-                static_cast<std::uint32_t>(rt->height()), 1};
-            vkCmdCopyImage(
-                cmd, rt->image(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                copyTexture->image(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                1, &region);
-            VulkanContext::transitionImageLayout(
-                cmd, copyTexture->image(),
-                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                static_cast<std::uint32_t>(rt->height())};
+            renderPassInfo.clearValueCount = 1;
+            renderPassInfo.pClearValues = &clearValue;
+            vkCmdBeginRenderPass(
+                cmd, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+            VkViewport viewport{};
+            viewport.width = static_cast<float>(rt->width());
+            viewport.height = static_cast<float>(rt->height());
+            viewport.maxDepth = 1.0f;
+            vkCmdSetViewport(cmd, 0, 1, &viewport);
+            VkRect2D scissor{};
+            scissor.extent = {
+                static_cast<std::uint32_t>(rt->width()),
+                static_cast<std::uint32_t>(rt->height())};
+            vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+            for (const RecordedDraw &d : draws) {
+                if (d.scissorEnabled) {
+                    const int left =
+                        std::clamp(d.scissorX, 0, rt->width());
+                    const int top =
+                        std::clamp(d.scissorY, 0, rt->height());
+                    const int right = std::clamp(
+                        d.scissorX + d.scissorWidth,
+                        left, rt->width());
+                    const int bottom = std::clamp(
+                        d.scissorY + d.scissorHeight,
+                        top, rt->height());
+                    if (right <= left || bottom <= top) {
+                        continue;
+                    }
+                    scissor.offset = {left, top};
+                    scissor.extent = {
+                        static_cast<std::uint32_t>(right - left),
+                        static_cast<std::uint32_t>(bottom - top),
+                    };
+                } else {
+                    scissor.offset = {0, 0};
+                    scissor.extent = {
+                        static_cast<std::uint32_t>(rt->width()),
+                        static_cast<std::uint32_t>(rt->height()),
+                    };
+                }
+                vkCmdSetScissor(cmd, 0, 1, &scissor);
+                vkCmdBindPipeline(
+                    cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    d.pipeline);
+                if (d.descriptorSet != VK_NULL_HANDLE) {
+                    vkCmdBindDescriptorSets(
+                        cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                        d.descriptorLayout, 0, 1,
+                        &d.descriptorSet, 0, nullptr);
+                    if (d.pushLayerAlpha) {
+                        vkCmdPushConstants(
+                            cmd, d.descriptorLayout,
+                            VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                            sizeof(TexPushConstants), &d.push);
+                    }
+                }
+                vkCmdBindVertexBuffers(
+                    cmd, 0, 1, &activeVertexBuffer,
+                    &d.vertexOffset);
+                if (d.indexCount > 0) {
+                    vkCmdBindIndexBuffer(
+                        cmd, activeIndexBuffer, d.indexOffset,
+                        d.indexType);
+                    vkCmdDrawIndexed(
+                        cmd, d.indexCount, 1, 0, 0, 0);
+                } else {
+                    vkCmdDraw(
+                        cmd, d.vertexCount, d.instanceCount,
+                        0, 0);
+                }
+            }
+
+            vkCmdEndRenderPass(cmd);
+            if (copyTexture != nullptr) {
+                VulkanContext::transitionImageLayout(
+                    cmd, rt->image(),
+                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+                VulkanContext::transitionImageLayout(
+                    cmd, copyTexture->image(),
+                    VK_IMAGE_LAYOUT_UNDEFINED,
+                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+                VkImageCopy region{};
+                region.srcSubresource.aspectMask =
+                    VK_IMAGE_ASPECT_COLOR_BIT;
+                region.srcSubresource.layerCount = 1;
+                region.dstSubresource.aspectMask =
+                    VK_IMAGE_ASPECT_COLOR_BIT;
+                region.dstSubresource.layerCount = 1;
+                region.extent = {
+                    static_cast<std::uint32_t>(rt->width()),
+                    static_cast<std::uint32_t>(rt->height()), 1};
+                vkCmdCopyImage(
+                    cmd, rt->image(),
+                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    copyTexture->image(),
+                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    1, &region);
+                VulkanContext::transitionImageLayout(
+                    cmd, copyTexture->image(),
+                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            }
+            frame.commandSignature = commandSignature;
+            frame.commandSignatureValid = true;
         }
-        submitted = context_->submitDrawFrame(frameIndex);
+        submitted = context_->submitDrawFrame(
+            frameIndex, reuseRecordedCommands);
     }
 
     if (!submitted) {
@@ -8489,13 +8673,33 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
             prim.sampling = static_cast<int>(d.sampling);
             prim.tileMode = static_cast<int>(d.tileMode);
             prim.useCustomSampler = true;
-            prim.positions.reserve(12);
-            prim.uvs.reserve(12);
-            for (int k : idx) {
-                prim.positions.push_back(nx[k]);
-                prim.positions.push_back(ny[k]);
-                prim.uvs.push_back(uu[k]);
-                prim.uvs.push_back(vv[k]);
+            const bool compactImage =
+                !d.hasColorMatrix
+                && nx[0] == nx[3] && ny[0] == ny[1]
+                && nx[1] == nx[2] && ny[2] == ny[3];
+            if (compactImage) {
+                prim.texturedInstances.push_back({
+                    nx[0], ny[0], nx[2], ny[2],
+                    d.u0, d.v0, d.u1, d.v1,
+                    effectivePackedTint(
+                        0xffffffffu, prim.tint,
+                        prim.layerAlpha),
+                    d.roundedRadius, d.width, d.height});
+                prim.hasPerInstanceRounded =
+                    d.roundedRadius > 0.0f;
+                std::fill(
+                    std::begin(prim.tint),
+                    std::end(prim.tint), 1.0f);
+                prim.layerAlpha = 1.0f;
+            } else {
+                prim.positions.reserve(12);
+                prim.uvs.reserve(12);
+                for (int k : idx) {
+                    prim.positions.push_back(nx[k]);
+                    prim.positions.push_back(ny[k]);
+                    prim.uvs.push_back(uu[k]);
+                    prim.uvs.push_back(vv[k]);
+                }
             }
             if (d.clipMask.hasPaths()) {
                 // Clipped image: render the textured quad in isolation, then
@@ -8529,8 +8733,8 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
             prim.tileMode =
                 static_cast<int>(DrawImageTileMode::Clamp);
             prim.useCustomSampler = true;
-            const bool compactBatch = d.imageResource->isAlphaOnly()
-                && d.transform[0][1] == 0.0f
+            const bool compactBatch =
+                d.transform[0][1] == 0.0f
                 && d.transform[1][0] == 0.0f;
             if (compactBatch) {
                 prim.texturedInstances.reserve(d.quads.size());

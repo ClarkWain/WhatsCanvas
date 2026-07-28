@@ -5,6 +5,7 @@
 
 layout(location = 0) in vec2 vUV;
 layout(location = 1) in vec4 vTint;
+layout(location = 2) in vec3 vRounded;
 
 layout(location = 0) out vec4 outColor;
 
@@ -26,8 +27,15 @@ layout(push_constant) uniform Push
 
 float roundedRectCoverage()
 {
-    float radius = pc.clipUvScale.x;
-    vec2 size = vec2(pc.clipUvScale.y, pc.clipUvOffset.x);
+    vec3 rounded = pc.useClipMask == 3
+        ? vRounded
+        : vec3(pc.clipUvScale.x, pc.clipUvScale.y, pc.clipUvOffset.x);
+    float radius = rounded.x;
+    if (radius <= 0.0)
+    {
+        return 1.0;
+    }
+    vec2 size = rounded.yz;
     vec2 halfSize = size * 0.5;
     radius = min(radius, min(halfSize.x, halfSize.y));
     vec2 point = vUV * size;
