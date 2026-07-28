@@ -343,9 +343,9 @@ int main()
     if (!pixelIs(pixels, width, 48, 36, 255, 255, 0, 255, "image bottom-right yellow")) return 1;
 
     // Different per-image alpha values are folded into packed vertex tints.
-    // Non-overlapping quads may safely join an earlier compatible batch, so
-    // rounded and square images each become one draw without changing painter
-    // order. Seven submissions exercise repeated asynchronous reuse before the
+    // Non-overlapping rounded and square quads carry their clip parameters per
+    // instance, so all four images become one draw without changing painter
+    // order. Seven submissions also exercise descriptor-set reuse before the
     // final readback; busy GPUs rotate through the three frame slots while
     // already-signaled slots are reclaimed in place.
     const std::vector<unsigned char> whiteTexel = {
@@ -388,12 +388,12 @@ int main()
                 << frame << " failed." << std::endl;
             return 1;
         }
-        if (device.lastExecutionDrawCallCount() != 2u) {
+        if (device.lastExecutionDrawCallCount() != 1u) {
             std::cerr
                 << "[VulkanCommandTests] FAIL: texture batch "
                    "used "
                 << device.lastExecutionDrawCallCount()
-                << " draws, expected 2." << std::endl;
+                << " draws, expected 1." << std::endl;
             return 1;
         }
     }
@@ -422,6 +422,48 @@ int main()
     if (!pixelIs(
             pixels, width, 55, height / 2,
             255, 0, 0, 255, "batch alpha 100%")) {
+        return 1;
+    }
+
+    // The recorded commands may be reused when only instance payload changes.
+    // Verify that the persistent command buffer still consumes the newly
+    // uploaded vertex data instead of retaining the previous frame's tint.
+    std::vector<std::unique_ptr<Command>> updatedTextureBatchCommands;
+    for (int column = 0; column < 4; ++column) {
+        DrawImageData batchImageData;
+        batchImageData.imageResource = whiteImage;
+        batchImageData.x = static_cast<float>(column * 16);
+        batchImageData.y = 0.0f;
+        batchImageData.width = 14.0f;
+        batchImageData.height = static_cast<float>(height);
+        batchImageData.alpha = alphas[column];
+        batchImageData.tintColor[0] = 0.0f;
+        batchImageData.tintColor[1] = 1.0f;
+        batchImageData.tintColor[2] = 0.0f;
+        batchImageData.tintColor[3] = 1.0f;
+        batchImageData.roundedRadius =
+            (column % 2) == 0 ? 4.0f : 0.0f;
+        batchImageData.sampling = DrawImageSampling::Nearest;
+        updatedTextureBatchCommands.push_back(
+            std::make_unique<DrawImageCommand>(batchImageData));
+    }
+    if (!device.executeCommands(
+            target, updatedTextureBatchCommands, request)) {
+        std::cerr
+            << "[VulkanCommandTests] FAIL: updated texture "
+               "batch frame failed." << std::endl;
+        return 1;
+    }
+    if (!device.readPixelsRGBA(width, height, pixels)) {
+        std::cerr
+            << "[VulkanCommandTests] FAIL: updated texture "
+               "batch readback failed." << std::endl;
+        return 1;
+    }
+    if (!pixelNear(
+            pixels, width, 23, height / 2,
+            0, 128, 0, 128, 2,
+            "reused command buffer updated tint")) {
         return 1;
     }
 
