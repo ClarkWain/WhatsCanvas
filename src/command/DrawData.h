@@ -207,6 +207,7 @@ struct DrawImageBatchQuad {
     float v0 = 0.0f;
     float u1 = 1.0f;
     float v1 = 1.0f;
+    std::uint32_t packedTint = 0xffffffffu;
 };
 
 /// Compact batch for atlas-backed glyph runs and other compatible image

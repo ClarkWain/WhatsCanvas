@@ -19,6 +19,20 @@ enum class DrawPrimitiveKind
     GradientFill,   ///< Triangle list filled with a fragment-evaluated gradient.
 };
 
+/// Compact axis-aligned textured quad consumed by instanced backends.
+struct TexturedQuadInstance
+{
+    float x0 = 0.0f;
+    float y0 = 0.0f;
+    float x1 = 0.0f;
+    float y1 = 0.0f;
+    float u0 = 0.0f;
+    float v0 = 0.0f;
+    float u1 = 1.0f;
+    float v1 = 1.0f;
+    std::uint32_t packedTint = 0xffffffffu;
+};
+
 /// One backend-neutral draw primitive.
 struct DrawPrimitive
 {
@@ -48,6 +62,10 @@ struct DrawPrimitive
     /// TexturedQuad: optional per-vertex UVs (u,v pairs) matching `positions`;
     /// when empty, full 0..1 UVs are used.
     std::vector<float> uvs;
+
+    /// TexturedQuad: optional compact instances for axis-aligned quads. When
+    /// present, `positions` and `uvs` remain empty.
+    std::vector<TexturedQuadInstance> texturedInstances;
 
     /// SolidTriangles / ClipFill: RGBA fill color in [0,1].
     float color[4] = {1.0f, 1.0f, 1.0f, 1.0f};

@@ -261,6 +261,7 @@ bool encodeImageBatch(
     prim.useCustomSampler = true;
     prim.positions.reserve(d.quads.size() * 12u);
     prim.uvs.reserve(d.quads.size() * 12u);
+    prim.packedTints.reserve(d.quads.size() * 6u);
     constexpr int indices[6] = {0, 1, 2, 0, 2, 3};
     for (const DrawImageBatchQuad &quad : d.quads) {
         float nx[4], ny[4];
@@ -281,6 +282,7 @@ bool encodeImageBatch(
             prim.positions.push_back(ny[index]);
             prim.uvs.push_back(uu[index]);
             prim.uvs.push_back(vv[index]);
+            prim.packedTints.push_back(quad.packedTint);
         }
     }
     out.push_back(std::move(prim));

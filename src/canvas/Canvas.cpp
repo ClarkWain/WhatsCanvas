@@ -4713,14 +4713,20 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
                 DrawImageBatchData batch;
                 batch.imageResource = imageResource;
                 batch.quads.reserve(atlasQuads.size());
-                batch.tintColor[0] = textColor.r();
-                batch.tintColor[1] = textColor.g();
-                batch.tintColor[2] = textColor.b();
-                batch.tintColor[3] = 1.0f;
-                batch.alpha = textColor.a();
                 batch.transform = transform;
                 batch.blendMode =
                     toDrawBlendMode(paint.getBlendMode());
+                const std::uint32_t packedTint =
+                    static_cast<std::uint32_t>(textColor.getR())
+                    | (static_cast<std::uint32_t>(
+                           textColor.getG())
+                       << 8u)
+                    | (static_cast<std::uint32_t>(
+                           textColor.getB())
+                       << 16u)
+                    | (static_cast<std::uint32_t>(
+                           textColor.getA())
+                       << 24u);
                 for (const auto &quad : atlasQuads) {
                     DrawImageBatchQuad imageQuad;
                     imageQuad.x = quad.x;
@@ -4731,11 +4737,14 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
                     imageQuad.v0 = quad.v0;
                     imageQuad.u1 = quad.u1;
                     imageQuad.v1 = quad.v1;
+                    imageQuad.packedTint = packedTint;
                     batch.quads.push_back(imageQuad);
                 }
-                impl_->renderer->submit(
-                    std::make_unique<DrawImageBatchCommand>(
-                        std::move(batch)));
+                if (!impl_->renderer->tryAppendImageBatch(batch)) {
+                    impl_->renderer->submit(
+                        std::make_unique<DrawImageBatchCommand>(
+                            std::move(batch)));
+                }
                 return;
             }
 
