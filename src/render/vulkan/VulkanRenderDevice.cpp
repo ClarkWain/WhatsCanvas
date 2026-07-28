@@ -5534,17 +5534,26 @@ SharedImageResource VulkanRenderDevice::renderCommandsToImageResource(
     if (!target || !target->isValid()) {
         return nullptr;
     }
+    if (request.allowDirectTargetSampling) {
+        if (!executeCommandsWithCopy(
+                target, commands, request, {}, true)) {
+            renderTargetPool_->release(std::move(target));
+            renderTargetPool_->expire();
+            return nullptr;
+        }
+        // The pool will not reuse the target while the composite command keeps
+        // the returned image resource externally referenced.
+        SharedImageResource result = target->getImageResource();
+        renderTargetPool_->release(std::move(target));
+        return result;
+    }
+
     SharedImageResource result =
         createEmptySampledTexture(
             context_.get(), w, h, ImageAlphaType::Premultiplied);
-    if (!result) {
-        renderTargetPool_->release(std::move(target));
-        renderTargetPool_->expire();
-        return nullptr;
-    }
-    // Render and copy into the owning sampled texture in one queue submission.
-    if (!executeCommandsWithCopy(
-            target, commands, request, result)) {
+    if (!result
+        || !executeCommandsWithCopy(
+            target, commands, request, result, false)) {
         renderTargetPool_->release(std::move(target));
         renderTargetPool_->expire();
         return nullptr;
@@ -5764,13 +5773,14 @@ SharedImageResource VulkanRenderDevice::filterImageResource(
 bool VulkanRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &target,
                                          const wsc::DrawList &drawList) const
 {
-    return executeDrawListWithCopy(target, drawList, {});
+    return executeDrawListWithCopy(target, drawList, {}, false);
 }
 
 bool VulkanRenderDevice::executeDrawListWithCopy(
     const std::unique_ptr<IRenderTarget> &target,
     const wsc::DrawList &drawList,
-    const SharedImageResource &copyDestination) const
+    const SharedImageResource &copyDestination,
+    bool prepareTargetForSampling) const
 {
 #if defined(WHATSCANVAS_ENABLE_VULKAN)
     if (!context_ || !context_->deviceReady || !target
@@ -6770,6 +6780,7 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
         copyTexture != nullptr
             ? copyTexture->image() : VK_NULL_HANDLE;
     hashValue(copyImage);
+    hashValue(prepareTargetForSampling);
     const int targetWidth = rt->width();
     const int targetHeight = rt->height();
     hashValue(targetWidth);
@@ -6948,6 +6959,11 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
                     cmd, copyTexture->image(),
                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            } else if (prepareTargetForSampling) {
+                VulkanContext::transitionImageLayout(
+                    cmd, rt->image(),
+                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             }
             frame.commandSignature = commandSignature;
             frame.commandSignatureValid = true;
@@ -6987,17 +7003,22 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
         retainedTargets.push_back(std::move(pending));
     }
     pendingFilterTargets_.clear();
-    rt->setLayout(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-    rt->markReadbackReady();
-    context_->readbackImage = rt->image();
-    context_->readbackLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    context_->readbackWidth = rt->width();
-    context_->readbackHeight = rt->height();
+    if (prepareTargetForSampling) {
+        rt->setLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    } else {
+        rt->setLayout(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        rt->markReadbackReady();
+        context_->readbackImage = rt->image();
+        context_->readbackLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        context_->readbackWidth = rt->width();
+        context_->readbackHeight = rt->height();
+    }
     return true;
 #else
     (void)target;
     (void)drawList;
     (void)copyDestination;
+    (void)prepareTargetForSampling;
     return false;
 #endif
 }
@@ -7006,14 +7027,16 @@ bool VulkanRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &t
                                          const std::vector<std::unique_ptr<Command>> &commands,
                                          const OffscreenRenderRequest &request) const
 {
-    return executeCommandsWithCopy(target, commands, request, {});
+    return executeCommandsWithCopy(
+        target, commands, request, {}, false);
 }
 
 bool VulkanRenderDevice::executeCommandsWithCopy(
     const std::unique_ptr<IRenderTarget> &target,
     const std::vector<std::unique_ptr<Command>> &commands,
     const OffscreenRenderRequest &request,
-    const SharedImageResource &copyDestination) const
+    const SharedImageResource &copyDestination,
+    bool prepareTargetForSampling) const
 {
 #if defined(WHATSCANVAS_ENABLE_VULKAN)
     lastExecutionDrawCallCount_ = 0;
@@ -9126,7 +9149,9 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
         return false;
     }
     const bool rendered =
-        executeDrawListWithCopy(target, list, copyDestination);
+        executeDrawListWithCopy(
+            target, list, copyDestination,
+            prepareTargetForSampling);
     if (rendered) {
         lastExecutionDrawCallCount_ = list.size();
         if (commands.size() > list.size()) {
@@ -9175,6 +9200,7 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
     (void)commands;
     (void)request;
     (void)copyDestination;
+    (void)prepareTargetForSampling;
     return false;
 #endif
 }

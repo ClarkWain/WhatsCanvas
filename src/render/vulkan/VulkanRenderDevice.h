@@ -210,12 +210,14 @@ private:
     bool executeDrawListWithCopy(
         const std::unique_ptr<IRenderTarget> &target,
         const wsc::DrawList &drawList,
-        const SharedImageResource &copyDestination) const;
+        const SharedImageResource &copyDestination,
+        bool prepareTargetForSampling) const;
     bool executeCommandsWithCopy(
         const std::unique_ptr<IRenderTarget> &target,
         const std::vector<std::unique_ptr<Command>> &commands,
         const OffscreenRenderRequest &request,
-        const SharedImageResource &copyDestination) const;
+        const SharedImageResource &copyDestination,
+        bool prepareTargetForSampling) const;
     void releasePendingFilterTargets() const;
     void releaseDrawFrameTargets(std::size_t frameIndex) const;
     void releaseAllDrawFrameTargets() const;

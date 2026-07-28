@@ -22,6 +22,8 @@ struct OffscreenRenderRequest
     int viewportY = 0;
     int scissorOffsetX = 0;
     int scissorOffsetY = 0;
+    // Safe only when the result is composited directly, without async filters.
+    bool allowDirectTargetSampling = false;
 };
 
 class IRenderer
