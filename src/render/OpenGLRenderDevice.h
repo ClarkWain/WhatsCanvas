@@ -19,11 +19,18 @@ public:
     SharedClipMaskResource createClipMaskResource(const ClipMaskPath &maskPath) const override;
     SharedImageResource createImageResourceRGBA(int width, int height,
                                                 const std::vector<unsigned char> &pixels) const override;
+    SharedImageResource createImageResourceAlpha8(
+        int width, int height,
+        const std::vector<unsigned char> &pixels) const override;
     SharedImageResource createImageResourceFromImageData(int width, int height, int channels,
                                                          const unsigned char *pixels,
                                                          bool generateMipmaps) const override;
     bool updateImageResourceRGBA(const SharedImageResource &imageResource, int x, int y, int width, int height,
                                  const unsigned char *pixels, bool regenerateMipmaps) const override;
+    bool updateImageResourceAlpha8(
+        const SharedImageResource &imageResource,
+        int x, int y, int width, int height,
+        const unsigned char *pixels) const override;
     SharedImageResource wrapExternalImageResource(ImageResourceHandle handle) const override;
     RenderResourceStats resourceStats() const override;
     SharedImageResource renderCommandsToImageResource(const std::vector<std::unique_ptr<Command>> &commands,

@@ -433,6 +433,10 @@ void Renderer::flush()
                 }
                 spriteBatch_->clear();
                 spriteBatch_->setTexture(first.imageResource);
+                const bool compactGlyphBatch =
+                    first.imageResource->isAlphaOnly()
+                    && first.transform[0][1] == 0.0f
+                    && first.transform[1][0] == 0.0f;
 
                 std::size_t j = i;
                 while (j < commands_.size()
@@ -444,6 +448,11 @@ void Renderer::flush()
                     if (!isSpriteBatchCompatible(
                             batch, first.imageResource,
                             first.blendMode)) {
+                        break;
+                    }
+                    if (compactGlyphBatch
+                        && (batch.transform[0][1] != 0.0f
+                            || batch.transform[1][0] != 0.0f)) {
                         break;
                     }
                     float tintColor[4] = {
@@ -475,12 +484,25 @@ void Renderer::flush()
                             GammaCorrect::srgbToLinear4(cachedTint);
                             hasCachedTint = true;
                         }
-                        spriteBatch_->add(
-                            quad.x, quad.y, quad.width, quad.height,
-                            quad.u0, quad.v0, quad.u1, quad.v1,
-                            cachedTint[0], cachedTint[1],
-                            cachedTint[2], cachedTint[3],
-                            batch.transform);
+                        if (compactGlyphBatch) {
+                            spriteBatch_->addInstance(
+                                quad.x, quad.y,
+                                quad.width, quad.height,
+                                quad.u0, quad.v0,
+                                quad.u1, quad.v1,
+                                cachedTint[0], cachedTint[1],
+                                cachedTint[2], cachedTint[3],
+                                batch.transform);
+                        } else {
+                            spriteBatch_->add(
+                                quad.x, quad.y,
+                                quad.width, quad.height,
+                                quad.u0, quad.v0,
+                                quad.u1, quad.v1,
+                                cachedTint[0], cachedTint[1],
+                                cachedTint[2], cachedTint[3],
+                                batch.transform);
+                        }
                     }
                     ++j;
                 }
