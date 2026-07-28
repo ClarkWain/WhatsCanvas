@@ -145,6 +145,63 @@ deliberately large enough to expose command recording, glyph-atlas switching,
 batching, tessellation, and submission bottlenecks that small UI samples can
 hide.
 
+## Parameterized workload matrix
+
+Fixed scenes are useful regression anchors, but a single object count can be
+overfit. `geometry_stress`, `image_grid`, and `text_stress` therefore also
+provide an opt-in parameterized path. Their default behavior and historical
+pixel hashes remain unchanged unless workload options are supplied.
+
+| Option | Meaning |
+| --- | --- |
+| `--workload stable` | Geometry, resources, and command topology remain stable between frames |
+| `--workload dynamic-data` | Positions, colors, and text selection change while topology remains stable |
+| `--workload dynamic-structure` | Primitive, texture, text, and render-state selection can change each frame |
+| `--operations N` | Draw operations in the selected stress scene |
+| `--seed N` | Deterministic content seed recorded in JSONL |
+| `--texture-count N` | Image resource cardinality, from 1 through 256 |
+| `--rounded-ratio 0..1` | Fraction of image operations using rounded coverage |
+| `--state-change-rate 0..1` | Deterministic fraction of operations changing blend state |
+| `--text-length N` | ASCII characters in each generated text sample |
+
+The matrix runner launches every workload and seed in a fresh Release process,
+then reports the median of process medians. It preserves raw JSONL and writes
+JSON, CSV, Markdown, and per-backend log-log SVG scaling charts:
+
+```powershell
+python scripts\run_benchmark_matrix.py `
+  --executable build\Release\WhatsCanvasPerformanceSuite.exe `
+  --backend opengl --backend vulkan `
+  --preset standard --profile standard `
+  --output-dir build\performance-matrix
+```
+
+The `smoke` preset covers all three categories and stable/structure-changing
+paths with one seed. `standard` uses three operation scales, all three workload
+modes, and three seeds. `thorough` expands the scale range and uses five seeds.
+Use `--dry-run` to audit every command before a long measurement.
+
+One matrix case remains directly reproducible:
+
+```powershell
+build\Release\WhatsCanvasPerformanceSuite.exe `
+  --backend vulkan --profile standard --scene image_grid `
+  --workload dynamic-structure --operations 1024 --seed 2003 `
+  --texture-count 32 --rounded-ratio 0.5 `
+  --state-change-rate 0.125 `
+  --output build\image-grid-dynamic.jsonl
+```
+
+Reports include scale, dynamic mode, texture cardinality, rounded ratio, state
+change rate, text length, process range, synchronized frame timing, throughput,
+draw calls, and draw reduction. This makes stable-cache wins visible without
+hiding dynamic topology or high-state-churn costs.
+
+The parameterized matrix evaluates WhatsCanvas backends and revisions. It does
+not replace the fixed, quality-gated cross-library contract; an external
+adapter must implement identical parameter semantics before its matrix numbers
+are comparable.
+
 ## Profiles
 
 | Profile | Timed frames | Warmup frames | Intended use |
@@ -215,8 +272,10 @@ build\Release\WhatsCanvasPerformanceSuite.exe `
 ```
 
 Use `--list-scenes` to inspect scene names. `--frames`, `--warmup`, `--width`,
-and `--height` override a profile for investigation, but custom settings should
-not be mixed into a standard reference report.
+and `--height` override a profile for investigation. Workload options are
+recorded in every JSONL result, but custom settings should not be mixed into a
+fixed-scene standard reference report; use the matrix runner for parameterized
+publication.
 
 ## Compare revisions
 

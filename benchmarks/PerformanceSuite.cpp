@@ -19,6 +19,7 @@
 #include <string_view>
 #include <system_error>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #if defined(_WIN32)
@@ -79,6 +80,26 @@ enum class Backend
     Vulkan,
 };
 
+enum class WorkloadMode
+{
+    Fixed,
+    Stable,
+    DynamicData,
+    DynamicStructure,
+};
+
+struct WorkloadOptions
+{
+    WorkloadMode mode = WorkloadMode::Fixed;
+    int operations = 0;
+    std::uint32_t seed = 1;
+    int textureCount = 1;
+    double roundedRatio = 1.0 / 3.0;
+    double stateChangeRate = 0.0;
+    int textLength = 24;
+    bool customized = false;
+};
+
 struct Options
 {
     Backend backend = Backend::Software;
@@ -91,6 +112,7 @@ struct Options
     std::string outputPath;
     std::string captureDirectory;
     bool listScenes = false;
+    WorkloadOptions workload;
 };
 
 struct Distribution
@@ -116,11 +138,16 @@ struct ProcessMemory
 struct SceneResources
 {
     wsc::Image image;
+    std::vector<wsc::Image> workloadImages;
+    std::vector<std::string> workloadTextVariants;
     bool contractFontReady = false;
 };
 
 using DrawScene = void (*)(
     wsc::Canvas &, SceneResources &, int, int, int);
+using DrawWorkloadScene = void (*)(
+    wsc::Canvas &, SceneResources &, const WorkloadOptions &,
+    int, int, int);
 
 struct Scene
 {
@@ -129,6 +156,7 @@ struct Scene
     const char *cacheMode = "";
     std::size_t operationsPerFrame = 0;
     DrawScene draw = nullptr;
+    DrawWorkloadScene drawWorkload = nullptr;
 };
 
 struct FrameTimings
@@ -177,6 +205,17 @@ const char *backendName(Backend backend)
     case Backend::Software: return "software";
     case Backend::OpenGL: return "opengl";
     case Backend::Vulkan: return "vulkan";
+    }
+    return "unknown";
+}
+
+const char *workloadModeName(WorkloadMode mode)
+{
+    switch (mode) {
+    case WorkloadMode::Fixed: return "fixed";
+    case WorkloadMode::Stable: return "stable";
+    case WorkloadMode::DynamicData: return "dynamic-data";
+    case WorkloadMode::DynamicStructure: return "dynamic-structure";
     }
     return "unknown";
 }
@@ -436,6 +475,22 @@ bool parseNonNegativeInt(const std::string &text, int &value)
     return true;
 }
 
+bool parseRatio(const std::string &text, double &value)
+{
+    if (text.empty()) {
+        return false;
+    }
+    char *end = nullptr;
+    const double parsed = std::strtod(text.c_str(), &end);
+    if (end != text.c_str() + text.size()
+        || !std::isfinite(parsed)
+        || parsed < 0.0 || parsed > 1.0) {
+        return false;
+    }
+    value = parsed;
+    return true;
+}
+
 void applyProfile(Options &options, const std::string &profile)
 {
     options.profile = profile;
@@ -459,6 +514,10 @@ void printUsage(std::ostream &output, const char *program)
         << " [--profile quick|standard|thorough]"
         << " [--scene all|name[,name...]]"
         << " [--frames N] [--warmup N] [--width N] [--height N]"
+        << " [--workload fixed|stable|dynamic-data|dynamic-structure]"
+        << " [--operations N] [--seed N] [--texture-count N]"
+        << " [--rounded-ratio 0..1] [--state-change-rate 0..1]"
+        << " [--text-length N]"
         << " [--output results.jsonl] [--capture-dir path]"
         << " [--list-scenes]\n";
 }
@@ -466,6 +525,8 @@ void printUsage(std::ostream &output, const char *program)
 bool parseOptions(
     int argc, char **argv, Options &options, std::string &error)
 {
+    bool workloadModeSpecified = false;
+    bool workloadParametersSpecified = false;
     for (int i = 1; i < argc; ++i) {
         const std::string argument(argv[i]);
         if (argument == "--help" || argument == "-h") {
@@ -505,6 +566,35 @@ bool parseOptions(
             options.outputPath = value;
         } else if (argument == "--capture-dir") {
             options.captureDirectory = value;
+        } else if (argument == "--workload") {
+            workloadModeSpecified = true;
+            if (value == "fixed") {
+                options.workload.mode = WorkloadMode::Fixed;
+            } else if (value == "stable") {
+                options.workload.mode = WorkloadMode::Stable;
+            } else if (value == "dynamic-data") {
+                options.workload.mode = WorkloadMode::DynamicData;
+            } else if (value == "dynamic-structure") {
+                options.workload.mode =
+                    WorkloadMode::DynamicStructure;
+            } else {
+                error = "invalid workload mode '" + value + "'";
+                return false;
+            }
+        } else if (argument == "--rounded-ratio"
+                   || argument == "--state-change-rate") {
+            double parsed = 0.0;
+            if (!parseRatio(value, parsed)) {
+                error = "invalid ratio '" + value
+                    + "' for " + argument;
+                return false;
+            }
+            if (argument == "--rounded-ratio") {
+                options.workload.roundedRatio = parsed;
+            } else {
+                options.workload.stateChangeRate = parsed;
+            }
+            workloadParametersSpecified = true;
         } else {
             int parsed = 0;
             if (!parseNonNegativeInt(value, parsed)) {
@@ -520,6 +610,23 @@ bool parseOptions(
                 options.width = parsed;
             } else if (argument == "--height") {
                 options.height = parsed;
+            } else if (argument == "--operations") {
+                if (parsed == 0) {
+                    error = "--operations must be greater than zero";
+                    return false;
+                }
+                options.workload.operations = parsed;
+                workloadParametersSpecified = true;
+            } else if (argument == "--seed") {
+                options.workload.seed =
+                    static_cast<std::uint32_t>(parsed);
+                workloadParametersSpecified = true;
+            } else if (argument == "--texture-count") {
+                options.workload.textureCount = parsed;
+                workloadParametersSpecified = true;
+            } else if (argument == "--text-length") {
+                options.workload.textLength = parsed;
+                workloadParametersSpecified = true;
             } else {
                 error = "unknown option '" + argument + "'";
                 return false;
@@ -538,6 +645,33 @@ bool parseOptions(
         error = "invalid or unreasonably large dimensions";
         return false;
     }
+    if (options.workload.operations > 200000) {
+        error = "--operations must be between 1 and 200000";
+        return false;
+    }
+    if (options.workload.textureCount <= 0
+        || options.workload.textureCount > 256) {
+        error = "--texture-count must be between 1 and 256";
+        return false;
+    }
+    if (options.workload.textLength <= 0
+        || options.workload.textLength > 1024) {
+        error = "--text-length must be between 1 and 1024";
+        return false;
+    }
+    if (workloadParametersSpecified
+        && workloadModeSpecified
+        && options.workload.mode == WorkloadMode::Fixed) {
+        error = "--workload fixed cannot be combined with workload parameters";
+        return false;
+    }
+    if (workloadParametersSpecified
+        && options.workload.mode == WorkloadMode::Fixed) {
+        options.workload.mode = WorkloadMode::Stable;
+    }
+    options.workload.customized =
+        workloadParametersSpecified
+        || options.workload.mode != WorkloadMode::Fixed;
     return true;
 }
 
@@ -899,6 +1033,68 @@ void drawPathChurn(
     drawPaths(canvas, resources, width, height, frame, true);
 }
 
+std::uint32_t workloadRandom(
+    std::uint32_t seed, std::uint32_t index,
+    std::uint32_t stream, std::uint32_t frame)
+{
+    std::uint32_t value =
+        seed ^ (index * 0x9e3779b9u)
+        ^ (stream * 0x85ebca6bu)
+        ^ (frame * 0xc2b2ae35u);
+    value ^= value >> 16u;
+    value *= 0x7feb352du;
+    value ^= value >> 15u;
+    value *= 0x846ca68bu;
+    value ^= value >> 16u;
+    return value;
+}
+
+float workloadUnit(
+    std::uint32_t seed, std::uint32_t index,
+    std::uint32_t stream, std::uint32_t frame)
+{
+    return static_cast<float>(
+        workloadRandom(seed, index, stream, frame) & 0x00ffffffu)
+        / static_cast<float>(0x01000000u);
+}
+
+std::pair<int, int> workloadGrid(
+    int operations, int width, int height)
+{
+    const double aspect =
+        static_cast<double>(std::max(1, width))
+        / static_cast<double>(std::max(1, height));
+    const int columns = std::max(
+        1, static_cast<int>(std::ceil(std::sqrt(
+            static_cast<double>(operations) * aspect))));
+    const int rows = std::max(
+        1, (operations + columns - 1) / columns);
+    return {columns, rows};
+}
+
+void applyWorkloadState(
+    wsc::Paint &paint, const WorkloadOptions &workload,
+    std::uint32_t index, std::uint32_t structureFrame)
+{
+    if (workloadUnit(
+            workload.seed, index, 71u, structureFrame)
+        >= workload.stateChangeRate) {
+        return;
+    }
+    switch (workloadRandom(
+        workload.seed, index, 73u, structureFrame) % 3u) {
+    case 0:
+        paint.setBlendMode(wsc::Paint::BlendMode::ADD);
+        break;
+    case 1:
+        paint.setBlendMode(wsc::Paint::BlendMode::MULTIPLY);
+        break;
+    default:
+        paint.setBlendMode(wsc::Paint::BlendMode::SCREEN);
+        break;
+    }
+}
+
 void drawGeometryStress(
     wsc::Canvas &canvas, SceneResources &, int width, int height, int frame)
 {
@@ -971,6 +1167,114 @@ void drawGeometryStress(
     }
 }
 
+void drawGeometryWorkload(
+    wsc::Canvas &canvas, SceneResources &,
+    const WorkloadOptions &workload,
+    int width, int height, int frame)
+{
+    canvas.drawColor(wsc::Color(13, 17, 25, 255));
+    const int operations =
+        workload.operations > 0 ? workload.operations : 2304;
+    const auto [columns, rows] =
+        workloadGrid(operations, width, height);
+    const float cellWidth =
+        static_cast<float>(width) / static_cast<float>(columns);
+    const float cellHeight =
+        static_cast<float>(height) / static_cast<float>(rows);
+    const float inset =
+        std::max(0.25f, std::min(cellWidth, cellHeight) * 0.12f);
+    const std::uint32_t dataFrame =
+        workload.mode == WorkloadMode::Stable
+        ? 0u : static_cast<std::uint32_t>(frame);
+    const std::uint32_t structureFrame =
+        workload.mode == WorkloadMode::DynamicStructure
+        ? static_cast<std::uint32_t>(frame) : 0u;
+
+    for (int operation = 0; operation < operations; ++operation) {
+        const int column = operation % columns;
+        const int row = operation / columns;
+        const std::uint32_t index =
+            static_cast<std::uint32_t>(operation);
+        const float jitterX =
+            (workloadUnit(
+                workload.seed, index, 1u, dataFrame) - 0.5f)
+            * cellWidth * 0.16f;
+        const float jitterY =
+            (workloadUnit(
+                workload.seed, index, 2u, dataFrame) - 0.5f)
+            * cellHeight * 0.16f;
+        const float left =
+            column * cellWidth + inset + jitterX;
+        const float top =
+            row * cellHeight + inset + jitterY;
+        const float shapeWidth =
+            std::max(0.5f, cellWidth - inset * 2.0f);
+        const float shapeHeight =
+            std::max(0.5f, cellHeight - inset * 2.0f);
+        const wsc::RectF bounds(
+            left, top, shapeWidth, shapeHeight);
+        wsc::Paint paint = solid(wsc::Color(
+            35 + static_cast<int>(workloadRandom(
+                workload.seed, index, 3u, dataFrame) % 205u),
+            45 + static_cast<int>(workloadRandom(
+                workload.seed, index, 4u, dataFrame) % 195u),
+            55 + static_cast<int>(workloadRandom(
+                workload.seed, index, 5u, dataFrame) % 185u),
+            160 + static_cast<int>(workloadRandom(
+                workload.seed, index, 6u, dataFrame) % 96u)));
+        applyWorkloadState(
+            paint, workload, index, structureFrame);
+
+        switch (workloadRandom(
+            workload.seed, index, 7u, structureFrame) % 6u) {
+        case 0:
+            canvas.drawRect(bounds, paint);
+            break;
+        case 1:
+            canvas.drawRoundRect(
+                bounds,
+                std::min(shapeWidth, shapeHeight) * 0.24f,
+                paint);
+            break;
+        case 2:
+            canvas.drawCircle(
+                left + shapeWidth * 0.5f,
+                top + shapeHeight * 0.5f,
+                std::min(shapeWidth, shapeHeight) * 0.45f,
+                paint);
+            break;
+        case 3:
+            canvas.drawOval(bounds, paint);
+            break;
+        case 4: {
+            wsc::Path triangle;
+            triangle.moveTo(left + shapeWidth * 0.5f, top);
+            triangle.lineTo(
+                left + shapeWidth, top + shapeHeight);
+            triangle.lineTo(left, top + shapeHeight);
+            triangle.close();
+            canvas.drawPath(triangle, paint);
+            break;
+        }
+        default: {
+            wsc::Path diamond;
+            diamond.moveTo(left + shapeWidth * 0.5f, top);
+            diamond.lineTo(
+                left + shapeWidth,
+                top + shapeHeight * 0.5f);
+            diamond.lineTo(
+                left + shapeWidth * 0.5f,
+                top + shapeHeight);
+            diamond.lineTo(
+                left, top + shapeHeight * 0.5f);
+            diamond.close();
+            canvas.drawPath(diamond, paint);
+            break;
+        }
+        }
+    }
+}
+
 void drawImageGrid(
     wsc::Canvas &canvas, SceneResources &resources,
     int width, int height, int frame)
@@ -1000,6 +1304,87 @@ void drawImageGrid(
             } else {
                 canvas.drawImage(resources.image, destination, paint);
             }
+        }
+    }
+}
+
+void drawImageWorkload(
+    wsc::Canvas &canvas, SceneResources &resources,
+    const WorkloadOptions &workload,
+    int width, int height, int frame)
+{
+    canvas.drawColor(wsc::Color(22, 26, 34, 255));
+    const int operations =
+        workload.operations > 0 ? workload.operations : 96;
+    const auto [columns, rows] =
+        workloadGrid(operations, width, height);
+    const float cellWidth =
+        static_cast<float>(width) / static_cast<float>(columns);
+    const float cellHeight =
+        static_cast<float>(height) / static_cast<float>(rows);
+    const std::uint32_t dataFrame =
+        workload.mode == WorkloadMode::Stable
+        ? 0u : static_cast<std::uint32_t>(frame);
+    const std::uint32_t structureFrame =
+        workload.mode == WorkloadMode::DynamicStructure
+        ? static_cast<std::uint32_t>(frame) : 0u;
+
+    for (int operation = 0; operation < operations; ++operation) {
+        const int column = operation % columns;
+        const int row = operation / columns;
+        const std::uint32_t index =
+            static_cast<std::uint32_t>(operation);
+        const float inset =
+            std::max(
+                0.5f, std::min(cellWidth, cellHeight)
+                    * (0.04f + workloadUnit(
+                        workload.seed, index, 11u, 0u) * 0.04f));
+        const float wobbleX =
+            (workloadUnit(
+                workload.seed, index, 12u, dataFrame) - 0.5f)
+            * cellWidth * 0.12f;
+        const float wobbleY =
+            (workloadUnit(
+                workload.seed, index, 13u, dataFrame) - 0.5f)
+            * cellHeight * 0.12f;
+        const wsc::RectF destination(
+            column * cellWidth + inset + wobbleX,
+            row * cellHeight + inset + wobbleY,
+            std::max(0.5f, cellWidth - inset * 2.0f),
+            std::max(0.5f, cellHeight - inset * 2.0f));
+        wsc::Paint paint;
+        paint.setColor(wsc::Color::WHITE);
+        paint.setImageSampling(
+            wsc::Paint::ImageSampling::LINEAR);
+        paint.setAlpha(
+            0.62f + workloadUnit(
+                workload.seed, index, 14u, dataFrame) * 0.38f);
+        applyWorkloadState(
+            paint, workload, index, structureFrame);
+
+        const std::size_t textureIndex =
+            resources.workloadImages.empty()
+            ? 0u
+            : static_cast<std::size_t>(workloadRandom(
+                workload.seed, index, 15u, structureFrame))
+                % resources.workloadImages.size();
+        const wsc::Image &image =
+            resources.workloadImages.empty()
+            ? resources.image
+            : resources.workloadImages[textureIndex];
+        const bool rounded =
+            workloadUnit(
+                workload.seed, index, 16u, structureFrame)
+            < workload.roundedRatio;
+        if (rounded) {
+            canvas.drawImageRounded(
+                image, destination,
+                std::min(
+                    destination.getWidth(),
+                    destination.getHeight()) * 0.12f,
+                paint);
+        } else {
+            canvas.drawImage(image, destination, paint);
         }
     }
 }
@@ -1159,6 +1544,81 @@ void drawTextStress(
     }
 }
 
+void drawTextWorkload(
+    wsc::Canvas &canvas, SceneResources &resources,
+    const WorkloadOptions &workload,
+    int width, int height, int frame)
+{
+    canvas.drawColor(wsc::Color(247, 248, 251, 255));
+    const int operations =
+        workload.operations > 0 ? workload.operations : 576;
+    const auto [columns, rows] =
+        workloadGrid(operations, width, height);
+    const float columnWidth =
+        static_cast<float>(width) / static_cast<float>(columns);
+    const float rowHeight =
+        static_cast<float>(height) / static_cast<float>(rows);
+    const float textSize =
+        std::clamp(rowHeight * 0.76f, 6.0f, 24.0f);
+    const std::uint32_t dataFrame =
+        workload.mode == WorkloadMode::Stable
+        ? 0u : static_cast<std::uint32_t>(frame);
+    const std::uint32_t structureFrame =
+        workload.mode == WorkloadMode::DynamicStructure
+        ? static_cast<std::uint32_t>(frame) : 0u;
+
+    for (int operation = 0; operation < operations; ++operation) {
+        const int column = operation % columns;
+        const int row = operation / columns;
+        const std::uint32_t index =
+            static_cast<std::uint32_t>(operation);
+        wsc::Paint paint;
+        paint.setColor(wsc::Color(
+            18 + static_cast<int>(workloadRandom(
+                workload.seed, index, 21u, dataFrame) % 82u),
+            28 + static_cast<int>(workloadRandom(
+                workload.seed, index, 22u, dataFrame) % 92u),
+            42 + static_cast<int>(workloadRandom(
+                workload.seed, index, 23u, dataFrame) % 108u),
+            255));
+        static constexpr std::array<float, 3> sizeBuckets = {
+            0.9f, 1.0f, 1.1f};
+        const float sizeVariation =
+            workload.mode == WorkloadMode::DynamicStructure
+            ? sizeBuckets[static_cast<std::size_t>(
+                workloadRandom(
+                    workload.seed, index, 24u, structureFrame)
+                % sizeBuckets.size())]
+            : 1.0f;
+        paint.setTextSize(textSize * sizeVariation);
+        paint.setFontWeight(
+            workloadRandom(
+                workload.seed, index, 25u, structureFrame) % 7u == 0u
+            ? 700 : 400);
+        applyWorkloadState(
+            paint, workload, index, structureFrame);
+
+        const std::size_t variantCount =
+            resources.workloadTextVariants.size();
+        const std::size_t variant =
+            variantCount == 0u
+            ? 0u
+            : static_cast<std::size_t>(workloadRandom(
+                workload.seed, index, 26u,
+                workload.mode == WorkloadMode::Stable
+                    ? 0u : dataFrame)) % variantCount;
+        static const std::string fallback = "Canvas text Aa 123";
+        const std::string &text =
+            variantCount == 0u
+            ? fallback : resources.workloadTextVariants[variant];
+        canvas.drawText(
+            text,
+            column * columnWidth + 2.0f,
+            (row + 0.82f) * rowHeight,
+            paint);
+    }
+}
+
 void drawContractTextLatin(
     wsc::Canvas &canvas, SceneResources &resources,
     int width, int height, int)
@@ -1304,13 +1764,16 @@ const std::array<Scene, 14> &scenes()
         {"rounded_ui", "raster", "churn", 120, drawRoundedUi},
         {"path_cached", "path", "hot", 160, drawPathCached},
         {"path_churn", "path", "churn", 160, drawPathChurn},
-        {"geometry_stress", "geometry", "churn", 2304, drawGeometryStress},
-        {"image_grid", "image", "hot", 96, drawImageGrid},
+        {"geometry_stress", "geometry", "churn", 2304,
+         drawGeometryStress, drawGeometryWorkload},
+        {"image_grid", "image", "hot", 96,
+         drawImageGrid, drawImageWorkload},
         {"clip_layers", "layer", "churn", 144, drawClipLayers},
         {"shadow_grid", "effect", "churn", 36, drawShadows},
         {"text_cached", "text", "hot", 120, drawTextCached},
         {"text_churn", "text", "churn", 120, drawTextChurn},
-        {"text_stress", "text", "hot", 576, drawTextStress},
+        {"text_stress", "text", "hot", 576,
+         drawTextStress, drawTextWorkload},
         {"contract_text_latin", "text", "hot", 576, drawContractTextLatin},
         {"frosted_glass", "filter", "hot", 4, drawFrostedGlass},
         {"inner_shadow", "filter", "hot", 24, drawInnerShadow},
@@ -1385,7 +1848,16 @@ FrameTimings renderFrame(
     const Clock::time_point start = Clock::now();
     wsc::Canvas &canvas = context.canvas();
     canvas.beginFrame();
-    scene.draw(canvas, resources, options.width, options.height, frame);
+    if (options.workload.customized
+        && scene.drawWorkload != nullptr) {
+        scene.drawWorkload(
+            canvas, resources, options.workload,
+            options.width, options.height, frame);
+    } else {
+        scene.draw(
+            canvas, resources,
+            options.width, options.height, frame);
+    }
     const Clock::time_point recorded = Clock::now();
     canvas.endFrame();
     context.finishFrame();
@@ -1395,6 +1867,18 @@ FrameTimings renderFrame(
         std::chrono::duration<double, std::milli>(finished - recorded).count(),
         std::chrono::duration<double, std::milli>(finished - start).count(),
     };
+}
+
+std::size_t operationsPerFrame(
+    const Scene &scene, const Options &options)
+{
+    if (options.workload.customized
+        && scene.drawWorkload != nullptr
+        && options.workload.operations > 0) {
+        return static_cast<std::size_t>(
+            options.workload.operations);
+    }
+    return scene.operationsPerFrame;
 }
 
 bool initializeResources(
@@ -1424,6 +1908,112 @@ bool initializeResources(
             canvas, pixels, imageWidth, imageHeight, true)) {
         error = "failed to create benchmark image";
         return false;
+    }
+    if (options.workload.customized
+        && sceneSelected(options.sceneFilter, "image_grid")) {
+        constexpr int workloadImageWidth = 64;
+        constexpr int workloadImageHeight = 64;
+        std::vector<unsigned char> workloadPixels(
+            static_cast<std::size_t>(workloadImageWidth)
+            * workloadImageHeight * 4u);
+        resources.workloadImages.reserve(
+            static_cast<std::size_t>(
+                options.workload.textureCount));
+        for (int texture = 0;
+             texture < options.workload.textureCount; ++texture) {
+            for (int y = 0; y < workloadImageHeight; ++y) {
+                for (int x = 0; x < workloadImageWidth; ++x) {
+                    const std::size_t pixel =
+                        (static_cast<std::size_t>(y)
+                             * workloadImageWidth
+                         + static_cast<std::size_t>(x)) * 4u;
+                    const std::uint32_t texel =
+                        static_cast<std::uint32_t>(
+                            y * workloadImageWidth + x);
+                    workloadPixels[pixel] =
+                        static_cast<unsigned char>(
+                            workloadRandom(
+                                options.workload.seed,
+                                static_cast<std::uint32_t>(
+                                    texture),
+                                31u, texel) & 0xffu);
+                    workloadPixels[pixel + 1u] =
+                        static_cast<unsigned char>(
+                            workloadRandom(
+                                options.workload.seed,
+                                static_cast<std::uint32_t>(
+                                    texture),
+                                32u, texel) & 0xffu);
+                    workloadPixels[pixel + 2u] =
+                        static_cast<unsigned char>(
+                            workloadRandom(
+                                options.workload.seed,
+                                static_cast<std::uint32_t>(
+                                    texture),
+                                33u, texel) & 0xffu);
+                    workloadPixels[pixel + 3u] =
+                        static_cast<unsigned char>(
+                            160u + (workloadRandom(
+                                options.workload.seed,
+                                static_cast<std::uint32_t>(
+                                    texture),
+                                34u, texel) % 96u));
+                }
+            }
+            wsc::Image workloadImage;
+            if (!workloadImage.loadFromRGBA(
+                    canvas, workloadPixels,
+                    workloadImageWidth, workloadImageHeight,
+                    true)) {
+                error = "failed to create workload image "
+                    + std::to_string(texture);
+                return false;
+            }
+            resources.workloadImages.push_back(
+                std::move(workloadImage));
+        }
+    }
+    if (options.workload.customized
+        && sceneSelected(options.sceneFilter, "text_stress")) {
+        static constexpr std::string_view alphabet =
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+            "abcdefghijklmnopqrstuvwxyz"
+            "0123456789 .,;:!?+-*/()[]";
+        const int variantCount = std::min(
+            256, std::max(
+                16, options.workload.operations > 0
+                    ? options.workload.operations : 576));
+        resources.workloadTextVariants.reserve(
+            static_cast<std::size_t>(variantCount));
+        for (int variant = 0; variant < variantCount; ++variant) {
+            int length = options.workload.textLength;
+            if (options.workload.mode
+                == WorkloadMode::DynamicStructure) {
+                length = std::max(
+                    1, length / 2
+                        + static_cast<int>(workloadRandom(
+                            options.workload.seed,
+                            static_cast<std::uint32_t>(variant),
+                            41u, 0u)
+                            % static_cast<std::uint32_t>(
+                                std::max(1, length))));
+            }
+            std::string text;
+            text.reserve(static_cast<std::size_t>(length));
+            for (int character = 0;
+                 character < length; ++character) {
+                const std::size_t alphabetIndex =
+                    static_cast<std::size_t>(workloadRandom(
+                        options.workload.seed,
+                        static_cast<std::uint32_t>(variant),
+                        42u,
+                        static_cast<std::uint32_t>(character)))
+                    % alphabet.size();
+                text.push_back(alphabet[alphabetIndex]);
+            }
+            resources.workloadTextVariants.push_back(
+                std::move(text));
+        }
     }
     if (sceneSelected(options.sceneFilter, "contract_text_latin")) {
         const std::filesystem::path contractFont =
@@ -1479,6 +2069,19 @@ std::string metadataJson(
          << ",\"height\":" << options.height
          << ",\"frames\":" << options.frames
          << ",\"warmup\":" << options.warmup
+         << ",\"workload_mode\":\""
+         << workloadModeName(options.workload.mode) << "\""
+         << ",\"workload_seed\":" << options.workload.seed
+         << ",\"workload_operations\":"
+         << options.workload.operations
+         << ",\"workload_texture_count\":"
+         << options.workload.textureCount
+         << ",\"workload_rounded_ratio\":"
+         << options.workload.roundedRatio
+         << ",\"workload_state_change_rate\":"
+         << options.workload.stateChangeRate
+         << ",\"workload_text_length\":"
+         << options.workload.textLength
          << ",\"hardware_threads\":" << std::thread::hardware_concurrency()
          << ",\"initialization_ms\":" << initializationMs
          << ",\"initial_rss_bytes\":" << memory.residentBytes
@@ -1562,11 +2165,13 @@ bool runScene(
     const Distribution total = summarize(std::move(totalSamples));
     const ProcessMemory after = processMemory();
     const wsc::Canvas::RenderStats stats = context.canvas().getRenderStats();
+    const std::size_t operationCount =
+        operationsPerFrame(scene, options);
     const double fps =
         total.median > 0.0 ? 1000.0 / total.median : 0.0;
     const double operationsPerSecond =
         total.median > 0.0
-        ? static_cast<double>(scene.operationsPerFrame) * 1000.0
+        ? static_cast<double>(operationCount) * 1000.0
             / total.median
         : 0.0;
     const std::int64_t rssDelta =
@@ -1584,7 +2189,29 @@ bool runScene(
          << ",\"height\":" << options.height
          << ",\"frames\":" << options.frames
          << ",\"warmup\":" << options.warmup
-         << ",\"operations_per_frame\":" << scene.operationsPerFrame
+         << ",\"workload_mode\":\""
+         << (options.workload.customized
+                 && scene.drawWorkload != nullptr
+             ? workloadModeName(options.workload.mode)
+             : "fixed")
+         << "\""
+         << ",\"workload_seed\":" << options.workload.seed
+         << ",\"texture_count\":"
+         << (scene.drawWorkload == drawImageWorkload
+             && options.workload.customized
+             ? options.workload.textureCount : 1)
+         << ",\"rounded_ratio\":"
+         << (scene.drawWorkload == drawImageWorkload
+             && options.workload.customized
+             ? options.workload.roundedRatio : 0.0)
+         << ",\"state_change_rate\":"
+         << (options.workload.customized
+             ? options.workload.stateChangeRate : 0.0)
+         << ",\"text_length\":"
+         << (scene.drawWorkload == drawTextWorkload
+             && options.workload.customized
+             ? options.workload.textLength : 0)
+         << ",\"operations_per_frame\":" << operationCount
          << ",\"cold_total_ms\":" << cold.totalMs;
     appendDistribution(json, "record", record);
     appendDistribution(json, "submit", submit);
