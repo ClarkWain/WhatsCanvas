@@ -268,6 +268,73 @@ bool testPortableBackendUsesGlyphAtlasForRegisteredFont()
     return ok;
 }
 
+bool testPortableGlyphLayoutCacheIsPositionIndependent()
+{
+    const std::string fontPath = findSystemFontPath();
+    if (fontPath.empty()) {
+        std::cout << "Skipping glyph layout cache position test; no known system font path found." << std::endl;
+        return true;
+    }
+
+    const auto makeBackend = [&]() {
+        std::unique_ptr<wsc::text::ITextBackend> backend =
+            wsc::text::createPortableTextBackend();
+        if (!backend->registerFontFace(wsc::FontFace::fromFile(
+                wsc::FontDescriptor("LayoutCache"), fontPath))) {
+            return std::unique_ptr<wsc::text::ITextBackend>{};
+        }
+        return backend;
+    };
+
+    std::unique_ptr<wsc::text::ITextBackend> cachedBackend = makeBackend();
+    std::unique_ptr<wsc::text::ITextBackend> freshBackend = makeBackend();
+    if (!expect(cachedBackend != nullptr && freshBackend != nullptr,
+                "layout cache test font should register")) {
+        return false;
+    }
+
+    Paint paint;
+    paint.setTextSize(24.0f);
+    paint.setFontFamily("LayoutCache");
+    paint.setFontWeight(700);
+    const std::string text = "Position-independent AV fi";
+    cachedBackend->renderText(text, 7.0f, 11.0f, paint);
+    const auto cached =
+        cachedBackend->renderText(text, 113.0f, 79.0f, paint);
+    const auto fresh =
+        freshBackend->renderText(text, 113.0f, 79.0f, paint);
+
+    bool ok = expect(cached.kind == wsc::text::TextRenderKind::GlyphAtlas
+                         && fresh.kind == wsc::text::TextRenderKind::GlyphAtlas,
+                     "cached and fresh layout renders should use the glyph atlas");
+    ok = expect(cached.drawX == fresh.drawX
+                    && cached.drawY == fresh.drawY
+                    && cached.width == fresh.width
+                    && cached.height == fresh.height,
+                "cached layout metrics should match a fresh render") && ok;
+    ok = expect(cached.glyphAtlasQuads.size()
+                    == fresh.glyphAtlasQuads.size(),
+                "cached layout should preserve the glyph count") && ok;
+    if (cached.glyphAtlasQuads.size() != fresh.glyphAtlasQuads.size()) {
+        return false;
+    }
+
+    for (std::size_t index = 0;
+         index < cached.glyphAtlasQuads.size(); ++index) {
+        const auto &left = cached.glyphAtlasQuads[index];
+        const auto &right = fresh.glyphAtlasQuads[index];
+        const bool same =
+            left.x == right.x && left.y == right.y
+                && left.width == right.width
+                && left.height == right.height
+                && left.u0 == right.u0 && left.v0 == right.v0
+                && left.u1 == right.u1 && left.v1 == right.v1;
+        ok = expect(same,
+                    "cached glyph quad should match a fresh render") && ok;
+    }
+    return ok;
+}
+
 bool testPortableGlyphAtlasCacheKeepsFontFacesDistinct()
 {
     const std::string fontPath = findSystemFontPath();
@@ -743,6 +810,7 @@ int main()
         && testPortableBackendUsesGeometryPath()
         && testPortableBackendSkipsZeroWidthBreak()
         && testPortableBackendUsesGlyphAtlasForRegisteredFont()
+        && testPortableGlyphLayoutCacheIsPositionIndependent()
         && testPortableGlyphAtlasCacheKeepsFontFacesDistinct()
         && testPortableBackendUsesRgbaAtlasForColorGlyphs()
         && testFontRasterizerCachePolicy()

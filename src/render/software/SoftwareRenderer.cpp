@@ -1016,6 +1016,18 @@ void rasterizeImageBatch(
     image.blendMode = batch.blendMode;
     image.clipMask = batch.clipMask;
     for (const DrawImageBatchQuad &quad : batch.quads) {
+        image.tintColor[0] = batch.tintColor[0]
+            * static_cast<float>(quad.packedTint & 0xffu) / 255.0f;
+        image.tintColor[1] = batch.tintColor[1]
+            * static_cast<float>((quad.packedTint >> 8u) & 0xffu)
+                / 255.0f;
+        image.tintColor[2] = batch.tintColor[2]
+            * static_cast<float>((quad.packedTint >> 16u) & 0xffu)
+                / 255.0f;
+        image.tintColor[3] = batch.tintColor[3];
+        image.alpha = batch.alpha
+            * static_cast<float>((quad.packedTint >> 24u) & 0xffu)
+                / 255.0f;
         image.x = quad.x;
         image.y = quad.y;
         image.width = quad.width;

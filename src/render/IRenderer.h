@@ -10,6 +10,7 @@
 #include "wsc/ImageFilter.h"
 
 class Command;
+struct DrawImageBatchData;
 
 struct OffscreenRenderRequest
 {
@@ -21,6 +22,8 @@ struct OffscreenRenderRequest
     int viewportY = 0;
     int scissorOffsetX = 0;
     int scissorOffsetY = 0;
+    // Safe only when the result is composited directly, without async filters.
+    bool allowDirectTargetSampling = false;
 };
 
 class IRenderer
@@ -32,16 +35,34 @@ public:
     virtual void finalizeBackend() = 0;
     virtual void setViewport(int width, int height) = 0;
     virtual void submit(std::unique_ptr<Command> &&command) = 0;
+    virtual bool tryAppendImageBatch(
+        const DrawImageBatchData & /*batch*/)
+    {
+        return false;
+    }
     virtual size_t commandCount() const = 0;
     virtual std::vector<std::unique_ptr<Command>> takeCommandsFrom(size_t index) = 0;
     virtual void appendCommands(std::vector<std::unique_ptr<Command>> &&commands) = 0;
     virtual bool readPixelsRGBA(std::vector<unsigned char> &pixels) const = 0;
     virtual SharedClipMaskResource createClipMaskResource(const ClipMaskPath &maskPath) const = 0;
     virtual SharedImageResource createImageResourceRGBA(int width, int height, const std::vector<unsigned char> &pixels) const = 0;
+    virtual SharedImageResource createImageResourceAlpha8(
+        int /*width*/, int /*height*/,
+        const std::vector<unsigned char> & /*pixels*/) const
+    {
+        return {};
+    }
     virtual SharedImageResource createImageResourceFromImageData(int width, int height, int channels,
                                                                  const unsigned char *pixels, bool generateMipmaps) const = 0;
     virtual bool updateImageResourceRGBA(const SharedImageResource &imageResource, int x, int y, int width, int height,
                                          const unsigned char *pixels, bool regenerateMipmaps) const = 0;
+    virtual bool updateImageResourceAlpha8(
+        const SharedImageResource & /*imageResource*/,
+        int /*x*/, int /*y*/, int /*width*/, int /*height*/,
+        const unsigned char * /*pixels*/) const
+    {
+        return false;
+    }
     virtual SharedImageResource wrapExternalImageResource(ImageResourceHandle handle) const = 0;
     virtual const FrameStats &frameStats() const = 0;
     virtual void resetFrameStats() = 0;

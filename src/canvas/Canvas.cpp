@@ -1484,6 +1484,29 @@ std::vector<unsigned char> makeGlyphAtlasRgbaRect(const wsc::text::TextRenderRes
     return pixels;
 }
 
+std::vector<unsigned char> makeGlyphAtlasAlphaRect(
+    const wsc::text::TextRenderResult &renderedText,
+    const wsc::text::TextRenderResult::GlyphAtlasDirtyRect &rect)
+{
+    std::vector<unsigned char> pixels(
+        static_cast<std::size_t>(rect.width)
+            * static_cast<std::size_t>(rect.height));
+    const auto &source = glyphAtlasAlphaPixels(renderedText);
+    for (int row = 0; row < rect.height; ++row) {
+        const std::size_t src =
+            static_cast<std::size_t>(rect.y + row)
+                * static_cast<std::size_t>(renderedText.atlasWidth)
+            + static_cast<std::size_t>(rect.x);
+        const std::size_t dst =
+            static_cast<std::size_t>(row)
+            * static_cast<std::size_t>(rect.width);
+        std::copy_n(
+            source.begin() + static_cast<std::ptrdiff_t>(src),
+            rect.width, pixels.begin() + static_cast<std::ptrdiff_t>(dst));
+    }
+    return pixels;
+}
+
 bool isValidGlyphAtlasDirtyRect(const wsc::text::TextRenderResult &renderedText,
                                 const wsc::text::TextRenderResult::GlyphAtlasDirtyRect &rect)
 {
@@ -2556,6 +2579,7 @@ struct Canvas::Impl
     SharedImageResource glyphAtlasImageResource;
     int glyphAtlasWidth = 0;
     int glyphAtlasHeight = 0;
+    bool glyphAtlasUsesAlpha8 = false;
     std::uint64_t glyphAtlasContentHash = 0;
     // Reused-text bitmap texture cache: identical (bitmapContentId, w, h) skips
     // the per-draw createImageResourceRGBA upload. LRU by max entry count; the
@@ -3041,6 +3065,7 @@ void Canvas::Impl::releaseResources()
     glyphAtlasImageResource.reset();
     glyphAtlasWidth = 0;
     glyphAtlasHeight = 0;
+    glyphAtlasUsesAlpha8 = false;
     glyphAtlasContentHash = 0;
     glyphAtlasRevision = 0;
     bitmapTextCache.clear();
@@ -3095,13 +3120,35 @@ SharedImageResource Canvas::Impl::getOrUpdateGlyphAtlasResource(const wsc::text:
         return glyphAtlasImageResource;
     }
 
+    const bool wantsAlpha8 =
+        renderedText.atlasPixelFormat
+        != wsc::text::GlyphAtlasPixelFormat::RGBA;
+    const auto createAtlasResource = [&]() {
+        glyphAtlasUsesAlpha8 = false;
+        if (wantsAlpha8) {
+            glyphAtlasImageResource =
+                renderer->createImageResourceAlpha8(
+                    renderedText.atlasWidth,
+                    renderedText.atlasHeight, alphaPixels);
+            glyphAtlasUsesAlpha8 =
+                glyphAtlasImageResource
+                && glyphAtlasImageResource->isValid();
+        }
+        if (!glyphAtlasUsesAlpha8) {
+            const std::vector<unsigned char> atlasPixels =
+                makeGlyphAtlasRgba(renderedText);
+            glyphAtlasImageResource =
+                renderer->createImageResourceRGBA(
+                    renderedText.atlasWidth,
+                    renderedText.atlasHeight, atlasPixels);
+        }
+    };
+
     if (!glyphAtlasImageResource || !glyphAtlasImageResource->isValid()
         || glyphAtlasWidth != renderedText.atlasWidth
-        || glyphAtlasHeight != renderedText.atlasHeight) {
-        const std::vector<unsigned char> atlasPixels = makeGlyphAtlasRgba(renderedText);
-        glyphAtlasImageResource = renderer->createImageResourceRGBA(renderedText.atlasWidth,
-                                                                    renderedText.atlasHeight,
-                                                                    atlasPixels);
+        || glyphAtlasHeight != renderedText.atlasHeight
+        || (glyphAtlasUsesAlpha8 && !wantsAlpha8)) {
+        createAtlasResource();
     } else {
         bool updated = true;
         if (!renderedText.atlasDirtyRects.empty()) {
@@ -3111,41 +3158,51 @@ SharedImageResource Canvas::Impl::getOrUpdateGlyphAtlasResource(const wsc::text:
                     break;
                 }
 
-                const std::vector<unsigned char> rectPixels = makeGlyphAtlasRgbaRect(renderedText, dirtyRect);
-                updated = renderer->updateImageResourceRGBA(glyphAtlasImageResource,
-                                                            dirtyRect.x,
-                                                            dirtyRect.y,
-                                                            dirtyRect.width,
-                                                            dirtyRect.height,
-                                                            rectPixels.data(),
-                                                            false);
+                if (glyphAtlasUsesAlpha8) {
+                    const std::vector<unsigned char> rectPixels =
+                        makeGlyphAtlasAlphaRect(renderedText, dirtyRect);
+                    updated = renderer->updateImageResourceAlpha8(
+                        glyphAtlasImageResource, dirtyRect.x, dirtyRect.y,
+                        dirtyRect.width, dirtyRect.height,
+                        rectPixels.data());
+                } else {
+                    const std::vector<unsigned char> rectPixels =
+                        makeGlyphAtlasRgbaRect(renderedText, dirtyRect);
+                    updated = renderer->updateImageResourceRGBA(
+                        glyphAtlasImageResource, dirtyRect.x, dirtyRect.y,
+                        dirtyRect.width, dirtyRect.height,
+                        rectPixels.data(), false);
+                }
                 if (!updated) {
                     break;
                 }
             }
         } else if ((hasAtlasRevision && glyphAtlasRevision != renderedText.atlasRevision)
                    || (!hasAtlasRevision && glyphAtlasContentHash != contentHash)) {
-            const std::vector<unsigned char> atlasPixels = makeGlyphAtlasRgba(renderedText);
-            updated = renderer->updateImageResourceRGBA(glyphAtlasImageResource,
-                                                        0,
-                                                        0,
-                                                        renderedText.atlasWidth,
-                                                        renderedText.atlasHeight,
-                                                        atlasPixels.data(),
-                                                        false);
+            if (glyphAtlasUsesAlpha8) {
+                updated = renderer->updateImageResourceAlpha8(
+                    glyphAtlasImageResource, 0, 0,
+                    renderedText.atlasWidth, renderedText.atlasHeight,
+                    alphaPixels.data());
+            } else {
+                const std::vector<unsigned char> atlasPixels =
+                    makeGlyphAtlasRgba(renderedText);
+                updated = renderer->updateImageResourceRGBA(
+                    glyphAtlasImageResource, 0, 0,
+                    renderedText.atlasWidth, renderedText.atlasHeight,
+                    atlasPixels.data(), false);
+            }
         }
 
         if (!updated) {
-            const std::vector<unsigned char> atlasPixels = makeGlyphAtlasRgba(renderedText);
-            glyphAtlasImageResource = renderer->createImageResourceRGBA(renderedText.atlasWidth,
-                                                                        renderedText.atlasHeight,
-                                                                        atlasPixels);
+            createAtlasResource();
         }
     }
 
     if (!glyphAtlasImageResource || !glyphAtlasImageResource->isValid()) {
         glyphAtlasWidth = 0;
         glyphAtlasHeight = 0;
+        glyphAtlasUsesAlpha8 = false;
         glyphAtlasContentHash = 0;
         glyphAtlasRevision = 0;
         return {};
@@ -3293,7 +3350,8 @@ Canvas::RenderStats Canvas::getRenderStats() const
     stats.glyphAtlasTextureBytes =
         stats.glyphAtlasTextureCount == 0 ? 0u
         : static_cast<std::size_t>(std::max(0, impl_->glyphAtlasWidth))
-            * static_cast<std::size_t>(std::max(0, impl_->glyphAtlasHeight)) * 4u;
+            * static_cast<std::size_t>(std::max(0, impl_->glyphAtlasHeight))
+            * (impl_->glyphAtlasUsesAlpha8 ? 1u : 4u);
     stats.tessellationCacheHits = impl_->fillTessellationCache.hitCount();
     stats.tessellationCacheMisses = impl_->fillTessellationCache.missCount();
     stats.tessellationCacheSize = impl_->fillTessellationCache.size();
@@ -4655,14 +4713,20 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
                 DrawImageBatchData batch;
                 batch.imageResource = imageResource;
                 batch.quads.reserve(atlasQuads.size());
-                batch.tintColor[0] = textColor.r();
-                batch.tintColor[1] = textColor.g();
-                batch.tintColor[2] = textColor.b();
-                batch.tintColor[3] = 1.0f;
-                batch.alpha = textColor.a();
                 batch.transform = transform;
                 batch.blendMode =
                     toDrawBlendMode(paint.getBlendMode());
+                const std::uint32_t packedTint =
+                    static_cast<std::uint32_t>(textColor.getR())
+                    | (static_cast<std::uint32_t>(
+                           textColor.getG())
+                       << 8u)
+                    | (static_cast<std::uint32_t>(
+                           textColor.getB())
+                       << 16u)
+                    | (static_cast<std::uint32_t>(
+                           textColor.getA())
+                       << 24u);
                 for (const auto &quad : atlasQuads) {
                     DrawImageBatchQuad imageQuad;
                     imageQuad.x = quad.x;
@@ -4673,11 +4737,14 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
                     imageQuad.v0 = quad.v0;
                     imageQuad.u1 = quad.u1;
                     imageQuad.v1 = quad.v1;
+                    imageQuad.packedTint = packedTint;
                     batch.quads.push_back(imageQuad);
                 }
-                impl_->renderer->submit(
-                    std::make_unique<DrawImageBatchCommand>(
-                        std::move(batch)));
+                if (!impl_->renderer->tryAppendImageBatch(batch)) {
+                    impl_->renderer->submit(
+                        std::make_unique<DrawImageBatchCommand>(
+                            std::move(batch)));
+                }
                 return;
             }
 
@@ -5627,6 +5694,9 @@ void Canvas::Impl::restoreLayer(const LayerState &layer)
     request.viewportY = -(height - layerBottom);
     request.scissorOffsetX = -layerLeft;
     request.scissorOffsetY = -(height - layerBottom);
+    request.allowDirectTargetSampling =
+        !layer.options.hasImageFilter()
+        && !layer.options.hasBackdropFilter();
 
     std::vector<std::unique_ptr<Command>> layerCommands;
     std::size_t generatedBackdropCommandCount = 0;

@@ -46,6 +46,13 @@ public:
              const glm::mat4 &transform = glm::mat4(1.0f),
              float roundedRadius = 0.0f);
 
+    /// Add an atlas quad using one compact instance instead of four expanded
+    /// vertices. Intended for alpha-only glyph textures.
+    void addInstance(float x, float y, float width, float height,
+                     float u0, float v0, float u1, float v1,
+                     float r, float g, float b, float a,
+                     const glm::mat4 &transform = glm::mat4(1.0f));
+
     /// Submit all accumulated sprites as a single draw call.
     void flush(RenderContext &context, DrawBlendMode blendMode);
 
@@ -53,21 +60,33 @@ public:
     void clear();
 
     /// Get the number of sprites in the current batch.
-    std::size_t spriteCount() const { return vertexData_.size() / 52; } // 4 verts * 13 floats
+    std::size_t spriteCount() const
+    {
+        return !instanceData_.empty()
+            ? instanceData_.size() / 12u
+            : vertexData_.size() / 52u;
+    }
 
     /// Whether the batch has any sprites.
-    bool empty() const { return vertexData_.empty(); }
+    bool empty() const
+    {
+        return vertexData_.empty() && instanceData_.empty();
+    }
 
 private:
     std::shared_ptr<ImageResource> texture_;
     std::vector<float> vertexData_;
+    std::vector<float> instanceData_;
 
     // GL resources (lazily initialized).
     unsigned int VAO_ = static_cast<unsigned int>(-1);
     unsigned int VBO_ = static_cast<unsigned int>(-1);
     unsigned int EBO_ = static_cast<unsigned int>(-1);
+    unsigned int instanceVAO_ = static_cast<unsigned int>(-1);
+    unsigned int instanceVBO_ = static_cast<unsigned int>(-1);
     std::size_t indexSpriteCapacity_ = 0;
     GLProgram *program_ = nullptr;
+    GLProgram *instanceProgram_ = nullptr;
     bool glInitialized_ = false;
 
     void ensureGLInitialized();

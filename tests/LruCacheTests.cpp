@@ -156,6 +156,23 @@ bool testZeroCapacityIsClampedToOne()
         && expect(cache.size() == 1, "cache should hold at most one entry");
 }
 
+bool testStringKeys()
+{
+    wsc::render::LruCache<int, std::string> cache(2);
+    cache.insert("first", 1);
+    cache.insert("second", 2);
+    cache.find("first");
+    cache.insert("third", 3);
+
+    const int *first = cache.find("first");
+    return expect(first != nullptr && *first == 1,
+                  "custom string key should retrieve its value")
+        && expect(cache.find("second") == nullptr,
+                  "custom string key should participate in LRU eviction")
+        && expect(cache.find("third") != nullptr,
+                  "new custom string key should remain cached");
+}
+
 } // namespace
 
 int main()
@@ -171,5 +188,6 @@ int main()
     ok = testOversizedValueIsSoleEntry() && ok;
     ok = testClearAndResetStats() && ok;
     ok = testZeroCapacityIsClampedToOne() && ok;
+    ok = testStringKeys() && ok;
     return ok ? 0 : 1;
 }

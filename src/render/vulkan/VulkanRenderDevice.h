@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -9,6 +10,7 @@
 #include "../IRenderDevice.h"
 
 class RenderTargetPool;
+struct DrawPathGeometry;
 
 /// Vulkan implementation of the WhatsCanvas render-device abstraction.
 ///
@@ -43,11 +45,18 @@ public:
     SharedClipMaskResource createClipMaskResource(const ClipMaskPath &maskPath) const override;
     SharedImageResource createImageResourceRGBA(int width, int height,
                                                 const std::vector<unsigned char> &pixels) const override;
+    SharedImageResource createImageResourceAlpha8(
+        int width, int height,
+        const std::vector<unsigned char> &pixels) const override;
     SharedImageResource createImageResourceFromImageData(int width, int height, int channels,
                                                          const unsigned char *pixels,
                                                          bool generateMipmaps) const override;
     bool updateImageResourceRGBA(const SharedImageResource &imageResource, int x, int y, int width, int height,
                                  const unsigned char *pixels, bool regenerateMipmaps) const override;
+    bool updateImageResourceAlpha8(
+        const SharedImageResource &imageResource,
+        int x, int y, int width, int height,
+        const unsigned char *pixels) const override;
     SharedImageResource wrapExternalImageResource(ImageResourceHandle handle) const override;
 
     /// Vulkan-specific: returns the underlying VkImage of an owned texture
@@ -201,13 +210,17 @@ private:
     bool executeDrawListWithCopy(
         const std::unique_ptr<IRenderTarget> &target,
         const wsc::DrawList &drawList,
-        const SharedImageResource &copyDestination) const;
+        const SharedImageResource &copyDestination,
+        bool prepareTargetForSampling) const;
     bool executeCommandsWithCopy(
         const std::unique_ptr<IRenderTarget> &target,
         const std::vector<std::unique_ptr<Command>> &commands,
         const OffscreenRenderRequest &request,
-        const SharedImageResource &copyDestination) const;
+        const SharedImageResource &copyDestination,
+        bool prepareTargetForSampling) const;
     void releasePendingFilterTargets() const;
+    void releaseDrawFrameTargets(std::size_t frameIndex) const;
+    void releaseAllDrawFrameTargets() const;
 
     /// On-screen presentation swapchain, defined in the implementation file.
     /// Nested so it can access VulkanContext and the private device handles.
@@ -218,7 +231,20 @@ private:
     mutable std::vector<std::unique_ptr<IRenderTarget>>
         pendingFilterTargets_;
     mutable std::vector<SharedImageResource> pendingFilterImages_;
+    static constexpr std::size_t kDrawFramesInFlight = 3;
+    mutable std::array<
+        std::vector<std::unique_ptr<IRenderTarget>>,
+        kDrawFramesInFlight>
+        drawFrameTargets_;
     mutable std::size_t lastExecutionDrawCallCount_ = 0;
     mutable std::size_t lastExecutionMergedBatchCount_ = 0;
+    // Reused CPU staging for large Vulkan frames. Keeping these vectors alive
+    // mirrors the OpenGL path-batch scratch model and avoids allocating several
+    // megabytes of merged geometry and upload data every frame.
+    mutable wsc::DrawPrimitive solidBatchScratch_;
+    mutable std::vector<std::shared_ptr<const DrawPathGeometry>>
+        solidBatchTopology_;
+    mutable std::vector<float> drawVertexUploadScratch_;
+    mutable std::vector<unsigned char> drawIndexUploadScratch_;
     bool backendInitialized_ = false;
 };

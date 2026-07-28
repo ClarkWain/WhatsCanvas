@@ -261,6 +261,7 @@ bool encodeImageBatch(
     prim.useCustomSampler = true;
     prim.positions.reserve(d.quads.size() * 12u);
     prim.uvs.reserve(d.quads.size() * 12u);
+    prim.packedTints.reserve(d.quads.size() * 6u);
     constexpr int indices[6] = {0, 1, 2, 0, 2, 3};
     for (const DrawImageBatchQuad &quad : d.quads) {
         float nx[4], ny[4];
@@ -281,6 +282,7 @@ bool encodeImageBatch(
             prim.positions.push_back(ny[index]);
             prim.uvs.push_back(uu[index]);
             prim.uvs.push_back(vv[index]);
+            prim.packedTints.push_back(quad.packedTint);
         }
     }
     out.push_back(std::move(prim));
@@ -357,12 +359,19 @@ bool encodeCommandsToDrawList(const std::vector<std::unique_ptr<Command>> &comma
                     }
                 }
             }
+            const bool retainIndices =
+                d.hasIndices() && !d.hasShaderGradient();
+            const std::size_t emittedVertexCount =
+                retainIndices ? sourceVertexCount : vertexCount;
+            const auto emittedSourceIndex = [&](std::size_t vertex) {
+                return retainIndices ? vertex : sourceIndex(vertex);
+            };
             wsc::DrawPrimitive prim;
             prim.blendMode = mapBlend(d.blendMode);
             applyScissor(prim, d.scissor, request);
-            prim.positions.reserve(vertexCount * 2);
-            for (std::size_t i = 0; i < vertexCount; ++i) {
-                const std::size_t source = sourceIndex(i);
+            prim.positions.reserve(emittedVertexCount * 2);
+            for (std::size_t i = 0; i < emittedVertexCount; ++i) {
+                const std::size_t source = emittedSourceIndex(i);
                 float nx = 0.0f, ny = 0.0f;
                 toNdc(
                     request, d.transform,
@@ -373,9 +382,11 @@ bool encodeCommandsToDrawList(const std::vector<std::unique_ptr<Command>> &comma
             }
             if (d.hasShaderGradient()) {
                 prim.kind = wsc::DrawPrimitiveKind::GradientFill;
-                prim.localPositions.reserve(vertexCount * 2);
-                for (std::size_t i = 0; i < vertexCount; ++i) {
-                    const std::size_t source = sourceIndex(i);
+                prim.localPositions.reserve(emittedVertexCount * 2);
+                for (std::size_t i = 0;
+                     i < emittedVertexCount; ++i) {
+                    const std::size_t source =
+                        emittedSourceIndex(i);
                     const glm::vec4 p =
                         d.transform
                         * glm::vec4(
@@ -388,10 +399,19 @@ bool encodeCommandsToDrawList(const std::vector<std::unique_ptr<Command>> &comma
                 copyGradient(d, prim);
             } else {
                 prim.kind = wsc::DrawPrimitiveKind::SolidTriangles;
+                if (retainIndices) {
+                    prim.indices.reserve(vertexCount);
+                    for (std::size_t element = 0;
+                         element < vertexCount; ++element) {
+                        prim.indices.push_back(d.getIndex(element));
+                    }
+                }
                 if (d.hasVertexColors()) {
-                    prim.colors.reserve(vertexCount * 4u);
-                    for (std::size_t i = 0; i < vertexCount; ++i) {
-                        const std::size_t source = sourceIndex(i);
+                    prim.colors.reserve(emittedVertexCount * 4u);
+                    for (std::size_t i = 0;
+                         i < emittedVertexCount; ++i) {
+                        const std::size_t source =
+                            emittedSourceIndex(i);
                         for (std::size_t channel = 0; channel < 4; ++channel) {
                             prim.colors.push_back(
                                 d.vertexColorAt(source, channel));
@@ -399,10 +419,11 @@ bool encodeCommandsToDrawList(const std::vector<std::unique_ptr<Command>> &comma
                     }
                 }
                 if (d.hasCoverage()) {
-                    prim.coverage.reserve(vertexCount);
-                    for (std::size_t i = 0; i < vertexCount; ++i) {
+                    prim.coverage.reserve(emittedVertexCount);
+                    for (std::size_t i = 0;
+                         i < emittedVertexCount; ++i) {
                         prim.coverage.push_back(
-                            d.coverageAt(sourceIndex(i)));
+                            d.coverageAt(emittedSourceIndex(i)));
                     }
                 }
                 prim.color[0] = d.color[0];

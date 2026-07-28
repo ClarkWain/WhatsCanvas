@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <iostream>
+#include <utility>
 #include <vector>
 
 #include "render/DrawList.h"
@@ -61,9 +62,10 @@ int main()
     background.kind = wsc::DrawPrimitiveKind::SolidTriangles;
     background.blendMode = 0; // SrcOver
     background.positions = {
-        -1.0f, -1.0f, 1.0f, -1.0f, 1.0f, 1.0f,
-        -1.0f, -1.0f, 1.0f,  1.0f, -1.0f, 1.0f,
+        -1.0f, -1.0f, 1.0f, -1.0f,
+         1.0f,  1.0f, -1.0f, 1.0f,
     };
+    background.indices = {0, 1, 2, 0, 2, 3};
     background.color[0] = 0.0f;
     background.color[1] = 1.0f;
     background.color[2] = 0.0f;
@@ -109,6 +111,7 @@ int main()
     wsc::DrawPrimitive bg2;
     bg2.kind = wsc::DrawPrimitiveKind::SolidTriangles;
     bg2.positions = background.positions;
+    bg2.indices = background.indices;
     bg2.color[0] = 0.0f;
     bg2.color[1] = 0.0f;
     bg2.color[2] = 0.0f;
@@ -170,6 +173,36 @@ int main()
     if (!pixelIs(pixels, width, 16, 12, 0, 255, 0, 255, "clip top-left green")) return 1;
     if (!pixelIs(pixels, width, 48, 36, 0, 0, 0, 0, "clip bottom-right clear")) return 1;
 
+    // Fourth list: the compact solid fast path used by large merged geometry.
+    wsc::DrawList compactList;
+    wsc::DrawPrimitive compactQuad;
+    compactQuad.kind = wsc::DrawPrimitiveKind::SolidTriangles;
+    compactQuad.compactSolidAttributes = true;
+    compactQuad.indicesTrusted = true;
+    constexpr std::uint32_t packedBlue =
+        40u | (80u << 8u) | (200u << 16u) | (255u << 24u);
+    compactQuad.compactVertices = {
+        {-1.0f, -1.0f, packedBlue, 255u},
+        { 1.0f, -1.0f, packedBlue, 255u},
+        { 1.0f,  1.0f, packedBlue, 255u},
+        {-1.0f,  1.0f, packedBlue, 255u},
+    };
+    compactQuad.shortIndices = {0, 1, 2, 0, 2, 3};
+    compactList.push_back(std::move(compactQuad));
+
+    auto dst4 = device.createRenderTarget(width, height);
+    if (!dst4 || !dst4->isValid()
+        || !device.executeDrawList(dst4, compactList)) {
+        std::cerr << "[VulkanDrawListTests] FAIL: compact solid executeDrawList failed." << std::endl;
+        return 1;
+    }
+    if (!device.readPixelsRGBA(width, height, pixels)) {
+        std::cerr << "[VulkanDrawListTests] FAIL: compact solid readback failed." << std::endl;
+        return 1;
+    }
+    if (!pixelIs(pixels, width, width / 2, height / 2,
+                 40, 80, 200, 255, "compact solid blue")) return 1;
+
     std::cout << "[VulkanDrawListTests] PASS: backend-neutral DrawList executed on \"" << device.selectedDeviceName()
               << "\"." << std::endl;
 
@@ -178,11 +211,13 @@ int main()
     drawList.clear();
     mixed.clear();
     clipList.clear();
+    compactList.clear();
     texturedQuad.texture.reset();
     clipFill.texture.reset();
     maskTex.reset();
     texture.reset();
     dst3.reset();
+    dst4.reset();
     dst2.reset();
     target.reset();
     device.finalizeBackend();

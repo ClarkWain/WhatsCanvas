@@ -106,6 +106,76 @@ int main()
     if (!pixelIs(pixels, width, width / 2, height / 2, 255, 0, 0, 255, "center red")) return 1;
     if (!pixelIs(pixels, width, 0, 0, 0, 0, 0, 0, "corner clear")) return 1;
 
+    // Three compatible indexed paths exercise direct solid-path batching:
+    // index rebasing, uniform-to-vertex color expansion, packed vertex colors,
+    // and missing analytic coverage all need to remain aligned.
+    const auto makeIndexedQuad = [height](
+                                     float left, float right,
+                                     float red, float green,
+                                     float blue) {
+        DrawPathData data;
+        data.points = {
+            left, 0.0f, right, 0.0f,
+            right, static_cast<float>(height),
+            left, static_cast<float>(height),
+        };
+        data.shortIndices = {0, 1, 2, 0, 2, 3};
+        data.color[0] = red;
+        data.color[1] = green;
+        data.color[2] = blue;
+        data.color[3] = 1.0f;
+        data.drawMode = PathDrawMode::Fill;
+        return data;
+    };
+    DrawPathData redQuad =
+        makeIndexedQuad(0.0f, 20.0f, 1.0f, 0.0f, 0.0f);
+    DrawPathData greenQuad =
+        makeIndexedQuad(22.0f, 42.0f, 0.0f, 1.0f, 0.0f);
+    greenQuad.packedCoverage = {255, 255, 255, 255};
+    DrawPathData blueQuad =
+        makeIndexedQuad(44.0f, 64.0f, 0.0f, 0.0f, 0.0f);
+    blueQuad.packedColors = {
+        0, 0, 255, 255, 0, 0, 255, 255,
+        0, 0, 255, 255, 0, 0, 255, 255,
+    };
+    std::vector<std::unique_ptr<Command>> batchedCommands;
+    batchedCommands.push_back(
+        std::make_unique<DrawPathCommand>(redQuad));
+    batchedCommands.push_back(
+        std::make_unique<DrawPathCommand>(greenQuad));
+    batchedCommands.push_back(
+        std::make_unique<DrawPathCommand>(blueQuad));
+    if (!device.executeCommands(
+            target, batchedCommands, request)) {
+        std::cerr
+            << "[VulkanCommandTests] FAIL: executeCommands "
+               "(indexed batch) returned false."
+            << std::endl;
+        return 1;
+    }
+    if (!device.readPixelsRGBA(width, height, pixels)) {
+        std::cerr
+            << "[VulkanCommandTests] FAIL: indexed batch "
+               "readback failed."
+            << std::endl;
+        return 1;
+    }
+    if (!pixelIs(
+            pixels, width, 10, height / 2,
+            255, 0, 0, 255, "indexed batch red")) {
+        return 1;
+    }
+    if (!pixelIs(
+            pixels, width, 32, height / 2,
+            0, 255, 0, 255, "indexed batch green")) {
+        return 1;
+    }
+    if (!pixelIs(
+            pixels, width, 54, height / 2,
+            0, 0, 255, 255, "indexed batch blue")) {
+        return 1;
+    }
+
     // A full-canvas green quad restricted by a top-left Canvas-space scissor.
     // ScissorState stores a bottom-left Y for the command stream; the shared
     // encoder converts it to the top-left convention used by DrawPrimitive and
@@ -184,6 +254,59 @@ int main()
     if (!pixelIs(pixels, width, width / 2, height / 2, 0, 0, 255, 255, "line center blue")) return 1;
     if (!pixelIs(pixels, width, width / 2, 2, 0, 0, 0, 0, "line off clear")) return 1;
 
+    // Alpha-only image batches use the compact instanced glyph-atlas path.
+    const std::vector<unsigned char> alphaTexel = {255};
+    auto alphaImage =
+        device.createImageResourceAlpha8(1, 1, alphaTexel);
+    if (!alphaImage || !alphaImage->isValid()) {
+        std::cerr
+            << "[VulkanCommandTests] FAIL: could not create "
+               "alpha batch image."
+            << std::endl;
+        return 1;
+    }
+    DrawImageBatchData alphaBatchData;
+    alphaBatchData.imageResource = alphaImage;
+    alphaBatchData.quads = {
+        {4.0f, 4.0f, 20.0f, 16.0f,
+         0.0f, 0.0f, 1.0f, 1.0f, 0xff0000ffu},
+        {36.0f, 28.0f, 20.0f, 16.0f,
+         0.0f, 0.0f, 1.0f, 1.0f, 0xff00ff00u},
+    };
+    std::vector<std::unique_ptr<Command>> alphaBatchCommands;
+    alphaBatchCommands.push_back(
+        std::make_unique<DrawImageBatchCommand>(alphaBatchData));
+    if (!device.executeCommands(
+            target, alphaBatchCommands, request)) {
+        std::cerr
+            << "[VulkanCommandTests] FAIL: executeCommands "
+               "(alpha image batch) returned false."
+            << std::endl;
+        return 1;
+    }
+    if (!device.readPixelsRGBA(width, height, pixels)) {
+        std::cerr
+            << "[VulkanCommandTests] FAIL: alpha image batch "
+               "readback failed."
+            << std::endl;
+        return 1;
+    }
+    if (!pixelIs(
+            pixels, width, 12, 12, 255, 0, 0, 255,
+            "alpha image batch first red")) {
+        return 1;
+    }
+    if (!pixelIs(
+            pixels, width, 44, 36, 0, 255, 0, 255,
+            "alpha image batch second green")) {
+        return 1;
+    }
+    if (!pixelIs(
+            pixels, width, 30, 24, 0, 0, 0, 0,
+            "alpha image batch gap clear")) {
+        return 1;
+    }
+
     // A DrawImage command: a 2x2 texture drawn across the whole canvas.
     const std::vector<unsigned char> texels = {
         255, 0,   0,   255, 0,   255, 0,   255,
@@ -218,6 +341,131 @@ int main()
     }
     if (!pixelIs(pixels, width, 16, 12, 255, 0, 0, 255, "image top-left red")) return 1;
     if (!pixelIs(pixels, width, 48, 36, 255, 255, 0, 255, "image bottom-right yellow")) return 1;
+
+    // Different per-image alpha values are folded into packed vertex tints.
+    // Non-overlapping rounded and square quads carry their clip parameters per
+    // instance, so all four images become one draw without changing painter
+    // order. Seven submissions also exercise descriptor-set reuse before the
+    // final readback; busy GPUs rotate through the three frame slots while
+    // already-signaled slots are reclaimed in place.
+    const std::vector<unsigned char> whiteTexel = {
+        255, 255, 255, 255};
+    auto whiteImage =
+        device.createImageResourceRGBA(1, 1, whiteTexel);
+    if (!whiteImage || !whiteImage->isValid()) {
+        std::cerr
+            << "[VulkanCommandTests] FAIL: could not create "
+               "batch image."
+            << std::endl;
+        return 1;
+    }
+    std::vector<std::unique_ptr<Command>> textureBatchCommands;
+    constexpr float alphas[4] = {0.25f, 0.5f, 0.75f, 1.0f};
+    for (int column = 0; column < 4; ++column) {
+        DrawImageData batchImageData;
+        batchImageData.imageResource = whiteImage;
+        batchImageData.x = static_cast<float>(column * 16);
+        batchImageData.y = 0.0f;
+        batchImageData.width = 14.0f;
+        batchImageData.height = static_cast<float>(height);
+        batchImageData.alpha = alphas[column];
+        batchImageData.tintColor[0] = 1.0f;
+        batchImageData.tintColor[1] = 0.0f;
+        batchImageData.tintColor[2] = 0.0f;
+        batchImageData.tintColor[3] = 1.0f;
+        batchImageData.roundedRadius =
+            (column % 2) == 0 ? 4.0f : 0.0f;
+        batchImageData.sampling = DrawImageSampling::Nearest;
+        textureBatchCommands.push_back(
+            std::make_unique<DrawImageCommand>(batchImageData));
+    }
+    for (int frame = 0; frame < 7; ++frame) {
+        if (!device.executeCommands(
+                target, textureBatchCommands, request)) {
+            std::cerr
+                << "[VulkanCommandTests] FAIL: async texture "
+                   "batch frame "
+                << frame << " failed." << std::endl;
+            return 1;
+        }
+        if (device.lastExecutionDrawCallCount() != 1u) {
+            std::cerr
+                << "[VulkanCommandTests] FAIL: texture batch "
+                   "used "
+                << device.lastExecutionDrawCallCount()
+                << " draws, expected 1." << std::endl;
+            return 1;
+        }
+    }
+    if (!device.readPixelsRGBA(width, height, pixels)) {
+        std::cerr
+            << "[VulkanCommandTests] FAIL: async texture batch "
+               "readback failed."
+            << std::endl;
+        return 1;
+    }
+    if (!pixelNear(
+            pixels, width, 7, height / 2,
+            64, 0, 0, 64, 2, "batch alpha 25%")) {
+        return 1;
+    }
+    if (!pixelNear(
+            pixels, width, 23, height / 2,
+            128, 0, 0, 128, 2, "batch alpha 50%")) {
+        return 1;
+    }
+    if (!pixelNear(
+            pixels, width, 39, height / 2,
+            191, 0, 0, 191, 2, "batch alpha 75%")) {
+        return 1;
+    }
+    if (!pixelIs(
+            pixels, width, 55, height / 2,
+            255, 0, 0, 255, "batch alpha 100%")) {
+        return 1;
+    }
+
+    // The recorded commands may be reused when only instance payload changes.
+    // Verify that the persistent command buffer still consumes the newly
+    // uploaded vertex data instead of retaining the previous frame's tint.
+    std::vector<std::unique_ptr<Command>> updatedTextureBatchCommands;
+    for (int column = 0; column < 4; ++column) {
+        DrawImageData batchImageData;
+        batchImageData.imageResource = whiteImage;
+        batchImageData.x = static_cast<float>(column * 16);
+        batchImageData.y = 0.0f;
+        batchImageData.width = 14.0f;
+        batchImageData.height = static_cast<float>(height);
+        batchImageData.alpha = alphas[column];
+        batchImageData.tintColor[0] = 0.0f;
+        batchImageData.tintColor[1] = 1.0f;
+        batchImageData.tintColor[2] = 0.0f;
+        batchImageData.tintColor[3] = 1.0f;
+        batchImageData.roundedRadius =
+            (column % 2) == 0 ? 4.0f : 0.0f;
+        batchImageData.sampling = DrawImageSampling::Nearest;
+        updatedTextureBatchCommands.push_back(
+            std::make_unique<DrawImageCommand>(batchImageData));
+    }
+    if (!device.executeCommands(
+            target, updatedTextureBatchCommands, request)) {
+        std::cerr
+            << "[VulkanCommandTests] FAIL: updated texture "
+               "batch frame failed." << std::endl;
+        return 1;
+    }
+    if (!device.readPixelsRGBA(width, height, pixels)) {
+        std::cerr
+            << "[VulkanCommandTests] FAIL: updated texture "
+               "batch readback failed." << std::endl;
+        return 1;
+    }
+    if (!pixelNear(
+            pixels, width, 23, height / 2,
+            0, 128, 0, 128, 2,
+            "reused command buffer updated tint")) {
+        return 1;
+    }
 
     // A vertex-color path (baked gradient): a full-canvas quad, left red, right blue.
     DrawPathData gradientData;
@@ -277,18 +525,52 @@ int main()
     if (!pixelIs(pixels, width, width / 2, height / 2, 255, 0, 0, 255, "layer center red")) return 1;
     if (!pixelIs(pixels, width, 0, 0, 0, 0, 0, 0, "layer corner clear")) return 1;
 
+    // Plain saveLayer composition may sample the render target directly. Keep
+    // this opt-in path separate from the default independent-image contract
+    // used by asynchronous filters.
+    OffscreenRenderRequest directRequest = request;
+    directRequest.allowDirectTargetSampling = true;
+    auto directLayerImage =
+        device.renderCommandsToImageResource(layerCommands, directRequest);
+    auto directDestination = device.createRenderTarget(width, height);
+    if (!directLayerImage || !directLayerImage->isValid()
+        || !directDestination || !directDestination->isValid()
+        || !device.renderTexturedQuad(
+            directDestination, directLayerImage)
+        || !device.readPixelsRGBA(width, height, pixels)) {
+        std::cerr
+            << "[VulkanCommandTests] FAIL: direct layer sampling failed."
+            << std::endl;
+        return 1;
+    }
+    if (!pixelIs(
+            pixels, width, width / 2, height / 2,
+            255, 0, 0, 255, "direct layer center red")) {
+        return 1;
+    }
+    if (!pixelIs(
+            pixels, width, 0, 0,
+            0, 0, 0, 0, "direct layer corner clear")) {
+        return 1;
+    }
+
     std::cout << "[VulkanCommandTests] PASS: translated a real Command stream on \"" << device.selectedDeviceName()
               << "\"." << std::endl;
 
     commands.clear();
+    batchedCommands.clear();
     scissoredCommands.clear();
     pointCommands.clear();
     lineCommands.clear();
     imageData.imageResource.reset();
     imageCommands.clear();
+    textureBatchCommands.clear();
+    whiteImage.reset();
     gradientCommands.clear();
     layerCommands.clear();
     layerImage.reset();
+    directLayerImage.reset();
+    directDestination.reset();
     image.reset();
     dst4.reset();
     target.reset();

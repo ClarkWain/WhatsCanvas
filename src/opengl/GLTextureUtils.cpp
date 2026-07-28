@@ -6,7 +6,8 @@
 namespace {
 
 TextureHandle createTexture(int width, int height, GLenum internalFormat, GLenum dataFormat,
-                            const void *pixels, bool generateMipmaps)
+                            const void *pixels, bool generateMipmaps,
+                            bool alphaSwizzle = false)
 {
     if (width <= 0 || height <= 0) {
         return {};
@@ -26,6 +27,12 @@ TextureHandle createTexture(int width, int height, GLenum internalFormat, GLenum
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, width, height, 0, dataFormat, GL_UNSIGNED_BYTE, pixels);
+    if (alphaSwizzle) {
+        const GLint swizzle[4] = {
+            GL_ONE, GL_ONE, GL_ONE, GL_RED};
+        glTexParameteriv(
+            GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, swizzle);
+    }
     if (generateMipmaps) {
         glGenerateMipmap(GL_TEXTURE_2D);
     }
@@ -46,6 +53,19 @@ TextureHandle createTextureRGBA(int width, int height, const std::vector<unsigne
     }
 
     return createTexture(width, height, GL_RGBA, GL_RGBA, pixels.data(), false);
+}
+
+TextureHandle createTextureAlpha8(
+    int width, int height,
+    const std::vector<unsigned char> &pixels)
+{
+    if (pixels.size()
+        < static_cast<std::size_t>(width)
+            * static_cast<std::size_t>(height)) {
+        return {};
+    }
+    return createTexture(
+        width, height, GL_R8, GL_RED, pixels.data(), false, true);
 }
 
 TextureHandle createTextureFromImageData(int width, int height, int channels, const unsigned char *pixels,
@@ -81,6 +101,35 @@ bool updateTextureRGBA(TextureHandle handle, int x, int y, int width, int height
     const GLenum error = glGetError();
     glPixelStorei(GL_UNPACK_ALIGNMENT, previousUnpackAlignment);
     glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(previousTexture));
+    return error == GL_NO_ERROR;
+}
+
+bool updateTextureAlpha8(
+    TextureHandle handle, int x, int y, int width, int height,
+    const unsigned char *pixels)
+{
+    if (!handle.isValid() || pixels == nullptr
+        || x < 0 || y < 0 || width <= 0 || height <= 0) {
+        return false;
+    }
+
+    GLint previousTexture = 0;
+    GLint previousUnpackAlignment = 4;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &previousTexture);
+    glGetIntegerv(GL_UNPACK_ALIGNMENT, &previousUnpackAlignment);
+
+    glBindTexture(
+        GL_TEXTURE_2D, static_cast<GLuint>(handle.value));
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexSubImage2D(
+        GL_TEXTURE_2D, 0, x, y, width, height,
+        GL_RED, GL_UNSIGNED_BYTE, pixels);
+
+    const GLenum error = glGetError();
+    glPixelStorei(
+        GL_UNPACK_ALIGNMENT, previousUnpackAlignment);
+    glBindTexture(
+        GL_TEXTURE_2D, static_cast<GLuint>(previousTexture));
     return error == GL_NO_ERROR;
 }
 
