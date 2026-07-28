@@ -80,6 +80,8 @@ device layer is backend-specific.
 
 - [Get Started](GETTING_STARTED_AS_LIBRARY.md) — integrate WhatsCanvas.
 - [API Reference](API_REFERENCE.md) · [API Stability](API_STABILITY.md).
-- [Performance Benchmarks](PERFORMANCE_BENCHMARKS.md) · [Memory Management](MEMORY_MANAGEMENT.md).
+- [Performance Benchmarks](PERFORMANCE_BENCHMARKS.md) ·
+  [NanoVG 性能优化实战](NANOVG_PERFORMANCE_OPTIMIZATION.md) ·
+  [Memory Management](MEMORY_MANAGEMENT.md).
 - [Text & Fonts](TEXT_FEATURE_MATRIX.md) · [Shadows](SHADOW_MODEL.md) · [Blend Modes](BLEND_MODE_AUDIT.md).
 - [Vulkan Status](vulkan-backend-status.md) · [Shader Portability](SHADER_PORTABILITY.md) · [iOS Build Notes](IOS_BUILD_NOTES.md).
