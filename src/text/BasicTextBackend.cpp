@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <deque>
 #include <memory>
 #include <optional>
 #include <string>
@@ -11,6 +10,7 @@
 
 #include "../../include/wsc/Font.h"
 #include "canvas/Paint.h"
+#include "render/LruCache.h"
 #include "text/DirectWriteTextBackend.h"
 #include "text/FontRasterizer.h"
 #include "text/GlyphAtlas.h"
@@ -25,8 +25,10 @@ using wsc::text::TextRenderKind;
 using wsc::text::TextRenderResult;
 
 constexpr size_t kMaxNativeTextCacheEntries = 128;
-constexpr size_t kMaxRasterShapeCacheEntries = 512;
-constexpr size_t kMaxRasterLayoutCacheEntries = 512;
+// Dynamic UI text commonly combines a few hundred strings with multiple
+// sizes and weights. Keep that working set hot while retaining a firm bound.
+constexpr size_t kMaxRasterShapeCacheEntries = 2048;
+constexpr size_t kMaxRasterLayoutCacheEntries = 2048;
 // Windows application UI commonly combines several text sizes, weights and
 // structural branches in one deferred Software frame.  Starting at 1024 can
 // force an atlas resize while that frame still owns commands referencing the
@@ -652,19 +654,16 @@ private:
             rasterLayoutCacheKey(normalizedText, paint);
         const std::uint64_t atlasGeneration =
             glyphAtlas_.stats().generation;
-        if (const auto cached = rasterLayoutCache_.find(layoutCacheKey);
-            cached != rasterLayoutCache_.end()
-            && cached->second.atlasGeneration == atlasGeneration) {
-            touchCacheEntry(
-                layoutCacheKey, rasterLayoutCache_,
-                rasterLayoutCacheOrder_, kMaxRasterLayoutCacheEntries);
+        if (const auto *cached = rasterLayoutCache_.find(layoutCacheKey);
+            cached != nullptr
+            && cached->atlasGeneration == atlasGeneration) {
             TextRenderResult result;
             result.kind = TextRenderKind::GlyphAtlas;
-            result.drawX = x + cached->second.drawXOffset;
-            result.drawY = y + cached->second.drawYOffset;
-            result.width = cached->second.width;
-            result.height = cached->second.height;
-            result.glyphAtlasQuads = cached->second.quads;
+            result.drawX = x + cached->drawXOffset;
+            result.drawY = y + cached->drawYOffset;
+            result.width = cached->width;
+            result.height = cached->height;
+            result.glyphAtlasQuads = cached->quads;
             for (TextRenderResult::GlyphAtlasQuad &quad :
                  result.glyphAtlasQuads) {
                 quad.x += x;
@@ -684,17 +683,20 @@ private:
             return std::nullopt;
         }
 
-        float alignedX = x;
+        float drawXOffset = 0.0f;
         if (paint.getTextAlign() == Paint::TextAlign::CENTER) {
-            alignedX -= shapedRun->width * 0.5f;
+            drawXOffset -= shapedRun->width * 0.5f;
         } else if (paint.getTextAlign() == Paint::TextAlign::RIGHT) {
-            alignedX -= shapedRun->width;
+            drawXOffset -= shapedRun->width;
         }
+        const float drawYOffset =
+            wsc::text::textBaselineOffset(
+                paint.getTextBaseline(), paint.getTextSize());
 
         TextRenderResult result;
         result.kind = TextRenderKind::GlyphAtlas;
-        result.drawX = alignedX;
-        result.drawY = y + wsc::text::textBaselineOffset(paint.getTextBaseline(), paint.getTextSize());
+        result.drawX = x + drawXOffset;
+        result.drawY = y + drawYOffset;
         result.width = shapedRun->width;
         result.height = paint.getTextSize();
 
@@ -755,12 +757,12 @@ private:
                  std::move(rasterized->bitmap), std::nullopt});
         }
 
-        const float baselineY = result.drawY + paint.getTextSize();
+        const float baselineY = drawYOffset + paint.getTextSize();
         const float spacing = std::isfinite(paint.getLetterSpacing()) ? paint.getLetterSpacing() : 0.0f;
         bool uploadedConsistentGeneration = false;
         for (int attempt = 0; attempt < 3 && !uploadedConsistentGeneration; ++attempt) {
             result.glyphAtlasQuads.clear();
-            float penX = alignedX;
+            float penX = drawXOffset;
             bool usedRasterGlyph = false;
             bool restartUpload = false;
 
@@ -829,20 +831,18 @@ private:
 
         RasterGlyphLayout cachedLayout;
         cachedLayout.atlasGeneration = glyphAtlas_.stats().generation;
-        cachedLayout.drawXOffset = result.drawX - x;
-        cachedLayout.drawYOffset = result.drawY - y;
+        cachedLayout.drawXOffset = drawXOffset;
+        cachedLayout.drawYOffset = drawYOffset;
         cachedLayout.width = result.width;
         cachedLayout.height = result.height;
         cachedLayout.quads = result.glyphAtlasQuads;
         for (TextRenderResult::GlyphAtlasQuad &quad :
-             cachedLayout.quads) {
-            quad.x -= x;
-            quad.y -= y;
+             result.glyphAtlasQuads) {
+            quad.x += x;
+            quad.y += y;
         }
-        rasterLayoutCache_[layoutCacheKey] = std::move(cachedLayout);
-        touchCacheEntry(
-            layoutCacheKey, rasterLayoutCache_,
-            rasterLayoutCacheOrder_, kMaxRasterLayoutCacheEntries);
+        rasterLayoutCache_.insert(
+            layoutCacheKey, std::move(cachedLayout));
         populateAtlasResult(result);
         return result;
     }
@@ -888,9 +888,9 @@ private:
         }
 
         const std::string cacheKey = rasterShapeCacheKey(normalizedText, paint);
-        if (const auto cached = rasterShapeCache_.find(cacheKey); cached != rasterShapeCache_.end()) {
-            touchCacheEntry(cacheKey, rasterShapeCache_, rasterShapeCacheOrder_, kMaxRasterShapeCacheEntries);
-            return cached->second;
+        if (const auto *cached = rasterShapeCache_.find(cacheKey);
+            cached != nullptr) {
+            return *cached;
         }
 
         std::vector<wsc::text::BidiRun> bidiRuns = wsc::text::segmentBidiRuns(normalizedText);
@@ -970,8 +970,7 @@ private:
             return std::nullopt;
         }
         combined.width = std::max(0.0f, combined.width);
-        rasterShapeCache_[cacheKey] = combined;
-        touchCacheEntry(cacheKey, rasterShapeCache_, rasterShapeCacheOrder_, kMaxRasterShapeCacheEntries);
+        rasterShapeCache_.insert(cacheKey, combined);
         return combined;
     }
 
@@ -1016,25 +1015,6 @@ private:
     wsc::text::BasicTextBackendOptions options_;
     std::unique_ptr<wsc::text::ITextShapingEngine> shaper_;
 
-    template <typename TValue>
-    static void touchCacheEntry(const std::string &cacheKey,
-                                std::unordered_map<std::string, TValue> &cache,
-                                std::deque<std::string> &order,
-                                std::size_t capacity)
-    {
-        auto existing = std::find(order.begin(), order.end(), cacheKey);
-        if (existing != order.end()) {
-            order.erase(existing);
-        }
-
-        order.push_back(cacheKey);
-        while (order.size() > capacity) {
-            const std::string evictedKey = order.front();
-            order.pop_front();
-            cache.erase(evictedKey);
-        }
-    }
-
     static std::string rasterShapeCacheKey(const std::string &text, const Paint &paint)
     {
         return text + '\x1f' + paint.getFontFamily() + '\x1f' + std::to_string(paint.getTextSize()) + '\x1f'
@@ -1062,9 +1042,7 @@ private:
     void clearRasterCaches()
     {
         rasterShapeCache_.clear();
-        rasterShapeCacheOrder_.clear();
         rasterLayoutCache_.clear();
-        rasterLayoutCacheOrder_.clear();
         rasterFaceCache_.clear();
     }
 
@@ -1083,15 +1061,13 @@ private:
     wsc::text::NativeTextMeasure getNativeMeasure(const std::string &text, const Paint &paint) const
     {
         const std::string cacheKey = makeNativeCacheKey(text, paint);
-        auto cached = nativeMeasureCache_.find(cacheKey);
-        if (cached != nativeMeasureCache_.end()) {
-            touchCacheEntry(cacheKey, nativeMeasureCache_, nativeMeasureCacheOrder_, kMaxNativeTextCacheEntries);
-            return cached->second;
+        if (const auto *cached = nativeMeasureCache_.find(cacheKey);
+            cached != nullptr) {
+            return *cached;
         }
 
         const auto measure = wsc::text::measureNativeText(text, paint);
-        nativeMeasureCache_[cacheKey] = measure;
-        touchCacheEntry(cacheKey, nativeMeasureCache_, nativeMeasureCacheOrder_, kMaxNativeTextCacheEntries);
+        nativeMeasureCache_.insert(cacheKey, measure);
         return measure;
     }
 
@@ -1099,31 +1075,33 @@ private:
                                                         const wsc::text::NativeTextMeasure &measure) const
     {
         const std::string cacheKey = makeNativeCacheKey(text, paint);
-        auto cached = nativeBitmapCache_.find(cacheKey);
-        if (cached != nativeBitmapCache_.end()) {
-            touchCacheEntry(cacheKey, nativeBitmapCache_, nativeBitmapCacheOrder_, kMaxNativeTextCacheEntries);
-            return cached->second;
+        if (const auto *cached = nativeBitmapCache_.find(cacheKey);
+            cached != nullptr) {
+            return *cached;
         }
 
         const auto bitmap = wsc::text::renderNativeTextBitmap(text, paint, measure);
-        nativeBitmapCache_[cacheKey] = bitmap;
-        touchCacheEntry(cacheKey, nativeBitmapCache_, nativeBitmapCacheOrder_, kMaxNativeTextCacheEntries);
+        nativeBitmapCache_.insert(cacheKey, bitmap);
         return bitmap;
     }
 
-    mutable std::unordered_map<std::string, wsc::text::NativeTextMeasure> nativeMeasureCache_;
-    mutable std::unordered_map<std::string, wsc::text::NativeTextBitmap> nativeBitmapCache_;
-    mutable std::deque<std::string> nativeMeasureCacheOrder_;
-    mutable std::deque<std::string> nativeBitmapCacheOrder_;
+    mutable wsc::render::LruCache<
+        wsc::text::NativeTextMeasure, std::string>
+        nativeMeasureCache_{kMaxNativeTextCacheEntries};
+    mutable wsc::render::LruCache<
+        wsc::text::NativeTextBitmap, std::string>
+        nativeBitmapCache_{kMaxNativeTextCacheEntries};
 #endif
     wsc::FontManager fontManager_;
     mutable wsc::text::FontRasterizer rasterizer_;
     mutable wsc::text::GlyphAtlas glyphAtlas_{kDefaultGlyphAtlasSize, kDefaultGlyphAtlasSize, 1};
     std::unique_ptr<wsc::text::ITextBackend> directWriteBackend_;
-    mutable std::unordered_map<std::string, wsc::text::ShapedTextRun> rasterShapeCache_;
-    mutable std::deque<std::string> rasterShapeCacheOrder_;
-    mutable std::unordered_map<std::string, RasterGlyphLayout> rasterLayoutCache_;
-    mutable std::deque<std::string> rasterLayoutCacheOrder_;
+    mutable wsc::render::LruCache<
+        wsc::text::ShapedTextRun, std::string>
+        rasterShapeCache_{kMaxRasterShapeCacheEntries};
+    mutable wsc::render::LruCache<
+        RasterGlyphLayout, std::string>
+        rasterLayoutCache_{kMaxRasterLayoutCacheEntries};
     mutable std::unordered_map<std::string, const wsc::FontFace *> rasterFaceCache_;
     mutable std::vector<wsc::text::TextBackendDiagnostic> diagnostics_;
     mutable std::unordered_set<std::string> diagnosticKeys_;
