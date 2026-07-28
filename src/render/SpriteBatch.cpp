@@ -50,15 +50,36 @@ void SpriteBatch::add(float x, float y, float width, float height,
         0.0f, 1.0f, roundedRadius, width, height});
 }
 
+void SpriteBatch::addInstance(
+    float x, float y, float width, float height,
+    float u0, float v0, float u1, float v1,
+    float r, float g, float b, float a,
+    const glm::mat4 &transform)
+{
+    const glm::vec4 tl =
+        transform * glm::vec4(x, y, 0.0f, 1.0f);
+    const glm::vec4 br =
+        transform
+        * glm::vec4(x + width, y + height, 0.0f, 1.0f);
+
+    instanceData_.insert(instanceData_.end(), {
+        tl.x, tl.y, br.x, br.y,
+        u0, v0, u1, v1,
+        r, g, b, a});
+}
+
 void SpriteBatch::flush(RenderContext &context, DrawBlendMode blendMode)
 {
-    if (vertexData_.empty() || !texture_ || !texture_->isValid()) {
+    if (empty() || !texture_ || !texture_->isValid()) {
         return;
     }
 
     ensureGLInitialized();
 
-    if (program_ == nullptr) {
+    const bool instanced = !instanceData_.empty();
+    GLProgram *activeProgram =
+        instanced ? instanceProgram_ : program_;
+    if (activeProgram == nullptr) {
         return;
     }
 
@@ -67,29 +88,44 @@ void SpriteBatch::flush(RenderContext &context, DrawBlendMode blendMode)
     context.applyBlendMode(blendMode);
     context.applyClipState(ScissorState{}, ClipMaskState{});
 
-    program_->use();
+    activeProgram->use();
     const glm::mat4 projection = glm::ortho(0.0f, static_cast<float>(context.getWidth()),
                                             static_cast<float>(context.getHeight()), 0.0f);
-    program_->setMat4("uProjection", projection);
-    program_->setInt("uTexture", 0);
+    activeProgram->setMat4("uProjection", projection);
+    activeProgram->setInt("uTexture", 0);
 
-    // Upload vertex data.
-    glBindVertexArray(VAO_);
-    glBindBuffer(GL_ARRAY_BUFFER, VBO_);
     const std::size_t sprites = spriteCount();
-    ensureIndexCapacity(sprites);
-    glBufferData(GL_ARRAY_BUFFER,
-                 static_cast<GLsizeiptr>(vertexData_.size() * sizeof(float)),
-                 vertexData_.data(),
-                 GL_DYNAMIC_DRAW);
+    if (instanced) {
+        glBindVertexArray(instanceVAO_);
+        glBindBuffer(GL_ARRAY_BUFFER, instanceVBO_);
+        glBufferData(
+            GL_ARRAY_BUFFER,
+            static_cast<GLsizeiptr>(
+                instanceData_.size() * sizeof(float)),
+            instanceData_.data(), GL_DYNAMIC_DRAW);
+    } else {
+        glBindVertexArray(VAO_);
+        glBindBuffer(GL_ARRAY_BUFFER, VBO_);
+        ensureIndexCapacity(sprites);
+        glBufferData(
+            GL_ARRAY_BUFFER,
+            static_cast<GLsizeiptr>(
+                vertexData_.size() * sizeof(float)),
+            vertexData_.data(), GL_DYNAMIC_DRAW);
+    }
 
     // Bind texture.
     context.bindImageResource(texture_, DrawImageSampling::Linear, DrawImageTileMode::Clamp, false);
 
-    // Draw all sprites in one call.
-    glDrawElements(
-        GL_TRIANGLES, static_cast<GLsizei>(sprites * 6u),
-        GL_UNSIGNED_INT, nullptr);
+    if (instanced) {
+        glDrawArraysInstanced(
+            GL_TRIANGLE_STRIP, 0, 4,
+            static_cast<GLsizei>(sprites));
+    } else {
+        glDrawElements(
+            GL_TRIANGLES, static_cast<GLsizei>(sprites * 6u),
+            GL_UNSIGNED_INT, nullptr);
+    }
 
     glBindVertexArray(0);
 }
@@ -97,6 +133,7 @@ void SpriteBatch::flush(RenderContext &context, DrawBlendMode blendMode)
 void SpriteBatch::clear()
 {
     vertexData_.clear();
+    instanceData_.clear();
 }
 
 void SpriteBatch::ensureGLInitialized()
@@ -165,10 +202,60 @@ void SpriteBatch::ensureGLInitialized()
     )";
 
     program_ = new GLProgram(vertexSrc, fragmentSrc);
+    const std::string instanceVertexSrc =
+        std::string(wsc::opengl::shaderVersionDirective()) + R"(
+        layout (location = 0) in vec4 aBounds;
+        layout (location = 1) in vec4 aUvRect;
+        layout (location = 2) in vec4 aColor;
+
+        uniform mat4 uProjection;
+
+        out vec2 vUv;
+        out vec4 vColor;
+
+        void main()
+        {
+            int vertex = gl_VertexID & 3;
+            vec2 corner;
+            if (vertex == 0) {
+                corner = vec2(0.0, 0.0);
+            } else if (vertex == 1) {
+                corner = vec2(1.0, 0.0);
+            } else if (vertex == 2) {
+                corner = vec2(0.0, 1.0);
+            } else {
+                corner = vec2(1.0, 1.0);
+            }
+            vec2 position =
+                mix(aBounds.xy, aBounds.zw, corner);
+            gl_Position =
+                uProjection * vec4(position, 0.0, 1.0);
+            vUv = mix(aUvRect.xy, aUvRect.zw, corner);
+            vColor = aColor;
+        }
+    )";
+    const std::string instanceFragmentSrc =
+        std::string(wsc::opengl::shaderVersionDirective()) + R"(
+        in vec2 vUv;
+        in vec4 vColor;
+
+        uniform sampler2D uTexture;
+
+        out vec4 FragColor;
+
+        void main()
+        {
+            FragColor = texture(uTexture, vUv) * vColor;
+        }
+    )";
+    instanceProgram_ =
+        new GLProgram(instanceVertexSrc, instanceFragmentSrc);
 
     glGenVertexArrays(1, &VAO_);
     glGenBuffers(1, &VBO_);
     glGenBuffers(1, &EBO_);
+    glGenVertexArrays(1, &instanceVAO_);
+    glGenBuffers(1, &instanceVBO_);
 
     glBindVertexArray(VAO_);
     glBindBuffer(GL_ARRAY_BUFFER, VBO_);
@@ -195,6 +282,20 @@ void SpriteBatch::ensureGLInitialized()
         4, 3, GL_FLOAT, GL_FALSE, 13 * sizeof(float),
         (void *)(10 * sizeof(float)));
     glEnableVertexAttribArray(4);
+
+    glBindVertexArray(instanceVAO_);
+    glBindBuffer(GL_ARRAY_BUFFER, instanceVBO_);
+    constexpr GLsizei instanceStride = 12 * sizeof(float);
+    for (GLuint attribute = 0; attribute < 3; ++attribute) {
+        glVertexAttribPointer(
+            attribute, 4, GL_FLOAT, GL_FALSE,
+            instanceStride,
+            reinterpret_cast<void *>(
+                static_cast<std::uintptr_t>(
+                    attribute * 4u * sizeof(float))));
+        glEnableVertexAttribArray(attribute);
+        glVertexAttribDivisor(attribute, 1);
+    }
 
     glBindVertexArray(0);
     glInitialized_ = true;
@@ -239,6 +340,10 @@ void SpriteBatch::releaseGLResources()
         delete program_;
         program_ = nullptr;
     }
+    if (instanceProgram_ != nullptr) {
+        delete instanceProgram_;
+        instanceProgram_ = nullptr;
+    }
 
     if (VAO_ != static_cast<unsigned int>(-1)) {
         glDeleteVertexArrays(1, &VAO_);
@@ -252,6 +357,14 @@ void SpriteBatch::releaseGLResources()
     if (EBO_ != static_cast<unsigned int>(-1)) {
         glDeleteBuffers(1, &EBO_);
         EBO_ = static_cast<unsigned int>(-1);
+    }
+    if (instanceVAO_ != static_cast<unsigned int>(-1)) {
+        glDeleteVertexArrays(1, &instanceVAO_);
+        instanceVAO_ = static_cast<unsigned int>(-1);
+    }
+    if (instanceVBO_ != static_cast<unsigned int>(-1)) {
+        glDeleteBuffers(1, &instanceVBO_);
+        instanceVBO_ = static_cast<unsigned int>(-1);
     }
     indexSpriteCapacity_ = 0;
 
