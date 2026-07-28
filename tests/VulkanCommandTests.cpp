@@ -254,6 +254,59 @@ int main()
     if (!pixelIs(pixels, width, width / 2, height / 2, 0, 0, 255, 255, "line center blue")) return 1;
     if (!pixelIs(pixels, width, width / 2, 2, 0, 0, 0, 0, "line off clear")) return 1;
 
+    // Alpha-only image batches use the compact instanced glyph-atlas path.
+    const std::vector<unsigned char> alphaTexel = {255};
+    auto alphaImage =
+        device.createImageResourceAlpha8(1, 1, alphaTexel);
+    if (!alphaImage || !alphaImage->isValid()) {
+        std::cerr
+            << "[VulkanCommandTests] FAIL: could not create "
+               "alpha batch image."
+            << std::endl;
+        return 1;
+    }
+    DrawImageBatchData alphaBatchData;
+    alphaBatchData.imageResource = alphaImage;
+    alphaBatchData.quads = {
+        {4.0f, 4.0f, 20.0f, 16.0f,
+         0.0f, 0.0f, 1.0f, 1.0f, 0xff0000ffu},
+        {36.0f, 28.0f, 20.0f, 16.0f,
+         0.0f, 0.0f, 1.0f, 1.0f, 0xff00ff00u},
+    };
+    std::vector<std::unique_ptr<Command>> alphaBatchCommands;
+    alphaBatchCommands.push_back(
+        std::make_unique<DrawImageBatchCommand>(alphaBatchData));
+    if (!device.executeCommands(
+            target, alphaBatchCommands, request)) {
+        std::cerr
+            << "[VulkanCommandTests] FAIL: executeCommands "
+               "(alpha image batch) returned false."
+            << std::endl;
+        return 1;
+    }
+    if (!device.readPixelsRGBA(width, height, pixels)) {
+        std::cerr
+            << "[VulkanCommandTests] FAIL: alpha image batch "
+               "readback failed."
+            << std::endl;
+        return 1;
+    }
+    if (!pixelIs(
+            pixels, width, 12, 12, 255, 0, 0, 255,
+            "alpha image batch first red")) {
+        return 1;
+    }
+    if (!pixelIs(
+            pixels, width, 44, 36, 0, 255, 0, 255,
+            "alpha image batch second green")) {
+        return 1;
+    }
+    if (!pixelIs(
+            pixels, width, 30, 24, 0, 0, 0, 0,
+            "alpha image batch gap clear")) {
+        return 1;
+    }
+
     // A DrawImage command: a 2x2 texture drawn across the whole canvas.
     const std::vector<unsigned char> texels = {
         255, 0,   0,   255, 0,   255, 0,   255,

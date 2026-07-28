@@ -2199,8 +2199,13 @@ bool canInstanceTexturedPrimitive(
 {
     if (primitive.kind != wsc::DrawPrimitiveKind::TexturedQuad
         || !primitive.texture
-        || !primitive.texture->isAlphaOnly()
-        || primitive.positions.size() < 12u
+        || !primitive.texture->isAlphaOnly()) {
+        return false;
+    }
+    if (!primitive.texturedInstances.empty()) {
+        return primitive.positions.empty() && primitive.uvs.empty();
+    }
+    if (primitive.positions.size() < 12u
         || primitive.positions.size() != primitive.uvs.size()) {
         return false;
     }
@@ -2256,11 +2261,11 @@ bool canBatchTexturedPrimitives(
     const wsc::DrawPrimitive &left,
     const wsc::DrawPrimitive &right)
 {
+    const bool leftCompact = !left.texturedInstances.empty();
+    const bool rightCompact = !right.texturedInstances.empty();
     if (left.kind != wsc::DrawPrimitiveKind::TexturedQuad
         || right.kind != wsc::DrawPrimitiveKind::TexturedQuad
-        || left.positions.empty() || right.positions.empty()
-        || left.positions.size() != left.uvs.size()
-        || right.positions.size() != right.uvs.size()
+        || leftCompact != rightCompact
         || left.texture != right.texture
         || left.clipTexture != right.clipTexture
         || left.blendMode != right.blendMode
@@ -2276,6 +2281,16 @@ bool canBatchTexturedPrimitives(
         || left.hasColorMatrix != right.hasColorMatrix
         || (left.hasColorMatrix
             && left.layerAlpha != right.layerAlpha)) {
+        return false;
+    }
+    if (leftCompact) {
+        if (!left.positions.empty() || !left.uvs.empty()
+            || !right.positions.empty() || !right.uvs.empty()) {
+            return false;
+        }
+    } else if (left.positions.empty() || right.positions.empty()
+        || left.positions.size() != left.uvs.size()
+        || right.positions.size() != right.uvs.size()) {
         return false;
     }
     if (left.roundedRadius > 0.0f
@@ -2369,7 +2384,8 @@ void appendTexturedBatch(
         // Cross-batch reordering is intended for individual image quads.
         // Large atlas/image batches can contain thousands of triangles; use
         // strict adjacent batching for them to keep command translation linear.
-        if (primitive.positions.size() > 12u) {
+        if (primitive.texturedInstances.size() > 1u
+            || primitive.positions.size() > 12u) {
             break;
         }
         // Moving this draw ahead of a non-overlapping primitive cannot change
@@ -2385,6 +2401,13 @@ void appendTexturedBatch(
     }
 
     wsc::DrawPrimitive &batch = list[batchIndex];
+    if (!primitive.texturedInstances.empty()) {
+        batch.texturedInstances.insert(
+            batch.texturedInstances.end(),
+            primitive.texturedInstances.begin(),
+            primitive.texturedInstances.end());
+        return;
+    }
     const std::size_t batchVertexCount =
         batch.positions.size() / 2u;
     const std::size_t incomingVertexCount =
@@ -5722,7 +5745,11 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
                 prim.positions.size() / 2u;
             if (canInstanceTexturedPrimitive(prim)) {
                 ++instancedTexturedCount;
-                addVertexBudget(explicitVerts / 6u, 9u);
+                const std::size_t instanceCount =
+                    prim.texturedInstances.empty()
+                        ? explicitVerts / 6u
+                        : prim.texturedInstances.size();
+                addVertexBudget(instanceCount, 9u);
             } else if (explicitVerts >= 3
                 && (explicitVerts % 3u) == 0u
                 && prim.uvs.size() == prim.positions.size()) {
@@ -6055,22 +6082,42 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
             }
             const std::size_t explicitVerts = prim.positions.size() / 2;
             if (instanced) {
-                constexpr std::uint32_t whiteTint = 0xffffffffu;
-                const bool perVertexTint =
-                    prim.packedTints.size() == explicitVerts;
-                const std::size_t quadCount = explicitVerts / 6u;
-                for (std::size_t quad = 0; quad < quadCount; ++quad) {
-                    const std::size_t base = quad * 6u;
-                    vertices.push_back(prim.positions[base * 2u]);
-                    vertices.push_back(prim.positions[base * 2u + 1u]);
-                    vertices.push_back(prim.positions[(base + 2u) * 2u]);
-                    vertices.push_back(prim.positions[(base + 2u) * 2u + 1u]);
-                    vertices.push_back(prim.uvs[base * 2u]);
-                    vertices.push_back(prim.uvs[base * 2u + 1u]);
-                    vertices.push_back(prim.uvs[(base + 2u) * 2u]);
-                    vertices.push_back(prim.uvs[(base + 2u) * 2u + 1u]);
-                    vertices.push_back(packedRgba8AsFloat(
-                        perVertexTint ? prim.packedTints[base] : whiteTint));
+                const std::size_t quadCount =
+                    prim.texturedInstances.empty()
+                        ? explicitVerts / 6u
+                        : prim.texturedInstances.size();
+                if (!prim.texturedInstances.empty()) {
+                    for (const wsc::TexturedQuadInstance &instance
+                         : prim.texturedInstances) {
+                        vertices.push_back(instance.x0);
+                        vertices.push_back(instance.y0);
+                        vertices.push_back(instance.x1);
+                        vertices.push_back(instance.y1);
+                        vertices.push_back(instance.u0);
+                        vertices.push_back(instance.v0);
+                        vertices.push_back(instance.u1);
+                        vertices.push_back(instance.v1);
+                        vertices.push_back(
+                            packedRgba8AsFloat(instance.packedTint));
+                    }
+                } else {
+                    constexpr std::uint32_t whiteTint = 0xffffffffu;
+                    const bool perVertexTint =
+                        prim.packedTints.size() == explicitVerts;
+                    for (std::size_t quad = 0; quad < quadCount; ++quad) {
+                        const std::size_t base = quad * 6u;
+                        vertices.push_back(prim.positions[base * 2u]);
+                        vertices.push_back(prim.positions[base * 2u + 1u]);
+                        vertices.push_back(prim.positions[(base + 2u) * 2u]);
+                        vertices.push_back(prim.positions[(base + 2u) * 2u + 1u]);
+                        vertices.push_back(prim.uvs[base * 2u]);
+                        vertices.push_back(prim.uvs[base * 2u + 1u]);
+                        vertices.push_back(prim.uvs[(base + 2u) * 2u]);
+                        vertices.push_back(prim.uvs[(base + 2u) * 2u + 1u]);
+                        vertices.push_back(packedRgba8AsFloat(
+                            perVertexTint
+                                ? prim.packedTints[base] : whiteTint));
+                    }
                 }
                 draw.vertexCount = 4;
                 draw.instanceCount =
@@ -7950,10 +7997,44 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
             prim.tileMode =
                 static_cast<int>(DrawImageTileMode::Clamp);
             prim.useCustomSampler = true;
-            prim.positions.reserve(d.quads.size() * 12u);
-            prim.uvs.reserve(d.quads.size() * 12u);
+            const bool compactBatch = d.imageResource->isAlphaOnly()
+                && d.transform[0][1] == 0.0f
+                && d.transform[1][0] == 0.0f;
+            if (compactBatch) {
+                prim.texturedInstances.reserve(d.quads.size());
+            } else {
+                prim.positions.reserve(d.quads.size() * 12u);
+                prim.uvs.reserve(d.quads.size() * 12u);
+                prim.packedTints.reserve(d.quads.size() * 6u);
+            }
+            const bool identityTint =
+                prim.tint[0] == 1.0f
+                && prim.tint[1] == 1.0f
+                && prim.tint[2] == 1.0f
+                && prim.tint[3] == 1.0f
+                && prim.layerAlpha == 1.0f;
             constexpr int indices[6] = {0, 1, 2, 0, 2, 3};
             for (const DrawImageBatchQuad &quad : d.quads) {
+                if (compactBatch) {
+                    float x0 = 0.0f;
+                    float y0 = 0.0f;
+                    float x1 = 0.0f;
+                    float y1 = 0.0f;
+                    toNdc(
+                        d.transform, quad.x, quad.y, x0, y0);
+                    toNdc(
+                        d.transform, quad.x + quad.width,
+                        quad.y + quad.height, x1, y1);
+                    prim.texturedInstances.push_back({
+                        x0, y0, x1, y1,
+                        quad.u0, quad.v0, quad.u1, quad.v1,
+                        identityTint
+                            ? quad.packedTint
+                            : effectivePackedTint(
+                                  quad.packedTint, prim.tint,
+                                  prim.layerAlpha)});
+                    continue;
+                }
                 float nx[4], ny[4];
                 toNdc(
                     d.transform, quad.x, quad.y, nx[0], ny[0]);
@@ -7975,7 +8056,14 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
                     prim.positions.push_back(ny[index]);
                     prim.uvs.push_back(uu[index]);
                     prim.uvs.push_back(vv[index]);
+                    prim.packedTints.push_back(
+                        quad.packedTint);
                 }
+            }
+            if (compactBatch) {
+                std::fill(
+                    std::begin(prim.tint), std::end(prim.tint), 1.0f);
+                prim.layerAlpha = 1.0f;
             }
             appendTexturedBatch(list, std::move(prim));
         } else if (cmd->type() == Command::Type::Text) {

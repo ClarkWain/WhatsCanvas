@@ -30,6 +30,8 @@ public:
 
     void setViewport(int width, int height) override;
     void submit(std::unique_ptr<Command> &&command) override;
+    bool tryAppendImageBatch(
+        const DrawImageBatchData &batch) override;
     size_t commandCount() const override;
     std::vector<std::unique_ptr<Command>> takeCommandsFrom(size_t index) override;
     void appendCommands(std::vector<std::unique_ptr<Command>> &&commands) override;
@@ -78,6 +80,9 @@ private:
     bool flushViaDeviceCommands();
 
     std::vector<std::unique_ptr<Command>> commands_;
+    // Commands at or before this index belong to an already-observed recording
+    // scope (for example, the parent of a saveLayer boundary).
+    mutable std::size_t imageBatchAppendFloor_ = 0;
     std::unique_ptr<IRenderDevice> device_;
     RenderContext context_;
     bool backendInitialized_ = false;

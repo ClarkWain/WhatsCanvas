@@ -10,6 +10,7 @@
 #include "wsc/ImageFilter.h"
 
 class Command;
+struct DrawImageBatchData;
 
 struct OffscreenRenderRequest
 {
@@ -32,6 +33,11 @@ public:
     virtual void finalizeBackend() = 0;
     virtual void setViewport(int width, int height) = 0;
     virtual void submit(std::unique_ptr<Command> &&command) = 0;
+    virtual bool tryAppendImageBatch(
+        const DrawImageBatchData & /*batch*/)
+    {
+        return false;
+    }
     virtual size_t commandCount() const = 0;
     virtual std::vector<std::unique_ptr<Command>> takeCommandsFrom(size_t index) = 0;
     virtual void appendCommands(std::vector<std::unique_ptr<Command>> &&commands) = 0;

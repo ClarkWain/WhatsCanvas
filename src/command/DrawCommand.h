@@ -107,6 +107,7 @@ public:
     ~DrawImageBatchCommand() override = default;
 
     void execute(RenderContext &context) override;
+    DrawImageBatchData &data() { return data_; }
     const DrawImageBatchData &data() const { return data_; }
 
 private:
