@@ -33,6 +33,19 @@ struct TexturedQuadInstance
     std::uint32_t packedTint = 0xffffffffu;
 };
 
+/// Compact solid vertex shared by streaming backends.
+struct CompactSolidVertex
+{
+    float x = 0.0f;
+    float y = 0.0f;
+    std::uint32_t color = 0xffffffffu;
+    std::uint8_t coverage = 255u;
+    std::uint8_t padding[3] = {};
+};
+static_assert(
+    sizeof(CompactSolidVertex) == 16,
+    "compact solid vertices must remain 16 bytes");
+
 /// One backend-neutral draw primitive.
 struct DrawPrimitive
 {
@@ -56,8 +69,20 @@ struct DrawPrimitive
     /// when empty, the full target is used.
     std::vector<float> positions;
 
+    /// SolidTriangles: final compact position/color/coverage stream. When
+    /// present, backends can upload it without re-interleaving attributes.
+    std::vector<CompactSolidVertex> compactVertices;
+
     /// SolidTriangles: optional triangle-list indices into `positions`.
     std::vector<std::uint32_t> indices;
+
+    /// SolidTriangles: compact triangle-list indices used when the primitive
+    /// contains no more than 65,536 vertices.
+    std::vector<std::uint16_t> shortIndices;
+
+    /// The producer already validated all triangle indices. Release backends
+    /// may skip another full scan; debug builds still validate command input.
+    bool indicesTrusted = false;
 
     /// TexturedQuad: optional per-vertex UVs (u,v pairs) matching `positions`;
     /// when empty, full 0..1 UVs are used.
@@ -73,6 +98,10 @@ struct DrawPrimitive
     /// SolidTriangles: optional per-vertex RGBA colors overriding `color`.
     std::vector<float> colors;
 
+    /// SolidTriangles: optional normalized RGBA8 colors matching `positions`.
+    /// Backends prefer this stream when `compactSolidAttributes` is true.
+    std::vector<std::uint8_t> packedColors;
+
     /// TexturedQuad: optional packed RGBA8_UNORM tint multiplied with `tint`.
     /// Packing keeps color data compact while allowing adjacent quads with
     /// different tint/alpha values to share one backend draw.
@@ -81,6 +110,14 @@ struct DrawPrimitive
     /// SolidTriangles: optional per-vertex analytic-AA coverage in [0,1] (1 per
     /// vertex). When present, it modulates the fill alpha (edge feathering).
     std::vector<float> coverage;
+
+    /// SolidTriangles: optional normalized coverage8 matching `positions`.
+    std::vector<std::uint8_t> packedCoverage;
+
+    /// SolidTriangles: the color and coverage streams originate from normalized
+    /// 8-bit canvas data and may use a compact backend vertex format. Leave
+    /// false for arbitrary high-precision per-vertex attributes.
+    bool compactSolidAttributes = false;
 
     /// TexturedQuad: alpha multiplier applied to the sampled texture.
     float layerAlpha = 1.0f;
