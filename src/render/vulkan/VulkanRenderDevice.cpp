@@ -154,6 +154,7 @@ struct VulkanRenderDevice::VulkanContext
     {
         VkPrimitiveTopology topology;
         int blendMode;
+        bool compactAttributes;
         VkPipeline pipeline;
     };
     std::vector<CachedPipeline> pipelineCache;
@@ -574,10 +575,14 @@ struct VulkanRenderDevice::VulkanContext
     // Lazily build (and cache) a solid-color pipeline for the given topology and
     // blend mode. All render targets use compatible render passes, so pipelines
     // are reused across targets. Returns VK_NULL_HANDLE on failure.
-    VkPipeline ensureSolidPipeline(VkRenderPass renderPass, VkPrimitiveTopology topology, int blendMode)
+    VkPipeline ensureSolidPipeline(
+        VkRenderPass renderPass, VkPrimitiveTopology topology,
+        int blendMode, bool compactAttributes = false)
     {
         for (const CachedPipeline &entry : pipelineCache) {
-            if (entry.topology == topology && entry.blendMode == blendMode) {
+            if (entry.topology == topology
+                && entry.blendMode == blendMode
+                && entry.compactAttributes == compactAttributes) {
                 return entry.pipeline;
             }
         }
@@ -612,7 +617,9 @@ struct VulkanRenderDevice::VulkanContext
 
         VkVertexInputBindingDescription binding{};
         binding.binding = 0;
-        binding.stride = 7 * sizeof(float);
+        binding.stride = compactAttributes
+            ? sizeof(wsc::CompactSolidVertex)
+            : 7 * sizeof(float);
         binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
         std::array<VkVertexInputAttributeDescription, 3> attrs{};
@@ -622,12 +629,18 @@ struct VulkanRenderDevice::VulkanContext
         attrs[0].offset = 0;
         attrs[1].location = 1;
         attrs[1].binding = 0;
-        attrs[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+        attrs[1].format = compactAttributes
+            ? VK_FORMAT_R8G8B8A8_UNORM
+            : VK_FORMAT_R32G32B32A32_SFLOAT;
         attrs[1].offset = 2 * sizeof(float);
         attrs[2].location = 2;
         attrs[2].binding = 0;
-        attrs[2].format = VK_FORMAT_R32_SFLOAT;
-        attrs[2].offset = 6 * sizeof(float);
+        attrs[2].format = compactAttributes
+            ? VK_FORMAT_R8_UNORM
+            : VK_FORMAT_R32_SFLOAT;
+        attrs[2].offset = compactAttributes
+            ? 3 * sizeof(std::uint32_t)
+            : 6 * sizeof(float);
 
         VkPipelineVertexInputStateCreateInfo vertexInput{};
         vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -688,7 +701,8 @@ struct VulkanRenderDevice::VulkanContext
         if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline) != VK_SUCCESS) {
             return VK_NULL_HANDLE;
         }
-        pipelineCache.push_back({topology, blendMode, pipeline});
+        pipelineCache.push_back(
+            {topology, blendMode, compactAttributes, pipeline});
         return pipeline;
     }
 
@@ -5771,14 +5785,23 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
             addVertexBudget(
                 prim.positions.size() / 2u, 4u);
         } else {
+            const std::size_t solidVertexCount =
+                !prim.compactVertices.empty()
+                    ? prim.compactVertices.size()
+                    : prim.positions.size() / 2u;
             addVertexBudget(
-                prim.positions.size() / 2u, 7u);
-            if (prim.indices.size()
+                solidVertexCount,
+                prim.compactSolidAttributes ? 4u : 7u);
+            const std::size_t primitiveIndexCount =
+                !prim.shortIndices.empty()
+                    ? prim.shortIndices.size()
+                    : prim.indices.size();
+            if (primitiveIndexCount
                 > std::numeric_limits<std::size_t>::max()
                     - indexBudget) {
                 validUploadBudget = false;
             } else {
-                indexBudget += prim.indices.size();
+                indexBudget += primitiveIndexCount;
             }
         }
     }
@@ -5805,9 +5828,19 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
     const std::uint32_t totalSets = samplerSets + gradientCount;
     const VkDeviceSize reservedVertexBytes =
         static_cast<VkDeviceSize>(vertexFloatBudget) * sizeof(float);
+    const std::size_t indexPaddingBudget =
+        drawList.size() <= std::numeric_limits<std::size_t>::max() / 3u
+            ? drawList.size() * 3u
+            : std::numeric_limits<std::size_t>::max();
+    if (indexBudget
+            > (std::numeric_limits<std::size_t>::max()
+                - indexPaddingBudget) / sizeof(std::uint32_t)) {
+        return false;
+    }
     const VkDeviceSize reservedIndexBytes =
-        static_cast<VkDeviceSize>(indexBudget)
-        * sizeof(std::uint32_t);
+        static_cast<VkDeviceSize>(
+            indexBudget * sizeof(std::uint32_t)
+            + indexPaddingBudget);
     const std::optional<std::size_t> acquiredFrame =
         context_->acquireDrawFrame(
             reservedVertexBytes, reservedIndexBytes,
@@ -5831,6 +5864,7 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
         std::uint32_t instanceCount = 1;
         VkDeviceSize indexOffset = 0;
         std::uint32_t indexCount = 0;
+        VkIndexType indexType = VK_INDEX_TYPE_UINT32;
         VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
         VkPipelineLayout descriptorLayout = VK_NULL_HANDLE;
         bool pushLayerAlpha = false;
@@ -5843,10 +5877,23 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
     };
     std::vector<RecordedDraw> draws;
     draws.reserve(drawList.size());
-    std::vector<float> vertexUpload;
+    std::vector<float> &vertexUpload =
+        drawVertexUploadScratch_;
+    vertexUpload.clear();
     vertexUpload.reserve(vertexFloatBudget);
-    std::vector<std::uint32_t> indexUpload;
-    indexUpload.reserve(indexBudget);
+    std::vector<unsigned char> &indexUpload =
+        drawIndexUploadScratch_;
+    indexUpload.clear();
+    indexUpload.reserve(
+        static_cast<std::size_t>(reservedIndexBytes));
+    const bool directCompactSolidUpload =
+        drawList.size() == 1u
+        && drawList.front().kind
+            == wsc::DrawPrimitiveKind::SolidTriangles
+        && drawList.front().compactSolidAttributes
+        && !drawList.front().compactVertices.empty();
+    VkDeviceSize directVertexBytes = 0;
+    VkDeviceSize directIndexBytes = 0;
 
     bool ok = true;
     std::size_t gradientIndex = 0;
@@ -5926,14 +5973,27 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
         draw.scissorWidth = prim.scissorWidth;
         draw.scissorHeight = prim.scissorHeight;
         draw.vertexOffset =
-            static_cast<VkDeviceSize>(vertexUpload.size())
-            * sizeof(float);
+            directCompactSolidUpload
+                ? 0
+                : static_cast<VkDeviceSize>(
+                      vertexUpload.size())
+                    * sizeof(float);
         std::vector<float> &vertices = vertexUpload;
         if (prim.kind == wsc::DrawPrimitiveKind::SolidTriangles) {
-            const std::size_t vertexCount = prim.positions.size() / 2;
+            const bool hasCompactVertices =
+                !prim.compactVertices.empty();
+            const std::size_t vertexCount =
+                hasCompactVertices
+                    ? prim.compactVertices.size()
+                    : prim.positions.size() / 2u;
             const std::size_t elementCount =
-                prim.indices.empty() ? vertexCount : prim.indices.size();
-            if ((prim.positions.size() % 2u) != 0u || vertexCount < 3
+                !prim.shortIndices.empty()
+                    ? prim.shortIndices.size()
+                    : (prim.indices.empty()
+                           ? vertexCount : prim.indices.size());
+            if ((!hasCompactVertices
+                    && (prim.positions.size() % 2u) != 0u)
+                || vertexCount < 3
                 || elementCount < 3 || (elementCount % 3u) != 0u
                 || vertexCount
                     > std::numeric_limits<std::uint32_t>::max()
@@ -5942,45 +6002,265 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
                 ok = false;
                 break;
             }
-            if (std::any_of(
+            const bool invalidLongIndex =
+                !prim.indicesTrusted
+                && std::any_of(
                     prim.indices.begin(), prim.indices.end(),
                     [vertexCount](std::uint32_t index) {
                         return index >= vertexCount;
-                    })) {
+                    });
+            const bool invalidShortIndex =
+                !prim.indicesTrusted
+                && std::any_of(
+                    prim.shortIndices.begin(),
+                    prim.shortIndices.end(),
+                    [vertexCount](std::uint16_t index) {
+                        return index >= vertexCount;
+                    });
+            if (invalidLongIndex || invalidShortIndex
+                || (!prim.indices.empty()
+                    && !prim.shortIndices.empty())) {
                 ok = false;
                 break;
             }
-            draw.pipeline = context_->ensureSolidPipeline(rt->renderPass(), VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-                                                          prim.blendMode);
+            const bool compactAttributes =
+                prim.compactSolidAttributes;
+            if (hasCompactVertices
+                && !compactAttributes) {
+                ok = false;
+                break;
+            }
+            draw.pipeline = context_->ensureSolidPipeline(
+                rt->renderPass(),
+                VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+                prim.blendMode, compactAttributes);
             const bool perVertexColor = prim.colors.size() == vertexCount * 4;
             const bool perVertexCoverage = prim.coverage.size() == vertexCount;
-            for (std::size_t v = 0; v < vertexCount; ++v) {
-                vertices.push_back(prim.positions[v * 2 + 0]);
-                vertices.push_back(prim.positions[v * 2 + 1]);
-                if (perVertexColor) {
-                    vertices.push_back(prim.colors[v * 4 + 0]);
-                    vertices.push_back(prim.colors[v * 4 + 1]);
-                    vertices.push_back(prim.colors[v * 4 + 2]);
-                    vertices.push_back(prim.colors[v * 4 + 3]);
+            const bool packedVertexColor =
+                prim.packedColors.size() == vertexCount * 4u;
+            const bool packedVertexCoverage =
+                prim.packedCoverage.size() == vertexCount;
+            if (hasCompactVertices) {
+                const std::size_t byteCount =
+                    prim.compactVertices.size()
+                    * sizeof(wsc::CompactSolidVertex);
+                if (directCompactSolidUpload) {
+                    std::memcpy(
+                        frame.vertexMapping,
+                        prim.compactVertices.data(),
+                        byteCount);
+                    directVertexBytes =
+                        static_cast<VkDeviceSize>(
+                            byteCount);
                 } else {
-                    vertices.push_back(prim.color[0]);
-                    vertices.push_back(prim.color[1]);
-                    vertices.push_back(prim.color[2]);
-                    vertices.push_back(prim.color[3]);
+                    const std::size_t destination =
+                        vertices.size();
+                    const std::size_t floatCount =
+                        byteCount / sizeof(float);
+                    vertices.resize(
+                        destination + floatCount);
+                    std::memcpy(
+                        vertices.data() + destination,
+                        prim.compactVertices.data(),
+                        byteCount);
                 }
-                vertices.push_back(
-                    perVertexCoverage ? prim.coverage[v] : 1.0f);
+            } else if (compactAttributes) {
+                const auto toUnorm8 = [](float value) {
+                    return static_cast<std::uint8_t>(
+                        std::clamp(
+                            std::lround(value * 255.0f),
+                            0l, 255l));
+                };
+                std::uint32_t uniformColor = 0u;
+                if (!packedVertexColor) {
+                    uniformColor =
+                        static_cast<std::uint32_t>(
+                            toUnorm8(prim.color[0]))
+                        | (static_cast<std::uint32_t>(
+                               toUnorm8(prim.color[1]))
+                           << 8u)
+                        | (static_cast<std::uint32_t>(
+                               toUnorm8(prim.color[2]))
+                           << 16u)
+                        | (static_cast<std::uint32_t>(
+                               toUnorm8(prim.color[3]))
+                           << 24u);
+                }
+                for (std::size_t v = 0; v < vertexCount; ++v) {
+                    wsc::CompactSolidVertex vertex;
+                    vertex.x = prim.positions[v * 2u];
+                    vertex.y = prim.positions[v * 2u + 1u];
+                    if (packedVertexColor) {
+                        std::memcpy(
+                            &vertex.color,
+                            prim.packedColors.data() + v * 4u,
+                            sizeof(vertex.color));
+                    } else if (perVertexColor) {
+                        const float *color =
+                            prim.colors.data() + v * 4u;
+                        vertex.color =
+                            static_cast<std::uint32_t>(
+                                toUnorm8(color[0]))
+                            | (static_cast<std::uint32_t>(
+                                   toUnorm8(color[1]))
+                               << 8u)
+                            | (static_cast<std::uint32_t>(
+                                   toUnorm8(color[2]))
+                               << 16u)
+                            | (static_cast<std::uint32_t>(
+                                   toUnorm8(color[3]))
+                               << 24u);
+                    } else {
+                        vertex.color = uniformColor;
+                    }
+                    vertex.coverage = packedVertexCoverage
+                        ? prim.packedCoverage[v]
+                        : toUnorm8(
+                              perVertexCoverage
+                                  ? prim.coverage[v] : 1.0f);
+                    const std::size_t destination =
+                        vertices.size();
+                    vertices.resize(
+                        destination
+                        + sizeof(wsc::CompactSolidVertex)
+                            / sizeof(float));
+                    std::memcpy(
+                        vertices.data() + destination,
+                        &vertex, sizeof(vertex));
+                }
+            } else {
+                for (std::size_t v = 0; v < vertexCount; ++v) {
+                    vertices.push_back(prim.positions[v * 2 + 0]);
+                    vertices.push_back(prim.positions[v * 2 + 1]);
+                    if (perVertexColor) {
+                        vertices.push_back(prim.colors[v * 4 + 0]);
+                        vertices.push_back(prim.colors[v * 4 + 1]);
+                        vertices.push_back(prim.colors[v * 4 + 2]);
+                        vertices.push_back(prim.colors[v * 4 + 3]);
+                    } else {
+                        vertices.push_back(prim.color[0]);
+                        vertices.push_back(prim.color[1]);
+                        vertices.push_back(prim.color[2]);
+                        vertices.push_back(prim.color[3]);
+                    }
+                    vertices.push_back(
+                        perVertexCoverage
+                            ? prim.coverage[v] : 1.0f);
+                }
             }
             draw.vertexCount = static_cast<std::uint32_t>(vertexCount);
-            if (!prim.indices.empty()) {
-                draw.indexOffset =
-                    static_cast<VkDeviceSize>(indexUpload.size())
-                    * sizeof(std::uint32_t);
-                draw.indexCount =
-                    static_cast<std::uint32_t>(prim.indices.size());
-                indexUpload.insert(
-                    indexUpload.end(), prim.indices.begin(),
-                    prim.indices.end());
+            if (!prim.shortIndices.empty()
+                || !prim.indices.empty()) {
+                const bool useShortIndices =
+                    !prim.shortIndices.empty()
+                    || vertexCount
+                        <= static_cast<std::size_t>(
+                            std::numeric_limits<std::uint16_t>::max())
+                            + 1u;
+                if (directCompactSolidUpload) {
+                    draw.indexOffset = 0;
+                    draw.indexCount =
+                        static_cast<std::uint32_t>(
+                            !prim.shortIndices.empty()
+                                ? prim.shortIndices.size()
+                                : prim.indices.size());
+                    draw.indexType = useShortIndices
+                        ? VK_INDEX_TYPE_UINT16
+                        : VK_INDEX_TYPE_UINT32;
+                    if (!prim.shortIndices.empty()) {
+                        directIndexBytes =
+                            static_cast<VkDeviceSize>(
+                                prim.shortIndices.size()
+                                * sizeof(std::uint16_t));
+                        std::memcpy(
+                            frame.indexMapping,
+                            prim.shortIndices.data(),
+                            static_cast<std::size_t>(
+                                directIndexBytes));
+                    } else if (!useShortIndices) {
+                        directIndexBytes =
+                            static_cast<VkDeviceSize>(
+                                prim.indices.size()
+                                * sizeof(std::uint32_t));
+                        std::memcpy(
+                            frame.indexMapping,
+                            prim.indices.data(),
+                            static_cast<std::size_t>(
+                                directIndexBytes));
+                    } else {
+                        directIndexBytes =
+                            static_cast<VkDeviceSize>(
+                                prim.indices.size()
+                                * sizeof(std::uint16_t));
+                        auto *destination =
+                            static_cast<unsigned char *>(
+                                frame.indexMapping);
+                        for (std::size_t i = 0;
+                             i < prim.indices.size(); ++i) {
+                            const std::uint16_t index =
+                                static_cast<std::uint16_t>(
+                                    prim.indices[i]);
+                            std::memcpy(
+                                destination
+                                    + i * sizeof(index),
+                                &index, sizeof(index));
+                        }
+                    }
+                } else {
+                    const std::size_t alignment =
+                        useShortIndices
+                            ? alignof(std::uint16_t)
+                            : alignof(std::uint32_t);
+                    const std::size_t alignedOffset =
+                        (indexUpload.size() + alignment - 1u)
+                        / alignment * alignment;
+                    indexUpload.resize(alignedOffset);
+                    draw.indexOffset =
+                        static_cast<VkDeviceSize>(alignedOffset);
+                    draw.indexCount =
+                        static_cast<std::uint32_t>(
+                            !prim.shortIndices.empty()
+                                ? prim.shortIndices.size()
+                                : prim.indices.size());
+                    draw.indexType = useShortIndices
+                        ? VK_INDEX_TYPE_UINT16
+                        : VK_INDEX_TYPE_UINT32;
+                    if (useShortIndices) {
+                        const std::size_t byteCount =
+                            draw.indexCount
+                            * sizeof(std::uint16_t);
+                        indexUpload.resize(
+                            alignedOffset + byteCount);
+                        unsigned char *destination =
+                            indexUpload.data() + alignedOffset;
+                        if (!prim.shortIndices.empty()) {
+                            std::memcpy(
+                                destination,
+                                prim.shortIndices.data(),
+                                byteCount);
+                        } else {
+                            for (std::size_t i = 0;
+                                 i < prim.indices.size(); ++i) {
+                                const std::uint16_t index =
+                                    static_cast<std::uint16_t>(
+                                        prim.indices[i]);
+                                std::memcpy(
+                                    destination
+                                        + i * sizeof(index),
+                                    &index, sizeof(index));
+                            }
+                        }
+                    } else {
+                        const std::size_t byteCount =
+                            prim.indices.size()
+                            * sizeof(std::uint32_t);
+                        indexUpload.resize(
+                            alignedOffset + byteCount);
+                        std::memcpy(
+                            indexUpload.data() + alignedOffset,
+                            prim.indices.data(), byteCount);
+                    }
+                }
             }
         } else if (prim.kind == wsc::DrawPrimitiveKind::TexturedQuad) {
             auto *tex = dynamic_cast<VulkanTextureResource *>(prim.texture.get());
@@ -6296,14 +6576,20 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
         return false;
     }
     const VkDeviceSize vertexBytes =
-        static_cast<VkDeviceSize>(vertexUpload.size()) * sizeof(float);
-    std::memcpy(
-        frame.vertexMapping, vertexUpload.data(),
-        static_cast<std::size_t>(vertexBytes));
+        directCompactSolidUpload
+            ? directVertexBytes
+            : static_cast<VkDeviceSize>(
+                  vertexUpload.size()) * sizeof(float);
+    if (!directCompactSolidUpload) {
+        std::memcpy(
+            frame.vertexMapping, vertexUpload.data(),
+            static_cast<std::size_t>(vertexBytes));
+    }
     const VkDeviceSize indexBytes =
-        static_cast<VkDeviceSize>(indexUpload.size())
-        * sizeof(std::uint32_t);
-    if (indexBytes > 0) {
+        directCompactSolidUpload
+            ? directIndexBytes
+            : static_cast<VkDeviceSize>(indexUpload.size());
+    if (!directCompactSolidUpload && indexBytes > 0) {
         std::memcpy(
             frame.indexMapping, indexUpload.data(),
             static_cast<std::size_t>(indexBytes));
@@ -6451,7 +6737,7 @@ bool VulkanRenderDevice::executeDrawListWithCopy(
             if (d.indexCount > 0) {
                 vkCmdBindIndexBuffer(
                     cmd, activeIndexBuffer, d.indexOffset,
-                    VK_INDEX_TYPE_UINT32);
+                    d.indexType);
                 vkCmdDrawIndexed(cmd, d.indexCount, 1, 0, 0, 0);
             } else {
                 vkCmdDraw(cmd, d.vertexCount, d.instanceCount, 0, 0);
@@ -6604,18 +6890,29 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
     // Project a canvas-space point through a transform to Vulkan NDC using the
     // same cropped viewport semantics as OpenGLRenderTarget::activate().
     auto toNdc = [&](const glm::mat4 &tf, float x, float y, float &ox, float &oy) {
-        const glm::vec4 p = tf * glm::vec4(x, y, 0.0f, 1.0f);
-        const float targetX = p.x + static_cast<float>(request.viewportX);
+        const float transformedX =
+            tf[0][0] * x + tf[1][0] * y + tf[3][0];
+        const float transformedY =
+            tf[0][1] * x + tf[1][1] * y + tf[3][1];
+        const float targetX =
+            transformedX + static_cast<float>(request.viewportX);
         const float targetY =
-            p.y + static_cast<float>(rt->height() - request.viewportY) - h;
-        ox = targetX / static_cast<float>(rt->width()) * 2.0f - 1.0f;
-        oy = targetY / static_cast<float>(rt->height()) * 2.0f - 1.0f;
+            transformedY
+            + static_cast<float>(
+                rt->height() - request.viewportY) - h;
+        ox = targetX / static_cast<float>(rt->width())
+            * 2.0f - 1.0f;
+        oy = targetY / static_cast<float>(rt->height())
+            * 2.0f - 1.0f;
     };
     auto toFullCanvasNdc = [&](const glm::mat4 &tf, float x, float y,
                                float &ox, float &oy) {
-        const glm::vec4 p = tf * glm::vec4(x, y, 0.0f, 1.0f);
-        ox = p.x / w * 2.0f - 1.0f;
-        oy = p.y / h * 2.0f - 1.0f;
+        const float transformedX =
+            tf[0][0] * x + tf[1][0] * y + tf[3][0];
+        const float transformedY =
+            tf[0][1] * x + tf[1][1] * y + tf[3][1];
+        ox = transformedX / w * 2.0f - 1.0f;
+        oy = transformedY / h * 2.0f - 1.0f;
     };
     auto targetNdcToCanvasUv = [&](float nx, float ny) {
         const float targetX =
@@ -7384,19 +7681,87 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
 
     std::size_t solidVertexBudget = 0;
     std::size_t solidIndexBudget = 0;
+    bool compactSolidPathAttributes = true;
+    bool simpleSolidFrame = !commands.empty();
+    bool immutableSolidTopology = true;
+    bool solidCoverageRequired = false;
     for (const std::unique_ptr<Command> &command : commands) {
-        if (command && command->type() == Command::Type::Path) {
-            const DrawPathData &path =
+        if (!command
+            || command->type() != Command::Type::Path) {
+            simpleSolidFrame = false;
+            continue;
+        }
+        const DrawPathData &path =
+            static_cast<const DrawPathCommand *>(
+                command.get())->data();
+        if (path.hasShaderGradient()
+            || path.clipMask.hasPaths()) {
+            simpleSolidFrame = false;
+            continue;
+        }
+        solidVertexBudget += path.hasIndices()
+            ? path.getPointCount() : path.getElementCount();
+        solidIndexBudget += path.getElementCount();
+        compactSolidPathAttributes =
+            compactSolidPathAttributes
+            && !path.hasVertexColors();
+        immutableSolidTopology =
+            immutableSolidTopology
+            && path.sharedGeometry != nullptr
+            && path.shortIndices.empty()
+            && path.packedCoverage.empty();
+        solidCoverageRequired =
+            solidCoverageRequired || path.hasCoverage();
+    }
+    const bool useShortSolidIndices =
+        solidVertexBudget
+        <= static_cast<std::size_t>(
+            std::numeric_limits<std::uint16_t>::max())
+            + 1u;
+    bool reuseSolidTopology =
+        simpleSolidFrame
+        && compactSolidPathAttributes
+        && immutableSolidTopology
+        && useShortSolidIndices
+        && solidBatchTopology_.size() == commands.size()
+        && solidBatchScratch_.shortIndices.size()
+            == solidIndexBudget
+        && (!solidCoverageRequired
+            || solidBatchScratch_.packedCoverage.size()
+                == solidVertexBudget);
+    if (reuseSolidTopology) {
+        for (std::size_t i = 0;
+             i < commands.size(); ++i) {
+            const auto *path =
                 static_cast<const DrawPathCommand *>(
-                    command.get())->data();
-            if (!path.hasShaderGradient()
-                && !path.clipMask.hasPaths()) {
-                solidVertexBudget += path.hasIndices()
-                    ? path.getPointCount() : path.getElementCount();
-                solidIndexBudget += path.getElementCount();
+                    commands[i].get());
+            if (solidBatchTopology_[i]
+                    != path->data().sharedGeometry) {
+                reuseSolidTopology = false;
+                break;
             }
         }
     }
+    const auto toUnorm8 = [](float value) {
+        return static_cast<std::uint8_t>(
+            std::clamp(
+                std::lround(value * 255.0f),
+                0l, 255l));
+    };
+    const auto packedColor =
+        [&](const float color[4]) {
+            return static_cast<std::uint32_t>(
+                       toUnorm8(color[0]))
+                | (static_cast<std::uint32_t>(
+                       toUnorm8(color[1]))
+                   << 8u)
+                | (static_cast<std::uint32_t>(
+                       toUnorm8(color[2]))
+                   << 16u)
+                | (static_cast<std::uint32_t>(
+                       toUnorm8(color[3]))
+                   << 24u);
+        };
 
     auto appendSolidBatch = [&](wsc::DrawPrimitive prim) {
         if (prim.kind != wsc::DrawPrimitiveKind::SolidTriangles
@@ -7440,6 +7805,11 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
             list.push_back(std::move(prim));
             return;
         }
+        if (!previous.shortIndices.empty()
+            || !prim.shortIndices.empty()) {
+            list.push_back(std::move(prim));
+            return;
+        }
         const std::size_t maxIndex =
             std::numeric_limits<std::uint32_t>::max();
         if ((!previous.indices.empty() || !prim.indices.empty())
@@ -7448,6 +7818,11 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
             list.push_back(std::move(prim));
             return;
         }
+        previous.compactSolidAttributes =
+            previous.compactSolidAttributes
+            && prim.compactSolidAttributes;
+        previous.indicesTrusted =
+            previous.indicesTrusted && prim.indicesTrusted;
 
         if (!previous.indices.empty() || !prim.indices.empty()) {
             if (previous.indices.empty()) {
@@ -7542,6 +7917,7 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
             };
             if (d.hasIndices()) {
                 bool invalidIndex = false;
+#if !defined(NDEBUG)
                 for (std::size_t element = 0;
                      element < d.getElementCount(); ++element) {
                     if (d.getIndex(element)
@@ -7550,6 +7926,7 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
                         break;
                     }
                 }
+#endif
                 if (invalidIndex) {
                     continue;
                 }
@@ -7559,6 +7936,9 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
                 state.kind =
                     wsc::DrawPrimitiveKind::SolidTriangles;
                 state.blendMode = mapBlend(d.blendMode);
+                state.compactSolidAttributes =
+                    compactSolidPathAttributes;
+                state.indicesTrusted = true;
                 applyPrimitiveScissor(state, d.scissor);
 
                 const std::size_t incomingVertices =
@@ -7583,10 +7963,13 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
                         && previous.blendMode == state.blendMode
                         && sameScissor;
                     if (canMerge
-                        && (!previous.indices.empty()
+                        && (!previous.shortIndices.empty()
+                            || !previous.indices.empty()
                             || d.hasIndices())) {
                         const std::size_t previousVertices =
-                            previous.positions.size() / 2u;
+                            !previous.compactVertices.empty()
+                                ? previous.compactVertices.size()
+                                : previous.positions.size() / 2u;
                         const std::size_t maxIndex =
                             std::numeric_limits<
                                 std::uint32_t>::max();
@@ -7602,61 +7985,160 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
                     state.color[1] = d.color[1];
                     state.color[2] = d.color[2];
                     state.color[3] = d.color[3];
+                    if (list.empty() && simpleSolidFrame) {
+                        state.compactVertices =
+                            std::move(
+                                solidBatchScratch_.compactVertices);
+                        state.positions =
+                            std::move(
+                                solidBatchScratch_.positions);
+                        state.indices =
+                            std::move(
+                                solidBatchScratch_.indices);
+                        state.shortIndices =
+                            std::move(
+                                solidBatchScratch_.shortIndices);
+                        state.colors =
+                            std::move(
+                                solidBatchScratch_.colors);
+                        state.packedColors =
+                            std::move(
+                                solidBatchScratch_.packedColors);
+                        state.coverage =
+                            std::move(
+                                solidBatchScratch_.coverage);
+                        state.packedCoverage =
+                            std::move(
+                                solidBatchScratch_.packedCoverage);
+                        state.compactVertices.clear();
+                        state.positions.clear();
+                        state.indices.clear();
+                        if (!reuseSolidTopology) {
+                            state.shortIndices.clear();
+                        }
+                        state.colors.clear();
+                        state.packedColors.clear();
+                        state.coverage.clear();
+                        if (!reuseSolidTopology) {
+                            state.packedCoverage.clear();
+                        } else if (!solidCoverageRequired) {
+                            state.packedCoverage.clear();
+                        }
+                    }
                     if (list.empty()
                         && solidVertexBudget > incomingVertices) {
-                        state.positions.reserve(
-                            solidVertexBudget * 2u);
-                        if (d.hasVertexColors()) {
+                        if (compactSolidPathAttributes) {
+                            state.compactVertices.reserve(
+                                solidVertexBudget);
+                        } else {
+                            state.positions.reserve(
+                                solidVertexBudget * 2u);
+                        }
+                        if (!compactSolidPathAttributes
+                            && d.hasVertexColors()) {
                             state.colors.reserve(
                                 solidVertexBudget * 4u);
                         }
-                        if (d.hasCoverage()) {
+                        if (!compactSolidPathAttributes
+                            && d.hasCoverage()) {
                             state.coverage.reserve(
+                                solidVertexBudget);
+                        } else if (compactSolidPathAttributes
+                                   && solidCoverageRequired) {
+                            state.packedCoverage.reserve(
                                 solidVertexBudget);
                         }
                         if (d.hasIndices()) {
-                            state.indices.reserve(
-                                solidIndexBudget);
+                            if (useShortSolidIndices) {
+                                state.shortIndices.reserve(
+                                    solidIndexBudget);
+                            } else {
+                                state.indices.reserve(
+                                    solidIndexBudget);
+                            }
                         }
                     }
                     list.push_back(std::move(state));
                 }
 
                 wsc::DrawPrimitive &batch = list.back();
+                batch.compactSolidAttributes =
+                    batch.compactSolidAttributes
+                    && compactSolidPathAttributes;
                 const std::size_t previousVertices =
-                    batch.positions.size() / 2u;
+                    compactSolidPathAttributes
+                        ? batch.compactVertices.size()
+                        : batch.positions.size() / 2u;
 
-                if (!batch.indices.empty() || d.hasIndices()) {
-                    if (batch.indices.empty()) {
-                        batch.indices.reserve(solidIndexBudget);
-                        for (std::size_t vertex = 0;
-                             vertex < previousVertices;
-                             ++vertex) {
-                            batch.indices.push_back(
-                                static_cast<std::uint32_t>(
-                                    vertex));
+                if (!reuseSolidTopology
+                    && (!batch.shortIndices.empty()
+                    || !batch.indices.empty()
+                    || d.hasIndices())) {
+                    if (useShortSolidIndices) {
+                        if (batch.shortIndices.empty()) {
+                            batch.shortIndices.reserve(
+                                solidIndexBudget);
+                            for (std::size_t vertex = 0;
+                                 vertex < previousVertices;
+                                 ++vertex) {
+                                batch.shortIndices.push_back(
+                                    static_cast<std::uint16_t>(
+                                        vertex));
+                            }
                         }
-                    }
-                    if (d.hasIndices()) {
-                        for (std::size_t element = 0;
-                             element < vertexCount; ++element) {
-                            batch.indices.push_back(
-                                static_cast<std::uint32_t>(
-                                    previousVertices
-                                    + d.getIndex(element)));
+                        if (d.hasIndices()) {
+                            for (std::size_t element = 0;
+                                 element < vertexCount; ++element) {
+                                batch.shortIndices.push_back(
+                                    static_cast<std::uint16_t>(
+                                        previousVertices
+                                        + d.getIndex(element)));
+                            }
+                        } else {
+                            for (std::size_t vertex = 0;
+                                 vertex < incomingVertices;
+                                 ++vertex) {
+                                batch.shortIndices.push_back(
+                                    static_cast<std::uint16_t>(
+                                        previousVertices
+                                        + vertex));
+                            }
                         }
                     } else {
-                        for (std::size_t vertex = 0;
-                             vertex < incomingVertices;
-                             ++vertex) {
-                            batch.indices.push_back(
-                                static_cast<std::uint32_t>(
-                                    previousVertices + vertex));
+                        if (batch.indices.empty()) {
+                            batch.indices.reserve(
+                                solidIndexBudget);
+                            for (std::size_t vertex = 0;
+                                 vertex < previousVertices;
+                                 ++vertex) {
+                                batch.indices.push_back(
+                                    static_cast<std::uint32_t>(
+                                        vertex));
+                            }
+                        }
+                        if (d.hasIndices()) {
+                            for (std::size_t element = 0;
+                                 element < vertexCount; ++element) {
+                                batch.indices.push_back(
+                                    static_cast<std::uint32_t>(
+                                        previousVertices
+                                        + d.getIndex(element)));
+                            }
+                        } else {
+                            for (std::size_t vertex = 0;
+                                 vertex < incomingVertices;
+                                 ++vertex) {
+                                batch.indices.push_back(
+                                    static_cast<std::uint32_t>(
+                                        previousVertices
+                                        + vertex));
+                            }
                         }
                     }
                 }
 
-                if (canMerge && batch.colors.empty()) {
+                if (!compactSolidPathAttributes
+                    && canMerge && batch.colors.empty()) {
                     batch.colors.reserve(
                         solidVertexBudget * 4u);
                     for (std::size_t vertex = 0;
@@ -7667,7 +8149,8 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
                             std::end(batch.color));
                     }
                 }
-                if (d.hasVertexColors()) {
+                if (!compactSolidPathAttributes
+                    && d.hasVertexColors()) {
                     if (batch.colors.empty()) {
                         batch.colors.reserve(
                             solidVertexBudget * 4u);
@@ -7681,7 +8164,8 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
                                     vertex, channel));
                         }
                     }
-                } else if (!batch.colors.empty()) {
+                } else if (!compactSolidPathAttributes
+                           && !batch.colors.empty()) {
                     for (std::size_t vertex = 0;
                          vertex < incomingVertices; ++vertex) {
                         batch.colors.insert(
@@ -7691,8 +8175,9 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
                     }
                 }
 
-                if (!batch.coverage.empty()
-                    || d.hasCoverage()) {
+                if (!compactSolidPathAttributes
+                    && (!batch.coverage.empty()
+                               || d.hasCoverage())) {
                     if (batch.coverage.empty()) {
                         batch.coverage.reserve(
                             solidVertexBudget);
@@ -7711,18 +8196,65 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
                             batch.coverage.end(),
                             incomingVertices, 1.0f);
                     }
+                } else if (compactSolidPathAttributes
+                           && solidCoverageRequired
+                           && !reuseSolidTopology) {
+                    if (batch.packedCoverage.empty()) {
+                        batch.packedCoverage.assign(
+                            previousVertices, 255u);
+                    }
+                    if (d.hasPackedCoverage()) {
+                        batch.packedCoverage.insert(
+                            batch.packedCoverage.end(),
+                            d.packedCoverage.begin(),
+                            d.packedCoverage.end());
+                    } else if (d.hasFloatCoverage()) {
+                        for (std::size_t vertex = 0;
+                             vertex < incomingVertices;
+                             ++vertex) {
+                            batch.packedCoverage.push_back(
+                                toUnorm8(
+                                    d.coverageAt(vertex)));
+                        }
+                    } else {
+                        batch.packedCoverage.insert(
+                            batch.packedCoverage.end(),
+                            incomingVertices, 255u);
+                    }
                 }
 
-                for (std::size_t vertex = 0;
-                     vertex < incomingVertices; ++vertex) {
-                    float nx = 0.0f;
-                    float ny = 0.0f;
-                    toNdc(
-                        d.transform,
-                        points[vertex * 2 + 0],
-                        points[vertex * 2 + 1], nx, ny);
-                    batch.positions.push_back(nx);
-                    batch.positions.push_back(ny);
+                if (compactSolidPathAttributes) {
+                    const std::uint32_t color =
+                        packedColor(d.color);
+                    for (std::size_t vertex = 0;
+                         vertex < incomingVertices; ++vertex) {
+                        wsc::CompactSolidVertex packed;
+                        toNdc(
+                            d.transform,
+                            points[vertex * 2u],
+                            points[vertex * 2u + 1u],
+                            packed.x, packed.y);
+                        packed.color = color;
+                        packed.coverage =
+                            solidCoverageRequired
+                                ? batch.packedCoverage[
+                                      previousVertices + vertex]
+                                : 255u;
+                        batch.compactVertices.push_back(
+                            packed);
+                    }
+                } else {
+                    for (std::size_t vertex = 0;
+                         vertex < incomingVertices; ++vertex) {
+                        float nx = 0.0f;
+                        float ny = 0.0f;
+                        toNdc(
+                            d.transform,
+                            points[vertex * 2 + 0],
+                            points[vertex * 2 + 1], nx, ny);
+                        batch.positions.push_back(nx);
+                        batch.positions.push_back(ny);
+                    }
                 }
                 continue;
             }
@@ -8397,6 +8929,41 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
             lastExecutionMergedBatchCount_ =
                 commands.size() - list.size();
         }
+    }
+    if (simpleSolidFrame && immutableSolidTopology) {
+        if (!reuseSolidTopology) {
+            solidBatchTopology_.clear();
+            solidBatchTopology_.reserve(commands.size());
+            for (const std::unique_ptr<Command> &command
+                 : commands) {
+                const auto *path =
+                    static_cast<const DrawPathCommand *>(
+                        command.get());
+                solidBatchTopology_.push_back(
+                    path->data().sharedGeometry);
+            }
+        }
+    } else {
+        solidBatchTopology_.clear();
+    }
+    if (simpleSolidFrame && list.size() == 1u) {
+        wsc::DrawPrimitive &batch = list.front();
+        solidBatchScratch_.compactVertices =
+            std::move(batch.compactVertices);
+        solidBatchScratch_.positions =
+            std::move(batch.positions);
+        solidBatchScratch_.indices =
+            std::move(batch.indices);
+        solidBatchScratch_.shortIndices =
+            std::move(batch.shortIndices);
+        solidBatchScratch_.colors =
+            std::move(batch.colors);
+        solidBatchScratch_.packedColors =
+            std::move(batch.packedColors);
+        solidBatchScratch_.coverage =
+            std::move(batch.coverage);
+        solidBatchScratch_.packedCoverage =
+            std::move(batch.packedCoverage);
     }
     return rendered;
 #else

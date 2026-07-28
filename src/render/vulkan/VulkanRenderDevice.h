@@ -10,6 +10,7 @@
 #include "../IRenderDevice.h"
 
 class RenderTargetPool;
+struct DrawPathGeometry;
 
 /// Vulkan implementation of the WhatsCanvas render-device abstraction.
 ///
@@ -235,5 +236,13 @@ private:
         drawFrameTargets_;
     mutable std::size_t lastExecutionDrawCallCount_ = 0;
     mutable std::size_t lastExecutionMergedBatchCount_ = 0;
+    // Reused CPU staging for large Vulkan frames. Keeping these vectors alive
+    // mirrors the OpenGL path-batch scratch model and avoids allocating several
+    // megabytes of merged geometry and upload data every frame.
+    mutable wsc::DrawPrimitive solidBatchScratch_;
+    mutable std::vector<std::shared_ptr<const DrawPathGeometry>>
+        solidBatchTopology_;
+    mutable std::vector<float> drawVertexUploadScratch_;
+    mutable std::vector<unsigned char> drawIndexUploadScratch_;
     bool backendInitialized_ = false;
 };
