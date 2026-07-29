@@ -459,9 +459,13 @@ void Renderer::flush()
                 spriteBatch_->clear();
                 spriteBatch_->setTexture(first.imageResource);
                 const bool compactGlyphBatch =
+#if defined(WHATSCANVAS_OPENGL_ES)
+                    false;
+#else
                     first.imageResource->isAlphaOnly()
                     && first.transform[0][1] == 0.0f
                     && first.transform[1][0] == 0.0f;
+#endif
 
                 std::size_t j = i;
                 while (j < commands_.size()
