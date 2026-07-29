@@ -35,36 +35,18 @@ WhatsCanvas 的公开接口仍然是熟悉的 `Canvas` / `Paint` / `Path` / `Ima
 
 ## 当前性能
 
-以下数据来自同一台 Windows 10、i7-8700、GTX 1060 3GB（驱动 560.94）参考机器，使用 `Release`、`1920 × 1080`、5 帧预热、30 帧计时，并在每帧同步到 GPU 完成。每组比较使用 4 个 ABBA block，即每个 renderer 启动 8 个独立进程；主值为进程中位数，括号为 bootstrap 95% 置信区间。所有场景先通过像素质量门禁，时间才进入比较。数值越低越好。
+WhatsCanvas 使用 1080p 参数化矩阵验证性能，而不是只测一个固定场景。矩阵覆盖几何、图片和文字，分别测试三种规模以及结构稳定、数据变化、结构变化三种负载。最新 OpenGL 对 NanoVG GL3 的结果为 **26 项领先、0 项落后、1 项无明确胜负**，像素质量门禁 **27/27 通过**。
 
-| 1080p 合同场景 | 负载 | WhatsCanvas OpenGL | NanoVG GL3 | 当前结果 |
-| --- | --- | ---: | ---: | --- |
-| `geometry_stress` | 2304 个动态抗锯齿图形 | **2.617 ms**（2.572–2.764） | 3.705 ms（3.605–3.807） | NanoVG / WhatsCanvas 配对比 1.407× |
-| `image_grid` | 96 次复用纹理绘制 | **0.272 ms**（0.262–0.304） | 0.383 ms（0.380–0.388） | NanoVG / WhatsCanvas 配对比 1.369× |
-| `contract_text_latin` | 576 次固定 Roboto 拉丁文本绘制 | **2.878 ms**（2.670–3.021） | 3.292 ms（3.255–3.337） | NanoVG / WhatsCanvas 配对比 1.153× |
-
-固定对象数不是唯一证据。参数化矩阵还会改变规模、seed、位置/颜色数据、图元或文本结构、纹理数量和渲染状态。当前 1024 次生成文本绘制的三 seed 标准结果如下：
-
-| 1080p 文本工作负载 | OpenGL | Vulkan | 含义 |
+| 代表性 1080p 动态结构负载 | WhatsCanvas OpenGL | NanoVG GL3 | 结果 |
 | --- | ---: | ---: | --- |
-| `stable` | 6.17 ms | **5.84 ms** | 文本和提交结构稳定 |
-| `dynamic-data` | 6.26 ms | **5.76 ms** | 每帧改变位置、颜色或文本选择 |
-| `dynamic-structure` | **7.65 ms** | 8.07 ms | 每帧改变文本、字号、样式和部分渲染状态 |
+| 1,024 个抗锯齿图形 | **1.730 ms** | 1.906 ms | 快 9.2% |
+| 4,096 个抗锯齿图形 | **5.751 ms** | 6.029 ms | 快 4.6% |
+| 1,024 张图片，32 纹理、50% 圆角 | **1.328 ms** | 1.869 ms | 快 28.9% |
+| 1,024 次生成文本绘制 | **6.886 ms** | 10.132 ms | 快 32.0% |
 
-最新 NanoVG 27 单元跨库矩阵中，每个单元使用 2 个 ABBA block、每个 renderer 4 个独立进程；三种规模、三种变化模式全部通过质量门禁：WhatsCanvas 明确领先 **26 项**、NanoVG 没有明确领先项、1 项置信区间跨过 1.0。分类结果如下：
+测试环境为 Windows 10、i7-8700、GTX 1060 3GB、OpenGL 3.3、`Release`、`1920 × 1080`。每个矩阵单元使用独立进程 ABBA 配对、GPU 完成同步和 bootstrap 95% 置信区间；只有通过像素质量门禁的数据才参与比较。
 
-| 1080p 参数矩阵 | WhatsCanvas 领先 | NanoVG 领先 | 无明确胜负 | 当前判断 |
-| --- | ---: | ---: | ---: | --- |
-| 几何 | 8 | 0 | 1 | stable 与 dynamic-data 在三种规模全部领先；dynamic-structure 的 1024/4096 也已领先，256 无明确胜负 |
-| 图片 | 9 | 0 | 0 | 三种规模、三种变化模式全部领先 |
-| 文本 | 9 | 0 | 0 | 三种规模、三种变化模式全部领先 |
-| **合计** | **26** | **0** | **1** | **27/27 质量门禁通过** |
-
-最新关键结果中，4096 个 stable / dynamic-data / dynamic-structure 几何分别为 **3.971 / 3.893 / 5.751 ms**，NanoVG 为 5.417 / 5.175 / 6.029 ms；1024 个 dynamic-structure 几何为 **1.730 ms**，NanoVG 为 1.906 ms。1024 个 32 纹理、50% 圆角、12.5% 状态变化的 dynamic-structure 图片为 **1.328 ms**，NanoVG 为 1.869 ms；1024 次 dynamic-structure 文本为 **6.886 ms**，NanoVG 为 10.132 ms。本轮通过短路径容量预留、轮廓移动/直接接管，以及 OpenGL blend equation 和空裁剪状态缓存关闭了最后两个明确落后的单元，没有按固定对象数增加特例。完整结果和边界见 [Performance Benchmarks](doc/PERFORMANCE_BENCHMARKS.md) 与 [NanoVG 性能优化实战](doc/NANOVG_PERFORMANCE_OPTIMIZATION.md)。仓库中的 [NanoVG 参数矩阵](benchmarks/baselines/cross-library-nanovg-matrix-windows-i7-8700-gtx1060/README.md) 保留早期 216 进程原始基线，用于核对改善幅度。
-
-Vulkan 的基础几何、图片和文字路径已经与 OpenGL 接近。复杂图层新增按几何、coverage 与 transform 生成的双哈希内容签名，稳定裁剪不再因临时资源地址变化而每帧重建全尺寸 mask；渐变裁剪也改为双纹理 GPU 合成，删除 GPU→CPU 读回与再次上传。`clip_layers` 的五个独立 Standard 进程中位数由此前 31.34 ms 降到 **8.80 ms**（本轮范围 7.67–12.16 ms，五次像素哈希一致），同轮 OpenGL 中位数为 18.08 ms。
-
-这些数字描述的是参考机器上的受控场景，不等于所有硬件、后端和工作负载的全局排名。完整口径、原始基线、复现命令和优化过程见 [Performance Benchmarks](doc/PERFORMANCE_BENCHMARKS.md)、[Cross-Library Benchmarks](doc/CROSS_LIBRARY_BENCHMARKS.md) 与 [NanoVG 性能优化实战](doc/NANOVG_PERFORMANCE_OPTIMIZATION.md)。
+这些数字说明 WhatsCanvas 在参考机器和受控负载中具备竞争力，不代表所有硬件、后端和场景的全局排名。完整数据、复现方法和优化记录见 [Performance Benchmarks](doc/PERFORMANCE_BENCHMARKS.md)、[Cross-Library Benchmarks](doc/CROSS_LIBRARY_BENCHMARKS.md) 与 [NanoVG 性能优化实战](doc/NANOVG_PERFORMANCE_OPTIMIZATION.md)。
 
 ## 与常见 2D 图形库的能力参照
 
