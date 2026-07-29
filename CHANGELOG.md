@@ -64,6 +64,8 @@ For releases and downloadable artifacts, see the
 ### Fixed
 - Preserved OpenGLES image sampling precision and desktop-independent
   presentation paths.
+- Avoided desktop-only sampler-object calls on OpenGLES and made wrapped
+  OpenGL framebuffer readback independent of incidental driver binding state.
 - Honored Vulkan command scissors and hardened packed path-attribute decoding.
 - Added cross-backend filter pixel-parity gates for OpenGL, OpenGLES, and
   Vulkan.

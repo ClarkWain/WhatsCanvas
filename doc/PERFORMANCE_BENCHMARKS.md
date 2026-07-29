@@ -227,7 +227,7 @@ The breakdown was 2/9 WhatsCanvas wins in geometry, 3/9 in images, and 7/9 in
 text. Stable single-texture images and most text workloads favored WhatsCanvas;
 dynamic multi-texture/state image streams and medium/high-scale dynamic
 geometry favored NanoVG. See the
-[raw parameter-matrix baseline](../benchmarks/baselines/cross-library-nanovg-matrix-windows-i7-8700-gtx1060/README.md)
+[raw parameter-matrix baseline](../benchmarks/baselines/nanovg-win-i7-8700-gtx1060/README.md)
 for every cell and all 216 process JSONL records.
 
 ### Post-optimization parameter matrix (`cac08c1`)
