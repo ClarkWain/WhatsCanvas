@@ -297,6 +297,14 @@ void DrawPathProgram::initialize()
 #endif
 
     program_ = new GLProgram(vertexSrc, fragmentSrc);
+    program_->use();
+#if !defined(WHATSCANVAS_OPENGL_ES)
+    // Samplers of different types must never alias the same texture unit,
+    // even when the branch that samples them is disabled. Mesa validates
+    // this at draw time, so reserve stable units up front.
+    program_->setInt("uGradientStops", 1);
+    program_->setInt("uDrawParameters", 2);
+#endif
 
     // Create the VAO
     glGenVertexArrays(1, &VAO_);

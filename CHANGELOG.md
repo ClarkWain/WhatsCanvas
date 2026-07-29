@@ -66,6 +66,8 @@ For releases and downloadable artifacts, see the
   presentation paths.
 - Avoided desktop-only sampler-object calls on OpenGLES and made wrapped
   OpenGL framebuffer readback independent of incidental driver binding state.
+- Assigned distinct texture units to mixed OpenGL sampler types so strict Mesa
+  drivers accept path draws as well as desktop vendor drivers.
 - Honored Vulkan command scissors and hardened packed path-attribute decoding.
 - Added cross-backend filter pixel-parity gates for OpenGL, OpenGLES, and
   Vulkan.
