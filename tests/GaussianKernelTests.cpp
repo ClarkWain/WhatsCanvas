@@ -161,6 +161,46 @@ bool testBlurDownsamplePolicy()
                   "small target extents should remain full resolution");
 }
 
+bool testComposableFilterChain()
+{
+    const std::array<float, 20> grayscale = {
+        0.2126f, 0.7152f, 0.0722f, 0.0f, 0.0f,
+        0.2126f, 0.7152f, 0.0722f, 0.0f, 0.0f,
+        0.2126f, 0.7152f, 0.0722f, 0.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f, 0.0f,
+    };
+    wsc::ImageFilterChain chain;
+    chain.append(wsc::ImageFilter::blur(4.0f))
+        .appendColorMatrix(grayscale)
+        .appendOffset(3.0f, -2.0f);
+    wsc::LayerOptions options;
+    options.setImageFilter(chain);
+    wsc::ImageFilterChain bounded = chain;
+    for (std::size_t index = bounded.size();
+         index < wsc::ImageFilterChain::kMaxNodes + 2u; ++index) {
+        bounded.appendOffset(static_cast<float>(index), 0.0f);
+    }
+    wsc::ImageFilterChain invalid;
+    std::array<float, 20> invalidMatrix = grayscale;
+    invalidMatrix[0] = std::numeric_limits<float>::quiet_NaN();
+    invalid.appendColorMatrix(invalidMatrix)
+        .appendOffset(std::numeric_limits<float>::infinity(), 0.0f);
+    return expect(
+               bounded.size() == wsc::ImageFilterChain::kMaxNodes,
+               "filter chain should enforce its node bound")
+        && expect(invalid.empty(),
+                  "filter chain should reject non-finite parameters")
+        && expect(
+            chain[1].type
+                == wsc::ImageFilterChain::NodeType::ColorMatrix,
+            "second node should be the color matrix")
+        && expect(std::abs(chain.samplingOutset() - 7.0f) < 1e-6f,
+                  "sampling outset should include blur and offset")
+        && expect(options.hasImageFilter()
+                      && options.imageFilterChain().size() == 3,
+                  "LayerOptions should retain a composable chain");
+}
+
 } // namespace
 
 int main()
@@ -175,5 +215,6 @@ int main()
     ok = testInnerShadowFactory() && ok;
     ok = testNonFiniteFilterArguments() && ok;
     ok = testBlurDownsamplePolicy() && ok;
+    ok = testComposableFilterChain() && ok;
     return ok ? 0 : 1;
 }

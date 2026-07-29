@@ -180,6 +180,7 @@ Public members:
 - `bool isTextureValid() const override;`
 - `bool isRenderTarget() const override;`
 - `RenderStats getRenderStats() const;`
+- `void setGpuTimingEnabled(bool enabled);`
 - `bool initializeContext();`
 - `void finalizeContext();`
 - `bool isContextInitialized() const;`
@@ -531,14 +532,34 @@ Public members:
 - `float samplingOutset() const;`
 - `float outputOutset() const;`
 
+### `class ImageFilterChain`
+
+Public members:
+
+- `ImageFilterChain() = default;`
+- `explicit ImageFilterChain(const ImageFilter &filter);`
+- `ImageFilterChain &append(const ImageFilter &filter);`
+- `ImageFilterChain &appendColorMatrix(const std::array<float, 20> &matrix);`
+- `ImageFilterChain &appendOffset(float dx, float dy);`
+- `std::size_t size() const;`
+- `bool empty() const;`
+- `bool isValid() const;`
+- `const Node &operator[](std::size_t index) const;`
+- `float samplingOutset() const;`
+- `float outputOutset() const;`
+
 ### `class LayerOptions`
 
 Public members:
 
 - `LayerOptions &setImageFilter(const ImageFilter &filter);`
+- `LayerOptions &setImageFilter(const ImageFilterChain &filters);`
 - `LayerOptions &setBackdropFilter(const ImageFilter &filter);`
+- `LayerOptions &setBackdropFilter(const ImageFilterChain &filters);`
 - `const ImageFilter &imageFilter() const;`
 - `const ImageFilter &backdropFilter() const;`
+- `const ImageFilterChain &imageFilterChain() const;`
+- `const ImageFilterChain &backdropFilterChain() const;`
 - `bool hasImageFilter() const;`
 - `bool hasBackdropFilter() const;`
 

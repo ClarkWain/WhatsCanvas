@@ -686,6 +686,62 @@ bool testFullBleedInnerShadow()
                   "full-bleed inner shadow should preserve its center");
 }
 
+bool testComposableImageFilterChain()
+{
+    constexpr int w = 32;
+    constexpr int h = 32;
+    std::unique_ptr<Canvas> canvas = makeSoftwareCanvas(w, h);
+    if (!canvas) {
+        return expect(false, "createSoftware should return a canvas");
+    }
+
+    const std::array<float, 20> redToGreen = {
+        0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+        1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f, 0.0f,
+    };
+    ImageFilterChain filters;
+    filters.appendColorMatrix(redToGreen).appendOffset(4.0f, 3.0f);
+    LayerOptions options;
+    options.setImageFilter(filters);
+    Paint layerPaint;
+    layerPaint.setColor(Color::WHITE);
+    Paint red;
+    red.setColor(Color(255, 0, 0, 255));
+    red.setAntiAlias(false);
+
+    canvas->beginFrame();
+    canvas->saveLayer(
+        RectF(0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h)),
+        layerPaint, options);
+    canvas->drawRect(RectF(8.0f, 8.0f, 8.0f, 8.0f), red);
+    canvas->restore();
+    canvas->endFrame();
+
+    std::vector<unsigned char> pixels;
+    if (!canvas->readPixelsRGBA(pixels)) {
+        return expect(false, "composable filter readback should succeed");
+    }
+    auto pixelAt = [&](int x, int y) {
+        return &pixels[(static_cast<std::size_t>(y) * w + x) * 4u];
+    };
+    const unsigned char *shifted = pixelAt(14, 14);
+    const unsigned char *oldPosition = pixelAt(9, 9);
+    const Canvas::RenderStats stats = canvas->getRenderStats();
+    return expect(
+               shifted[0] == 0 && shifted[1] == 255
+                   && shifted[2] == 0 && shifted[3] == 255,
+               "color matrix should run before the offset node")
+        && expect(oldPosition[3] == 0,
+                  "offset should expose transparent pixels at the old position")
+        && expect(stats.filterCount == 2 && stats.filterPassCount == 2,
+                  "generic chain nodes should be visible in filter diagnostics")
+        && expect(stats.flushCpuTimeNs > 0
+                      && stats.deviceExecutionCpuTimeNs > 0,
+                  "Software should report frame CPU timing");
+}
+
 // With gamma-correct rendering the software backend blends in linear space and
 // re-encodes to sRGB (mirroring the GL backend's linearized source color +
 // GL_FRAMEBUFFER_SRGB). A 50% red over opaque blue must land near the linear
@@ -752,6 +808,7 @@ int main()
     ok = testLayerImageBlur() && ok;
     ok = testLayerInnerShadow() && ok;
     ok = testFullBleedInnerShadow() && ok;
+    ok = testComposableImageFilterChain() && ok;
     ok = testGammaLinearBlend() && ok;
     return ok ? 0 : 1;
 }

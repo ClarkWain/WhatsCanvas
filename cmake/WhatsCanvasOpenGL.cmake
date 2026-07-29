@@ -254,6 +254,8 @@ function(whatscanvas_add_gl_family_library target_name project_root)
         "${src_dir}/command/DrawImage.cpp"
         "${src_dir}/command/DrawText.cpp"
         "${src_dir}/render/CommandDrawListEncoder.cpp"
+        "${src_dir}/render/FrameCompiler.cpp"
+        "${src_dir}/render/FilterChain.cpp"
         "${src_dir}/render/RenderContext.cpp"
         "${src_dir}/render/OpenGLRenderDevice.cpp"
         "${src_dir}/render/GLPresent.cpp"
@@ -380,6 +382,7 @@ function(whatscanvas_add_software_library target_name project_root)
         "${src_dir}/text/TextUtils.cpp"
         "${src_dir}/text/UnicodeBidi.cpp"
         "${src_dir}/command/SoftwareCommandStubs.cpp"
+        "${src_dir}/render/FilterChain.cpp"
         "${src_dir}/render/software/SoftwareRenderer.cpp"
         "${src_dir}/render/software/SoftwarePresent.cpp"
     )

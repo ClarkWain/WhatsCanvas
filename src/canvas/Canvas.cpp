@@ -3360,9 +3360,19 @@ Canvas::RenderStats Canvas::getRenderStats() const
 
     const FrameStats &frameStats = impl_->renderer->frameStats();
     const RenderResourceStats resourceStats = impl_->renderer->resourceStats();
+    stats.flushCpuTimeNs = frameStats.flushCpuTimeNs;
+    stats.frameCompileCpuTimeNs =
+        frameStats.frameCompileCpuTimeNs;
+    stats.deviceExecutionCpuTimeNs =
+        frameStats.deviceExecutionCpuTimeNs;
+    stats.gpuTimeNs = frameStats.gpuTimeNs;
+    stats.gpuTimeAvailable = frameStats.gpuTimeAvailable;
     stats.commandCount = frameStats.commandCount;
     stats.drawCallCount = frameStats.drawCallCount;
     stats.mergedBatchCount = frameStats.mergedBatchCount;
+    stats.compiledPacketCount = frameStats.compiledPacketCount;
+    stats.compiledVertexBytes = frameStats.compiledVertexBytes;
+    stats.compiledIndexBytes = frameStats.compiledIndexBytes;
     stats.renderTargetSwitches = frameStats.renderTargetSwitches;
     stats.filterCount = frameStats.filterCount;
     stats.filterPassCount = frameStats.filterPassCount;
@@ -3408,7 +3418,20 @@ Canvas::RenderStats Canvas::getRenderStats() const
     stats.strokeCacheBytes = impl_->strokeTessellationCache.residentBytes();
     stats.bitmapTextCacheSize = impl_->bitmapTextCache.size();
     stats.bitmapTextCacheBytes = impl_->bitmapTextCacheBytes;
+    stats.trackedResourceBytes =
+        stats.glyphAtlasTextureBytes
+        + stats.pooledRenderTargetBytes
+        + stats.tessellationCacheBytes
+        + stats.strokeCacheBytes
+        + stats.bitmapTextCacheBytes;
     return stats;
+}
+
+void Canvas::setGpuTimingEnabled(bool enabled)
+{
+    if (impl_->renderer != nullptr) {
+        impl_->renderer->setGpuTimingEnabled(enabled);
+    }
 }
 
 void *Canvas::getTextureHandleOpaque() const
@@ -5700,8 +5723,8 @@ void Canvas::Impl::restoreLayer(const LayerState &layer)
 
     const RectF canvasBounds(0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height));
     const float filterOutset = std::max({
-        layer.options.imageFilter().samplingOutset(),
-        layer.options.backdropFilter().samplingOutset(),
+        layer.options.imageFilterChain().samplingOutset(),
+        layer.options.backdropFilterChain().samplingOutset(),
     });
     const RectF expanded(layer.bounds.getX() - filterOutset,
                          layer.bounds.getY() - filterOutset,
@@ -5745,7 +5768,7 @@ void Canvas::Impl::restoreLayer(const LayerState &layer)
         if (backdrop && backdrop->isValid()) {
             SharedImageResource filteredBackdrop =
                 renderer->filterImageResource(backdrop, layerWidth, layerHeight,
-                                              layer.options.backdropFilter());
+                                              layer.options.backdropFilterChain());
             if (filteredBackdrop && filteredBackdrop->isValid()) {
                 DrawImageData backdropData;
                 backdropData.imageResource = std::move(filteredBackdrop);
@@ -5791,14 +5814,14 @@ void Canvas::Impl::restoreLayer(const LayerState &layer)
     if (layer.options.hasImageFilter()) {
         SharedImageResource filtered =
             renderer->filterImageResource(imageResource, layerWidth, layerHeight,
-                                          layer.options.imageFilter());
+                                          layer.options.imageFilterChain());
         if (filtered && filtered->isValid()) {
             imageResource = std::move(filtered);
         }
     }
 
     const float outputOutset = layer.options.hasImageFilter()
-        ? layer.options.imageFilter().outputOutset()
+        ? layer.options.imageFilterChain().outputOutset()
         : 0.0f;
     RectF requestedCompositeRect(
         layer.bounds.getX() - outputOutset,

@@ -12,6 +12,7 @@ This checklist keeps releases aligned with the project's current goal: a lightwe
 ```bat
 cmake --build build --target WhatsCanvasCheckApiReference
 cmake --build build --target WhatsCanvasCheckVersionConsistency
+cmake --build build --target WhatsCanvasCheckPerformanceClaims
 cmd /c scripts\api_reference_check.bat
 cmd /c scripts\version_consistency_check.bat
 ```

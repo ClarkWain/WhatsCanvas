@@ -5,7 +5,7 @@
 #include <vector>
 
 #include "command/DrawCommand.h"
-#include "render/CommandDrawListEncoder.h"
+#include "render/FrameCompiler.h"
 
 namespace {
 
@@ -57,20 +57,30 @@ int main()
     request.canvasHeight = 16;
     request.targetHeight = 16;
 
-    wsc::DrawList drawList;
+    CompiledFrame frame;
     std::string error;
+    FrameCompiler compiler;
     if (!expect(
-            encodeCommandsToDrawList(commands, request, drawList, &error),
+            compiler.compile(commands, request, frame, &error),
             "packed path command should encode")) {
         std::cerr << error << std::endl;
         return 1;
     }
-    if (!expect(drawList.size() == 1, "encoder should emit one primitive")) {
+    if (!expect(frame.packets.size() == 1,
+                "compiler should emit one primitive")) {
         return 1;
     }
 
-    const wsc::DrawPrimitive &primitive = drawList.front();
+    const wsc::DrawPrimitive &primitive = frame.packets.front();
     return expect(
+               frame.stats.commandCount == 1
+                   && frame.stats.packetCount == 1,
+               "compiler should report command and packet counts")
+            && expect(
+               frame.stats.vertexBytes > 0
+                   && frame.stats.indexBytes == 6 * sizeof(std::uint32_t),
+               "compiler should report packet payload bytes")
+            && expect(
                primitive.positions.size() == 8,
                "encoder should retain unique indexed vertices")
             && expect(

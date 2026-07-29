@@ -2,6 +2,7 @@
 #include "Renderer.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <limits>
 
@@ -338,6 +339,14 @@ SharedImageResource Renderer::renderCommandsToImageResource(const std::vector<st
     if (resource && resource->isValid()) {
         stats_.drawCallCount += commands.size();
         ++stats_.renderTargetSwitches;
+        stats_.frameCompileCpuTimeNs +=
+            device_->lastFrameCompileCpuTimeNs();
+        stats_.compiledPacketCount +=
+            device_->lastCompiledPacketCount();
+        stats_.compiledVertexBytes +=
+            device_->lastCompiledVertexBytes();
+        stats_.compiledIndexBytes +=
+            device_->lastCompiledIndexBytes();
     }
     return resource;
 }
@@ -382,6 +391,17 @@ SharedImageResource Renderer::filterImageResource(const SharedImageResource &sou
     return result;
 }
 
+void Renderer::recordGenericFilterPass(int width, int height) const
+{
+    ++stats_.filterCount;
+    ++stats_.filterPassCount;
+    const std::size_t pixels =
+        static_cast<std::size_t>(std::max(width, 0))
+        * static_cast<std::size_t>(std::max(height, 0));
+    stats_.filterInputPixelCount += pixels;
+    stats_.filterPixelPassCount += pixels;
+}
+
 void Renderer::resetRenderState()
 {
     // No GL context to reset for devices that render through executeCommands().
@@ -397,17 +417,50 @@ void Renderer::clear()
     imageBatchAppendFloor_ = 0;
 }
 
+void Renderer::setGpuTimingEnabled(bool enabled)
+{
+    if (device_ != nullptr) {
+        device_->setGpuFrameTimingEnabled(enabled);
+    }
+}
+
 void Renderer::flush()
 {
+    const auto flushStart = std::chrono::steady_clock::now();
+    const std::size_t drawCallsBeforeFlush =
+        stats_.drawCallCount;
+    const bool gpuTimerStarted =
+        device_ != nullptr && device_->beginGpuFrameTiming();
+    const auto finishTiming = [&]() {
+        if (gpuTimerStarted) {
+            device_->endGpuFrameTiming();
+        }
+        const auto flushEnd = std::chrono::steady_clock::now();
+        stats_.flushCpuTimeNs += static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                flushEnd - flushStart).count());
+        std::uint64_t gpuTimeNs = 0;
+        if (device_ != nullptr
+            && device_->lastGpuFrameTimeNs(gpuTimeNs)) {
+            stats_.gpuTimeNs = gpuTimeNs;
+            stats_.gpuTimeAvailable = true;
+        }
+    };
     stats_.commandCount += commands_.size();
 
     // Devices such as Vulkan render the recorded command stream into a device
     // render target rather than executing each command against a GL context.
     // Never fall through to the GL execute path for these backends.
     if (device_ != nullptr && device_->usesDeviceCommandExecution()) {
+        const auto deviceStart = std::chrono::steady_clock::now();
         if (!flushViaDeviceCommands()) {
             WSC_LOG_ERROR("Renderer", "Device command execution failed; frame not rendered.");
         }
+        const auto deviceEnd = std::chrono::steady_clock::now();
+        stats_.deviceExecutionCpuTimeNs += static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                deviceEnd - deviceStart).count());
+        finishTiming();
         return;
     }
 
@@ -1044,6 +1097,13 @@ void Renderer::flush()
     stats_.pathUploadCount += pathProgram->frameUploadCount();
     stats_.pathUploadBytes += pathProgram->frameUploadBytes();
     stats_.pathIndexBytes += pathProgram->frameIndexBytes();
+    stats_.compiledPacketCount +=
+        stats_.drawCallCount - drawCallsBeforeFlush;
+    stats_.compiledVertexBytes += pathProgram->frameUploadBytes()
+        - std::min(pathProgram->frameUploadBytes(),
+                   pathProgram->frameIndexBytes());
+    stats_.compiledIndexBytes += pathProgram->frameIndexBytes();
+    finishTiming();
 }
 
 bool Renderer::flushViaDeviceCommands()
@@ -1077,6 +1137,16 @@ bool Renderer::flushViaDeviceCommands()
             deviceDrawCalls > 0 ? deviceDrawCalls : commands_.size();
         stats_.mergedBatchCount +=
             device_->lastExecutionMergedBatchCount();
+        stats_.compiledPacketCount +=
+            device_->lastCompiledPacketCount() > 0
+                ? device_->lastCompiledPacketCount()
+                : deviceDrawCalls;
+        stats_.compiledVertexBytes +=
+            device_->lastCompiledVertexBytes();
+        stats_.compiledIndexBytes +=
+            device_->lastCompiledIndexBytes();
+        stats_.frameCompileCpuTimeNs +=
+            device_->lastFrameCompileCpuTimeNs();
     }
     return ok;
 }

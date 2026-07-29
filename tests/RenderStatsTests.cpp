@@ -76,6 +76,14 @@ public:
         }
         return std::make_shared<FakeImageResource>();
     }
+    bool beginGpuFrameTiming() override { return true; }
+    void endGpuFrameTiming() override { timerEnded = true; }
+    bool lastGpuFrameTimeNs(std::uint64_t &nanoseconds) const override
+    {
+        nanoseconds = timerEnded ? 1234u : 0u;
+        return timerEnded;
+    }
+    bool timerEnded = false;
 };
 
 bool testDefaultStatsAreReadable()
@@ -84,6 +92,10 @@ bool testDefaultStatsAreReadable()
     wsc::Canvas &canvas = *canvasOwner;
     const wsc::Canvas::RenderStats stats = canvas.getRenderStats();
     return expect(stats.commandCount == 0, "default command count should be zero")
+        && expect(stats.flushCpuTimeNs == 0, "default flush CPU time should be zero")
+        && expect(stats.frameCompileCpuTimeNs == 0,
+                  "default frame compile CPU time should be zero")
+        && expect(!stats.gpuTimeAvailable, "default GPU time should be unavailable")
         && expect(stats.drawCallCount == 0, "default draw call count should be zero")
         && expect(stats.mergedBatchCount == 0, "default merged batch count should be zero")
         && expect(stats.pathTopologyCacheHits == 0,
@@ -109,6 +121,25 @@ bool testDefaultStatsAreReadable()
         && expect(stats.strokeCacheBytes == 0, "default stroke cache bytes should be zero")
         && expect(stats.bitmapTextCacheSize == 0, "default bitmap text cache should be empty")
         && expect(stats.bitmapTextCacheBytes == 0, "default bitmap text bytes should be zero");
+}
+
+bool testFlushTimingIsReportedAndReset()
+{
+    Renderer renderer(std::make_unique<FakeRenderDevice>());
+    renderer.setViewport(16, 16);
+    renderer.setGpuTimingEnabled(true);
+    renderer.submit(std::make_unique<NoopCommand>());
+    renderer.flush();
+    const FrameStats stats = renderer.frameStats();
+    bool ok = expect(stats.flushCpuTimeNs > 0,
+                     "flush should report CPU wall time")
+        && expect(stats.gpuTimeAvailable && stats.gpuTimeNs == 1234u,
+                  "backend GPU timer result should be forwarded");
+    renderer.resetFrameStats();
+    ok = expect(renderer.frameStats().flushCpuTimeNs == 0
+                    && !renderer.frameStats().gpuTimeAvailable,
+                "resetFrameStats should clear timing diagnostics") && ok;
+    return ok;
 }
 
 bool testOffscreenStatsCountCommandsAndDraws()
@@ -166,5 +197,6 @@ int main()
     ok = testDefaultStatsAreReadable() && ok;
     ok = testOffscreenStatsCountCommandsAndDraws() && ok;
     ok = testFilterStatsAccumulateAndReset() && ok;
+    ok = testFlushTimingIsReportedAndReset() && ok;
     return ok ? 0 : 1;
 }

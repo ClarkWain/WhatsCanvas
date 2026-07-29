@@ -33,6 +33,7 @@ Call `Canvas::getRenderStats()` after a frame. The memory-related fields are:
 - `tessellationCacheBytes` (fill triangulation plus anti-alias meshes) and
   `strokeCacheBytes`
 - `bitmapTextCacheSize` and `bitmapTextCacheBytes`
+- `trackedResourceBytes`, the convenience sum of the byte fields above
 
 The values describe resources retained by WhatsCanvas. They are not process
 RSS or exact driver heap measurements. Use platform profilers for allocator
