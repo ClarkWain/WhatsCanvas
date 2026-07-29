@@ -197,10 +197,38 @@ change rate, text length, process range, synchronized frame timing, throughput,
 draw calls, and draw reduction. This makes stable-cache wins visible without
 hiding dynamic topology or high-state-churn costs.
 
-The parameterized matrix evaluates WhatsCanvas backends and revisions. It does
-not replace the fixed, quality-gated cross-library contract; an external
-adapter must implement identical parameter semantics before its matrix numbers
-are comparable.
+The native parameterized matrix evaluates WhatsCanvas backends and revisions.
+For external libraries whose adapters implement the same parameter semantics,
+the cross-library matrix runner applies the pixel-quality contract and an
+independent ABBA comparison to every matrix cell:
+
+```powershell
+python scripts\run_cross_library_matrix.py `
+  --reference "whatscanvas=build/Release/WhatsCanvasPerformanceSuite.exe --backend opengl" `
+  --adapter "nanovg=build/Release/WhatsCanvasNanoVGBenchmarkAdapter.exe --backend opengl" `
+  --preset standard --profile standard `
+  --repetitions 4 `
+  --output-dir build\cross-library-matrix
+```
+
+`standard` contains 27 cells: three scenes, three operation scales, and three
+change modes. Its default workload seed is `1001`; use `--seeds
+1001,2003,3001` to test content sensitivity. ABBA repetition controls process
+noise separately from content diversity. The default two ABBA blocks use four
+fresh processes per renderer per cell; use `--repetitions 8` for a publishable
+four-block run. The runner preserves each cell's raw JSONL and capture, then
+writes aggregate JSON, CSV, and Markdown with quality status and 95% confidence
+verdicts.
+
+The first checked Windows i7-8700 / GTX 1060 run passed all 27 quality gates.
+With two ABBA blocks per cell, WhatsCanvas OpenGL was conclusively faster in 12
+cells, NanoVG GL3 in 12, and 3 crossed the paired-ratio 95% confidence boundary.
+The breakdown was 2/9 WhatsCanvas wins in geometry, 3/9 in images, and 7/9 in
+text. Stable single-texture images and most text workloads favored WhatsCanvas;
+dynamic multi-texture/state image streams and medium/high-scale dynamic
+geometry favored NanoVG. See the
+[raw parameter-matrix baseline](../benchmarks/baselines/cross-library-nanovg-matrix-windows-i7-8700-gtx1060/README.md)
+for every cell and all 216 process JSONL records.
 
 ## Profiles
 

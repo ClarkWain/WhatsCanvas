@@ -72,6 +72,20 @@ class CrossLibraryBenchmarkTests(unittest.TestCase):
             )
         )
 
+    def test_relative_quality_gate_rejects_a_blank_renderer(self):
+        signal = MODULE.QualityMetrics(20.0, 40.0, 220, 0.2)
+        candidate = MODULE.QualityMetrics(12.0, 25.0, 220, 0.18)
+        thresholds = {
+            "max_mean_absolute_error_fraction_of_reference_signal": 0.85,
+            "max_root_mean_square_error_fraction_of_reference_signal": 0.85,
+        }
+        self.assertTrue(
+            MODULE.quality_passes(candidate, thresholds, signal)
+        )
+        self.assertFalse(
+            MODULE.quality_passes(signal, thresholds, signal)
+        )
+
     def test_abba_schedule_balances_process_order(self):
         reference = MODULE.Adapter("a", ("a",))
         candidate = MODULE.Adapter("b", ("b",))
@@ -115,11 +129,74 @@ class CrossLibraryBenchmarkTests(unittest.TestCase):
         dynamic_blank = MODULE.QualityMetrics(
             11.007, 40.960, 229, 0.07992
         )
+        candidate_signal = MODULE.QualityMetrics(
+            11.2, 41.2, 229, 0.081
+        )
+        empty_signal = MODULE.QualityMetrics(0.0, 0.0, 0, 0.0)
         self.assertTrue(
-            MODULE.quality_passes(dynamic_nanovg, parameterized)
+            MODULE.quality_passes(
+                dynamic_nanovg,
+                parameterized,
+                dynamic_blank,
+                candidate_signal,
+            )
         )
         self.assertFalse(
-            MODULE.quality_passes(dynamic_blank, parameterized)
+            MODULE.quality_passes(
+                dynamic_blank,
+                parameterized,
+                dynamic_blank,
+                empty_signal,
+            )
+        )
+
+    def test_large_text_raster_delta_requires_matching_ink_signal(self):
+        contract_path = (
+            Path(__file__).resolve().parents[1]
+            / "benchmarks"
+            / "cross_library"
+            / "contract.json"
+        )
+        contract = json.loads(contract_path.read_text(encoding="utf-8"))
+        thresholds = contract["scenes"]["contract_text_latin"][
+            "parameterized_quality"
+        ]
+        reference_signal = MODULE.QualityMetrics(
+            5.493, 28.411, 229, 0.04277
+        )
+        candidate_signal = MODULE.QualityMetrics(
+            5.747, 29.161, 229, 0.04438
+        )
+        raster_delta = MODULE.QualityMetrics(
+            5.660, 27.210, 229, 0.0513
+        )
+        self.assertTrue(
+            MODULE.quality_passes(
+                raster_delta,
+                thresholds,
+                reference_signal,
+                candidate_signal,
+            )
+        )
+
+    def test_parameterized_image_quality_is_signal_relative(self):
+        contract_path = (
+            Path(__file__).resolve().parents[1]
+            / "benchmarks"
+            / "cross_library"
+            / "contract.json"
+        )
+        contract = json.loads(contract_path.read_text(encoding="utf-8"))
+        thresholds = contract["scenes"]["image_grid"][
+            "parameterized_quality"
+        ]
+        signal = MODULE.QualityMetrics(50.76, 66.75, 233, 0.755)
+        nanovg = MODULE.QualityMetrics(3.50, 11.37, 229, 0.093)
+        self.assertTrue(
+            MODULE.quality_passes(nanovg, thresholds, signal)
+        )
+        self.assertFalse(
+            MODULE.quality_passes(signal, thresholds, signal)
         )
 
     def test_jsonl_rejects_debug_build(self):

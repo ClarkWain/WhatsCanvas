@@ -1,0 +1,105 @@
+{
+  "schema": 2,
+  "contract": "1.2.0",
+  "reference": "whatscanvas",
+  "profile": "standard",
+  "width": 1920,
+  "height": 1080,
+  "frames": 30,
+  "warmup": 5,
+  "repetitions_per_renderer": 4,
+  "bootstrap_samples": 10000,
+  "font_sha256": "797E35F7F5D6020A5C6EA13B42ECD668BCFB3BBC4BAA0E74773527E5B6CB3174",
+  "workload_arguments": [
+    "--workload",
+    "stable",
+    "--seed",
+    "1001",
+    "--operations",
+    "64",
+    "--texture-count",
+    "1",
+    "--rounded-ratio",
+    "0.0",
+    "--state-change-rate",
+    "0.0",
+    "--text-length",
+    "24"
+  ],
+  "comparisons": [
+    {
+      "scene": "image_grid",
+      "reference": "whatscanvas",
+      "candidate": "nanovg",
+      "schedule": [
+        "block-01-01-a",
+        "block-01-02-b",
+        "block-01-03-b",
+        "block-01-04-a",
+        "block-02-01-a",
+        "block-02-02-b",
+        "block-02-03-b",
+        "block-02-04-a"
+      ],
+      "reference_process_medians_ms": [
+        0.20545,
+        0.18305,
+        0.24335,
+        0.1803
+      ],
+      "candidate_process_medians_ms": [
+        0.2798,
+        0.2809,
+        0.3009,
+        0.2974
+      ],
+      "abba_relative_samples": [
+        1.4456454220829675,
+        1.4281309702693727
+      ],
+      "candidate_median_ci_ms": [
+        0.2798,
+        0.3009
+      ],
+      "relative_ci": [
+        1.4281309702693727,
+        1.4456454220829675
+      ],
+      "quality": {
+        "mean_absolute_error": 0.5135603137860082,
+        "root_mean_square_error": 2.8688504413681573,
+        "max_channel_delta": 97,
+        "changed_pixel_fraction": 0.010668885030864198,
+        "reference_signal": {
+          "mean_absolute_error": 48.21402295524691,
+          "root_mean_square_error": 62.57143907136402,
+          "max_channel_delta": 219,
+          "changed_pixel_fraction": 0.7507002314814815
+        },
+        "mean_absolute_error_fraction_of_reference_signal": 0.010651679372673459,
+        "root_mean_square_error_fraction_of_reference_signal": 0.04584920027324566,
+        "changed_pixel_fraction_of_reference_signal": 0.014211911204302569,
+        "candidate_signal": {
+          "mean_absolute_error": 48.21421810699589,
+          "root_mean_square_error": 62.441568820637485,
+          "max_channel_delta": 219,
+          "changed_pixel_fraction": 0.7557349537037037
+        },
+        "candidate_mean_absolute_error_fraction_of_reference_signal": 1.0000040476138894,
+        "candidate_root_mean_square_error_fraction_of_reference_signal": 0.997924448396042,
+        "candidate_changed_pixel_fraction_of_reference_signal": 1.0067067013051088,
+        "passed": true
+      },
+      "run_files": [
+        "pair-nanovg/runs/image_grid/whatscanvas/block-01-01-a/result.jsonl",
+        "pair-nanovg/runs/image_grid/nanovg/block-01-02-b/result.jsonl",
+        "pair-nanovg/runs/image_grid/nanovg/block-01-03-b/result.jsonl",
+        "pair-nanovg/runs/image_grid/whatscanvas/block-01-04-a/result.jsonl",
+        "pair-nanovg/runs/image_grid/whatscanvas/block-02-01-a/result.jsonl",
+        "pair-nanovg/runs/image_grid/nanovg/block-02-02-b/result.jsonl",
+        "pair-nanovg/runs/image_grid/nanovg/block-02-03-b/result.jsonl",
+        "pair-nanovg/runs/image_grid/whatscanvas/block-02-04-a/result.jsonl"
+      ]
+    }
+  ]
+}

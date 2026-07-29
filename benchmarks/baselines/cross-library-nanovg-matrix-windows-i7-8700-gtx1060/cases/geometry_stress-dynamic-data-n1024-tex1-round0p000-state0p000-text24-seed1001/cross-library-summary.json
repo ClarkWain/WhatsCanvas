@@ -1,0 +1,87 @@
+{
+  "schema": 2,
+  "contract": "1.2.0",
+  "reference": "whatscanvas",
+  "profile": "standard",
+  "width": 1920,
+  "height": 1080,
+  "frames": 30,
+  "warmup": 5,
+  "repetitions_per_renderer": 4,
+  "bootstrap_samples": 10000,
+  "font_sha256": "797E35F7F5D6020A5C6EA13B42ECD668BCFB3BBC4BAA0E74773527E5B6CB3174",
+  "workload_arguments": [
+    "--workload",
+    "dynamic-data",
+    "--seed",
+    "1001",
+    "--operations",
+    "1024",
+    "--texture-count",
+    "1",
+    "--rounded-ratio",
+    "0.0",
+    "--state-change-rate",
+    "0.0",
+    "--text-length",
+    "24"
+  ],
+  "comparisons": [
+    {
+      "scene": "geometry_stress",
+      "reference": "whatscanvas",
+      "candidate": "nanovg",
+      "schedule": [
+        "block-01-01-a",
+        "block-01-02-b",
+        "block-01-03-b",
+        "block-01-04-a",
+        "block-02-01-a",
+        "block-02-02-b",
+        "block-02-03-b",
+        "block-02-04-a"
+      ],
+      "reference_process_medians_ms": [
+        1.9352,
+        1.93735,
+        1.96675,
+        1.9975
+      ],
+      "candidate_process_medians_ms": [
+        1.5521,
+        1.5581,
+        1.5093,
+        1.55035
+      ],
+      "abba_relative_samples": [
+        0.8031386791447257,
+        0.7717643073704099
+      ],
+      "candidate_median_ci_ms": [
+        1.5093,
+        1.5581
+      ],
+      "relative_ci": [
+        0.7717643073704099,
+        0.8031386791447257
+      ],
+      "quality": {
+        "mean_absolute_error": 0.18767891589506172,
+        "root_mean_square_error": 0.8315663171787654,
+        "max_channel_delta": 31,
+        "changed_pixel_fraction": 2.652391975308642e-05,
+        "passed": true
+      },
+      "run_files": [
+        "pair-nanovg/runs/geometry_stress/whatscanvas/block-01-01-a/result.jsonl",
+        "pair-nanovg/runs/geometry_stress/nanovg/block-01-02-b/result.jsonl",
+        "pair-nanovg/runs/geometry_stress/nanovg/block-01-03-b/result.jsonl",
+        "pair-nanovg/runs/geometry_stress/whatscanvas/block-01-04-a/result.jsonl",
+        "pair-nanovg/runs/geometry_stress/whatscanvas/block-02-01-a/result.jsonl",
+        "pair-nanovg/runs/geometry_stress/nanovg/block-02-02-b/result.jsonl",
+        "pair-nanovg/runs/geometry_stress/nanovg/block-02-03-b/result.jsonl",
+        "pair-nanovg/runs/geometry_stress/whatscanvas/block-02-04-a/result.jsonl"
+      ]
+    }
+  ]
+}

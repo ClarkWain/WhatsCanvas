@@ -62,6 +62,7 @@ class ReportRow:
     relative_samples: list[float]
     relative_ci: tuple[float, float]
     quality: QualityMetrics
+    reference_signal: QualityMetrics | None
     quality_passed: bool
 
 
@@ -176,17 +177,99 @@ def worst_quality(metrics: Iterable[QualityMetrics]) -> QualityMetrics:
     )
 
 
+def solid_image(width: int, height: int, rgb: Iterable[int]) -> PpmImage:
+    channels = tuple(int(value) for value in rgb)
+    if (
+        width <= 0
+        or height <= 0
+        or len(channels) != 3
+        or any(value < 0 or value > 255 for value in channels)
+    ):
+        raise BenchmarkError("invalid reference background color")
+    return PpmImage(width, height, bytes(channels) * (width * height))
+
+
 def quality_passes(
-    metrics: QualityMetrics, thresholds: dict[str, Any]
+    metrics: QualityMetrics,
+    thresholds: dict[str, Any],
+    reference_signal: QualityMetrics | None = None,
+    candidate_signal: QualityMetrics | None = None,
 ) -> bool:
-    return (
-        metrics.mean_absolute_error
-        <= float(thresholds["max_mean_absolute_error"])
-        and metrics.root_mean_square_error
-        <= float(thresholds["max_root_mean_square_error"])
-        and metrics.changed_pixel_fraction
-        <= float(thresholds["max_changed_pixel_fraction"])
+    absolute_fields = (
+        ("max_mean_absolute_error", metrics.mean_absolute_error),
+        ("max_root_mean_square_error", metrics.root_mean_square_error),
+        ("max_changed_pixel_fraction", metrics.changed_pixel_fraction),
     )
+    if any(
+        value > float(thresholds[limit])
+        for limit, value in absolute_fields
+        if limit in thresholds
+    ):
+        return False
+
+    relative_fields = (
+        (
+            "max_mean_absolute_error_fraction_of_reference_signal",
+            metrics.mean_absolute_error,
+            "mean_absolute_error",
+        ),
+        (
+            "max_root_mean_square_error_fraction_of_reference_signal",
+            metrics.root_mean_square_error,
+            "root_mean_square_error",
+        ),
+        (
+            "max_changed_pixel_fraction_of_reference_signal",
+            metrics.changed_pixel_fraction,
+            "changed_pixel_fraction",
+        ),
+    )
+    relative_limits = [
+        item for item in relative_fields if item[0] in thresholds
+    ]
+    if relative_limits and reference_signal is None:
+        raise BenchmarkError(
+            "relative quality limits require a reference signal"
+        )
+    for limit, value, signal_field in relative_limits:
+        signal = float(getattr(reference_signal, signal_field))
+        if signal <= 0.0 or value > float(thresholds[limit]) * signal:
+            return False
+
+    candidate_signal_fields = (
+        (
+            "candidate_mean_absolute_error_fraction_of_reference_signal",
+            "mean_absolute_error",
+        ),
+        (
+            "candidate_root_mean_square_error_fraction_of_reference_signal",
+            "root_mean_square_error",
+        ),
+        (
+            "candidate_changed_pixel_fraction_of_reference_signal",
+            "changed_pixel_fraction",
+        ),
+    )
+    for name, signal_field in candidate_signal_fields:
+        minimum = f"min_{name}"
+        maximum = f"max_{name}"
+        if minimum not in thresholds and maximum not in thresholds:
+            continue
+        if reference_signal is None or candidate_signal is None:
+            raise BenchmarkError(
+                "candidate signal limits require reference and candidate "
+                "signals"
+            )
+        reference_value = float(getattr(reference_signal, signal_field))
+        candidate_value = float(getattr(candidate_signal, signal_field))
+        if reference_value <= 0.0:
+            return False
+        fraction = candidate_value / reference_value
+        if minimum in thresholds and fraction < float(thresholds[minimum]):
+            return False
+        if maximum in thresholds and fraction > float(thresholds[maximum]):
+            return False
+    return True
 
 
 def percentile(sorted_values: list[float], ratio: float) -> float:
@@ -479,13 +562,26 @@ def markdown_report(
             float(statistics.median(row.relative_samples))
             if row.relative_samples else 1.0
         )
+        mae = f"{row.quality.mean_absolute_error:.3f}"
+        rmse = f"{row.quality.root_mean_square_error:.3f}"
+        if row.reference_signal is not None:
+            if row.reference_signal.mean_absolute_error > 0.0:
+                mae += (
+                    " / "
+                    f"{row.quality.mean_absolute_error / row.reference_signal.mean_absolute_error:.3f}x"
+                )
+            if row.reference_signal.root_mean_square_error > 0.0:
+                rmse += (
+                    " / "
+                    f"{row.quality.root_mean_square_error / row.reference_signal.root_mean_square_error:.3f}x"
+                )
         lines.append(
             f"| {row.label} | `{row.scene}` | {median:.3f} ms "
             f"[{row.median_ci_ms[0]:.3f}, {row.median_ci_ms[1]:.3f}] | "
             f"{relative:.3f}x "
             f"[{row.relative_ci[0]:.3f}, {row.relative_ci[1]:.3f}] | "
-            f"{row.quality.mean_absolute_error:.3f} | "
-            f"{row.quality.root_mean_square_error:.3f} | "
+            f"{mae} | "
+            f"{rmse} | "
             f"{row.quality.changed_pixel_fraction * 100.0:.3f}% | "
             f"{'PASS' if row.quality_passed else 'FAIL'} |"
         )
@@ -496,6 +592,11 @@ def markdown_report(
             "each ABBA block; lower is faster. Confidence intervals use a "
             "deterministic bootstrap over fresh-process samples. Every JSONL "
             "run retains all measured frame samples.",
+            "",
+            "For parameterized scenes with a declared reference background, "
+            "MAE and RMSE also show error/reference-signal ratios. A blank "
+            "renderer has a ratio of 1.0 and zero candidate signal, so it "
+            "fails the combined gate.",
             "",
             "A quality failure invalidates the timing comparison.",
             "",
@@ -692,8 +793,46 @@ def main() -> int:
                 for run in runs
                 if run.adapter.label == candidate.label
             ]
+            candidate_hashes = {
+                run.result["pixel_hash"] for run in runs
+                if run.adapter.label == candidate.label
+            }
+            if len(candidate_hashes) != 1:
+                raise BenchmarkError(
+                    f"{scene}: {candidate.label} validation frame is "
+                    "nondeterministic"
+                )
             quality = worst_quality(quality_values)
-            passed = quality_passes(quality, quality_contract)
+            reference_signal = None
+            candidate_signal = None
+            if "reference_background_rgb" in quality_contract:
+                background = solid_image(
+                    reference_image.width,
+                    reference_image.height,
+                    quality_contract["reference_background_rgb"],
+                )
+                reference_signal = compare_images(
+                    reference_image,
+                    background,
+                    int(quality_contract["channel_threshold"]),
+                )
+                candidate_image = read_ppm(
+                    next(
+                        run.capture for run in runs
+                        if run.adapter.label == candidate.label
+                    )
+                )
+                candidate_signal = compare_images(
+                    candidate_image,
+                    background,
+                    int(quality_contract["channel_threshold"]),
+                )
+            passed = quality_passes(
+                quality,
+                quality_contract,
+                reference_signal,
+                candidate_signal,
+            )
             all_passed = all_passed and passed
             candidate_samples = [
                 float(run.result["total_median_ms"])
@@ -718,6 +857,7 @@ def main() -> int:
                     relative_samples, args.bootstrap_samples, seed_base + 1
                 ),
                 quality,
+                reference_signal,
                 passed,
             )
             rows.append(row)
@@ -738,6 +878,37 @@ def main() -> int:
                     "relative_ci": list(row.relative_ci),
                     "quality": {
                         **quality.__dict__,
+                        **(
+                            {
+                                "reference_signal":
+                                    reference_signal.__dict__,
+                                "mean_absolute_error_fraction_of_reference_signal":
+                                    quality.mean_absolute_error
+                                    / reference_signal.mean_absolute_error,
+                                "root_mean_square_error_fraction_of_reference_signal":
+                                    quality.root_mean_square_error
+                                    / reference_signal.root_mean_square_error,
+                                "changed_pixel_fraction_of_reference_signal":
+                                    quality.changed_pixel_fraction
+                                    / reference_signal.changed_pixel_fraction,
+                                "candidate_signal":
+                                    candidate_signal.__dict__,
+                                "candidate_mean_absolute_error_fraction_of_reference_signal":
+                                    candidate_signal.mean_absolute_error
+                                    / reference_signal.mean_absolute_error,
+                                "candidate_root_mean_square_error_fraction_of_reference_signal":
+                                    candidate_signal.root_mean_square_error
+                                    / reference_signal.root_mean_square_error,
+                                "candidate_changed_pixel_fraction_of_reference_signal":
+                                    candidate_signal.changed_pixel_fraction
+                                    / reference_signal.changed_pixel_fraction,
+                            }
+                            if (
+                                reference_signal is not None
+                                and candidate_signal is not None
+                            )
+                            else {}
+                        ),
                         "passed": passed,
                     },
                     "run_files": [
@@ -764,6 +935,7 @@ def main() -> int:
                 [],
                 (1.0, 1.0),
                 QualityMetrics(0.0, 0.0, 0, 0.0),
+                None,
                 True,
             ),
         )
