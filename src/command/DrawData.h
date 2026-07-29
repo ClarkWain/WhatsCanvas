@@ -56,7 +56,13 @@ enum class DrawGradientTileMode {
 struct DrawPathGeometry {
     std::vector<float> points;
     std::vector<float> coverage;
+    std::vector<std::uint8_t> packedCoverage;
     std::vector<std::uint32_t> indices;
+    float boundsLeft = 0.0f;
+    float boundsTop = 0.0f;
+    float boundsRight = 0.0f;
+    float boundsBottom = 0.0f;
+    bool hasBounds = false;
     // Content identity for topology-only reuse. Positions are intentionally
     // excluded so dynamic transforms/data can retain indices and AA coverage.
     std::uint64_t topologyFingerprint = 0;
@@ -65,6 +71,7 @@ struct DrawPathGeometry {
     {
         return points.capacity() * sizeof(float)
             + coverage.capacity() * sizeof(float)
+            + packedCoverage.capacity() * sizeof(std::uint8_t)
             + indices.capacity() * sizeof(std::uint32_t);
     }
 };
@@ -130,6 +137,11 @@ struct DrawPathData {
     {
         return sharedGeometry ? sharedGeometry->coverage : coverage;
     }
+    const std::vector<std::uint8_t> &packedCoverageData() const
+    {
+        return !packedCoverage.empty() || !sharedGeometry
+            ? packedCoverage : sharedGeometry->packedCoverage;
+    }
     const std::vector<std::uint32_t> &indexData() const
     {
         return sharedGeometry ? sharedGeometry->indices : indices;
@@ -145,12 +157,15 @@ struct DrawPathData {
             : colors[vertex * 4 + channel];
     }
     bool hasFloatCoverage() const { return coverageData().size() == getPointCount(); }
-    bool hasPackedCoverage() const { return packedCoverage.size() == getPointCount(); }
+    bool hasPackedCoverage() const
+    {
+        return packedCoverageData().size() == getPointCount();
+    }
     bool hasCoverage() const { return hasFloatCoverage() || hasPackedCoverage(); }
     float coverageAt(std::size_t vertex) const
     {
         return hasPackedCoverage()
-            ? static_cast<float>(packedCoverage[vertex]) / 255.0f
+            ? static_cast<float>(packedCoverageData()[vertex]) / 255.0f
             : coverageData()[vertex];
     }
     bool hasShortIndices() const { return !shortIndices.empty(); }

@@ -2,6 +2,7 @@
 #include "Renderer.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <limits>
@@ -28,6 +29,8 @@ constexpr float kMergeEpsilon = 0.001f;
 // 65K vertices still bounds temporary merge storage while avoiding an
 // otherwise artificial batch break in the 1080p geometry stress scene.
 constexpr std::size_t kMaxPathBatchVertices = 65536u;
+constexpr std::size_t kMinIndependentPathReorderCount = 8u;
+constexpr std::size_t kMaxIndependentPathReorderCount = 256u;
 
 bool nearlyEqual(float lhs, float rhs)
 {
@@ -45,6 +48,100 @@ std::uint64_t pathTopologyIdentity(const DrawPathData &data)
     return static_cast<std::uint64_t>(
         reinterpret_cast<std::uintptr_t>(
             data.sharedGeometry.get()));
+}
+
+void reorderIndependentPathSegment(
+    std::vector<std::unique_ptr<Command>> &commands,
+    std::size_t begin, std::size_t end)
+{
+    if (end - begin < kMinIndependentPathReorderCount) {
+        return;
+    }
+    const auto blendModeAt = [&](std::size_t index) {
+        return static_cast<DrawPathCommand *>(
+            commands[index].get())->data().blendMode;
+    };
+    const DrawBlendMode firstBlendMode = blendModeAt(begin);
+    bool hasBlendTransition = false;
+    for (std::size_t index = begin + 1u; index < end; ++index) {
+        if (blendModeAt(index) != firstBlendMode) {
+            hasBlendTransition = true;
+            break;
+        }
+    }
+    if (!hasBlendTransition) {
+        return;
+    }
+
+    std::stable_sort(
+        commands.begin() + static_cast<std::ptrdiff_t>(begin),
+        commands.begin() + static_cast<std::ptrdiff_t>(end),
+        [](const std::unique_ptr<Command> &lhs,
+           const std::unique_ptr<Command> &rhs) {
+            const DrawBlendMode lhsMode =
+                static_cast<const DrawPathCommand *>(
+                    lhs.get())->data().blendMode;
+            const DrawBlendMode rhsMode =
+                static_cast<const DrawPathCommand *>(
+                    rhs.get())->data().blendMode;
+            return static_cast<int>(lhsMode)
+                < static_cast<int>(rhsMode);
+        });
+}
+
+void reorderIndependentPathRuns(
+    std::vector<std::unique_ptr<Command>> &commands)
+{
+    std::array<
+        wsc::render::PathDeviceBounds,
+        kMaxIndependentPathReorderCount> segmentBounds;
+    std::size_t segmentSize = 0u;
+    std::size_t segmentBegin = 0u;
+
+    const auto finishSegment = [&]() {
+        if (segmentSize > 0u) {
+            reorderIndependentPathSegment(
+                commands, segmentBegin,
+                segmentBegin + segmentSize);
+            segmentSize = 0u;
+        }
+    };
+
+    for (std::size_t index = 0; index < commands.size(); ++index) {
+        if (commands[index]->type() != Command::Type::Path) {
+            finishSegment();
+            continue;
+        }
+
+        const DrawPathData &data =
+            static_cast<const DrawPathCommand *>(
+                commands[index].get())->data();
+        wsc::render::PathDeviceBounds bounds;
+        if (!wsc::render::getReorderablePathBounds(data, bounds)) {
+            finishSegment();
+            continue;
+        }
+
+        bool overlaps = false;
+        for (std::size_t candidate = 0u;
+             candidate < segmentSize; ++candidate) {
+            if (wsc::render::pathDeviceBoundsOverlap(
+                    segmentBounds[candidate], bounds)) {
+                overlaps = true;
+                break;
+            }
+        }
+        if (overlaps
+            || segmentSize
+                == kMaxIndependentPathReorderCount) {
+            finishSegment();
+        }
+        if (segmentSize == 0u) {
+            segmentBegin = index;
+        }
+        segmentBounds[segmentSize++] = bounds;
+    }
+    finishSegment();
 }
 
 void resetPathBatchState(
@@ -469,6 +566,7 @@ void Renderer::flush()
     if (spriteBatch_) {
         spriteBatch_->beginFrame();
     }
+    reorderIndependentPathRuns(commands_);
     std::size_t pathBatchCacheIndex = 0;
 
     auto executeCommand = [&](const std::unique_ptr<Command> &command) {
@@ -981,10 +1079,11 @@ void Renderer::flush()
                 }
                 if (needsCoverage && !reuseSharedTopology) {
                     if (next.hasPackedCoverage()) {
+                        const std::vector<std::uint8_t> &packed =
+                            next.packedCoverageData();
                         merged.packedCoverage.insert(
                             merged.packedCoverage.end(),
-                            next.packedCoverage.begin(),
-                            next.packedCoverage.end());
+                            packed.begin(), packed.end());
                     } else if (next.hasFloatCoverage()) {
                         const std::size_t coverageStart =
                             merged.packedCoverage.size();
@@ -1017,32 +1116,68 @@ void Renderer::flush()
                             merged.shortIndices.size();
                         merged.shortIndices.resize(
                             indexStart + incomingIndexCount);
-                        for (std::size_t index = 0;
-                             index < incomingIndexCount; ++index) {
-                            const std::uint32_t sourceIndex =
-                                next.hasIndices()
-                                    ? next.getIndex(index)
-                                    : static_cast<std::uint32_t>(
-                                        index);
-                            merged.shortIndices[
-                                indexStart + index] =
-                                static_cast<std::uint16_t>(
-                                    baseVertex + sourceIndex);
+                        auto output =
+                            merged.shortIndices.begin()
+                            + static_cast<std::ptrdiff_t>(
+                                indexStart);
+                        if (next.hasShortIndices()) {
+                            std::transform(
+                                next.shortIndices.begin(),
+                                next.shortIndices.end(), output,
+                                [baseVertex](std::uint16_t index) {
+                                    return static_cast<std::uint16_t>(
+                                        baseVertex + index);
+                                });
+                        } else if (next.hasLongIndices()) {
+                            const std::vector<std::uint32_t> &indices =
+                                next.indexData();
+                            std::transform(
+                                indices.begin(), indices.end(), output,
+                                [baseVertex](std::uint32_t index) {
+                                    return static_cast<std::uint16_t>(
+                                        baseVertex + index);
+                                });
+                        } else {
+                            for (std::size_t index = 0;
+                                 index < incomingIndexCount; ++index) {
+                                output[
+                                    static_cast<std::ptrdiff_t>(index)] =
+                                    static_cast<std::uint16_t>(
+                                        baseVertex + index);
+                            }
                         }
                     } else {
                         const std::size_t indexStart =
                             merged.indices.size();
                         merged.indices.resize(
                             indexStart + incomingIndexCount);
-                        for (std::size_t index = 0;
-                             index < incomingIndexCount; ++index) {
-                            const std::uint32_t sourceIndex =
-                                next.hasIndices()
-                                    ? next.getIndex(index)
-                                    : static_cast<std::uint32_t>(
-                                        index);
-                            merged.indices[indexStart + index] =
-                                baseVertex + sourceIndex;
+                        auto output =
+                            merged.indices.begin()
+                            + static_cast<std::ptrdiff_t>(
+                                indexStart);
+                        if (next.hasShortIndices()) {
+                            std::transform(
+                                next.shortIndices.begin(),
+                                next.shortIndices.end(), output,
+                                [baseVertex](std::uint16_t index) {
+                                    return baseVertex + index;
+                                });
+                        } else if (next.hasLongIndices()) {
+                            const std::vector<std::uint32_t> &indices =
+                                next.indexData();
+                            std::transform(
+                                indices.begin(), indices.end(), output,
+                                [baseVertex](std::uint32_t index) {
+                                    return baseVertex + index;
+                                });
+                        } else {
+                            for (std::size_t index = 0;
+                                 index < incomingIndexCount; ++index) {
+                                output[
+                                    static_cast<std::ptrdiff_t>(index)] =
+                                    baseVertex
+                                    + static_cast<std::uint32_t>(index);
+                            }
                         }
                     }
                 }
