@@ -29,6 +29,34 @@ constexpr int kMaxChannelDifference = 4;
 constexpr double kMaxBadPixelRatio = 0.005;
 #endif
 
+#if !defined(WHATSCANVAS_PARITY_OPENGLES)
+constexpr GLenum kDebugOutput = 0x92E0;
+constexpr GLenum kDebugOutputSynchronous = 0x8242;
+constexpr GLenum kDebugTypeError = 0x824C;
+
+using GLDebugCallback = void (APIENTRY *)(
+    GLenum, GLenum, GLuint, GLenum, GLsizei, const GLchar *, const void *);
+using GLDebugMessageCallbackProc = void (APIENTRY *)(
+    GLDebugCallback, const void *);
+
+void APIENTRY reportOpenGLDebugMessage(
+    GLenum source, GLenum type, GLuint id, GLenum severity,
+    GLsizei length, const GLchar *message, const void *)
+{
+    if (type != kDebugTypeError) {
+        return;
+    }
+    std::cerr << "FILTER_PARITY_GL_DEBUG"
+              << " source=" << source
+              << " type=" << type
+              << " id=" << id
+              << " severity=" << severity
+              << " message="
+              << std::string(message, static_cast<std::size_t>(length))
+              << '\n';
+}
+#endif
+
 bool contextIsRequired()
 {
     const char *value = std::getenv("WHATSCANVAS_REQUIRE_GL_CONTEXT");
@@ -41,6 +69,29 @@ int unavailable(const char *reason)
               << " status=" << (contextIsRequired() ? "FAIL" : "SKIP")
               << " reason=" << reason << '\n';
     return contextIsRequired() ? 1 : 0;
+}
+
+void reportPixelSample(
+    const char *label,
+    const std::vector<unsigned char> &pixels,
+    int x, int y)
+{
+    const std::size_t offset =
+        (static_cast<std::size_t>(y) * kCompositeParityWidth
+         + static_cast<std::size_t>(x)) * 4u;
+    if (offset + 3u >= pixels.size()) {
+        return;
+    }
+    std::cerr << "FILTER_PARITY_SAMPLE"
+              << " backend=" << kBackendName
+              << " image=" << label
+              << " x=" << x
+              << " y=" << y
+              << " rgba="
+              << static_cast<int>(pixels[offset + 0u]) << ","
+              << static_cast<int>(pixels[offset + 1u]) << ","
+              << static_cast<int>(pixels[offset + 2u]) << ","
+              << static_cast<int>(pixels[offset + 3u]) << '\n';
 }
 
 struct GLTarget
@@ -108,6 +159,7 @@ int main()
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
 #endif
 
     GLFWwindow *window = glfwCreateWindow(
@@ -125,6 +177,17 @@ int main()
         glfwTerminate();
         return unavailable("function_loading");
     }
+
+#if !defined(WHATSCANVAS_PARITY_OPENGLES)
+    const auto debugMessageCallback =
+        reinterpret_cast<GLDebugMessageCallbackProc>(
+            glfwGetProcAddress("glDebugMessageCallback"));
+    if (debugMessageCallback != nullptr) {
+        glEnable(kDebugOutput);
+        glEnable(kDebugOutputSynchronous);
+        debugMessageCallback(reportOpenGLDebugMessage, nullptr);
+    }
+#endif
 
     glDisable(GL_DITHER);
     glDisable(GL_MULTISAMPLE);
@@ -146,8 +209,13 @@ int main()
         kBackend, kCompositeParityWidth, kCompositeParityHeight);
     bool rendered = canvas && canvas->initializeContext()
         && canvas->setOutputTarget(wsc::OutputTarget::GLFramebuffer(
-            target.framebuffer, kCompositeParityWidth, kCompositeParityHeight, true))
+            target.framebuffer, kCompositeParityWidth,
+            kCompositeParityHeight, true));
+    while (glGetError() != GL_NO_ERROR) {
+    }
+    rendered = rendered
         && whatscanvas::test::drawCompositeFilterParityScene(*canvas);
+    const GLenum renderError = glGetError();
 
     std::vector<unsigned char> actual;
     wsc::Canvas::RenderStats stats;
@@ -156,6 +224,7 @@ int main()
         stats = canvas->getRenderStats();
         rendered = canvas->readPixelsRGBA(actual);
     }
+    const GLenum readbackError = glGetError();
 
     std::vector<unsigned char> reference;
     wsc::Canvas::RenderStats referenceStats;
@@ -175,6 +244,22 @@ int main()
             whatscanvas::test::hashRGBA(reference), kMaxChannelDifference, 0.75,
             kMaxBadPixelRatio,
             statsPassed, statsPassed ? nullptr : "unexpected_filter_stats");
+        if (!passed) {
+            std::cerr << "FILTER_PARITY_GL_ERROR"
+                      << " backend=" << kBackendName
+                      << " render=" << renderError
+                      << " readback=" << readbackError << '\n';
+            constexpr int samples[][2] = {
+                {0, 0}, {16, 16}, {96, 64}, {191, 127}
+            };
+            for (const auto &sample : samples) {
+                reportPixelSample(
+                    "actual", actual, sample[0], sample[1]);
+                reportPixelSample(
+                    "reference", reference,
+                    sample[0], sample[1]);
+            }
+        }
         if (!statsPassed) {
             std::cerr << "[FilterPixelParityTests] unexpected stats:"
                       << " actual_filters=" << stats.filterCount

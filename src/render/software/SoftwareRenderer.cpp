@@ -772,10 +772,13 @@ GradientDesc makeGradientDesc(const DrawPathData &data)
     grad.radialCenter[1] = data.radialCenter[1];
     grad.radialRadius = data.radialRadius;
     grad.stopCount = std::min(data.gradientStopCount, 8);
+    const DrawPathGradientStops *stops =
+        data.gradientStopData();
     for (int i = 0; i < grad.stopCount; ++i) {
-        grad.stopPositions[i] = data.gradientStopPositions[i];
+        grad.stopPositions[i] = stops->positions[i];
         for (int c = 0; c < 4; ++c) {
-            grad.stopColors[i * 4 + c] = data.gradientStopColors[i * 4 + c];
+            grad.stopColors[i * 4 + c] =
+                stops->colors[i * 4 + c];
         }
     }
     return grad;

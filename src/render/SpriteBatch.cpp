@@ -19,15 +19,69 @@ SpriteBatch::~SpriteBatch()
     releaseGLResources();
 }
 
+void SpriteBatch::beginFrame()
+{
+    endBatch();
+    boundTextures_.fill(0u);
+}
+
+void SpriteBatch::endBatch()
+{
+    if (boundProgram_ == nullptr) {
+        return;
+    }
+    if (boundProgram_ == program_) {
+#if !defined(WHATSCANVAS_OPENGL_ES)
+        for (std::size_t slot = 0;
+             slot < boundSamplerCount_; ++slot) {
+            glBindSampler(static_cast<GLuint>(slot), 0);
+        }
+#endif
+    }
+    glActiveTexture(GL_TEXTURE0);
+    glBindVertexArray(0);
+    boundProgram_ = nullptr;
+    boundSamplerCount_ = 0;
+    boundTextures_.fill(0u);
+}
+
 void SpriteBatch::setTexture(std::shared_ptr<ImageResource> texture)
 {
     texture_ = std::move(texture);
+    textures_.clear();
+    if (texture_) {
+        textures_.push_back(texture_);
+    }
+}
+
+int SpriteBatch::addTexture(
+    const std::shared_ptr<ImageResource> &texture)
+{
+    if (!texture || !texture->isValid()
+        || !texture->nativeHandle().isValid()) {
+        return -1;
+    }
+    const auto existing = std::find(
+        textures_.begin(), textures_.end(), texture);
+    if (existing != textures_.end()) {
+        return static_cast<int>(
+            std::distance(textures_.begin(), existing));
+    }
+    if (textures_.size() >= kMaxTextures) {
+        return -1;
+    }
+    textures_.push_back(texture);
+    if (!texture_) {
+        texture_ = texture;
+    }
+    return static_cast<int>(textures_.size() - 1u);
 }
 
 void SpriteBatch::add(float x, float y, float width, float height,
                        float u0, float v0, float u1, float v1,
                        float r, float g, float b, float a,
-                       const glm::mat4 &transform, float roundedRadius)
+                       const glm::mat4 &transform, float roundedRadius,
+                       int textureSlot)
 {
     // Apply transform to the 4 corner positions.
     const glm::vec4 tl = transform * glm::vec4(x, y, 0.0f, 1.0f);
@@ -38,16 +92,20 @@ void SpriteBatch::add(float x, float y, float width, float height,
     // Four corners are shared by the two indexed triangles.
     vertexData_.insert(vertexData_.end(), {
         tl.x, tl.y, u0, v0, r, g, b, a,
-        0.0f, 0.0f, roundedRadius, width, height});
+        0.0f, 0.0f, roundedRadius, width, height,
+        static_cast<float>(textureSlot)});
     vertexData_.insert(vertexData_.end(), {
         tr.x, tr.y, u1, v0, r, g, b, a,
-        1.0f, 0.0f, roundedRadius, width, height});
+        1.0f, 0.0f, roundedRadius, width, height,
+        static_cast<float>(textureSlot)});
     vertexData_.insert(vertexData_.end(), {
         br.x, br.y, u1, v1, r, g, b, a,
-        1.0f, 1.0f, roundedRadius, width, height});
+        1.0f, 1.0f, roundedRadius, width, height,
+        static_cast<float>(textureSlot)});
     vertexData_.insert(vertexData_.end(), {
         bl.x, bl.y, u0, v1, r, g, b, a,
-        0.0f, 1.0f, roundedRadius, width, height});
+        0.0f, 1.0f, roundedRadius, width, height,
+        static_cast<float>(textureSlot)});
 }
 
 void SpriteBatch::addInstance(
@@ -70,13 +128,21 @@ void SpriteBatch::addInstance(
 
 void SpriteBatch::flush(RenderContext &context, DrawBlendMode blendMode)
 {
-    if (empty() || !texture_ || !texture_->isValid()) {
+    const bool instanced =
+#if defined(WHATSCANVAS_OPENGL_ES)
+        false;
+#else
+        !instanceData_.empty();
+#endif
+    if (empty()
+        || (instanced
+            ? (!texture_ || !texture_->isValid())
+            : textures_.empty())) {
         return;
     }
 
     ensureGLInitialized();
 
-    const bool instanced = !instanceData_.empty();
     GLProgram *activeProgram =
         instanced ? instanceProgram_ : program_;
     if (activeProgram == nullptr) {
@@ -88,15 +154,36 @@ void SpriteBatch::flush(RenderContext &context, DrawBlendMode blendMode)
     context.applyBlendMode(blendMode);
     context.applyClipState(ScissorState{}, ClipMaskState{});
 
-    activeProgram->use();
-    const glm::mat4 projection = glm::ortho(0.0f, static_cast<float>(context.getWidth()),
-                                            static_cast<float>(context.getHeight()), 0.0f);
-    activeProgram->setMat4("uProjection", projection);
-    activeProgram->setInt("uTexture", 0);
+    if (boundProgram_ != activeProgram) {
+        endBatch();
+        activeProgram->use();
+        const glm::mat4 projection = glm::ortho(
+            0.0f, static_cast<float>(context.getWidth()),
+            static_cast<float>(context.getHeight()), 0.0f);
+        activeProgram->setMat4("uProjection", projection);
+        if (instanced) {
+            if (!instanceSamplerInitialized_) {
+                activeProgram->setInt("uTexture", 0);
+                instanceSamplerInitialized_ = true;
+            }
+            glBindVertexArray(instanceVAO_);
+        } else {
+            if (!samplerUniformsInitialized_) {
+                for (std::size_t slot = 0;
+                     slot < kMaxTextures; ++slot) {
+                    activeProgram->setInt(
+                        "uTexture" + std::to_string(slot),
+                        static_cast<int>(slot));
+                }
+                samplerUniformsInitialized_ = true;
+            }
+            glBindVertexArray(VAO_);
+        }
+        boundProgram_ = activeProgram;
+    }
 
     const std::size_t sprites = spriteCount();
     if (instanced) {
-        glBindVertexArray(instanceVAO_);
         glBindBuffer(GL_ARRAY_BUFFER, instanceVBO_);
         glBufferData(
             GL_ARRAY_BUFFER,
@@ -104,7 +191,6 @@ void SpriteBatch::flush(RenderContext &context, DrawBlendMode blendMode)
                 instanceData_.size() * sizeof(float)),
             instanceData_.data(), GL_DYNAMIC_DRAW);
     } else {
-        glBindVertexArray(VAO_);
         glBindBuffer(GL_ARRAY_BUFFER, VBO_);
         ensureIndexCapacity(sprites);
         glBufferData(
@@ -114,8 +200,33 @@ void SpriteBatch::flush(RenderContext &context, DrawBlendMode blendMode)
             vertexData_.data(), GL_DYNAMIC_DRAW);
     }
 
-    // Bind texture.
-    context.bindImageResource(texture_, DrawImageSampling::Linear, DrawImageTileMode::Clamp, false);
+    if (instanced) {
+        context.bindImageResource(
+            texture_, DrawImageSampling::Linear,
+            DrawImageTileMode::Clamp, false);
+    } else {
+        for (std::size_t slot = 0;
+             slot < textures_.size(); ++slot) {
+            const GLuint handle = static_cast<GLuint>(
+                textures_[slot]->nativeHandle().value);
+            if (boundTextures_[slot] != handle) {
+                glActiveTexture(
+                    GL_TEXTURE0 + static_cast<GLenum>(slot));
+                glBindTexture(GL_TEXTURE_2D, handle);
+                boundTextures_[slot] = handle;
+            }
+#if !defined(WHATSCANVAS_OPENGL_ES)
+            if (slot >= boundSamplerCount_) {
+                glBindSampler(
+                    static_cast<GLuint>(slot), sampler_);
+            }
+#endif
+        }
+        boundSamplerCount_ =
+            std::max(boundSamplerCount_, textures_.size());
+        glActiveTexture(GL_TEXTURE0);
+        context.invalidateImageBinding();
+    }
 
     if (instanced) {
         glDrawArraysInstanced(
@@ -126,12 +237,12 @@ void SpriteBatch::flush(RenderContext &context, DrawBlendMode blendMode)
             GL_TRIANGLES, static_cast<GLsizei>(sprites * 6u),
             GL_UNSIGNED_INT, nullptr);
     }
-
-    glBindVertexArray(0);
 }
 
 void SpriteBatch::clear()
 {
+    texture_.reset();
+    textures_.clear();
     vertexData_.clear();
     instanceData_.clear();
 }
@@ -148,6 +259,7 @@ void SpriteBatch::ensureGLInitialized()
         layout (location = 2) in vec4 aColor;
         layout (location = 3) in vec2 aQuadUv;
         layout (location = 4) in vec3 aRounded;
+        layout (location = 5) in float aTextureSlot;
 
         uniform mat4 uProjection;
 
@@ -155,6 +267,7 @@ void SpriteBatch::ensureGLInitialized()
         out vec4 vColor;
         out vec2 vQuadUv;
         out vec3 vRounded;
+        flat out int vTextureSlot;
 
         void main()
         {
@@ -163,6 +276,7 @@ void SpriteBatch::ensureGLInitialized()
             vColor = aColor;
             vQuadUv = aQuadUv;
             vRounded = aRounded;
+            vTextureSlot = int(aTextureSlot + 0.5);
         }
     )";
 
@@ -171,8 +285,16 @@ void SpriteBatch::ensureGLInitialized()
         in vec4 vColor;
         in vec2 vQuadUv;
         in vec3 vRounded;
+        flat in int vTextureSlot;
 
-        uniform sampler2D uTexture;
+        uniform sampler2D uTexture0;
+        uniform sampler2D uTexture1;
+        uniform sampler2D uTexture2;
+        uniform sampler2D uTexture3;
+        uniform sampler2D uTexture4;
+        uniform sampler2D uTexture5;
+        uniform sampler2D uTexture6;
+        uniform sampler2D uTexture7;
 
         out vec4 FragColor;
 
@@ -194,9 +316,21 @@ void SpriteBatch::ensureGLInitialized()
             return smoothstep(aa * 0.5, -aa * 0.5, distanceToEdge);
         }
 
+        vec4 sampleBatchTexture()
+        {
+            if (vTextureSlot == 0) return texture(uTexture0, vUv);
+            if (vTextureSlot == 1) return texture(uTexture1, vUv);
+            if (vTextureSlot == 2) return texture(uTexture2, vUv);
+            if (vTextureSlot == 3) return texture(uTexture3, vUv);
+            if (vTextureSlot == 4) return texture(uTexture4, vUv);
+            if (vTextureSlot == 5) return texture(uTexture5, vUv);
+            if (vTextureSlot == 6) return texture(uTexture6, vUv);
+            return texture(uTexture7, vUv);
+        }
+
         void main()
         {
-            FragColor = texture(uTexture, vUv) * vColor;
+            FragColor = sampleBatchTexture() * vColor;
             FragColor.a *= roundedRectCoverage();
         }
     )";
@@ -248,41 +382,62 @@ void SpriteBatch::ensureGLInitialized()
             FragColor = texture(uTexture, vUv) * vColor;
         }
     )";
+#if !defined(WHATSCANVAS_OPENGL_ES)
     instanceProgram_ =
         new GLProgram(instanceVertexSrc, instanceFragmentSrc);
+#endif
 
     glGenVertexArrays(1, &VAO_);
     glGenBuffers(1, &VBO_);
     glGenBuffers(1, &EBO_);
+#if !defined(WHATSCANVAS_OPENGL_ES)
+    glGenSamplers(1, &sampler_);
+    glSamplerParameteri(
+        sampler_, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glSamplerParameteri(
+        sampler_, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glSamplerParameteri(
+        sampler_, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glSamplerParameteri(
+        sampler_, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+#endif
+#if !defined(WHATSCANVAS_OPENGL_ES)
     glGenVertexArrays(1, &instanceVAO_);
     glGenBuffers(1, &instanceVBO_);
+#endif
 
     glBindVertexArray(VAO_);
     glBindBuffer(GL_ARRAY_BUFFER, VBO_);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO_);
 
     // Position: 2 floats at offset 0.
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 13 * sizeof(float), (void *)0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 14 * sizeof(float), (void *)0);
     glEnableVertexAttribArray(0);
 
     // UV: 2 floats at offset 8.
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 13 * sizeof(float), (void *)(2 * sizeof(float)));
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 14 * sizeof(float), (void *)(2 * sizeof(float)));
     glEnableVertexAttribArray(1);
 
     // Color: 4 floats at offset 16.
-    glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, 13 * sizeof(float), (void *)(4 * sizeof(float)));
+    glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, 14 * sizeof(float), (void *)(4 * sizeof(float)));
     glEnableVertexAttribArray(2);
 
     glVertexAttribPointer(
-        3, 2, GL_FLOAT, GL_FALSE, 13 * sizeof(float),
+        3, 2, GL_FLOAT, GL_FALSE, 14 * sizeof(float),
         (void *)(8 * sizeof(float)));
     glEnableVertexAttribArray(3);
 
     glVertexAttribPointer(
-        4, 3, GL_FLOAT, GL_FALSE, 13 * sizeof(float),
+        4, 3, GL_FLOAT, GL_FALSE, 14 * sizeof(float),
         (void *)(10 * sizeof(float)));
     glEnableVertexAttribArray(4);
 
+    glVertexAttribPointer(
+        5, 1, GL_FLOAT, GL_FALSE, 14 * sizeof(float),
+        (void *)(13 * sizeof(float)));
+    glEnableVertexAttribArray(5);
+
+#if !defined(WHATSCANVAS_OPENGL_ES)
     glBindVertexArray(instanceVAO_);
     glBindBuffer(GL_ARRAY_BUFFER, instanceVBO_);
     constexpr GLsizei instanceStride = 12 * sizeof(float);
@@ -296,6 +451,7 @@ void SpriteBatch::ensureGLInitialized()
         glEnableVertexAttribArray(attribute);
         glVertexAttribDivisor(attribute, 1);
     }
+#endif
 
     glBindVertexArray(0);
     glInitialized_ = true;
@@ -336,6 +492,7 @@ void SpriteBatch::ensureIndexCapacity(std::size_t spriteCount)
 
 void SpriteBatch::releaseGLResources()
 {
+    endBatch();
     if (program_ != nullptr) {
         delete program_;
         program_ = nullptr;
@@ -358,6 +515,12 @@ void SpriteBatch::releaseGLResources()
         glDeleteBuffers(1, &EBO_);
         EBO_ = static_cast<unsigned int>(-1);
     }
+    if (sampler_ != static_cast<unsigned int>(-1)) {
+#if !defined(WHATSCANVAS_OPENGL_ES)
+        glDeleteSamplers(1, &sampler_);
+#endif
+        sampler_ = static_cast<unsigned int>(-1);
+    }
     if (instanceVAO_ != static_cast<unsigned int>(-1)) {
         glDeleteVertexArrays(1, &instanceVAO_);
         instanceVAO_ = static_cast<unsigned int>(-1);
@@ -367,6 +530,11 @@ void SpriteBatch::releaseGLResources()
         instanceVBO_ = static_cast<unsigned int>(-1);
     }
     indexSpriteCapacity_ = 0;
+    boundProgram_ = nullptr;
+    boundSamplerCount_ = 0;
+    boundTextures_.fill(0u);
+    samplerUniformsInitialized_ = false;
+    instanceSamplerInitialized_ = false;
 
     glInitialized_ = false;
 }

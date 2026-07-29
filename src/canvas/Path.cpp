@@ -10,7 +10,13 @@ Path::PathPoint::PathPoint(Path::Op op, const PointF &point)
 {
 }
 
-Path::Path() = default;
+Path::Path()
+{
+    // Most UI paths are a single polygon or compact primitive. Reserving the
+    // common verb count avoids repeated growth for short-lived paths while
+    // preserving std::vector storage for larger paths.
+    points_.reserve(8);
+}
 
 void Path::setFillType(Path::FillType fillType) {
         fillType_ = fillType;

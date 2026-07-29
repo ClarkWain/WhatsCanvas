@@ -34,6 +34,7 @@ public:
     virtual ImageOrigin origin() const { return ImageOrigin::TopLeft; }
     virtual ImageAlphaType alphaType() const { return ImageAlphaType::Straight; }
     virtual bool isAlphaOnly() const { return false; }
+    virtual ImageResourceHandle nativeHandle() const { return {}; }
     virtual void bind(const RenderContext &context) const = 0;
     virtual bool updateRGBA(int x, int y, int width, int height, const unsigned char *pixels,
                             bool regenerateMipmaps) = 0;

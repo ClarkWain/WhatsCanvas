@@ -33,6 +33,19 @@ bool nearlyEqual(float lhs, float rhs)
     return std::abs(lhs - rhs) <= kMergeEpsilon;
 }
 
+std::uint64_t pathTopologyIdentity(const DrawPathData &data)
+{
+    if (!data.sharedGeometry) {
+        return 0;
+    }
+    if (data.sharedGeometry->topologyFingerprint != 0) {
+        return data.sharedGeometry->topologyFingerprint;
+    }
+    return static_cast<std::uint64_t>(
+        reinterpret_cast<std::uintptr_t>(
+            data.sharedGeometry.get()));
+}
+
 void resetPathBatchState(
     const DrawPathData &source, DrawPathData &target)
 {
@@ -42,6 +55,8 @@ void resetPathBatchState(
     target.packedColors.clear();
     target.coverage.clear();
     target.indices.clear();
+    target.drawIds.clear();
+    target.drawParameters.clear();
     // packedCoverage and shortIndices may contain a reusable topology packet.
     // The caller clears them after deciding whether the cache still matches.
 
@@ -60,22 +75,16 @@ void resetPathBatchState(
     std::copy_n(source.radialCenter, 2u, target.radialCenter);
     target.radialRadius = source.radialRadius;
     target.gradientStopCount = source.gradientStopCount;
-    std::copy_n(
-        source.gradientStopPositions,
-        DrawPathData::kMaxGradientStops,
-        target.gradientStopPositions);
-    std::copy_n(
-        source.gradientStopColors,
-        DrawPathData::kMaxGradientStops * 4u,
-        target.gradientStopColors);
+    target.gradientStops = source.gradientStops;
     target.vertexColorsLinear = source.vertexColorsLinear;
 }
 
-bool isSpriteBatchCompatible(const DrawImageData &data, const SharedImageResource &texture, DrawBlendMode blendMode)
+bool isSpriteBatchCompatible(
+    const DrawImageData &data, DrawBlendMode blendMode)
 {
-    return data.imageResource == texture
-        && data.imageResource
+    return data.imageResource
         && data.imageResource->isValid()
+        && data.imageResource->nativeHandle().isValid()
         && !data.hasColorMatrix
         && !data.hasShaderGradient()
         && data.sampling == DrawImageSampling::Linear
@@ -404,8 +413,16 @@ void Renderer::flush()
 
     DrawPathProgram *pathProgram = DrawPathProgram::getInstance();
     pathProgram->beginFrame();
+    if (spriteBatch_) {
+        spriteBatch_->beginFrame();
+    }
+    std::size_t pathBatchCacheIndex = 0;
 
     auto executeCommand = [&](const std::unique_ptr<Command> &command) {
+        pathProgram->endBatch();
+        if (spriteBatch_) {
+            spriteBatch_->endBatch();
+        }
         command->execute(context_);
         ++stats_.drawCallCount;
     };
@@ -422,6 +439,14 @@ void Renderer::flush()
 
     std::size_t i = 0;
     while (i < commands_.size()) {
+        if (commands_[i]->type() != Command::Type::Image
+            && commands_[i]->type() != Command::Type::ImageBatch
+            && spriteBatch_) {
+            spriteBatch_->endBatch();
+        }
+        if (commands_[i]->type() != Command::Type::Path) {
+            pathProgram->endBatch();
+        }
         if (commands_[i]->type() == Command::Type::ImageBatch) {
             const auto &first =
                 static_cast<DrawImageBatchCommand *>(
@@ -434,9 +459,13 @@ void Renderer::flush()
                 spriteBatch_->clear();
                 spriteBatch_->setTexture(first.imageResource);
                 const bool compactGlyphBatch =
+#if defined(WHATSCANVAS_OPENGL_ES)
+                    false;
+#else
                     first.imageResource->isAlphaOnly()
                     && first.transform[0][1] == 0.0f
                     && first.transform[1][0] == 0.0f;
+#endif
 
                 std::size_t j = i;
                 while (j < commands_.size()
@@ -524,40 +553,56 @@ void Renderer::flush()
         if (commands_[i]->type() == Command::Type::Image) {
             auto *imageCmd = static_cast<DrawImageCommand *>(commands_[i].get());
             const auto &first = imageCmd->data();
-            if (isSpriteBatchCompatible(first, first.imageResource, first.blendMode)) {
-                std::size_t j = i + 1;
-                while (j < commands_.size() && commands_[j]->type() == Command::Type::Image) {
-                    const auto &next = static_cast<DrawImageCommand *>(commands_[j].get())->data();
-                    if (!isSpriteBatchCompatible(next, first.imageResource, first.blendMode)) {
+            if (isSpriteBatchCompatible(
+                    first, first.blendMode)) {
+                if (!spriteBatch_) {
+                    spriteBatch_ =
+                        std::make_unique<SpriteBatch>();
+                }
+                spriteBatch_->clear();
+
+                std::size_t j = i;
+                while (j < commands_.size()
+                       && commands_[j]->type()
+                           == Command::Type::Image) {
+                    const auto &data =
+                        static_cast<DrawImageCommand *>(
+                            commands_[j].get())->data();
+                    if (!isSpriteBatchCompatible(
+                            data, first.blendMode)) {
                         break;
                     }
+                    const int textureSlot =
+                        spriteBatch_->addTexture(
+                            data.imageResource);
+                    if (textureSlot < 0) {
+                        break;
+                    }
+                    float tintColor[4] = {
+                        data.tintColor[0],
+                        data.tintColor[1],
+                        data.tintColor[2],
+                        data.tintColor[3] * data.alpha
+                    };
+                    GammaCorrect::srgbToLinear4(tintColor);
+                    spriteBatch_->add(
+                        data.x, data.y,
+                        data.width, data.height,
+                        data.u0, data.v0,
+                        data.u1, data.v1,
+                        tintColor[0], tintColor[1],
+                        tintColor[2], tintColor[3],
+                        data.transform, data.roundedRadius,
+                        textureSlot);
                     ++j;
                 }
 
-                if (j > i + 1) {
-                    if (!spriteBatch_) {
-                        spriteBatch_ = std::make_unique<SpriteBatch>();
-                    }
-                    spriteBatch_->clear();
-                    spriteBatch_->setTexture(first.imageResource);
-                    for (std::size_t m = i; m < j; ++m) {
-                        const auto &data = static_cast<DrawImageCommand *>(commands_[m].get())->data();
-                        float tintColor[4] = {
-                            data.tintColor[0],
-                            data.tintColor[1],
-                            data.tintColor[2],
-                            data.tintColor[3] * data.alpha
-                        };
-                        GammaCorrect::srgbToLinear4(tintColor);
-                        spriteBatch_->add(
-                            data.x, data.y, data.width, data.height,
-                            data.u0, data.v0, data.u1, data.v1,
-                            tintColor[0], tintColor[1], tintColor[2],
-                            tintColor[3], data.transform, data.roundedRadius);
-                    }
+                if (j > i) {
                     spriteBatch_->flush(context_, first.blendMode);
                     ++stats_.drawCallCount;
-                    ++stats_.mergedBatchCount;
+                    if (j > i + 1) {
+                        ++stats_.mergedBatchCount;
+                    }
                     i = j;
                     continue;
                 }
@@ -600,12 +645,16 @@ void Renderer::flush()
             std::size_t totalElements = 0;
             bool needsVertexColors = first.hasVertexColors();
             bool canPackUniformColors =
-                !GammaCorrect::enabled()
-                && !first.hasVertexColors();
+                !first.hasVertexColors();
             bool needsCoverage = first.hasCoverage();
             bool needsIndices = first.hasIndices();
             bool flattenTransforms = false;
             bool immutableSharedTopology = true;
+            bool canUseDrawParameters =
+                (j - i) >= 64u
+                && !first.hasVertexColors()
+                && wsc::render::isAffine2DPathTransform(
+                    first.transform);
             for (std::size_t m = i; m < j; ++m) {
                 const auto &next =
                     static_cast<DrawPathCommand *>(
@@ -626,6 +675,11 @@ void Renderer::flush()
                     && next.sharedGeometry != nullptr
                     && next.shortIndices.empty()
                     && next.packedCoverage.empty();
+                canUseDrawParameters =
+                    canUseDrawParameters
+                    && !next.hasVertexColors()
+                    && wsc::render::isAffine2DPathTransform(
+                        next.transform);
                 for (int c = 0; c < 4; ++c) {
                     needsVertexColors =
                         needsVertexColors
@@ -633,10 +687,22 @@ void Renderer::flush()
                 }
             }
 
-            DrawPathData &merged = pathBatchScratch_;
+            if (pathBatchCacheIndex >= pathBatchCaches_.size()) {
+                pathBatchCaches_.emplace_back();
+            }
+            PathBatchCache &batchCache =
+                pathBatchCaches_[pathBatchCacheIndex++];
+            DrawPathData &merged = batchCache.packet;
             resetPathBatchState(first, merged);
+            bool useDrawParameters = false;
+#if !defined(WHATSCANVAS_OPENGL_ES)
+            useDrawParameters =
+                canUseDrawParameters
+                && (flattenTransforms || needsVertexColors);
+#endif
             const bool usePackedColors =
-                needsVertexColors && canPackUniformColors;
+                needsVertexColors && canPackUniformColors
+                && !useDrawParameters;
             merged.vertexColorsLinear =
                 needsVertexColors && !usePackedColors;
             const bool useShortIndices =
@@ -648,7 +714,7 @@ void Renderer::flush()
             bool reuseSharedTopology =
                 immutableSharedTopology
                 && useShortIndices
-                && pathBatchTopology_.size() == j - i
+                && batchCache.topology.size() == j - i
                 && merged.shortIndices.size() == totalElements
                 && (!needsCoverage
                     || merged.packedCoverage.size()
@@ -658,8 +724,8 @@ void Renderer::flush()
                     const auto &next =
                         static_cast<DrawPathCommand *>(
                             commands_[m].get())->data();
-                    if (pathBatchTopology_[m - i]
-                            != next.sharedGeometry) {
+                    if (batchCache.topology[m - i]
+                            != pathTopologyIdentity(next)) {
                         reuseSharedTopology = false;
                         break;
                     }
@@ -668,14 +734,23 @@ void Renderer::flush()
             if (!reuseSharedTopology) {
                 merged.shortIndices.clear();
                 merged.packedCoverage.clear();
+                if (immutableSharedTopology && useShortIndices) {
+                    ++stats_.pathTopologyCacheMisses;
+                }
             } else if (!needsCoverage) {
                 merged.packedCoverage.clear();
+                ++stats_.pathTopologyCacheHits;
+            } else {
+                ++stats_.pathTopologyCacheHits;
             }
-            if (flattenTransforms) {
+            if (flattenTransforms || useDrawParameters) {
                 merged.transform = glm::mat4(1.0f);
             }
             merged.points.reserve(totalVertices * 2u);
-            if (needsVertexColors) {
+            if (useDrawParameters) {
+                merged.drawIds.reserve(totalVertices);
+                merged.drawParameters.reserve((j - i) * 10u);
+            } else if (needsVertexColors) {
                 if (usePackedColors) {
                     merged.packedColors.reserve(
                         totalVertices * 4u);
@@ -714,7 +789,36 @@ void Renderer::flush()
                     merged.points.size();
                 merged.points.resize(
                     pointStart + vertexCount * 2u);
-                if (flattenTransforms) {
+                if (useDrawParameters) {
+                    std::copy(
+                        nextPoints.begin(), nextPoints.end(),
+                        merged.points.begin()
+                            + static_cast<std::ptrdiff_t>(
+                                pointStart));
+                    const std::uint16_t drawId =
+                        static_cast<std::uint16_t>(m - i);
+                    merged.drawIds.insert(
+                        merged.drawIds.end(),
+                        vertexCount, drawId);
+                    const glm::mat4 &transform = next.transform;
+                    merged.drawParameters.insert(
+                        merged.drawParameters.end(), {
+                            transform[0][0], transform[1][0],
+                            transform[3][0], transform[0][1],
+                            transform[1][1], transform[3][1]
+                        });
+                    float shapeColor[4] = {
+                        next.color[0], next.color[1],
+                        next.color[2], next.color[3]
+                    };
+                    if (GammaCorrect::enabled()) {
+                        GammaCorrect::srgbToLinear4(shapeColor);
+                    }
+                    merged.drawParameters.insert(
+                        merged.drawParameters.end(),
+                        std::begin(shapeColor),
+                        std::end(shapeColor));
+                } else if (flattenTransforms) {
                     const glm::mat4 &transform = next.transform;
                     for (std::size_t vertex = 0;
                          vertex < vertexCount; ++vertex) {
@@ -740,8 +844,16 @@ void Renderer::flush()
                             + static_cast<std::ptrdiff_t>(
                                 pointStart));
                 }
-                if (needsVertexColors) {
+                if (needsVertexColors && !useDrawParameters) {
                     if (usePackedColors) {
+                        float linearColor[4] = {
+                            next.color[0], next.color[1],
+                            next.color[2], next.color[3]
+                        };
+                        if (GammaCorrect::enabled()) {
+                            GammaCorrect::srgbToLinear4(
+                                linearColor);
+                        }
                         std::uint8_t packedColor[4] = {};
                         for (std::size_t channel = 0;
                              channel < 4u; ++channel) {
@@ -749,7 +861,7 @@ void Renderer::flush()
                                 static_cast<std::uint8_t>(
                                     std::clamp(
                                         std::lround(
-                                            next.color[channel]
+                                            linearColor[channel]
                                             * 255.0f),
                                         0l, 255l));
                         }
@@ -886,23 +998,24 @@ void Renderer::flush()
             if (immutableSharedTopology
                 && useShortIndices
                 && !reuseSharedTopology) {
-                pathBatchTopology_.clear();
-                pathBatchTopology_.reserve(j - i);
+                batchCache.topology.clear();
+                batchCache.topology.reserve(j - i);
                 for (std::size_t m = i; m < j; ++m) {
                     const auto &next =
                         static_cast<DrawPathCommand *>(
                             commands_[m].get())->data();
-                    pathBatchTopology_.push_back(
-                        next.sharedGeometry);
+                    batchCache.topology.push_back(
+                        pathTopologyIdentity(next));
                 }
             } else if (!immutableSharedTopology
                        || !useShortIndices) {
-                pathBatchTopology_.clear();
+                batchCache.topology.clear();
             }
 
             context_.applyClipState(
                 merged.scissor, merged.clipMask);
             context_.applyBlendMode(merged.blendMode);
+            pathProgram->beginBatch();
             pathProgram->draw(context_, merged);
             stats_.pathVertexCount += totalVertices;
             if (needsIndices) {
@@ -915,9 +1028,18 @@ void Renderer::flush()
             stats_.pathVertexCount += first.getPointCount();
             stats_.pathIndexCount += first.hasIndices()
                 ? first.getElementCount() : 0u;
-            executeCommand(commands_[i]);
+            context_.applyClipState(
+                first.scissor, first.clipMask);
+            context_.applyBlendMode(first.blendMode);
+            pathProgram->beginBatch();
+            pathProgram->draw(context_, first);
+            ++stats_.drawCallCount;
             ++i;
         }
+    }
+    pathProgram->endBatch();
+    if (spriteBatch_) {
+        spriteBatch_->endBatch();
     }
     stats_.pathUploadCount += pathProgram->frameUploadCount();
     stats_.pathUploadBytes += pathProgram->frameUploadBytes();

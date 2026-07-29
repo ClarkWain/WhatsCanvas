@@ -197,10 +197,139 @@ change rate, text length, process range, synchronized frame timing, throughput,
 draw calls, and draw reduction. This makes stable-cache wins visible without
 hiding dynamic topology or high-state-churn costs.
 
-The parameterized matrix evaluates WhatsCanvas backends and revisions. It does
-not replace the fixed, quality-gated cross-library contract; an external
-adapter must implement identical parameter semantics before its matrix numbers
-are comparable.
+The native parameterized matrix evaluates WhatsCanvas backends and revisions.
+For external libraries whose adapters implement the same parameter semantics,
+the cross-library matrix runner applies the pixel-quality contract and an
+independent ABBA comparison to every matrix cell:
+
+```powershell
+python scripts\run_cross_library_matrix.py `
+  --reference "whatscanvas=build/Release/WhatsCanvasPerformanceSuite.exe --backend opengl" `
+  --adapter "nanovg=build/Release/WhatsCanvasNanoVGBenchmarkAdapter.exe --backend opengl" `
+  --preset standard --profile standard `
+  --repetitions 4 `
+  --output-dir build\cross-library-matrix
+```
+
+`standard` contains 27 cells: three scenes, three operation scales, and three
+change modes. Its default workload seed is `1001`; use `--seeds
+1001,2003,3001` to test content sensitivity. ABBA repetition controls process
+noise separately from content diversity. The default two ABBA blocks use four
+fresh processes per renderer per cell; use `--repetitions 8` for a publishable
+four-block run. The runner preserves each cell's raw JSONL and capture, then
+writes aggregate JSON, CSV, and Markdown with quality status and 95% confidence
+verdicts.
+
+The first checked Windows i7-8700 / GTX 1060 run passed all 27 quality gates.
+With two ABBA blocks per cell, WhatsCanvas OpenGL was conclusively faster in 12
+cells, NanoVG GL3 in 12, and 3 crossed the paired-ratio 95% confidence boundary.
+The breakdown was 2/9 WhatsCanvas wins in geometry, 3/9 in images, and 7/9 in
+text. Stable single-texture images and most text workloads favored WhatsCanvas;
+dynamic multi-texture/state image streams and medium/high-scale dynamic
+geometry favored NanoVG. See the
+[raw parameter-matrix baseline](../benchmarks/baselines/nanovg-win-i7-8700-gtx1060/README.md)
+for every cell and all 216 process JSONL records.
+
+### Post-optimization parameter matrix (`cac08c1`)
+
+The same 27-cell Standard matrix was rerun after ordered eight-slot OpenGL
+multi-texture batching, a dedicated batch sampler, and one shared path
+attribute/index upload stream. Each cell used two ABBA blocks and four fresh
+processes per renderer. All 27 quality gates passed. WhatsCanvas won 12 cells,
+NanoVG won 11, and 4 were inconclusive:
+
+| Category | WhatsCanvas faster | NanoVG faster | Inconclusive |
+| --- | ---: | ---: | ---: |
+| Geometry | 2 | 6 | 1 |
+| Images | 6 | 3 | 0 |
+| Text | 4 | 2 | 3 |
+| **Total** | **12** | **11** | **4** |
+
+The image result changed materially rather than moving inside noise. All three
+stable and all three dynamic-data image cells now favor WhatsCanvas. At 1,024
+operations, dynamic-data fell from 4.273 ms to 0.773 ms while NanoVG measured
+1.667 ms. The remaining conclusive NanoVG wins are:
+
+| Scene | Mode | Operations | WhatsCanvas | NanoVG | WhatsCanvas gap |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `geometry_stress` | dynamic-structure | 256 | 1.254 ms | 0.748 ms | 65.8% slower |
+| `geometry_stress` | dynamic-data | 1,024 | 1.890 ms | 1.575 ms | 20.1% slower |
+| `geometry_stress` | dynamic-structure | 1,024 | 2.912 ms | 1.661 ms | 72.4% slower |
+| `geometry_stress` | stable | 4,096 | 6.619 ms | 4.542 ms | 44.8% slower |
+| `geometry_stress` | dynamic-data | 4,096 | 6.636 ms | 4.711 ms | 38.8% slower |
+| `geometry_stress` | dynamic-structure | 4,096 | 9.425 ms | 5.647 ms | 65.6% slower |
+| `image_grid` | dynamic-structure | 64 | 0.494 ms | 0.411 ms | 21.0% slower |
+| `image_grid` | dynamic-structure | 256 | 0.997 ms | 0.779 ms | 28.6% slower |
+| `image_grid` | dynamic-structure | 1,024 | 2.338 ms | 1.652 ms | 37.6% slower |
+| `contract_text_latin` | stable | 1,024 | 5.905 ms | 5.874 ms | 0.7% slower |
+| `contract_text_latin` | dynamic-data | 1,024 | 6.178 ms | 5.898 ms | 4.5% slower |
+
+This changes the optimization priority. Large and structurally changing
+geometry is the dominant gap. Dynamic-structure images are next: their
+deliberate blend barriers and changing texture sets still produce many small
+batches even though ordinary multi-texture streams no longer do. The two text
+losses are small and lower priority; the 1,024-operation dynamic-structure text
+cell still favors WhatsCanvas, 6.652 ms versus 8.794 ms.
+
+The renderer counters locate those gaps more precisely:
+
+| Workload | Record | Submit | Draws | Structural evidence |
+| --- | ---: | ---: | ---: | --- |
+| Geometry dynamic-structure, 256 | 0.180 ms | 1.050 ms | 46 | State/topology changes already fragment a small frame |
+| Geometry dynamic-structure, 1,024 | 0.680 ms | 2.250 ms | 237 | Both compilation and small submissions scale |
+| Geometry dynamic-structure, 4,096 | 2.810 ms | 7.010 ms | 950 | 97,636 vertices and about 2.1 MiB of path upload |
+| Geometry stable, 4,096 | 2.730 ms | 4.280 ms | 2 | About 2.0 MiB upload: draw count is not the main cost |
+| Images dynamic-structure, 1,024 | 0.310 ms | 2.060 ms | 283 | Real blend barriers dominate submit after multi-texture batching |
+| Text dynamic-data, 1,024 | 4.140 ms | 2.080 ms | 2 | Remaining text gap is primarily record-side work |
+
+These counters are from representative WhatsCanvas processes in the same
+matrix. They are diagnostic, not additional independent samples. They rule out
+one generic fix: geometry needs less frame compilation and attribute expansion,
+image dynamic-structure needs cheaper barrier-bounded batches, and high-count
+text needs record-path profiling rather than another draw-call optimization.
+
+### Current parameter matrix
+
+The Standard matrix was rerun after multi-packet topology reuse, GPU shape
+parameters for large affine batches, compact on-demand path gradient storage,
+persistent OpenGL sprite-sequence state, short-path allocation cleanup, and
+redundant GL-state removal. The same two-block ABBA schedule and four fresh
+processes per renderer were used for every cell. All 27 quality gates passed:
+
+| Category | WhatsCanvas faster | NanoVG faster | Inconclusive |
+| --- | ---: | ---: | ---: |
+| Geometry | 8 | 0 | 1 |
+| Images | 9 | 0 | 0 |
+| Text | 9 | 0 | 0 |
+| **Total** | **26** | **0** | **1** |
+
+This run closes every previous conclusive image, text, and geometry loss.
+Reusing the sprite program, VAO, projection, sampler uniforms, sampler
+bindings, and unchanged texture slots across an ordered image sequence makes
+even the deliberately fragmented image workload competitive without
+reordering transparent draws:
+
+| Scene | Mode | Operations | WhatsCanvas | NanoVG | Result |
+| --- | --- | ---: | ---: | ---: | --- |
+| `geometry_stress` | stable | 4,096 | **3.971 ms** | 5.417 ms | WhatsCanvas 26.7% faster |
+| `geometry_stress` | dynamic-data | 4,096 | **3.893 ms** | 5.175 ms | WhatsCanvas 24.8% faster |
+| `image_grid` | dynamic-structure | 1,024 | **1.328 ms** | 1.869 ms | WhatsCanvas 28.9% faster |
+| `contract_text_latin` | dynamic-structure | 1,024 | **6.886 ms** | 10.132 ms | WhatsCanvas 32.0% faster |
+
+The two previously slower geometry cells now favor WhatsCanvas:
+
+| Mode | Operations | WhatsCanvas | NanoVG | Result |
+| --- | ---: | ---: | ---: | ---: |
+| `dynamic-structure` | 1,024 | **1.730 ms** | 1.906 ms | WhatsCanvas 9.2% faster |
+| `dynamic-structure` | 4,096 | **5.751 ms** | 6.029 ms | WhatsCanvas 4.6% faster |
+
+At 256 operations the same workload remains statistically inconclusive
+(0.788 versus 0.811 ms). The implementation does not weaken AA, reorder blend
+barriers, or branch on benchmark sizes. It removes general short-path costs:
+`Path` reserves the common compact verb count, contour extraction moves storage
+and reserves from the known verb count, and simple fills consume the parsed
+contour directly. OpenGL also caches the unchanged additive blend equation and
+returns immediately for an already-empty clip/scissor state.
 
 ## Profiles
 
@@ -441,6 +570,26 @@ same GPU packet is uploaded. All eight WhatsCanvas processes retained
 `5e7e67fb8b9ca579`; image and text control hashes remain
 `432ad28b33a51375` and `737cad1b0d1169f2`. The complete Release build and all
 66 Release tests pass.
+
+The cross-library runner now automates that methodology instead of requiring a
+manual process script. Four ABBA blocks launch eight fresh processes per
+renderer, retain every measured frame sample and quality capture, calculate
+within-block geometric-mean ratios, and publish deterministic bootstrap 95%
+confidence intervals. The contract also fixes full-frame draw clear semantics,
+the Roboto SHA-256, text size/baseline/shaping/raster modes, and parameterized
+workload fields. The NanoVG adapter implements the same scale/seed/data/
+structure options.
+
+The latest 1080p Standard run on the same reference machine produced:
+
+| Scene | WhatsCanvas OpenGL median (95% CI) | NanoVG GL3 median (95% CI) | Paired NanoVG / WhatsCanvas (95% CI) |
+| --- | ---: | ---: | ---: |
+| `geometry_stress` | **2.617 ms** (2.572-2.764) | 3.705 ms (3.605-3.807) | 1.407x (1.273-1.441) |
+| `image_grid` | **0.272 ms** (0.262-0.304) | 0.383 ms (0.380-0.388) | 1.369x (1.347-1.417) |
+| `contract_text_latin` | **2.878 ms** (2.670-3.021) | 3.292 ms (3.255-3.337) | 1.153x (1.105-1.169) |
+
+All 48 process runs passed their quality gate. These intervals quantify this
+machine and contract; they are not a cross-hardware ranking.
 
 ## CI policy
 

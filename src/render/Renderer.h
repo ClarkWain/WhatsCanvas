@@ -89,12 +89,16 @@ private:
     mutable FrameStats stats_;
     std::unique_ptr<SpriteBatch> spriteBatch_;
 
-    // Reused OpenGL path-batch storage. Keeping the packet alive across frames
-    // avoids reallocating its large vertex and attribute streams. The retained
-    // geometry references also make pointer-based topology reuse unambiguous.
-    DrawPathData pathBatchScratch_;
-    std::vector<std::shared_ptr<const DrawPathGeometry>>
-        pathBatchTopology_;
+    struct PathBatchCache
+    {
+        DrawPathData packet;
+        std::vector<std::uint64_t> topology;
+    };
+
+    // Keep one cache entry per merged packet. Dense frames exceed the 16-bit
+    // index limit and produce multiple packets; a single slot makes those
+    // packets evict each other every frame.
+    std::vector<PathBatchCache> pathBatchCaches_;
 
     // Main render target for devices that render command streams into a target
     // (usesDeviceCommandExecution()); unused by the OpenGL execute() path.

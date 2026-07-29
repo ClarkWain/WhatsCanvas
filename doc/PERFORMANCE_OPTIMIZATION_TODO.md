@@ -138,6 +138,33 @@ work. All eight runs produced `5e7e67fb8b9ca579`, and the image/text control
 hashes also remain unchanged. The complete Release build and all 66 Release
 tests pass.
 
+## Parameter-matrix closure
+
+The two remaining losses after the multi-packet/GPU-parameter pass were
+`geometry_stress` dynamic-structure at 1,024 and 4,096 operations. The common
+causes were short-path allocation/copy overhead and redundant OpenGL state
+submission, not the operation counts themselves.
+
+`Path` now reserves the common compact verb count. Contour extraction reserves
+from the known verb count, moves completed point storage, and lets the simple
+fill path consume the parsed contour without rebuilding it. `RenderContext`
+also caches the additive blend equation and fast-paths an already-empty
+clip/scissor state.
+
+The final 1920 x 1080 Standard matrix passed all 27 quality gates:
+
+| Category | WhatsCanvas faster | NanoVG faster | Inconclusive |
+| --- | ---: | ---: | ---: |
+| Geometry | 8 | 0 | 1 |
+| Images | 9 | 0 | 0 |
+| Text | 9 | 0 | 0 |
+| **Total** | **26** | **0** | **1** |
+
+The 1,024 dynamic-structure cell moved from 1.875/1.753 ms to
+1.730/1.906 ms (WhatsCanvas/NanoVG). The 4,096 cell moved from
+6.242/5.934 ms to 5.751/6.029 ms. The 256 cell remains statistically
+inconclusive at 0.788/0.811 ms.
+
 ## Root cause
 
 The common problem is **early expansion and late batching**. Images retain
@@ -240,7 +267,48 @@ result under the same 1080p geometry contract. This is a scene-specific result,
 not a claim that every WhatsCanvas workload is faster than every NanoVG
 workload.
 
-## P2: backend convergence
+## Current parameter-matrix priorities (`12628e2`)
+
+The post-optimization 27-cell ABBA matrix passed all quality gates and produced
+24 WhatsCanvas wins, 2 NanoVG wins, and 1 inconclusive cell. Images and text
+both win 9/9 cells. Geometry stable and dynamic-data win all six tested cells;
+only the 1,024/4,096-operation dynamic-structure cells remain behind.
+
+### P0: structurally changing geometry
+
+- [x] Avoid rebuilding transformed positions and colors in large affine solid
+      batches by using GPU shape parameter tables.
+- [x] Retain compiled topology for every stable batch after the 65,536-vertex
+      split instead of letting one `pathBatchTopology_` slot overwrite another.
+- [x] Expose topology hit/miss counters in the public performance result.
+- [ ] Add timer-query and frame-compile timing before changing the AA format.
+- [ ] Compact the per-frame command stream for many short blend runs without
+      changing blend order or weakening AA.
+
+The remaining losses are 6.8% at 1,024 operations and 4.7% at 4,096. The
+256-operation cell is statistically inconclusive. This is now a narrow command
+recording/submission problem rather than a general geometry throughput gap.
+
+### P1: high-state-churn image batches
+
+- [x] Batch an ordered stream containing up to eight textures.
+- [x] Use a sampler object instead of repeatedly mutating texture parameters.
+- [x] Cover slot reuse, the ninth-texture boundary, draw count, and pixels.
+- [x] Reduce setup cost for the small batches that remain between real blend
+      barriers; do not reorder translucent commands across those barriers.
+
+Persistent Sprite program/VAO/projection/sampler state and batching single-image
+runs changed all three `dynamic-structure` cells to conclusive wins.
+
+### P2: high-count stable text
+
+- [x] Profile the 1,024-label stable and dynamic-data record path before adding
+      another cache layer.
+
+All nine text cells now favor WhatsCanvas. Further text work should be driven
+by broader script and shaping coverage, not this Latin performance contract.
+
+## P3: backend convergence
 
 - [ ] Make OpenGL, Vulkan, and Software consume the same compiled draw packets.
 - [ ] Preserve strict clip, layer, filter, blend, target, and snapshot barriers.
@@ -250,10 +318,11 @@ workload.
 
 ## Benchmark corrections
 
-- [ ] Use paired ABBA process ordering and publish confidence intervals.
-- [ ] Save per-frame samples and all quality captures.
-- [ ] Use identical clear semantics on both adapters.
-- [ ] Fix font file hash, cap height, baseline, and shaping mode in the contract.
+- [x] Use paired ABBA process ordering and publish confidence intervals.
+- [x] Save per-frame samples and all quality captures.
+- [x] Use identical clear semantics on both adapters.
+- [x] Fix font file hash, size/baseline formulas, and shaping mode in the contract.
+- [x] Implement the same parameterized workload options in the NanoVG adapter.
 - [ ] Split simple Latin kerning from full OpenType shaping.
 - [ ] Replace hand-tuned text thresholds with foreground-region metrics defined
       before measuring a candidate adapter.

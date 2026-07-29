@@ -1,12 +1,16 @@
 {
   "schema": 1,
   "name": "WhatsCanvas Cross-Library 2D Contract",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "default_width": 1920,
   "default_height": 1080,
   "pixel_format": "RGB8_sRGB_PPM_P6",
   "alpha_model": "src_over_straight_input",
   "coordinate_system": "top_left_origin_pixel_centers_at_half",
+  "rendering": {
+    "clear_semantics": "draw_full_frame_src_over",
+    "maintenance_clear": "stencil_only_outside_measured_canvas_workload"
+  },
   "timing": {
     "profile": "standard",
     "frames": 30,
@@ -16,6 +20,7 @@
   },
   "assets": {
     "font_regular": "../../third_party/harfbuzz/perf/fonts/Roboto-Regular.ttf",
+    "font_sha256": "797E35F7F5D6020A5C6EA13B42ECD668BCFB3BBC4BAA0E74773527E5B6CB3174",
     "font_family": "CrossLibraryRoboto",
     "image": {
       "kind": "procedural_rgba8",
@@ -24,12 +29,30 @@
       "definition": "PerformanceSuite.cpp initializeResources"
     }
   },
+  "text": {
+    "shaping_mode": "adapter_native_latin_kerning",
+    "raster_mode": "grayscale_no_lcd",
+    "size_formula": "clamp((height / 72) * 0.76, 10, 18)",
+    "baseline_formula": "(row + 0.82) * (height / 72)",
+    "nanovg_em_scale": 0.875
+  },
+  "parameterized_workload": {
+    "modes": [
+      "stable",
+      "dynamic-data",
+      "dynamic-structure"
+    ],
+    "random_algorithm": "PerformanceSuite.cpp workloadRandom",
+    "validation_frame_index": 0,
+    "state_change_rate_default": 0.0
+  },
   "scenes": {
     "geometry_stress": {
       "operations_per_frame": 2304,
       "canonical_source": "../PerformanceSuite.cpp:drawGeometryStress",
       "requirements": [
         "64x36 cells",
+        "background is a measured full-frame src-over draw",
         "src-over blending",
         "analytic or equivalent antialiasing enabled",
         "rect, round-rect, circle, oval, triangle, diamond cycle",
@@ -47,6 +70,7 @@
       "canonical_source": "../PerformanceSuite.cpp:drawImageGrid",
       "requirements": [
         "12x8 cells",
+        "background is a measured full-frame src-over draw",
         "linear sampling",
         "clamp addressing",
         "straight-alpha source over",
@@ -58,6 +82,13 @@
         "max_mean_absolute_error": 2.0,
         "max_root_mean_square_error": 10.0,
         "max_changed_pixel_fraction": 0.08
+      },
+      "parameterized_quality": {
+        "channel_threshold": 16,
+        "reference_background_rgb": [22, 26, 34],
+        "max_mean_absolute_error_fraction_of_reference_signal": 0.25,
+        "max_root_mean_square_error_fraction_of_reference_signal": 0.25,
+        "max_changed_pixel_fraction_of_reference_signal": 0.30
       }
     },
     "contract_text_latin": {
@@ -65,10 +96,12 @@
       "canonical_source": "../PerformanceSuite.cpp:drawContractTextLatin",
       "requirements": [
         "Roboto-Regular.ttf from assets.font_regular",
+        "font bytes must match assets.font_sha256",
         "8x72 calls",
         "grayscale glyph antialiasing",
         "no LCD subpixel rendering",
-        "native UTF-8 text path with kerning; shaping differences remain quality-scored",
+        "adapter-native Latin kerning path; shaping differences remain quality-scored",
+        "text size and baseline follow the text formulas",
         "no pre-rendered text bitmap or whole-string texture cache",
         "validation frame index 0"
       ],
@@ -77,6 +110,18 @@
         "max_mean_absolute_error": 8.0,
         "max_root_mean_square_error": 27.0,
         "max_changed_pixel_fraction": 0.10
+      },
+      "parameterized_quality": {
+        "channel_threshold": 32,
+        "reference_background_rgb": [247, 248, 251],
+        "max_mean_absolute_error_fraction_of_reference_signal": 1.10,
+        "max_root_mean_square_error_fraction_of_reference_signal": 1.05,
+        "min_candidate_mean_absolute_error_fraction_of_reference_signal": 0.80,
+        "max_candidate_mean_absolute_error_fraction_of_reference_signal": 1.20,
+        "min_candidate_root_mean_square_error_fraction_of_reference_signal": 0.80,
+        "max_candidate_root_mean_square_error_fraction_of_reference_signal": 1.20,
+        "min_candidate_changed_pixel_fraction_of_reference_signal": 0.80,
+        "max_candidate_changed_pixel_fraction_of_reference_signal": 1.20
       }
     }
   }
