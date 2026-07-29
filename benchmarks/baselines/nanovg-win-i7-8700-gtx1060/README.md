@@ -23,23 +23,22 @@ modes. All 27 cells passed their parameterized pixel-quality gate.
 
 | Scene | Cells | WhatsCanvas faster | NanoVG faster | Inconclusive | Median NanoVG / WhatsCanvas ratio |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `geometry_stress` | 9 | 2 | 6 | 1 | 0.733x |
-| `image_grid` | 9 | 3 | 6 | 0 | 0.471x |
-| `contract_text_latin` | 9 | 7 | 0 | 2 | 1.083x |
-| **Total** | **27** | **12** | **12** | **3** | - |
+| `geometry_stress` | 9 | 8 | 0 | 1 | 1.340x |
+| `image_grid` | 9 | 9 | 0 | 0 | 1.411x |
+| `contract_text_latin` | 9 | 9 | 0 | 0 | 1.200x |
+| **Total** | **27** | **26** | **0** | **1** | - |
 
 A win requires the complete paired-ratio 95% confidence interval to remain on
 one side of `1.0`. Ratios above `1.0` favor WhatsCanvas.
 
 ## Interpretation
 
-WhatsCanvas is consistently faster for stable single-texture image streams and
-for medium/high-density text, including dynamic-structure text. NanoVG remains
-faster for image streams that change texture cardinality, rounded coverage, or
-blend state, and for medium/high-scale geometry whose data or topology changes.
-At 256 and 1,024 dynamic-data image operations, NanoVG takes about 35% and 40%
-of WhatsCanvas time respectively. This identifies dynamic resource/state
-handling and large geometry recording as the next optimization targets.
+WhatsCanvas is conclusively faster in all nine image cells, all nine text
+cells, and eight of nine geometry cells. The 256-operation
+dynamic-structure geometry cell is statistically inconclusive at this
+repetition count. The matrix changes scale, content, texture cardinality,
+rounded coverage, topology, and blend state, so the result is not tied to one
+fixed object count or an entirely stable command stream.
 
 These results use one deterministic content seed and two ABBA blocks. They are
 stronger evidence of workload breadth than a fixed object count, but are not a

@@ -4,8 +4,8 @@ Reference renderer: `whatscanvas`. Each candidate uses 2 independent ABBA blocks
 
 | Adapter | Scene | Process median (95% CI) | Relative (95% CI) | MAE | RMSE | Changed pixels | Quality |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| whatscanvas | `contract_text_latin` | 6.661 ms [6.568, 7.419] | 1.000x [1.000, 1.000] | 0.000 | 0.000 | 0.000% | PASS |
-| nanovg | `contract_text_latin` | 7.010 ms [6.844, 7.204] | 1.029x [1.007, 1.051] | 17.655 / 0.370x | 43.294 / 0.490x | 20.893% | PASS |
+| whatscanvas | `contract_text_latin` | 6.890 ms [6.790, 7.056] | 1.000x [1.000, 1.000] | 0.000 | 0.000 | 0.000% | PASS |
+| nanovg | `contract_text_latin` | 7.104 ms [6.965, 7.159] | 1.026x [1.015, 1.036] | 17.655 / 0.370x | 43.294 / 0.490x | 20.893% | PASS |
 
 Relative is the candidate/reference geometric-mean ratio inside each ABBA block; lower is faster. Confidence intervals use a deterministic bootstrap over fresh-process samples. Every JSONL run retains all measured frame samples.
 
