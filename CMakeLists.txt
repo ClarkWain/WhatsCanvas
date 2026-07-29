@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(WhatsCanvas VERSION 0.1.16 LANGUAGES C CXX)
+project(WhatsCanvas VERSION 0.1.17 LANGUAGES C CXX)
 
 include(CTest)
 include(GNUInstallDirs)
@@ -783,6 +783,32 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     )
     set_tests_properties(WhatsCanvasBatchMergeTests PROPERTIES LABELS "unit;diagnostics")
 
+    add_executable(WhatsCanvasOpenGLMultiTextureBatchTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/OpenGLMultiTextureBatchTests.cpp"
+    )
+    target_include_directories(WhatsCanvasOpenGLMultiTextureBatchTests PRIVATE
+        "${SRC_DIR}"
+        "${SRC_DIR}/canvas"
+        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/glad/include"
+    )
+    target_link_libraries(WhatsCanvasOpenGLMultiTextureBatchTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    whatscanvas_link_gl_app(
+        WhatsCanvasOpenGLMultiTextureBatchTests
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    add_test(NAME WhatsCanvasOpenGLMultiTextureBatchTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasOpenGLMultiTextureBatchTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasOpenGLMultiTextureBatchTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasOpenGLMultiTextureBatchTests PROPERTIES
+        LABELS "unit;render;opengl")
+
     add_executable(WhatsCanvasCommandDrawListEncoderTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/CommandDrawListEncoderTests.cpp"
     )
@@ -1256,6 +1282,33 @@ endif()
 
 if (BUILD_TESTING AND TARGET WhatsCanvasOpenGLES)
     whatscanvas_add_glfw_dependency("${CMAKE_CURRENT_SOURCE_DIR}")
+    add_executable(WhatsCanvasOpenGLESMultiTextureBatchTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/OpenGLMultiTextureBatchTests.cpp"
+    )
+    target_include_directories(WhatsCanvasOpenGLESMultiTextureBatchTests PRIVATE
+        "${SRC_DIR}"
+        "${SRC_DIR}/canvas"
+        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/glad/include"
+    )
+    target_compile_definitions(
+        WhatsCanvasOpenGLESMultiTextureBatchTests PRIVATE
+        WHATSCANVAS_TEST_OPENGLES
+    )
+    target_link_libraries(WhatsCanvasOpenGLESMultiTextureBatchTests PRIVATE
+        WhatsCanvasOpenGLES
+        glfw
+    )
+    add_test(NAME WhatsCanvasOpenGLESMultiTextureBatchTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasOpenGLESMultiTextureBatchTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasOpenGLESMultiTextureBatchTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasOpenGLESMultiTextureBatchTests PROPERTIES
+        LABELS "unit;render;opengles")
+
     add_executable(WhatsCanvasOpenGLESFilterPixelParityTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/GLFilterPixelParityTests.cpp"
     )
@@ -1498,6 +1551,14 @@ if (BUILD_TESTING AND Python3_Interpreter_FOUND)
     )
     set_tests_properties(WhatsCanvasPerformanceMatrixTests PROPERTIES
         LABELS "unit;benchmark;performance"
+        TIMEOUT 30
+    )
+    add_test(NAME WhatsCanvasCrossLibraryMatrixTests
+        COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/CrossLibraryMatrixTests.py"
+    )
+    set_tests_properties(WhatsCanvasCrossLibraryMatrixTests PROPERTIES
+        LABELS "unit;benchmark;adapter;performance"
         TIMEOUT 30
     )
 endif()

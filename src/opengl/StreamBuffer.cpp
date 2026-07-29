@@ -39,6 +39,36 @@ void StreamBuffer::beginFrame()
     }
 }
 
+void StreamBuffer::reserveAdditionalBytes(std::size_t byteCount)
+{
+    if (byteCount == 0) {
+        return;
+    }
+    if (buffer_ == 0) {
+        const std::size_t initialFloatCapacity =
+            std::max<std::size_t>(
+                4096u,
+                (byteCount + sizeof(float) - 1u)
+                    / sizeof(float));
+        initialize(initialFloatCapacity);
+        return;
+    }
+
+    const std::size_t required =
+        writeOffsetBytes_ + byteCount;
+    if (required <= capacityBytes_) {
+        return;
+    }
+    std::size_t nextCapacity = capacityBytes_;
+    while (required > nextCapacity) {
+        nextCapacity *= GROW_FACTOR;
+    }
+    capacityBytes_ = nextCapacity;
+    allocateStorage(capacityBytes_);
+    // Commands already submitted keep the orphaned backing store alive.
+    writeOffsetBytes_ = 0;
+}
+
 GLuint StreamBuffer::upload(const float *data, std::size_t floatCount)
 {
     if (buffer_ == 0) {
@@ -93,6 +123,13 @@ StreamBuffer::UploadRange StreamBuffer::uploadRange(
 {
     return uploadRangeBytes(
         data, byteCount, alignof(std::uint8_t));
+}
+
+StreamBuffer::UploadRange StreamBuffer::uploadBytes(
+    const void *data, std::size_t byteCount,
+    std::size_t alignment)
+{
+    return uploadRangeBytes(data, byteCount, alignment);
 }
 
 StreamBuffer::UploadRange StreamBuffer::uploadRangeBytes(

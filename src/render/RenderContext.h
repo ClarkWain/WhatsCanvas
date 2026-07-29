@@ -30,6 +30,7 @@ public:
     void bindImageHandle(ImageResourceHandle texture) const;
     void bindImageResource(const SharedImageResource &imageResource, DrawImageSampling sampling,
                            DrawImageTileMode tileMode, bool mipmapsReady) const;
+    void invalidateImageBinding() const;
     void resetRenderState() const;
 
     /// Whether an anti-aliased clip coverage mask is currently bound. Draw
@@ -39,6 +40,7 @@ public:
     int clipMaskTextureUnit() const;
 
 private:
+    void ensureAddBlendEquation() const;
     bool isClipMaskCurrent(std::uint64_t key) const;
     void rememberClipMask(std::uint64_t key) const;
     void clearClipMask() const;
@@ -51,6 +53,7 @@ private:
     float centerX = 0;
     float centerY = 0;
     mutable bool blendEnabled_ = false;
+    mutable bool addBlendEquationActive_ = false;
     mutable bool hasBlendMode_ = false;
     mutable DrawBlendMode lastBlendMode_ = DrawBlendMode::SrcOver;
     mutable bool clearTypeBlendModeActive_ = false;

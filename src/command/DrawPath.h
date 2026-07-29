@@ -7,6 +7,9 @@
 #include "opengl/TexelBuffer.h"
 #include "render/RenderContext.h"
 
+#include <cstdint>
+#include <vector>
+
 class DrawPathProgram
 {
 public:
@@ -27,6 +30,8 @@ public:
     void initialize();
     void release();
     void beginFrame();
+    void beginBatch();
+    void endBatch();
 
     void draw(const RenderContext &context, const DrawPathData &data);
 
@@ -44,12 +49,30 @@ private:
 
     bool initialized_ = false;
 
-    StreamBuffer positionBuffer_;
-    StreamBuffer colorBuffer_;
-    StreamBuffer coverageBuffer_;
-    StreamBuffer indexBuffer_;
+    StreamBuffer geometryBuffer_;
     TexelBuffer gradientStopBuffer_;
+    TexelBuffer drawParameterBuffer_;
     std::size_t frameUploadCount_ = 0;
     std::size_t frameUploadBytes_ = 0;
     std::size_t frameIndexBytes_ = 0;
+    std::vector<std::uint8_t> packetScratch_;
+    int projectionWidth_ = -1;
+    int projectionHeight_ = -1;
+    bool batchActive_ = false;
+    bool hasTransform_ = false;
+    glm::mat4 transform_ = glm::mat4(1.0f);
+    bool hasUniformColor_ = false;
+    glm::vec4 uniformColor_ = glm::vec4(0.0f);
+    int useVertexColor_ = -1;
+    int useCoverage_ = -1;
+    int gradientType_ = -1;
+    int useDrawParameters_ = -1;
+    int clipEnabled_ = -1;
+    int clipMaskUnit_ = -1;
+    int clipViewportWidth_ = -1;
+    int clipViewportHeight_ = -1;
+    bool coverageAttributeEnabled_ = true;
+    bool drawIdAttributeEnabled_ = false;
+    bool drawParameterTextureBound_ = false;
+    unsigned int elementBuffer_ = 0;
 };

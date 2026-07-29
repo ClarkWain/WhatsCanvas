@@ -111,6 +111,43 @@ int main()
     if (!near4(px, width, 10, 2, 0, 0, 0, 0, 4, "above scissor")) return 1;
     if (!near4(px, width, (width * 3) / 4, height / 2, 0, 0, 0, 0, 4, "right (clipped out)")) return 1;
 
+    // A content-identical resource may reuse the cached mask, while a changed
+    // transform must produce a distinct entry rather than stale pixels.
+    {
+        ClipMaskPath shiftedPath = maskPath;
+        shiftedPath.transform[3][0] = halfW;
+        SharedClipMaskResource shiftedClip =
+            device.createClipMaskResource(shiftedPath);
+        auto shiftedTarget = device.createRenderTarget(width, height);
+        DrawPathData shifted = d;
+        shifted.scissor.enabled = false;
+        shifted.clipMask.resources.clear();
+        shifted.clipMask.resources.push_back(shiftedClip);
+        std::vector<std::unique_ptr<Command>> shiftedCommands;
+        shiftedCommands.push_back(
+            std::make_unique<DrawPathCommand>(shifted));
+        if (!device.executeCommands(
+                shiftedTarget, shiftedCommands, request)) {
+            std::cerr << "[VulkanClipCommandTests] FAIL: shifted clip executeCommands returned false."
+                      << std::endl;
+            return 1;
+        }
+        std::vector<unsigned char> shiftedPixels;
+        if (!device.readPixelsRGBA(width, height, shiftedPixels)) {
+            return 1;
+        }
+        if (!near4(
+                shiftedPixels, width, width / 4, height / 2,
+                0, 0, 0, 0, 4, "shifted clip left")) {
+            return 1;
+        }
+        if (!near4(
+                shiftedPixels, width, (width * 3) / 4, height / 2,
+                0, 255, 0, 255, 4, "shifted clip right")) {
+            return 1;
+        }
+    }
+
     // --- Clipped vector text: a full-canvas blue text quad clipped to the left. ---
     {
         auto textTarget = device.createRenderTarget(width, height);
@@ -174,12 +211,14 @@ int main()
         g.gradientStart[0] = 0.0f;
         g.gradientEnd[0] = fw;
         g.gradientStopCount = 2;
-        g.gradientStopPositions[0] = 0.0f;
-        g.gradientStopPositions[1] = 1.0f;
-        g.gradientStopColors[0] = 1.0f; // red at t=0
-        g.gradientStopColors[3] = 1.0f;
-        g.gradientStopColors[4] = 1.0f; // red at t=1 (uniform red, easy to check)
-        g.gradientStopColors[7] = 1.0f;
+        DrawPathGradientStops &stops =
+            g.writableGradientStops();
+        stops.positions[0] = 0.0f;
+        stops.positions[1] = 1.0f;
+        stops.colors[0] = 1.0f; // red at t=0
+        stops.colors[3] = 1.0f;
+        stops.colors[4] = 1.0f; // red at t=1 (uniform red, easy to check)
+        stops.colors[7] = 1.0f;
         g.clipMask.resources.push_back(clipRes);
         std::vector<std::unique_ptr<Command>> gCmds;
         gCmds.push_back(std::make_unique<DrawPathCommand>(g));

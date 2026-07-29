@@ -57,6 +57,9 @@ struct DrawPathGeometry {
     std::vector<float> points;
     std::vector<float> coverage;
     std::vector<std::uint32_t> indices;
+    // Content identity for topology-only reuse. Positions are intentionally
+    // excluded so dynamic transforms/data can retain indices and AA coverage.
+    std::uint64_t topologyFingerprint = 0;
 
     std::size_t residentBytes() const
     {
@@ -64,6 +67,11 @@ struct DrawPathGeometry {
             + coverage.capacity() * sizeof(float)
             + indices.capacity() * sizeof(std::uint32_t);
     }
+};
+
+struct DrawPathGradientStops {
+    float positions[8] = {};
+    float colors[32] = {};
 };
 
 struct DrawPathData {
@@ -76,6 +84,8 @@ struct DrawPathData {
     std::vector<std::uint8_t> packedCoverage; // Optional normalized 8-bit merged coverage
     std::vector<std::uint32_t> indices; // Optional triangle indices into points
     std::vector<std::uint16_t> shortIndices; // Compact merged packet indices
+    std::vector<std::uint16_t> drawIds; // Optional per-vertex shape parameter index
+    std::vector<float> drawParameters; // 2D affine matrix + RGBA per shape
     std::shared_ptr<const DrawPathGeometry> sharedGeometry;
     float width = 1.0f;           // Stroke width
     float color[4];               // RGBA color
@@ -92,9 +102,26 @@ struct DrawPathData {
     float radialCenter[2] = {0.0f, 0.0f};
     float radialRadius = 1.0f;
     int gradientStopCount = 0;
-    float gradientStopPositions[kMaxGradientStops] = {};
-    float gradientStopColors[kMaxGradientStops * 4] = {};
+    // Most path commands are solid. Keep the comparatively large stop table
+    // out of every command and allocate it only for actual gradients.
+    std::shared_ptr<DrawPathGradientStops> gradientStops;
     bool vertexColorsLinear = false; // OpenGL upload can skip repeated conversion
+    DrawPathGradientStops &writableGradientStops()
+    {
+        if (!gradientStops) {
+            gradientStops =
+                std::make_shared<DrawPathGradientStops>();
+        } else if (!gradientStops.unique()) {
+            gradientStops =
+                std::make_shared<DrawPathGradientStops>(
+                    *gradientStops);
+        }
+        return *gradientStops;
+    }
+    const DrawPathGradientStops *gradientStopData() const
+    {
+        return gradientStops.get();
+    }
     const std::vector<float> &pointData() const
     {
         return sharedGeometry ? sharedGeometry->points : points;
@@ -129,6 +156,11 @@ struct DrawPathData {
     bool hasShortIndices() const { return !shortIndices.empty(); }
     bool hasLongIndices() const { return !indexData().empty(); }
     bool hasIndices() const { return hasShortIndices() || hasLongIndices(); }
+    bool hasDrawParameters() const
+    {
+        return drawIds.size() == getPointCount()
+            && !drawParameters.empty();
+    }
     size_t getElementCount() const
     {
         if (hasShortIndices()) {
@@ -142,7 +174,11 @@ struct DrawPathData {
             ? static_cast<std::uint32_t>(shortIndices[element])
             : indexData()[element];
     }
-    bool hasShaderGradient() const { return gradientType != DrawGradientType::None && gradientStopCount > 0; }
+    bool hasShaderGradient() const
+    {
+        return gradientType != DrawGradientType::None
+            && gradientStopCount > 0 && gradientStops;
+    }
 };
 
 struct DrawImageData {

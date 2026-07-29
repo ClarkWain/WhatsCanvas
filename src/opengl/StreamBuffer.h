@@ -33,6 +33,10 @@ public:
     /// Start a new frame using fresh backing storage.
     void beginFrame();
 
+    /// Ensure a packet of this size can be appended without reallocating
+    /// between its individual attribute uploads.
+    void reserveAdditionalBytes(std::size_t byteCount);
+
     /// Upload vertex data to the GPU buffer, growing if necessary.
     /// Returns the GL buffer handle for binding.
     GLuint upload(const float *data, std::size_t floatCount);
@@ -48,6 +52,9 @@ public:
         const std::uint16_t *data, std::size_t indexCount);
     UploadRange uploadRange(
         const std::uint8_t *data, std::size_t byteCount);
+    UploadRange uploadBytes(
+        const void *data, std::size_t byteCount,
+        std::size_t alignment = alignof(float));
 
     /// Get the current GL buffer handle (0 if not initialized).
     GLuint handle() const { return buffer_; }

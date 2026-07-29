@@ -426,13 +426,16 @@ void applyPathGradient(const Paint &paint, DrawPathData &data)
     const auto &stops = paint.getGradientStops();
     const int stopCount = static_cast<int>(std::min<std::size_t>(stops.size(), DrawPathData::kMaxGradientStops));
     data.gradientStopCount = stopCount;
+    DrawPathGradientStops &gradientStops =
+        data.writableGradientStops();
     for (int i = 0; i < stopCount; ++i) {
         const Color color = applyPaintAlpha(paint, stops[static_cast<std::size_t>(i)].color);
-        data.gradientStopPositions[i] = stops[static_cast<std::size_t>(i)].position;
-        data.gradientStopColors[i * 4 + 0] = color.r();
-        data.gradientStopColors[i * 4 + 1] = color.g();
-        data.gradientStopColors[i * 4 + 2] = color.b();
-        data.gradientStopColors[i * 4 + 3] = color.a();
+        gradientStops.positions[i] =
+            stops[static_cast<std::size_t>(i)].position;
+        gradientStops.colors[i * 4 + 0] = color.r();
+        gradientStops.colors[i * 4 + 1] = color.g();
+        gradientStops.colors[i * 4 + 2] = color.b();
+        gradientStops.colors[i * 4 + 3] = color.a();
     }
 }
 
@@ -1134,6 +1137,23 @@ SharedAAExpandedMesh shareAAExpandedMesh(AAExpandedMesh mesh)
     geometry->points = flattenPoints(mesh.vertices);
     geometry->coverage = std::move(mesh.coverage);
     geometry->indices = std::move(mesh.indices);
+    std::uint64_t topologyFingerprint = kFnvOffsetBasis;
+    hashUint64(
+        topologyFingerprint,
+        static_cast<std::uint64_t>(geometry->coverage.size()));
+    for (float value : geometry->coverage) {
+        hashFloat(topologyFingerprint, value);
+    }
+    hashUint64(
+        topologyFingerprint,
+        static_cast<std::uint64_t>(geometry->indices.size()));
+    for (std::uint32_t index : geometry->indices) {
+        hashUint64(
+            topologyFingerprint,
+            static_cast<std::uint64_t>(index));
+    }
+    geometry->topologyFingerprint =
+        topologyFingerprint != 0 ? topologyFingerprint : 1u;
     return {std::move(geometry)};
 }
 
@@ -1996,10 +2016,11 @@ std::vector<PathContour> extractContours(const Path &path)
 {
     std::vector<PathContour> contours;
     PathContour current;
+    current.points.reserve(path.getPoints().size());
 
     auto flushCurrent = [&]() {
         if (!current.points.empty()) {
-            contours.push_back(current);
+            contours.push_back(std::move(current));
             current = PathContour{};
         }
     };
@@ -2538,7 +2559,7 @@ struct Canvas::Impl
     const GraphicsState &currentState() const;
     Paint applyStateToPaint(const Paint &paint) const;
     bool submitSimpleFill(
-        std::vector<crushedpixel::Vec2> points,
+        std::vector<PathContour> contours,
         const Paint &paint);
     bool submitSimpleFillPrimitive(
         const SimpleFillPrimitive &primitive,
@@ -2880,40 +2901,23 @@ Paint Canvas::Impl::applyStateToPaint(const Paint &paint) const
 }
 
 bool Canvas::Impl::submitSimpleFill(
-    std::vector<crushedpixel::Vec2> points,
+    std::vector<PathContour> contours,
     const Paint &paint)
 {
     if (!canUseSimpleFillPath(paint)) {
         return false;
     }
-    if (points.size() < 3 || renderer == nullptr) {
+    if (contours.empty()
+        || contours.front().points.size() < 3
+        || renderer == nullptr) {
         return true;
     }
-
-    std::vector<PathContour> contours;
-    contours.reserve(1);
-    PathContour contour;
-    contour.points = std::move(points);
-    contour.closed = true;
-    contours.push_back(std::move(contour));
 
     glm::mat4 transform = currentState().matrix;
     factorContourTranslation(contours, transform);
     const std::uint64_t fillKey =
         hashFillTessellation(
             contours, Path::FillType::WINDING);
-    const std::vector<crushedpixel::Vec2> *fillTriangles =
-        fillTessellationCache.find(fillKey);
-    if (fillTriangles == nullptr) {
-        fillTriangles = &fillTessellationCache.insert(
-            fillKey,
-            triangulateContours(
-                contours, Path::FillType::WINDING));
-    }
-    if (fillTriangles->empty()) {
-        return true;
-    }
-
     const GraphicsState &state = currentState();
     DrawPathData data;
     if (paint.isAntiAlias()) {
@@ -2924,6 +2928,17 @@ bool Canvas::Impl::submitSimpleFill(
         const SharedAAExpandedMesh *aa =
             fillAaCache.find(aaKey);
         if (aa == nullptr) {
+            const std::vector<crushedpixel::Vec2> *fillTriangles =
+                fillTessellationCache.find(fillKey);
+            if (fillTriangles == nullptr) {
+                fillTriangles = &fillTessellationCache.insert(
+                    fillKey,
+                    triangulateContours(
+                        contours, Path::FillType::WINDING));
+            }
+            if (fillTriangles->empty()) {
+                return true;
+            }
             aa = &fillAaCache.insert(
                 aaKey,
                 shareAAExpandedMesh(
@@ -2932,6 +2947,17 @@ bool Canvas::Impl::submitSimpleFill(
         }
         data.sharedGeometry = aa->geometry;
     } else {
+        const std::vector<crushedpixel::Vec2> *fillTriangles =
+            fillTessellationCache.find(fillKey);
+        if (fillTriangles == nullptr) {
+            fillTriangles = &fillTessellationCache.insert(
+                fillKey,
+                triangulateContours(
+                    contours, Path::FillType::WINDING));
+        }
+        if (fillTriangles->empty()) {
+            return true;
+        }
         data.points = flattenPoints(*fillTriangles);
     }
     data.width = paint.getStrokeWidth();
@@ -2974,9 +3000,14 @@ bool Canvas::Impl::submitSimpleFillPrimitive(
 
     const std::uint64_t fillKey =
         hashSimpleFillPrimitive(primitive);
-    const std::vector<crushedpixel::Vec2> *fillTriangles =
-        fillTessellationCache.find(fillKey);
-    if (fillTriangles == nullptr) {
+    const GraphicsState &state = currentState();
+    const auto findOrBuildTriangles = [&]()
+        -> const std::vector<crushedpixel::Vec2> * {
+        const std::vector<crushedpixel::Vec2> *fillTriangles =
+            fillTessellationCache.find(fillKey);
+        if (fillTriangles != nullptr) {
+            return fillTriangles;
+        }
         PathContour contour;
         contour.points =
             buildSimpleFillPrimitivePoints(primitive);
@@ -2984,16 +3015,11 @@ bool Canvas::Impl::submitSimpleFillPrimitive(
         std::vector<PathContour> contours;
         contours.reserve(1);
         contours.push_back(std::move(contour));
-        fillTriangles = &fillTessellationCache.insert(
+        return &fillTessellationCache.insert(
             fillKey,
             triangulateContours(
                 contours, Path::FillType::WINDING));
-    }
-    if (fillTriangles->empty()) {
-        return true;
-    }
-
-    const GraphicsState &state = currentState();
+    };
     DrawPathData data;
     if (paint.isAntiAlias()) {
         const float fringe =
@@ -3003,6 +3029,11 @@ bool Canvas::Impl::submitSimpleFillPrimitive(
         const SharedAAExpandedMesh *aa =
             fillAaCache.find(aaKey);
         if (aa == nullptr) {
+            const std::vector<crushedpixel::Vec2> *fillTriangles =
+                findOrBuildTriangles();
+            if (fillTriangles->empty()) {
+                return true;
+            }
             aa = &fillAaCache.insert(
                 aaKey,
                 shareAAExpandedMesh(
@@ -3011,6 +3042,11 @@ bool Canvas::Impl::submitSimpleFillPrimitive(
         }
         data.sharedGeometry = aa->geometry;
     } else {
+        const std::vector<crushedpixel::Vec2> *fillTriangles =
+            findOrBuildTriangles();
+        if (fillTriangles->empty()) {
+            return true;
+        }
         data.points = flattenPoints(*fillTriangles);
     }
 
@@ -3338,6 +3374,10 @@ Canvas::RenderStats Canvas::getRenderStats() const
     stats.pathIndexBytes = frameStats.pathIndexBytes;
     stats.pathUploadCount = frameStats.pathUploadCount;
     stats.pathUploadBytes = frameStats.pathUploadBytes;
+    stats.pathTopologyCacheHits =
+        frameStats.pathTopologyCacheHits;
+    stats.pathTopologyCacheMisses =
+        frameStats.pathTopologyCacheMisses;
     stats.imageTextureCount = resourceStats.imageTextureCount;
     stats.renderTargetCount = resourceStats.renderTargetCount;
     stats.pooledRenderTargetCount = resourceStats.pooledRenderTargetCount;
@@ -3958,7 +3998,7 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
         && contours.size() == 1u
         && contours.front().closed) {
         if (impl_->submitSimpleFill(
-                std::move(contours.front().points),
+                std::move(contours),
                 paint)) {
             return;
         }
@@ -6073,6 +6113,9 @@ void Canvas::beginFrame()
 
     impl_->renderer->resetRenderState();
     impl_->renderer->resetFrameStats();
+    impl_->fillTessellationCache.beginEpoch();
+    impl_->fillAaCache.beginEpoch();
+    impl_->strokeTessellationCache.beginEpoch();
     impl_->layerStack.clear();
     impl_->renderer->clear();
 }

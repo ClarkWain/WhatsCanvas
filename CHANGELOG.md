@@ -9,6 +9,8 @@ For releases and downloadable artifacts, see the
 
 ## [Unreleased]
 
+## [0.1.17] - 2026-07-29
+
 ### Added
 - Added retained-memory diagnostics for glyph atlases, tessellation and bitmap
   text caches, and pooled render targets through `Canvas::RenderStats` and the
@@ -19,6 +21,9 @@ For releases and downloadable artifacts, see the
   scene, adapter runner, pixel-quality gates, and self-calibration tests.
 - Added an optional NanoVG GL3 benchmark adapter and a checked-in,
   quality-gated three-process 1080p comparison baseline.
+- Added parameterized cross-library matrices that vary workload scale, data,
+  structure, textures, rounded geometry, render state, and generated text,
+  with ABBA process scheduling and bootstrap confidence intervals.
 
 ### Changed
 - Changed the unified performance suite default resolution from 960 x 540 to
@@ -45,6 +50,27 @@ For releases and downloadable artifacts, see the
 - Batched compatible OpenGL path geometry across affine transforms with bounded
   vertex chunks, and batched Vulkan textured quads with packed per-vertex tint
   plus per-frame descriptor-set reuse.
+- Added ordered OpenGL multi-texture sprite batches, persistent sprite state,
+  multi-packet path topology reuse, GPU shape parameters, compact short-path
+  recording, and redundant GL-state elimination. The latest quality-gated
+  27-cell matrix records 26 WhatsCanvas wins, no NanoVG wins, and one
+  statistically inconclusive cell on the reference machine.
+- Preserved compact indexed geometry through Vulkan submission, introduced
+  asynchronous frame upload slots and persistent command buffers, and reduced
+  Vulkan glyph-atlas and texture submission overhead.
+- Eliminated high-count dynamic-text cache thrashing with O(1) LRU maintenance
+  and a working-set-aware layout cache.
+
+### Fixed
+- Preserved OpenGLES image sampling precision and desktop-independent
+  presentation paths.
+- Avoided desktop-only sampler-object calls on OpenGLES and made wrapped
+  OpenGL framebuffer readback independent of incidental driver binding state.
+- Assigned distinct texture units to mixed OpenGL sampler types so strict Mesa
+  drivers accept path draws as well as desktop vendor drivers.
+- Honored Vulkan command scissors and hardened packed path-attribute decoding.
+- Added cross-backend filter pixel-parity gates for OpenGL, OpenGLES, and
+  Vulkan.
 
 ## [0.1.16] - 2026-07-25
 

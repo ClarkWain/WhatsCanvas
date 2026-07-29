@@ -52,5 +52,7 @@ public:
 
 private:
     bool backendInitialized_ = false;
+    bool hasWrappedFramebuffer_ = false;
+    unsigned int wrappedFramebuffer_ = 0;
     mutable std::unique_ptr<RenderTargetPool> renderTargetPool_;
 };
