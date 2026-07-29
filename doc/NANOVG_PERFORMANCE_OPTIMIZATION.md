@@ -17,6 +17,8 @@
 
 更新至 `cac08c1` 后，OpenGL 图片批处理不再要求整批只有一张纹理，而是在不重排透明绘制的前提下使用 8 槽有序多纹理批次和独立 sampler；路径 position、color、coverage、index 也合并到一条帧上传流。相同 27 单元矩阵再次 27/27 通过质量门，结果从 WhatsCanvas / NanoVG / 无明确胜负的 12 / 12 / 3 变为 **12 / 11 / 4**。图片从 3/9 胜提升到 **6/9 胜**，1024 次 `dynamic-data` 从 4.273 ms 降至 0.773 ms，快于 NanoVG 的 1.667 ms；剩余差距已集中到大规模或结构变化几何，以及带真实 blend barrier 的 `dynamic-structure` 图片。
 
+更新至 `12628e2` 后，大规模路径批次改为按 packet 保留 topology，稳定/动态数据几何使用 GPU shape parameter table，SpriteBatch 则在连续图片序列中复用 program、VAO、投影、sampler uniform、sampler 和未变化纹理绑定。最终同规格矩阵仍然 27/27 通过质量门，结果推进到 **24 / 2 / 1**：图片 9/9、文本 9/9 全部领先，几何 stable 和 dynamic-data 6/6 全部领先；仅 1024/4096 的几何 `dynamic-structure` 分别慢约 6.8%/4.7%，256 项无明确胜负。
+
 这些结果仍限定于特定机器、场景和同步方式，不表示 WhatsCanvas 的每种工作负载都快于 NanoVG，也不能把 Vulkan 数字与 NanoVG GL3 当作同后端排名。本文更重要的价值，是展示如何从一个可信的性能差距出发，逐层找到并删除真实浪费。
 
 文中的代码均由对应提交的真实实现提炼而来，为突出思路省略了错误处理、日志、命名空间和部分兼容分支；完整实现应以文末列出的提交和当前源码为准。
@@ -1093,6 +1095,35 @@ ordered image commands
 
 图片的六个 stable / dynamic-data 单元全部领先。三个 `dynamic-structure` 单元仍落后 21.0%-37.6%，因为它们刻意插入 blend mode 变化；这些是不能跨越的透明顺序 barrier，不应通过重排绘制来“优化”。几何仍是最大差距：1024 dynamic-data、全部 dynamic-structure，以及 4096 的三种模式均由 NanoVG 领先。文本仅有 1024 stable / dynamic-data 小幅落后 0.7% / 4.5%。
 
+### 9.13 连续 Sprite 状态与大规模路径参数化
+
+上一轮图片 `dynamic-structure` 的问题并不是 draw 数量本身，而是每个由真实 blend barrier 切开的短批次都会重复：
+
+- `glUseProgram`、VAO 绑定和投影 uniform；
+- 8 个 sampler uniform；
+- sampler 绑定与解绑；
+- 即使纹理槽没有变化，也重新绑定全部纹理；
+- 单图短 run 回退到更重的通用图片 program。
+
+`12628e2` 让连续 Sprite 序列持有这些 GL 状态，只在 program 类型变化或离开图片序列时收尾；单图 run 也使用同一批处理 program。绘制顺序、blend barrier、圆角 coverage 和纹理选择完全不变。1024 次 `dynamic-structure` 因此从旧矩阵的 2.338 ms 降到 **1.372 ms**，快于 NanoVG 的 1.889 ms；64/256/1024 三个规模全部从落后变为领先。
+
+几何侧同时完成三项通用优化：
+
+1. 每个 16 位 packet 独立保存 topology identity，避免 4096 图形拆包后互相驱逐；
+2. 大型 affine solid batch 使用 GPU shape parameter table，不再在 CPU 为每个顶点重复矩阵变换和颜色展开；
+3. 路径 gradient stop table 改为按需分配，普通 solid 命令不再携带 40 个无用 float。
+
+最终 Standard 矩阵仍使用每单元 2 个 ABBA block、每端 4 个独立进程：
+
+| 类别 | WhatsCanvas 领先 | NanoVG 领先 | 无明确胜负 |
+| --- | ---: | ---: | ---: |
+| 几何 | 6 | 2 | 1 |
+| 图片 | 9 | 0 | 0 |
+| 文本 | 9 | 0 | 0 |
+| **合计** | **24** | **2** | **1** |
+
+4096 个 stable / dynamic-data 几何分别为 **4.607 / 4.499 ms**，NanoVG 为 5.027 / 4.942 ms。仅剩的两个明确落后单元都是几何 `dynamic-structure`：1024 项 1.875 对 1.753 ms，4096 项 6.242 对 5.934 ms。它们仍包含大量每帧重建的小路径 run 和必要的 blend 状态切换，差距已经从上一轮的 72.4%/65.6% 收窄到 6.8%/4.7%。
+
 ## 10. 性能差距是怎样一步步缩小的
 
 ### 10.1 完整帧时间
@@ -1275,15 +1306,15 @@ UI 和 2D 场景通常只有 transform、颜色、透明度或少量内容变化
 
 ## 13. 基准结论的边界
 
-本文的“反超 NanoVG”严格限定为：
+本文的“整体领先 NanoVG”严格限定为：
 
-> Windows i7-8700 / GTX 1060、OpenGL 3.3、1920 × 1080、`geometry_stress`、同步完整帧、通过质量门的配对 ABBA 结果。
+> Windows i7-8700 / GTX 1060、OpenGL 3.3、1920 × 1080、27 单元 Standard 参数矩阵、同步完整帧、通过质量门的配对 ABBA 结果。
 
 还不能扩大为所有工作负载的全局结论。最新参数矩阵进一步给出了明确边界：
 
-- 4096 图形的 stable / dynamic-data / dynamic-structure 分别为 6.619 / 6.636 / 9.425 ms，NanoVG 为 4.542 / 4.711 / 5.647 ms；固定 2304 图形合同的领先不能线性外推；
-- 图片 stable 和 dynamic-data 已在三个规模全部领先，但包含 32 纹理、50% 圆角和 12.5% 状态切换的 dynamic-structure 仍落后；
-- `contract_text_latin` 在 1024 stable / dynamic-data 上仅落后 0.7% / 4.5%，差距很小；dynamic-structure 仍以 6.652 ms 领先 NanoVG 的 8.794 ms；
+- 4096 图形的 stable / dynamic-data 已以 4.607 / 4.499 ms 领先 NanoVG 的 5.027 / 4.942 ms，但 dynamic-structure 仍以 6.242 对 5.934 ms 落后 4.7%；
+- 图片在三个规模、三种变化模式全部领先；这仍不代表任意纹理数、任意 shader 和任意 blend 序列；
+- `contract_text_latin` 在三个规模、三种变化模式全部领先；它只覆盖固定字体合同，不代表所有 script、fallback 和 shaping 组合；
 - Vulkan 已有同机八进程结果，但 NanoVG adapter 只有 OpenGL，不能把 Vulkan 2.809 / 0.367 / 2.964 ms 写成对 NanoVG 的同后端胜负；
 - Software 和 OpenGL ES 仍需要各自验证；
 - 复杂 path、stroke、gradient、clip、layer 和 filter 不一定命中 simple-fill/stable-topology 路径；
@@ -1446,13 +1477,14 @@ WhatsCanvas 与 NanoVG 的差距不是通过某个单一“大优化”消失的
 - 哈希 LRU 和更合理的文本工作集容量将 1024 次动态结构文本从 61.49 ms 降到 7.65 ms；
 - OpenGL 有序 8 槽多纹理批处理把 1024 次 dynamic-data 图片从 4.273 ms 降到 0.773 ms，draw 从 754 次降到 2 次，并让图片矩阵从 3/9 胜提升到 6/9 胜；
 - OpenGL 路径属性与索引共用一条帧上传流，在不把 16 位索引扩成 32 位的前提下改善 4096 图形提交；
+- 连续 Sprite GL 状态、单图 run 批处理、multi-packet topology 和 GPU shape parameter 将最终矩阵推进到 24/2/1；
 - Vulkan 普通图层直接采样离屏 render target，随后用内容签名复用稳定 clip mask、用双纹理 GPU 合成替换 gradient clip 的 CPU readback，将 `clip_layers` 从 41.38 ms 先降到 31.34 ms，再降到五进程中位数 8.80 ms，同时保持各阶段像素 hash 稳定。
 
 最值得保留的结论是：
 
 > 性能优化的核心不是更快地重复同一份工作，而是让系统知道哪些工作已经做过、哪些数据没有变化，并让最终可提交结果跨帧存活。
 
-NanoVG 展示了连续数组和紧凑状态的价值；WhatsCanvas 在此基础上加入 indexed geometry、单 draw 合批、实例化和稳定 packet 复用，最终在动态几何合同的 Pass 5 配对样本中从慢 5.95 倍走到快 31.8%。固定合同仍展示三类主路径的竞争力，而最新 27 单元参数矩阵给出了更严格的边界：WhatsCanvas 12 胜、NanoVG 11 胜、4 项无明确胜负；图片已经解决普通多纹理退化，当前 P0 明确转向大规模和结构变化几何，而不是继续针对一个固定场景调参。
+NanoVG 展示了连续数组和紧凑状态的价值；WhatsCanvas 在此基础上加入 indexed geometry、GPU shape parameter、实例化、稳定 packet 复用和连续 Sprite GL 状态，最终在动态几何合同的 Pass 5 配对样本中从慢 5.95 倍走到快 31.8%。固定合同仍展示三类主路径的竞争力，而最新 27 单元参数矩阵给出了更严格的结论：WhatsCanvas **24 胜、NanoVG 2 胜、1 项无明确胜负**，并且 27/27 通过质量门。剩余工作不再是宽泛的“图片、文字、几何都慢”，而是专门压缩带大量 blend barrier 的动态结构几何命令流。
 
 ## 参考
 
@@ -1478,3 +1510,4 @@ NanoVG 展示了连续数组和紧凑状态的价值；WhatsCanvas 在此基础�
 - `58b5129`：文本哈希 LRU、布局坐标解耦与动态工作集修复
 - `bb966ff`：Vulkan 无滤镜图层直接采样离屏 render target
 - `cac08c1`：OpenGL 有序多纹理批处理、sampler object 与统一路径上传流
+- `12628e2`：OpenGL multi-packet topology、GPU shape parameter 与连续 Sprite 状态
