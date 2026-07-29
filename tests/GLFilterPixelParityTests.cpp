@@ -29,6 +29,34 @@ constexpr int kMaxChannelDifference = 4;
 constexpr double kMaxBadPixelRatio = 0.005;
 #endif
 
+#if !defined(WHATSCANVAS_PARITY_OPENGLES)
+constexpr GLenum kDebugOutput = 0x92E0;
+constexpr GLenum kDebugOutputSynchronous = 0x8242;
+constexpr GLenum kDebugTypeError = 0x824C;
+
+using GLDebugCallback = void (APIENTRY *)(
+    GLenum, GLenum, GLuint, GLenum, GLsizei, const GLchar *, const void *);
+using GLDebugMessageCallbackProc = void (APIENTRY *)(
+    GLDebugCallback, const void *);
+
+void APIENTRY reportOpenGLDebugMessage(
+    GLenum source, GLenum type, GLuint id, GLenum severity,
+    GLsizei length, const GLchar *message, const void *)
+{
+    if (type != kDebugTypeError) {
+        return;
+    }
+    std::cerr << "FILTER_PARITY_GL_DEBUG"
+              << " source=" << source
+              << " type=" << type
+              << " id=" << id
+              << " severity=" << severity
+              << " message="
+              << std::string(message, static_cast<std::size_t>(length))
+              << '\n';
+}
+#endif
+
 bool contextIsRequired()
 {
     const char *value = std::getenv("WHATSCANVAS_REQUIRE_GL_CONTEXT");
@@ -131,6 +159,7 @@ int main()
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
 #endif
 
     GLFWwindow *window = glfwCreateWindow(
@@ -148,6 +177,17 @@ int main()
         glfwTerminate();
         return unavailable("function_loading");
     }
+
+#if !defined(WHATSCANVAS_PARITY_OPENGLES)
+    const auto debugMessageCallback =
+        reinterpret_cast<GLDebugMessageCallbackProc>(
+            glfwGetProcAddress("glDebugMessageCallback"));
+    if (debugMessageCallback != nullptr) {
+        glEnable(kDebugOutput);
+        glEnable(kDebugOutputSynchronous);
+        debugMessageCallback(reportOpenGLDebugMessage, nullptr);
+    }
+#endif
 
     glDisable(GL_DITHER);
     glDisable(GL_MULTISAMPLE);
