@@ -417,11 +417,30 @@ bool OpenGLRenderDevice::readPixelsRGBA(int width, int height, std::vector<unsig
     std::vector<unsigned char> bottomUp(bufferSize);
     pixels.resize(bufferSize);
 
+    GLint previousReadFramebuffer = 0;
+    if (hasWrappedFramebuffer_) {
+        glGetIntegerv(
+            GL_READ_FRAMEBUFFER_BINDING,
+            &previousReadFramebuffer);
+        glBindFramebuffer(
+            GL_READ_FRAMEBUFFER,
+            static_cast<GLuint>(wrappedFramebuffer_));
+        if (wrappedFramebuffer_ != 0) {
+            glReadBuffer(GL_COLOR_ATTACHMENT0);
+        }
+    }
+
     GLint previousPackAlignment = 4;
     glGetIntegerv(GL_PACK_ALIGNMENT, &previousPackAlignment);
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
     glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, bottomUp.data());
     glPixelStorei(GL_PACK_ALIGNMENT, previousPackAlignment);
+
+    if (hasWrappedFramebuffer_) {
+        glBindFramebuffer(
+            GL_READ_FRAMEBUFFER,
+            static_cast<GLuint>(previousReadFramebuffer));
+    }
 
     for (int y = 0; y < height; ++y) {
         const size_t srcOffset = static_cast<size_t>(height - 1 - y) * rowSize;
@@ -690,12 +709,19 @@ std::unique_ptr<ISwapchain> OpenGLRenderDevice::createSwapchain(const NativeSurf
 
 bool OpenGLRenderDevice::wrapBackendRenderTarget(const BackendRenderTarget &target)
 {
+    if (target.kind == BackendRenderTarget::Kind::None) {
+        hasWrappedFramebuffer_ = false;
+        wrappedFramebuffer_ = 0;
+        return true;
+    }
     if (target.kind != BackendRenderTarget::Kind::OpenGLFramebuffer) {
         return false;
     }
     // Direct subsequent drawing into the host's framebuffer. WhatsCanvas draws
     // into the currently-bound FBO; offscreen passes (saveLayer/blur/clip) save
     // and restore GL_FRAMEBUFFER_BINDING, so this binding is honored throughout.
+    hasWrappedFramebuffer_ = true;
+    wrappedFramebuffer_ = target.glFramebuffer;
     glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(target.glFramebuffer));
     if (target.width > 0 && target.height > 0) {
         glViewport(0, 0, target.width, target.height);

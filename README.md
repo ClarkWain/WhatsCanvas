@@ -212,7 +212,7 @@ ctest -C Debug -L smoke --output-on-failure
 - [Performance Benchmarks](doc/PERFORMANCE_BENCHMARKS.md)：记录统一三后端 1080p 帧性能套件、14 个固定回归场景，以及几何/图片/文字的参数化规模、seed、动态模式矩阵，包含 JSONL、CSV、Markdown 报告和可复现参考基线。
 - [Cross-Library Benchmarks](doc/CROSS_LIBRARY_BENCHMARKS.md)：规定固定场景、字体与图像输入、同步计时、适配器接口和像素质量门禁，避免用降质输出换取跨库性能数字。
 - [NanoVG ABBA 对比基线](benchmarks/baselines/cross-library-nanovg-abba-windows-i7-8700-gtx1060/README.md)：保留 48 个 1080p Release 进程的逐帧 JSONL、质量统计、ABBA 配对比和 95% 置信区间。
-- [NanoVG 参数矩阵](benchmarks/baselines/cross-library-nanovg-matrix-windows-i7-8700-gtx1060/README.md)：覆盖三类场景、三种规模和三种变化模式，保留 216 个 Release 进程的逐帧 JSONL 与逐单元质量结论。
+- [NanoVG 参数矩阵](benchmarks/baselines/nanovg-win-i7-8700-gtx1060/README.md)：覆盖三类场景、三种规模和三种变化模式，保留 216 个 Release 进程的逐帧 JSONL 与逐单元质量结论。
 - [Effect Regression Matrix](doc/EFFECT_REGRESSION_MATRIX.md)：记录 gradients、shadows、blend modes、strokes 和 dashes 的回归覆盖入口。
 - [Polyline2D 互动教学](doc/polyline/polyline2d_interactive_tutorial.html)：适合理解路径描边、网格生成和相关几何细节。
 - [抗锯齿原理与实现互动教学](doc/anti_aliasing/anti_aliasing_interactive_tutorial.html)：适合理解什么是抗锯齿、不同实现方法和 WhatsCanvas 当前做法。

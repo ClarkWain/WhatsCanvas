@@ -31,10 +31,12 @@ void SpriteBatch::endBatch()
         return;
     }
     if (boundProgram_ == program_) {
+#if !defined(WHATSCANVAS_OPENGL_ES)
         for (std::size_t slot = 0;
              slot < boundSamplerCount_; ++slot) {
             glBindSampler(static_cast<GLuint>(slot), 0);
         }
+#endif
     }
     glActiveTexture(GL_TEXTURE0);
     glBindVertexArray(0);
@@ -208,10 +210,12 @@ void SpriteBatch::flush(RenderContext &context, DrawBlendMode blendMode)
                 glBindTexture(GL_TEXTURE_2D, handle);
                 boundTextures_[slot] = handle;
             }
+#if !defined(WHATSCANVAS_OPENGL_ES)
             if (slot >= boundSamplerCount_) {
                 glBindSampler(
                     static_cast<GLuint>(slot), sampler_);
             }
+#endif
         }
         boundSamplerCount_ =
             std::max(boundSamplerCount_, textures_.size());
@@ -379,6 +383,7 @@ void SpriteBatch::ensureGLInitialized()
     glGenVertexArrays(1, &VAO_);
     glGenBuffers(1, &VBO_);
     glGenBuffers(1, &EBO_);
+#if !defined(WHATSCANVAS_OPENGL_ES)
     glGenSamplers(1, &sampler_);
     glSamplerParameteri(
         sampler_, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -388,6 +393,7 @@ void SpriteBatch::ensureGLInitialized()
         sampler_, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glSamplerParameteri(
         sampler_, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+#endif
     glGenVertexArrays(1, &instanceVAO_);
     glGenBuffers(1, &instanceVBO_);
 
@@ -499,7 +505,9 @@ void SpriteBatch::releaseGLResources()
         EBO_ = static_cast<unsigned int>(-1);
     }
     if (sampler_ != static_cast<unsigned int>(-1)) {
+#if !defined(WHATSCANVAS_OPENGL_ES)
         glDeleteSamplers(1, &sampler_);
+#endif
         sampler_ = static_cast<unsigned int>(-1);
     }
     if (instanceVAO_ != static_cast<unsigned int>(-1)) {
