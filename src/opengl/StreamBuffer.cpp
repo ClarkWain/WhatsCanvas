@@ -125,6 +125,13 @@ StreamBuffer::UploadRange StreamBuffer::uploadRange(
         data, byteCount, alignof(std::uint8_t));
 }
 
+StreamBuffer::UploadRange StreamBuffer::uploadBytes(
+    const void *data, std::size_t byteCount,
+    std::size_t alignment)
+{
+    return uploadRangeBytes(data, byteCount, alignment);
+}
+
 StreamBuffer::UploadRange StreamBuffer::uploadRangeBytes(
     const void *data, std::size_t byteCount,
     std::size_t alignment)

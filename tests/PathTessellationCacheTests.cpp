@@ -71,9 +71,13 @@ bool testIdenticalFillReusesTessellation()
 
     canvas.drawPath(pentagon, fill);
     Canvas::RenderStats s2 = canvas.getRenderStats();
-    ok = expect(s2.tessellationCacheHits == 1 && s2.tessellationCacheMisses == 1
+    ok = expect(s2.tessellationCacheHits == 0 && s2.tessellationCacheMisses == 1
                     && s2.tessellationCacheSize == 1,
-                "re-drawing the identical shape should hit the cache") && ok;
+                "an AA mesh hit should bypass the base tessellation cache") && ok;
+    ok = expect(
+             s2.aaCacheHits == 1 && s2.aaCacheMisses == 1
+                 && s2.aaCacheSize == 1,
+             "re-drawing the identical shape should hit the AA mesh cache") && ok;
     return ok;
 }
 
@@ -99,8 +103,13 @@ bool testTransformDoesNotInvalidateTessellation()
     canvas.restore();
 
     Canvas::RenderStats stats = canvas.getRenderStats();
-    return expect(stats.tessellationCacheHits == 1 && stats.tessellationCacheSize == 1,
-                  "transformed identical shape should reuse the cached tessellation");
+    return expect(
+               stats.tessellationCacheHits == 1
+                   && stats.tessellationCacheSize == 1,
+               "a new physical AA fringe should reuse base tessellation")
+        && expect(
+               stats.aaCacheMisses == 2 && stats.aaCacheSize == 2,
+               "different physical AA fringes should use distinct meshes");
 }
 
 bool testDistinctShapesUseDistinctEntries()
@@ -143,9 +152,9 @@ bool testTranslatedPrimitivesReuseParameterizedMeshes()
     const Canvas::RenderStats stats = canvas.getRenderStats();
     return expect(
                stats.tessellationCacheMisses == 3
-                   && stats.tessellationCacheHits == 3
+                   && stats.tessellationCacheHits == 0
                    && stats.tessellationCacheSize == 3,
-               "translated primitives should share parameterized fill meshes")
+               "AA hits should bypass parameterized fill mesh lookups")
         && expect(
                stats.aaCacheMisses == 3
                    && stats.aaCacheHits == 3

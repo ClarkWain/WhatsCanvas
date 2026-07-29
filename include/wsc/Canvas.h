@@ -73,6 +73,8 @@ public:
 		std::size_t pathIndexBytes = 0;
 		std::size_t pathUploadCount = 0;
 		std::size_t pathUploadBytes = 0;
+		std::size_t pathTopologyCacheHits = 0;
+		std::size_t pathTopologyCacheMisses = 0;
 		std::size_t imageTextureCount = 0;
 		std::size_t glyphAtlasTextureCount = 0;
 		std::size_t glyphAtlasTextureBytes = 0;

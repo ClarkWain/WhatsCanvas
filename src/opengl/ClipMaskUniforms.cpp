@@ -12,7 +12,11 @@ void applyClipMaskUniforms(GLProgram *program, const RenderContext &context)
     if (program == nullptr) {
         return;
     }
-    program->setInt("uClipEnabled", context.isClipMaskActive() ? 1 : 0);
+    const bool clipActive = context.isClipMaskActive();
+    program->setInt("uClipEnabled", clipActive ? 1 : 0);
+    if (!clipActive) {
+        return;
+    }
     program->setInt("uClipMask", context.clipMaskTextureUnit());
     program->setVec2("uClipViewport",
                      glm::vec2(static_cast<float>(context.getWidth()),

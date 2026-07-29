@@ -86,6 +86,10 @@ bool testDefaultStatsAreReadable()
     return expect(stats.commandCount == 0, "default command count should be zero")
         && expect(stats.drawCallCount == 0, "default draw call count should be zero")
         && expect(stats.mergedBatchCount == 0, "default merged batch count should be zero")
+        && expect(stats.pathTopologyCacheHits == 0,
+                  "default path topology cache hit count should be zero")
+        && expect(stats.pathTopologyCacheMisses == 0,
+                  "default path topology cache miss count should be zero")
         && expect(stats.renderTargetSwitches == 0, "default render target switch count should be zero")
         && expect(stats.filterCount == 0, "default filter count should be zero")
         && expect(stats.filterPassCount == 0, "default filter pass count should be zero")

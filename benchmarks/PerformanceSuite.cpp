@@ -2282,6 +2282,10 @@ bool runScene(
          << ",\"path_index_bytes\":" << stats.pathIndexBytes
          << ",\"path_upload_count\":" << stats.pathUploadCount
          << ",\"path_upload_bytes\":" << stats.pathUploadBytes
+         << ",\"path_topology_cache_hits\":"
+         << stats.pathTopologyCacheHits
+         << ",\"path_topology_cache_misses\":"
+         << stats.pathTopologyCacheMisses
          << ",\"pooled_render_target_bytes\":"
          << stats.pooledRenderTargetBytes
          << ",\"glyph_atlas_texture_bytes\":"

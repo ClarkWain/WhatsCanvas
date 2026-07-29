@@ -19,6 +19,8 @@ struct FrameStats
     std::size_t pathIndexBytes = 0;         ///< OpenGL path index-stream bytes.
     std::size_t pathUploadCount = 0;        ///< OpenGL path stream uploads.
     std::size_t pathUploadBytes = 0;        ///< OpenGL path stream bytes.
+    std::size_t pathTopologyCacheHits = 0;  ///< Reused merged topology packets.
+    std::size_t pathTopologyCacheMisses = 0;///< Rebuilt merged topology packets.
 
     void reset()
     {
@@ -36,5 +38,7 @@ struct FrameStats
         pathIndexBytes = 0;
         pathUploadCount = 0;
         pathUploadBytes = 0;
+        pathTopologyCacheHits = 0;
+        pathTopologyCacheMisses = 0;
     }
 };
