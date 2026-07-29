@@ -138,6 +138,33 @@ work. All eight runs produced `5e7e67fb8b9ca579`, and the image/text control
 hashes also remain unchanged. The complete Release build and all 66 Release
 tests pass.
 
+## Parameter-matrix closure
+
+The two remaining losses after the multi-packet/GPU-parameter pass were
+`geometry_stress` dynamic-structure at 1,024 and 4,096 operations. The common
+causes were short-path allocation/copy overhead and redundant OpenGL state
+submission, not the operation counts themselves.
+
+`Path` now reserves the common compact verb count. Contour extraction reserves
+from the known verb count, moves completed point storage, and lets the simple
+fill path consume the parsed contour without rebuilding it. `RenderContext`
+also caches the additive blend equation and fast-paths an already-empty
+clip/scissor state.
+
+The final 1920 x 1080 Standard matrix passed all 27 quality gates:
+
+| Category | WhatsCanvas faster | NanoVG faster | Inconclusive |
+| --- | ---: | ---: | ---: |
+| Geometry | 8 | 0 | 1 |
+| Images | 9 | 0 | 0 |
+| Text | 9 | 0 | 0 |
+| **Total** | **26** | **0** | **1** |
+
+The 1,024 dynamic-structure cell moved from 1.875/1.753 ms to
+1.730/1.906 ms (WhatsCanvas/NanoVG). The 4,096 cell moved from
+6.242/5.934 ms to 5.751/6.029 ms. The 256 cell remains statistically
+inconclusive at 0.788/0.811 ms.
+
 ## Root cause
 
 The common problem is **early expansion and late batching**. Images retain

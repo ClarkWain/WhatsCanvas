@@ -40,6 +40,7 @@ public:
     int clipMaskTextureUnit() const;
 
 private:
+    void ensureAddBlendEquation() const;
     bool isClipMaskCurrent(std::uint64_t key) const;
     void rememberClipMask(std::uint64_t key) const;
     void clearClipMask() const;
@@ -52,6 +53,7 @@ private:
     float centerX = 0;
     float centerY = 0;
     mutable bool blendEnabled_ = false;
+    mutable bool addBlendEquationActive_ = false;
     mutable bool hasBlendMode_ = false;
     mutable DrawBlendMode lastBlendMode_ = DrawBlendMode::SrcOver;
     mutable bool clearTypeBlendModeActive_ = false;
