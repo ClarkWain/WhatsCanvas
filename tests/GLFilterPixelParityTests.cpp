@@ -43,6 +43,29 @@ int unavailable(const char *reason)
     return contextIsRequired() ? 1 : 0;
 }
 
+void reportPixelSample(
+    const char *label,
+    const std::vector<unsigned char> &pixels,
+    int x, int y)
+{
+    const std::size_t offset =
+        (static_cast<std::size_t>(y) * kCompositeParityWidth
+         + static_cast<std::size_t>(x)) * 4u;
+    if (offset + 3u >= pixels.size()) {
+        return;
+    }
+    std::cerr << "FILTER_PARITY_SAMPLE"
+              << " backend=" << kBackendName
+              << " image=" << label
+              << " x=" << x
+              << " y=" << y
+              << " rgba="
+              << static_cast<int>(pixels[offset + 0u]) << ","
+              << static_cast<int>(pixels[offset + 1u]) << ","
+              << static_cast<int>(pixels[offset + 2u]) << ","
+              << static_cast<int>(pixels[offset + 3u]) << '\n';
+}
+
 struct GLTarget
 {
     GLuint framebuffer = 0;
@@ -146,8 +169,13 @@ int main()
         kBackend, kCompositeParityWidth, kCompositeParityHeight);
     bool rendered = canvas && canvas->initializeContext()
         && canvas->setOutputTarget(wsc::OutputTarget::GLFramebuffer(
-            target.framebuffer, kCompositeParityWidth, kCompositeParityHeight, true))
+            target.framebuffer, kCompositeParityWidth,
+            kCompositeParityHeight, true));
+    while (glGetError() != GL_NO_ERROR) {
+    }
+    rendered = rendered
         && whatscanvas::test::drawCompositeFilterParityScene(*canvas);
+    const GLenum renderError = glGetError();
 
     std::vector<unsigned char> actual;
     wsc::Canvas::RenderStats stats;
@@ -156,6 +184,7 @@ int main()
         stats = canvas->getRenderStats();
         rendered = canvas->readPixelsRGBA(actual);
     }
+    const GLenum readbackError = glGetError();
 
     std::vector<unsigned char> reference;
     wsc::Canvas::RenderStats referenceStats;
@@ -175,6 +204,22 @@ int main()
             whatscanvas::test::hashRGBA(reference), kMaxChannelDifference, 0.75,
             kMaxBadPixelRatio,
             statsPassed, statsPassed ? nullptr : "unexpected_filter_stats");
+        if (!passed) {
+            std::cerr << "FILTER_PARITY_GL_ERROR"
+                      << " backend=" << kBackendName
+                      << " render=" << renderError
+                      << " readback=" << readbackError << '\n';
+            constexpr int samples[][2] = {
+                {0, 0}, {16, 16}, {96, 64}, {191, 127}
+            };
+            for (const auto &sample : samples) {
+                reportPixelSample(
+                    "actual", actual, sample[0], sample[1]);
+                reportPixelSample(
+                    "reference", reference,
+                    sample[0], sample[1]);
+            }
+        }
         if (!statsPassed) {
             std::cerr << "[FilterPixelParityTests] unexpected stats:"
                       << " actual_filters=" << stats.filterCount

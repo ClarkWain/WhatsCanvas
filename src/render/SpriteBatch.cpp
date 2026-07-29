@@ -128,7 +128,12 @@ void SpriteBatch::addInstance(
 
 void SpriteBatch::flush(RenderContext &context, DrawBlendMode blendMode)
 {
-    const bool instanced = !instanceData_.empty();
+    const bool instanced =
+#if defined(WHATSCANVAS_OPENGL_ES)
+        false;
+#else
+        !instanceData_.empty();
+#endif
     if (empty()
         || (instanced
             ? (!texture_ || !texture_->isValid())
@@ -377,8 +382,10 @@ void SpriteBatch::ensureGLInitialized()
             FragColor = texture(uTexture, vUv) * vColor;
         }
     )";
+#if !defined(WHATSCANVAS_OPENGL_ES)
     instanceProgram_ =
         new GLProgram(instanceVertexSrc, instanceFragmentSrc);
+#endif
 
     glGenVertexArrays(1, &VAO_);
     glGenBuffers(1, &VBO_);
@@ -394,8 +401,10 @@ void SpriteBatch::ensureGLInitialized()
     glSamplerParameteri(
         sampler_, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 #endif
+#if !defined(WHATSCANVAS_OPENGL_ES)
     glGenVertexArrays(1, &instanceVAO_);
     glGenBuffers(1, &instanceVBO_);
+#endif
 
     glBindVertexArray(VAO_);
     glBindBuffer(GL_ARRAY_BUFFER, VBO_);
@@ -428,6 +437,7 @@ void SpriteBatch::ensureGLInitialized()
         (void *)(13 * sizeof(float)));
     glEnableVertexAttribArray(5);
 
+#if !defined(WHATSCANVAS_OPENGL_ES)
     glBindVertexArray(instanceVAO_);
     glBindBuffer(GL_ARRAY_BUFFER, instanceVBO_);
     constexpr GLsizei instanceStride = 12 * sizeof(float);
@@ -441,6 +451,7 @@ void SpriteBatch::ensureGLInitialized()
         glEnableVertexAttribArray(attribute);
         glVertexAttribDivisor(attribute, 1);
     }
+#endif
 
     glBindVertexArray(0);
     glInitialized_ = true;
