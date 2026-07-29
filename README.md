@@ -30,7 +30,7 @@ WhatsCanvas 的公开接口仍然是熟悉的 `Canvas` / `Paint` / `Path` / `Ima
 | 图像与纹理 | 文件解码、encoded memory、raw RGBA、外部纹理包装、整图替换、局部更新、contain / cover / fill 布局、锚点、九宫格、圆角裁剪、圆形裁剪、平铺绘制。 | `Image`、`drawImage`、`drawImageFit`、`drawImageNinePatch`、`drawImageRounded`、`drawImageCircle`、`drawImageTiled`、`wrapExternalTexture` |
 | 字体与文本 | 系统字体发现 + fallback chain、weight/slant 匹配、TrueType/TTC/内存字体与 collection face index、FreeType（不可用回退 stb）glyph lookup/metrics/kerning/栅格化、HarfBuzz shaping（回退 simple shaping）、多字体 fallback 分段、GPU glyph atlas（dirty-rect 更新 + resize-before-evict + 统计）、COLR/CPAL v0 彩色字形、UTF-8 布局 + CJK 无空格折行 + 省略号 + baseline + letter spacing、渐变/描边/阴影文本、text-on-path、缺字与回退诊断、Unicode UAX #9 全量通过。 | `FontSystem`、`FontFace`、`FontManager`、`FontFallbackChain`、`registerFontFace`、`setFontFallbackChain`、`drawText`、`drawTextBox`、`layoutTextBox`、`drawTextOnPath`、`measureTextMetrics` |
 | 渲染后端 | 桌面 OpenGL 主路径、OpenGLES 目标、纯 CPU 软件后端（零 GPU 依赖、可在无图形栈环境运行）、可选 Vulkan 后端（默认离屏，Windows 支持 Canvas 窗口呈现）、共享 GL-family 后端、proc-address 注入、上下文生命周期、资源释放与重建、shader portability。 | `Canvas::loadOpenGL`、`Canvas::create`、`Canvas::isBackendAvailable`、`WhatsCanvas::OpenGL`、`WhatsCanvas::OpenGLES`、`WhatsCanvas::Software`、`initializeContext`、`releaseResources` |
-| 性能与资源 | 流式顶点缓冲、图片命令同纹理合批、统一圆角图片的原生 shader coverage、路径命令合批、Vulkan 路径阴影 silhouette 批量提交、内容签名裁剪掩码跨帧复用、复杂裁剪双纹理 GPU 合成、局部阴影栅格化 / GPU 模糊、全局 quad index buffer、离屏 render target 复用池、GPU glyph atlas 复用、indexed glyph lookup、填充三角化 / 描边网格 / 裁剪掩码 LRU 缓存、滤镜调用 / pass / 降采样 / pixel-pass 统计；统一 Release 性能套件以 1920×1080 覆盖 14 个真实帧场景，包括大量多语种文字与混合几何压力，并提供像素质量门禁、ABBA 进程配对、逐帧原始样本和 95% 置信区间的跨库基准契约。 | `WhatsCanvasPerformanceSuite`、`Renderer`、`RenderTargetPool`、`GlyphAtlas`、`LruCache`、`RenderStats` |
+| 性能与资源 | 流式顶点缓冲、图片命令保持绘制顺序的 8 槽多纹理合批、批处理专用 sampler、统一圆角图片的原生 shader coverage、路径属性与索引统一上传流、路径命令合批、Vulkan 路径阴影 silhouette 批量提交、内容签名裁剪掩码跨帧复用、复杂裁剪双纹理 GPU 合成、局部阴影栅格化 / GPU 模糊、全局 quad index buffer、离屏 render target 复用池、GPU glyph atlas 复用、indexed glyph lookup、填充三角化 / 描边网格 / 裁剪掩码 LRU 缓存、滤镜调用 / pass / 降采样 / pixel-pass 统计；统一 Release 性能套件以 1920×1080 覆盖 14 个真实帧场景，包括大量多语种文字与混合几何压力，并提供像素质量门禁、ABBA 进程配对、逐帧原始样本和 95% 置信区间的跨库基准契约。 | `WhatsCanvasPerformanceSuite`、`Renderer`、`RenderTargetPool`、`GlyphAtlas`、`LruCache`、`RenderStats` |
 | 诊断与验证 | 同步 / 异步像素回读、PPM 截图、像素哈希、fuzzy PPM 对比、软件后端 golden-image 回归（确定性、无需 GPU）、OpenGL / OpenGLES / Vulkan 滤镜像素一致性门禁、固定时间首帧冒烟、示例构建冒烟、Unicode Bidi conformance、跨平台 CI。 | `readPixelsRGBA`、`readPixelsRGBAAsync`、`savePixelsPPM`、`computePixelsHashRGBA`、`FILTER_PARITY`、`ctest`、`scripts/*_smoke.*` |
 
 ## 当前性能
@@ -51,7 +51,15 @@ WhatsCanvas 的公开接口仍然是熟悉的 `Canvas` / `Paint` / `Path` / `Ima
 | `dynamic-data` | 6.26 ms | **5.76 ms** | 每帧改变位置、颜色或文本选择 |
 | `dynamic-structure` | **7.65 ms** | 8.07 ms | 每帧改变文本、字号、样式和部分渲染状态 |
 
-与 NanoVG 的 27 单元跨库矩阵进一步覆盖三种规模和三种变化模式，并对每个单元独立执行质量门禁与 ABBA：27/27 质量通过，WhatsCanvas 明确领先 12 项、NanoVG 领先 12 项、3 项置信区间跨过 1.0。WhatsCanvas 在稳定图片和 7/9 个文本单元占优；动态多纹理图片与中大型动态几何仍是当前主要优化方向。完整逐帧基线见 [NanoVG 参数矩阵](benchmarks/baselines/cross-library-nanovg-matrix-windows-i7-8700-gtx1060/README.md)。
+提交 `cac08c1` 后重新执行 NanoVG 27 单元跨库矩阵，每个单元使用 2 个 ABBA block、每个 renderer 4 个独立进程；三种规模、三种变化模式全部通过质量门禁：WhatsCanvas 明确领先 12 项、NanoVG 领先 11 项、4 项置信区间跨过 1.0。分类结果如下：
+
+| 1080p 参数矩阵 | WhatsCanvas 领先 | NanoVG 领先 | 无明确胜负 | 当前判断 |
+| --- | ---: | ---: | ---: | --- |
+| 几何 | 2 | 6 | 1 | 256/1024 stable 有竞争力；结构变化和 4096 大批量仍是首要瓶颈 |
+| 图片 | 6 | 3 | 0 | stable 与 dynamic-data 全胜；只剩高状态抖动的 dynamic-structure 落后 |
+| 文本 | 4 | 2 | 3 | 1024 stable / dynamic-data 分别仅慢 0.7% / 4.5%，dynamic-structure 仍领先 |
+
+多纹理优化把 1024 次 `image_grid dynamic-data` 从 4.273 ms 降到 **0.773 ms**，NanoVG 为 1.667 ms；四纹理交错流从原来 NanoVG 快约 2.5 倍，反转为 NanoVG 耗时约为 WhatsCanvas 的 **2.16 倍**。剩余 11 个明确落后单元及优先级见 [Performance Benchmarks](doc/PERFORMANCE_BENCHMARKS.md) 与 [NanoVG 性能优化实战](doc/NANOVG_PERFORMANCE_OPTIMIZATION.md)。仓库中的 [NanoVG 参数矩阵](benchmarks/baselines/cross-library-nanovg-matrix-windows-i7-8700-gtx1060/README.md) 保留优化前的 216 进程原始基线，用于核对本轮改善。
 
 Vulkan 的基础几何、图片和文字路径已经与 OpenGL 接近。复杂图层新增按几何、coverage 与 transform 生成的双哈希内容签名，稳定裁剪不再因临时资源地址变化而每帧重建全尺寸 mask；渐变裁剪也改为双纹理 GPU 合成，删除 GPU→CPU 读回与再次上传。`clip_layers` 的五个独立 Standard 进程中位数由此前 31.34 ms 降到 **8.80 ms**（本轮范围 7.67–12.16 ms，五次像素哈希一致），同轮 OpenGL 中位数为 18.08 ms。
 
