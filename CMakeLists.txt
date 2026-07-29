@@ -1500,6 +1500,14 @@ if (BUILD_TESTING AND Python3_Interpreter_FOUND)
         LABELS "unit;benchmark;performance"
         TIMEOUT 30
     )
+    add_test(NAME WhatsCanvasCrossLibraryMatrixTests
+        COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/CrossLibraryMatrixTests.py"
+    )
+    set_tests_properties(WhatsCanvasCrossLibraryMatrixTests PROPERTIES
+        LABELS "unit;benchmark;adapter;performance"
+        TIMEOUT 30
+    )
 endif()
 
 if (BUILD_TESTING AND TARGET WhatsCanvasAAShowcase)

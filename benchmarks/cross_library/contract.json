@@ -82,6 +82,13 @@
         "max_mean_absolute_error": 2.0,
         "max_root_mean_square_error": 10.0,
         "max_changed_pixel_fraction": 0.08
+      },
+      "parameterized_quality": {
+        "channel_threshold": 16,
+        "reference_background_rgb": [22, 26, 34],
+        "max_mean_absolute_error_fraction_of_reference_signal": 0.25,
+        "max_root_mean_square_error_fraction_of_reference_signal": 0.25,
+        "max_changed_pixel_fraction_of_reference_signal": 0.30
       }
     },
     "contract_text_latin": {
@@ -106,11 +113,15 @@
       },
       "parameterized_quality": {
         "channel_threshold": 32,
-        "max_mean_absolute_error": 10.0,
-        "max_root_mean_square_error": 37.0,
-        "max_changed_pixel_fraction": 0.10,
-        "blank_reference_mean_absolute_error": 11.0,
-        "blank_reference_root_mean_square_error": 40.9
+        "reference_background_rgb": [247, 248, 251],
+        "max_mean_absolute_error_fraction_of_reference_signal": 1.10,
+        "max_root_mean_square_error_fraction_of_reference_signal": 1.05,
+        "min_candidate_mean_absolute_error_fraction_of_reference_signal": 0.80,
+        "max_candidate_mean_absolute_error_fraction_of_reference_signal": 1.20,
+        "min_candidate_root_mean_square_error_fraction_of_reference_signal": 0.80,
+        "max_candidate_root_mean_square_error_fraction_of_reference_signal": 1.20,
+        "min_candidate_changed_pixel_fraction_of_reference_signal": 0.80,
+        "max_candidate_changed_pixel_fraction_of_reference_signal": 1.20
       }
     }
   }

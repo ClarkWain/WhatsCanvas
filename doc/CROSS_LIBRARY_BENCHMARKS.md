@@ -87,8 +87,10 @@ ABBA blocks: `reference, candidate, candidate, reference`. This produces eight
 fresh processes per renderer while balancing startup order and thermal drift.
 It rejects mismatched resolution, profile, warmup, measured-frame count,
 workload parameters, contract version, font hash, clear/text semantics, and
-synchronization. It computes RGB mean absolute error, RMSE, maximum channel
-delta, and the fraction of pixels exceeding the scene's channel threshold.
+synchronization. Reference and candidate validation hashes must each remain
+stable across fresh processes. It computes RGB mean absolute error, RMSE,
+maximum channel delta, and the fraction of pixels exceeding the scene's
+channel threshold.
 The report publishes deterministic bootstrap 95% confidence intervals for
 fresh-process medians and within-block candidate/reference ratios.
 
@@ -111,6 +113,33 @@ python scripts/cross_library_benchmark.py `
   --state-change-rate 0.0625 `
   --output-dir build/cross-library-geometry-dynamic
 ```
+
+To test a range instead of one hand-picked workload, run the parameter matrix:
+
+```powershell
+python scripts/run_cross_library_matrix.py `
+  --reference "whatscanvas=build/Release/WhatsCanvasPerformanceSuite.exe --backend opengl" `
+  --adapter "nanovg=build/Release/WhatsCanvasNanoVGBenchmarkAdapter.exe --backend opengl" `
+  --preset standard --profile standard `
+  --repetitions 4 `
+  --output-dir build/cross-library-matrix
+```
+
+The standard preset evaluates 27 quality-gated cells across geometry, images,
+and text; three operation scales; and stable, dynamic-data, and
+dynamic-structure modes. Each cell gets its own ABBA schedule and bootstrap
+confidence interval. `--seeds` adds deterministic content variants, while
+`--repetitions` independently increases fresh-process samples. Use
+`--dry-run` to audit the complete command list and expected process count.
+
+Fixed contract scenes use absolute pixel-error limits. Parameterized image and
+text scenes instead normalize MAE and RMSE against the reference image's
+distance from the declared solid background. This keeps the gate meaningful as
+draw density changes: normal rasterizer and edge-antialiasing differences scale
+with visible content. Text also requires the candidate's own ink signal to stay
+within a bounded fraction of the reference signal. A blank renderer has zero
+candidate ink and fails even where large-glyph rasterizer differences require
+an error allowance near `1.0x`.
 
 Exit code `0` means every candidate passed its quality gates. Exit code `2`
 means execution was valid but at least one image failed quality. Other nonzero

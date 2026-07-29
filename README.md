@@ -51,6 +51,8 @@ WhatsCanvas 的公开接口仍然是熟悉的 `Canvas` / `Paint` / `Path` / `Ima
 | `dynamic-data` | 6.26 ms | **5.76 ms** | 每帧改变位置、颜色或文本选择 |
 | `dynamic-structure` | **7.65 ms** | 8.07 ms | 每帧改变文本、字号、样式和部分渲染状态 |
 
+与 NanoVG 的 27 单元跨库矩阵进一步覆盖三种规模和三种变化模式，并对每个单元独立执行质量门禁与 ABBA：27/27 质量通过，WhatsCanvas 明确领先 12 项、NanoVG 领先 12 项、3 项置信区间跨过 1.0。WhatsCanvas 在稳定图片和 7/9 个文本单元占优；动态多纹理图片与中大型动态几何仍是当前主要优化方向。完整逐帧基线见 [NanoVG 参数矩阵](benchmarks/baselines/cross-library-nanovg-matrix-windows-i7-8700-gtx1060/README.md)。
+
 Vulkan 的基础几何、图片和文字路径已经与 OpenGL 接近。复杂图层新增按几何、coverage 与 transform 生成的双哈希内容签名，稳定裁剪不再因临时资源地址变化而每帧重建全尺寸 mask；渐变裁剪也改为双纹理 GPU 合成，删除 GPU→CPU 读回与再次上传。`clip_layers` 的五个独立 Standard 进程中位数由此前 31.34 ms 降到 **8.80 ms**（本轮范围 7.67–12.16 ms，五次像素哈希一致），同轮 OpenGL 中位数为 18.08 ms。
 
 这些数字描述的是参考机器上的受控场景，不等于所有硬件、后端和工作负载的全局排名。完整口径、原始基线、复现命令和优化过程见 [Performance Benchmarks](doc/PERFORMANCE_BENCHMARKS.md)、[Cross-Library Benchmarks](doc/CROSS_LIBRARY_BENCHMARKS.md) 与 [NanoVG 性能优化实战](doc/NANOVG_PERFORMANCE_OPTIMIZATION.md)。
@@ -222,6 +224,7 @@ ctest -C Debug -L smoke --output-on-failure
 - [Performance Benchmarks](doc/PERFORMANCE_BENCHMARKS.md)：记录统一三后端 1080p 帧性能套件、14 个固定回归场景，以及几何/图片/文字的参数化规模、seed、动态模式矩阵，包含 JSONL、CSV、Markdown 报告和可复现参考基线。
 - [Cross-Library Benchmarks](doc/CROSS_LIBRARY_BENCHMARKS.md)：规定固定场景、字体与图像输入、同步计时、适配器接口和像素质量门禁，避免用降质输出换取跨库性能数字。
 - [NanoVG ABBA 对比基线](benchmarks/baselines/cross-library-nanovg-abba-windows-i7-8700-gtx1060/README.md)：保留 48 个 1080p Release 进程的逐帧 JSONL、质量统计、ABBA 配对比和 95% 置信区间。
+- [NanoVG 参数矩阵](benchmarks/baselines/cross-library-nanovg-matrix-windows-i7-8700-gtx1060/README.md)：覆盖三类场景、三种规模和三种变化模式，保留 216 个 Release 进程的逐帧 JSONL 与逐单元质量结论。
 - [Effect Regression Matrix](doc/EFFECT_REGRESSION_MATRIX.md)：记录 gradients、shadows、blend modes、strokes 和 dashes 的回归覆盖入口。
 - [Polyline2D 互动教学](doc/polyline/polyline2d_interactive_tutorial.html)：适合理解路径描边、网格生成和相关几何细节。
 - [抗锯齿原理与实现互动教学](doc/anti_aliasing/anti_aliasing_interactive_tutorial.html)：适合理解什么是抗锯齿、不同实现方法和 WhatsCanvas 当前做法。
