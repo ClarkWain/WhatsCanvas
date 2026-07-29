@@ -451,6 +451,20 @@ void appendDistribution(
          << ",\"" << prefix << "_cv\":" << value.coefficientOfVariation;
 }
 
+void appendSamples(
+    std::ostringstream &json, const char *name,
+    const std::vector<double> &samples)
+{
+    json << ",\"" << name << "\":[";
+    for (std::size_t i = 0; i < samples.size(); ++i) {
+        if (i > 0u) {
+            json << ',';
+        }
+        json << samples[i];
+    }
+    json << ']';
+}
+
 std::string formatHash(std::uint64_t hash)
 {
     std::ostringstream output;
@@ -1591,10 +1605,15 @@ void drawTextWorkload(
                 % sizeBuckets.size())]
             : 1.0f;
         paint.setTextSize(textSize * sizeVariation);
-        paint.setFontWeight(
-            workloadRandom(
-                workload.seed, index, 25u, structureFrame) % 7u == 0u
-            ? 700 : 400);
+        if (resources.contractFontReady) {
+            paint.setFontFamily("CrossLibraryRoboto");
+            paint.setFontWeight(400);
+        } else {
+            paint.setFontWeight(
+                workloadRandom(
+                    workload.seed, index, 25u, structureFrame) % 7u == 0u
+                ? 700 : 400);
+        }
         applyWorkloadState(
             paint, workload, index, structureFrame);
 
@@ -1774,7 +1793,8 @@ const std::array<Scene, 14> &scenes()
         {"text_churn", "text", "churn", 120, drawTextChurn},
         {"text_stress", "text", "hot", 576,
          drawTextStress, drawTextWorkload},
-        {"contract_text_latin", "text", "hot", 576, drawContractTextLatin},
+        {"contract_text_latin", "text", "hot", 576,
+         drawContractTextLatin, drawTextWorkload},
         {"frosted_glass", "filter", "hot", 4, drawFrostedGlass},
         {"inner_shadow", "filter", "hot", 24, drawInnerShadow},
     }};
@@ -1974,7 +1994,9 @@ bool initializeResources(
         }
     }
     if (options.workload.customized
-        && sceneSelected(options.sceneFilter, "text_stress")) {
+        && (sceneSelected(options.sceneFilter, "text_stress")
+            || sceneSelected(
+                options.sceneFilter, "contract_text_latin"))) {
         static constexpr std::string_view alphabet =
             "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
             "abcdefghijklmnopqrstuvwxyz"
@@ -2016,8 +2038,12 @@ bool initializeResources(
         }
     }
     if (sceneSelected(options.sceneFilter, "contract_text_latin")) {
+        const std::string runtimeContractFont =
+            environmentValue("WHATSCANVAS_CROSS_LIBRARY_FONT_PATH");
         const std::filesystem::path contractFont =
-            WHATSCANVAS_PERF_CONTRACT_FONT;
+            runtimeContractFont.empty()
+            ? std::filesystem::path(WHATSCANVAS_PERF_CONTRACT_FONT)
+            : std::filesystem::path(runtimeContractFont);
         if (std::filesystem::is_regular_file(contractFont)) {
             resources.contractFontReady = canvas.registerFontFace(
                 wsc::FontFace::fromFile(
@@ -2038,6 +2064,8 @@ std::string metadataJson(
     double initializationMs)
 {
     const ProcessMemory memory = processMemory();
+    const std::string contractVersion =
+        environmentValue("WHATSCANVAS_CROSS_LIBRARY_CONTRACT_VERSION");
     std::ostringstream json;
     json << std::fixed << std::setprecision(6)
          << "{\"type\":\"metadata\",\"schema\":" << kSchemaVersion
@@ -2046,7 +2074,17 @@ std::string metadataJson(
          << ",\"library_version\":\""
          << jsonEscape(WHATSCANVAS_PERF_VERSION) << "\""
          << ",\"synchronization\":\"gpu_complete\""
-         << ",\"cross_library_contract\":\"1.1.0\""
+         << ",\"cross_library_contract\":\""
+         << jsonEscape(
+                contractVersion.empty() ? "1.2.0" : contractVersion)
+         << "\""
+         << ",\"clear_semantics\":\"draw_full_frame_src_over\""
+         << ",\"font_sha256\":\""
+         << jsonEscape(environmentValue(
+                "WHATSCANVAS_CROSS_LIBRARY_FONT_SHA256"))
+         << "\""
+         << ",\"text_shaping_mode\":\"adapter_native_latin_kerning\""
+         << ",\"text_raster_mode\":\"grayscale_no_lcd\""
          << ",\"version\":\"" << jsonEscape(WHATSCANVAS_PERF_VERSION) << "\""
          << ",\"commit\":\""
          << jsonEscape(environmentValue("WHATSCANVAS_PERF_COMMIT")) << "\""
@@ -2160,9 +2198,9 @@ bool runScene(
         }
     }
 
-    const Distribution record = summarize(std::move(recordSamples));
-    const Distribution submit = summarize(std::move(submitSamples));
-    const Distribution total = summarize(std::move(totalSamples));
+    const Distribution record = summarize(recordSamples);
+    const Distribution submit = summarize(submitSamples);
+    const Distribution total = summarize(totalSamples);
     const ProcessMemory after = processMemory();
     const wsc::Canvas::RenderStats stats = context.canvas().getRenderStats();
     const std::size_t operationCount =
@@ -2216,6 +2254,9 @@ bool runScene(
     appendDistribution(json, "record", record);
     appendDistribution(json, "submit", submit);
     appendDistribution(json, "total", total);
+    appendSamples(json, "record_samples_ms", recordSamples);
+    appendSamples(json, "submit_samples_ms", submitSamples);
+    appendSamples(json, "total_samples_ms", totalSamples);
     json << ",\"fps\":" << fps
          << ",\"operations_per_second\":" << operationsPerSecond
          << ",\"readback_ms\":" << readbackMs

@@ -125,11 +125,43 @@ struct VulkanRenderDevice::VulkanContext
 {
     struct CachedClipMask
     {
-        std::weak_ptr<ClipMaskResource> resource;
         SharedImageResource texture;
         int width = 0;
         int height = 0;
         std::uint64_t lastUse = 0;
+    };
+    struct ClipMaskCacheKey
+    {
+        std::uint64_t contentHash = 0;
+        std::uint64_t verificationHash = 0;
+        int width = 0;
+        int height = 0;
+
+        bool operator==(const ClipMaskCacheKey &other) const
+        {
+            return contentHash == other.contentHash
+                && verificationHash == other.verificationHash
+                && width == other.width
+                && height == other.height;
+        }
+    };
+    struct ClipMaskCacheKeyHash
+    {
+        std::size_t operator()(const ClipMaskCacheKey &key) const
+        {
+            std::size_t hash =
+                static_cast<std::size_t>(key.contentHash);
+            hash ^= static_cast<std::size_t>(key.verificationHash)
+                + static_cast<std::size_t>(0x9e3779b9u)
+                + (hash << 6u) + (hash >> 2u);
+            hash ^= std::hash<int>{}(key.width)
+                + static_cast<std::size_t>(0x9e3779b9u)
+                + (hash << 6u) + (hash >> 2u);
+            hash ^= std::hash<int>{}(key.height)
+                + static_cast<std::size_t>(0x9e3779b9u)
+                + (hash << 6u) + (hash >> 2u);
+            return hash;
+        }
     };
 
     VkInstance instance = VK_NULL_HANDLE;
@@ -279,7 +311,8 @@ struct VulkanRenderDevice::VulkanContext
         drawFrames{};
     mutable std::size_t nextDrawFrame = 0;
     mutable std::size_t lastDrawFrame = kDrawFramesInFlight;
-    mutable std::unordered_map<const ClipMaskResource *, CachedClipMask>
+    mutable std::unordered_map<
+        ClipMaskCacheKey, CachedClipMask, ClipMaskCacheKeyHash>
         clipMaskCache;
     mutable std::uint64_t clipMaskUseSerial = 0;
 
@@ -3024,6 +3057,35 @@ public:
     explicit VulkanClipMaskResource(const ClipMaskPath &path)
         : points_(path.points), coverage_(path.coverage), transform_(path.transform)
     {
+        constexpr std::uint64_t kFnvPrime = 1099511628211ull;
+        auto mix = [&](std::uint64_t &hash, const void *data,
+                       std::size_t byteCount) {
+            const auto *bytes =
+                static_cast<const unsigned char *>(data);
+            for (std::size_t i = 0; i < byteCount; ++i) {
+                hash ^= static_cast<std::uint64_t>(bytes[i]);
+                hash *= kFnvPrime;
+            }
+        };
+        contentHash_ = 1469598103934665603ull;
+        verificationHash_ = 7809847782465536322ull;
+        const std::size_t pointCount = points_.size();
+        const std::size_t coverageCount = coverage_.size();
+        mix(contentHash_, &pointCount, sizeof(pointCount));
+        mix(contentHash_, points_.data(), points_.size() * sizeof(float));
+        mix(contentHash_, &coverageCount, sizeof(coverageCount));
+        mix(contentHash_, coverage_.data(), coverage_.size() * sizeof(float));
+        mix(verificationHash_, &coverageCount, sizeof(coverageCount));
+        mix(verificationHash_, coverage_.data(),
+            coverage_.size() * sizeof(float));
+        mix(verificationHash_, &pointCount, sizeof(pointCount));
+        mix(verificationHash_, points_.data(),
+            points_.size() * sizeof(float));
+        for (int column = 0; column < 4; ++column) {
+            mix(contentHash_, &transform_[column][0], 4 * sizeof(float));
+            mix(verificationHash_, &transform_[3 - column][0],
+                4 * sizeof(float));
+        }
     }
 
     bool isValid() const override { return !points_.empty(); }
@@ -3038,11 +3100,18 @@ public:
     const std::vector<float> &points() const { return points_; }
     const std::vector<float> &coverage() const { return coverage_; }
     const glm::mat4 &transform() const { return transform_; }
+    std::uint64_t contentHash() const { return contentHash_; }
+    std::uint64_t verificationHash() const
+    {
+        return verificationHash_;
+    }
 
 private:
     std::vector<float> points_;
     std::vector<float> coverage_;
     glm::mat4 transform_ = glm::mat4(1.0f);
+    std::uint64_t contentHash_ = 0;
+    std::uint64_t verificationHash_ = 0;
 };
 
 // Offscreen render target: color image + view + clear render pass + framebuffer.
@@ -7170,7 +7239,7 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
         std::unique_ptr<IRenderTarget> target;
         wsc::DrawPrimitive primitive;
         SharedImageResource destination;
-        const ClipMaskResource *cacheKey = nullptr;
+        VulkanContext::ClipMaskCacheKey cacheKey;
     };
     std::vector<PendingClipMaskJob> pendingClipMasks;
 
@@ -7195,12 +7264,12 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
         }
         auto &cache = context_->clipMaskCache;
         const std::uint64_t useSerial = ++context_->clipMaskUseSerial;
-        auto cached = cache.find(clipResource.get());
+        const VulkanContext::ClipMaskCacheKey cacheKey{
+            cmr->contentHash(), cmr->verificationHash(),
+            maskW, maskH};
+        auto cached = cache.find(cacheKey);
         if (cached != cache.end()) {
-            const SharedClipMaskResource liveResource =
-                cached->second.resource.lock();
-            if (liveResource.get() == clipResource.get()
-                && cached->second.width == maskW
+            if (cached->second.width == maskW
                 && cached->second.height == maskH
                 && cached->second.texture
                 && cached->second.texture->isValid()) {
@@ -7247,14 +7316,25 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
                 ImageAlphaType::Premultiplied);
         if (result) {
             constexpr std::size_t kMaxCachedClipMasks = 64;
-            for (auto it = cache.begin(); it != cache.end();) {
-                if (it->second.resource.expired()) {
-                    it = cache.erase(it);
-                } else {
-                    ++it;
+            constexpr std::size_t kMaxCachedClipMaskBytes =
+                128u * 1024u * 1024u;
+            const std::size_t entryBytes =
+                static_cast<std::size_t>(maskW)
+                * static_cast<std::size_t>(maskH) * 4u;
+            auto cachedBytes = [&]() {
+                std::size_t bytes = 0;
+                for (const auto &item : cache) {
+                    bytes += static_cast<std::size_t>(
+                                 item.second.width)
+                        * static_cast<std::size_t>(
+                                 item.second.height) * 4u;
                 }
-            }
-            if (cache.size() >= kMaxCachedClipMasks) {
+                return bytes;
+            };
+            while (!cache.empty()
+                   && (cache.size() >= kMaxCachedClipMasks
+                       || cachedBytes() + entryBytes
+                           > kMaxCachedClipMaskBytes)) {
                 auto oldest = std::min_element(
                     cache.begin(), cache.end(),
                     [](const auto &a, const auto &b) {
@@ -7264,19 +7344,20 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
                     cache.erase(oldest);
                 }
             }
-            VulkanContext::CachedClipMask entry;
-            entry.resource = clipResource;
-            entry.texture = result;
-            entry.width = maskW;
-            entry.height = maskH;
-            entry.lastUse = useSerial;
-            cache[clipResource.get()] = std::move(entry);
+            if (entryBytes <= kMaxCachedClipMaskBytes) {
+                VulkanContext::CachedClipMask entry;
+                entry.texture = result;
+                entry.width = maskW;
+                entry.height = maskH;
+                entry.lastUse = useSerial;
+                cache[cacheKey] = std::move(entry);
+            }
 
             PendingClipMaskJob job;
             job.target = std::move(target);
             job.primitive = std::move(maskPrimitive);
             job.destination = result;
-            job.cacheKey = clipResource.get();
+            job.cacheKey = cacheKey;
             pendingClipMasks.push_back(std::move(job));
         }
         return result;
@@ -7547,18 +7628,15 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
         return true;
     };
 
-    // Clip an arbitrary primitive (gradient or textured image) that the clip
-    // pipeline cannot modulate directly: render it in isolation into an offscreen
-    // layer, un-premultiply, multiply its alpha by the clip coverage, and
-    // composite the result as a full-canvas textured quad in stream order. (The
-    // isolated layer is rendered SrcOver over transparent, so its RGB is
-    // premultiplied; un-premultiplying restores straight alpha for the composite.)
+    // Clip gradients through the existing dual-texture path: render the source
+    // into a sampleable GPU target, then sample it together with the clip mask.
+    // Textured primitives can skip the intermediate target entirely.
     auto emitClippedLayer = [&](wsc::DrawPrimitive srcPrim, const ClipMaskState &clip, int compositeBlend) -> bool {
+        SharedImageResource clipTexture = buildClipMaskTexture(clip);
+        if (!clipTexture) {
+            return false;
+        }
         if (srcPrim.kind == wsc::DrawPrimitiveKind::TexturedQuad) {
-            SharedImageResource clipTexture = buildClipMaskTexture(clip);
-            if (!clipTexture) {
-                return false;
-            }
             srcPrim.blendMode = compositeBlend;
             srcPrim.clipTexture = std::move(clipTexture);
             srcPrim.clipUvScale[0] = 1.0f / w;
@@ -7571,10 +7649,6 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
                 / h;
             list.push_back(std::move(srcPrim));
             return true;
-        }
-        std::vector<float> cov;
-        if (!buildClipCoverage(clip, cov)) {
-            return false;
         }
         std::unique_ptr<IRenderTarget> layer = createRenderTarget(maskW, maskH);
         if (!layer || !layer->isValid()) {
@@ -7601,27 +7675,10 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
             srcPrim.positions[i + 1] = uv.y * 2.0f - 1.0f;
         }
         ll.push_back(std::move(srcPrim));
-        if (!executeDrawList(layer, ll)) {
+        if (!executeDrawListWithCopy(layer, ll, {}, true)) {
             return false;
         }
-        std::vector<unsigned char> lpx;
-        if (!readPixelsRGBA(maskW, maskH, lpx)) {
-            return false;
-        }
-        std::vector<unsigned char> out(maskPixelCount * 4);
-        for (std::size_t i = 0; i < maskPixelCount; ++i) {
-            const float a = static_cast<float>(lpx[i * 4 + 3]) / 255.0f;
-            for (int c = 0; c < 3; ++c) {
-                const float pr = static_cast<float>(lpx[i * 4 + c]) / 255.0f;
-                const float straight = a > 0.0001f ? pr / a : 0.0f;
-                const float sc = straight < 0.0f ? 0.0f : (straight > 1.0f ? 1.0f : straight);
-                out[i * 4 + c] = static_cast<unsigned char>(sc * 255.0f + 0.5f);
-            }
-            const float ca = a * cov[i];
-            out[i * 4 + 3] = static_cast<unsigned char>(ca * 255.0f + 0.5f);
-        }
-        SharedImageResource layerTex =
-            createSampledTexture(context_.get(), maskW, maskH, out.data(), /*nearest=*/false);
+        SharedImageResource layerTex = layer->getImageResource();
         if (!layerTex) {
             return false;
         }
@@ -7641,7 +7698,16 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
         q.scissorY = compositeScissorY;
         q.scissorWidth = compositeScissorWidth;
         q.scissorHeight = compositeScissorHeight;
-        q.texture = layerTex;
+        q.texture = std::move(layerTex);
+        q.clipTexture = std::move(clipTexture);
+        q.clipUvScale[0] = 1.0f / w;
+        q.clipUvScale[1] = 1.0f / h;
+        q.clipUvOffset[0] =
+            -static_cast<float>(request.viewportX) / w;
+        q.clipUvOffset[1] =
+            (-static_cast<float>(rt->height())
+             + static_cast<float>(request.viewportY) + h)
+            / h;
         q.layerAlpha = 1.0f;
         q.tint[0] = 1.0f;
         q.tint[1] = 1.0f;
@@ -7658,6 +7724,7 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
             q.uvs.push_back(lu[k]);
             q.uvs.push_back(lv[k]);
         }
+        pendingFilterTargets_.push_back(std::move(layer));
         list.push_back(std::move(q));
         return true;
     };

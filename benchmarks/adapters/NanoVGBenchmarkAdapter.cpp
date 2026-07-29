@@ -12,6 +12,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include <glad/glad.h>
@@ -43,6 +44,14 @@ constexpr int kDefaultHeight = 1080;
 constexpr int kMaximumDimension = 16384;
 constexpr std::uint64_t kMaximumPixels = UINT64_C(100000000);
 
+enum class WorkloadMode
+{
+    Fixed,
+    Stable,
+    DynamicData,
+    DynamicStructure,
+};
+
 struct Options
 {
     int width = kDefaultWidth;
@@ -54,6 +63,14 @@ struct Options
     std::string outputPath;
     std::string captureDirectory;
     bool listScenes = false;
+    WorkloadMode workloadMode = WorkloadMode::Fixed;
+    int operations = 0;
+    std::uint32_t seed = 1;
+    int textureCount = 1;
+    double roundedRatio = 1.0 / 3.0;
+    double stateChangeRate = 0.0;
+    int textLength = 24;
+    bool workloadCustomized = false;
 };
 
 struct FrameTiming
@@ -75,6 +92,8 @@ struct Distribution
 struct Resources
 {
     int image = 0;
+    std::vector<int> workloadImages;
+    std::vector<std::string> workloadTextVariants;
     int font = -1;
 };
 
@@ -117,6 +136,35 @@ bool parseInteger(
     }
 }
 
+bool parseDouble(
+    const char *value, double &result, std::string &error)
+{
+    try {
+        std::size_t consumed = 0;
+        const double parsed = std::stod(value, &consumed);
+        if (consumed != std::string(value).size()
+            || !std::isfinite(parsed)) {
+            throw std::invalid_argument("invalid value");
+        }
+        result = parsed;
+        return true;
+    } catch (const std::exception &) {
+        error = std::string("invalid number '") + value + "'";
+        return false;
+    }
+}
+
+const char *workloadModeName(WorkloadMode mode)
+{
+    switch (mode) {
+    case WorkloadMode::Fixed: return "fixed";
+    case WorkloadMode::Stable: return "stable";
+    case WorkloadMode::DynamicData: return "dynamic-data";
+    case WorkloadMode::DynamicStructure: return "dynamic-structure";
+    }
+    return "unknown";
+}
+
 bool applyProfile(Options &options, std::string &error)
 {
     if (options.profile == "quick") {
@@ -140,6 +188,8 @@ bool parseOptions(
 {
     bool framesOverridden = false;
     bool warmupOverridden = false;
+    bool workloadModeSpecified = false;
+    bool workloadParametersSpecified = false;
     for (int index = 1; index < argc; ++index) {
         const std::string argument = argv[index];
         if (argument == "--list-scenes") {
@@ -177,6 +227,54 @@ bool parseOptions(
             options.outputPath = value;
         } else if (argument == "--capture-dir") {
             options.captureDirectory = value;
+        } else if (argument == "--workload") {
+            const std::string_view mode(value);
+            if (mode == "fixed") {
+                options.workloadMode = WorkloadMode::Fixed;
+            } else if (mode == "stable") {
+                options.workloadMode = WorkloadMode::Stable;
+            } else if (mode == "dynamic-data") {
+                options.workloadMode = WorkloadMode::DynamicData;
+            } else if (mode == "dynamic-structure") {
+                options.workloadMode = WorkloadMode::DynamicStructure;
+            } else {
+                error = "unknown workload mode";
+                return false;
+            }
+            workloadModeSpecified = true;
+        } else if (argument == "--operations") {
+            if (!parseInteger(value, options.operations, error)) {
+                return false;
+            }
+            workloadParametersSpecified = true;
+        } else if (argument == "--seed") {
+            int seed = 0;
+            if (!parseInteger(value, seed, error) || seed < 0) {
+                error = "--seed must be non-negative";
+                return false;
+            }
+            options.seed = static_cast<std::uint32_t>(seed);
+            workloadParametersSpecified = true;
+        } else if (argument == "--texture-count") {
+            if (!parseInteger(value, options.textureCount, error)) {
+                return false;
+            }
+            workloadParametersSpecified = true;
+        } else if (argument == "--rounded-ratio") {
+            if (!parseDouble(value, options.roundedRatio, error)) {
+                return false;
+            }
+            workloadParametersSpecified = true;
+        } else if (argument == "--state-change-rate") {
+            if (!parseDouble(value, options.stateChangeRate, error)) {
+                return false;
+            }
+            workloadParametersSpecified = true;
+        } else if (argument == "--text-length") {
+            if (!parseInteger(value, options.textLength, error)) {
+                return false;
+            }
+            workloadParametersSpecified = true;
         } else if (argument == "--backend") {
             if (std::string_view(value) != "opengl") {
                 error = "NanoVG adapter only supports the OpenGL backend";
@@ -215,6 +313,28 @@ bool parseOptions(
         error = "invalid frame or warmup count";
         return false;
     }
+    if (options.operations < 0 || options.operations > 200000
+        || options.textureCount <= 0 || options.textureCount > 256
+        || options.roundedRatio < 0.0 || options.roundedRatio > 1.0
+        || options.stateChangeRate < 0.0
+        || options.stateChangeRate > 1.0
+        || options.textLength <= 0 || options.textLength > 1024) {
+        error = "invalid parameterized workload option";
+        return false;
+    }
+    if (workloadParametersSpecified
+        && workloadModeSpecified
+        && options.workloadMode == WorkloadMode::Fixed) {
+        error = "--workload fixed cannot be combined with workload parameters";
+        return false;
+    }
+    if (workloadParametersSpecified
+        && options.workloadMode == WorkloadMode::Fixed) {
+        options.workloadMode = WorkloadMode::Stable;
+    }
+    options.workloadCustomized =
+        workloadParametersSpecified
+        || options.workloadMode != WorkloadMode::Fixed;
     if (options.width <= 0 || options.height <= 0
         || options.width > kMaximumDimension
         || options.height > kMaximumDimension
@@ -267,6 +387,20 @@ void appendDistribution(
          << ",\"" << name << "_mean_ms\":" << distribution.mean
          << ",\"" << name << "_median_ms\":" << distribution.median
          << ",\"" << name << "_p95_ms\":" << distribution.p95;
+}
+
+void appendSamples(
+    std::ostringstream &json, std::string_view name,
+    const std::vector<double> &samples)
+{
+    json << ",\"" << name << "\":[";
+    for (std::size_t index = 0; index < samples.size(); ++index) {
+        if (index > 0u) {
+            json << ',';
+        }
+        json << samples[index];
+    }
+    json << ']';
 }
 
 std::uint64_t hashPixels(const std::vector<unsigned char> &rgba)
@@ -354,17 +488,95 @@ NVGcolor color(
         static_cast<unsigned char>(alpha));
 }
 
+std::uint32_t workloadRandom(
+    std::uint32_t seed, std::uint32_t index,
+    std::uint32_t stream, std::uint32_t frame)
+{
+    std::uint32_t value =
+        seed ^ (index * 0x9e3779b9u)
+        ^ (stream * 0x85ebca6bu)
+        ^ (frame * 0xc2b2ae35u);
+    value ^= value >> 16u;
+    value *= 0x7feb352du;
+    value ^= value >> 15u;
+    value *= 0x846ca68bu;
+    value ^= value >> 16u;
+    return value;
+}
+
+float workloadUnit(
+    std::uint32_t seed, std::uint32_t index,
+    std::uint32_t stream, std::uint32_t frame)
+{
+    return static_cast<float>(
+        workloadRandom(seed, index, stream, frame) & 0x00ffffffu)
+        / static_cast<float>(0x01000000u);
+}
+
+std::pair<int, int> workloadGrid(
+    int operations, int width, int height)
+{
+    const double aspect =
+        static_cast<double>(std::max(1, width))
+        / static_cast<double>(std::max(1, height));
+    const int columns = std::max(
+        1, static_cast<int>(std::ceil(std::sqrt(
+            static_cast<double>(operations) * aspect))));
+    const int rows = std::max(
+        1, (operations + columns - 1) / columns);
+    return {columns, rows};
+}
+
+void applyWorkloadState(
+    NVGcontext *context, const Options &options,
+    std::uint32_t index, std::uint32_t structureFrame)
+{
+    if (workloadUnit(
+            options.seed, index, 71u, structureFrame)
+        >= options.stateChangeRate) {
+        nvgGlobalCompositeOperation(context, NVG_SOURCE_OVER);
+        return;
+    }
+    switch (workloadRandom(
+        options.seed, index, 73u, structureFrame) % 3u) {
+    case 0:
+        nvgGlobalCompositeBlendFuncSeparate(
+            context, NVG_SRC_ALPHA, NVG_ONE, NVG_ONE, NVG_ONE);
+        break;
+    case 1:
+        nvgGlobalCompositeBlendFuncSeparate(
+            context, NVG_DST_COLOR, NVG_ZERO, NVG_DST_ALPHA, NVG_ZERO);
+        break;
+    default:
+        nvgGlobalCompositeBlendFuncSeparate(
+            context, NVG_ONE, NVG_ONE_MINUS_SRC_COLOR,
+            NVG_ONE, NVG_ONE_MINUS_SRC_ALPHA);
+        break;
+    }
+}
+
 void fillCurrentPath(NVGcontext *context, NVGcolor value)
 {
     nvgFillColor(context, value);
     nvgFill(context);
 }
 
+void drawBackground(
+    NVGcontext *context, const Options &options, NVGcolor value)
+{
+    nvgGlobalCompositeOperation(context, NVG_SOURCE_OVER);
+    nvgBeginPath(context);
+    nvgRect(
+        context, 0.0f, 0.0f,
+        static_cast<float>(options.width),
+        static_cast<float>(options.height));
+    fillCurrentPath(context, value);
+}
+
 void drawGeometryStress(
     NVGcontext *context, const Options &options, int frame)
 {
-    glClearColor(13.0f / 255.0f, 17.0f / 255.0f, 25.0f / 255.0f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+    drawBackground(context, options, color(13, 17, 25));
     constexpr int columns = 64;
     constexpr int rows = 36;
     const float cellWidth = static_cast<float>(options.width) / columns;
@@ -428,12 +640,104 @@ void drawGeometryStress(
     }
 }
 
+void drawGeometryWorkload(
+    NVGcontext *context, const Options &options, int frame)
+{
+    drawBackground(context, options, color(13, 17, 25));
+    const int operations =
+        options.operations > 0 ? options.operations : 2304;
+    const auto [columns, rows] =
+        workloadGrid(operations, options.width, options.height);
+    const float cellWidth =
+        static_cast<float>(options.width) / columns;
+    const float cellHeight =
+        static_cast<float>(options.height) / rows;
+    const float inset =
+        std::max(0.25f, std::min(cellWidth, cellHeight) * 0.12f);
+    const std::uint32_t dataFrame =
+        options.workloadMode == WorkloadMode::Stable
+        ? 0u : static_cast<std::uint32_t>(frame);
+    const std::uint32_t structureFrame =
+        options.workloadMode == WorkloadMode::DynamicStructure
+        ? static_cast<std::uint32_t>(frame) : 0u;
+    for (int operation = 0; operation < operations; ++operation) {
+        const int column = operation % columns;
+        const int row = operation / columns;
+        const std::uint32_t index =
+            static_cast<std::uint32_t>(operation);
+        const float left =
+            column * cellWidth + inset
+            + (workloadUnit(
+                   options.seed, index, 1u, dataFrame) - 0.5f)
+                * cellWidth * 0.16f;
+        const float top =
+            row * cellHeight + inset
+            + (workloadUnit(
+                   options.seed, index, 2u, dataFrame) - 0.5f)
+                * cellHeight * 0.16f;
+        const float width =
+            std::max(0.5f, cellWidth - inset * 2.0f);
+        const float height =
+            std::max(0.5f, cellHeight - inset * 2.0f);
+        applyWorkloadState(context, options, index, structureFrame);
+        nvgBeginPath(context);
+        switch (workloadRandom(
+            options.seed, index, 7u, structureFrame) % 6u) {
+        case 0:
+            nvgRect(context, left, top, width, height);
+            break;
+        case 1:
+            nvgRoundedRect(
+                context, left, top, width, height,
+                std::min(width, height) * 0.24f);
+            break;
+        case 2:
+            nvgCircle(
+                context, left + width * 0.5f,
+                top + height * 0.5f,
+                std::min(width, height) * 0.45f);
+            break;
+        case 3:
+            nvgEllipse(
+                context, left + width * 0.5f,
+                top + height * 0.5f,
+                width * 0.5f, height * 0.5f);
+            break;
+        case 4:
+            nvgMoveTo(context, left + width * 0.5f, top);
+            nvgLineTo(context, left + width, top + height);
+            nvgLineTo(context, left, top + height);
+            nvgClosePath(context);
+            break;
+        default:
+            nvgMoveTo(context, left + width * 0.5f, top);
+            nvgLineTo(
+                context, left + width, top + height * 0.5f);
+            nvgLineTo(
+                context, left + width * 0.5f, top + height);
+            nvgLineTo(context, left, top + height * 0.5f);
+            nvgClosePath(context);
+            break;
+        }
+        fillCurrentPath(
+            context,
+            color(
+                35 + static_cast<int>(workloadRandom(
+                    options.seed, index, 3u, dataFrame) % 205u),
+                45 + static_cast<int>(workloadRandom(
+                    options.seed, index, 4u, dataFrame) % 195u),
+                55 + static_cast<int>(workloadRandom(
+                    options.seed, index, 5u, dataFrame) % 185u),
+                160 + static_cast<int>(workloadRandom(
+                    options.seed, index, 6u, dataFrame) % 96u)));
+    }
+}
+
 void drawImageGrid(
     NVGcontext *context, const Resources &resources,
     const Options &options, int frame)
 {
-    glClearColor(22.0f / 255.0f, 26.0f / 255.0f, 34.0f / 255.0f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+    drawBackground(context, options, color(22, 26, 34));
     constexpr int columns = 12;
     constexpr int rows = 8;
     const float cellWidth = static_cast<float>(options.width) / columns;
@@ -466,13 +770,85 @@ void drawImageGrid(
     }
 }
 
+void drawImageWorkload(
+    NVGcontext *context, const Resources &resources,
+    const Options &options, int frame)
+{
+    drawBackground(context, options, color(22, 26, 34));
+    const int operations =
+        options.operations > 0 ? options.operations : 96;
+    const auto [columns, rows] =
+        workloadGrid(operations, options.width, options.height);
+    const float cellWidth =
+        static_cast<float>(options.width) / columns;
+    const float cellHeight =
+        static_cast<float>(options.height) / rows;
+    const std::uint32_t dataFrame =
+        options.workloadMode == WorkloadMode::Stable
+        ? 0u : static_cast<std::uint32_t>(frame);
+    const std::uint32_t structureFrame =
+        options.workloadMode == WorkloadMode::DynamicStructure
+        ? static_cast<std::uint32_t>(frame) : 0u;
+    for (int operation = 0; operation < operations; ++operation) {
+        const int column = operation % columns;
+        const int row = operation / columns;
+        const std::uint32_t index =
+            static_cast<std::uint32_t>(operation);
+        const float inset = std::max(
+            0.5f, std::min(cellWidth, cellHeight)
+                * (0.04f + workloadUnit(
+                    options.seed, index, 11u, 0u) * 0.04f));
+        const float left =
+            column * cellWidth + inset
+            + (workloadUnit(
+                   options.seed, index, 12u, dataFrame) - 0.5f)
+                * cellWidth * 0.12f;
+        const float top =
+            row * cellHeight + inset
+            + (workloadUnit(
+                   options.seed, index, 13u, dataFrame) - 0.5f)
+                * cellHeight * 0.12f;
+        const float width =
+            std::max(0.5f, cellWidth - inset * 2.0f);
+        const float height =
+            std::max(0.5f, cellHeight - inset * 2.0f);
+        const float alpha =
+            0.62f + workloadUnit(
+                options.seed, index, 14u, dataFrame) * 0.38f;
+        applyWorkloadState(context, options, index, structureFrame);
+        const int image =
+            resources.workloadImages.empty()
+            ? resources.image
+            : resources.workloadImages[
+                static_cast<std::size_t>(workloadRandom(
+                    options.seed, index, 15u, structureFrame))
+                % resources.workloadImages.size()];
+        const bool rounded =
+            workloadUnit(
+                options.seed, index, 16u, structureFrame)
+            < options.roundedRatio;
+        nvgBeginPath(context);
+        if (rounded) {
+            nvgRoundedRect(
+                context, left, top, width, height,
+                std::min(width, height) * 0.12f);
+        } else {
+            nvgRect(context, left, top, width, height);
+        }
+        nvgFillPaint(
+            context,
+            nvgImagePattern(
+                context, left, top, width, height, 0.0f,
+                image, alpha));
+        nvgFill(context);
+    }
+}
+
 void drawContractTextLatin(
     NVGcontext *context, const Resources &resources,
     const Options &options)
 {
-    glClearColor(
-        247.0f / 255.0f, 248.0f / 255.0f, 251.0f / 255.0f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+    drawBackground(context, options, color(247, 248, 251));
     constexpr int columns = 8;
     constexpr int rows = 72;
     static constexpr std::array<std::string_view, 6> samples = {{
@@ -513,6 +889,74 @@ void drawContractTextLatin(
     }
 }
 
+void drawTextWorkload(
+    NVGcontext *context, const Resources &resources,
+    const Options &options, int frame)
+{
+    drawBackground(context, options, color(247, 248, 251));
+    const int operations =
+        options.operations > 0 ? options.operations : 576;
+    const auto [columns, rows] =
+        workloadGrid(operations, options.width, options.height);
+    const float columnWidth =
+        static_cast<float>(options.width) / columns;
+    const float rowHeight =
+        static_cast<float>(options.height) / rows;
+    const float textSize =
+        std::clamp(rowHeight * 0.76f, 6.0f, 24.0f);
+    const std::uint32_t dataFrame =
+        options.workloadMode == WorkloadMode::Stable
+        ? 0u : static_cast<std::uint32_t>(frame);
+    const std::uint32_t structureFrame =
+        options.workloadMode == WorkloadMode::DynamicStructure
+        ? static_cast<std::uint32_t>(frame) : 0u;
+    nvgFontFaceId(context, resources.font);
+    nvgTextAlign(context, NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
+    for (int operation = 0; operation < operations; ++operation) {
+        const int column = operation % columns;
+        const int row = operation / columns;
+        const std::uint32_t index =
+            static_cast<std::uint32_t>(operation);
+        static constexpr std::array<float, 3> sizeBuckets = {
+            0.9f, 1.0f, 1.1f};
+        const float sizeVariation =
+            options.workloadMode == WorkloadMode::DynamicStructure
+            ? sizeBuckets[static_cast<std::size_t>(workloadRandom(
+                options.seed, index, 24u, structureFrame)
+                % sizeBuckets.size())]
+            : 1.0f;
+        const float effectiveSize = textSize * sizeVariation;
+        nvgFontSize(context, effectiveSize * 0.875f);
+        applyWorkloadState(context, options, index, structureFrame);
+        nvgFillColor(
+            context,
+            color(
+                18 + static_cast<int>(workloadRandom(
+                    options.seed, index, 21u, dataFrame) % 82u),
+                28 + static_cast<int>(workloadRandom(
+                    options.seed, index, 22u, dataFrame) % 92u),
+                42 + static_cast<int>(workloadRandom(
+                    options.seed, index, 23u, dataFrame) % 108u)));
+        const std::size_t variant =
+            resources.workloadTextVariants.empty()
+            ? 0u
+            : static_cast<std::size_t>(workloadRandom(
+                options.seed, index, 26u,
+                options.workloadMode == WorkloadMode::Stable
+                    ? 0u : dataFrame))
+                % resources.workloadTextVariants.size();
+        static const std::string fallback = "Canvas text Aa 123";
+        const std::string &text =
+            resources.workloadTextVariants.empty()
+            ? fallback : resources.workloadTextVariants[variant];
+        nvgText(
+            context,
+            column * columnWidth + 2.0f,
+            (row + 0.82f) * rowHeight + effectiveSize * 0.35f,
+            text.data(), text.data() + text.size());
+    }
+}
+
 void drawScene(
     NVGcontext *context, const Resources &resources,
     const Options &options, int frame)
@@ -521,9 +965,19 @@ void drawScene(
         context, static_cast<float>(options.width),
         static_cast<float>(options.height), 1.0f);
     if (options.scene == "geometry_stress") {
-        drawGeometryStress(context, options, frame);
+        if (options.workloadCustomized) {
+            drawGeometryWorkload(context, options, frame);
+        } else {
+            drawGeometryStress(context, options, frame);
+        }
     } else if (options.scene == "image_grid") {
-        drawImageGrid(context, resources, options, frame);
+        if (options.workloadCustomized) {
+            drawImageWorkload(context, resources, options, frame);
+        } else {
+            drawImageGrid(context, resources, options, frame);
+        }
+    } else if (options.workloadCustomized) {
+        drawTextWorkload(context, resources, options, frame);
     } else {
         drawContractTextLatin(context, resources, options);
     }
@@ -533,6 +987,10 @@ FrameTiming renderFrame(
     NVGcontext *context, const Resources &resources,
     const Options &options, int frame)
 {
+    // Stencil maintenance is not part of the Canvas workload. Color clearing
+    // is an opaque full-frame src-over draw in every adapter.
+    glClear(GL_STENCIL_BUFFER_BIT);
+    glFinish();
     const Clock::time_point start = Clock::now();
     drawScene(context, resources, options, frame);
     const Clock::time_point recorded = Clock::now();
@@ -578,9 +1036,108 @@ bool createResources(
         error = "unable to create NanoVG benchmark image";
         return false;
     }
+    if (options.workloadCustomized
+        && options.scene == "image_grid") {
+        constexpr int workloadWidth = 64;
+        constexpr int workloadHeight = 64;
+        std::vector<unsigned char> workloadPixels(
+            static_cast<std::size_t>(workloadWidth)
+            * workloadHeight * 4u);
+        resources.workloadImages.reserve(
+            static_cast<std::size_t>(options.textureCount));
+        for (int texture = 0;
+             texture < options.textureCount; ++texture) {
+            for (int y = 0; y < workloadHeight; ++y) {
+                for (int x = 0; x < workloadWidth; ++x) {
+                    const std::size_t pixel =
+                        (static_cast<std::size_t>(y)
+                             * workloadWidth
+                         + static_cast<std::size_t>(x)) * 4u;
+                    const std::uint32_t texel =
+                        static_cast<std::uint32_t>(
+                            y * workloadWidth + x);
+                    workloadPixels[pixel] =
+                        static_cast<unsigned char>(workloadRandom(
+                            options.seed,
+                            static_cast<std::uint32_t>(texture),
+                            31u, texel) & 0xffu);
+                    workloadPixels[pixel + 1u] =
+                        static_cast<unsigned char>(workloadRandom(
+                            options.seed,
+                            static_cast<std::uint32_t>(texture),
+                            32u, texel) & 0xffu);
+                    workloadPixels[pixel + 2u] =
+                        static_cast<unsigned char>(workloadRandom(
+                            options.seed,
+                            static_cast<std::uint32_t>(texture),
+                            33u, texel) & 0xffu);
+                    workloadPixels[pixel + 3u] =
+                        static_cast<unsigned char>(
+                            160u + (workloadRandom(
+                                options.seed,
+                                static_cast<std::uint32_t>(texture),
+                                34u, texel) % 96u));
+                }
+            }
+            const int image = nvgCreateImageRGBA(
+                context, workloadWidth, workloadHeight, 0,
+                workloadPixels.data());
+            if (image == 0) {
+                error = "unable to create NanoVG workload image "
+                    + std::to_string(texture);
+                return false;
+            }
+            resources.workloadImages.push_back(image);
+        }
+    }
+    if (options.workloadCustomized
+        && options.scene == "contract_text_latin") {
+        static constexpr std::string_view alphabet =
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+            "abcdefghijklmnopqrstuvwxyz"
+            "0123456789 .,;:!?+-*/()[]";
+        const int variantCount = std::min(
+            256, std::max(
+                16, options.operations > 0
+                    ? options.operations : 576));
+        resources.workloadTextVariants.reserve(
+            static_cast<std::size_t>(variantCount));
+        for (int variant = 0; variant < variantCount; ++variant) {
+            int length = options.textLength;
+            if (options.workloadMode
+                == WorkloadMode::DynamicStructure) {
+                length = std::max(
+                    1, length / 2
+                        + static_cast<int>(workloadRandom(
+                            options.seed,
+                            static_cast<std::uint32_t>(variant),
+                            41u, 0u)
+                            % static_cast<std::uint32_t>(
+                                std::max(1, length))));
+            }
+            std::string text;
+            text.reserve(static_cast<std::size_t>(length));
+            for (int character = 0;
+                 character < length; ++character) {
+                text.push_back(
+                    alphabet[static_cast<std::size_t>(workloadRandom(
+                        options.seed,
+                        static_cast<std::uint32_t>(variant),
+                        42u,
+                        static_cast<std::uint32_t>(character)))
+                        % alphabet.size()]);
+            }
+            resources.workloadTextVariants.push_back(std::move(text));
+        }
+    }
     if (options.scene == "contract_text_latin") {
+        const std::string runtimeContractFont =
+            environmentValue("WHATSCANVAS_CROSS_LIBRARY_FONT_PATH");
         const std::filesystem::path font =
-            WHATSCANVAS_NANOVG_CONTRACT_FONT;
+            runtimeContractFont.empty()
+            ? std::filesystem::path(
+                WHATSCANVAS_NANOVG_CONTRACT_FONT)
+            : std::filesystem::path(runtimeContractFont);
         resources.font =
             nvgCreateFont(context, "CrossLibraryRoboto", font.string().c_str());
         if (resources.font < 0) {
@@ -634,6 +1191,8 @@ bool savePpm(
 std::string metadataJson(
     const Options &options, double initializationMs)
 {
+    const std::string contractVersion = environmentValue(
+        "WHATSCANVAS_CROSS_LIBRARY_CONTRACT_VERSION");
     const char *renderer = reinterpret_cast<const char *>(
         glGetString(GL_RENDERER));
     const char *vendor = reinterpret_cast<const char *>(
@@ -648,7 +1207,17 @@ std::string metadataJson(
          << ",\"library_version\":\""
          << jsonEscape(WHATSCANVAS_NANOVG_VERSION) << "\""
          << ",\"synchronization\":\"gpu_complete\""
-         << ",\"cross_library_contract\":\"1.1.0\""
+         << ",\"cross_library_contract\":\""
+         << jsonEscape(
+                contractVersion.empty() ? "1.2.0" : contractVersion)
+         << "\""
+         << ",\"clear_semantics\":\"draw_full_frame_src_over\""
+         << ",\"font_sha256\":\""
+         << jsonEscape(environmentValue(
+                "WHATSCANVAS_CROSS_LIBRARY_FONT_SHA256"))
+         << "\""
+         << ",\"text_shaping_mode\":\"adapter_native_latin_kerning\""
+         << ",\"text_raster_mode\":\"grayscale_no_lcd\""
          << ",\"backend\":\"opengl\""
          << ",\"device\":\"" << jsonEscape(renderer ? renderer : "unknown")
          << "\",\"device_vendor\":\""
@@ -669,6 +1238,15 @@ std::string metadataJson(
          << ",\"height\":" << options.height
          << ",\"frames\":" << options.frames
          << ",\"warmup\":" << options.warmup
+         << ",\"workload_mode\":\""
+         << workloadModeName(options.workloadMode) << "\""
+         << ",\"workload_seed\":" << options.seed
+         << ",\"workload_operations\":" << options.operations
+         << ",\"workload_texture_count\":" << options.textureCount
+         << ",\"workload_rounded_ratio\":" << options.roundedRatio
+         << ",\"workload_state_change_rate\":"
+         << options.stateChangeRate
+         << ",\"workload_text_length\":" << options.textLength
          << ",\"initialization_ms\":" << initializationMs
          << "}";
     return json.str();
@@ -678,11 +1256,17 @@ std::string resultJson(
     const Options &options, const FrameTiming &cold,
     const Distribution &record, const Distribution &submit,
     const Distribution &total, const std::vector<unsigned char> &pixels,
-    double readbackMs)
+    double readbackMs, const std::vector<double> &recordSamples,
+    const std::vector<double> &submitSamples,
+    const std::vector<double> &totalSamples)
 {
-    const std::size_t operations =
+    const std::size_t defaultOperations =
         options.scene == "image_grid" ? 96u
         : options.scene == "contract_text_latin" ? 576u : 2304u;
+    const std::size_t operations =
+        options.workloadCustomized && options.operations > 0
+        ? static_cast<std::size_t>(options.operations)
+        : defaultOperations;
     std::ostringstream json;
     json << std::fixed << std::setprecision(6)
          << "{\"type\":\"result\",\"schema\":1"
@@ -692,11 +1276,32 @@ std::string resultJson(
          << ",\"height\":" << options.height
          << ",\"frames\":" << options.frames
          << ",\"warmup\":" << options.warmup
+         << ",\"workload_mode\":\""
+         << workloadModeName(options.workloadMode) << "\""
+         << ",\"workload_seed\":" << options.seed
+         << ",\"texture_count\":"
+         << (options.scene == "image_grid"
+                 && options.workloadCustomized
+             ? options.textureCount : 1)
+         << ",\"rounded_ratio\":"
+         << (options.scene == "image_grid"
+                 && options.workloadCustomized
+             ? options.roundedRatio : 0.0)
+         << ",\"state_change_rate\":"
+         << (options.workloadCustomized
+             ? options.stateChangeRate : 0.0)
+         << ",\"text_length\":"
+         << (options.scene == "contract_text_latin"
+                 && options.workloadCustomized
+             ? options.textLength : 0)
          << ",\"operations_per_frame\":" << operations
          << ",\"cold_total_ms\":" << cold.totalMs;
     appendDistribution(json, "record", record);
     appendDistribution(json, "submit", submit);
     appendDistribution(json, "total", total);
+    appendSamples(json, "record_samples_ms", recordSamples);
+    appendSamples(json, "submit_samples_ms", submitSamples);
+    appendSamples(json, "total_samples_ms", totalSamples);
     json << ",\"fps\":"
          << (total.median > 0.0 ? 1000.0 / total.median : 0.0)
          << ",\"operations_per_second\":"
@@ -826,9 +1431,10 @@ int main(int argc, char **argv)
     const std::string metadata =
         metadataJson(options, initializationMs);
     const std::string result = resultJson(
-        options, cold, summarize(std::move(recordSamples)),
-        summarize(std::move(submitSamples)),
-        summarize(std::move(totalSamples)), pixels, readbackMs);
+        options, cold, summarize(recordSamples),
+        summarize(submitSamples),
+        summarize(totalSamples), pixels, readbackMs,
+        recordSamples, submitSamples, totalSamples);
     if (error.empty()) {
         std::ofstream output(options.outputPath);
         if (!output) {

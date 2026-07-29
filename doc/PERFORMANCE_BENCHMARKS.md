@@ -442,6 +442,26 @@ same GPU packet is uploaded. All eight WhatsCanvas processes retained
 `432ad28b33a51375` and `737cad1b0d1169f2`. The complete Release build and all
 66 Release tests pass.
 
+The cross-library runner now automates that methodology instead of requiring a
+manual process script. Four ABBA blocks launch eight fresh processes per
+renderer, retain every measured frame sample and quality capture, calculate
+within-block geometric-mean ratios, and publish deterministic bootstrap 95%
+confidence intervals. The contract also fixes full-frame draw clear semantics,
+the Roboto SHA-256, text size/baseline/shaping/raster modes, and parameterized
+workload fields. The NanoVG adapter implements the same scale/seed/data/
+structure options.
+
+The latest 1080p Standard run on the same reference machine produced:
+
+| Scene | WhatsCanvas OpenGL median (95% CI) | NanoVG GL3 median (95% CI) | Paired NanoVG / WhatsCanvas (95% CI) |
+| --- | ---: | ---: | ---: |
+| `geometry_stress` | **2.617 ms** (2.572-2.764) | 3.705 ms (3.605-3.807) | 1.407x (1.273-1.441) |
+| `image_grid` | **0.272 ms** (0.262-0.304) | 0.383 ms (0.380-0.388) | 1.369x (1.347-1.417) |
+| `contract_text_latin` | **2.878 ms** (2.670-3.021) | 3.292 ms (3.255-3.337) | 1.153x (1.105-1.169) |
+
+All 48 process runs passed their quality gate. These intervals quantify this
+machine and contract; they are not a cross-hardware ranking.
+
 ## CI policy
 
 Shared hosted runners execute the `quick` Software subset to validate build
