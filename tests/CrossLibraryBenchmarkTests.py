@@ -72,6 +72,23 @@ class CrossLibraryBenchmarkTests(unittest.TestCase):
             )
         )
 
+    def test_abba_schedule_balances_process_order(self):
+        reference = MODULE.Adapter("a", ("a",))
+        candidate = MODULE.Adapter("b", ("b",))
+        schedule = MODULE.abba_schedule(reference, candidate, 4)
+        self.assertEqual(
+            [adapter.label for _, adapter in schedule],
+            ["a", "b", "b", "a", "a", "b", "b", "a"],
+        )
+
+    def test_bootstrap_median_ci_is_deterministic(self):
+        samples = [1.0, 2.0, 3.0, 4.0]
+        first = MODULE.bootstrap_median_ci(samples, 500, seed=7)
+        second = MODULE.bootstrap_median_ci(samples, 500, seed=7)
+        self.assertEqual(first, second)
+        self.assertLessEqual(first[0], 2.5)
+        self.assertGreaterEqual(first[1], 2.5)
+
     def test_text_contract_accepts_rasterizer_delta_but_rejects_blank(self):
         contract_path = (
             Path(__file__).resolve().parents[1]
@@ -80,11 +97,30 @@ class CrossLibraryBenchmarkTests(unittest.TestCase):
             / "contract.json"
         )
         contract = json.loads(contract_path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            contract["assets"]["font_sha256"],
+            "797E35F7F5D6020A5C6EA13B42ECD668BCFB3BBC4BAA0E74773527E5B6CB3174",
+        )
         thresholds = contract["scenes"]["contract_text_latin"]["quality"]
         nanovg = MODULE.QualityMetrics(7.744, 26.566, 225, 0.08551)
         blank = MODULE.QualityMetrics(9.917, 32.413, 225, 0.10246)
         self.assertTrue(MODULE.quality_passes(nanovg, thresholds))
         self.assertFalse(MODULE.quality_passes(blank, thresholds))
+        parameterized = contract["scenes"]["contract_text_latin"][
+            "parameterized_quality"
+        ]
+        dynamic_nanovg = MODULE.QualityMetrics(
+            9.285, 34.609, 229, 0.08758
+        )
+        dynamic_blank = MODULE.QualityMetrics(
+            11.007, 40.960, 229, 0.07992
+        )
+        self.assertTrue(
+            MODULE.quality_passes(dynamic_nanovg, parameterized)
+        )
+        self.assertFalse(
+            MODULE.quality_passes(dynamic_blank, parameterized)
+        )
 
     def test_jsonl_rejects_debug_build(self):
         with tempfile.TemporaryDirectory() as directory:

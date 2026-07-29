@@ -111,6 +111,43 @@ int main()
     if (!near4(px, width, 10, 2, 0, 0, 0, 0, 4, "above scissor")) return 1;
     if (!near4(px, width, (width * 3) / 4, height / 2, 0, 0, 0, 0, 4, "right (clipped out)")) return 1;
 
+    // A content-identical resource may reuse the cached mask, while a changed
+    // transform must produce a distinct entry rather than stale pixels.
+    {
+        ClipMaskPath shiftedPath = maskPath;
+        shiftedPath.transform[3][0] = halfW;
+        SharedClipMaskResource shiftedClip =
+            device.createClipMaskResource(shiftedPath);
+        auto shiftedTarget = device.createRenderTarget(width, height);
+        DrawPathData shifted = d;
+        shifted.scissor.enabled = false;
+        shifted.clipMask.resources.clear();
+        shifted.clipMask.resources.push_back(shiftedClip);
+        std::vector<std::unique_ptr<Command>> shiftedCommands;
+        shiftedCommands.push_back(
+            std::make_unique<DrawPathCommand>(shifted));
+        if (!device.executeCommands(
+                shiftedTarget, shiftedCommands, request)) {
+            std::cerr << "[VulkanClipCommandTests] FAIL: shifted clip executeCommands returned false."
+                      << std::endl;
+            return 1;
+        }
+        std::vector<unsigned char> shiftedPixels;
+        if (!device.readPixelsRGBA(width, height, shiftedPixels)) {
+            return 1;
+        }
+        if (!near4(
+                shiftedPixels, width, width / 4, height / 2,
+                0, 0, 0, 0, 4, "shifted clip left")) {
+            return 1;
+        }
+        if (!near4(
+                shiftedPixels, width, (width * 3) / 4, height / 2,
+                0, 255, 0, 255, 4, "shifted clip right")) {
+            return 1;
+        }
+    }
+
     // --- Clipped vector text: a full-canvas blue text quad clipped to the left. ---
     {
         auto textTarget = device.createRenderTarget(width, height);

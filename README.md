@@ -30,18 +30,18 @@ WhatsCanvas 的公开接口仍然是熟悉的 `Canvas` / `Paint` / `Path` / `Ima
 | 图像与纹理 | 文件解码、encoded memory、raw RGBA、外部纹理包装、整图替换、局部更新、contain / cover / fill 布局、锚点、九宫格、圆角裁剪、圆形裁剪、平铺绘制。 | `Image`、`drawImage`、`drawImageFit`、`drawImageNinePatch`、`drawImageRounded`、`drawImageCircle`、`drawImageTiled`、`wrapExternalTexture` |
 | 字体与文本 | 系统字体发现 + fallback chain、weight/slant 匹配、TrueType/TTC/内存字体与 collection face index、FreeType（不可用回退 stb）glyph lookup/metrics/kerning/栅格化、HarfBuzz shaping（回退 simple shaping）、多字体 fallback 分段、GPU glyph atlas（dirty-rect 更新 + resize-before-evict + 统计）、COLR/CPAL v0 彩色字形、UTF-8 布局 + CJK 无空格折行 + 省略号 + baseline + letter spacing、渐变/描边/阴影文本、text-on-path、缺字与回退诊断、Unicode UAX #9 全量通过。 | `FontSystem`、`FontFace`、`FontManager`、`FontFallbackChain`、`registerFontFace`、`setFontFallbackChain`、`drawText`、`drawTextBox`、`layoutTextBox`、`drawTextOnPath`、`measureTextMetrics` |
 | 渲染后端 | 桌面 OpenGL 主路径、OpenGLES 目标、纯 CPU 软件后端（零 GPU 依赖、可在无图形栈环境运行）、可选 Vulkan 后端（默认离屏，Windows 支持 Canvas 窗口呈现）、共享 GL-family 后端、proc-address 注入、上下文生命周期、资源释放与重建、shader portability。 | `Canvas::loadOpenGL`、`Canvas::create`、`Canvas::isBackendAvailable`、`WhatsCanvas::OpenGL`、`WhatsCanvas::OpenGLES`、`WhatsCanvas::Software`、`initializeContext`、`releaseResources` |
-| 性能与资源 | 流式顶点缓冲、图片命令同纹理合批、统一圆角图片的原生 shader coverage、路径命令合批、Vulkan 路径阴影 silhouette 批量提交、局部阴影栅格化 / GPU 模糊、全局 quad index buffer、离屏 render target 复用池、GPU glyph atlas 复用、indexed glyph lookup、填充三角化 / 描边网格 / 裁剪掩码 LRU 缓存、滤镜调用 / pass / 降采样 / pixel-pass 统计；统一 Release 性能套件以 1920×1080 覆盖 14 个真实帧场景，包括大量多语种文字与混合几何压力，并提供先做像素质量门禁、再比较完整帧耗时的跨库基准契约。 | `WhatsCanvasPerformanceSuite`、`Renderer`、`RenderTargetPool`、`GlyphAtlas`、`LruCache`、`RenderStats` |
+| 性能与资源 | 流式顶点缓冲、图片命令同纹理合批、统一圆角图片的原生 shader coverage、路径命令合批、Vulkan 路径阴影 silhouette 批量提交、内容签名裁剪掩码跨帧复用、复杂裁剪双纹理 GPU 合成、局部阴影栅格化 / GPU 模糊、全局 quad index buffer、离屏 render target 复用池、GPU glyph atlas 复用、indexed glyph lookup、填充三角化 / 描边网格 / 裁剪掩码 LRU 缓存、滤镜调用 / pass / 降采样 / pixel-pass 统计；统一 Release 性能套件以 1920×1080 覆盖 14 个真实帧场景，包括大量多语种文字与混合几何压力，并提供像素质量门禁、ABBA 进程配对、逐帧原始样本和 95% 置信区间的跨库基准契约。 | `WhatsCanvasPerformanceSuite`、`Renderer`、`RenderTargetPool`、`GlyphAtlas`、`LruCache`、`RenderStats` |
 | 诊断与验证 | 同步 / 异步像素回读、PPM 截图、像素哈希、fuzzy PPM 对比、软件后端 golden-image 回归（确定性、无需 GPU）、OpenGL / OpenGLES / Vulkan 滤镜像素一致性门禁、固定时间首帧冒烟、示例构建冒烟、Unicode Bidi conformance、跨平台 CI。 | `readPixelsRGBA`、`readPixelsRGBAAsync`、`savePixelsPPM`、`computePixelsHashRGBA`、`FILTER_PARITY`、`ctest`、`scripts/*_smoke.*` |
 
 ## 当前性能
 
-以下数据来自同一台 Windows 10、i7-8700、GTX 1060 3GB（驱动 560.94）参考机器，使用 `Release`、`1920 × 1080`、5 帧预热、30 帧计时，并在每帧同步到 GPU 完成。跨库结果取三次独立进程的中位数再次取中位数；所有场景先通过像素质量门禁，时间才进入比较。数值越低越好。
+以下数据来自同一台 Windows 10、i7-8700、GTX 1060 3GB（驱动 560.94）参考机器，使用 `Release`、`1920 × 1080`、5 帧预热、30 帧计时，并在每帧同步到 GPU 完成。每组比较使用 4 个 ABBA block，即每个 renderer 启动 8 个独立进程；主值为进程中位数，括号为 bootstrap 95% 置信区间。所有场景先通过像素质量门禁，时间才进入比较。数值越低越好。
 
 | 1080p 合同场景 | 负载 | WhatsCanvas OpenGL | NanoVG GL3 | 当前结果 |
 | --- | --- | ---: | ---: | --- |
-| `geometry_stress` | 2304 个动态抗锯齿图形 | **2.742 ms** | 4.124 ms | WhatsCanvas 快 33.5% |
-| `image_grid` | 96 次复用纹理绘制 | **0.295 ms** | 0.329 ms | WhatsCanvas 快 10.3%，绝对差较小 |
-| `contract_text_latin` | 576 次固定 Roboto 拉丁文本绘制 | **3.056 ms** | 3.259 ms | WhatsCanvas 快 6.2%，两者接近 |
+| `geometry_stress` | 2304 个动态抗锯齿图形 | **2.617 ms**（2.572–2.764） | 3.705 ms（3.605–3.807） | NanoVG / WhatsCanvas 配对比 1.407× |
+| `image_grid` | 96 次复用纹理绘制 | **0.272 ms**（0.262–0.304） | 0.383 ms（0.380–0.388） | NanoVG / WhatsCanvas 配对比 1.369× |
+| `contract_text_latin` | 576 次固定 Roboto 拉丁文本绘制 | **2.878 ms**（2.670–3.021） | 3.292 ms（3.255–3.337） | NanoVG / WhatsCanvas 配对比 1.153× |
 
 固定对象数不是唯一证据。参数化矩阵还会改变规模、seed、位置/颜色数据、图元或文本结构、纹理数量和渲染状态。当前 1024 次生成文本绘制的三 seed 标准结果如下：
 
@@ -51,7 +51,7 @@ WhatsCanvas 的公开接口仍然是熟悉的 `Canvas` / `Paint` / `Path` / `Ima
 | `dynamic-data` | 6.26 ms | **5.76 ms** | 每帧改变位置、颜色或文本选择 |
 | `dynamic-structure` | **7.65 ms** | 8.07 ms | 每帧改变文本、字号、样式和部分渲染状态 |
 
-Vulkan 的基础几何、图片和文字路径已经与 OpenGL 接近；复杂图层仍是当前最明确的后端瓶颈。最新的直接图层合成避免了一次全尺寸纹理分配与复制，使 `clip_layers` 从 41.38 ms 降到三进程中位数 31.34 ms（快 24.2%，约 31.9 FPS），但仍慢于 OpenGL 的 16.92 ms。带滤镜的图层为了异步资源生命周期和像素稳定性，仍保留独立纹理路径。
+Vulkan 的基础几何、图片和文字路径已经与 OpenGL 接近。复杂图层新增按几何、coverage 与 transform 生成的双哈希内容签名，稳定裁剪不再因临时资源地址变化而每帧重建全尺寸 mask；渐变裁剪也改为双纹理 GPU 合成，删除 GPU→CPU 读回与再次上传。`clip_layers` 的五个独立 Standard 进程中位数由此前 31.34 ms 降到 **8.80 ms**（本轮范围 7.67–12.16 ms，五次像素哈希一致），同轮 OpenGL 中位数为 18.08 ms。
 
 这些数字描述的是参考机器上的受控场景，不等于所有硬件、后端和工作负载的全局排名。完整口径、原始基线、复现命令和优化过程见 [Performance Benchmarks](doc/PERFORMANCE_BENCHMARKS.md)、[Cross-Library Benchmarks](doc/CROSS_LIBRARY_BENCHMARKS.md) 与 [NanoVG 性能优化实战](doc/NANOVG_PERFORMANCE_OPTIMIZATION.md)。
 
@@ -221,7 +221,7 @@ ctest -C Debug -L smoke --output-on-failure
 - [Blend Mode Audit](doc/BLEND_MODE_AUDIT.md)：记录 `Paint::BlendMode` 到 GL-family blend state 的映射和限制。
 - [Performance Benchmarks](doc/PERFORMANCE_BENCHMARKS.md)：记录统一三后端 1080p 帧性能套件、14 个固定回归场景，以及几何/图片/文字的参数化规模、seed、动态模式矩阵，包含 JSONL、CSV、Markdown 报告和可复现参考基线。
 - [Cross-Library Benchmarks](doc/CROSS_LIBRARY_BENCHMARKS.md)：规定固定场景、字体与图像输入、同步计时、适配器接口和像素质量门禁，避免用降质输出换取跨库性能数字。
-- [NanoVG 对比基线](benchmarks/baselines/cross-library-nanovg-windows-i7-8700-gtx1060/README.md)：保留三轮 1080p Release 同质量对比及全部原始 JSONL，直观展示动态几何、图片和固定字体场景的真实差距。
+- [NanoVG ABBA 对比基线](benchmarks/baselines/cross-library-nanovg-abba-windows-i7-8700-gtx1060/README.md)：保留 48 个 1080p Release 进程的逐帧 JSONL、质量统计、ABBA 配对比和 95% 置信区间。
 - [Effect Regression Matrix](doc/EFFECT_REGRESSION_MATRIX.md)：记录 gradients、shadows、blend modes、strokes 和 dashes 的回归覆盖入口。
 - [Polyline2D 互动教学](doc/polyline/polyline2d_interactive_tutorial.html)：适合理解路径描边、网格生成和相关几何细节。
 - [抗锯齿原理与实现互动教学](doc/anti_aliasing/anti_aliasing_interactive_tutorial.html)：适合理解什么是抗锯齿、不同实现方法和 WhatsCanvas 当前做法。

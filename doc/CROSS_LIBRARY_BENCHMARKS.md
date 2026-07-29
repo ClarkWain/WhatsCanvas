@@ -7,8 +7,9 @@ reports timing only beside the quality result.
 
 The machine-readable contract is
 [`benchmarks/cross_library/contract.json`](../benchmarks/cross_library/contract.json).
-It fixes the 1920 x 1080 default, scene operations, assets, blending and
-sampling requirements, synchronization scope, and per-scene quality limits.
+It fixes the 1920 x 1080 default, scene operations, assets, font SHA-256,
+text sizing/baseline semantics, full-frame draw clear, blending and sampling
+requirements, synchronization scope, and per-scene quality limits.
 
 ## Contract scenes
 
@@ -32,16 +33,28 @@ arguments as `WhatsCanvasPerformanceSuite`:
 --scene SCENE
 --width PIXELS
 --height PIXELS
+--frames COUNT
+--warmup COUNT
+--workload fixed|stable|dynamic-data|dynamic-structure
+--operations COUNT
+--seed VALUE
+--texture-count COUNT
+--rounded-ratio 0..1
+--state-change-rate 0..1
+--text-length COUNT
 --output RESULT.jsonl
 --capture-dir DIRECTORY
 ```
 
 The JSONL output must contain one `metadata` record and one `result` record.
 Metadata must identify the library, version, backend, build type, dimensions,
-sample counts, contract version, and synchronization mode. The required
+sample counts, contract version, clear/text contract fields, parameterized
+workload fields, and synchronization mode. The required
 `synchronization` value is `gpu_complete`; asynchronous submit-only timing and
 Debug builds are rejected. The result must include `scene`,
-`total_median_ms`, `total_p95_ms`, and a non-empty `pixel_hash`.
+`total_median_ms`, `total_p95_ms`, a non-empty `pixel_hash`, and complete
+`record_samples_ms`, `submit_samples_ms`, and `total_samples_ms` arrays whose
+length equals the measured frame count.
 
 The capture is binary RGB8 PPM at:
 
@@ -49,10 +62,12 @@ The capture is binary RGB8 PPM at:
 CAPTURE_DIRECTORY/BACKEND_SCENE.ppm
 ```
 
-Adapters receive the absolute contract path in
-`WHATSCANVAS_CROSS_LIBRARY_CONTRACT`. They should load the declared font and
-procedural image definition from that contract rather than substituting system
-assets.
+Adapters receive the absolute contract path, contract version, and verified
+font digest in `WHATSCANVAS_CROSS_LIBRARY_CONTRACT`,
+`WHATSCANVAS_CROSS_LIBRARY_CONTRACT_VERSION`, and
+`WHATSCANVAS_CROSS_LIBRARY_FONT_SHA256`. The verified absolute font path is
+passed in `WHATSCANVAS_CROSS_LIBRARY_FONT_PATH`. Adapters must use the declared
+font and procedural image definition rather than substituting system assets.
 
 ## Run a comparison
 
@@ -67,16 +82,35 @@ python scripts\cross_library_benchmark.py `
   --output-dir build/cross-library-results
 ```
 
-The runner executes each scene in a fresh process. It rejects mismatched
-resolution, profile, warmup, measured-frame count, contract version, and
-synchronization. It then computes RGB mean absolute error, RMSE, maximum
-channel delta, and the fraction of pixels exceeding the scene's channel
-threshold.
+For every reference/candidate pair, the runner defaults to four independent
+ABBA blocks: `reference, candidate, candidate, reference`. This produces eight
+fresh processes per renderer while balancing startup order and thermal drift.
+It rejects mismatched resolution, profile, warmup, measured-frame count,
+workload parameters, contract version, font hash, clear/text semantics, and
+synchronization. It computes RGB mean absolute error, RMSE, maximum channel
+delta, and the fraction of pixels exceeding the scene's channel threshold.
+The report publishes deterministic bootstrap 95% confidence intervals for
+fresh-process medians and within-block candidate/reference ratios.
 
 Text thresholds allow normal grayscale rasterizer and kerning differences
 between FreeType/HarfBuzz and stb/fontstash implementations. They remain below
 the measured error of an empty background-only capture, so omitting the text
 still fails the quality gate.
+
+Parameterized runs use the same random function and option semantics in the
+WhatsCanvas and NanoVG adapters. For example:
+
+```powershell
+python scripts/cross_library_benchmark.py `
+  --reference "whatscanvas=build/Release/WhatsCanvasPerformanceSuite.exe --backend opengl" `
+  --adapter "nanovg=build/Release/WhatsCanvasNanoVGBenchmarkAdapter.exe --backend opengl" `
+  --scene geometry_stress `
+  --workload dynamic-structure `
+  --operations 4096 `
+  --seed 7 `
+  --state-change-rate 0.0625 `
+  --output-dir build/cross-library-geometry-dynamic
+```
 
 Exit code `0` means every candidate passed its quality gates. Exit code `2`
 means execution was valid but at least one image failed quality. Other nonzero
@@ -103,11 +137,16 @@ python scripts/cross_library_benchmark.py `
 
 The adapter uses NanoVG GL3 with geometry antialiasing and stencil strokes. It
 does not enable NanoVG debug checks or window MSAA. Both sides use the same
-hidden OpenGL 3.3 framebuffer and wait for `glFinish`.
+hidden OpenGL 3.3 framebuffer and wait for `glFinish`. Both record the opaque
+background as a measured full-frame src-over draw; NanoVG's stencil maintenance
+clear is excluded from the Canvas workload interval.
 
 The checked-in
-[Windows i7-8700 / GTX 1060 NanoVG comparison](../benchmarks/baselines/cross-library-nanovg-windows-i7-8700-gtx1060/README.md)
-preserves three independent Standard runs and all raw JSONL records.
+[Windows i7-8700 / GTX 1060 ABBA comparison](../benchmarks/baselines/cross-library-nanovg-abba-windows-i7-8700-gtx1060/README.md)
+preserves all 48 Standard-run JSONL records, including every measured frame,
+plus the machine-readable summary and report. The
+[earlier three-run baseline](../benchmarks/baselines/cross-library-nanovg-windows-i7-8700-gtx1060/README.md)
+remains available as optimization history.
 
 ## Publishing results
 
@@ -117,9 +156,10 @@ A reviewable comparison includes:
 - compiler, optimization flags, device, driver, and operating system;
 - raw JSONL records and PPM captures;
 - the generated `cross-library-report.md`;
+- the generated `cross-library-summary.json`;
 - unsupported scenes explicitly marked as unsupported.
 
 Use the same physical machine, power state, API/backend class, pixel dimensions,
-and standard 30 + 5 profile. Relative timing is candidate median divided by
-reference median, so lower is faster. A failed quality gate invalidates that
-timing comparison.
+and standard 30 + 5 profile. Relative timing is the candidate/reference
+geometric-mean ratio inside each ABBA block, so lower is faster. A failed
+quality gate invalidates that timing comparison.

@@ -1,0 +1,262 @@
+{
+  "schema": 2,
+  "contract": "1.2.0",
+  "reference": "whatscanvas",
+  "profile": "standard",
+  "width": 1920,
+  "height": 1080,
+  "frames": 30,
+  "warmup": 5,
+  "repetitions_per_renderer": 8,
+  "bootstrap_samples": 10000,
+  "font_sha256": "797E35F7F5D6020A5C6EA13B42ECD668BCFB3BBC4BAA0E74773527E5B6CB3174",
+  "workload_arguments": [],
+  "comparisons": [
+    {
+      "scene": "geometry_stress",
+      "reference": "whatscanvas",
+      "candidate": "nanovg",
+      "schedule": [
+        "block-01-01-a",
+        "block-01-02-b",
+        "block-01-03-b",
+        "block-01-04-a",
+        "block-02-01-a",
+        "block-02-02-b",
+        "block-02-03-b",
+        "block-02-04-a",
+        "block-03-01-a",
+        "block-03-02-b",
+        "block-03-03-b",
+        "block-03-04-a",
+        "block-04-01-a",
+        "block-04-02-b",
+        "block-04-03-b",
+        "block-04-04-a"
+      ],
+      "reference_process_medians_ms": [
+        3.19035,
+        2.7641,
+        2.62465,
+        2.6266,
+        2.56385,
+        2.59505,
+        2.572,
+        2.6103
+      ],
+      "candidate_process_medians_ms": [
+        3.80665,
+        3.7564,
+        3.8638,
+        3.60525,
+        3.80055,
+        3.63295,
+        3.6536,
+        3.5649
+      ],
+      "abba_relative_samples": [
+        1.2733897483216798,
+        1.4214852018562076,
+        1.440568002689364,
+        1.3928472190140573
+      ],
+      "candidate_median_ci_ms": [
+        3.60525,
+        3.80665
+      ],
+      "relative_ci": [
+        1.2733897483216798,
+        1.440568002689364
+      ],
+      "quality": {
+        "mean_absolute_error": 0.24217705118312757,
+        "root_mean_square_error": 1.0028471076115522,
+        "max_channel_delta": 22,
+        "changed_pixel_fraction": 0.0,
+        "passed": true
+      },
+      "run_files": [
+        "pair-nanovg/runs/geometry_stress/whatscanvas/block-01-01-a/result.jsonl",
+        "pair-nanovg/runs/geometry_stress/nanovg/block-01-02-b/result.jsonl",
+        "pair-nanovg/runs/geometry_stress/nanovg/block-01-03-b/result.jsonl",
+        "pair-nanovg/runs/geometry_stress/whatscanvas/block-01-04-a/result.jsonl",
+        "pair-nanovg/runs/geometry_stress/whatscanvas/block-02-01-a/result.jsonl",
+        "pair-nanovg/runs/geometry_stress/nanovg/block-02-02-b/result.jsonl",
+        "pair-nanovg/runs/geometry_stress/nanovg/block-02-03-b/result.jsonl",
+        "pair-nanovg/runs/geometry_stress/whatscanvas/block-02-04-a/result.jsonl",
+        "pair-nanovg/runs/geometry_stress/whatscanvas/block-03-01-a/result.jsonl",
+        "pair-nanovg/runs/geometry_stress/nanovg/block-03-02-b/result.jsonl",
+        "pair-nanovg/runs/geometry_stress/nanovg/block-03-03-b/result.jsonl",
+        "pair-nanovg/runs/geometry_stress/whatscanvas/block-03-04-a/result.jsonl",
+        "pair-nanovg/runs/geometry_stress/whatscanvas/block-04-01-a/result.jsonl",
+        "pair-nanovg/runs/geometry_stress/nanovg/block-04-02-b/result.jsonl",
+        "pair-nanovg/runs/geometry_stress/nanovg/block-04-03-b/result.jsonl",
+        "pair-nanovg/runs/geometry_stress/whatscanvas/block-04-04-a/result.jsonl"
+      ]
+    },
+    {
+      "scene": "image_grid",
+      "reference": "whatscanvas",
+      "candidate": "nanovg",
+      "schedule": [
+        "block-01-01-a",
+        "block-01-02-b",
+        "block-01-03-b",
+        "block-01-04-a",
+        "block-02-01-a",
+        "block-02-02-b",
+        "block-02-03-b",
+        "block-02-04-a",
+        "block-03-01-a",
+        "block-03-02-b",
+        "block-03-03-b",
+        "block-03-04-a",
+        "block-04-01-a",
+        "block-04-02-b",
+        "block-04-03-b",
+        "block-04-04-a"
+      ],
+      "reference_process_medians_ms": [
+        0.304,
+        0.26845,
+        0.2617,
+        0.28625,
+        0.33615,
+        0.253,
+        0.27525,
+        0.2661
+      ],
+      "candidate_process_medians_ms": [
+        0.382,
+        0.3877,
+        0.38045,
+        0.3796,
+        0.4028,
+        0.384,
+        0.381,
+        0.38595
+      ],
+      "abba_relative_samples": [
+        1.3471348954366167,
+        1.3884725145148769,
+        1.3486011470878743,
+        1.416908838479769
+      ],
+      "candidate_median_ci_ms": [
+        0.38045,
+        0.3877
+      ],
+      "relative_ci": [
+        1.3471348954366167,
+        1.416908838479769
+      ],
+      "quality": {
+        "mean_absolute_error": 0.274779771090535,
+        "root_mean_square_error": 0.5996309628985703,
+        "max_channel_delta": 38,
+        "changed_pixel_fraction": 0.00019097222222222223,
+        "passed": true
+      },
+      "run_files": [
+        "pair-nanovg/runs/image_grid/whatscanvas/block-01-01-a/result.jsonl",
+        "pair-nanovg/runs/image_grid/nanovg/block-01-02-b/result.jsonl",
+        "pair-nanovg/runs/image_grid/nanovg/block-01-03-b/result.jsonl",
+        "pair-nanovg/runs/image_grid/whatscanvas/block-01-04-a/result.jsonl",
+        "pair-nanovg/runs/image_grid/whatscanvas/block-02-01-a/result.jsonl",
+        "pair-nanovg/runs/image_grid/nanovg/block-02-02-b/result.jsonl",
+        "pair-nanovg/runs/image_grid/nanovg/block-02-03-b/result.jsonl",
+        "pair-nanovg/runs/image_grid/whatscanvas/block-02-04-a/result.jsonl",
+        "pair-nanovg/runs/image_grid/whatscanvas/block-03-01-a/result.jsonl",
+        "pair-nanovg/runs/image_grid/nanovg/block-03-02-b/result.jsonl",
+        "pair-nanovg/runs/image_grid/nanovg/block-03-03-b/result.jsonl",
+        "pair-nanovg/runs/image_grid/whatscanvas/block-03-04-a/result.jsonl",
+        "pair-nanovg/runs/image_grid/whatscanvas/block-04-01-a/result.jsonl",
+        "pair-nanovg/runs/image_grid/nanovg/block-04-02-b/result.jsonl",
+        "pair-nanovg/runs/image_grid/nanovg/block-04-03-b/result.jsonl",
+        "pair-nanovg/runs/image_grid/whatscanvas/block-04-04-a/result.jsonl"
+      ]
+    },
+    {
+      "scene": "contract_text_latin",
+      "reference": "whatscanvas",
+      "candidate": "nanovg",
+      "schedule": [
+        "block-01-01-a",
+        "block-01-02-b",
+        "block-01-03-b",
+        "block-01-04-a",
+        "block-02-01-a",
+        "block-02-02-b",
+        "block-02-03-b",
+        "block-02-04-a",
+        "block-03-01-a",
+        "block-03-02-b",
+        "block-03-03-b",
+        "block-03-04-a",
+        "block-04-01-a",
+        "block-04-02-b",
+        "block-04-03-b",
+        "block-04-04-a"
+      ],
+      "reference_process_medians_ms": [
+        3.01615,
+        2.78385,
+        2.66955,
+        2.9717,
+        2.63325,
+        3.02095,
+        2.77145,
+        3.1106
+      ],
+      "candidate_process_medians_ms": [
+        3.3106,
+        3.29375,
+        3.2852,
+        3.29045,
+        3.3371,
+        3.25535,
+        3.0992,
+        3.39385
+      ],
+      "abba_relative_samples": [
+        1.1395917279590673,
+        1.1673122500341004,
+        1.168599348301559,
+        1.1045757787765595
+      ],
+      "candidate_median_ci_ms": [
+        3.25535,
+        3.3371
+      ],
+      "relative_ci": [
+        1.1045757787765595,
+        1.168599348301559
+      ],
+      "quality": {
+        "mean_absolute_error": 7.744044495884774,
+        "root_mean_square_error": 26.566242800942742,
+        "max_channel_delta": 216,
+        "changed_pixel_fraction": 0.08550925925925926,
+        "passed": true
+      },
+      "run_files": [
+        "pair-nanovg/runs/contract_text_latin/whatscanvas/block-01-01-a/result.jsonl",
+        "pair-nanovg/runs/contract_text_latin/nanovg/block-01-02-b/result.jsonl",
+        "pair-nanovg/runs/contract_text_latin/nanovg/block-01-03-b/result.jsonl",
+        "pair-nanovg/runs/contract_text_latin/whatscanvas/block-01-04-a/result.jsonl",
+        "pair-nanovg/runs/contract_text_latin/whatscanvas/block-02-01-a/result.jsonl",
+        "pair-nanovg/runs/contract_text_latin/nanovg/block-02-02-b/result.jsonl",
+        "pair-nanovg/runs/contract_text_latin/nanovg/block-02-03-b/result.jsonl",
+        "pair-nanovg/runs/contract_text_latin/whatscanvas/block-02-04-a/result.jsonl",
+        "pair-nanovg/runs/contract_text_latin/whatscanvas/block-03-01-a/result.jsonl",
+        "pair-nanovg/runs/contract_text_latin/nanovg/block-03-02-b/result.jsonl",
+        "pair-nanovg/runs/contract_text_latin/nanovg/block-03-03-b/result.jsonl",
+        "pair-nanovg/runs/contract_text_latin/whatscanvas/block-03-04-a/result.jsonl",
+        "pair-nanovg/runs/contract_text_latin/whatscanvas/block-04-01-a/result.jsonl",
+        "pair-nanovg/runs/contract_text_latin/nanovg/block-04-02-b/result.jsonl",
+        "pair-nanovg/runs/contract_text_latin/nanovg/block-04-03-b/result.jsonl",
+        "pair-nanovg/runs/contract_text_latin/whatscanvas/block-04-04-a/result.jsonl"
+      ]
+    }
+  ]
+}

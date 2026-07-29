@@ -250,10 +250,11 @@ workload.
 
 ## Benchmark corrections
 
-- [ ] Use paired ABBA process ordering and publish confidence intervals.
-- [ ] Save per-frame samples and all quality captures.
-- [ ] Use identical clear semantics on both adapters.
-- [ ] Fix font file hash, cap height, baseline, and shaping mode in the contract.
+- [x] Use paired ABBA process ordering and publish confidence intervals.
+- [x] Save per-frame samples and all quality captures.
+- [x] Use identical clear semantics on both adapters.
+- [x] Fix font file hash, size/baseline formulas, and shaping mode in the contract.
+- [x] Implement the same parameterized workload options in the NanoVG adapter.
 - [ ] Split simple Latin kerning from full OpenType shaping.
 - [ ] Replace hand-tuned text thresholds with foreground-region metrics defined
       before measuring a candidate adapter.
