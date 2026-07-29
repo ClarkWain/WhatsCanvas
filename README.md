@@ -33,20 +33,17 @@ WhatsCanvas 的公开接口仍然是熟悉的 `Canvas` / `Paint` / `Path` / `Ima
 | 性能与资源 | 流式顶点缓冲、图片命令保持绘制顺序的 8 槽多纹理合批、批处理专用 sampler、统一圆角图片的原生 shader coverage、路径属性与索引统一上传流、路径命令合批、Vulkan 路径阴影 silhouette 批量提交、内容签名裁剪掩码跨帧复用、复杂裁剪双纹理 GPU 合成、局部阴影栅格化 / GPU 模糊、全局 quad index buffer、离屏 render target 复用池、GPU glyph atlas 复用、indexed glyph lookup、填充三角化 / 描边网格 / 裁剪掩码 LRU 缓存、滤镜调用 / pass / 降采样 / pixel-pass 统计；统一 Release 性能套件以 1920×1080 覆盖 14 个真实帧场景，包括大量多语种文字与混合几何压力，并提供像素质量门禁、ABBA 进程配对、逐帧原始样本和 95% 置信区间的跨库基准契约。 | `WhatsCanvasPerformanceSuite`、`Renderer`、`RenderTargetPool`、`GlyphAtlas`、`LruCache`、`RenderStats` |
 | 诊断与验证 | 同步 / 异步像素回读、PPM 截图、像素哈希、fuzzy PPM 对比、软件后端 golden-image 回归（确定性、无需 GPU）、OpenGL / OpenGLES / Vulkan 滤镜像素一致性门禁、固定时间首帧冒烟、示例构建冒烟、Unicode Bidi conformance、跨平台 CI。 | `readPixelsRGBA`、`readPixelsRGBAAsync`、`savePixelsPPM`、`computePixelsHashRGBA`、`FILTER_PARITY`、`ctest`、`scripts/*_smoke.*` |
 
-## 当前性能
+## 性能表现
 
-WhatsCanvas 使用 1080p 参数化矩阵验证性能，而不是只测一个固定场景。矩阵覆盖几何、图片和文字，分别测试三种规模以及结构稳定、数据变化、结构变化三种负载。最新 OpenGL 对 NanoVG GL3 的结果为 **26 项领先、0 项落后、1 项无明确胜负**，像素质量门禁 **27/27 通过**。
+在 1080p、相同画质的 OpenGL 跨库矩阵中，WhatsCanvas 对比 NanoVG GL3 取得 **26 项领先、0 项落后、1 项持平**，全部 **27 项像素质量验证通过**。
 
-| 代表性 1080p 动态结构负载 | WhatsCanvas OpenGL | NanoVG GL3 | 结果 |
-| --- | ---: | ---: | --- |
-| 1,024 个抗锯齿图形 | **1.730 ms** | 1.906 ms | 快 9.2% |
-| 4,096 个抗锯齿图形 | **5.751 ms** | 6.029 ms | 快 4.6% |
-| 1,024 张图片，32 纹理、50% 圆角 | **1.328 ms** | 1.869 ms | 快 28.9% |
-| 1,024 次生成文本绘制 | **6.886 ms** | 10.132 ms | 快 32.0% |
+| 测试场景 | 压力范围 | 性能表现 |
+| --- | --- | --- |
+| 大量抗锯齿几何 | 256–4,096 个图形，覆盖位置、颜色、图元结构和混合状态变化 | 9 项中 8 项领先、1 项持平，帧时间最多降低 **26.7%** |
+| 大量图片 | 64–1,024 张图片、最多 32 张纹理、50% 圆角，并动态改变内容和状态 | **9/9 全部领先**，帧时间最多降低 **58.5%** |
+| 大量动态文字 | 64–1,024 次绘制，动态改变文本、字号、样式和渲染状态 | **9/9 全部领先**，帧时间最多降低 **32.0%** |
 
-测试环境为 Windows 10、i7-8700、GTX 1060 3GB、OpenGL 3.3、`Release`、`1920 × 1080`。每个矩阵单元使用独立进程 ABBA 配对、GPU 完成同步和 bootstrap 95% 置信区间；只有通过像素质量门禁的数据才参与比较。
-
-这些数字说明 WhatsCanvas 在参考机器和受控负载中具备竞争力，不代表所有硬件、后端和场景的全局排名。完整数据、复现方法和优化记录见 [Performance Benchmarks](doc/PERFORMANCE_BENCHMARKS.md)、[Cross-Library Benchmarks](doc/CROSS_LIBRARY_BENCHMARKS.md) 与 [NanoVG 性能优化实战](doc/NANOVG_PERFORMANCE_OPTIMIZATION.md)。
+这组结果表明 WhatsCanvas 不仅功能完整，在高密度 2D 几何、图片和文字渲染中也具备很强的性能竞争力。测试环境、逐项数据、质量门禁和复现方法见 [完整性能报告](doc/PERFORMANCE_BENCHMARKS.md)，优化过程见 [NanoVG 性能优化实战](doc/NANOVG_PERFORMANCE_OPTIMIZATION.md)。
 
 ## 与常见 2D 图形库的能力参照
 
