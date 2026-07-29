@@ -116,7 +116,13 @@ void RenderContext::applyClipState(const ScissorState &scissor, const ClipMaskSt
 {
     if (!clipMask.hasPaths()) {
         clipMaskActive_ = false;
-        clearClipMask();
+        if (hasClipMaskKey_) {
+            clearClipMask();
+        }
+        if (!scissor.enabled && !scissorEnabled_) {
+            hasScissorRect_ = false;
+            return;
+        }
         applyScissorState(scissor);
         return;
     }
@@ -207,7 +213,7 @@ void RenderContext::applyBlendMode(DrawBlendMode mode) const
         return;
     }
 
-    glBlendEquation(GL_FUNC_ADD);
+    ensureAddBlendEquation();
 
     switch (mode) {
     case DrawBlendMode::SrcOver:
@@ -260,6 +266,14 @@ void RenderContext::applyBlendMode(DrawBlendMode mode) const
     clearTypeBlendModeActive_ = false;
 }
 
+void RenderContext::ensureAddBlendEquation() const
+{
+    if (!addBlendEquationActive_) {
+        glBlendEquation(GL_FUNC_ADD);
+        addBlendEquationActive_ = true;
+    }
+}
+
 bool RenderContext::applyClearTypeBlendMode() const
 {
 #if defined(WHATSCANVAS_OPENGL_ES)
@@ -277,7 +291,7 @@ bool RenderContext::applyClearTypeBlendMode() const
     }
     // source0.rgb is foreground * RGB coverage. source1.rgb is RGB coverage,
     // giving: out = source0 + destination * (1 - source1) per channel.
-    glBlendEquation(GL_FUNC_ADD);
+    ensureAddBlendEquation();
     glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC1_COLOR, GL_ZERO, GL_ONE);
     hasBlendMode_ = false;
     clearTypeBlendModeActive_ = true;
@@ -361,6 +375,7 @@ void RenderContext::resetRenderState() const
     clearClipMask();
     clipMaskActive_ = false;
     hasScissorRect_ = false;
+    addBlendEquationActive_ = false;
     hasBlendMode_ = false;
     clearTypeBlendModeActive_ = false;
     hasBoundTexture_ = false;

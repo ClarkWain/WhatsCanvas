@@ -2016,10 +2016,11 @@ std::vector<PathContour> extractContours(const Path &path)
 {
     std::vector<PathContour> contours;
     PathContour current;
+    current.points.reserve(path.getPoints().size());
 
     auto flushCurrent = [&]() {
         if (!current.points.empty()) {
-            contours.push_back(current);
+            contours.push_back(std::move(current));
             current = PathContour{};
         }
     };
@@ -2558,7 +2559,7 @@ struct Canvas::Impl
     const GraphicsState &currentState() const;
     Paint applyStateToPaint(const Paint &paint) const;
     bool submitSimpleFill(
-        std::vector<crushedpixel::Vec2> points,
+        std::vector<PathContour> contours,
         const Paint &paint);
     bool submitSimpleFillPrimitive(
         const SimpleFillPrimitive &primitive,
@@ -2900,22 +2901,17 @@ Paint Canvas::Impl::applyStateToPaint(const Paint &paint) const
 }
 
 bool Canvas::Impl::submitSimpleFill(
-    std::vector<crushedpixel::Vec2> points,
+    std::vector<PathContour> contours,
     const Paint &paint)
 {
     if (!canUseSimpleFillPath(paint)) {
         return false;
     }
-    if (points.size() < 3 || renderer == nullptr) {
+    if (contours.empty()
+        || contours.front().points.size() < 3
+        || renderer == nullptr) {
         return true;
     }
-
-    std::vector<PathContour> contours;
-    contours.reserve(1);
-    PathContour contour;
-    contour.points = std::move(points);
-    contour.closed = true;
-    contours.push_back(std::move(contour));
 
     glm::mat4 transform = currentState().matrix;
     factorContourTranslation(contours, transform);
@@ -4002,7 +3998,7 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
         && contours.size() == 1u
         && contours.front().closed) {
         if (impl_->submitSimpleFill(
-                std::move(contours.front().points),
+                std::move(contours),
                 paint)) {
             return;
         }

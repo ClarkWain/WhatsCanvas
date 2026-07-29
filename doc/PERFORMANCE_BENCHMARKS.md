@@ -288,46 +288,48 @@ one generic fix: geometry needs less frame compilation and attribute expansion,
 image dynamic-structure needs cheaper barrier-bounded batches, and high-count
 text needs record-path profiling rather than another draw-call optimization.
 
-### Current parameter matrix (`12628e2`)
+### Current parameter matrix
 
 The Standard matrix was rerun after multi-packet topology reuse, GPU shape
 parameters for large affine batches, compact on-demand path gradient storage,
-and persistent OpenGL sprite-sequence state. The same two-block ABBA schedule
-and four fresh processes per renderer were used for every cell. All 27 quality
-gates passed:
+persistent OpenGL sprite-sequence state, short-path allocation cleanup, and
+redundant GL-state removal. The same two-block ABBA schedule and four fresh
+processes per renderer were used for every cell. All 27 quality gates passed:
 
 | Category | WhatsCanvas faster | NanoVG faster | Inconclusive |
 | --- | ---: | ---: | ---: |
-| Geometry | 6 | 2 | 1 |
+| Geometry | 8 | 0 | 1 |
 | Images | 9 | 0 | 0 |
 | Text | 9 | 0 | 0 |
-| **Total** | **24** | **2** | **1** |
+| **Total** | **26** | **0** | **1** |
 
-This run closes every previous image and text loss. Reusing the sprite program,
-VAO, projection, sampler uniforms, sampler bindings, and unchanged texture
-slots across an ordered image sequence makes even the deliberately fragmented
-image workload competitive without reordering transparent draws:
+This run closes every previous conclusive image, text, and geometry loss.
+Reusing the sprite program, VAO, projection, sampler uniforms, sampler
+bindings, and unchanged texture slots across an ordered image sequence makes
+even the deliberately fragmented image workload competitive without
+reordering transparent draws:
 
 | Scene | Mode | Operations | WhatsCanvas | NanoVG | Result |
 | --- | --- | ---: | ---: | ---: | --- |
-| `geometry_stress` | stable | 4,096 | **4.607 ms** | 5.027 ms | WhatsCanvas 8.4% faster |
-| `geometry_stress` | dynamic-data | 4,096 | **4.499 ms** | 4.942 ms | WhatsCanvas 9.0% faster |
-| `image_grid` | dynamic-structure | 1,024 | **1.372 ms** | 1.889 ms | WhatsCanvas 27.4% faster |
-| `contract_text_latin` | dynamic-structure | 1,024 | **6.725 ms** | 10.068 ms | WhatsCanvas 33.2% faster |
+| `geometry_stress` | stable | 4,096 | **3.971 ms** | 5.417 ms | WhatsCanvas 26.7% faster |
+| `geometry_stress` | dynamic-data | 4,096 | **3.893 ms** | 5.175 ms | WhatsCanvas 24.8% faster |
+| `image_grid` | dynamic-structure | 1,024 | **1.328 ms** | 1.869 ms | WhatsCanvas 28.9% faster |
+| `contract_text_latin` | dynamic-structure | 1,024 | **6.886 ms** | 10.132 ms | WhatsCanvas 32.0% faster |
 
-Only two cells remain conclusively slower, both in geometry with per-frame
-primitive selection and blend barriers:
+The two previously slower geometry cells now favor WhatsCanvas:
 
-| Mode | Operations | WhatsCanvas | NanoVG | WhatsCanvas gap |
+| Mode | Operations | WhatsCanvas | NanoVG | Result |
 | --- | ---: | ---: | ---: | ---: |
-| `dynamic-structure` | 1,024 | 1.875 ms | 1.753 ms | 6.8% slower |
-| `dynamic-structure` | 4,096 | 6.242 ms | 5.934 ms | 4.7% slower |
+| `dynamic-structure` | 1,024 | **1.730 ms** | 1.906 ms | WhatsCanvas 9.2% faster |
+| `dynamic-structure` | 4,096 | **5.751 ms** | 6.029 ms | WhatsCanvas 4.6% faster |
 
-At 256 operations the same workload is statistically inconclusive
-(0.824 versus 0.822 ms). The remaining gap is therefore narrow and specific:
-it does not justify weakening AA, changing blend order, or adding benchmark-only
-paths. A future improvement should target the compact per-frame path command
-stream used by many small blend runs.
+At 256 operations the same workload remains statistically inconclusive
+(0.788 versus 0.811 ms). The implementation does not weaken AA, reorder blend
+barriers, or branch on benchmark sizes. It removes general short-path costs:
+`Path` reserves the common compact verb count, contour extraction moves storage
+and reserves from the known verb count, and simple fills consume the parsed
+contour directly. OpenGL also caches the unchanged additive blend equation and
+returns immediately for an already-empty clip/scissor state.
 
 ## Profiles
 
