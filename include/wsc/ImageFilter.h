@@ -1,7 +1,11 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstddef>
+#include <utility>
+#include <vector>
 
 #include "Color.h"
 #include "Export.h"
@@ -230,6 +234,137 @@ private:
 static_assert(sizeof(ImageFilter) == 32,
               "ImageFilter must retain its public blur-only ABI size");
 
+/// An ordered, bounded image-filter pipeline.
+///
+/// Blur and inner shadow retain the compact ImageFilter value ABI. Generic
+/// color-matrix and offset nodes live in this explicit chain so their larger
+/// payloads do not add pointers or ownership to every ImageFilter value.
+class WSC_API ImageFilterChain
+{
+public:
+    static constexpr std::size_t kMaxNodes = 8;
+
+    enum class NodeType
+    {
+        ImageFilter,
+        ColorMatrix,
+        Offset,
+    };
+
+    struct Node
+    {
+        NodeType type = NodeType::ImageFilter;
+        ImageFilter imageFilter;
+        std::array<float, 20> colorMatrix = {
+            1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+            0.0f, 1.0f, 0.0f, 0.0f, 0.0f,
+            0.0f, 0.0f, 1.0f, 0.0f, 0.0f,
+            0.0f, 0.0f, 0.0f, 1.0f, 0.0f,
+        };
+        float offsetX = 0.0f;
+        float offsetY = 0.0f;
+    };
+
+    ImageFilterChain() = default;
+    explicit ImageFilterChain(const ImageFilter &filter)
+    {
+        append(filter);
+    }
+
+    ImageFilterChain &append(const ImageFilter &filter)
+    {
+        if (!filter.isValid() || nodes_.size() >= kMaxNodes) {
+            return *this;
+        }
+        Node node;
+        node.type = NodeType::ImageFilter;
+        node.imageFilter = filter;
+        nodes_.push_back(std::move(node));
+        return *this;
+    }
+
+    /// Append a row-major 4x5 RGBA matrix. The fifth element of every row is
+    /// an additive normalized-channel offset.
+    ImageFilterChain &appendColorMatrix(
+        const std::array<float, 20> &matrix)
+    {
+        if (nodes_.size() >= kMaxNodes
+            || !std::all_of(
+                matrix.begin(), matrix.end(),
+                [](float value) { return std::isfinite(value); })) {
+            return *this;
+        }
+        Node node;
+        node.type = NodeType::ColorMatrix;
+        node.colorMatrix = matrix;
+        nodes_.push_back(std::move(node));
+        return *this;
+    }
+
+    /// Translate the filtered image. Pixels exposed outside the source bounds
+    /// are transparent (Decal semantics).
+    ImageFilterChain &appendOffset(float dx, float dy)
+    {
+        if (nodes_.size() >= kMaxNodes
+            || !std::isfinite(dx) || !std::isfinite(dy)) {
+            return *this;
+        }
+        Node node;
+        node.type = NodeType::Offset;
+        node.offsetX = std::clamp(
+            dx, -ImageFilter::kMaxShadowOffset,
+            ImageFilter::kMaxShadowOffset);
+        node.offsetY = std::clamp(
+            dy, -ImageFilter::kMaxShadowOffset,
+            ImageFilter::kMaxShadowOffset);
+        nodes_.push_back(std::move(node));
+        return *this;
+    }
+
+    std::size_t size() const { return nodes_.size(); }
+    bool empty() const { return nodes_.empty(); }
+    bool isValid() const { return !nodes_.empty(); }
+    const Node &operator[](std::size_t index) const
+    {
+        return nodes_[index];
+    }
+
+    float samplingOutset() const
+    {
+        float outset = 0.0f;
+        for (std::size_t index = 0; index < nodes_.size(); ++index) {
+            const Node &node = nodes_[index];
+            if (node.type == NodeType::ImageFilter) {
+                outset += node.imageFilter.samplingOutset();
+            } else if (node.type == NodeType::Offset) {
+                outset += std::max(
+                    std::abs(node.offsetX),
+                    std::abs(node.offsetY));
+            }
+        }
+        return outset;
+    }
+
+    float outputOutset() const
+    {
+        float outset = 0.0f;
+        for (std::size_t index = 0; index < nodes_.size(); ++index) {
+            const Node &node = nodes_[index];
+            if (node.type == NodeType::ImageFilter) {
+                outset += node.imageFilter.outputOutset();
+            } else if (node.type == NodeType::Offset) {
+                outset += std::max(
+                    std::abs(node.offsetX),
+                    std::abs(node.offsetY));
+            }
+        }
+        return outset;
+    }
+
+private:
+    std::vector<Node> nodes_;
+};
+
 /// Optional effects attached to a saveLayer operation.
 ///
 /// `imageFilter` processes the layer's own content. `backdropFilter` processes
@@ -240,23 +375,56 @@ public:
     LayerOptions &setImageFilter(const ImageFilter &filter)
     {
         imageFilter_ = filter;
+        imageFilterChain_ = ImageFilterChain(filter);
+        return *this;
+    }
+
+    LayerOptions &setImageFilter(const ImageFilterChain &filters)
+    {
+        imageFilter_ = filters.empty()
+            || filters[0].type != ImageFilterChain::NodeType::ImageFilter
+            ? ImageFilter() : filters[0].imageFilter;
+        imageFilterChain_ = filters;
         return *this;
     }
 
     LayerOptions &setBackdropFilter(const ImageFilter &filter)
     {
         backdropFilter_ = filter;
+        backdropFilterChain_ = ImageFilterChain(filter);
+        return *this;
+    }
+
+    LayerOptions &setBackdropFilter(const ImageFilterChain &filters)
+    {
+        backdropFilter_ = filters.empty()
+            || filters[0].type != ImageFilterChain::NodeType::ImageFilter
+            ? ImageFilter() : filters[0].imageFilter;
+        backdropFilterChain_ = filters;
         return *this;
     }
 
     const ImageFilter &imageFilter() const { return imageFilter_; }
     const ImageFilter &backdropFilter() const { return backdropFilter_; }
-    bool hasImageFilter() const { return imageFilter_.isValid(); }
-    bool hasBackdropFilter() const { return backdropFilter_.isValid(); }
+    const ImageFilterChain &imageFilterChain() const
+    {
+        return imageFilterChain_;
+    }
+    const ImageFilterChain &backdropFilterChain() const
+    {
+        return backdropFilterChain_;
+    }
+    bool hasImageFilter() const { return imageFilterChain_.isValid(); }
+    bool hasBackdropFilter() const
+    {
+        return backdropFilterChain_.isValid();
+    }
 
 private:
     ImageFilter imageFilter_;
     ImageFilter backdropFilter_;
+    ImageFilterChain imageFilterChain_;
+    ImageFilterChain backdropFilterChain_;
 };
 
 } // namespace wsc

@@ -1,3 +1,4 @@
+#include <array>
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
@@ -345,6 +346,44 @@ int main()
                     "Decal bilinear sampling should mix one transparent edge tap") && ok;
         ok = expect(center[0] == 255,
                     "half-pixel inner shadow should preserve the center") && ok;
+    }
+
+    const std::array<float, 20> redToGreen = {
+        0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+        1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f, 0.0f,
+    };
+    wsc::ImageFilterChain chain;
+    chain.appendColorMatrix(redToGreen).appendOffset(8.0f, 6.0f);
+    wsc::LayerOptions chainOptions;
+    chainOptions.setImageFilter(chain);
+    wsc::Paint red = white;
+    red.setColor(wsc::Color(255, 0, 0, 255));
+    canvas->beginFrame();
+    canvas->drawRect(
+        wsc::RectF(0.0f, 0.0f, static_cast<float>(kWidth),
+                   static_cast<float>(kHeight)),
+        black);
+    canvas->saveLayer(
+        wsc::RectF(0.0f, 0.0f, static_cast<float>(kWidth),
+                   static_cast<float>(kHeight)),
+        layerPaint, chainOptions);
+    canvas->drawRect(wsc::RectF(24.0f, 24.0f, 24.0f, 24.0f), red);
+    canvas->restore();
+    canvas->endFrame();
+    pixels.clear();
+    ok = expect(canvas->readPixelsRGBA(pixels),
+                "composable filter readback should succeed") && ok;
+    if (ok) {
+        const unsigned char *shifted = pixelAt(40, 38);
+        const unsigned char *oldPosition = pixelAt(27, 27);
+        ok = expect(shifted[0] < 3 && shifted[1] > 252
+                        && shifted[2] < 3 && shifted[3] > 252,
+                    "OpenGL should execute color matrix before offset") && ok;
+        ok = expect(oldPosition[0] < 3 && oldPosition[1] < 3
+                        && oldPosition[2] < 3,
+                    "OpenGL offset should expose the background at the old position") && ok;
     }
 
     canvas.reset();

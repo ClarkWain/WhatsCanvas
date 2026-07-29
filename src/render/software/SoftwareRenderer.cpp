@@ -1,6 +1,7 @@
 #include "SoftwareRenderer.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <iterator>
@@ -1913,6 +1914,18 @@ SharedImageResource SoftwareRenderer::filterImageResource(const SharedImageResou
         width, height, std::move(filtered), ImageAlphaType::Straight);
 }
 
+void SoftwareRenderer::recordGenericFilterPass(
+    int width, int height) const
+{
+    ++stats_.filterCount;
+    ++stats_.filterPassCount;
+    const std::size_t pixels =
+        static_cast<std::size_t>(std::max(width, 0))
+        * static_cast<std::size_t>(std::max(height, 0));
+    stats_.filterInputPixelCount += pixels;
+    stats_.filterPixelPassCount += pixels;
+}
+
 void SoftwareRenderer::resetRenderState() {}
 
 void SoftwareRenderer::clear()
@@ -1922,6 +1935,7 @@ void SoftwareRenderer::clear()
 
 void SoftwareRenderer::flush()
 {
+    const auto start = std::chrono::steady_clock::now();
     ensureFramebuffer();
     if (width_ <= 0 || height_ <= 0) {
         return;
@@ -1931,6 +1945,13 @@ void SoftwareRenderer::flush()
     stats_.drawCallCount += commands_.size();
     ClipCache cache;
     executeCommandList(framebuffer_.data(), width_, height_, height_, glm::mat4(1.0f), commands_, &cache);
+    const auto end = std::chrono::steady_clock::now();
+    const std::uint64_t elapsedNs = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            end - start).count());
+    stats_.flushCpuTimeNs += elapsedNs;
+    stats_.deviceExecutionCpuTimeNs += elapsedNs;
+    stats_.compiledPacketCount += commands_.size();
 }
 
 bool SoftwareRenderer::supportsPresentation() const

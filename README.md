@@ -26,16 +26,17 @@ WhatsCanvas 的公开接口仍然是熟悉的 `Canvas` / `Paint` / `Path` / `Ima
 | 路径与几何 | `Path` 构建、曲线 flatten、路径 bounds、fill/stroke hit-test、stroke bounds、虚线、圆角路径效果、Polyline2D 描边网格。 | `Path`、`measureStrokeBounds`、`hitTestPathFill`、`hitTestPathStroke`、`Paint::setDashPathEffect` |
 | 绘制样式 | 填充、描边、透明度、逐 `Paint` 解析抗锯齿、线性 / 径向 / 多 stop 渐变、混合模式、真高斯模糊阴影（填充 / 描边 / 文本）、采样质量、图像 tile mode、颜色矩阵。 | `Paint`、`setAntiAlias`、`setLinearGradient`、`setRadialGradient`、`setBlendMode`、`setShadowLayer`、`setColorMatrix` |
 | Canvas 状态 | `save` / `restore`、矩阵变换、矩形裁剪、抗锯齿路径裁剪、`saveLayer` 离屏层、render-target canvas、clip 查询、quick reject。 | `save`、`restore`、`translate`、`scale`、`rotate`、`clipRect`、`clipPath`、`saveLayer`、`quickReject` |
-| 图像滤镜与合成 | `ImageFilter` 图层滤镜、真正采样已绘制背景的 backdrop blur、基于图层轮廓且不向外溢出的内阴影、半径 / sigma 两种模糊参数、模糊后饱和度 / 亮度 / 对比度调整、稳定单色颗粒、毛玻璃预设、Clamp / Decal 边界模式；Software 提供确定性参考实现，OpenGL / OpenGLES / Vulkan 使用 GPU 卷积，并对大面积高半径模糊按轴自适应使用 2x 降采样和全分辨率恢复。 | `ImageFilter::blur`、`ImageFilter::blurSigma`、`ImageFilter::innerShadow`、`ImageFilter::innerShadowSigma`、`ImageFilter::frostedGlass`、`setColorAdjustment`、`setGrain`、`LayerOptions::setImageFilter`、`LayerOptions::setBackdropFilter`、`saveLayer` |
+| 图像滤镜与合成 | `ImageFilter` 图层滤镜、真正采样已绘制背景的 backdrop blur、基于图层轮廓且不向外溢出的内阴影、半径 / sigma 两种模糊参数、模糊后饱和度 / 亮度 / 对比度调整、稳定单色颗粒、毛玻璃预设、Clamp / Decal 边界模式；`ImageFilterChain` 可按顺序组合模糊、内阴影、4×5 颜色矩阵和透明边界位移节点。Software 提供确定性参考实现，OpenGL / OpenGLES / Vulkan 使用 GPU 卷积，并对大面积高半径模糊按轴自适应使用 2x 降采样和全分辨率恢复。 | `ImageFilter::blur`、`ImageFilter::innerShadow`、`ImageFilter::frostedGlass`、`ImageFilterChain::append`、`appendColorMatrix`、`appendOffset`、`LayerOptions::setImageFilter`、`LayerOptions::setBackdropFilter`、`saveLayer` |
 | 图像与纹理 | 文件解码、encoded memory、raw RGBA、外部纹理包装、整图替换、局部更新、contain / cover / fill 布局、锚点、九宫格、圆角裁剪、圆形裁剪、平铺绘制。 | `Image`、`drawImage`、`drawImageFit`、`drawImageNinePatch`、`drawImageRounded`、`drawImageCircle`、`drawImageTiled`、`wrapExternalTexture` |
 | 字体与文本 | 系统字体发现 + fallback chain、weight/slant 匹配、TrueType/TTC/内存字体与 collection face index、FreeType（不可用回退 stb）glyph lookup/metrics/kerning/栅格化、HarfBuzz shaping（回退 simple shaping）、多字体 fallback 分段、GPU glyph atlas（dirty-rect 更新 + resize-before-evict + 统计）、COLR/CPAL v0 彩色字形、UTF-8 布局 + CJK 无空格折行 + 省略号 + baseline + letter spacing、渐变/描边/阴影文本、text-on-path、缺字与回退诊断、Unicode UAX #9 全量通过。 | `FontSystem`、`FontFace`、`FontManager`、`FontFallbackChain`、`registerFontFace`、`setFontFallbackChain`、`drawText`、`drawTextBox`、`layoutTextBox`、`drawTextOnPath`、`measureTextMetrics` |
 | 渲染后端 | 桌面 OpenGL 主路径、OpenGLES 目标、纯 CPU 软件后端（零 GPU 依赖、可在无图形栈环境运行）、可选 Vulkan 后端（默认离屏，Windows 支持 Canvas 窗口呈现）、共享 GL-family 后端、proc-address 注入、上下文生命周期、资源释放与重建、shader portability。 | `Canvas::loadOpenGL`、`Canvas::create`、`Canvas::isBackendAvailable`、`WhatsCanvas::OpenGL`、`WhatsCanvas::OpenGLES`、`WhatsCanvas::Software`、`initializeContext`、`releaseResources` |
-| 性能与资源 | 流式顶点缓冲、图片命令保持绘制顺序的 8 槽多纹理合批、批处理专用 sampler、统一圆角图片的原生 shader coverage、路径属性与索引统一上传流、路径命令合批、Vulkan 路径阴影 silhouette 批量提交、内容签名裁剪掩码跨帧复用、复杂裁剪双纹理 GPU 合成、局部阴影栅格化 / GPU 模糊、全局 quad index buffer、离屏 render target 复用池、GPU glyph atlas 复用、indexed glyph lookup、填充三角化 / 描边网格 / 裁剪掩码 LRU 缓存、滤镜调用 / pass / 降采样 / pixel-pass 统计；统一 Release 性能套件以 1920×1080 覆盖 14 个真实帧场景，包括大量多语种文字与混合几何压力，并提供像素质量门禁、ABBA 进程配对、逐帧原始样本和 95% 置信区间的跨库基准契约。 | `WhatsCanvasPerformanceSuite`、`Renderer`、`RenderTargetPool`、`GlyphAtlas`、`LruCache`、`RenderStats` |
+| 性能与资源 | 流式顶点缓冲、图片命令保持绘制顺序的 8 槽多纹理合批、路径属性与索引统一上传流、局部阴影栅格化 / GPU 模糊、离屏 render target 池、glyph atlas 与网格 LRU 缓存；`FrameCompiler` 为 OpenGL 离屏和 Vulkan lowering 提供共享紧凑包契约。`RenderStats` 区分 flush CPU、FrameCompiler CPU、设备执行 CPU 和延迟 GPU timer，并报告包数、上传字节与引擎可追踪资源内存。1080p Release 套件提供像素门禁、ABBA 进程配对、逐帧样本和 95% 置信区间。 | `WhatsCanvasPerformanceSuite`、`FrameCompiler`、`Renderer`、`RenderTargetPool`、`GlyphAtlas`、`LruCache`、`RenderStats` |
 | 诊断与验证 | 同步 / 异步像素回读、PPM 截图、像素哈希、fuzzy PPM 对比、软件后端 golden-image 回归（确定性、无需 GPU）、OpenGL / OpenGLES / Vulkan 滤镜像素一致性门禁、固定时间首帧冒烟、示例构建冒烟、Unicode Bidi conformance、跨平台 CI。 | `readPixelsRGBA`、`readPixelsRGBAAsync`、`savePixelsPPM`、`computePixelsHashRGBA`、`FILTER_PARITY`、`ctest`、`scripts/*_smoke.*` |
 
 ## 性能表现
 
-在 1080p、相同画质的 OpenGL 跨库矩阵中，WhatsCanvas 对比 NanoVG GL3 取得 **26 项领先、0 项落后、1 项持平**，全部 **27 项像素质量验证通过**。
+<!-- PERFORMANCE_CLAIM baseline=benchmarks/baselines/nanovg-win-i7-8700-gtx1060/matrix-summary.json wins=26 losses=0 inconclusive=1 quality=27/27 -->
+在当前已提交、可复核的 1080p 同画质 OpenGL 跨库矩阵中，WhatsCanvas 对比 NanoVG GL3 取得 **26 项领先、0 项落后、1 项持平**，全部 **27 项像素质量验证通过**。公开数字由 CI 与仓库中的逐帧样本、质量结果和置信区间自动核对。
 
 | 测试场景 | 压力范围 | 性能表现 |
 | --- | --- | --- |
@@ -43,7 +44,7 @@ WhatsCanvas 的公开接口仍然是熟悉的 `Canvas` / `Paint` / `Path` / `Ima
 | 大量图片 | 64–1,024 张图片、最多 32 张纹理、50% 圆角，并动态改变内容和状态 | **9/9 全部领先**，帧时间最多降低 **58.5%** |
 | 大量动态文字 | 64–1,024 次绘制，动态改变文本、字号、样式和渲染状态 | **9/9 全部领先**，帧时间最多降低 **32.0%** |
 
-这组结果表明 WhatsCanvas 不仅功能完整，在高密度 2D 几何、图片和文字渲染中也具备很强的性能竞争力。测试环境、逐项数据、质量门禁和复现方法见 [完整性能报告](doc/PERFORMANCE_BENCHMARKS.md)，优化过程见 [NanoVG 性能优化实战](doc/NANOVG_PERFORMANCE_OPTIMIZATION.md)。
+这组结果表明 WhatsCanvas 在高密度 2D 几何、图片和文字渲染中具备很强的性能竞争力。测试环境、逐项数据、质量门禁和复现方法见 [完整性能报告](doc/PERFORMANCE_BENCHMARKS.md)，当前可审计原始基线见 [NanoVG 参数矩阵](benchmarks/baselines/nanovg-win-i7-8700-gtx1060/README.md)。
 
 ## 与常见 2D 图形库的能力参照
 
@@ -231,6 +232,7 @@ cmake --build build --target WhatsCanvasCheckApiReference
 
 ```bat
 cmake --build build --target WhatsCanvasCheckVersionConsistency
+cmake --build build --target WhatsCanvasCheckPerformanceClaims
 cmake --build build --target WhatsCanvasCheckPackageConsumer
 ```
 

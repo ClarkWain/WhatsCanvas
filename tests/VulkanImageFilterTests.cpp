@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <iostream>
 #include <vector>
@@ -177,6 +178,48 @@ bool renderImageFilterLayerScene(wsc::Canvas::Backend backend, int width, int he
         wsc::RectF(0.0f, static_cast<float>(height / 2),
                    static_cast<float>(width), static_cast<float>(height / 2)),
         bottom);
+    canvas->restore();
+    canvas->endFrame();
+    return canvas->readPixelsRGBA(pixels);
+}
+
+bool renderComposableFilterScene(
+    wsc::Canvas::Backend backend, int width, int height,
+    std::vector<unsigned char> &pixels)
+{
+    auto canvas = wsc::Canvas::create(backend, width, height);
+    if (!canvas || !canvas->initializeContext()) {
+        return false;
+    }
+    const std::array<float, 20> redToGreen = {
+        0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+        1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f, 0.0f,
+    };
+    wsc::ImageFilterChain filters;
+    filters.appendColorMatrix(redToGreen)
+        .appendOffset(8.0f, 6.0f);
+    wsc::LayerOptions options;
+    options.setImageFilter(filters);
+    wsc::Paint black;
+    black.setColor(wsc::Color(0, 0, 0, 255));
+    black.setAntiAlias(false);
+    wsc::Paint red = black;
+    red.setColor(wsc::Color(255, 0, 0, 255));
+    wsc::Paint composite;
+    composite.setColor(wsc::Color::WHITE);
+
+    canvas->beginFrame();
+    canvas->drawRect(
+        wsc::RectF(0.0f, 0.0f, static_cast<float>(width),
+                   static_cast<float>(height)),
+        black);
+    canvas->saveLayer(
+        wsc::RectF(0.0f, 0.0f, static_cast<float>(width),
+                   static_cast<float>(height)),
+        composite, options);
+    canvas->drawRect(wsc::RectF(16.0f, 16.0f, 16.0f, 16.0f), red);
     canvas->restore();
     canvas->endFrame();
     return canvas->readPixelsRGBA(pixels);
@@ -782,6 +825,35 @@ int main()
         }
         ok = expect(vulkanPixels.size() == softwarePixels.size(),
                     "public image-filter parity image sizes differ") && ok;
+    }
+
+    {
+        constexpr int width = 64;
+        constexpr int height = 64;
+        std::vector<unsigned char> vulkanPixels;
+        std::vector<unsigned char> softwarePixels;
+        ok = expect(renderComposableFilterScene(
+                        wsc::Canvas::Backend::Vulkan,
+                        width, height, vulkanPixels),
+                    "Vulkan composable filter scene failed") && ok;
+        ok = expect(renderComposableFilterScene(
+                        wsc::Canvas::Backend::Software,
+                        width, height, softwarePixels),
+                    "Software composable filter scene failed") && ok;
+        if (!vulkanPixels.empty()) {
+            const auto *shifted =
+                pixelAt(vulkanPixels, width, 28, 26);
+            const auto *oldPosition =
+                pixelAt(vulkanPixels, width, 18, 18);
+            ok = expect(shifted[0] < 4 && shifted[1] > 251
+                            && shifted[2] < 4,
+                        "Vulkan should execute color matrix before offset") && ok;
+            ok = expect(oldPosition[0] < 4 && oldPosition[1] < 4
+                            && oldPosition[2] < 4,
+                        "Vulkan offset should expose the background") && ok;
+        }
+        ok = expect(vulkanPixels == softwarePixels,
+                    "composable filter output should exactly match Software") && ok;
     }
 
     {

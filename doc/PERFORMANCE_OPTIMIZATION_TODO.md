@@ -242,7 +242,11 @@ by 46.8%, and captured hashes remained unchanged.
 ## P1: preserve semantic primitives
 
 - [ ] Record Rect, RRect, Circle, Oval, GlyphRun, and Image as typed commands.
-- [ ] Add a `FrameCompiler` producing compact draw packets backed by frame arenas.
+- [x] Add a `FrameCompiler` producing and measuring backend-neutral compact
+      draw packets. OpenGL full-canvas offscreen replay consumes the portable
+      output with a correctness fallback, while Vulkan retains its optimized
+      lowering and reports the same packet/byte contract. Frame arenas remain
+      a separate allocation optimization.
 - [ ] Use indexed convex fills and contour AA strips. Pass 2 indexes the
       existing AA triangle ordering and removes duplicate vertices; producing
       the fill and fringe directly from contours remains.

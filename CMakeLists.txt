@@ -77,8 +77,23 @@ if (Python3_Interpreter_FOUND)
         COMMENT "Checking release version metadata consistency"
         VERBATIM
     )
+    add_custom_target(WhatsCanvasCheckPerformanceClaims
+        COMMAND ${Python3_EXECUTABLE} scripts/performance_claims_check.py
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "Checking public performance claims against benchmark evidence"
+        VERBATIM
+    )
+    if (BUILD_TESTING)
+        add_test(NAME WhatsCanvasPerformanceClaimsCheck
+            COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/scripts/performance_claims_check.py
+        )
+        set_tests_properties(WhatsCanvasPerformanceClaimsCheck PROPERTIES
+            LABELS "smoke;performance;docs"
+        )
+    endif()
 else()
-    message(STATUS "Python3 interpreter not found; API reference and version consistency targets are disabled.")
+    message(STATUS "Python3 interpreter not found; API, version, and performance evidence targets are disabled.")
 endif()
 
 if (WIN32)
