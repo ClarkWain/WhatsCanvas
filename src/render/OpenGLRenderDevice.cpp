@@ -67,6 +67,7 @@ public:
     ImageAlphaType alphaType() const override { return alphaType_; }
     void setAlphaType(ImageAlphaType alphaType) { alphaType_ = alphaType; }
     bool isAlphaOnly() const override { return alphaOnly_; }
+    ImageResourceHandle nativeHandle() const override { return handle_; }
 
     void bind(const RenderContext &context) const override
     {

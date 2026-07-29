@@ -253,24 +253,22 @@ void DrawPathProgram::initialize()
     // Create the VAO
     glGenVertexArrays(1, &VAO_);
 
-    // Initialize stream buffers
-    positionBuffer_.initialize(4096);
-    colorBuffer_.initialize(8192);
-    coverageBuffer_.initialize(2048);
-    indexBuffer_.initialize(4096);
+    // Positions, colors, coverage and indices share one frame stream. This
+    // avoids orphaning four separate GL buffers at every frame boundary.
+    geometryBuffer_.initialize(16384);
 
     // Bind the VAO and configure vertex attributes
     glBindVertexArray(VAO_);
 
-    glBindBuffer(GL_ARRAY_BUFFER, positionBuffer_.handle());
+    glBindBuffer(GL_ARRAY_BUFFER, geometryBuffer_.handle());
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
 
-    glBindBuffer(GL_ARRAY_BUFFER, colorBuffer_.handle());
+    glBindBuffer(GL_ARRAY_BUFFER, geometryBuffer_.handle());
     glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(1);
 
-    glBindBuffer(GL_ARRAY_BUFFER, coverageBuffer_.handle());
+    glBindBuffer(GL_ARRAY_BUFFER, geometryBuffer_.handle());
     glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, sizeof(float), (void*)0);
     glEnableVertexAttribArray(2);
 
@@ -291,10 +289,7 @@ void DrawPathProgram::release()
     if (VAO_ != -1)
         glDeleteVertexArrays(1, &VAO_);
 
-    positionBuffer_.release();
-    colorBuffer_.release();
-    coverageBuffer_.release();
-    indexBuffer_.release();
+    geometryBuffer_.release();
     gradientStopBuffer_.release();
 
     initialized_ = false;
@@ -305,10 +300,7 @@ void DrawPathProgram::beginFrame()
     frameUploadCount_ = 0;
     frameUploadBytes_ = 0;
     frameIndexBytes_ = 0;
-    positionBuffer_.beginFrame();
-    colorBuffer_.beginFrame();
-    coverageBuffer_.beginFrame();
-    indexBuffer_.beginFrame();
+    geometryBuffer_.beginFrame();
 }
 
 void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &data)
@@ -343,28 +335,48 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
             return;
         }
     }
+    std::size_t packetBytes =
+        points.size() * sizeof(float);
+    if (data.hasPackedVertexColors()) {
+        packetBytes += data.packedColors.size();
+    } else if (data.hasFloatVertexColors()) {
+        packetBytes += data.colors.size() * sizeof(float);
+    }
+    if (data.hasPackedCoverage()) {
+        packetBytes += data.packedCoverage.size();
+    } else if (data.hasFloatCoverage()) {
+        packetBytes += coverageData.size() * sizeof(float);
+    }
+    if (data.hasIndices()) {
+        packetBytes += data.hasShortIndices()
+            ? data.shortIndices.size() * sizeof(std::uint16_t)
+            : indexData.size() * sizeof(std::uint32_t);
+    }
+    // Leave room for alignment between the four packet sections.
+    geometryBuffer_.reserveAdditionalBytes(packetBytes + 16u);
+
     const StreamBuffer::UploadRange positions =
-        positionBuffer_.uploadRange(points.data(), points.size());
+        geometryBuffer_.uploadRange(points.data(), points.size());
     ++frameUploadCount_;
     frameUploadBytes_ += points.size() * sizeof(float);
 
     StreamBuffer::UploadRange colors;
     if (data.hasPackedVertexColors()) {
-        colors = colorBuffer_.uploadRange(
+        colors = geometryBuffer_.uploadRange(
             data.packedColors.data(),
             data.packedColors.size());
         ++frameUploadCount_;
         frameUploadBytes_ += data.packedColors.size();
     } else if (data.hasFloatVertexColors()) {
         if (data.vertexColorsLinear) {
-            colors = colorBuffer_.uploadRange(
+            colors = geometryBuffer_.uploadRange(
                 data.colors.data(), data.colors.size());
         } else {
             std::vector<float> linearColors = data.colors;
             for (std::size_t i = 0; i + 3 < linearColors.size(); i += 4) {
                 GammaCorrect::srgbToLinear4(linearColors.data() + i);
             }
-            colors = colorBuffer_.uploadRange(
+            colors = geometryBuffer_.uploadRange(
                 linearColors.data(), linearColors.size());
         }
         ++frameUploadCount_;
@@ -373,13 +385,13 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
 
     StreamBuffer::UploadRange coverage;
     if (data.hasPackedCoverage()) {
-        coverage = coverageBuffer_.uploadRange(
+        coverage = geometryBuffer_.uploadRange(
             data.packedCoverage.data(),
             data.packedCoverage.size());
         ++frameUploadCount_;
         frameUploadBytes_ += data.packedCoverage.size();
     } else if (data.hasFloatCoverage()) {
-        coverage = coverageBuffer_.uploadRange(
+        coverage = geometryBuffer_.uploadRange(
             coverageData.data(), coverageData.size());
         ++frameUploadCount_;
         frameUploadBytes_ += coverageData.size() * sizeof(float);
@@ -388,11 +400,11 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
     StreamBuffer::UploadRange indices;
     if (data.hasIndices()) {
         if (data.hasShortIndices()) {
-            indices = indexBuffer_.uploadRange(
+            indices = geometryBuffer_.uploadRange(
                 data.shortIndices.data(),
                 data.shortIndices.size());
         } else {
-            indices = indexBuffer_.uploadRange(
+            indices = geometryBuffer_.uploadRange(
                 indexData.data(), indexData.size());
         }
         ++frameUploadCount_;

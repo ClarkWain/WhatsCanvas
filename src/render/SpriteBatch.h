@@ -11,7 +11,7 @@ class ImageResource;
 class GLProgram;
 enum class DrawBlendMode;
 
-/// A batch renderer for drawing many sprites with the same texture
+/// A batch renderer for drawing many sprites with a small ordered texture set
 /// in a single draw call. Instead of issuing one draw call per sprite,
 /// SpriteBatch accumulates vertex data and flushes all at once.
 ///
@@ -25,6 +25,8 @@ enum class DrawBlendMode;
 class SpriteBatch
 {
 public:
+    static constexpr std::size_t kMaxTextures = 8u;
+
     SpriteBatch();
     ~SpriteBatch();
 
@@ -37,6 +39,10 @@ public:
     /// Get the current texture.
     const std::shared_ptr<ImageResource> &texture() const { return texture_; }
 
+    /// Return the texture slot for an expanded sprite, or -1 when this batch
+    /// has no remaining slot or the resource has no OpenGL-native handle.
+    int addTexture(const std::shared_ptr<ImageResource> &texture);
+
     /// Add a sprite (quad) to the batch.
     /// Each sprite is 4 indexed vertices. Per-vertex data also carries
     /// normalized quad coordinates and uniform rounded-clip parameters.
@@ -44,7 +50,8 @@ public:
              float u0, float v0, float u1, float v1,
              float r, float g, float b, float a,
              const glm::mat4 &transform = glm::mat4(1.0f),
-             float roundedRadius = 0.0f);
+             float roundedRadius = 0.0f,
+             int textureSlot = 0);
 
     /// Add an atlas quad using one compact instance instead of four expanded
     /// vertices. Intended for alpha-only glyph textures.
@@ -64,7 +71,7 @@ public:
     {
         return !instanceData_.empty()
             ? instanceData_.size() / 12u
-            : vertexData_.size() / 52u;
+            : vertexData_.size() / 56u;
     }
 
     /// Whether the batch has any sprites.
@@ -75,6 +82,7 @@ public:
 
 private:
     std::shared_ptr<ImageResource> texture_;
+    std::vector<std::shared_ptr<ImageResource>> textures_;
     std::vector<float> vertexData_;
     std::vector<float> instanceData_;
 
@@ -82,6 +90,7 @@ private:
     unsigned int VAO_ = static_cast<unsigned int>(-1);
     unsigned int VBO_ = static_cast<unsigned int>(-1);
     unsigned int EBO_ = static_cast<unsigned int>(-1);
+    unsigned int sampler_ = static_cast<unsigned int>(-1);
     unsigned int instanceVAO_ = static_cast<unsigned int>(-1);
     unsigned int instanceVBO_ = static_cast<unsigned int>(-1);
     std::size_t indexSpriteCapacity_ = 0;

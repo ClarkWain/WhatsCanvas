@@ -16,6 +16,7 @@
 
 #include "command/DrawData.h"
 #include "render/PathMerge.h"
+#include "render/SpriteBatch.h"
 
 namespace {
 
@@ -32,6 +33,27 @@ bool near(float actual, float expected)
 {
     return std::fabs(actual - expected) < 0.0001f;
 }
+
+class FakeImageResource final : public ImageResource
+{
+public:
+    explicit FakeImageResource(std::uint64_t handle)
+        : handle_{handle}
+    {
+    }
+
+    bool isValid() const override { return handle_.isValid(); }
+    ImageResourceHandle nativeHandle() const override { return handle_; }
+    void bind(const RenderContext &) const override {}
+    bool updateRGBA(
+        int, int, int, int, const unsigned char *, bool) override
+    {
+        return true;
+    }
+
+private:
+    ImageResourceHandle handle_;
+};
 
 // A minimal solid triangle fill with all merge-relevant fields set to fixed,
 // matching values so two of them are batch-compatible by default.
@@ -250,6 +272,52 @@ bool testDifferingStateDoesNotMerge()
                   "different scissor state must not merge");
 }
 
+bool testSpriteBatchTextureSlots()
+{
+    SpriteBatch batch;
+    std::vector<std::shared_ptr<FakeImageResource>> textures;
+    for (std::size_t slot = 0;
+         slot < SpriteBatch::kMaxTextures; ++slot) {
+        auto texture = std::make_shared<FakeImageResource>(
+            static_cast<std::uint64_t>(slot + 1u));
+        textures.push_back(texture);
+        if (!expect(
+                batch.addTexture(texture)
+                    == static_cast<int>(slot),
+                "each distinct texture should receive one ordered slot")) {
+            return false;
+        }
+    }
+    if (!expect(
+            batch.addTexture(textures[3]) == 3,
+            "an existing texture should reuse its original slot")) {
+        return false;
+    }
+    if (!expect(
+            batch.addTexture(
+                std::make_shared<FakeImageResource>(99u)) == -1,
+            "a ninth distinct texture should close the batch")) {
+        return false;
+    }
+    for (std::size_t slot = 0;
+         slot < SpriteBatch::kMaxTextures; ++slot) {
+        batch.add(
+            static_cast<float>(slot), 0.0f, 1.0f, 1.0f,
+            0.0f, 0.0f, 1.0f, 1.0f,
+            1.0f, 1.0f, 1.0f, 1.0f,
+            glm::mat4(1.0f), 0.0f,
+            static_cast<int>(slot));
+    }
+    const bool countOk = expect(
+        batch.spriteCount() == SpriteBatch::kMaxTextures,
+        "expanded multi-texture vertices should retain sprite count");
+    batch.clear();
+    return expect(
+               batch.empty(),
+               "clearing a multi-texture batch should release all sprites")
+        && countOk;
+}
+
 } // namespace
 
 int main()
@@ -266,5 +334,6 @@ int main()
     ok = testShortIndexAccessors() && ok;
     ok = testPackedAttributeAccessors() && ok;
     ok = testDifferingStateDoesNotMerge() && ok;
+    ok = testSpriteBatchTextureSlots() && ok;
     return ok ? 0 : 1;
 }
