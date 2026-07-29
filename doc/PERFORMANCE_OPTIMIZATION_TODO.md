@@ -240,46 +240,46 @@ result under the same 1080p geometry contract. This is a scene-specific result,
 not a claim that every WhatsCanvas workload is faster than every NanoVG
 workload.
 
-## Current parameter-matrix priorities (`cac08c1`)
+## Current parameter-matrix priorities (`12628e2`)
 
 The post-optimization 27-cell ABBA matrix passed all quality gates and produced
-12 WhatsCanvas wins, 11 NanoVG wins, and 4 inconclusive cells. Ordered
-eight-slot OpenGL texture batching changed images from 3/9 to 6/9 wins:
-stable and dynamic-data now win at every tested scale. The remaining work is
-ordered by measured gap rather than feature novelty.
+24 WhatsCanvas wins, 2 NanoVG wins, and 1 inconclusive cell. Images and text
+both win 9/9 cells. Geometry stable and dynamic-data win all six tested cells;
+only the 1,024/4,096-operation dynamic-structure cells remain behind.
 
-### P0: large and structurally changing geometry
+### P0: structurally changing geometry
 
-- [ ] Avoid rebuilding transformed positions and packed colors for every
-      compatible path when only a narrow dynamic field changed.
-- [ ] Retain compiled topology for every stable batch after the 65,536-vertex
+- [x] Avoid rebuilding transformed positions and colors in large affine solid
+      batches by using GPU shape parameter tables.
+- [x] Retain compiled topology for every stable batch after the 65,536-vertex
       split instead of letting one `pathBatchTopology_` slot overwrite another.
-- [ ] Evaluate per-shape material/transform tables only after frame-compile and
-      GPU timing prove vertex attribute expansion remains the bottleneck.
+- [x] Expose topology hit/miss counters in the public performance result.
 - [ ] Add timer-query and frame-compile timing before changing the AA format.
+- [ ] Compact the per-frame command stream for many short blend runs without
+      changing blend order or weakening AA.
 
-Measured losses are 20.1-72.4% at 1,024 dynamic geometry and all 4,096-operation
-geometry modes. This is the only category with six conclusive losses.
+The remaining losses are 6.8% at 1,024 operations and 4.7% at 4,096. The
+256-operation cell is statistically inconclusive. This is now a narrow command
+recording/submission problem rather than a general geometry throughput gap.
 
 ### P1: high-state-churn image batches
 
 - [x] Batch an ordered stream containing up to eight textures.
 - [x] Use a sampler object instead of repeatedly mutating texture parameters.
 - [x] Cover slot reuse, the ninth-texture boundary, draw count, and pixels.
-- [ ] Reduce setup cost for the small batches that remain between real blend
+- [x] Reduce setup cost for the small batches that remain between real blend
       barriers; do not reorder translucent commands across those barriers.
 
-Only `dynamic-structure` remains behind: 21.0%, 28.6%, and 37.6% at 64, 256,
-and 1,024 images. Ordinary four-texture dynamic-data now beats NanoVG at every
-tested scale, so texture cardinality alone is no longer the problem.
+Persistent Sprite program/VAO/projection/sampler state and batching single-image
+runs changed all three `dynamic-structure` cells to conclusive wins.
 
 ### P2: high-count stable text
 
-- [ ] Profile the 1,024-label stable and dynamic-data record path before adding
+- [x] Profile the 1,024-label stable and dynamic-data record path before adding
       another cache layer.
 
-These two cells trail by only 0.7% and 4.5%; three text cells are
-inconclusive and four favor WhatsCanvas. They are not a current P0.
+All nine text cells now favor WhatsCanvas. Further text work should be driven
+by broader script and shaping coverage, not this Latin performance contract.
 
 ## P3: backend convergence
 

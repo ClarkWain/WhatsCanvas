@@ -51,15 +51,16 @@ WhatsCanvas 的公开接口仍然是熟悉的 `Canvas` / `Paint` / `Path` / `Ima
 | `dynamic-data` | 6.26 ms | **5.76 ms** | 每帧改变位置、颜色或文本选择 |
 | `dynamic-structure` | **7.65 ms** | 8.07 ms | 每帧改变文本、字号、样式和部分渲染状态 |
 
-提交 `cac08c1` 后重新执行 NanoVG 27 单元跨库矩阵，每个单元使用 2 个 ABBA block、每个 renderer 4 个独立进程；三种规模、三种变化模式全部通过质量门禁：WhatsCanvas 明确领先 12 项、NanoVG 领先 11 项、4 项置信区间跨过 1.0。分类结果如下：
+提交 `12628e2` 后重新执行 NanoVG 27 单元跨库矩阵，每个单元使用 2 个 ABBA block、每个 renderer 4 个独立进程；三种规模、三种变化模式全部通过质量门禁：WhatsCanvas 明确领先 **24 项**、NanoVG 领先 2 项、1 项置信区间跨过 1.0。分类结果如下：
 
 | 1080p 参数矩阵 | WhatsCanvas 领先 | NanoVG 领先 | 无明确胜负 | 当前判断 |
 | --- | ---: | ---: | ---: | --- |
-| 几何 | 2 | 6 | 1 | 256/1024 stable 有竞争力；结构变化和 4096 大批量仍是首要瓶颈 |
-| 图片 | 6 | 3 | 0 | stable 与 dynamic-data 全胜；只剩高状态抖动的 dynamic-structure 落后 |
-| 文本 | 4 | 2 | 3 | 1024 stable / dynamic-data 分别仅慢 0.7% / 4.5%，dynamic-structure 仍领先 |
+| 几何 | 6 | 2 | 1 | stable 与 dynamic-data 在三种规模全部领先；dynamic-structure 的 256 基本持平，1024/4096 仍分别慢约 6.8%/4.7% |
+| 图片 | 9 | 0 | 0 | 三种规模、三种变化模式全部领先 |
+| 文本 | 9 | 0 | 0 | 三种规模、三种变化模式全部领先 |
+| **合计** | **24** | **2** | **1** | **27/27 质量门禁通过** |
 
-多纹理优化把 1024 次 `image_grid dynamic-data` 从 4.273 ms 降到 **0.773 ms**，NanoVG 为 1.667 ms；四纹理交错流从原来 NanoVG 快约 2.5 倍，反转为 NanoVG 耗时约为 WhatsCanvas 的 **2.16 倍**。剩余 11 个明确落后单元及优先级见 [Performance Benchmarks](doc/PERFORMANCE_BENCHMARKS.md) 与 [NanoVG 性能优化实战](doc/NANOVG_PERFORMANCE_OPTIMIZATION.md)。仓库中的 [NanoVG 参数矩阵](benchmarks/baselines/cross-library-nanovg-matrix-windows-i7-8700-gtx1060/README.md) 保留优化前的 216 进程原始基线，用于核对本轮改善。
+最新关键结果中，4096 个 stable / dynamic-data 几何分别为 **4.607 / 4.499 ms**，NanoVG 为 5.027 / 4.942 ms；1024 个 32 纹理、50% 圆角、12.5% 状态变化的 dynamic-structure 图片由旧矩阵的 2.338 ms 降到 **1.372 ms**，NanoVG 为 1.889 ms；1024 次 dynamic-structure 文本为 **6.725 ms**，NanoVG 为 10.068 ms。仅剩两个明确落后单元都属于每帧改变图元类型和 blend barrier 的几何 dynamic-structure。完整结果和边界见 [Performance Benchmarks](doc/PERFORMANCE_BENCHMARKS.md) 与 [NanoVG 性能优化实战](doc/NANOVG_PERFORMANCE_OPTIMIZATION.md)。仓库中的 [NanoVG 参数矩阵](benchmarks/baselines/cross-library-nanovg-matrix-windows-i7-8700-gtx1060/README.md) 保留早期 216 进程原始基线，用于核对改善幅度。
 
 Vulkan 的基础几何、图片和文字路径已经与 OpenGL 接近。复杂图层新增按几何、coverage 与 transform 生成的双哈希内容签名，稳定裁剪不再因临时资源地址变化而每帧重建全尺寸 mask；渐变裁剪也改为双纹理 GPU 合成，删除 GPU→CPU 读回与再次上传。`clip_layers` 的五个独立 Standard 进程中位数由此前 31.34 ms 降到 **8.80 ms**（本轮范围 7.67–12.16 ms，五次像素哈希一致），同轮 OpenGL 中位数为 18.08 ms。
 

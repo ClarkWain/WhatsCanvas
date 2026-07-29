@@ -288,6 +288,47 @@ one generic fix: geometry needs less frame compilation and attribute expansion,
 image dynamic-structure needs cheaper barrier-bounded batches, and high-count
 text needs record-path profiling rather than another draw-call optimization.
 
+### Current parameter matrix (`12628e2`)
+
+The Standard matrix was rerun after multi-packet topology reuse, GPU shape
+parameters for large affine batches, compact on-demand path gradient storage,
+and persistent OpenGL sprite-sequence state. The same two-block ABBA schedule
+and four fresh processes per renderer were used for every cell. All 27 quality
+gates passed:
+
+| Category | WhatsCanvas faster | NanoVG faster | Inconclusive |
+| --- | ---: | ---: | ---: |
+| Geometry | 6 | 2 | 1 |
+| Images | 9 | 0 | 0 |
+| Text | 9 | 0 | 0 |
+| **Total** | **24** | **2** | **1** |
+
+This run closes every previous image and text loss. Reusing the sprite program,
+VAO, projection, sampler uniforms, sampler bindings, and unchanged texture
+slots across an ordered image sequence makes even the deliberately fragmented
+image workload competitive without reordering transparent draws:
+
+| Scene | Mode | Operations | WhatsCanvas | NanoVG | Result |
+| --- | --- | ---: | ---: | ---: | --- |
+| `geometry_stress` | stable | 4,096 | **4.607 ms** | 5.027 ms | WhatsCanvas 8.4% faster |
+| `geometry_stress` | dynamic-data | 4,096 | **4.499 ms** | 4.942 ms | WhatsCanvas 9.0% faster |
+| `image_grid` | dynamic-structure | 1,024 | **1.372 ms** | 1.889 ms | WhatsCanvas 27.4% faster |
+| `contract_text_latin` | dynamic-structure | 1,024 | **6.725 ms** | 10.068 ms | WhatsCanvas 33.2% faster |
+
+Only two cells remain conclusively slower, both in geometry with per-frame
+primitive selection and blend barriers:
+
+| Mode | Operations | WhatsCanvas | NanoVG | WhatsCanvas gap |
+| --- | ---: | ---: | ---: | ---: |
+| `dynamic-structure` | 1,024 | 1.875 ms | 1.753 ms | 6.8% slower |
+| `dynamic-structure` | 4,096 | 6.242 ms | 5.934 ms | 4.7% slower |
+
+At 256 operations the same workload is statistically inconclusive
+(0.824 versus 0.822 ms). The remaining gap is therefore narrow and specific:
+it does not justify weakening AA, changing blend order, or adding benchmark-only
+paths. A future improvement should target the compact per-frame path command
+stream used by many small blend runs.
+
 ## Profiles
 
 | Profile | Timed frames | Warmup frames | Intended use |
