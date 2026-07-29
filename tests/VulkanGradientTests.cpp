@@ -77,12 +77,14 @@ int main()
     d.gradientEnd[0] = static_cast<float>(width);
     d.gradientEnd[1] = 0.0f;
     d.gradientStopCount = 2;
-    d.gradientStopPositions[0] = 0.0f;
-    d.gradientStopPositions[1] = 1.0f;
-    d.gradientStopColors[0] = 1.0f; // red
-    d.gradientStopColors[3] = 1.0f;
-    d.gradientStopColors[6] = 1.0f; // blue (index 4..7 -> b at 6)
-    d.gradientStopColors[7] = 1.0f;
+    DrawPathGradientStops &stops =
+        d.writableGradientStops();
+    stops.positions[0] = 0.0f;
+    stops.positions[1] = 1.0f;
+    stops.colors[0] = 1.0f; // red
+    stops.colors[3] = 1.0f;
+    stops.colors[6] = 1.0f; // blue (index 4..7 -> b at 6)
+    stops.colors[7] = 1.0f;
 
     std::vector<std::unique_ptr<Command>> commands;
     commands.push_back(std::make_unique<DrawPathCommand>(d));

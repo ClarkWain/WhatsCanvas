@@ -76,8 +76,10 @@ DrawPathData makeGradientFill()
     DrawPathData data = makeSolidFill();
     data.gradientType = DrawGradientType::Linear;
     data.gradientStopCount = 2;
-    data.gradientStopPositions[0] = 0.0f;
-    data.gradientStopPositions[1] = 1.0f;
+    DrawPathGradientStops &stops =
+        data.writableGradientStops();
+    stops.positions[0] = 0.0f;
+    stops.positions[1] = 1.0f;
     return data;
 }
 
@@ -181,6 +183,7 @@ bool testSharedIndexedGeometryAccessors()
     };
     geometry->coverage = {1.0f, 1.0f, 0.0f, 0.0f};
     geometry->indices = {0, 1, 2, 0, 2, 3};
+    geometry->topologyFingerprint = 42u;
 
     DrawPathData data = makeSolidFill();
     data.points.clear();
@@ -194,7 +197,10 @@ bool testSharedIndexedGeometryAccessors()
         && expect(
                data.hasCoverage()
                    && data.coverageData()[2] == 0.0f,
-               "shared path geometry should provide AA coverage");
+               "shared path geometry should provide AA coverage")
+        && expect(
+               data.sharedGeometry->topologyFingerprint == 42u,
+               "shared path geometry should retain topology identity");
 }
 
 bool testShortIndexAccessors()

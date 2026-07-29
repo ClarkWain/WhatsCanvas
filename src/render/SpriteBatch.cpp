@@ -19,6 +19,30 @@ SpriteBatch::~SpriteBatch()
     releaseGLResources();
 }
 
+void SpriteBatch::beginFrame()
+{
+    endBatch();
+    boundTextures_.fill(0u);
+}
+
+void SpriteBatch::endBatch()
+{
+    if (boundProgram_ == nullptr) {
+        return;
+    }
+    if (boundProgram_ == program_) {
+        for (std::size_t slot = 0;
+             slot < boundSamplerCount_; ++slot) {
+            glBindSampler(static_cast<GLuint>(slot), 0);
+        }
+    }
+    glActiveTexture(GL_TEXTURE0);
+    glBindVertexArray(0);
+    boundProgram_ = nullptr;
+    boundSamplerCount_ = 0;
+    boundTextures_.fill(0u);
+}
+
 void SpriteBatch::setTexture(std::shared_ptr<ImageResource> texture)
 {
     texture_ = std::move(texture);
@@ -123,24 +147,36 @@ void SpriteBatch::flush(RenderContext &context, DrawBlendMode blendMode)
     context.applyBlendMode(blendMode);
     context.applyClipState(ScissorState{}, ClipMaskState{});
 
-    activeProgram->use();
-    const glm::mat4 projection = glm::ortho(0.0f, static_cast<float>(context.getWidth()),
-                                            static_cast<float>(context.getHeight()), 0.0f);
-    activeProgram->setMat4("uProjection", projection);
-    if (instanced) {
-        activeProgram->setInt("uTexture", 0);
-    } else {
-        for (std::size_t slot = 0;
-             slot < kMaxTextures; ++slot) {
-            activeProgram->setInt(
-                "uTexture" + std::to_string(slot),
-                static_cast<int>(slot));
+    if (boundProgram_ != activeProgram) {
+        endBatch();
+        activeProgram->use();
+        const glm::mat4 projection = glm::ortho(
+            0.0f, static_cast<float>(context.getWidth()),
+            static_cast<float>(context.getHeight()), 0.0f);
+        activeProgram->setMat4("uProjection", projection);
+        if (instanced) {
+            if (!instanceSamplerInitialized_) {
+                activeProgram->setInt("uTexture", 0);
+                instanceSamplerInitialized_ = true;
+            }
+            glBindVertexArray(instanceVAO_);
+        } else {
+            if (!samplerUniformsInitialized_) {
+                for (std::size_t slot = 0;
+                     slot < kMaxTextures; ++slot) {
+                    activeProgram->setInt(
+                        "uTexture" + std::to_string(slot),
+                        static_cast<int>(slot));
+                }
+                samplerUniformsInitialized_ = true;
+            }
+            glBindVertexArray(VAO_);
         }
+        boundProgram_ = activeProgram;
     }
 
     const std::size_t sprites = spriteCount();
     if (instanced) {
-        glBindVertexArray(instanceVAO_);
         glBindBuffer(GL_ARRAY_BUFFER, instanceVBO_);
         glBufferData(
             GL_ARRAY_BUFFER,
@@ -148,7 +184,6 @@ void SpriteBatch::flush(RenderContext &context, DrawBlendMode blendMode)
                 instanceData_.size() * sizeof(float)),
             instanceData_.data(), GL_DYNAMIC_DRAW);
     } else {
-        glBindVertexArray(VAO_);
         glBindBuffer(GL_ARRAY_BUFFER, VBO_);
         ensureIndexCapacity(sprites);
         glBufferData(
@@ -165,15 +200,21 @@ void SpriteBatch::flush(RenderContext &context, DrawBlendMode blendMode)
     } else {
         for (std::size_t slot = 0;
              slot < textures_.size(); ++slot) {
-            glActiveTexture(
-                GL_TEXTURE0 + static_cast<GLenum>(slot));
-            glBindTexture(
-                GL_TEXTURE_2D,
-                static_cast<GLuint>(
-                    textures_[slot]->nativeHandle().value));
-            glBindSampler(
-                static_cast<GLuint>(slot), sampler_);
+            const GLuint handle = static_cast<GLuint>(
+                textures_[slot]->nativeHandle().value);
+            if (boundTextures_[slot] != handle) {
+                glActiveTexture(
+                    GL_TEXTURE0 + static_cast<GLenum>(slot));
+                glBindTexture(GL_TEXTURE_2D, handle);
+                boundTextures_[slot] = handle;
+            }
+            if (slot >= boundSamplerCount_) {
+                glBindSampler(
+                    static_cast<GLuint>(slot), sampler_);
+            }
         }
+        boundSamplerCount_ =
+            std::max(boundSamplerCount_, textures_.size());
         glActiveTexture(GL_TEXTURE0);
         context.invalidateImageBinding();
     }
@@ -186,13 +227,7 @@ void SpriteBatch::flush(RenderContext &context, DrawBlendMode blendMode)
         glDrawElements(
             GL_TRIANGLES, static_cast<GLsizei>(sprites * 6u),
             GL_UNSIGNED_INT, nullptr);
-        for (std::size_t slot = 0;
-             slot < textures_.size(); ++slot) {
-            glBindSampler(static_cast<GLuint>(slot), 0);
-        }
     }
-
-    glBindVertexArray(0);
 }
 
 void SpriteBatch::clear()
@@ -440,6 +475,7 @@ void SpriteBatch::ensureIndexCapacity(std::size_t spriteCount)
 
 void SpriteBatch::releaseGLResources()
 {
+    endBatch();
     if (program_ != nullptr) {
         delete program_;
         program_ = nullptr;
@@ -475,6 +511,11 @@ void SpriteBatch::releaseGLResources()
         instanceVBO_ = static_cast<unsigned int>(-1);
     }
     indexSpriteCapacity_ = 0;
+    boundProgram_ = nullptr;
+    boundSamplerCount_ = 0;
+    boundTextures_.fill(0u);
+    samplerUniformsInitialized_ = false;
+    instanceSamplerInitialized_ = false;
 
     glInitialized_ = false;
 }

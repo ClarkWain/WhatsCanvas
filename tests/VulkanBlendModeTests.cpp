@@ -207,13 +207,15 @@ int main()
         g.gradientStart[0] = 0.0f;
         g.gradientEnd[0] = static_cast<float>(width);
         g.gradientStopCount = 2;
-        g.gradientStopPositions[0] = 0.0f;
-        g.gradientStopPositions[1] = 1.0f;
+        DrawPathGradientStops &stops =
+            g.writableGradientStops();
+        stops.positions[0] = 0.0f;
+        stops.positions[1] = 1.0f;
         for (int s = 0; s < 2; ++s) { // uniform gray gradient
-            g.gradientStopColors[s * 4 + 0] = 0.5f;
-            g.gradientStopColors[s * 4 + 1] = 0.5f;
-            g.gradientStopColors[s * 4 + 2] = 0.5f;
-            g.gradientStopColors[s * 4 + 3] = 1.0f;
+            stops.colors[s * 4 + 0] = 0.5f;
+            stops.colors[s * 4 + 1] = 0.5f;
+            stops.colors[s * 4 + 2] = 0.5f;
+            stops.colors[s * 4 + 3] = 1.0f;
         }
         cmds.push_back(std::make_unique<DrawPathCommand>(g));
         if (!device.executeCommands(target, cmds, request)) {

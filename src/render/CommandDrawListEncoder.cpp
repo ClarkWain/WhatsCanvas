@@ -132,10 +132,13 @@ void copyGradient(const DrawPathData &src, wsc::DrawPrimitive &dst)
     dst.radialCenter[1] = src.radialCenter[1];
     dst.radialRadius = src.radialRadius;
     dst.gradientStopCount = src.gradientStopCount;
+    const DrawPathGradientStops *stops =
+        src.gradientStopData();
     for (int i = 0; i < src.gradientStopCount && i < 8; ++i) {
-        dst.gradientStopPositions[i] = src.gradientStopPositions[i];
+        dst.gradientStopPositions[i] = stops->positions[i];
         for (int c = 0; c < 4; ++c) {
-            dst.gradientStopColors[i * 4 + c] = src.gradientStopColors[i * 4 + c];
+            dst.gradientStopColors[i * 4 + c] =
+                stops->colors[i * 4 + c];
         }
     }
 }

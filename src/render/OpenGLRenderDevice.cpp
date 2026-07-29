@@ -596,8 +596,14 @@ bool OpenGLRenderDevice::executeDrawList(const wsc::DrawList &drawList, int widt
                 data.radialCenter[1] = prim.radialCenter[1];
                 data.radialRadius = prim.radialRadius;
                 data.gradientStopCount = prim.gradientStopCount;
-                std::memcpy(data.gradientStopPositions, prim.gradientStopPositions, sizeof(data.gradientStopPositions));
-                std::memcpy(data.gradientStopColors, prim.gradientStopColors, sizeof(data.gradientStopColors));
+                DrawPathGradientStops &stops =
+                    data.writableGradientStops();
+                std::memcpy(
+                    stops.positions, prim.gradientStopPositions,
+                    sizeof(stops.positions));
+                std::memcpy(
+                    stops.colors, prim.gradientStopColors,
+                    sizeof(stops.colors));
             }
             DrawPathProgram::getInstance()->draw(context, data);
         } else if (prim.kind == wsc::DrawPrimitiveKind::TexturedQuad) {

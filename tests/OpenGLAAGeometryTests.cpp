@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 #include <iostream>
 #include <vector>
 
@@ -123,9 +124,20 @@ int main()
     ok = expect(
         topologyA == topologyARepeat,
         "reused shared path topology must render identically") && ok;
+    const wsc::Canvas::RenderStats topologyReuseStats =
+        canvas->getRenderStats();
+    ok = expect(
+        topologyReuseStats.pathTopologyCacheHits >= 1
+            && topologyReuseStats.pathTopologyCacheMisses == 0,
+        "repeated path batches must reuse cached topology") && ok;
 
     const std::vector<unsigned char> topologyB =
         renderTopologyPair(true);
+    const wsc::Canvas::RenderStats topologyChangeStats =
+        canvas->getRenderStats();
+    ok = expect(
+        topologyChangeStats.pathTopologyCacheMisses >= 1,
+        "changed path batches must rebuild cached topology") && ok;
     auto redAt = [&](int x, int y) {
         return topologyB[
             (static_cast<std::size_t>(y) * kWidth
@@ -145,6 +157,58 @@ int main()
             redAt(18, 18) < 5 && redAt(72, 18) < 5,
             "changed shared path topology must not reuse stale positions") && ok;
     }
+
+    canvas->beginFrame();
+    canvas->drawColor(wsc::Color::BLACK);
+    for (int index = 0; index < 80; ++index) {
+        const int column = index % 10;
+        const int row = index / 10;
+        paint.setColor(wsc::Color(
+            30 + (index * 31) % 210,
+            40 + (index * 47) % 200,
+            50 + (index * 59) % 190,
+            255));
+        canvas->drawRect(
+            wsc::RectF(
+                2.0f + column * 9.0f,
+                2.0f + row * 11.0f,
+                6.0f, 7.0f),
+            paint);
+    }
+    canvas->endFrame();
+    std::vector<unsigned char> parameterizedFrame;
+    ok = expect(
+        canvas->readPixelsRGBA(parameterizedFrame),
+        "shape-parameter batch frame must be readable") && ok;
+    const auto expectShapeColor = [&](int index) {
+        const int column = index % 10;
+        const int row = index / 10;
+        const std::size_t offset =
+            (static_cast<std::size_t>(5 + row * 11) * kWidth
+             + static_cast<std::size_t>(5 + column * 9))
+            * 4u;
+        const int expected[3] = {
+            30 + (index * 31) % 210,
+            40 + (index * 47) % 200,
+            50 + (index * 59) % 190
+        };
+        return parameterizedFrame.size()
+                == static_cast<std::size_t>(kWidth * kHeight * 4)
+            && std::abs(
+                static_cast<int>(parameterizedFrame[offset])
+                - expected[0]) <= 2
+            && std::abs(
+                static_cast<int>(parameterizedFrame[offset + 1u])
+                - expected[1]) <= 2
+            && std::abs(
+                static_cast<int>(parameterizedFrame[offset + 2u])
+                - expected[2]) <= 2;
+    };
+    ok = expect(
+        expectShapeColor(0)
+            && expectShapeColor(37)
+            && expectShapeColor(79),
+        "GPU shape parameters must preserve per-shape transforms and colors") && ok;
 
     canvas.reset();
     glfwDestroyWindow(window);

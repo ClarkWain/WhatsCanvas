@@ -8610,10 +8610,14 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
                 prim.radialCenter[1] = d.radialCenter[1];
                 prim.radialRadius = d.radialRadius;
                 prim.gradientStopCount = d.gradientStopCount;
+                const DrawPathGradientStops *stops =
+                    d.gradientStopData();
                 for (int i = 0; i < d.gradientStopCount && i < 8; ++i) {
-                    prim.gradientStopPositions[i] = d.gradientStopPositions[i];
+                    prim.gradientStopPositions[i] =
+                        stops->positions[i];
                     for (int c = 0; c < 4; ++c) {
-                        prim.gradientStopColors[i * 4 + c] = d.gradientStopColors[i * 4 + c];
+                        prim.gradientStopColors[i * 4 + c] =
+                            stops->colors[i * 4 + c];
                     }
                 }
             } else {

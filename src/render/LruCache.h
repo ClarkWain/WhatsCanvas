@@ -78,8 +78,13 @@ public:
             return nullptr;
         }
         ++hitCount_;
-        order_.splice(order_.begin(), order_, it->second);
-        return &it->second->second;
+        Entry &entry = *it->second;
+        if (currentEpoch_ == 0
+            || entry.lastTouchEpoch != currentEpoch_) {
+            order_.splice(order_.begin(), order_, it->second);
+            entry.lastTouchEpoch = currentEpoch_;
+        }
+        return &entry.value;
     }
 
     /// Inserts (or replaces) a value, evicting the least-recently-used entry if
@@ -90,12 +95,14 @@ public:
         const std::size_t valueBytes = detail::CacheValueBytes<Value>::measure(value);
         auto it = index_.find(key);
         if (it != index_.end()) {
-            residentBytes_ -= detail::CacheValueBytes<Value>::measure(it->second->second);
-            it->second->second = std::move(value);
+            residentBytes_ -= detail::CacheValueBytes<Value>::measure(
+                it->second->value);
+            it->second->value = std::move(value);
+            it->second->lastTouchEpoch = currentEpoch_;
             residentBytes_ += valueBytes;
             order_.splice(order_.begin(), order_, it->second);
             trimToBudget();
-            return it->second->second;
+            return it->second->value;
         }
 
         while (!order_.empty()
@@ -103,10 +110,11 @@ public:
                    || wouldExceedByteBudget(valueBytes))) {
             evictOldest();
         }
-        order_.emplace_front(std::move(key), std::move(value));
-        index_.emplace(order_.front().first, order_.begin());
+        order_.emplace_front(
+            std::move(key), std::move(value), currentEpoch_);
+        index_.emplace(order_.front().key, order_.begin());
         residentBytes_ += valueBytes;
-        return order_.front().second;
+        return order_.front().value;
     }
 
     void clear()
@@ -124,6 +132,18 @@ public:
     std::size_t missCount() const { return missCount_; }
     std::size_t evictionCount() const { return evictionCount_; }
     void resetStats() { hitCount_ = missCount_ = evictionCount_ = 0; }
+    /// Coalesce recency updates so a hot entry is moved at most once in a
+    /// logical frame. Callers that do not opt in retain per-hit LRU behavior.
+    void beginEpoch()
+    {
+        ++currentEpoch_;
+        if (currentEpoch_ == 0) {
+            currentEpoch_ = 1;
+            for (Entry &entry : order_) {
+                entry.lastTouchEpoch = 0;
+            }
+        }
+    }
 
 private:
     bool wouldExceedByteBudget(std::size_t incomingBytes) const
@@ -138,8 +158,9 @@ private:
         if (order_.empty()) {
             return;
         }
-        residentBytes_ -= detail::CacheValueBytes<Value>::measure(order_.back().second);
-        index_.erase(order_.back().first);
+        residentBytes_ -= detail::CacheValueBytes<Value>::measure(
+            order_.back().value);
+        index_.erase(order_.back().key);
         order_.pop_back();
         ++evictionCount_;
     }
@@ -153,7 +174,19 @@ private:
         }
     }
 
-    using Entry = std::pair<Key, Value>;
+    struct Entry
+    {
+        Entry(Key entryKey, Value entryValue, std::uint64_t epoch)
+            : key(std::move(entryKey)),
+              value(std::move(entryValue)),
+              lastTouchEpoch(epoch)
+        {
+        }
+
+        Key key;
+        Value value;
+        std::uint64_t lastTouchEpoch = 0;
+    };
     using EntryList = std::list<Entry>;
 
     std::size_t maxEntries_;
@@ -164,6 +197,7 @@ private:
     std::size_t hitCount_ = 0;
     std::size_t missCount_ = 0;
     std::size_t evictionCount_ = 0;
+    std::uint64_t currentEpoch_ = 0;
 };
 
 } // namespace wsc::render

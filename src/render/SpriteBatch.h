@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <memory>
 #include <vector>
@@ -32,6 +33,12 @@ public:
 
     SpriteBatch(const SpriteBatch &) = delete;
     SpriteBatch &operator=(const SpriteBatch &) = delete;
+
+    /// Reset transient binding state for a new frame.
+    void beginFrame();
+
+    /// End a consecutive sprite sequence and restore sampler/VAO bindings.
+    void endBatch();
 
     /// Set the shared texture for all sprites in this batch.
     void setTexture(std::shared_ptr<ImageResource> texture);
@@ -97,6 +104,11 @@ private:
     GLProgram *program_ = nullptr;
     GLProgram *instanceProgram_ = nullptr;
     bool glInitialized_ = false;
+    GLProgram *boundProgram_ = nullptr;
+    std::array<unsigned int, kMaxTextures> boundTextures_ = {};
+    std::size_t boundSamplerCount_ = 0;
+    bool samplerUniformsInitialized_ = false;
+    bool instanceSamplerInitialized_ = false;
 
     void ensureGLInitialized();
     void ensureIndexCapacity(std::size_t spriteCount);
