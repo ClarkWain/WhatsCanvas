@@ -1154,6 +1154,29 @@ ordered image commands
 
 256 项为 0.788 / 0.811 ms，95% 区间跨过 1.0，仍按无明确胜负处理。这个结果比声称“所有规模都更快”更诚实，也说明绝对时间低于 1 ms 时需要更多进程或更安静的机器才能收窄区间。
 
+### 9.15 非重叠路径重排与共享 AA 数据
+
+最后一个无明确胜负项包含 256 个网格化、互不重叠的简单填充，但会在 `ADD`、`MULTIPLY`、`SCREEN` 和 `SRC_OVER` 之间切换。旧实现严格按命令顺序形成 46 个短 draw；record 已经比 NanoVG 快，主要成本落在短批次提交和每帧重复组装 AA 数据。
+
+本轮加入一种保守、与场景名称和对象数量无关的顺序优化：
+
+- 只考虑无 clip、无 scissor、无 shader、无 stroke 且使用二维仿射变换的简单填充；
+- 从共享几何读取缓存的局部 bounds，并变换四角得到保守设备空间 AABB；
+- 只有连续区间内所有路径两两不相交时，才按 blend mode 稳定分组；
+- 任意重叠、边界接触或复杂状态立即成为顺序 barrier；
+- 每个候选区间最多检查 256 条命令，使两两相交检测的最坏成本有明确上限。
+
+这些约束保证只交换不会影响彼此像素的绘制。与此同时，共享 AA geometry 在首次进入缓存时便保存局部 bounds，并把 coverage 预量化为 `uint8_t`；后续 OpenGL/Vulkan 上传和 merge 直接复用。索引合并也改为按 short/long 类型整段变换，删除内层循环中的重复类型判断。
+
+目标场景的 draw call 从 **46 降到 4**，像素哈希保持 `0c3c459df995e39c`。4 个 ABBA block、每端 8 个独立进程的专项复测结果为：
+
+| 渲染器 | 进程中位数与 95% CI |
+| --- | ---: |
+| WhatsCanvas OpenGL | **0.605 ms [0.589, 0.624]** |
+| NanoVG GL3 | 0.807 ms [0.786, 0.831] |
+
+配对 NanoVG/WhatsCanvas 比率为 **1.331× [1.327, 1.441]**，质量门通过，置信区间完全高于 1.0。单进程扩展检查中，1,024 和 4,096 个动态结构图形分别约为 **1.37 ms** 和 **4.40 ms**，也低于此前完整矩阵的 1.73 ms 和 5.75 ms。完整 27 单元矩阵仍保留 `26/0/1` 历史快照，下一次全量重跑前不把专项样本混写为新的整套矩阵结论。
+
 ## 10. 性能差距是怎样一步步缩小的
 
 ### 10.1 完整帧时间
@@ -1342,7 +1365,7 @@ UI 和 2D 场景通常只有 transform、颜色、透明度或少量内容变化
 
 还不能扩大为所有工作负载的全局结论。最新参数矩阵进一步给出了明确边界：
 
-- 4096 图形的 stable / dynamic-data / dynamic-structure 已以 3.971 / 3.893 / 5.751 ms 领先 NanoVG 的 5.417 / 5.175 / 6.029 ms；256 项 dynamic-structure 的置信区间仍跨过 1.0；
+- 4096 图形的 stable / dynamic-data / dynamic-structure 已以 3.971 / 3.893 / 5.751 ms 领先 NanoVG 的 5.417 / 5.175 / 6.029 ms；原本置信区间跨过 1.0 的 256 项 dynamic-structure，在后续 8 进程专项复测中以 0.605 / 0.807 ms 转为明确领先；
 - 图片在三个规模、三种变化模式全部领先；这仍不代表任意纹理数、任意 shader 和任意 blend 序列；
 - `contract_text_latin` 在三个规模、三种变化模式全部领先；它只覆盖固定字体合同，不代表所有 script、fallback 和 shaping 组合；
 - Vulkan 已有同机八进程结果，但 NanoVG adapter 只有 OpenGL，不能把 Vulkan 2.809 / 0.367 / 2.964 ms 写成对 NanoVG 的同后端胜负；
@@ -1509,13 +1532,14 @@ WhatsCanvas 与 NanoVG 的差距不是通过某个单一“大优化”消失的
 - OpenGL 路径属性与索引共用一条帧上传流，在不把 16 位索引扩成 32 位的前提下改善 4096 图形提交；
 - 连续 Sprite GL 状态、单图 run 批处理、multi-packet topology 和 GPU shape parameter 将上一阶段矩阵推进到 24/2/1；
 - 短路径容量预留、轮廓移动/直接接管与冗余 GL 状态缓存继续把矩阵推进到 26/0/1；
+- 非重叠简单填充的保守 blend 分组、共享 bounds/coverage 和批量索引重映射，把唯一持平项的 draw 从 46 降到 4，并在 8 进程专项 ABBA 中转为明确领先；
 - Vulkan 普通图层直接采样离屏 render target，随后用内容签名复用稳定 clip mask、用双纹理 GPU 合成替换 gradient clip 的 CPU readback，将 `clip_layers` 从 41.38 ms 先降到 31.34 ms，再降到五进程中位数 8.80 ms，同时保持各阶段像素 hash 稳定。
 
 最值得保留的结论是：
 
 > 性能优化的核心不是更快地重复同一份工作，而是让系统知道哪些工作已经做过、哪些数据没有变化，并让最终可提交结果跨帧存活。
 
-NanoVG 展示了连续数组和紧凑状态的价值；WhatsCanvas 在此基础上加入 indexed geometry、GPU shape parameter、实例化、稳定 packet 复用、连续 Sprite GL 状态和短路径分配优化，最终在动态几何合同的 Pass 5 配对样本中从慢 5.95 倍走到快 31.8%。固定合同仍展示三类主路径的竞争力，而最新 27 单元参数矩阵给出了更严格的结论：WhatsCanvas **26 胜、NanoVG 0 胜、1 项无明确胜负**，并且 27/27 通过质量门。下一阶段应扩展硬件、驱动、复杂 path/stroke/gradient/clip/layer 覆盖，而不是继续围绕单一对象数微调。
+NanoVG 展示了连续数组和紧凑状态的价值；WhatsCanvas 在此基础上加入 indexed geometry、GPU shape parameter、实例化、稳定 packet 复用、连续 Sprite GL 状态和短路径分配优化，最终在动态几何合同的 Pass 5 配对样本中从慢 5.95 倍走到快 31.8%。固定合同仍展示三类主路径的竞争力，而最新完整 27 单元参数矩阵给出了更严格的历史快照：WhatsCanvas **26 胜、NanoVG 0 胜、1 项无明确胜负**，并且 27/27 通过质量门；唯一持平项随后已在更强的专项 ABBA 中转为明确领先。下一阶段应扩展硬件、驱动、复杂 path/stroke/gradient/clip/layer 覆盖，而不是继续围绕单一对象数微调。
 
 ## 参考
 

@@ -1134,8 +1134,36 @@ struct SharedAAExpandedMesh {
 SharedAAExpandedMesh shareAAExpandedMesh(AAExpandedMesh mesh)
 {
     auto geometry = std::make_shared<DrawPathGeometry>();
-    geometry->points = flattenPoints(mesh.vertices);
+    geometry->points.reserve(mesh.vertices.size() * 2u);
+    for (const crushedpixel::Vec2 &vertex : mesh.vertices) {
+        geometry->points.push_back(vertex.x);
+        geometry->points.push_back(vertex.y);
+        if (!geometry->hasBounds) {
+            geometry->boundsLeft = vertex.x;
+            geometry->boundsTop = vertex.y;
+            geometry->boundsRight = vertex.x;
+            geometry->boundsBottom = vertex.y;
+            geometry->hasBounds = true;
+        } else {
+            geometry->boundsLeft =
+                std::min(geometry->boundsLeft, vertex.x);
+            geometry->boundsTop =
+                std::min(geometry->boundsTop, vertex.y);
+            geometry->boundsRight =
+                std::max(geometry->boundsRight, vertex.x);
+            geometry->boundsBottom =
+                std::max(geometry->boundsBottom, vertex.y);
+        }
+    }
     geometry->coverage = std::move(mesh.coverage);
+    geometry->packedCoverage.reserve(geometry->coverage.size());
+    for (float coverage : geometry->coverage) {
+        geometry->packedCoverage.push_back(
+            static_cast<std::uint8_t>(
+                std::clamp(
+                    std::lround(coverage * 255.0f),
+                    0l, 255l)));
+    }
     geometry->indices = std::move(mesh.indices);
     std::uint64_t topologyFingerprint = kFnvOffsetBasis;
     hashUint64(

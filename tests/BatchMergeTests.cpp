@@ -172,6 +172,69 @@ bool testBroaderBatchFlattensAffineTransforms()
         "renderer batch must reject perspective transforms");
 }
 
+bool testIndependentPathBounds()
+{
+    DrawPathData first = makeSolidFill();
+    wsc::render::PathDeviceBounds firstBounds;
+    if (!expect(
+            wsc::render::getReorderablePathBounds(
+                first, firstBounds),
+            "simple solid fill should expose reorderable bounds")) {
+        return false;
+    }
+
+    DrawPathData translated = makeSolidFill();
+    translated.transform = glm::translate(
+        glm::mat4(1.0f), glm::vec3(30.0f, 20.0f, 0.0f));
+    wsc::render::PathDeviceBounds translatedBounds;
+    if (!expect(
+            wsc::render::getReorderablePathBounds(
+                translated, translatedBounds),
+            "translated solid fill should expose device bounds")) {
+        return false;
+    }
+    if (!expect(
+            !wsc::render::pathDeviceBoundsOverlap(
+                firstBounds, translatedBounds),
+            "separated transformed paths should be safely reorderable")) {
+        return false;
+    }
+
+    DrawPathData overlapping = makeSolidFill();
+    overlapping.transform = glm::translate(
+        glm::mat4(1.0f), glm::vec3(5.0f, 5.0f, 0.0f));
+    wsc::render::PathDeviceBounds overlappingBounds;
+    if (!expect(
+            wsc::render::getReorderablePathBounds(
+                overlapping, overlappingBounds)
+            && wsc::render::pathDeviceBoundsOverlap(
+                firstBounds, overlappingBounds),
+            "overlapping transformed paths must retain order")) {
+        return false;
+    }
+
+    DrawPathData gradient = makeGradientFill();
+    DrawPathData clipped = makeSolidFill();
+    clipped.scissor.enabled = true;
+    clipped.scissor.width = 20;
+    clipped.scissor.height = 20;
+    DrawPathData stroke = makeSolidFill();
+    stroke.drawMode = PathDrawMode::Stroke;
+    wsc::render::PathDeviceBounds ignored;
+    return expect(
+               !wsc::render::getReorderablePathBounds(
+                   gradient, ignored),
+               "gradient paths must retain order")
+        && expect(
+               !wsc::render::getReorderablePathBounds(
+                   clipped, ignored),
+               "clipped paths must retain order")
+        && expect(
+               !wsc::render::getReorderablePathBounds(
+                   stroke, ignored),
+               "stroke paths must retain order");
+}
+
 bool testSharedIndexedGeometryAccessors()
 {
     auto geometry = std::make_shared<DrawPathGeometry>();
@@ -182,6 +245,7 @@ bool testSharedIndexedGeometryAccessors()
         0.0f, 10.0f
     };
     geometry->coverage = {1.0f, 1.0f, 0.0f, 0.0f};
+    geometry->packedCoverage = {255, 128, 0, 0};
     geometry->indices = {0, 1, 2, 0, 2, 3};
     geometry->topologyFingerprint = 42u;
 
@@ -198,6 +262,10 @@ bool testSharedIndexedGeometryAccessors()
                data.hasCoverage()
                    && data.coverageData()[2] == 0.0f,
                "shared path geometry should provide AA coverage")
+        && expect(
+               data.hasPackedCoverage()
+                   && near(data.coverageAt(1), 128.0f / 255.0f),
+               "shared path geometry should provide packed AA coverage")
         && expect(
                data.sharedGeometry->topologyFingerprint == 42u,
                "shared path geometry should retain topology identity");
@@ -336,6 +404,7 @@ int main()
     ok = testCoverageMismatchDoesNotMerge() && ok;
     ok = testBroaderBatchSupportsPerVertexAttributes() && ok;
     ok = testBroaderBatchFlattensAffineTransforms() && ok;
+    ok = testIndependentPathBounds() && ok;
     ok = testSharedIndexedGeometryAccessors() && ok;
     ok = testShortIndexAccessors() && ok;
     ok = testPackedAttributeAccessors() && ok;

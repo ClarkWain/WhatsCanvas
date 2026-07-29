@@ -45,6 +45,24 @@ stronger evidence of workload breadth than a fixed object count, but are not a
 cross-hardware ranking. Use more seeds and `--repetitions 8` for release
 publication on additional machines.
 
+## Focused Follow-up
+
+The sole inconclusive cell was optimized without changing the workload or
+pixel contract. A four-block follow-up used eight fresh processes per renderer
+for `geometry_stress / dynamic-structure / 256`:
+
+| Renderer | Process median (95% CI) |
+| --- | ---: |
+| WhatsCanvas OpenGL | **0.605 ms [0.589, 0.624]** |
+| NanoVG GL3 | 0.807 ms [0.786, 0.831] |
+
+The paired NanoVG/WhatsCanvas ratio was **1.331x [1.327, 1.441]**, so this
+focused rerun is a conclusive WhatsCanvas win with the quality gate passing.
+Its summary and all 16 raw JSONL runs are stored in
+`focused-geometry-dynamic-structure-n256/`. The aggregate 27-cell files remain
+the original reproducible matrix snapshot rather than mixing measurement
+campaigns silently.
+
 ## Artifacts
 
 - `matrix-summary.json`, `matrix-summary.csv`, and `matrix-report.md` contain

@@ -8485,10 +8485,11 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
                             previousVertices, 255u);
                     }
                     if (d.hasPackedCoverage()) {
+                        const std::vector<std::uint8_t> &packed =
+                            d.packedCoverageData();
                         batch.packedCoverage.insert(
                             batch.packedCoverage.end(),
-                            d.packedCoverage.begin(),
-                            d.packedCoverage.end());
+                            packed.begin(), packed.end());
                     } else if (d.hasFloatCoverage()) {
                         for (std::size_t vertex = 0;
                              vertex < incomingVertices;

@@ -286,12 +286,17 @@ only the 1,024/4,096-operation dynamic-structure cells remain behind.
       split instead of letting one `pathBatchTopology_` slot overwrite another.
 - [x] Expose topology hit/miss counters in the public performance result.
 - [ ] Add timer-query and frame-compile timing before changing the AA format.
-- [ ] Compact the per-frame command stream for many short blend runs without
+- [x] Compact the per-frame command stream for many short blend runs without
       changing blend order or weakening AA.
 
-The remaining losses are 6.8% at 1,024 operations and 4.7% at 4,096. The
-256-operation cell is statistically inconclusive. This is now a narrow command
-recording/submission problem rather than a general geometry throughput gap.
+The 1,024/4,096 losses were closed by short-path allocation and GL state
+caching. The final 256-operation inconclusive cell was then closed by
+conservatively grouping pairwise-disjoint simple fills by blend mode, caching
+shared-geometry bounds and packed AA coverage, and bulk-remapping indices. A
+four-block, eight-process-per-renderer ABBA follow-up measured 0.605 ms for
+WhatsCanvas and 0.807 ms for NanoVG with non-overlapping confidence intervals.
+Overlapping, clipped, scissored, stroked, and shader-backed paths remain strict
+ordering barriers.
 
 ### P1: high-state-churn image batches
 
