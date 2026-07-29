@@ -230,6 +230,64 @@ geometry favored NanoVG. See the
 [raw parameter-matrix baseline](../benchmarks/baselines/cross-library-nanovg-matrix-windows-i7-8700-gtx1060/README.md)
 for every cell and all 216 process JSONL records.
 
+### Post-optimization parameter matrix (`cac08c1`)
+
+The same 27-cell Standard matrix was rerun after ordered eight-slot OpenGL
+multi-texture batching, a dedicated batch sampler, and one shared path
+attribute/index upload stream. Each cell used two ABBA blocks and four fresh
+processes per renderer. All 27 quality gates passed. WhatsCanvas won 12 cells,
+NanoVG won 11, and 4 were inconclusive:
+
+| Category | WhatsCanvas faster | NanoVG faster | Inconclusive |
+| --- | ---: | ---: | ---: |
+| Geometry | 2 | 6 | 1 |
+| Images | 6 | 3 | 0 |
+| Text | 4 | 2 | 3 |
+| **Total** | **12** | **11** | **4** |
+
+The image result changed materially rather than moving inside noise. All three
+stable and all three dynamic-data image cells now favor WhatsCanvas. At 1,024
+operations, dynamic-data fell from 4.273 ms to 0.773 ms while NanoVG measured
+1.667 ms. The remaining conclusive NanoVG wins are:
+
+| Scene | Mode | Operations | WhatsCanvas | NanoVG | WhatsCanvas gap |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `geometry_stress` | dynamic-structure | 256 | 1.254 ms | 0.748 ms | 65.8% slower |
+| `geometry_stress` | dynamic-data | 1,024 | 1.890 ms | 1.575 ms | 20.1% slower |
+| `geometry_stress` | dynamic-structure | 1,024 | 2.912 ms | 1.661 ms | 72.4% slower |
+| `geometry_stress` | stable | 4,096 | 6.619 ms | 4.542 ms | 44.8% slower |
+| `geometry_stress` | dynamic-data | 4,096 | 6.636 ms | 4.711 ms | 38.8% slower |
+| `geometry_stress` | dynamic-structure | 4,096 | 9.425 ms | 5.647 ms | 65.6% slower |
+| `image_grid` | dynamic-structure | 64 | 0.494 ms | 0.411 ms | 21.0% slower |
+| `image_grid` | dynamic-structure | 256 | 0.997 ms | 0.779 ms | 28.6% slower |
+| `image_grid` | dynamic-structure | 1,024 | 2.338 ms | 1.652 ms | 37.6% slower |
+| `contract_text_latin` | stable | 1,024 | 5.905 ms | 5.874 ms | 0.7% slower |
+| `contract_text_latin` | dynamic-data | 1,024 | 6.178 ms | 5.898 ms | 4.5% slower |
+
+This changes the optimization priority. Large and structurally changing
+geometry is the dominant gap. Dynamic-structure images are next: their
+deliberate blend barriers and changing texture sets still produce many small
+batches even though ordinary multi-texture streams no longer do. The two text
+losses are small and lower priority; the 1,024-operation dynamic-structure text
+cell still favors WhatsCanvas, 6.652 ms versus 8.794 ms.
+
+The renderer counters locate those gaps more precisely:
+
+| Workload | Record | Submit | Draws | Structural evidence |
+| --- | ---: | ---: | ---: | --- |
+| Geometry dynamic-structure, 256 | 0.180 ms | 1.050 ms | 46 | State/topology changes already fragment a small frame |
+| Geometry dynamic-structure, 1,024 | 0.680 ms | 2.250 ms | 237 | Both compilation and small submissions scale |
+| Geometry dynamic-structure, 4,096 | 2.810 ms | 7.010 ms | 950 | 97,636 vertices and about 2.1 MiB of path upload |
+| Geometry stable, 4,096 | 2.730 ms | 4.280 ms | 2 | About 2.0 MiB upload: draw count is not the main cost |
+| Images dynamic-structure, 1,024 | 0.310 ms | 2.060 ms | 283 | Real blend barriers dominate submit after multi-texture batching |
+| Text dynamic-data, 1,024 | 4.140 ms | 2.080 ms | 2 | Remaining text gap is primarily record-side work |
+
+These counters are from representative WhatsCanvas processes in the same
+matrix. They are diagnostic, not additional independent samples. They rule out
+one generic fix: geometry needs less frame compilation and attribute expansion,
+image dynamic-structure needs cheaper barrier-bounded batches, and high-count
+text needs record-path profiling rather than another draw-call optimization.
+
 ## Profiles
 
 | Profile | Timed frames | Warmup frames | Intended use |
