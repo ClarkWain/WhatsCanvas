@@ -30,6 +30,7 @@ public:
     void bindImageHandle(ImageResourceHandle texture) const;
     void bindImageResource(const SharedImageResource &imageResource, DrawImageSampling sampling,
                            DrawImageTileMode tileMode, bool mipmapsReady) const;
+    void invalidateImageBinding() const;
     void resetRenderState() const;
 
     /// Whether an anti-aliased clip coverage mask is currently bound. Draw

@@ -341,6 +341,14 @@ void RenderContext::bindImageResource(const SharedImageResource &imageResource, 
     }
 }
 
+void RenderContext::invalidateImageBinding() const
+{
+    hasBoundTexture_ = false;
+    boundTexture_ = {};
+    hasTextureState_ = false;
+    generatedMipmapsForBoundTexture_ = false;
+}
+
 void RenderContext::resetRenderState() const
 {
     if (scissorEnabled_) {
