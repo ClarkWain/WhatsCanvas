@@ -21,6 +21,7 @@
 #include "render/IRenderTarget.h"
 #include "render/RenderContext.h"
 #include "render/GammaCorrect.h"
+#include "render/FrameCompiler.h"
 #include "render/RenderTargetPool.h"
 #include "render/GLPresent.h"
 
@@ -383,6 +384,13 @@ void OpenGLRenderDevice::initializeBackend()
 
     ++g_renderDeviceBackendRefCount;
     backendInitialized_ = true;
+#if !defined(WHATSCANVAS_OPENGL_ES)
+    if (glGenQueries != nullptr && glBeginQuery != nullptr
+        && glGetQueryObjectiv != nullptr
+        && glGetQueryObjectui64v != nullptr) {
+        glGenQueries(3, gpuTimerQueries_);
+    }
+#endif
 }
 
 void OpenGLRenderDevice::finalizeBackend()
@@ -395,6 +403,21 @@ void OpenGLRenderDevice::finalizeBackend()
         renderTargetPool_->clear();
     }
 
+#if !defined(WHATSCANVAS_OPENGL_ES)
+    if (gpuTimerQueries_[0] != 0u && glDeleteQueries != nullptr) {
+        glDeleteQueries(3, gpuTimerQueries_);
+    }
+#endif
+    std::fill(std::begin(gpuTimerQueries_), std::end(gpuTimerQueries_), 0u);
+    std::fill(std::begin(gpuTimerPending_), std::end(gpuTimerPending_), false);
+    std::fill(std::begin(gpuTimerSequences_), std::end(gpuTimerSequences_), 0u);
+    activeGpuTimerQuery_ = -1;
+    nextGpuTimerQuery_ = 0;
+    nextGpuTimerSequence_ = 1;
+    lastGpuTimeNs_ = 0;
+    lastGpuTimeSequence_ = 0;
+    lastGpuTimeAvailable_ = false;
+
     if (g_renderDeviceBackendRefCount > 0) {
         --g_renderDeviceBackendRefCount;
         if (g_renderDeviceBackendRefCount == 0) {
@@ -403,6 +426,74 @@ void OpenGLRenderDevice::finalizeBackend()
     }
 
     backendInitialized_ = false;
+}
+
+bool OpenGLRenderDevice::beginGpuFrameTiming()
+{
+#if !defined(WHATSCANVAS_OPENGL_ES)
+    if (!gpuTimingEnabled_ || !backendInitialized_
+        || gpuTimerQueries_[0] == 0u
+        || activeGpuTimerQuery_ >= 0) {
+        return false;
+    }
+
+    std::uint64_t newestTimeNs = lastGpuTimeNs_;
+    std::uint64_t newestSequence = lastGpuTimeSequence_;
+    for (int index = 0; index < 3; ++index) {
+        if (!gpuTimerPending_[index]) {
+            continue;
+        }
+        GLint available = GL_FALSE;
+        glGetQueryObjectiv(
+            gpuTimerQueries_[index], GL_QUERY_RESULT_AVAILABLE, &available);
+        if (available == GL_TRUE) {
+            GLuint64 elapsed = 0;
+            glGetQueryObjectui64v(
+                gpuTimerQueries_[index], GL_QUERY_RESULT, &elapsed);
+            if (gpuTimerSequences_[index] > newestSequence) {
+                newestTimeNs = static_cast<std::uint64_t>(elapsed);
+                newestSequence = gpuTimerSequences_[index];
+            }
+            gpuTimerPending_[index] = false;
+        }
+    }
+    if (newestSequence > lastGpuTimeSequence_) {
+        lastGpuTimeNs_ = newestTimeNs;
+        lastGpuTimeSequence_ = newestSequence;
+        lastGpuTimeAvailable_ = true;
+    }
+
+    for (int offset = 0; offset < 3; ++offset) {
+        const int index = (nextGpuTimerQuery_ + offset) % 3;
+        if (gpuTimerPending_[index]) {
+            continue;
+        }
+        glBeginQuery(GL_TIME_ELAPSED, gpuTimerQueries_[index]);
+        gpuTimerSequences_[index] = nextGpuTimerSequence_++;
+        activeGpuTimerQuery_ = index;
+        nextGpuTimerQuery_ = (index + 1) % 3;
+        return true;
+    }
+#endif
+    return false;
+}
+
+void OpenGLRenderDevice::endGpuFrameTiming()
+{
+#if !defined(WHATSCANVAS_OPENGL_ES)
+    if (activeGpuTimerQuery_ >= 0) {
+        glEndQuery(GL_TIME_ELAPSED);
+        gpuTimerPending_[activeGpuTimerQuery_] = true;
+        activeGpuTimerQuery_ = -1;
+    }
+#endif
+}
+
+bool OpenGLRenderDevice::lastGpuFrameTimeNs(
+    std::uint64_t &nanoseconds) const
+{
+    nanoseconds = lastGpuTimeAvailable_ ? lastGpuTimeNs_ : 0;
+    return lastGpuTimeAvailable_;
 }
 
 bool OpenGLRenderDevice::readPixelsRGBA(int width, int height, std::vector<unsigned char> &pixels) const
@@ -732,6 +823,10 @@ bool OpenGLRenderDevice::wrapBackendRenderTarget(const BackendRenderTarget &targ
 SharedImageResource OpenGLRenderDevice::renderCommandsToImageResource(const std::vector<std::unique_ptr<Command>> &commands,
                                                                       const OffscreenRenderRequest &request) const
 {
+    lastCompiledPacketCount_ = 0;
+    lastCompiledVertexBytes_ = 0;
+    lastCompiledIndexBytes_ = 0;
+    lastFrameCompileCpuTimeNs_ = 0;
     if (commands.empty() || request.canvasWidth <= 0 || request.canvasHeight <= 0 ||
         request.targetWidth <= 0 || request.targetHeight <= 0) {
         return {};
@@ -746,17 +841,63 @@ SharedImageResource OpenGLRenderDevice::renderCommandsToImageResource(const std:
         return {};
     }
 
-    // Reuse the complete GL command path for offscreen replay. In particular,
-    // this preserves arbitrary path clips on gradients, images, and text; the
-    // backend-neutral DrawList encoder intentionally supports a smaller common
-    // subset and is primarily used by non-GL device command execution.
     renderTarget->activate();
-    RenderContext context;
-    context.setSize(request.canvasWidth, request.canvasHeight);
-    context.setScissorOffset(request.scissorOffsetX, request.scissorOffsetY);
-    for (const std::unique_ptr<Command> &command : commands) {
-        if (command) {
-            command->execute(context);
+    bool rendered = false;
+    const bool fullCanvasTarget =
+        request.targetWidth == request.canvasWidth
+        && request.targetHeight == request.canvasHeight
+        && request.viewportX == 0 && request.viewportY == 0;
+    if (fullCanvasTarget) {
+        CommandDrawListEncodeRequest compileRequest;
+        compileRequest.canvasWidth = request.canvasWidth;
+        compileRequest.canvasHeight = request.canvasHeight;
+        compileRequest.targetHeight = request.targetHeight;
+        compileRequest.scissorOffsetX = request.scissorOffsetX;
+        compileRequest.scissorOffsetY = request.scissorOffsetY;
+        CompiledFrame frame;
+        FrameCompiler compiler;
+        if (compiler.compile(commands, compileRequest, frame)) {
+            bool portable = true;
+            for (const wsc::DrawPrimitive &packet : frame.packets) {
+                if (packet.kind == wsc::DrawPrimitiveKind::ClipFill
+                    || (packet.kind == wsc::DrawPrimitiveKind::TexturedQuad
+                        && (packet.positions.size() != 12u
+                            || !packet.packedTints.empty()
+                            || !packet.texturedInstances.empty()))) {
+                    portable = false;
+                    break;
+                }
+            }
+            if (portable) {
+                rendered = executeDrawList(
+                    frame.packets, request.canvasWidth,
+                    request.canvasHeight,
+                    request.scissorOffsetX,
+                    request.scissorOffsetY);
+                if (rendered) {
+                    lastCompiledPacketCount_ =
+                        frame.stats.packetCount;
+                    lastCompiledVertexBytes_ =
+                        frame.stats.vertexBytes;
+                    lastCompiledIndexBytes_ =
+                        frame.stats.indexBytes;
+                    lastFrameCompileCpuTimeNs_ =
+                        frame.stats.cpuTimeNs;
+                }
+            }
+        }
+    }
+    if (!rendered) {
+        // The direct path remains the correctness fallback for cropped layers,
+        // complex clip masks, and packet kinds not covered by portable replay.
+        RenderContext context;
+        context.setSize(request.canvasWidth, request.canvasHeight);
+        context.setScissorOffset(
+            request.scissorOffsetX, request.scissorOffsetY);
+        for (const std::unique_ptr<Command> &command : commands) {
+            if (command) {
+                command->execute(context);
+            }
         }
     }
     renderTarget->end();

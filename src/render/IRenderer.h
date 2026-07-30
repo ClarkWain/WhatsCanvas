@@ -93,9 +93,17 @@ public:
         }
         return {};
     }
+    /// Apply an ordered filter pipeline. The default implementation preserves
+    /// node order and lowers generic nodes through backend image rendering.
+    virtual SharedImageResource filterImageResource(
+        const SharedImageResource &source,
+        int width, int height,
+        const wsc::ImageFilterChain &filters,
+        FilterExecutionStats *executionStats = nullptr) const;
     virtual void resetRenderState() = 0;
     virtual void clear() = 0;
     virtual void flush() = 0;
+    virtual void setGpuTimingEnabled(bool /*enabled*/) {}
 
     /// Whether this renderer's backend can present to an on-screen window.
     /// Default false (offscreen-only). See doc/windowed-presentation-design.md.
@@ -114,4 +122,8 @@ public:
 
     /// Raw native handle accessor for advanced interop; backend-specific.
     virtual std::uintptr_t nativeHandle(int /*which*/) const { return 0; }
+
+protected:
+    virtual void recordGenericFilterPass(
+        int /*width*/, int /*height*/) const {}
 };

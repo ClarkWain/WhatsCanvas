@@ -85,6 +85,9 @@ jobs:
           chmod +x scripts/version_consistency_check.sh
           ./scripts/version_consistency_check.sh
 
+      - name: Check public performance evidence
+        run: python scripts/performance_claims_check.py
+
       - name: Verify package consumer on Windows
         if: runner.os == 'Windows'
         shell: pwsh

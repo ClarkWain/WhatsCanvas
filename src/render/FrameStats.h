@@ -1,13 +1,22 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 
 /// Per-frame rendering statistics for debugging and profiling.
 struct FrameStats
 {
+    std::uint64_t flushCpuTimeNs = 0;     ///< Renderer flush wall-clock CPU time.
+    std::uint64_t frameCompileCpuTimeNs = 0; ///< Command-to-packet compilation CPU time.
+    std::uint64_t deviceExecutionCpuTimeNs = 0; ///< Device command execution CPU time.
+    std::uint64_t gpuTimeNs = 0;          ///< Latest completed delayed GPU timer result.
+    bool gpuTimeAvailable = false;        ///< Whether gpuTimeNs contains a valid result.
     std::size_t drawCallCount = 0;       ///< Number of GPU draw calls issued.
     std::size_t commandCount = 0;        ///< Number of commands submitted.
     std::size_t mergedBatchCount = 0;    ///< Number of batch merges performed.
+    std::size_t compiledPacketCount = 0; ///< Backend-neutral/device packets produced.
+    std::size_t compiledVertexBytes = 0; ///< Compiled vertex/attribute payload bytes.
+    std::size_t compiledIndexBytes = 0;  ///< Compiled index payload bytes.
     std::size_t renderTargetSwitches = 0;///< Number of FBO switches.
     std::size_t filterCount = 0;         ///< Successful image/backdrop filters.
     std::size_t filterPassCount = 0;     ///< Backend passes used by filters.
@@ -24,9 +33,17 @@ struct FrameStats
 
     void reset()
     {
+        flushCpuTimeNs = 0;
+        frameCompileCpuTimeNs = 0;
+        deviceExecutionCpuTimeNs = 0;
+        gpuTimeNs = 0;
+        gpuTimeAvailable = false;
         drawCallCount = 0;
         commandCount = 0;
         mergedBatchCount = 0;
+        compiledPacketCount = 0;
+        compiledVertexBytes = 0;
+        compiledIndexBytes = 0;
         renderTargetSwitches = 0;
         filterCount = 0;
         filterPassCount = 0;

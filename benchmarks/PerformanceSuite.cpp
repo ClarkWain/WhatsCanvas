@@ -112,6 +112,7 @@ struct Options
     std::string outputPath;
     std::string captureDirectory;
     bool listScenes = false;
+    bool gpuTiming = false;
     WorkloadOptions workload;
 };
 
@@ -533,7 +534,7 @@ void printUsage(std::ostream &output, const char *program)
         << " [--rounded-ratio 0..1] [--state-change-rate 0..1]"
         << " [--text-length N]"
         << " [--output results.jsonl] [--capture-dir path]"
-        << " [--list-scenes]\n";
+        << " [--gpu-timing] [--list-scenes]\n";
 }
 
 bool parseOptions(
@@ -549,6 +550,10 @@ bool parseOptions(
         }
         if (argument == "--list-scenes") {
             options.listScenes = true;
+            continue;
+        }
+        if (argument == "--gpu-timing") {
+            options.gpuTiming = true;
             continue;
         }
         if (i + 1 >= argc) {
@@ -764,6 +769,7 @@ public:
             return false;
         }
         canvas_->setSize(options.width, options.height);
+        canvas_->setGpuTimingEnabled(options.gpuTiming);
 #if WSC_PERF_HAS_OPENGL
         if (options.backend == Backend::OpenGL
             && !canvas_->setOutputTarget(wsc::OutputTarget::GLFramebuffer(
@@ -2074,6 +2080,8 @@ std::string metadataJson(
          << ",\"library_version\":\""
          << jsonEscape(WHATSCANVAS_PERF_VERSION) << "\""
          << ",\"synchronization\":\"gpu_complete\""
+         << ",\"gpu_timing_enabled\":"
+         << (options.gpuTiming ? "true" : "false")
          << ",\"cross_library_contract\":\""
          << jsonEscape(
                 contractVersion.empty() ? "1.2.0" : contractVersion)
@@ -2269,9 +2277,23 @@ bool runScene(
          << ",\"peak_rss_bytes\":" << after.peakResidentBytes
          << ",\"private_or_virtual_bytes\":"
          << after.privateOrVirtualBytes
+         << ",\"flush_cpu_ns\":" << stats.flushCpuTimeNs
+         << ",\"frame_compile_cpu_ns\":"
+         << stats.frameCompileCpuTimeNs
+         << ",\"device_execution_cpu_ns\":"
+         << stats.deviceExecutionCpuTimeNs
+         << ",\"gpu_time_available\":"
+         << (stats.gpuTimeAvailable ? "true" : "false")
+         << ",\"gpu_time_ns\":" << stats.gpuTimeNs
          << ",\"command_count\":" << stats.commandCount
          << ",\"draw_call_count\":" << stats.drawCallCount
          << ",\"merged_batch_count\":" << stats.mergedBatchCount
+         << ",\"compiled_packet_count\":"
+         << stats.compiledPacketCount
+         << ",\"compiled_vertex_bytes\":"
+         << stats.compiledVertexBytes
+         << ",\"compiled_index_bytes\":"
+         << stats.compiledIndexBytes
          << ",\"render_target_switches\":" << stats.renderTargetSwitches
          << ",\"filter_count\":" << stats.filterCount
          << ",\"filter_pass_count\":" << stats.filterPassCount
@@ -2305,6 +2327,8 @@ bool runScene(
          << ",\"stroke_cache_bytes\":" << stats.strokeCacheBytes
          << ",\"bitmap_text_cache_bytes\":"
          << stats.bitmapTextCacheBytes
+         << ",\"tracked_resource_bytes\":"
+         << stats.trackedResourceBytes
          << "}";
     writer.write("PERF_RESULT", json.str());
     return true;

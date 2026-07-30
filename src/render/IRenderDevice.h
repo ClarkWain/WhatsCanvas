@@ -77,6 +77,21 @@ public:
                                  const OffscreenRenderRequest & /*request*/) const { return false; }
     virtual std::size_t lastExecutionDrawCallCount() const { return 0; }
     virtual std::size_t lastExecutionMergedBatchCount() const { return 0; }
+    virtual std::size_t lastCompiledPacketCount() const { return 0; }
+    virtual std::size_t lastCompiledVertexBytes() const { return 0; }
+    virtual std::size_t lastCompiledIndexBytes() const { return 0; }
+    virtual std::uint64_t lastFrameCompileCpuTimeNs() const { return 0; }
+
+    /// Begin/end a non-blocking backend GPU timer around one frame. Results may
+    /// arrive one or more frames later; unsupported backends return false.
+    virtual bool beginGpuFrameTiming() { return false; }
+    virtual void endGpuFrameTiming() {}
+    virtual void setGpuFrameTimingEnabled(bool /*enabled*/) {}
+    virtual bool lastGpuFrameTimeNs(std::uint64_t &nanoseconds) const
+    {
+        nanoseconds = 0;
+        return false;
+    }
 
     /// Whether this backend can present to an on-screen window (build a
     /// swapchain from a NativeSurface). Default false: the device is

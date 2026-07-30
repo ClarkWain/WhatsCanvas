@@ -59,9 +59,17 @@ public:
 
 	struct RenderStats
 	{
+		std::uint64_t flushCpuTimeNs = 0;
+		std::uint64_t frameCompileCpuTimeNs = 0;
+		std::uint64_t deviceExecutionCpuTimeNs = 0;
+		std::uint64_t gpuTimeNs = 0;
+		bool gpuTimeAvailable = false;
 		std::size_t commandCount = 0;
 		std::size_t drawCallCount = 0;
 		std::size_t mergedBatchCount = 0;
+		std::size_t compiledPacketCount = 0;
+		std::size_t compiledVertexBytes = 0;
+		std::size_t compiledIndexBytes = 0;
 		std::size_t renderTargetSwitches = 0;
 		std::size_t filterCount = 0;
 		std::size_t filterPassCount = 0;
@@ -98,6 +106,7 @@ public:
 		std::size_t strokeCacheBytes = 0;
 		std::size_t bitmapTextCacheSize = 0;
 		std::size_t bitmapTextCacheBytes = 0;
+		std::size_t trackedResourceBytes = 0;
 	};
 
 	using ReadPixelsCallback = std::function<void(std::vector<unsigned char> pixels, int width, int height)>;
@@ -191,6 +200,9 @@ public:
 	bool isRenderTarget() const override;
 
 	RenderStats getRenderStats() const;
+	/// Enable optional backend GPU frame timers. Disabled by default so normal
+	/// rendering and comparative benchmarks pay no query overhead.
+	void setGpuTimingEnabled(bool enabled);
 	bool initializeContext();
 	void finalizeContext();
 	bool isContextInitialized() const;

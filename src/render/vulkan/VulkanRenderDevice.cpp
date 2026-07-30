@@ -3,12 +3,14 @@
 #include "../IRenderTarget.h"
 #include "../IRenderer.h"
 #include "../GaussianKernel.h"
+#include "../FrameCompiler.h"
 #include "../RenderTargetPool.h"
 #include "command/DrawCommand.h"
 
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <iostream>
 #include <iterator>
 #include "core/LogInternal.h"
@@ -7110,6 +7112,11 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
 #if defined(WHATSCANVAS_ENABLE_VULKAN)
     lastExecutionDrawCallCount_ = 0;
     lastExecutionMergedBatchCount_ = 0;
+    lastCompiledPacketCount_ = 0;
+    lastCompiledVertexBytes_ = 0;
+    lastCompiledIndexBytes_ = 0;
+    lastFrameCompileCpuTimeNs_ = 0;
+    const auto compileStart = std::chrono::steady_clock::now();
     if (!context_ || !context_->deviceReady) {
         return false;
     }
@@ -8478,10 +8485,11 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
                             previousVertices, 255u);
                     }
                     if (d.hasPackedCoverage()) {
+                        const std::vector<std::uint8_t> &packed =
+                            d.packedCoverageData();
                         batch.packedCoverage.insert(
                             batch.packedCoverage.end(),
-                            d.packedCoverage.begin(),
-                            d.packedCoverage.end());
+                            packed.begin(), packed.end());
                     } else if (d.hasFloatCoverage()) {
                         for (std::size_t vertex = 0;
                              vertex < incomingVertices;
@@ -9219,6 +9227,16 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
     if (!flushPendingClipMasks()) {
         return false;
     }
+    const auto compileEnd = std::chrono::steady_clock::now();
+    const FrameCompileStats compileStats =
+        FrameCompiler::measure(list);
+    lastCompiledPacketCount_ = compileStats.packetCount;
+    lastCompiledVertexBytes_ = compileStats.vertexBytes;
+    lastCompiledIndexBytes_ = compileStats.indexBytes;
+    lastFrameCompileCpuTimeNs_ =
+        static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                compileEnd - compileStart).count());
     const bool rendered =
         executeDrawListWithCopy(
             target, list, copyDestination,

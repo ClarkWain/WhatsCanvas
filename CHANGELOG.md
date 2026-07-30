@@ -9,6 +9,30 @@ For releases and downloadable artifacts, see the
 
 ## [Unreleased]
 
+## [0.1.18] - 2026-07-30
+
+### Added
+- Added composable `ImageFilterChain` nodes for blur, inner shadow, color
+  matrix, and offset effects, with matching Software, OpenGL, and Vulkan
+  validation coverage.
+- Added backend-neutral `FrameCompiler` packets and expanded `RenderStats`
+  diagnostics for frame compilation, device execution, delayed GPU timing,
+  compiled bytes, and tracked renderer memory.
+- Archived the complete quality-gated 27-cell NanoVG comparison matrix,
+  preserved its raw ABBA process samples, and added automated checks that keep
+  public performance claims tied to the committed evidence.
+
+### Changed
+- Reorganized the README performance summary around workload coverage,
+  quality gates, confidence intervals, and links to the detailed evidence.
+- Batched pairwise-disjoint simple fills across blend-state changes while
+  preserving strict barriers for overlapping, clipped, scissored, stroked, and
+  shader-backed paths.
+- Cached shared path bounds and packed AA coverage and bulk-remapped indices,
+  reducing the final inconclusive 256-shape geometry case from 46 draw calls
+  to 4. A four-block ABBA follow-up measured 0.605 ms for WhatsCanvas and
+  0.807 ms for NanoVG with the pixel-quality gate passing.
+
 ## [0.1.17] - 2026-07-29
 
 ### Added

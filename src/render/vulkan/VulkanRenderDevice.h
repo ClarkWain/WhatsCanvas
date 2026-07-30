@@ -199,6 +199,22 @@ public:
     {
         return lastExecutionMergedBatchCount_;
     }
+    std::size_t lastCompiledPacketCount() const override
+    {
+        return lastCompiledPacketCount_;
+    }
+    std::size_t lastCompiledVertexBytes() const override
+    {
+        return lastCompiledVertexBytes_;
+    }
+    std::size_t lastCompiledIndexBytes() const override
+    {
+        return lastCompiledIndexBytes_;
+    }
+    std::uint64_t lastFrameCompileCpuTimeNs() const override
+    {
+        return lastFrameCompileCpuTimeNs_;
+    }
 
     /// Vulkan drives its main-target frame through executeCommands().
     bool usesDeviceCommandExecution() const override { return true; }
@@ -238,6 +254,10 @@ private:
         drawFrameTargets_;
     mutable std::size_t lastExecutionDrawCallCount_ = 0;
     mutable std::size_t lastExecutionMergedBatchCount_ = 0;
+    mutable std::size_t lastCompiledPacketCount_ = 0;
+    mutable std::size_t lastCompiledVertexBytes_ = 0;
+    mutable std::size_t lastCompiledIndexBytes_ = 0;
+    mutable std::uint64_t lastFrameCompileCpuTimeNs_ = 0;
     // Reused CPU staging for large Vulkan frames. Keeping these vectors alive
     // mirrors the OpenGL path-batch scratch model and avoids allocating several
     // megabytes of merged geometry and upload data every frame.

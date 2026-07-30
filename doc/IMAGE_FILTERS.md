@@ -74,6 +74,39 @@ layer output. The capture still grows by `radius + abs(offset)` so the
 transparent area needed to form the edge is available to the filter. Radii are
 clamped to 64 pixels and offsets to 256 pixels for backend parity.
 
+### Composable filter chains
+
+`ImageFilterChain` keeps node order explicit and supports up to eight nodes.
+Existing blur and inner-shadow values can be mixed with a row-major 4x5 RGBA
+color matrix and a transparent-boundary offset:
+
+```cpp
+const std::array<float, 20> desaturate = {
+    0.30f, 0.59f, 0.11f, 0.0f, 0.0f,
+    0.30f, 0.59f, 0.11f, 0.0f, 0.0f,
+    0.30f, 0.59f, 0.11f, 0.0f, 0.0f,
+    0.0f,  0.0f,  0.0f,  1.0f, 0.0f,
+};
+
+wsc::ImageFilterChain chain;
+chain.append(wsc::ImageFilter::blurSigma(4.0f))
+    .appendColorMatrix(desaturate)
+    .appendOffset(6.0f, 4.0f);
+
+wsc::LayerOptions options;
+options.setImageFilter(chain);
+canvas->saveLayer(bounds, compositePaint, options);
+// Draw layer content.
+canvas->restore();
+```
+
+The matrix uses four rows for output R, G, B, and A. Each row contains four
+channel multipliers followed by an additive normalized-channel offset. Offset
+nodes use Decal semantics: newly exposed pixels are transparent. Generic nodes
+are lowered through the same backend image path used by ordinary Canvas
+drawing, so Software, OpenGL, OpenGLES, and Vulkan preserve the same order.
+Sampling and output bounds conservatively accumulate across the chain.
+
 ## Blur Semantics
 
 - Blur radii use filter-target pixels and are clamped to 64 pixels so Software,
@@ -127,11 +160,11 @@ the foreground does not need group opacity or an image filter.
 
 ## Backend Status
 
-| Backend | Image blur | Backdrop blur | Inner shadow | Execution |
-| --- | --- | --- | --- | --- |
-| Software | Supported | Supported | Supported | Deterministic CPU separable Gaussian reference |
-| OpenGL / OpenGLES | Supported | Supported | Supported | GPU separable Gaussian plus inner-shadow composite; adaptive per-axis 2x blur and full-resolution restore |
-| Vulkan | Supported | Supported | Supported | GPU separable Gaussian plus inner-shadow composite in one synchronized submission; adaptive per-axis 2x blur and full-resolution restore |
+| Backend | Image blur | Backdrop blur | Inner shadow | Color matrix / offset chain | Execution |
+| --- | --- | --- | --- | --- | --- |
+| Software | Supported | Supported | Supported | Supported | Deterministic CPU reference |
+| OpenGL / OpenGLES | Supported | Supported | Supported | Supported | GPU Gaussian/filter passes plus shared image-pass lowering |
+| Vulkan | Supported | Supported | Supported | Supported | GPU Gaussian/filter passes plus shared image-pass lowering |
 
 Unsupported filters degrade gracefully: ordinary layer content is preserved,
 and an unavailable backdrop filter becomes a no-op.
@@ -141,17 +174,18 @@ and an unavailable backdrop filter becomes a no-op.
 - `WhatsCanvasSoftwareRendererTests` covers empty-layer backdrop composition,
   hard-edge background diffusion, post-blur color adjustment, sampling-outset
   cropping, layer-content blur, inner-shadow direction and clipping, alpha
-  preservation, and layer-bound clipping.
+  preservation, layer-bound clipping, and ordered color-matrix/offset output.
 - `WhatsCanvasOpenGLBackdropFilterTests` validates real GPU output through a
   hidden OpenGL 3.3 context and pixel readback, including color adjustment and
   sampling-outset cropping, inner-shadow output, framebuffer state restoration,
-  and layer-bound isolation.
+  layer-bound isolation, and ordered color-matrix/offset output.
 - `WhatsCanvasVulkanImageFilterTests` validates the native Vulkan image handle,
   GPU blur diffusion, Clamp/Decal edges, alpha-safe color adjustment, adaptive
   per-axis downsampling, transparent-edge color safety, public image/backdrop
   filtering, inner-shadow composition, premultiplied translucent layers, layer
   orientation, and cropped gradient/image clipping. Backdrop and inner-shadow
-  output are also checked against the Software reference.
+  output are also checked against the Software reference. The composable
+  color-matrix/offset scene is byte-identical between Vulkan and Software.
 - `WhatsCanvasOpenGLFilterPixelParityTests`,
   `WhatsCanvasOpenGLESFilterPixelParityTests`, and
   `WhatsCanvasVulkanFilterPixelParityTests` render the same deterministic
@@ -175,9 +209,10 @@ and an unavailable backdrop filter becomes a no-op.
 
 ## Roadmap
 
-1. Add a composable filter graph with generic color-matrix and offset nodes.
-2. Extend the backend-neutral shared encoder to arbitrary clipped image and
+1. Extend the backend-neutral shared encoder to arbitrary clipped image and
    gradient primitives for non-GL device command execution.
+2. Add morphology and displacement-map nodes after their cross-backend pixel
+   contracts are defined.
 3. Expand real-device performance baselines for large and overlapping glass
    regions.
 

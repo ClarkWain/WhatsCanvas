@@ -1,0 +1,113 @@
+{
+  "schema": 2,
+  "contract": "1.2.0",
+  "reference": "whatscanvas",
+  "profile": "standard",
+  "width": 1920,
+  "height": 1080,
+  "frames": 30,
+  "warmup": 5,
+  "repetitions_per_renderer": 8,
+  "bootstrap_samples": 10000,
+  "font_sha256": "797E35F7F5D6020A5C6EA13B42ECD668BCFB3BBC4BAA0E74773527E5B6CB3174",
+  "workload_arguments": [
+    "--workload",
+    "dynamic-structure",
+    "--seed",
+    "1001",
+    "--operations",
+    "256",
+    "--texture-count",
+    "1",
+    "--rounded-ratio",
+    "0.0",
+    "--state-change-rate",
+    "0.125",
+    "--text-length",
+    "24"
+  ],
+  "comparisons": [
+    {
+      "scene": "geometry_stress",
+      "reference": "whatscanvas",
+      "candidate": "nanovg",
+      "schedule": [
+        "block-01-01-a",
+        "block-01-02-b",
+        "block-01-03-b",
+        "block-01-04-a",
+        "block-02-01-a",
+        "block-02-02-b",
+        "block-02-03-b",
+        "block-02-04-a",
+        "block-03-01-a",
+        "block-03-02-b",
+        "block-03-03-b",
+        "block-03-04-a",
+        "block-04-01-a",
+        "block-04-02-b",
+        "block-04-03-b",
+        "block-04-04-a"
+      ],
+      "reference_process_medians_ms": [
+        0.5972,
+        0.62165,
+        0.6235,
+        0.5925,
+        0.6274,
+        0.58935,
+        0.49885,
+        0.61375
+      ],
+      "candidate_process_medians_ms": [
+        0.7862,
+        0.8392,
+        0.8307,
+        0.78605,
+        0.7978,
+        0.81645,
+        0.77795,
+        0.81765
+      ],
+      "abba_relative_samples": [
+        1.3331112359013162,
+        1.3294891120719576,
+        1.3272505425979488,
+        1.4413810972113634
+      ],
+      "candidate_median_ci_ms": [
+        0.78605,
+        0.8307
+      ],
+      "relative_ci": [
+        1.3272505425979488,
+        1.4413810972113634
+      ],
+      "quality": {
+        "mean_absolute_error": 0.7821339699074074,
+        "root_mean_square_error": 5.351770837726241,
+        "max_channel_delta": 220,
+        "changed_pixel_fraction": 0.013504050925925926,
+        "passed": true
+      },
+      "run_files": [
+        "pair-nanovg/runs/geometry_stress/whatscanvas/block-01-01-a/result.jsonl",
+        "pair-nanovg/runs/geometry_stress/nanovg/block-01-02-b/result.jsonl",
+        "pair-nanovg/runs/geometry_stress/nanovg/block-01-03-b/result.jsonl",
+        "pair-nanovg/runs/geometry_stress/whatscanvas/block-01-04-a/result.jsonl",
+        "pair-nanovg/runs/geometry_stress/whatscanvas/block-02-01-a/result.jsonl",
+        "pair-nanovg/runs/geometry_stress/nanovg/block-02-02-b/result.jsonl",
+        "pair-nanovg/runs/geometry_stress/nanovg/block-02-03-b/result.jsonl",
+        "pair-nanovg/runs/geometry_stress/whatscanvas/block-02-04-a/result.jsonl",
+        "pair-nanovg/runs/geometry_stress/whatscanvas/block-03-01-a/result.jsonl",
+        "pair-nanovg/runs/geometry_stress/nanovg/block-03-02-b/result.jsonl",
+        "pair-nanovg/runs/geometry_stress/nanovg/block-03-03-b/result.jsonl",
+        "pair-nanovg/runs/geometry_stress/whatscanvas/block-03-04-a/result.jsonl",
+        "pair-nanovg/runs/geometry_stress/whatscanvas/block-04-01-a/result.jsonl",
+        "pair-nanovg/runs/geometry_stress/nanovg/block-04-02-b/result.jsonl",
+        "pair-nanovg/runs/geometry_stress/nanovg/block-04-03-b/result.jsonl",
+        "pair-nanovg/runs/geometry_stress/whatscanvas/block-04-04-a/result.jsonl"
+      ]
+    }
+  ]
+}

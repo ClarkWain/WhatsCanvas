@@ -420,6 +420,8 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
 
     const std::vector<float> &points = data.pointData();
     const std::vector<float> &coverageData = data.coverageData();
+    const std::vector<std::uint8_t> &packedCoverageData =
+        data.packedCoverageData();
     const std::vector<std::uint32_t> &indexData = data.indexData();
     if (data.hasIndices()) {
         bool invalidIndex = false;
@@ -467,8 +469,8 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
     std::size_t coverageBytes = 0;
     std::size_t coverageAlignment = 1;
     if (data.hasPackedCoverage()) {
-        coverageSource = data.packedCoverage.data();
-        coverageBytes = data.packedCoverage.size();
+        coverageSource = packedCoverageData.data();
+        coverageBytes = packedCoverageData.size();
     } else if (data.hasFloatCoverage()) {
         coverageSource = coverageData.data();
         coverageBytes = coverageData.size() * sizeof(float);

@@ -439,12 +439,8 @@ bool encodeCommandsToDrawList(const std::vector<std::unique_ptr<Command>> &comma
             const auto *pointsCmd = static_cast<const DrawPointsCommand *>(cmd.get());
             const DrawPointsData &d = pointsCmd->data();
             if (d.clipMask.hasPaths()) {
-                // Clipped points aren't supported by the shared encoder yet; skip
-                // with a warning instead of failing the whole encode (which would
-                // silently produce an empty offscreen image). See ADR-006.
-                WSC_LOG_WARN("CommandDrawListEncoder",
-                             "skipping clipped point command (unsupported by shared encoder)");
-                continue;
+                setError(error, "unsupported clipped point command");
+                return false;
             }
             const std::size_t count = d.getPointCount();
             if (count == 0) {
@@ -471,9 +467,8 @@ bool encodeCommandsToDrawList(const std::vector<std::unique_ptr<Command>> &comma
             const auto *linesCmd = static_cast<const DrawLinesCommand *>(cmd.get());
             const DrawLinesData &d = linesCmd->data();
             if (d.clipMask.hasPaths()) {
-                WSC_LOG_WARN("CommandDrawListEncoder",
-                             "skipping clipped line command (unsupported by shared encoder)");
-                continue;
+                setError(error, "unsupported clipped line command");
+                return false;
             }
             const std::size_t lineCount = d.getLineCount();
             if (lineCount == 0) {
@@ -524,9 +519,8 @@ bool encodeCommandsToDrawList(const std::vector<std::unique_ptr<Command>> &comma
             const auto *textCmd = static_cast<const DrawTextCommand *>(cmd.get());
             const DrawTextData &d = textCmd->data();
             if (d.clipMask.hasPaths()) {
-                WSC_LOG_WARN("CommandDrawListEncoder",
-                             "skipping clipped vector text command (unsupported by shared encoder)");
-                continue;
+                setError(error, "unsupported clipped vector text command");
+                return false;
             }
             const std::size_t vertexCount = d.getVertexCount();
             if (vertexCount < 3 || (vertexCount % 3) != 0) {

@@ -65,6 +65,7 @@ public:
     void resetRenderState() override;
     void clear() override;
     void flush() override;
+    void setGpuTimingEnabled(bool enabled) override;
 
     // Presentation: forwarded to the underlying render device (GL/Vulkan).
     bool supportsPresentation() const override;
@@ -74,6 +75,9 @@ public:
     std::uintptr_t nativeHandle(int which) const override;
 
 private:
+    void recordGenericFilterPass(
+        int width, int height) const override;
+
     // Renders the recorded frame through the device's command-execution path
     // (used by devices such as Vulkan that render a command stream into a device
     // render target). Returns true when the device handled the flush.

@@ -176,6 +176,9 @@ jobs:
       - name: Check version consistency target
         run: cmake --build build-validation-release-targets --target WhatsCanvasCheckVersionConsistency
 
+      - name: Check performance evidence target
+        run: cmake --build build-validation-release-targets --target WhatsCanvasCheckPerformanceClaims
+
       - name: Check package consumer target
         run: cmake --build build-validation-release-targets --target WhatsCanvasCheckPackageConsumer
 
