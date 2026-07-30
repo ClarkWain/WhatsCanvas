@@ -20,7 +20,7 @@ The active bottleneck analysis, prioritized implementation backlog, and
 quantitative acceptance targets are tracked in
 [Performance Optimization TODO](PERFORMANCE_OPTIMIZATION_TODO.md).
 
-A checked-in [Windows i7-8700 / GTX 1060 reference run](../benchmarks/baselines/windows-i7-8700-gtx1060/README.md)
+A checked-in [Windows i7-8700 / GTX 1060 reference run](../benchmarks/baselines/cross-library-nanovg-windows-i7-8700-gtx1060/README.md)
 demonstrates the complete report format and preserves all raw JSONL records.
 It is a reproducible single-machine baseline, not a universal score or
 cross-library ranking. That historical run used the former 960 x 540,
@@ -362,6 +362,18 @@ changing the next scene's result.
   deliberately not presented as identical private-memory semantics everywhere.
 - `command_count`, `draw_call_count`, cache bytes, filter/pass/pixel counts,
   and render-target statistics: public `Canvas::RenderStats` diagnostics.
+- `flush_cpu_ns`: Renderer flush wall time. `frame_compile_cpu_ns` isolates
+  command-to-packet lowering where a `FrameCompiler` path is active, while
+  `device_execution_cpu_ns` isolates device-command execution.
+- `gpu_time_available` and `gpu_time_ns`: a delayed, non-blocking backend timer
+  result. OpenGL uses a three-query ring; unsupported backends report
+  `false` rather than substituting CPU time. GPU timing is disabled by default;
+  pass `--gpu-timing` for a diagnostic run so comparative baselines do not pay
+  timer-query overhead.
+- `compiled_packet_count`, `compiled_vertex_bytes`, and
+  `compiled_index_bytes`: the submitted compact-packet footprint.
+- `tracked_resource_bytes`: the sum of glyph-atlas, pooled render-target,
+  tessellation, stroke, and bitmap-text cache bytes owned by WhatsCanvas.
 
 Pixel equality is not a perceptual quality score. A fast blank frame can be
 fast for the wrong reason, so every result must have a non-empty readback and a

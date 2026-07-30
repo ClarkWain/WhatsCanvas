@@ -210,6 +210,74 @@ int main()
             && expectShapeColor(79),
         "GPU shape parameters must preserve per-shape transforms and colors") && ok;
 
+    canvas->beginFrame();
+    canvas->drawColor(wsc::Color::BLACK);
+    paint.setAntiAlias(false);
+    for (int index = 0; index < 16; ++index) {
+        const int column = index % 4;
+        const int row = index / 4;
+        if ((index % 2) == 0) {
+            paint.setBlendMode(wsc::Paint::BlendMode::ADD);
+            paint.setColor(wsc::Color(180, 20, 10, 255));
+        } else {
+            paint.setBlendMode(wsc::Paint::BlendMode::SCREEN);
+            paint.setColor(wsc::Color(10, 180, 20, 255));
+        }
+        canvas->drawRect(
+            wsc::RectF(
+                5.0f + column * 22.0f,
+                5.0f + row * 22.0f,
+                12.0f, 12.0f),
+            paint);
+    }
+    canvas->endFrame();
+    std::vector<unsigned char> independentFrame;
+    ok = expect(
+        canvas->readPixelsRGBA(independentFrame),
+        "independent blend batch frame must be readable") && ok;
+    const wsc::Canvas::RenderStats independentStats =
+        canvas->getRenderStats();
+    ok = expect(
+        independentStats.drawCallCount <= 3,
+        "non-overlapping paths should submit once per blend state") && ok;
+    ok = expect(
+        independentStats.mergedBatchCount >= 2,
+        "non-overlapping blend groups should use path batches") && ok;
+    if (independentFrame.size()
+        == static_cast<std::size_t>(kWidth * kHeight * 4)) {
+        const auto channelAt = [&](int x, int y, std::size_t channel) {
+            return independentFrame[
+                (static_cast<std::size_t>(y) * kWidth
+                 + static_cast<std::size_t>(x)) * 4u
+                + channel];
+        };
+        ok = expect(
+            channelAt(10, 10, 0) > 170
+                && channelAt(32, 10, 1) > 170,
+            "blend grouping must preserve each independent path result") && ok;
+    }
+
+    canvas->beginFrame();
+    canvas->drawColor(wsc::Color::BLACK);
+    for (int index = 0; index < 16; ++index) {
+        paint.setBlendMode(
+            (index % 2) == 0
+                ? wsc::Paint::BlendMode::ADD
+                : wsc::Paint::BlendMode::SCREEN);
+        paint.setColor(
+            (index % 2) == 0
+                ? wsc::Color(12, 6, 3, 255)
+                : wsc::Color(3, 12, 6, 255));
+        canvas->drawRect(
+            wsc::RectF(20.0f, 20.0f, 30.0f, 30.0f), paint);
+    }
+    canvas->endFrame();
+    const wsc::Canvas::RenderStats overlappingStats =
+        canvas->getRenderStats();
+    ok = expect(
+        overlappingStats.drawCallCount >= 16,
+        "overlapping blend paths must remain strict order barriers") && ok;
+
     canvas.reset();
     glfwDestroyWindow(window);
     glfwTerminate();

@@ -69,6 +69,8 @@ public:
     int height() const { return height_; }
 
 private:
+    void recordGenericFilterPass(
+        int width, int height) const override;
     void ensureFramebuffer();
     void clearFramebuffer();
 

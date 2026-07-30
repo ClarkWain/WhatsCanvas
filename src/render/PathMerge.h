@@ -1,6 +1,8 @@
 #pragma once
 
+#include <algorithm>
 #include <cmath>
+#include <limits>
 
 #include "command/DrawData.h"
 
@@ -30,6 +32,83 @@ inline bool isAffine2DPathTransform(const glm::mat4 &transform)
         && std::abs(transform[2][3]) <= kPathMergeEpsilon
         && std::abs(transform[3][2]) <= kPathMergeEpsilon
         && std::abs(transform[3][3] - 1.0f) <= kPathMergeEpsilon;
+}
+
+struct PathDeviceBounds
+{
+    float left = 0.0f;
+    float top = 0.0f;
+    float right = 0.0f;
+    float bottom = 0.0f;
+};
+
+/// Resolve conservative device-space bounds for a path that can be safely
+/// reordered relative to other non-overlapping paths. Complex state remains
+/// ordered even when its geometry happens to be disjoint.
+inline bool getReorderablePathBounds(
+    const DrawPathData &data, PathDeviceBounds &bounds)
+{
+    if (data.drawMode != PathDrawMode::Fill
+        || data.hasShaderGradient()
+        || data.scissor.enabled
+        || data.clipMask.hasPaths()
+        || !isAffine2DPathTransform(data.transform)) {
+        return false;
+    }
+    float left = std::numeric_limits<float>::max();
+    float top = std::numeric_limits<float>::max();
+    float right = std::numeric_limits<float>::lowest();
+    float bottom = std::numeric_limits<float>::lowest();
+    const auto includePoint = [&](float localX, float localY) {
+        const float x = data.transform[0][0] * localX
+            + data.transform[1][0] * localY
+            + data.transform[3][0];
+        const float y = data.transform[0][1] * localX
+            + data.transform[1][1] * localY
+            + data.transform[3][1];
+        if (!std::isfinite(x) || !std::isfinite(y)) {
+            return false;
+        }
+        left = std::min(left, x);
+        top = std::min(top, y);
+        right = std::max(right, x);
+        bottom = std::max(bottom, y);
+        return true;
+    };
+
+    if (data.sharedGeometry && data.sharedGeometry->hasBounds) {
+        const DrawPathGeometry &geometry = *data.sharedGeometry;
+        if (!includePoint(geometry.boundsLeft, geometry.boundsTop)
+            || !includePoint(geometry.boundsRight, geometry.boundsTop)
+            || !includePoint(geometry.boundsRight, geometry.boundsBottom)
+            || !includePoint(geometry.boundsLeft, geometry.boundsBottom)) {
+            return false;
+        }
+    } else {
+        const std::vector<float> &points = data.pointData();
+        if (points.size() < 6u || (points.size() % 2u) != 0u) {
+            return false;
+        }
+        for (std::size_t index = 0; index < points.size(); index += 2u) {
+            if (!includePoint(points[index], points[index + 1u])) {
+                return false;
+            }
+        }
+    }
+    if (!(right > left) || !(bottom > top)) {
+        return false;
+    }
+    bounds = {left, top, right, bottom};
+    return true;
+}
+
+inline bool pathDeviceBoundsOverlap(
+    const PathDeviceBounds &a, const PathDeviceBounds &b)
+{
+    return !(a.right + kPathMergeEpsilon < b.left
+        || b.right + kPathMergeEpsilon < a.left
+        || a.bottom + kPathMergeEpsilon < b.top
+        || b.bottom + kPathMergeEpsilon < a.top);
 }
 
 inline bool hasCompatiblePathBatchStateWithoutTransform(
