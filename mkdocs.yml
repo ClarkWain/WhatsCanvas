@@ -75,6 +75,7 @@ nav:
       - API Reference: API_REFERENCE.md
       - API Stability: API_STABILITY.md
   - Guides:
+      - Visual API Gallery: visual-api-gallery.md
       - Image Filters & Frosted Glass: IMAGE_FILTERS.md
       - Text & Fonts: TEXT_FEATURE_MATRIX.md
       - Shadows: SHADOW_MODEL.md
