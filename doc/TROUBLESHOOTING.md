@@ -181,7 +181,7 @@ working setups.
 - Build a package first (`build.bat --release --package --no-run`) or download a
   release archive, then point CMake at it:
   `cmake -S . -B build -DCMAKE_PREFIX_PATH=/path/to/package`.
-- Use the exact version: `find_package(WhatsCanvas 0.1.17 CONFIG REQUIRED)`.
+- Use the exact version: `find_package(WhatsCanvas 0.1.18 CONFIG REQUIRED)`.
 
 ### Do consumers need GLFW / GLAD / GLM?
 
