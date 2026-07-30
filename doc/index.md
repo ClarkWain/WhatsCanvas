@@ -9,7 +9,13 @@ complete than the latter. It exposes a familiar `Canvas` / `Paint` / `Path` /
 OpenGL, OpenGL ES, a pure-CPU software rasterizer (no GPU at all), and an
 optional Vulkan backend.
 
-![WhatsCanvas quality showcase — analytic AA, gradients, Gaussian shadows, AA path clipping](../images/aa/quality_showcase.png)
+!!! success "WhatsCanvas 0.1.18 is available"
+    The latest release adds composable image-filter chains, backend-neutral
+    frame diagnostics, audited performance evidence, and independent-path
+    blend batching. Download the
+    [Windows, Linux, or macOS package](https://github.com/ClarkWain/WhatsCanvas/releases/tag/v0.1.18).
+
+![WhatsCanvas quality showcase — analytic AA, gradients, Gaussian shadows, AA path clipping](images/aa/quality_showcase.png)
 
 ## First pixel in 60 seconds
 
@@ -53,28 +59,68 @@ windowed OpenGL, GitHub Release consumption, Vulkan, and common tasks.
 | **OpenGL ES** | `Canvas::create(Backend::OpenGLES, w, h)` + `loadOpenGL(...)` | Yes (you own it) | Mobile / embedded GLES 3.0 |
 | **Vulkan** (optional) | `Canvas::create(Backend::Vulkan, w, h)` | No external GL context; off-screen by default | Vulkan pipelines, or Win32 `ToWindow`; degrades gracefully |
 
-## What makes it stand out
+## Capabilities at a glance
 
-- **A near-Skia text stack** — real HarfBuzz shaping, multi-font fallback
-  segmentation, full Unicode UAX #9 bidi (861,948 conformance cases, 0
-  failures), COLR/CPAL color glyphs, and a GPU glyph atlas — capabilities peer
-  lightweight libraries usually leave to the application. See
-  [Text & Fonts](TEXT_FEATURE_MATRIX.md).
-- **Render-quality depth** — resolution-independent analytic anti-aliasing,
-  fragment-level multi-stop gradients, true separable-Gaussian
-  [shadows](SHADOW_MODEL.md), and anti-aliased arbitrary-path clipping.
-- **A verification culture** — deterministic pixel readback, golden-image
-  regression (software backend), fuzzy PPM comparison, cross-platform CI, and an
-  auto-generated, CI-checked [API Reference](API_REFERENCE.md).
-- **Genuinely portable** — one Canvas API over OpenGL, OpenGL ES, a zero-GPU
-  software rasterizer, and optional Vulkan.
+| Area | What is ready |
+| --- | --- |
+| Geometry and paint | Paths, fill/stroke, analytic AA, dashes, hit testing, linear/radial multi-stop gradients, blend modes, shadows, and color matrices |
+| Canvas composition | Save/restore, transforms, rectangular and AA path clips, off-screen layers, render-target canvases, and quick reject |
+| Images | File/encoded-memory/RGBA loading, texture updates, fit modes, nine-patch, rounded/circular clipping, tiling, mipmaps, and wrapped external textures |
+| Text | Font discovery and fallback, FreeType, HarfBuzz shaping, UAX #9 bidi, CJK wrapping, GPU glyph atlases, COLR/CPAL color glyphs, and styled/path text |
+| Effects | Image and backdrop blur, frosted glass, inner shadow, color matrix and offset nodes, and ordered `ImageFilterChain` composition |
+| Verification | Software golden images, GL/GLES/Vulkan pixel parity, deterministic readback, cross-platform CI, performance confidence intervals, and resource diagnostics |
+
+## Text that belongs in a real product
+
+The portable text stack combines HarfBuzz shaping, multi-font fallback
+segmentation, FreeType rasterization, full Unicode UAX #9 bidi
+(861,948 conformance cases, zero failures), COLR/CPAL color glyphs, and a GPU
+glyph atlas. Layout adds CJK line breaking, ellipsis, baselines, spacing,
+gradient/stroke/shadow text, and text on a path.
+
+![WhatsCanvas text rendering showcase](images/text-rendering-showcase.png)
+
+[Explore text and font support](TEXT_FEATURE_MATRIX.md)
+
+## Image filters and frosted glass
+
+Filters are attached to saved layers, so geometry and foreground text remain
+independent from the processed image. `ImageFilterChain` can apply blur, inner
+shadow, a 4x5 color matrix, and transparent-boundary offsets in a declared
+order. Backdrop filters sample content already drawn behind the layer, enabling
+real frosted-glass panels instead of a pre-blurred imitation.
+
+![WhatsCanvas image-filter and frosted-glass showcase](images/image-filter-showcase.png)
+
+[Build image filters and backdrop effects](IMAGE_FILTERS.md)
+
+## Performance with evidence
+
+The public benchmark runs at 1920 x 1080 in `Release`, synchronizes complete
+frames, checks pixels before accepting timing, alternates fresh processes in
+ABBA order, and publishes raw samples plus bootstrap 95% confidence intervals.
+
+| Parameterized comparison against NanoVG GL3 | Result |
+| --- | ---: |
+| Pixel-quality gates | **27 / 27 passed** |
+| Complete 27-cell matrix | **26 wins, 0 losses, 1 inconclusive** |
+| Image workloads | **9 / 9 wins** |
+| Text workloads | **9 / 9 wins** |
+| Final focused geometry follow-up | **0.605 ms vs 0.807 ms** |
+
+The focused follow-up used four ABBA blocks and eight fresh processes per
+renderer; its paired NanoVG/WhatsCanvas ratio was
+`1.331x [1.327, 1.441]`. These are reference-machine results, not a universal
+cross-hardware ranking.
+
+[Read the benchmark methodology and results](PERFORMANCE_BENCHMARKS.md)
 
 ## Architecture at a glance
 
 The core (`canvas` / `text` / `command` / `render`) is backend-neutral; only the
 device layer is backend-specific.
 
-![WhatsCanvas architecture](../images/canvas-architecture.png)
+![WhatsCanvas architecture](images/canvas-architecture.png)
 
 ## Where next
 
@@ -83,5 +129,6 @@ device layer is backend-specific.
 - [Performance Benchmarks](PERFORMANCE_BENCHMARKS.md) ·
   [NanoVG 性能优化实战](NANOVG_PERFORMANCE_OPTIMIZATION.md) ·
   [Memory Management](MEMORY_MANAGEMENT.md).
-- [Text & Fonts](TEXT_FEATURE_MATRIX.md) · [Shadows](SHADOW_MODEL.md) · [Blend Modes](BLEND_MODE_AUDIT.md).
+- [Image Filters](IMAGE_FILTERS.md) · [Text & Fonts](TEXT_FEATURE_MATRIX.md) ·
+  [Shadows](SHADOW_MODEL.md) · [Blend Modes](BLEND_MODE_AUDIT.md).
 - [Vulkan Status](vulkan-backend-status.md) · [Shader Portability](SHADER_PORTABILITY.md) · [iOS Build Notes](IOS_BUILD_NOTES.md).

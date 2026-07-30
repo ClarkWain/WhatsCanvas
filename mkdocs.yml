@@ -75,6 +75,7 @@ nav:
       - API Reference: API_REFERENCE.md
       - API Stability: API_STABILITY.md
   - Guides:
+      - Image Filters & Frosted Glass: IMAGE_FILTERS.md
       - Text & Fonts: TEXT_FEATURE_MATRIX.md
       - Shadows: SHADOW_MODEL.md
       - Blend Modes: BLEND_MODE_AUDIT.md
@@ -84,3 +85,5 @@ nav:
       - Vulkan Status: vulkan-backend-status.md
   - Project:
       - Performance Benchmarks: PERFORMANCE_BENCHMARKS.md
+      - NanoVG Optimization Case Study: NANOVG_PERFORMANCE_OPTIMIZATION.md
+      - Memory Management: MEMORY_MANAGEMENT.md
