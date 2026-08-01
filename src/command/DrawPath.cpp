@@ -368,8 +368,6 @@ void DrawPathProgram::release()
     coverageAttributeEnabled_ = true;
     drawIdAttributeEnabled_ = false;
     drawParameterTextureBound_ = false;
-    elementBuffer_ = 0;
-
     initialized_ = false;
 }
 
@@ -784,7 +782,10 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
         program_->setVec4("uGradientStopColors[" + std::to_string(i) + "]", glm::make_vec4(stopColor));
     }
 
-    // StreamBuffer leaves the shared packet buffer bound as GL_ARRAY_BUFFER.
+    // Attribute and element-buffer bindings are VAO state. DrawPath can be
+    // entered after an offscreen shadow/filter pass, so never rely on the GL
+    // bindings that the upload or a previous frame happened to leave behind.
+    glBindBuffer(GL_ARRAY_BUFFER, positions.buffer);
     glVertexAttribPointer(
         0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float),
         reinterpret_cast<const void *>(positions.byteOffset));
@@ -844,11 +845,7 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
 #endif
 
     if (data.hasIndices()) {
-        if (elementBuffer_ != indices.buffer) {
-            glBindBuffer(
-                GL_ELEMENT_ARRAY_BUFFER, indices.buffer);
-            elementBuffer_ = indices.buffer;
-        }
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indices.buffer);
         glDrawElements(
             GL_TRIANGLES,
             static_cast<GLsizei>(data.getElementCount()),
