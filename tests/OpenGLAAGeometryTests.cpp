@@ -278,6 +278,38 @@ int main()
         overlappingStats.drawCallCount >= 16,
         "overlapping blend paths must remain strict order barriers") && ok;
 
+    // A modal dialog introduces blurred rounded-rectangle shadows between
+    // ordinary indexed path batches. This used to leave DrawPath trusting a
+    // stale element-buffer cache; NVIDIA then interpreted the non-zero index
+    // offset as a client pointer inside glDrawElements.
+    canvas->beginFrame();
+    canvas->drawColor(wsc::Color(246, 241, 234, 255));
+    paint.setBlendMode(wsc::Paint::BlendMode::SRC_OVER);
+    paint.setAntiAlias(true);
+    paint.setColor(wsc::Color(0, 0, 0, 0));
+    paint.setShadowLayer(18.0f, 0.0f, 8.0f,
+                         wsc::Color(0, 0, 0, 64));
+    canvas->drawRoundRect(
+        wsc::RectF(14.0f, 18.0f, 68.0f, 58.0f), 12.0f, paint);
+    paint.clearShadowLayer();
+    paint.setColor(wsc::Color(255, 252, 248, 255));
+    canvas->drawRoundRect(
+        wsc::RectF(14.0f, 18.0f, 68.0f, 58.0f), 12.0f, paint);
+    for (int row = 0; row < 4; ++row) {
+        paint.setColor(wsc::Color(
+            220 - row * 12, 72 + row * 18, 62 + row * 8, 255));
+        canvas->drawRoundRect(
+            wsc::RectF(23.0f, 29.0f + row * 10.0f,
+                       50.0f, 6.0f), 3.0f, paint);
+    }
+    canvas->endFrame();
+    std::vector<unsigned char> modalFrame;
+    ok = expect(
+        canvas->readPixelsRGBA(modalFrame)
+            && modalFrame.size()
+                == static_cast<std::size_t>(kWidth * kHeight * 4),
+        "modal shadow followed by indexed paths must render without corrupting GL bindings") && ok;
+
     canvas.reset();
     glfwDestroyWindow(window);
     glfwTerminate();
