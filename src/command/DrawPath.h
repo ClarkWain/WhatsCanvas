@@ -74,5 +74,4 @@ private:
     bool coverageAttributeEnabled_ = true;
     bool drawIdAttributeEnabled_ = false;
     bool drawParameterTextureBound_ = false;
-    unsigned int elementBuffer_ = 0;
 };
