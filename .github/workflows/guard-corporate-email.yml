@@ -1,0 +1,62 @@
+name: Guard - forbidden email addresses
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  scan-emails:
+    name: Scan commit authors for forbidden email domains
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan commit identities
+        env:
+          # Extended-regex pattern. Add more domains with alternation, e.g. '@(joyy|example)\.com'
+          FORBIDDEN: '@joyy\.com'
+          IS_PR: ${{ github.event_name == 'pull_request' }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "$IS_PR" = "true" ]; then
+            range="${PR_BASE_SHA}..${PR_HEAD_SHA}"
+          elif [ -n "${PUSH_BEFORE:-}" ] && [ "${PUSH_BEFORE}" != "0000000000000000000000000000000000000000" ]; then
+            range="${PUSH_BEFORE}..HEAD"
+          else
+            range="HEAD"
+          fi
+
+          echo "Scanning commit range: ${range}"
+          echo "Forbidden email pattern: ${FORBIDDEN}"
+
+          offenders=$(git log "${range}" --pretty=format:'%h AUTHOR=%ae COMMITTER=%ce' 2>/dev/null | grep -E "${FORBIDDEN}" || true)
+
+          if [ -n "${offenders}" ]; then
+            {
+              echo "::error title=Forbidden email address in commit history::One or more commits carry a forbidden author/committer email"
+              echo ""
+              echo "Pattern: ${FORBIDDEN}"
+              echo ""
+              echo "${offenders}"
+              echo ""
+              echo "To fix: rewrite the offending commits with"
+              echo "  git rebase -i <range>       # then 'edit' or 'reword' each bad commit"
+              echo "  git commit --amend --author='New Name <new@example.com>' --no-edit"
+              echo "  git push --force-with-lease"
+            } >&2
+            exit 1
+          fi
+
+          echo "No forbidden email addresses detected in scanned commits."
