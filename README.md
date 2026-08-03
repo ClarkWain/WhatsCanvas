@@ -6,13 +6,13 @@
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C.svg)](CMakeLists.txt)
 [![Documentation](https://img.shields.io/badge/docs-online-success.svg)](https://clarkwain.github.io/WhatsCanvas/)
 
-WhatsCanvas 是一个可嵌入原生应用的 C++17 二维渲染库。它提供 HTML Canvas 风格的 `Canvas` / `Paint` / `Path` API，同时覆盖多语言文本、图层滤镜、图片、离屏渲染和像素回读；它不是 HTML Canvas 的源码兼容实现，也不是包含控件、布局、输入和无障碍能力的 UI 框架。
+WhatsCanvas 是一款基于 C++17 编写、专为原生应用设计的可嵌入 2D 渲染库。它提供了类似 HTML Canvas 的 `Canvas` / `Paint` / `Path` API，全面支持多语言文本、图层滤镜、图片渲染、离屏渲染及像素回读。区别于完整的 UI 框架，它聚焦于核心渲染逻辑，未内置控件、布局、输入事件与无障碍支持，也不完全兼容 HTML Canvas 源码。
 
-它的目标不是取代 Skia 这类大型图形平台，而是在“只有基础绘制的极简库”和“能力完整但接入面较大的图形引擎”之间，提供一个便于集成、理解和验证的选择。
+该项目旨在填补“极简基础绘制库”与“重型图形引擎（如 Skia）”之间的空白，为你提供一个易于集成、理解和验证的轻量级替代方案。
 
 ![WhatsCanvas 实际渲染的材质观测台](images/image-filter-showcase.png)
 
-> 这是一帧由 WhatsCanvas 桌面 OpenGL 后端绘制并从 framebuffer 回读的 `1920 × 1080` 图片，不是设计稿或嵌入的 UI 截图。
+> 上图由 WhatsCanvas 桌面 OpenGL 后端绘制，并直接从 framebuffer 回读生成的 `1920 × 1080` 图像，绝非设计效果图或 UI 截图。
 
 ## 先判断它是否适合你的项目
 
@@ -24,17 +24,19 @@ WhatsCanvas 是一个可嵌入原生应用的 C++17 二维渲染库。它提供 
 | **平台状态** | Windows、Linux、macOS 持续执行构建和单元测试；发布包覆盖 Windows x64、Linux x64 和 macOS universal。移动端目前以 OpenGL ES 宿主接入为主，不等同于完整设备矩阵。 |
 | **文本能力** | 字体发现和 fallback、CJK/RTL、UAX #9、换行与省略号、glyph atlas、COLR/CPAL v0；OpenGL/OpenGL ES 默认启用 FreeType 与 HarfBuzz shaping。 |
 | **接入方式** | CMake `find_package`、`add_subdirectory`，或从源码生成可搬运的安装目录。 |
-| **体量** | 不是 header-only。可按后端只链接 `WhatsCanvas::Software`、`::OpenGL` 或 `::OpenGLES`；参考体量见[体量与依赖](#体量与依赖)。 |
+| **体量** | 非 header-only。支持按后端仅链接 `WhatsCanvas::Software`、`::OpenGL` 或 `::OpenGLES`；参考体量见[体量与依赖](#体量与依赖)。 |
 | **成熟度** | 当前版本 `0.1.19`，仍处于 pre-1.0；公开 API 边界、跨平台 CI、像素回归、包消费测试和可审计性能基线已经建立，仍应结合下方边界评估升级与平台风险。 |
 | **许可证** | MIT；`third_party/` 组件遵循各自许可证。 |
 
-适合选择 WhatsCanvas，如果你希望用一套 Canvas 风格 API 覆盖 CPU/GPU 渲染、多语言文字和常见 UI 效果，并且看重确定性截图、像素回归和源码可读性。
+**何时推荐使用 WhatsCanvas？**
+如果你期望使用统一的 Canvas 风格 API 搞定 CPU/GPU 渲染、多语言文本及常见 UI 效果，同时看重截图确定性、像素级回归测试与源码可读性，WhatsCanvas 会是一个绝佳选择。
 
-可能不适合，如果项目需要现成 UI 控件体系、浏览器运行、Metal/WebGPU、完整色彩管理、文档/PDF 输出、浏览器级文本编辑，或者要求一个已经长期维持 ABI 的 1.x 库。
+**何时需要另寻方案？**
+如果你的项目强依赖现成的 UI 控件体系、需要在浏览器中运行、强求对 Metal / WebGPU 的原生支持、需要极其完善的色彩管理、要求生成文档/PDF、涉及复杂的富文本编辑，或是非得使用长期维持 ABI 稳定的老牌 1.x 渲染库，那么 WhatsCanvas 可能暂不满足你的需求。
 
 ## 60 秒画出第一帧
 
-Software 后端不需要窗口、GL 上下文或 GPU，适合先验证 API：
+Software 后端无需绑定窗口、GL 上下文或 GPU 资源，非常适合用于初期 API 验证：
 
 ```cpp
 #include <wsc/wsc.h>
@@ -58,7 +60,7 @@ int main()
 }
 ```
 
-从 [Releases](https://github.com/ClarkWain/WhatsCanvas/releases) 下载预编译包，或者用下方命令生成本地包，然后在应用中链接对应目标：
+你可以直接从 [Releases](https://github.com/ClarkWain/WhatsCanvas/releases) 获取预编译包，或使用以下命令在本地生成，随后在应用中链接相应的目标库：
 
 ```cmake
 cmake_minimum_required(VERSION 3.16)
@@ -87,7 +89,7 @@ set "PATH=C:\path\to\whatscanvas\bin;%PATH%"
 build\Release\MyApp.exe
 ```
 
-需要窗口内 OpenGL、OpenGL ES、Vulkan、字体注册或宿主 render target 时，直接看 **[Using WhatsCanvas as a Library](doc/GETTING_STARTED_AS_LIBRARY.md)**。该指南包含完整上下文生命周期和可运行 consumer。
+若需使用窗口内 OpenGL、OpenGL ES、Vulkan、字体注册或宿主 render target 等进阶功能，请直接查阅 **[Using WhatsCanvas as a Library](doc/GETTING_STARTED_AS_LIBRARY.md)**。该指南包含了完整的上下文生命周期介绍及可独立运行的 consumer 示例。
 
 ## 获取与构建
 
@@ -102,7 +104,7 @@ bin/                         shared 构建的运行时库（存在时）
 lib/cmake/WhatsCanvas/       find_package 配置
 ```
 
-不同平台包中可用的 target 可能不同。消费时应让 CMake 明确验证所需 target：
+各平台预编译包所包含的 target 可能有所差异。在实际使用时，建议通过 CMake 明确校验所需的 target 是否存在：
 
 ```cmake
 find_package(WhatsCanvas 0.1.19 CONFIG REQUIRED)
@@ -111,7 +113,7 @@ if (NOT TARGET WhatsCanvas::Software)
 endif()
 ```
 
-当前发布矩阵不是三个平台完全相同的“大一统”包：
+请注意，目前发布的预编译包并未在三大平台上做到完全一致的“大一统”分发：
 
 | 发布资产 | 交付形式和 target | 字体/Vulkan 配置 |
 | --- | --- | --- |
@@ -123,11 +125,11 @@ FreeType/HarfBuzz 配置作用于 GL-family targets；`WhatsCanvas::Software` �
 
 Windows 包由 VS 2022 工具链生成。正式接入应匹配平台、架构、配置和 C/C++ runtime；如果需要不同 target 或依赖组合，请从源码构建。
 
-官方资产的 overrides 记录在 [package-release workflow](.github/workflows/package-release.yml)；本地 `--package` 使用下文说明的默认值，因此不会自动复刻 Windows 官方资产的完整配置。
+官方包的具体构建覆盖参数记录在 [package-release workflow](.github/workflows/package-release.yml)；本地执行 `--package` 时会采用下文提及的默认设置，因此并不会原样复刻 Windows 官方包的完整配置。
 
 ### 从源码构建
 
-需要 CMake 3.16+、C++17 编译器，以及 Git 子模块。根构建默认启用 OpenGL、Software、demo、测试和 benchmark，默认生成静态库；OpenGL demo 还需要 GLFW 可用的系统图形开发库。
+源码构建需要 CMake 3.16+、C++17 编译器以及完整的 Git 子模块环境。根构建流程默认启用 OpenGL、Software、demo、测试及 benchmark，并默认输出静态库。此外，运行 OpenGL demo 另需宿主系统预装可用的 GLFW 系统图形开发库。
 
 ```sh
 git clone --recursive https://github.com/ClarkWain/WhatsCanvas.git
@@ -146,7 +148,7 @@ macOS / Linux：
 sh ./build.sh --no-run
 ```
 
-生成可供 `find_package` 使用的 Release 安装目录：
+生成适配 `find_package` 的 Release 目录结构：
 
 ```bat
 build.bat --release --package --no-run
@@ -158,7 +160,7 @@ sh ./build.sh --release --package --no-run
 
 安装目录位于 `out/package/Release/`。普通 Windows 多配置构建的 demo 通常位于 `build/Debug/` 或 `build/Release/`；默认 Unix 单配置构建通常位于 `build/`。
 
-已有 checkout 可执行 `git submodule update --init --recursive`。构建脚本也会自动更新子模块，因此首次构建需要能够访问这些 Git 仓库；完全离线构建应提前准备好子模块。Ubuntu 构建 demo 的常用系统依赖为 `libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev`。
+若已克隆仓库，可直接执行 `git submodule update --init --recursive` 更新子模块状态。构建脚本在运行时也会自动拉取所需子模块，因此初次构建请确保网络畅通；如需进行完全离线的构建，请务必提前备足各子模块的完整源码。在 Ubuntu 环境下编译 demo 时，常见的系统依赖为 `libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev`。
 
 ### 作为源码子目录
 
@@ -209,14 +211,14 @@ if (!canvas) {
 
 平台验证现状：
 
-下表中的“单元测试”主要是 headless 逻辑/契约门禁；“像素门禁”会执行对应图形后端并与参考输出比较；“发布包”只表示完成打包和 consumer 检查，不等于真机或窗口呈现验证。
+**测试约定**：下表中所指的“单元测试”主要侧重于 headless 环境下的逻辑判断与契约校验；“像素门禁”则会切实拉起对应的图形后端并与参考输出进行比对；而“发布包”仅代表顺利走完了编译打包及 consumer 联调流程，并不等同于接受过全面彻底的真机运转或窗口渲染考验。
 
 | 平台 | 自动化覆盖 | 备注 |
 | --- | --- | --- |
 | Windows x64 | MSVC 单元测试、包消费、OpenGL/Software；发布矩阵可启用 GLES、Vulkan、FreeType、HarfBuzz | DirectWrite 文本后端可选；Vulkan 窗口呈现支持 Win32。 |
 | Linux x64 | GCC 构建、单元测试、OpenGL/GLES 滤镜像素门禁、包消费 | 自动化 GL 场景使用 Mesa/Xvfb；GLX 窗口呈现源码仍缺少持续验证。 |
 | macOS x86_64/arm64 | 单元测试与 universal 发布包 | 使用系统 OpenGL；Metal 渲染后端尚未实现。 |
-| iOS / Android | OpenGL ES target 与 iOS 接入说明 | 当前不是持续运行的真机发布矩阵，集成前应在目标设备验证。 |
+| iOS / Android | OpenGL ES target 与 iOS 接入说明 | 暂未建设定期的真机 CI，集成前务必在目标设备上亲自验证运转情况。 |
 | Web | 未支持 | WebAssembly / WebGL 2 桥接仍在规划。 |
 
 详细状态见 [Cross-Platform Validation Matrix](doc/CROSS_PLATFORM_VALIDATION_MATRIX.md)、[iOS Build Notes](doc/IOS_BUILD_NOTES.md) 和 [Vulkan Backend Status](doc/vulkan-backend-status.md)。
@@ -236,9 +238,9 @@ if (!canvas) {
 
 ### 文本实现说明
 
-默认可移植文本路径包含 UTF-8 布局、字体 fallback、CJK 无空格折行、Unicode 17.0.0 双向文本和 glyph atlas。已归档的 UAX #9 exhaustive conformance 为 **861,948 cases、0 skip、0 failure**。
+默认的跨平台文本处理体系涵盖了 UTF-8 布局、字体 fallback、CJK 无空格换行、Unicode 17.0.0 标准的双向文本支持及 glyph atlas 构建。目前，已归档的 UAX #9 全面一致性测试结果为骄人的 **861,948 例全量通过、0 跳过、0 失败**。
 
-双向文本排序不等于复杂脚本 shaping。阿拉伯文、印度文字等场景依赖 HarfBuzz；它在 GL-family targets 中默认开启，但仍应检查 package diagnostics，并用项目实际字体与文本做回归。显式关闭或依赖不可用时的 simple shaping 不能视为等价替代。
+值得提示的是，双向文本重排处理远不仅限于简单的脚本 shaping。针对阿拉伯文、印度语系等存在高复杂度字形更替的语言时，渲染引擎需强依赖 HarfBuzz 开展深度处理。这类高级功能在所有 GL 家族靶向（targets）中默认激活，但仍强烈建议在上线前排查 package diagnostics，并结配真实业务字体与文案执行严格的回归测试。任何盲目关闭该功能，或在依赖缺失下退化启用的 simple shaping 模式所获排版结果，皆不能被视为理想情况的等效平替。
 
 - `WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=ON`（默认）：优先使用 FreeType 处理 glyph lookup、metrics、kerning 和栅格化；不可用时回退 `stb_truetype`。
 - `WHATSCANVAS_ENABLE_OPENTYPE_SHAPING=ON`（默认）：启用 HarfBuzz OpenType shaping；不可用或关闭时使用 simple shaping + kerning。
@@ -263,7 +265,7 @@ if (!canvas) {
 | 图片 | 64–1,024 张；最多 32 张纹理；圆角与状态变化 | 9/9 领先；最大帧时间下降 58.5% |
 | 动态文字 | 64–1,024 次绘制；文本、字号和状态变化 | 9/9 领先；最大帧时间下降 32.0% |
 
-这组数据证明的是上述硬件、驱动、后端和工作负载下的表现，不应直接外推到其他 GPU、Software、Vulkan、移动设备或你的实际场景。仓库保留逐帧 JSONL、像素质量结果、ABBA 进程配对和 95% 置信区间；建议集成前用自己的 workload 复测。
+需要强调的是，上述性能数据仅反映了特定硬件、驱动、后端及限定工作负载下的真实表现，切勿盲目外推至其他型号 GPU、纯软件渲染、Vulkan 后端、各类移动设备乃至您的实际生产环境。为了维持信息的公信力，源码库内如实保留了逐帧拆解而成的 JSONL 报表、像素残差判断、ABBA 进程配对细节以及 95% 置信区间等原始度量信息。郑重建议在最终拍板前，带入具有业务代表性的 workload 予以复测。
 
 - [完整方法与结果](doc/PERFORMANCE_BENCHMARKS.md)
 - [NanoVG 参数矩阵与原始基线](benchmarks/baselines/nanovg-win-i7-8700-gtx1060/README.md)
@@ -271,7 +273,7 @@ if (!canvas) {
 
 ## 体量与依赖
 
-“轻量”主要指可选择的后端、较小的公共 API 面和不强迫应用采用窗口框架，并不表示它是 header-only。
+我们在描述中所谓“轻量”，核心指向在于极其灵活的可分离式后端、精简收敛的公共 API 表面积极小、并且绝不强行越俎代庖干涉应用本身的窗口框架，但这绝不仅仅等同于简易的 header-only。
 
 当前仓库 `0.1.19` 的一个 **VS 2022 x64、静态 Release、默认 FreeType/HarfBuzz 开启**的干净构建快照可作为量级参考：
 
@@ -283,7 +285,7 @@ if (!canvas) {
 | 随包安装的 `freetype.lib` | 约 1.78 MiB |
 | 随包安装的 `harfbuzz.lib` | 约 4.49 MiB |
 
-这些是各静态库归档文件大小，不能相加后当作最终可执行文件增量；链接器裁剪、调试信息、LTO、运行库、字体实现、Vulkan 和 shared/static 配置都会改变结果。评估交付体积时，请在你的正式工具链中只启用所需 target，并对最终二进制测量。
+请注意，以上罗列的数字仅仅只是静态库的原始大小而已，绝不能粗暴地加和作为可执行文件的最终体积增量。实质上，诸如智能的链接器裁剪机制、调试信息挂载、LTO（链接时优化）等级、依赖运行时版本选择、字体实现方案差异、Vulkan 模块开关以及最终采取的是动态或是静态等繁复配置，均会深远影响您盘子里的安装包尺码。精准丈量付诸行动前，恳请在最贴切业务实战的那套工具链生态里精确剔除多余靶向（target），并通过对产出物的完整测量来得出定论。
 
 依赖模型：
 
@@ -293,7 +295,7 @@ if (!canvas) {
 
 ## 成熟度与工程质量
 
-WhatsCanvas 已有比“能画出来”更完整的工程门禁：
+WhatsCanvas 远不仅止步于单纯的“能画出图形”，它业已建立起了一套极为严苛且完备的工程自动化防线：
 
 - Windows、Linux、macOS 跨平台 CI；OpenGL ES 和 Vulkan 有独立构建/像素门禁。
 - Software golden image、OpenGL/OpenGL ES/Vulkan filter parity、严格 hash 与 fuzzy PPM 回归。
@@ -377,7 +379,7 @@ sh ./scripts/release_preflight.sh
 
 ## 路线边界
 
-当前演进重点是跨后端像素一致性、文本质量、Vulkan 平台覆盖和更可复现的性能验证。WebAssembly/WebGL 2、Metal、WebGPU 以及更多 color glyph 格式属于后续方向；它们不应被视为当前可用能力。
+WhatsCanvas 当前的演进发力点主要汇聚于四方面：跨后端像素一致性的极致打磨、文本排版渲染质量的稳步拔高、Vulkan 平台覆盖广度的积极拓宽，以及更强复现性的性能基准评测。长远来看，拥抱 WebAssembly / WebGL 2 生态、移植 Metal 与 WebGPU 原生加速引擎以及纳管更繁杂更绚丽的 color glyph 格式等愿景均已妥善归列至后续排兵布阵之中。还请明确，以上前瞻特性现阶段尚处蓄力阶段，请勿误认为已是随取可用的现成手段。
 
 ## 许可证
 
