@@ -259,7 +259,7 @@ Check the [Text Feature Matrix](doc/TEXT_FEATURE_MATRIX.md) and [Text Sharpness 
 
 <!-- PERFORMANCE_CLAIM baseline=benchmarks/baselines/nanovg-win-i7-8700-gtx1060/matrix-summary.json wins=26 losses=0 inconclusive=1 quality=27/27 -->
 
-In the currently archived **Windows, Core i7-8700, GTX 1060, 1920 × 1080, Release, OpenGL** quality-matched benchmark matrix in the repository, WhatsCanvas compared to NanoVG GL3 has **26 leads, 0 losses, 1 tie**, with **27 pixel-quality verifications passed**.
+In the currently archived **Windows, Core i7-8700, GTX 1060, 1920 × 1080, Release, OpenGL** quality-matched benchmark matrix in the repository, WhatsCanvas compared to NanoVG GL3 has **26 leads, 0 losses, 1 tie**, with **27 pixel quality verifications passed**.
 
 Audit metadata: Windows 10, NVIDIA 560.94, MSVC 19.43, OpenGL 3.3; warms up 5 frames per process and measures 30 frames, each cell uses 2 ABBA blocks, 4 new processes per end, and 10,000 bootstraps; NanoVG commit is `ce3bf745eb2d2dbc14a50bf2446783f691ac4353`. The matrix was archived on 2026-07-29 at WhatsCanvas commit `0358151`, with quality thresholds and one-click reproduction commands detailed in the baseline README.
 
