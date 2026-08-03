@@ -9,6 +9,17 @@ For releases and downloadable artifacts, see the
 
 ## [Unreleased]
 
+## [0.1.19] - 2026-08-03
+
+### Added
+- Added a visual API integration gallery covering software, OpenGL, OpenGL ES,
+  and Vulkan setup patterns.
+
+### Fixed
+- Rebound OpenGL path vertex and index buffers for every draw so off-screen
+  shadow and filter passes cannot leave stale VAO state that corrupts later
+  indexed paths, including on NVIDIA drivers.
+
 ## [0.1.18] - 2026-07-30
 
 ### Added
@@ -271,7 +282,10 @@ For releases and downloadable artifacts, see the
 For changes prior to 0.1.11, see the
 [GitHub Releases](https://github.com/ClarkWain/WhatsCanvas/releases) history.
 
-[Unreleased]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.16...HEAD
+[Unreleased]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.19...HEAD
+[0.1.19]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.18...v0.1.19
+[0.1.18]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.17...v0.1.18
+[0.1.17]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.16...v0.1.17
 [0.1.16]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.15...v0.1.16
 [0.1.15]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.14...v0.1.15
 [0.1.14]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.13...v0.1.14
