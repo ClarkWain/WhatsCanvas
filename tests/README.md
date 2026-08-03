@@ -19,7 +19,6 @@ This directory is the top-level home for WhatsCanvas validation beyond ad-hoc lo
   machine-readable `FILTER_PARITY` line reports max/mean error, bad-pixel ratio,
   worst coordinate/channel, and both hashes. Hosted Linux CI requires real
   Mesa contexts for GL/GLES and uses lavapipe for the blocking Vulkan baseline.
-- `ctest -C Debug -R ^WhatsCanvasCanvasAdapterTests$ --output-on-failure`: public `CanvasAdapter` state, path, and image-handle coverage.
 - `ctest -C Debug -R ^WhatsCanvasMatrixClipTests$ --output-on-failure`: public matrix mapping, clip bounds, quick reject, and transformed hit-test coverage.
 - `ctest -C Debug -R ^WhatsCanvasPaintStateTests$ --output-on-failure`: public `Paint` state, gradient stop, path effect, color matrix, shadow, sampling, and blend-mode coverage.
 - `ctest -C Debug -R ^WhatsCanvasImageResourceLifecycleTests$ --output-on-failure`: backend-neutral `Image` load, replace, update, external texture, reset, and move lifecycle coverage.
