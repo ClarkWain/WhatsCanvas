@@ -9,6 +9,11 @@ For releases and downloadable artifacts, see the
 
 ## [Unreleased]
 
+### Added
+- Added `examples/hello_world/` — a minimal CMake project that mirrors the
+  README's "60 seconds to draw the first frame" snippet verbatim, links only
+  against `WhatsCanvasSoftware`, and writes `first.ppm` off-screen.
+
 ### Changed
 - Enabled the bundled FreeType rasterizer and HarfBuzz OpenType shaping by
   default for OpenGL-family builds and release packages. Both remain
