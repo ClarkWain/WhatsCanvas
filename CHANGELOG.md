@@ -9,6 +9,17 @@ For releases and downloadable artifacts, see the
 
 ## [Unreleased]
 
+### Changed
+- Enabled the bundled FreeType rasterizer and HarfBuzz OpenType shaping by
+  default for OpenGL-family builds and release packages. Both remain
+  configurable, while the dependency-free Software target continues to use
+  its built-in stb rasterizer and simple text shaping.
+
+### Fixed
+- Split installed renderer exports by component so a consumer requesting only
+  `COMPONENTS Software` does not import OpenGL, FreeType, or HarfBuzz targets
+  from a package that also contains the OpenGL renderer.
+
 ## [0.1.19] - 2026-08-03
 
 ### Added

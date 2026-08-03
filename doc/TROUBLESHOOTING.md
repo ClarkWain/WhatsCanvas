@@ -103,10 +103,12 @@ chain.addFallbackFamily("Noto Sans CJK");
 canvas->setFontFallbackChain(chain);
 ```
 
-FreeType and HarfBuzz are optional (`-DWHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=ON`,
-`-DWHATSCANVAS_ENABLE_OPENTYPE_SHAPING=ON`); when absent, WhatsCanvas falls back
-to `stb_truetype` and simple shaping and reports it in the text-backend
-diagnostics.
+FreeType and HarfBuzz are enabled by default
+(`-DWHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=ON`,
+`-DWHATSCANVAS_ENABLE_OPENTYPE_SHAPING=ON`). When explicitly disabled or not
+found, WhatsCanvas falls back to `stb_truetype` and simple shaping and reports
+it in the text-backend diagnostics. The standalone Software target always uses
+that built-in fallback stack.
 
 ## Backends
 

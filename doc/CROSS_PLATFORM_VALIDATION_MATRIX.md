@@ -13,9 +13,9 @@ This matrix defines the validation surface for keeping the renderer portable acr
 | OpenGLES build and render | `scripts/opengles_build_smoke.*` | Script-owned | `WhatsCanvasOpenGLESFilterPixelParityTests` under Xvfb/Mesa EGL on Linux CI | Confirms GLES-specific compile/link assumptions and real filter shader output do not depend on desktop OpenGL. |
 | Vulkan filter parity | `-DWHATSCANVAS_ENABLE_VULKAN=ON` | `WhatsCanvasVulkanFilterPixelParityTests` | Blocking run on lavapipe | Compares a deterministic composite filter scene with Software; the broader Vulkan label remains informational on hosted runners. |
 | Portable text backend | Default build | Default build | `WhatsCanvasTextBackendContractTests` | Covers font registration, fallback, atlas text, COLR/CPAL v0, backend diagnostics, and adapter fallback. |
-| Optional OpenType shaping | `-DWHATSCANVAS_ENABLE_OPENTYPE_SHAPING=ON` | Build with vendored or system HarfBuzz | Unit tests | `third_party/harfbuzz` is preferred; absence must degrade to simple shaping with a diagnostic, not fail the build. |
-| Optional FreeType rasterizer | `-DWHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=ON` | Build with vendored or system FreeType | Text contract tests | `third_party/freetype` is preferred; absence must degrade to `stb_truetype`, not fail the build. |
-| Combined font stack | `-DWHATSCANVAS_ENABLE_OPENTYPE_SHAPING=ON -DWHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=ON` | Linux CI installs HarfBuzz and FreeType development packages | `ctest -L text` plus `WhatsCanvasCoreBenchmarks` smoke | Validates shaping, glyph metrics/rasterization, atlas text, cache policy, and benchmark wiring in one configuration. |
+| Default OpenType shaping | Default configure (`WHATSCANVAS_ENABLE_OPENTYPE_SHAPING=ON`) | Build with vendored or system HarfBuzz | Unit tests | `third_party/harfbuzz` is preferred; absence must degrade to simple shaping with a diagnostic, not fail the build. |
+| Default FreeType rasterizer | Default configure (`WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=ON`) | Build with vendored or system FreeType | Text contract tests | `third_party/freetype` is preferred; absence must degrade to `stb_truetype`, not fail the build. |
+| Default combined font stack | Default configure | Linux CI installs HarfBuzz and FreeType development packages | `ctest -L text` plus `WhatsCanvasCoreBenchmarks` smoke | Validates shaping, glyph metrics/rasterization, atlas text, cache policy, and benchmark wiring in one configuration. |
 
 ## Text Backend Matrix
 

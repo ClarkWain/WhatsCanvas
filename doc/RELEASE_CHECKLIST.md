@@ -24,7 +24,10 @@ cmake --build build --target WhatsCanvasCheckPackageConsumer
 cmd /c scripts\package_consumer_smoke.bat
 ```
 
-The default package scripts build a portable package with external FreeType disabled, so the artifact can be consumed without requiring the host project to define `Freetype::Freetype`. Set `WHATSCANVAS_PACKAGE_ENABLE_FREETYPE=1` only for dependency-aware packages.
+The default package scripts include the bundled FreeType and HarfBuzz targets
+used by the GL-family libraries. Set `WHATSCANVAS_PACKAGE_ENABLE_FREETYPE=0`
+and pass `-DWHATSCANVAS_ENABLE_OPENTYPE_SHAPING=OFF` through
+`WHATSCANVAS_CMAKE_EXTRA_ARGS` only for a deliberately reduced text package.
 
 6. Run the normal validation set appropriate for the change:
 
@@ -59,7 +62,7 @@ After pushing, verify these workflows:
   - `api-reference`
   - `unit` on Windows / Linux / macOS
   - `opengles-smoke`
-  - `optional-font-stack`
+  - `default-font-stack`
   - `package-consumer`
 - `Package WhatsCanvas`
   - package job on Windows / Linux / macOS
