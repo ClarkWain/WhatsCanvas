@@ -1,6 +1,8 @@
 .vscode/
 .vs/
 build/
+build-*/
+build_*/
 out/
 .love2dgame/
 /.nanovg/
