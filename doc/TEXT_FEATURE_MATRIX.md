@@ -10,7 +10,7 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 | ASCII fallback geometry | Supported | Basic backend can render normalized text through ASCII fallback geometry. |
 | Native Windows text bitmap path | Supported | Used when a font family is supplied and native measurement/render succeeds. |
 | Cross-platform font rasterization | Supported | Registered file-backed or memory-backed TrueType faces can be rasterized through the portable font rasterizer; FreeType is used when available and `stb_truetype` remains the dependency-free fallback. |
-| Optional FreeType rasterizer | Build-time supported | When FreeType is found and `WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=ON`, glyph lookup, metrics, kerning, and alpha glyph rasterization use FreeType. |
+| FreeType rasterizer | Default for GL-family targets | When FreeType is found and `WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=ON` (default), glyph lookup, metrics, kerning, and alpha glyph rasterization use FreeType. The Software-only target retains `stb_truetype`. |
 | Font rasterizer cache policy | Supported | Loaded font faces are bounded by a mutex-protected LRU cache with explicit capacity control, cache clearing, and hit/miss/eviction stats. |
 | Atlas-backed glyph rendering | Supported | Rasterized glyphs are packed into `GlyphAtlas`; Canvas submits atlas quads through the image path. |
 | Indexed glyph lookup | Supported | `GlyphAtlas` maintains a hash index from glyph key to entry slot, avoiding linear scans on repeated glyph uploads in longer text runs. |
@@ -26,7 +26,7 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 | Basic RTL run ordering | Supported | The built-in shaper detects RTL-first runs, mirrors common paired punctuation, and emits glyphs in visual order while preserving source byte mapping. |
 | Unicode UAX #9 bidi resolution | Supported | Mixed-direction text is resolved through a dedicated bidi pass with paragraph direction, explicit embedding/override/isolate controls, weak type resolution, neutral resolution, implicit levels, invisible formatting controls, and visual run ordering. |
 | OpenType shaping adapter boundary | Supported | `BasicTextBackendOptions` can request an OpenType shaping backend; unavailable adapters fall back to simple shaping with diagnostics. |
-| Optional OpenType shaping implementation | Build-time supported | When HarfBuzz is found and `WHATSCANVAS_ENABLE_OPENTYPE_SHAPING=ON`, the OpenType backend emits glyph-index shaped runs from HarfBuzz output. |
+| OpenType shaping implementation | Default for GL-family targets | When HarfBuzz is found and `WHATSCANVAS_ENABLE_OPENTYPE_SHAPING=ON` (default), the OpenType backend emits glyph-index shaped runs from HarfBuzz output. The Software-only target retains simple shaping. |
 | Multi-font shaping segmentation | Supported | Portable raster text is split by resolved font face before shaping, so fallback families can shape/render as independent runs. |
 | Public font face model | Supported | `FontFace`, `FontDescriptor`, `FontFallbackChain`, and `FontManager` are public value/model types. |
 | Font file registration contract | Supported | `ITextBackend::registerFontFace` accepts file-backed faces. |
