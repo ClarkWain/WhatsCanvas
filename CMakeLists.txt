@@ -151,6 +151,10 @@ if (WHATSCANVAS_BUILD_DEMO AND TARGET WhatsCanvasOpenGL)
     endif()
 endif()
 
+if (WHATSCANVAS_BUILD_DEMO AND TARGET WhatsCanvasSoftware)
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/hello_world")
+endif()
+
 if (TARGET WhatsCanvasOpenGL)
     add_executable(WhatsCanvasFeatureSnippets
         "${CMAKE_CURRENT_SOURCE_DIR}/examples/snippets/FeatureSnippets.cpp"
