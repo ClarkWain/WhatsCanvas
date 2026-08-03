@@ -200,9 +200,13 @@ void drawNavIcon(Canvas &canvas, float x, float y, int kind,
                             x + 8.0f + i * 3.0f, y - 8.0f, icon);
         }
     } else if (kind == 2) {
-        Paint type = textStyle(27.0f, color, 700);
-        type.setTextBaseline(Paint::TextBaseline::MIDDLE);
-        canvas.drawText("T", x - 10.0f, y, type);
+        // Keep typography in the same stroked icon language as the rest of
+        // the rail instead of placing a font glyph inside the icon column.
+        canvas.drawLine(x - 10.0f, y - 9.0f,
+                        x + 10.0f, y - 9.0f, icon);
+        canvas.drawLine(x, y - 9.0f, x, y + 10.0f, icon);
+        canvas.drawLine(x - 5.0f, y + 10.0f,
+                        x + 5.0f, y + 10.0f, icon);
     } else if (kind == 3) {
         canvas.drawRoundRect(RectF(x - 12.0f, y - 10.0f, 24.0f, 20.0f),
                              3.0f, icon);
@@ -258,8 +262,8 @@ void drawSidebar(Canvas &canvas)
                 Color(22, 101, 155, 108), Color(25, 56, 105, 60));
             canvas.drawRoundRect(RectF(16.0f, y, 192.0f, 60.0f), 15.0f,
                                  selected);
-            canvas.drawRoundRect(RectF(16.0f, y + 15.0f, 3.0f, 30.0f),
-                                 1.5f, solid(Color(84, 224, 241, 235)));
+            canvas.drawRoundRect(RectF(22.0f, y + 18.0f, 4.0f, 24.0f),
+                                 2.0f, solid(Color(84, 224, 241, 235)));
         }
         const Color foreground =
             active ? Color(104, 226, 242, 255) : Color(187, 204, 229, 214);
@@ -507,9 +511,6 @@ void drawInsetCircle(Canvas &canvas, float cx, float cy, float radius)
     canvas.drawCircle(cx, cy, radius, concave);
     canvas.restore();
     strokeRoundRect(canvas, bounds, radius, Color(203, 229, 255, 100), 1.0f);
-    canvas.drawCircle(cx - radius * 0.25f, cy - radius * 0.27f,
-                      std::max(2.0f, radius * 0.055f),
-                      solid(Color(222, 247, 255, 155)));
 }
 
 void drawMusic(Canvas &canvas)
@@ -761,20 +762,43 @@ void drawStatusBar(Canvas &canvas, const Canvas::RenderStats *stats)
     canvas.drawText("API TARGETS", bar.getX() + 675.0f,
                     bar.getY() + 41.0f, targetLabel);
 
-    const char *backends[] = {"Software", "OpenGL", "OpenGLES", "Vulkan"};
+    const char *backends[] = {"Software", "OpenGL", "OpenGL ES", "Vulkan"};
+    const RectF targetSwitch(bar.getX() + 770.0f, bar.getY() + 23.0f,
+                             704.0f, 36.0f);
+    canvas.drawRoundRect(targetSwitch, 18.0f,
+                         solid(Color(5, 24, 52, 110)));
+    strokeRoundRect(canvas, targetSwitch, 18.0f,
+                    Color(142, 191, 231, 42), 1.0f);
+
+    constexpr float kTargetWidth = 176.0f;
     for (int i = 0; i < 4; ++i) {
-        const float x = bar.getX() + 790.0f + static_cast<float>(i) * 184.0f;
         const bool active = i == 1;
-        canvas.drawCircle(
-            x, bar.getY() + 41.0f, active ? 8.0f : 6.0f,
-            solid(active ? Color(69, 204, 238, 255)
-                         : Color(121, 148, 182, 165)));
+        const float itemX = targetSwitch.getX()
+            + static_cast<float>(i) * kTargetWidth;
+        if (active) {
+            canvas.drawRoundRect(
+                RectF(itemX + 3.0f, targetSwitch.getY() + 3.0f,
+                      kTargetWidth - 6.0f, targetSwitch.getHeight() - 6.0f),
+                15.0f, solid(Color(51, 151, 202, 118)));
+            strokeRoundRect(
+                canvas,
+                RectF(itemX + 3.0f, targetSwitch.getY() + 3.0f,
+                      kTargetWidth - 6.0f, targetSwitch.getHeight() - 6.0f),
+                15.0f, Color(91, 224, 241, 126), 1.0f);
+        } else if (i > 0) {
+            canvas.drawRect(
+                RectF(itemX, targetSwitch.getY() + 9.0f,
+                      1.0f, targetSwitch.getHeight() - 18.0f),
+                solid(Color(133, 174, 213, 28)));
+        }
         Paint backend = textStyle(
-            16.0f, active ? Color(231, 244, 255, 250)
-                          : Color(181, 201, 226, 205),
+            15.0f, active ? Color(235, 249, 255, 255)
+                          : Color(174, 197, 225, 205),
             active ? 600 : 400);
         backend.setTextBaseline(Paint::TextBaseline::MIDDLE);
-        canvas.drawText(backends[i], x + 18.0f, bar.getY() + 41.0f, backend);
+        backend.setTextAlign(Paint::TextAlign::CENTER);
+        canvas.drawText(backends[i], itemX + kTargetWidth * 0.5f,
+                        bar.getY() + 41.0f, backend);
     }
 }
 

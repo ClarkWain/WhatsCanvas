@@ -58,8 +58,6 @@ jobs:
           WHATSCANVAS_CMAKE_MULTI_CONFIG: '0'
           WHATSCANVAS_CMAKE_PLATFORM: ''
           WHATSCANVAS_CMAKE_TOOLSET: ''
-          WHATSCANVAS_PACKAGE_ENABLE_FREETYPE: '1'
-          WHATSCANVAS_CMAKE_EXTRA_ARGS: -DWHATSCANVAS_ENABLE_OPENTYPE_SHAPING=ON
         run: |
           cmd /c build.bat --release --package --no-run --shared --opengles --vulkan
 

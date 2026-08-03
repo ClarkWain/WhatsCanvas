@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(WhatsCanvas VERSION 0.1.18 LANGUAGES C CXX)
+project(WhatsCanvas VERSION 0.1.19 LANGUAGES C CXX)
 
 include(CTest)
 include(GNUInstallDirs)
@@ -24,8 +24,8 @@ option(WHATSCANVAS_BUILD_NANOVG_BENCHMARK_ADAPTER "Build the optional NanoVG cro
 set(WHATSCANVAS_NANOVG_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.nanovg"
     CACHE PATH "Path to a NanoVG source checkout used only by its benchmark adapter.")
 option(WHATSCANVAS_INSTALL_GLFW "Install GLFW when WhatsCanvas is embedded by a package that exports a GLFW-dependent target." OFF)
-option(WHATSCANVAS_ENABLE_OPENTYPE_SHAPING "Enable optional OpenType text shaping adapter hooks when a supported shaper is available." OFF)
-option(WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER "Enable optional FreeType glyph rasterizer when FreeType is available." ON)
+option(WHATSCANVAS_ENABLE_OPENTYPE_SHAPING "Enable HarfBuzz OpenType shaping when HarfBuzz is available." ON)
+option(WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER "Enable FreeType glyph rasterization when FreeType is available." ON)
 option(WHATSCANVAS_ENABLE_VULKAN "Enable the optional Vulkan render backend when a Vulkan SDK is available." OFF)
 set(WHATSCANVAS_DEFAULT_SMOKE_HASH "2808591959994190122" CACHE STRING "Default local smoke hash for regression ctest registration.")
 set(WHATSCANVAS_CLIP_SMOKE_HASH "7173893163224947210" CACHE STRING "Default local clip-path smoke hash for regression ctest registration.")
@@ -1796,11 +1796,15 @@ endif()
 
 if (WHATSCANVAS_INSTALL)
     set(WHATSCANVAS_OPENGL_PACKAGE_IMPLIB "")
+    set(WHATSCANVAS_PACKAGE_HAS_OPENGL OFF)
+    set(WHATSCANVAS_PACKAGE_HAS_OPENGLES OFF)
+    set(WHATSCANVAS_PACKAGE_HAS_SOFTWARE OFF)
     set(WHATSCANVAS_PACKAGE_REQUIRES_OPENGL OFF)
     set(WHATSCANVAS_PACKAGE_REQUIRES_FREETYPE OFF)
     set(WHATSCANVAS_PACKAGE_REQUIRES_HARFBUZZ OFF)
 
     if (TARGET WhatsCanvasOpenGL)
+        set(WHATSCANVAS_PACKAGE_HAS_OPENGL ON)
         get_target_property(WHATSCANVAS_OPENGL_OUTPUT_NAME WhatsCanvasOpenGL OUTPUT_NAME)
         if (NOT WHATSCANVAS_OPENGL_OUTPUT_NAME)
             set(WHATSCANVAS_OPENGL_OUTPUT_NAME "WhatsCanvasOpenGL")
@@ -1815,41 +1819,48 @@ if (WHATSCANVAS_INSTALL)
             set(WHATSCANVAS_OPENGL_PACKAGE_LOCATION "${CMAKE_INSTALL_BINDIR}/${WHATSCANVAS_OPENGL_OUTPUT_NAME}${CMAKE_SHARED_LIBRARY_SUFFIX}")
             set(WHATSCANVAS_OPENGL_PACKAGE_IMPLIB "${CMAKE_INSTALL_LIBDIR}/${CMAKE_IMPORT_LIBRARY_PREFIX}${WHATSCANVAS_OPENGL_OUTPUT_NAME}${CMAKE_IMPORT_LIBRARY_SUFFIX}")
         endif()
-        # Only advertise a text dependency in the generated config when the
-        # matching upstream -config was actually installed. Installation is
-        # gated on WHATSCANVAS_INSTALL_TEXT_DEPENDENCIES (see WhatsCanvasOpenGL.cmake),
-        # so mirror that gate here to avoid include()ing a file that is absent.
-        if (WHATSCANVAS_INSTALL_TEXT_DEPENDENCIES AND WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER AND TARGET Freetype::Freetype)
-            set(WHATSCANVAS_PACKAGE_REQUIRES_FREETYPE ON)
-        endif()
-        if (WHATSCANVAS_INSTALL_TEXT_DEPENDENCIES AND WHATSCANVAS_ENABLE_OPENTYPE_SHAPING AND TARGET harfbuzz::harfbuzz)
-            set(WHATSCANVAS_PACKAGE_REQUIRES_HARFBUZZ ON)
-        endif()
     endif()
 
-    set(WHATSCANVAS_INSTALL_TARGETS)
-    if (TARGET WhatsCanvasOpenGL)
-        list(APPEND WHATSCANVAS_INSTALL_TARGETS WhatsCanvasOpenGL)
-    endif()
     if (TARGET WhatsCanvasOpenGLES)
-        list(APPEND WHATSCANVAS_INSTALL_TARGETS WhatsCanvasOpenGLES)
+        set(WHATSCANVAS_PACKAGE_HAS_OPENGLES ON)
     endif()
-    # The CPU renderer is dependency-free at package-consumer link time (its
-    # private build helpers are compiled into the archive), so export it just
-    # like the GL targets. This makes a Windows static Software-only package
-    # usable by an external find_package consumer without pulling OpenGL.
     if (TARGET WhatsCanvasSoftware)
-        list(APPEND WHATSCANVAS_INSTALL_TARGETS WhatsCanvasSoftware)
+        set(WHATSCANVAS_PACKAGE_HAS_SOFTWARE ON)
     endif()
 
-    if (WHATSCANVAS_INSTALL_TARGETS)
-        install(TARGETS ${WHATSCANVAS_INSTALL_TARGETS}
-            EXPORT WhatsCanvasTargets
-            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-            LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-            ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-        )
+    # Only advertise a text dependency in the generated config when the
+    # matching upstream -config was actually installed. Both GL-family targets
+    # share the same text stack; the Software target intentionally does not.
+    if ((TARGET WhatsCanvasOpenGL OR TARGET WhatsCanvasOpenGLES)
+        AND WHATSCANVAS_INSTALL_TEXT_DEPENDENCIES
+        AND WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER
+        AND TARGET Freetype::Freetype)
+        set(WHATSCANVAS_PACKAGE_REQUIRES_FREETYPE ON)
     endif()
+    if ((TARGET WhatsCanvasOpenGL OR TARGET WhatsCanvasOpenGLES)
+        AND WHATSCANVAS_INSTALL_TEXT_DEPENDENCIES
+        AND WHATSCANVAS_ENABLE_OPENTYPE_SHAPING
+        AND TARGET harfbuzz::harfbuzz)
+        set(WHATSCANVAS_PACKAGE_REQUIRES_HARFBUZZ ON)
+    endif()
+
+    # Export each renderer independently so COMPONENTS Software can import the
+    # CPU target without creating OpenGL or text-stack targets as side effects.
+    foreach(_whatscanvas_renderer IN ITEMS OpenGL OpenGLES Software)
+        if (TARGET WhatsCanvas${_whatscanvas_renderer})
+            install(TARGETS WhatsCanvas${_whatscanvas_renderer}
+                EXPORT WhatsCanvas${_whatscanvas_renderer}Targets
+                RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+                LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+                ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+            )
+            install(EXPORT WhatsCanvas${_whatscanvas_renderer}Targets
+                FILE WhatsCanvas${_whatscanvas_renderer}Targets.cmake
+                NAMESPACE WhatsCanvas::
+                DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/WhatsCanvas"
+            )
+        endif()
+    endforeach()
 
     install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include/wsc"
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
@@ -1872,12 +1883,4 @@ if (WHATSCANVAS_INSTALL)
         "${CMAKE_CURRENT_BINARY_DIR}/WhatsCanvasConfigVersion.cmake"
         DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/WhatsCanvas"
     )
-
-    if (WHATSCANVAS_INSTALL_TARGETS)
-        install(EXPORT WhatsCanvasTargets
-            FILE WhatsCanvasTargets.cmake
-            NAMESPACE WhatsCanvas::
-            DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/WhatsCanvas"
-        )
-    endif()
 endif()

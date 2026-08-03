@@ -20,18 +20,23 @@ git clone --recursive https://github.com/ClarkWain/WhatsCanvas.git
 
 ## Build
 
+Windows:
+
 ```bat
-build.bat --no-run     :: Windows: configure + build (omit --no-run to also run the demo)
+build.bat --no-run
 ```
 
+macOS / Linux:
+
 ```bash
-./build.sh --no-run    # macOS / Linux
+sh ./build.sh --no-run
 ```
 
 Optional feature flags: `-DWHATSCANVAS_BUILD_OPENGLES=ON`,
-`-DWHATSCANVAS_BUILD_SOFTWARE=ON`, `-DWHATSCANVAS_ENABLE_VULKAN=ON`,
-`-DWHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=ON`,
-`-DWHATSCANVAS_ENABLE_OPENTYPE_SHAPING=ON`.
+`-DWHATSCANVAS_BUILD_SOFTWARE=ON`, `-DWHATSCANVAS_ENABLE_VULKAN=ON`.
+FreeType rasterization and HarfBuzz shaping default to `ON`; use
+`-DWHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=OFF` or
+`-DWHATSCANVAS_ENABLE_OPENTYPE_SHAPING=OFF` to test their fallback paths.
 
 ## Test
 

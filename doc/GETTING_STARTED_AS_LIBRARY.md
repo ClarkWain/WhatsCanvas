@@ -200,9 +200,9 @@ Tagged releases publish per-platform prebuilt packages on the repository's
 
 ```
 whatscanvas-<os>-release-<version>.zip
-# e.g. whatscanvas-win64-release-0.1.18.zip
-#      whatscanvas-linux-x64-release-0.1.18.zip
-#      whatscanvas-macos-universal-release-0.1.18.zip
+# e.g. whatscanvas-win64-release-0.1.19.zip
+#      whatscanvas-linux-x64-release-0.1.19.zip
+#      whatscanvas-macos-universal-release-0.1.19.zip
 ```
 
 1. Download the archive for your OS from **Releases** and unzip it. You get:
@@ -218,7 +218,7 @@ project(MyApp LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(WhatsCanvas 0.1.18 CONFIG REQUIRED)
+find_package(WhatsCanvas 0.1.19 CONFIG REQUIRED)
 
 add_executable(MyApp main.cpp)
 target_link_libraries(MyApp PRIVATE WhatsCanvas::OpenGL)   # or ::Software / ::OpenGLES
@@ -242,7 +242,7 @@ cmake --build build --config Release
 # Windows
 build.bat --release --package --no-run
 # macOS / Linux
-./build.sh --release --package --no-run
+sh ./build.sh --release --package --no-run
 ```
 
 The package lands in `out/package/<Config>/` with the same layout as a release
@@ -365,9 +365,13 @@ text.setColor(wsc::Color::WHITE);
 canvas->drawText("Hello 字体", 40.0f, 80.0f, text);
 ```
 
-Optional: `-DWHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=ON` (better glyphs) and
-`-DWHATSCANVAS_ENABLE_OPENTYPE_SHAPING=ON` (HarfBuzz shaping). Both degrade
-gracefully when the dependency is missing.
+FreeType rasterization and HarfBuzz shaping are enabled by default for the
+GL-family targets. Disable them explicitly with
+`-DWHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=OFF` and
+`-DWHATSCANVAS_ENABLE_OPENTYPE_SHAPING=OFF` when minimizing text dependencies.
+Both degrade gracefully when an enabled dependency is missing. The standalone
+`WhatsCanvas::Software` target keeps its built-in `stb_truetype` + simple-shaping
+path.
 
 The following capture combines font fallback, CJK, bidi, wrapping, metrics,
 gradient and stroked glyphs, letter spacing, and text on a path:
@@ -628,11 +632,19 @@ for a complete, runnable Vulkan example (image allocation + readback check).
 Recommended local checks before publishing an integration:
 
 ```bat
-ctest -C Release -L unit --output-on-failure
+ctest --test-dir build -C Release -L unit --output-on-failure
 cmd /c scripts\smoke_test.bat
 cmd /c scripts\text_pixel_regression.bat
 cmd /c scripts\opengles_build_smoke.bat
 cmd /c scripts\package_consumer_smoke.bat
+```
+
+```bash
+ctest --test-dir build -C Release -L unit --output-on-failure
+sh ./scripts/smoke_test.sh
+sh ./scripts/text_pixel_regression.sh
+sh ./scripts/opengles_build_smoke.sh
+sh ./scripts/package_consumer_smoke.sh
 ```
 
 See `doc/REGRESSION_BASELINES.md` for the baseline policy and
