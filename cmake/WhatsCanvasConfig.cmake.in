@@ -14,15 +14,25 @@ set_and_check(WhatsCanvas_LIBRARY_DIR "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_LIBD
 # Resolve the platform thread library before importing the static targets.
 find_dependency(Threads)
 
-# Resolve dependencies in a component-aware way. The OpenGL renderer (and the
-# FreeType/HarfBuzz configs it links) are only needed when this package actually
-# ships OpenGL AND the consumer wants it: either no explicit component list was
-# given, or the OpenGL component was requested. A Software-only consumer never
-# triggers OpenGL discovery, so find_package succeeds on a headless box.
+# Select only the renderer exports requested by the consumer. With no explicit
+# component list, preserve the traditional behavior and expose every renderer
+# shipped in the package.
 set(_whatscanvas_want_opengl FALSE)
-if (@WHATSCANVAS_PACKAGE_REQUIRES_OPENGL@)
-    if (NOT WhatsCanvas_FIND_COMPONENTS OR "OpenGL" IN_LIST WhatsCanvas_FIND_COMPONENTS)
+set(_whatscanvas_want_opengles FALSE)
+set(_whatscanvas_want_software FALSE)
+if (NOT WhatsCanvas_FIND_COMPONENTS)
+    set(_whatscanvas_want_opengl @WHATSCANVAS_PACKAGE_HAS_OPENGL@)
+    set(_whatscanvas_want_opengles @WHATSCANVAS_PACKAGE_HAS_OPENGLES@)
+    set(_whatscanvas_want_software @WHATSCANVAS_PACKAGE_HAS_SOFTWARE@)
+else()
+    if (@WHATSCANVAS_PACKAGE_HAS_OPENGL@ AND "OpenGL" IN_LIST WhatsCanvas_FIND_COMPONENTS)
         set(_whatscanvas_want_opengl TRUE)
+    endif()
+    if (@WHATSCANVAS_PACKAGE_HAS_OPENGLES@ AND "OpenGLES" IN_LIST WhatsCanvas_FIND_COMPONENTS)
+        set(_whatscanvas_want_opengles TRUE)
+    endif()
+    if (@WHATSCANVAS_PACKAGE_HAS_SOFTWARE@ AND "Software" IN_LIST WhatsCanvas_FIND_COMPONENTS)
+        set(_whatscanvas_want_software TRUE)
     endif()
 endif()
 
@@ -32,16 +42,24 @@ endif()
 
 # FreeType and HarfBuzz are bundled only when the installed renderer was
 # configured to use them and their config exports were installed alongside.
-# They are linked exclusively by the OpenGL renderer, so load them only when
-# OpenGL is actually being consumed, before importing the WhatsCanvas targets.
-if (_whatscanvas_want_opengl AND @WHATSCANVAS_PACKAGE_REQUIRES_FREETYPE@)
+# They are linked exclusively by GL-family renderers, so load them only when
+# OpenGL or OpenGL ES is consumed, before importing the WhatsCanvas targets.
+if ((_whatscanvas_want_opengl OR _whatscanvas_want_opengles) AND @WHATSCANVAS_PACKAGE_REQUIRES_FREETYPE@)
     include("${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_LIBDIR@/cmake/freetype/freetype-config.cmake")
 endif()
-if (_whatscanvas_want_opengl AND @WHATSCANVAS_PACKAGE_REQUIRES_HARFBUZZ@)
+if ((_whatscanvas_want_opengl OR _whatscanvas_want_opengles) AND @WHATSCANVAS_PACKAGE_REQUIRES_HARFBUZZ@)
     include("${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_LIBDIR@/cmake/harfbuzz/harfbuzzConfig.cmake")
 endif()
 
-include("${CMAKE_CURRENT_LIST_DIR}/WhatsCanvasTargets.cmake")
+if (_whatscanvas_want_opengl)
+    include("${CMAKE_CURRENT_LIST_DIR}/WhatsCanvasOpenGLTargets.cmake")
+endif()
+if (_whatscanvas_want_opengles)
+    include("${CMAKE_CURRENT_LIST_DIR}/WhatsCanvasOpenGLESTargets.cmake")
+endif()
+if (_whatscanvas_want_software)
+    include("${CMAKE_CURRENT_LIST_DIR}/WhatsCanvasSoftwareTargets.cmake")
+endif()
 
 if (TARGET WhatsCanvas::WhatsCanvasOpenGL AND NOT TARGET WhatsCanvas::OpenGL)
     add_library(WhatsCanvas::OpenGL ALIAS WhatsCanvas::WhatsCanvasOpenGL)

@@ -182,7 +182,7 @@ jobs:
       - name: Check package consumer target
         run: cmake --build build-validation-release-targets --target WhatsCanvasCheckPackageConsumer
 
-  optional-font-stack:
+  default-font-stack:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -195,13 +195,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libharfbuzz-dev libfreetype-dev
 
-      - name: Configure with OpenType shaping and FreeType rasterizer
-        run: cmake -S . -B build-validation-font-stack -DCMAKE_BUILD_TYPE=Debug -DWHATSCANVAS_ENABLE_OPENTYPE_SHAPING=ON -DWHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=ON
+      - name: Configure the default text stack
+        run: cmake -S . -B build-validation-font-stack -DCMAKE_BUILD_TYPE=Debug
 
-      - name: Build with OpenType shaping and FreeType rasterizer
+      - name: Build the default text stack
         run: cmake --build build-validation-font-stack --config Debug
 
-      - name: Text unit tests with OpenType shaping and FreeType rasterizer
+      - name: Text unit tests with the default text stack
         run: ctest --test-dir build-validation-font-stack -C Debug -L text --output-on-failure
 
       - name: Font benchmark smoke
