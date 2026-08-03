@@ -9,11 +9,11 @@ complete than the latter. It exposes a familiar `Canvas` / `Paint` / `Path` /
 OpenGL, OpenGL ES, a pure-CPU software rasterizer (no GPU at all), and an
 optional Vulkan backend.
 
-!!! success "WhatsCanvas 0.1.18 is available"
-    The latest release adds composable image-filter chains, backend-neutral
-    frame diagnostics, audited performance evidence, and independent-path
-    blend batching. Download the
-    [Windows, Linux, or macOS package](https://github.com/ClarkWain/WhatsCanvas/releases/tag/v0.1.18).
+!!! success "WhatsCanvas 0.1.19 is available"
+    The latest patch release fixes indexed OpenGL path rendering after
+    off-screen shadow and filter passes, and adds a visual API integration
+    gallery. Download the
+    [Windows, Linux, or macOS package](https://github.com/ClarkWain/WhatsCanvas/releases/tag/v0.1.19).
 
 ![WhatsCanvas quality showcase — analytic AA, gradients, Gaussian shadows, AA path clipping](images/aa/quality_showcase.png)
 
@@ -43,7 +43,7 @@ int main()
 Add it to your build:
 
 ```cmake
-find_package(WhatsCanvas 0.1.18 CONFIG REQUIRED)
+find_package(WhatsCanvas 0.1.19 CONFIG REQUIRED)
 target_link_libraries(MyApp PRIVATE WhatsCanvas::OpenGL)   # or ::Software / ::OpenGLES
 ```
 
