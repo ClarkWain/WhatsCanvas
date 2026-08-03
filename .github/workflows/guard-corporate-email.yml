@@ -1,0 +1,97 @@
+name: Guard - allowed commit identities
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  scan-emails:
+    name: Scan commit authors for forbidden email domains
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan commit identities
+        env:
+          IS_PR: ${{ github.event_name == 'pull_request' }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "$IS_PR" = "true" ]; then
+            range="${PR_BASE_SHA}..${PR_HEAD_SHA}"
+          elif [ -n "${PUSH_BEFORE:-}" ] && [ "${PUSH_BEFORE}" != "0000000000000000000000000000000000000000" ]; then
+            range="${PUSH_BEFORE}..HEAD"
+          else
+            range="HEAD"
+          fi
+
+          echo "Scanning commit range: ${range}"
+          echo "Allowed human identities:"
+          echo "  eieihihi <eieihihi@outlook.com>"
+          echo "  Clark Wain <ggeieihihi@gmail.com>"
+
+          is_allowed_human() {
+            local name="$1"
+            local email="$2"
+
+            { [ "${name}" = "eieihihi" ] && [ "${email}" = "eieihihi@outlook.com" ]; } ||
+              { [ "${name}" = "Clark Wain" ] && [ "${email}" = "ggeieihihi@gmail.com" ]; }
+          }
+
+          escape_workflow_command() {
+            local value="$1"
+
+            value="${value//%/%25}"
+            value="${value//$'\r'/%0D}"
+            value="${value//$'\n'/%0A}"
+            printf '%s' "${value}"
+          }
+
+          failed=0
+          while IFS= read -r -d '' sha &&
+            IFS= read -r -d '' author_name &&
+            IFS= read -r -d '' author_email &&
+            IFS= read -r -d '' committer_name &&
+            IFS= read -r -d '' committer_email; do
+            [ -n "${sha}" ] || continue
+
+            if ! is_allowed_human "${author_name}" "${author_email}"; then
+              message="${sha:0:12} has author ${author_name} <${author_email}>"
+              echo "::error title=Unapproved commit author::$(escape_workflow_command "${message}")" >&2
+              failed=1
+            fi
+
+            # GitHub is the committer for merge commits created by the Pull Request UI.
+            # The human author must still be one of the two identities above.
+            if ! is_allowed_human "${committer_name}" "${committer_email}" &&
+              ! { [ "${committer_name}" = "GitHub" ] && [ "${committer_email}" = "noreply@github.com" ]; }; then
+              message="${sha:0:12} has committer ${committer_name} <${committer_email}>"
+              echo "::error title=Unapproved commit committer::$(escape_workflow_command "${message}")" >&2
+              failed=1
+            fi
+          done < <(git log "${range}" --pretty=format:'%H%x00%an%x00%ae%x00%cn%x00%ce%x00')
+
+          if [ "${failed}" -ne 0 ]; then
+            {
+              echo ""
+              echo "Only these human Git identities are accepted:"
+              echo "  eieihihi <eieihihi@outlook.com>"
+              echo "  Clark Wain <ggeieihihi@gmail.com>"
+              echo ""
+              echo "Configure the repository-local identity and rewrite the rejected commit before pushing again."
+            } >&2
+            exit 1
+          fi
+
+          echo "All scanned commits use approved identities."
