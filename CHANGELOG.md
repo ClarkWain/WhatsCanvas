@@ -9,27 +9,31 @@ For releases and downloadable artifacts, see the
 
 ## [Unreleased]
 
-### Changed
-- Enabled the bundled FreeType rasterizer and HarfBuzz OpenType shaping by
-  default for OpenGL-family builds and release packages. Both remain
-  configurable, while the dependency-free Software target continues to use
-  its built-in stb rasterizer and simple text shaping.
-
-### Fixed
-- Split installed renderer exports by component so a consumer requesting only
-  `COMPONENTS Software` does not import OpenGL, FreeType, or HarfBuzz targets
-  from a package that also contains the OpenGL renderer.
-
 ## [0.1.19] - 2026-08-03
 
 ### Added
 - Added a visual API integration gallery covering software, OpenGL, OpenGL ES,
   and Vulkan setup patterns.
+- Added a repository-provided vcpkg overlay port with independently selectable
+  OpenGL, Software, and FreeType/HarfBuzz text features.
+
+### Changed
+- Enabled the bundled FreeType rasterizer and HarfBuzz OpenType shaping by
+  default for OpenGL-family builds and release packages. Both remain
+  configurable, while the dependency-free Software target continues to use
+  its built-in stb rasterizer and simple text shaping.
+- Added a package-manager dependency mode that consumes registry-provided glm,
+  stb, FreeType, and HarfBuzz instead of their bundled submodules.
 
 ### Fixed
 - Rebound OpenGL path vertex and index buffers for every draw so off-screen
   shadow and filter passes cannot leave stale VAO state that corrupts later
   indexed paths, including on NVIDIA drivers.
+- Split installed renderer exports by component so a consumer requesting only
+  `COMPONENTS Software` does not import OpenGL, FreeType, or HarfBuzz targets
+  from a package that also contains the OpenGL renderer.
+- Avoided mixing CMake module-mode and config-mode FreeType targets when an
+  installed OpenGL package also resolves HarfBuzz through a package manager.
 
 ## [0.1.18] - 2026-07-30
 

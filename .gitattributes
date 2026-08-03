@@ -3,3 +3,7 @@
 *.pam binary
 *.ppm binary
 *.png binary
+
+# Unified diff context lines can legitimately contain a single space.
+*.diff -whitespace
+*.patch -whitespace

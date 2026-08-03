@@ -26,6 +26,7 @@ set(WHATSCANVAS_NANOVG_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.nanovg"
 option(WHATSCANVAS_INSTALL_GLFW "Install GLFW when WhatsCanvas is embedded by a package that exports a GLFW-dependent target." OFF)
 option(WHATSCANVAS_ENABLE_OPENTYPE_SHAPING "Enable HarfBuzz OpenType shaping when HarfBuzz is available." ON)
 option(WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER "Enable FreeType glyph rasterization when FreeType is available." ON)
+option(WHATSCANVAS_USE_SYSTEM_DEPENDENCIES "Use package-manager-provided glm, stb, FreeType, and HarfBuzz instead of bundled submodules." OFF)
 option(WHATSCANVAS_ENABLE_VULKAN "Enable the optional Vulkan render backend when a Vulkan SDK is available." OFF)
 set(WHATSCANVAS_DEFAULT_SMOKE_HASH "2808591959994190122" CACHE STRING "Default local smoke hash for regression ctest registration.")
 set(WHATSCANVAS_CLIP_SMOKE_HASH "7173893163224947210" CACHE STRING "Default local clip-path smoke hash for regression ctest registration.")
@@ -1828,17 +1829,17 @@ if (WHATSCANVAS_INSTALL)
         set(WHATSCANVAS_PACKAGE_HAS_SOFTWARE ON)
     endif()
 
-    # Only advertise a text dependency in the generated config when the
-    # matching upstream -config was actually installed. Both GL-family targets
-    # share the same text stack; the Software target intentionally does not.
+    # Advertise text dependencies when their targets remain in the installed
+    # static library's link interface. Bundled builds install matching configs;
+    # package-manager builds resolve the dependencies from the active registry.
     if ((TARGET WhatsCanvasOpenGL OR TARGET WhatsCanvasOpenGLES)
-        AND WHATSCANVAS_INSTALL_TEXT_DEPENDENCIES
+        AND (WHATSCANVAS_INSTALL_TEXT_DEPENDENCIES OR WHATSCANVAS_USE_SYSTEM_DEPENDENCIES)
         AND WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER
         AND TARGET Freetype::Freetype)
         set(WHATSCANVAS_PACKAGE_REQUIRES_FREETYPE ON)
     endif()
     if ((TARGET WhatsCanvasOpenGL OR TARGET WhatsCanvasOpenGLES)
-        AND WHATSCANVAS_INSTALL_TEXT_DEPENDENCIES
+        AND (WHATSCANVAS_INSTALL_TEXT_DEPENDENCIES OR WHATSCANVAS_USE_SYSTEM_DEPENDENCIES)
         AND WHATSCANVAS_ENABLE_OPENTYPE_SHAPING
         AND TARGET harfbuzz::harfbuzz)
         set(WHATSCANVAS_PACKAGE_REQUIRES_HARFBUZZ ON)

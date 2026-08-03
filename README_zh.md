@@ -25,7 +25,7 @@ WhatsCanvas 是一款基于 C++17 编写、面向原生应用的可嵌入 2D 渲
 | **渲染后端** | OpenGL、纯 CPU Software；可选 OpenGL ES 和 Vulkan。Metal / WebGPU 尚未实现。 |
 | **平台状态** | Windows、Linux、macOS 持续执行构建和单元测试；发布包覆盖 Windows x64、Linux x64 和 macOS universal。移动端目前主要通过 OpenGL ES 宿主接入，并不代表已完成完整设备矩阵的验证。 |
 | **文本能力** | 字体发现和 fallback、CJK/RTL、UAX #9、换行与省略号、glyph atlas、COLR/CPAL v0；OpenGL/OpenGL ES 默认启用 FreeType 与 HarfBuzz shaping。 |
-| **接入方式** | CMake `find_package`、`add_subdirectory`，或从源码生成可搬运的安装目录。 |
+| **接入方式** | vcpkg overlay port、CMake `find_package`、`add_subdirectory`，或从源码生成可搬运的安装目录。 |
 | **体量** | 非 header-only。支持按后端仅链接 `WhatsCanvas::Software`、`::OpenGL` 或 `::OpenGLES`；参考体量见[体量与依赖](#体量与依赖)。 |
 | **成熟度** | 当前版本 `0.1.19`，仍处于 pre-1.0。公开 API 边界、跨平台 CI、像素回归、package consumer 集成测试与可审计的性能基线均已建立；升级与平台风险仍需结合下文的边界说明评估。 |
 | **许可证** | MIT；`third_party/` 组件遵循各自许可证。 |
@@ -128,6 +128,37 @@ FreeType/HarfBuzz 配置作用于 GL 家族的 target；`WhatsCanvas::Software` 
 Windows 包由 VS 2022 工具链生成。正式接入时应匹配平台、架构、配置与 C/C++ runtime；如需不同的 target 或依赖组合，请从源码构建。
 
 官方包的具体构建参数记录在 [package-release workflow](.github/workflows/package-release.yml)；本地执行 `--package` 时会采用下文所述的默认设置，因此产物与 Windows 官方包的完整配置并不一致。
+
+### vcpkg
+
+仓库内提供了经过验证的 overlay port，但 vcpkg 工具本身需要单独安装，WhatsCanvas 不会内置它。在 WhatsCanvas 源码目录打开 Windows CMD，可执行：
+
+```bat
+git clone https://github.com/microsoft/vcpkg.git ..\vcpkg
+..\vcpkg\bootstrap-vcpkg.bat
+..\vcpkg\vcpkg.exe install whatscanvas --overlay-ports=.\ports
+```
+
+如果 `vcpkg` 已加入 `PATH`，可直接安装默认的 OpenGL、Software 与完整文本 feature 组合：
+
+```sh
+vcpkg install whatscanvas --overlay-ports=./ports
+```
+
+如果只需要 CPU 渲染，不引入 OpenGL、FreeType 或 HarfBuzz：
+
+```sh
+vcpkg install "whatscanvas[core,software]" --overlay-ports=./ports
+```
+
+随后使用 vcpkg toolchain 配置应用，并链接所需 renderer：
+
+```cmake
+find_package(WhatsCanvas CONFIG REQUIRED COMPONENTS OpenGL)
+target_link_libraries(MyApp PRIVATE WhatsCanvas::OpenGL)
+```
+
+纯 CPU 渲染改用 `COMPONENTS Software` 与 `WhatsCanvas::Software`。当前 overlay port 可直接从本仓库使用；进入 vcpkg 中央注册表仍需单独完成上游审核。
 
 ### 从源码构建
 
