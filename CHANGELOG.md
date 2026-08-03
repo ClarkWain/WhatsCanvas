@@ -15,6 +15,13 @@ For releases and downloadable artifacts, see the
   configurable, while the dependency-free Software target continues to use
   its built-in stb rasterizer and simple text shaping.
 
+### Removed
+- Removed the experimental `wsc::CanvasAdapter` helper class, the
+  `wsc/CanvasAdapter.h` public header, and the `WhatsCanvasCanvasAdapterTests`
+  unit gate. The adapter was an unfinished NanoVG-style facade that was never
+  documented as a supported migration path; consumers should use `wsc::Canvas`,
+  `wsc::Paint`, `wsc::Path`, and `wsc::Image` directly.
+
 ### Fixed
 - Split installed renderer exports by component so a consumer requesting only
   `COMPONENTS Software` does not import OpenGL, FreeType, or HarfBuzz targets

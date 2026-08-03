@@ -9,7 +9,6 @@ The stable public surface lives under `include/wsc/` and is exported through the
 - `wsc/wsc.h`
 - `wsc/base.h`
 - `wsc/Canvas.h`
-- `wsc/CanvasAdapter.h`
 - `wsc/Color.h`
 - `wsc/Export.h`
 - `wsc/Paint.h`
@@ -51,7 +50,6 @@ python scripts/generate_api_reference.py --check
 These types form the expected consumer contract:
 
 - `wsc::Canvas`
-- `wsc::CanvasAdapter`
 - `wsc::Paint`
 - `wsc::Path`
 - `wsc::Image`

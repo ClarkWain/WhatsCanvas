@@ -62,7 +62,6 @@ include/
     wsc.h
     base.h
     Canvas.h
-    CanvasAdapter.h
     Paint.h
     Path.h
     Image.h
