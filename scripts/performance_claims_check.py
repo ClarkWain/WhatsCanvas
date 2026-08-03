@@ -85,6 +85,13 @@ def main() -> int:
         re.DOTALL,
     )
     if not public_claim:
+        public_claim = re.search(
+            r"\*\*(\d+) leads, (\d+) losses, (\d+) ties?\*\*.*?"
+            r"\*\*(\d+) pixel quality verifications passed\*\*",
+            readme,
+            re.DOTALL,
+        )
+    if not public_claim:
         errors.append("README.md is missing the public performance summary")
     else:
         actual_public = tuple(int(value) for value in public_claim.groups())
