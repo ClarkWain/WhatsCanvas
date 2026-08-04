@@ -1,0 +1,151 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 811727b..0000000 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -26,6 +26,7 @@ set(WHATSCANVAS_NANOVG_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.nanovg"
+ option(WHATSCANVAS_INSTALL_GLFW "Install GLFW when WhatsCanvas is embedded by a package that exports a GLFW-dependent target." OFF)
+ option(WHATSCANVAS_ENABLE_OPENTYPE_SHAPING "Enable HarfBuzz OpenType shaping when HarfBuzz is available." ON)
+ option(WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER "Enable FreeType glyph rasterization when FreeType is available." ON)
++option(WHATSCANVAS_USE_SYSTEM_DEPENDENCIES "Use package-manager-provided glm, stb, FreeType, and HarfBuzz instead of bundled submodules." OFF)
+ option(WHATSCANVAS_ENABLE_VULKAN "Enable the optional Vulkan render backend when a Vulkan SDK is available." OFF)
+ set(WHATSCANVAS_DEFAULT_SMOKE_HASH "2808591959994190122" CACHE STRING "Default local smoke hash for regression ctest registration.")
+ set(WHATSCANVAS_CLIP_SMOKE_HASH "7173893163224947210" CACHE STRING "Default local clip-path smoke hash for regression ctest registration.")
+@@ -1828,17 +1829,17 @@ if (WHATSCANVAS_INSTALL)
+         set(WHATSCANVAS_PACKAGE_HAS_SOFTWARE ON)
+     endif()
+ 
+-    # Only advertise a text dependency in the generated config when the
+-    # matching upstream -config was actually installed. Both GL-family targets
+-    # share the same text stack; the Software target intentionally does not.
++    # Advertise text dependencies when their targets remain in the installed
++    # static library's link interface. Bundled builds install matching configs;
++    # package-manager builds resolve the dependencies from the active registry.
+     if ((TARGET WhatsCanvasOpenGL OR TARGET WhatsCanvasOpenGLES)
+-        AND WHATSCANVAS_INSTALL_TEXT_DEPENDENCIES
++        AND (WHATSCANVAS_INSTALL_TEXT_DEPENDENCIES OR WHATSCANVAS_USE_SYSTEM_DEPENDENCIES)
+         AND WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER
+         AND TARGET Freetype::Freetype)
+         set(WHATSCANVAS_PACKAGE_REQUIRES_FREETYPE ON)
+     endif()
+     if ((TARGET WhatsCanvasOpenGL OR TARGET WhatsCanvasOpenGLES)
+-        AND WHATSCANVAS_INSTALL_TEXT_DEPENDENCIES
++        AND (WHATSCANVAS_INSTALL_TEXT_DEPENDENCIES OR WHATSCANVAS_USE_SYSTEM_DEPENDENCIES)
+         AND WHATSCANVAS_ENABLE_OPENTYPE_SHAPING
+-        AND TARGET harfbuzz::harfbuzz)
++        AND (TARGET harfbuzz::harfbuzz OR TARGET HarfBuzz::HarfBuzz))
+         set(WHATSCANVAS_PACKAGE_REQUIRES_HARFBUZZ ON)
+diff --git a/cmake/WhatsCanvasConfig.cmake.in b/cmake/WhatsCanvasConfig.cmake.in
+index 93c8113..0000000 100644
+--- a/cmake/WhatsCanvasConfig.cmake.in
++++ b/cmake/WhatsCanvasConfig.cmake.in
+@@ -45,10 +45,24 @@ endif()
+ # They are linked exclusively by GL-family renderers, so load them only when
+ # OpenGL or OpenGL ES is consumed, before importing the WhatsCanvas targets.
+ if ((_whatscanvas_want_opengl OR _whatscanvas_want_opengles) AND @WHATSCANVAS_PACKAGE_REQUIRES_FREETYPE@)
+-    include("${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_LIBDIR@/cmake/freetype/freetype-config.cmake")
++    if (EXISTS "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_LIBDIR@/cmake/freetype/freetype-config.cmake")
++        include("${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_LIBDIR@/cmake/freetype/freetype-config.cmake")
++    else()
++        find_dependency(freetype CONFIG)
++    endif()
+ endif()
+ if ((_whatscanvas_want_opengl OR _whatscanvas_want_opengles) AND @WHATSCANVAS_PACKAGE_REQUIRES_HARFBUZZ@)
+-    include("${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_LIBDIR@/cmake/harfbuzz/harfbuzzConfig.cmake")
++    if (EXISTS "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_LIBDIR@/cmake/harfbuzz/harfbuzzConfig.cmake")
++        include("${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_LIBDIR@/cmake/harfbuzz/harfbuzzConfig.cmake")
++    else()
++        find_package(harfbuzz CONFIG QUIET)
++        if (NOT TARGET harfbuzz::harfbuzz AND NOT TARGET HarfBuzz::HarfBuzz)
++            find_package(HarfBuzz CONFIG QUIET)
++        endif()
++        if (NOT TARGET harfbuzz::harfbuzz AND NOT TARGET HarfBuzz::HarfBuzz)
++            find_dependency(HarfBuzz)
++        endif()
++    endif()
+ endif()
+ 
+ if (_whatscanvas_want_opengl)
+diff --git a/cmake/WhatsCanvasOpenGL.cmake b/cmake/WhatsCanvasOpenGL.cmake
+index 5fd6c47..0000000 100644
+--- a/cmake/WhatsCanvasOpenGL.cmake
++++ b/cmake/WhatsCanvasOpenGL.cmake
+@@ -10,9 +10,15 @@ function(whatscanvas_add_common_dependencies project_root)
+     set(harfbuzz_path "${third_party_dir}/harfbuzz")
+ 
+     if (NOT EXISTS "${glad_path}/src/glad.c" OR
+-        NOT EXISTS "${glad_path}/include/glad/glad.h" OR
+-        NOT EXISTS "${glm_path}/glm/glm.hpp" OR
+-        NOT EXISTS "${stb_path}/stb_image.h")
++        NOT EXISTS "${glad_path}/include/glad/glad.h")
++        message(FATAL_ERROR "Missing third-party dependencies. Run: git submodule update --init --recursive")
++    endif()
++
++    if (WHATSCANVAS_USE_SYSTEM_DEPENDENCIES)
++        find_package(glm CONFIG REQUIRED)
++        find_package(Stb REQUIRED)
++    elseif (NOT EXISTS "${glm_path}/glm/glm.hpp" OR
++            NOT EXISTS "${stb_path}/stb_image.h")
+         message(FATAL_ERROR "Missing third-party dependencies. Run: git submodule update --init --recursive")
+     endif()
+ 
+@@ -23,15 +29,23 @@ function(whatscanvas_add_common_dependencies project_root)
+ 
+     if (NOT TARGET WhatsCanvasGLM)
+         add_library(WhatsCanvasGLM INTERFACE)
+-        target_include_directories(WhatsCanvasGLM INTERFACE
+-            "${glm_path}"
+-            "${glm_path}/glm"
+-        )
++        if (WHATSCANVAS_USE_SYSTEM_DEPENDENCIES)
++            target_link_libraries(WhatsCanvasGLM INTERFACE glm::glm)
++        else()
++            target_include_directories(WhatsCanvasGLM INTERFACE
++                "${glm_path}"
++                "${glm_path}/glm"
++            )
++        endif()
+     endif()
+ 
+     if (NOT TARGET WhatsCanvasSTB)
+         add_library(WhatsCanvasSTB INTERFACE)
+-        target_include_directories(WhatsCanvasSTB INTERFACE "${stb_path}")
++        if (WHATSCANVAS_USE_SYSTEM_DEPENDENCIES)
++            target_include_directories(WhatsCanvasSTB INTERFACE "${Stb_INCLUDE_DIR}")
++        else()
++            target_include_directories(WhatsCanvasSTB INTERFACE "${stb_path}")
++        endif()
+     endif()
+ 
+     if (NOT TARGET WhatsCanvasPolyline2D)
+@@ -46,7 +60,8 @@ function(whatscanvas_add_common_dependencies project_root)
+     # target therefore leaked `freetype` into harfbuzz's installed link
+     # interface while the matching FreeType package was intentionally not
+     # installed, leaving exported consumers with a missing target.
+-    if (WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER
++    if (NOT WHATSCANVAS_USE_SYSTEM_DEPENDENCIES
++        AND WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER
+         AND EXISTS "${freetype_path}/CMakeLists.txt"
+         AND NOT TARGET freetype)
+         set(FT_DISABLE_ZLIB ON CACHE BOOL "" FORCE)
+@@ -65,7 +80,10 @@ function(whatscanvas_add_common_dependencies project_root)
+         add_library(Freetype::Freetype ALIAS freetype-interface)
+     endif()
+ 
+-    if (WHATSCANVAS_ENABLE_OPENTYPE_SHAPING AND EXISTS "${harfbuzz_path}/CMakeLists.txt" AND NOT TARGET harfbuzz)
++    if (NOT WHATSCANVAS_USE_SYSTEM_DEPENDENCIES
++        AND WHATSCANVAS_ENABLE_OPENTYPE_SHAPING
++        AND EXISTS "${harfbuzz_path}/CMakeLists.txt"
++        AND NOT TARGET harfbuzz)
+         set(HB_HAVE_CAIRO OFF CACHE BOOL "" FORCE)
+         set(HB_HAVE_FREETYPE OFF CACHE BOOL "" FORCE)
+         set(HB_HAVE_GRAPHITE2 OFF CACHE BOOL "" FORCE)
+@@ -131,6 +149,9 @@ function(whatscanvas_add_gl_family_library target_name project_root)
+     set(text_shaping_libraries)
+     set(text_rasterizer_libraries)
+     if (WHATSCANVAS_ENABLE_OPENTYPE_SHAPING)
++        if (NOT TARGET harfbuzz::harfbuzz AND NOT TARGET HarfBuzz::HarfBuzz)
++            find_package(harfbuzz CONFIG QUIET)
++        endif()
+         if (NOT TARGET harfbuzz::harfbuzz AND NOT TARGET HarfBuzz::HarfBuzz)
+             find_package(HarfBuzz CONFIG QUIET)
+             if (NOT TARGET harfbuzz::harfbuzz AND NOT TARGET HarfBuzz::HarfBuzz)
