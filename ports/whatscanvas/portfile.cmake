@@ -1,0 +1,62 @@
+vcpkg_from_github(
+    OUT_SOURCE_PATH SOURCE_PATH
+    REPO ClarkWain/WhatsCanvas
+    REF ed35a064f2b8a442a2d92cad9b1fe772ac140672
+    SHA512 ac0eef5a90b58289209e3e03e79f44c97dfc8f197f00020a80650a78c6eb83a545d93c1535eebe5242b54d3d95cad316819ecc30c9af59301e4f2b63b639660b
+    HEAD_REF master
+    PATCHES
+        use-system-dependencies.patch
+)
+
+if(NOT "opengl" IN_LIST FEATURES AND NOT "software" IN_LIST FEATURES)
+    message(FATAL_ERROR "WhatsCanvas requires at least one renderer feature: opengl or software")
+endif()
+
+vcpkg_check_features(
+    OUT_FEATURE_OPTIONS FEATURE_OPTIONS
+    FEATURES
+        opengl WHATSCANVAS_BUILD_OPENGL
+        software WHATSCANVAS_BUILD_SOFTWARE
+)
+
+if("text" IN_LIST FEATURES)
+    set(WHATSCANVAS_TEXT_RASTERIZER ON)
+    set(WHATSCANVAS_TEXT_SHAPING ON)
+else()
+    set(WHATSCANVAS_TEXT_RASTERIZER OFF)
+    set(WHATSCANVAS_TEXT_SHAPING OFF)
+endif()
+
+vcpkg_cmake_configure(
+    SOURCE_PATH "${SOURCE_PATH}"
+    OPTIONS
+        ${FEATURE_OPTIONS}
+        -DWHATSCANVAS_BUILD_OPENGLES=OFF
+        -DWHATSCANVAS_ENABLE_VULKAN=OFF
+        -DWHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=${WHATSCANVAS_TEXT_RASTERIZER}
+        -DWHATSCANVAS_ENABLE_OPENTYPE_SHAPING=${WHATSCANVAS_TEXT_SHAPING}
+        -DWHATSCANVAS_USE_SYSTEM_DEPENDENCIES=ON
+        -DWHATSCANVAS_INSTALL_TEXT_DEPENDENCIES=OFF
+        -DWHATSCANVAS_BUILD_DEMO=OFF
+        -DWHATSCANVAS_BUILD_BENCHMARKS=OFF
+        -DWHATSCANVAS_ENABLE_SCRIPT_TESTS=OFF
+        -DWHATSCANVAS_INSTALL=ON
+        -DBUILD_TESTING=OFF
+)
+
+vcpkg_cmake_install()
+vcpkg_cmake_config_fixup(
+    PACKAGE_NAME WhatsCanvas
+    CONFIG_PATH lib/cmake/WhatsCanvas
+)
+vcpkg_copy_pdbs()
+
+file(REMOVE_RECURSE
+    "${CURRENT_PACKAGES_DIR}/debug/include"
+    "${CURRENT_PACKAGES_DIR}/debug/share"
+)
+
+file(INSTALL "${CMAKE_CURRENT_LIST_DIR}/usage"
+    DESTINATION "${CURRENT_PACKAGES_DIR}/share/${PORT}"
+)
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/LICENSE")
