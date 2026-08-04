@@ -25,7 +25,7 @@ This project aims to bridge the gap between minimal drawing libraries (such as N
 | **Render Backends** | OpenGL, pure CPU Software; optional OpenGL ES and Vulkan. Metal / WebGPU are not yet implemented. |
 | **Platform Status** | Windows, Linux, and macOS run continuous builds and unit tests; release packages cover Windows x64, Linux x64, and macOS universal. Mobile integration is currently primarily through OpenGL ES hosts and does not yet represent a validated device matrix. |
 | **Text Capabilities** | Font discovery and fallback, CJK/RTL, UAX #9, line breaking and ellipsis, glyph atlas, COLR/CPAL v0; FreeType and HarfBuzz shaping are enabled by default for OpenGL/OpenGL ES. |
-| **Integration** | CMake `find_package`, `add_subdirectory`, or generating portable installation directories from source. |
+| **Integration** | vcpkg overlay port, CMake `find_package`, `add_subdirectory`, or portable installation directories generated from source. |
 | **Footprint** | Not header-only. Supports linking only against `WhatsCanvas::Software`, `::OpenGL`, or `::OpenGLES` based on backend; see [Footprint and Dependencies](#footprint-and-dependencies) for reference. |
 | **Maturity** | Current version `0.1.19`, still pre-1.0. Public API boundaries, cross-platform CI, pixel regression, package-consumer integration tests, and auditable performance baselines are in place; upgrade and platform risks should still be evaluated against the boundaries described below. |
 | **License** | MIT; components in `third_party/` follow their respective licenses. |
@@ -130,6 +130,37 @@ The FreeType/HarfBuzz configuration applies to the GL-family targets; `WhatsCanv
 Windows packages are built with the VS 2022 toolchain. For production integration, match the platform, architecture, configuration, and C/C++ runtime; if a different target set or dependency combination is required, build from source.
 
 The exact build parameters for official packages are recorded in the [package-release workflow](.github/workflows/package-release.yml). A local `--package` build uses the defaults described below and therefore does not exactly reproduce the Windows official-package configuration.
+
+### vcpkg
+
+The repository ships a tested overlay port. vcpkg itself is a prerequisite and is not bundled with WhatsCanvas. For example, from a Windows Command Prompt opened in the WhatsCanvas checkout:
+
+```bat
+git clone https://github.com/microsoft/vcpkg.git ..\vcpkg
+..\vcpkg\bootstrap-vcpkg.bat
+..\vcpkg\vcpkg.exe install whatscanvas --overlay-ports=.\ports
+```
+
+If `vcpkg` is already on `PATH`, install the default OpenGL, Software, and text feature set with:
+
+```sh
+vcpkg install whatscanvas --overlay-ports=./ports
+```
+
+For a CPU-only build with no OpenGL, FreeType, or HarfBuzz dependency:
+
+```sh
+vcpkg install "whatscanvas[core,software]" --overlay-ports=./ports
+```
+
+Then configure your application with the vcpkg toolchain and consume the renderer you need:
+
+```cmake
+find_package(WhatsCanvas CONFIG REQUIRED COMPONENTS OpenGL)
+target_link_libraries(MyApp PRIVATE WhatsCanvas::OpenGL)
+```
+
+Use `COMPONENTS Software` and `WhatsCanvas::Software` for CPU-only rendering. The overlay is usable immediately from this repository; inclusion in the central vcpkg registry is a separate upstream review process.
 
 ### Building from Source
 
