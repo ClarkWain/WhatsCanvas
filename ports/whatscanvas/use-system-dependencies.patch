@@ -31,13 +31,14 @@ index 811727b..0000000 100644
 -        AND WHATSCANVAS_INSTALL_TEXT_DEPENDENCIES
 +        AND (WHATSCANVAS_INSTALL_TEXT_DEPENDENCIES OR WHATSCANVAS_USE_SYSTEM_DEPENDENCIES)
          AND WHATSCANVAS_ENABLE_OPENTYPE_SHAPING
-         AND TARGET harfbuzz::harfbuzz)
+-        AND TARGET harfbuzz::harfbuzz)
++        AND (TARGET harfbuzz::harfbuzz OR TARGET HarfBuzz::HarfBuzz))
          set(WHATSCANVAS_PACKAGE_REQUIRES_HARFBUZZ ON)
 diff --git a/cmake/WhatsCanvasConfig.cmake.in b/cmake/WhatsCanvasConfig.cmake.in
 index 93c8113..0000000 100644
 --- a/cmake/WhatsCanvasConfig.cmake.in
 +++ b/cmake/WhatsCanvasConfig.cmake.in
-@@ -45,10 +45,18 @@ endif()
+@@ -45,10 +45,24 @@ endif()
  # They are linked exclusively by GL-family renderers, so load them only when
  # OpenGL or OpenGL ES is consumed, before importing the WhatsCanvas targets.
  if ((_whatscanvas_want_opengl OR _whatscanvas_want_opengles) AND @WHATSCANVAS_PACKAGE_REQUIRES_FREETYPE@)
@@ -53,7 +54,13 @@ index 93c8113..0000000 100644
 +    if (EXISTS "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_LIBDIR@/cmake/harfbuzz/harfbuzzConfig.cmake")
 +        include("${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_LIBDIR@/cmake/harfbuzz/harfbuzzConfig.cmake")
 +    else()
-+        find_dependency(harfbuzz CONFIG)
++        find_package(harfbuzz CONFIG QUIET)
++        if (NOT TARGET harfbuzz::harfbuzz AND NOT TARGET HarfBuzz::HarfBuzz)
++            find_package(HarfBuzz CONFIG QUIET)
++        endif()
++        if (NOT TARGET harfbuzz::harfbuzz AND NOT TARGET HarfBuzz::HarfBuzz)
++            find_dependency(HarfBuzz)
++        endif()
 +    endif()
  endif()
  
