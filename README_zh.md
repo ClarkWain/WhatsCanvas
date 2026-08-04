@@ -62,6 +62,8 @@ int main()
 }
 ```
 
+上面这段代码作为一个独立可编译的 CMake 项目已收录在 [`examples/hello_world/`](examples/hello_world/)，启用 demo 构建时会随主工程一起编译。
+
 你可以直接从 [Releases](https://github.com/ClarkWain/WhatsCanvas/releases) 获取预编译包，或使用以下命令在本地生成，随后在应用中链接相应的目标库：
 
 ```cmake
