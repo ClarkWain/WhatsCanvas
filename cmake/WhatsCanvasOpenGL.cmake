@@ -10,9 +10,15 @@ function(whatscanvas_add_common_dependencies project_root)
     set(harfbuzz_path "${third_party_dir}/harfbuzz")
 
     if (NOT EXISTS "${glad_path}/src/glad.c" OR
-        NOT EXISTS "${glad_path}/include/glad/glad.h" OR
-        NOT EXISTS "${glm_path}/glm/glm.hpp" OR
-        NOT EXISTS "${stb_path}/stb_image.h")
+        NOT EXISTS "${glad_path}/include/glad/glad.h")
+        message(FATAL_ERROR "Missing third-party dependencies. Run: git submodule update --init --recursive")
+    endif()
+
+    if (WHATSCANVAS_USE_SYSTEM_DEPENDENCIES)
+        find_package(glm CONFIG REQUIRED)
+        find_package(Stb REQUIRED)
+    elseif (NOT EXISTS "${glm_path}/glm/glm.hpp" OR
+            NOT EXISTS "${stb_path}/stb_image.h")
         message(FATAL_ERROR "Missing third-party dependencies. Run: git submodule update --init --recursive")
     endif()
 
@@ -23,15 +29,23 @@ function(whatscanvas_add_common_dependencies project_root)
 
     if (NOT TARGET WhatsCanvasGLM)
         add_library(WhatsCanvasGLM INTERFACE)
-        target_include_directories(WhatsCanvasGLM INTERFACE
-            "${glm_path}"
-            "${glm_path}/glm"
-        )
+        if (WHATSCANVAS_USE_SYSTEM_DEPENDENCIES)
+            target_link_libraries(WhatsCanvasGLM INTERFACE glm::glm)
+        else()
+            target_include_directories(WhatsCanvasGLM INTERFACE
+                "${glm_path}"
+                "${glm_path}/glm"
+            )
+        endif()
     endif()
 
     if (NOT TARGET WhatsCanvasSTB)
         add_library(WhatsCanvasSTB INTERFACE)
-        target_include_directories(WhatsCanvasSTB INTERFACE "${stb_path}")
+        if (WHATSCANVAS_USE_SYSTEM_DEPENDENCIES)
+            target_include_directories(WhatsCanvasSTB INTERFACE "${Stb_INCLUDE_DIR}")
+        else()
+            target_include_directories(WhatsCanvasSTB INTERFACE "${stb_path}")
+        endif()
     endif()
 
     if (NOT TARGET WhatsCanvasPolyline2D)
@@ -46,7 +60,8 @@ function(whatscanvas_add_common_dependencies project_root)
     # target therefore leaked `freetype` into harfbuzz's installed link
     # interface while the matching FreeType package was intentionally not
     # installed, leaving exported consumers with a missing target.
-    if (WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER
+    if (NOT WHATSCANVAS_USE_SYSTEM_DEPENDENCIES
+        AND WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER
         AND EXISTS "${freetype_path}/CMakeLists.txt"
         AND NOT TARGET freetype)
         set(FT_DISABLE_ZLIB ON CACHE BOOL "" FORCE)
@@ -65,7 +80,10 @@ function(whatscanvas_add_common_dependencies project_root)
         add_library(Freetype::Freetype ALIAS freetype-interface)
     endif()
 
-    if (WHATSCANVAS_ENABLE_OPENTYPE_SHAPING AND EXISTS "${harfbuzz_path}/CMakeLists.txt" AND NOT TARGET harfbuzz)
+    if (NOT WHATSCANVAS_USE_SYSTEM_DEPENDENCIES
+        AND WHATSCANVAS_ENABLE_OPENTYPE_SHAPING
+        AND EXISTS "${harfbuzz_path}/CMakeLists.txt"
+        AND NOT TARGET harfbuzz)
         set(HB_HAVE_CAIRO OFF CACHE BOOL "" FORCE)
         set(HB_HAVE_FREETYPE OFF CACHE BOOL "" FORCE)
         set(HB_HAVE_GRAPHITE2 OFF CACHE BOOL "" FORCE)
@@ -131,6 +149,9 @@ function(whatscanvas_add_gl_family_library target_name project_root)
     set(text_shaping_libraries)
     set(text_rasterizer_libraries)
     if (WHATSCANVAS_ENABLE_OPENTYPE_SHAPING)
+        if (NOT TARGET harfbuzz::harfbuzz AND NOT TARGET HarfBuzz::HarfBuzz)
+            find_package(harfbuzz CONFIG QUIET)
+        endif()
         if (NOT TARGET harfbuzz::harfbuzz AND NOT TARGET HarfBuzz::HarfBuzz)
             find_package(HarfBuzz CONFIG QUIET)
             if (NOT TARGET harfbuzz::harfbuzz AND NOT TARGET HarfBuzz::HarfBuzz)
