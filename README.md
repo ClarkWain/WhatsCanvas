@@ -62,6 +62,8 @@ int main()
 }
 ```
 
+The exact snippet above is checked in as a standalone CMake project at [`examples/hello_world/`](examples/hello_world/) and is built alongside the tree when demos are enabled.
+
 You can download precompiled packages directly from [Releases](https://github.com/ClarkWain/WhatsCanvas/releases), or generate them locally using the following commands, then link the corresponding target library in your application:
 
 ```cmake
