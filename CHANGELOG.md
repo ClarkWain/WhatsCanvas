@@ -9,6 +9,18 @@ For releases and downloadable artifacts, see the
 
 ## [Unreleased]
 
+### Added
+- Added `examples/hello_world/` — a minimal CMake project that mirrors the
+  README's "60 seconds to draw the first frame" snippet verbatim, links only
+  against `WhatsCanvasSoftware`, and writes `first.ppm` off-screen.
+
+### Removed
+- Removed the experimental `wsc::CanvasAdapter` helper class, the
+  `wsc/CanvasAdapter.h` public header, and the `WhatsCanvasCanvasAdapterTests`
+  unit gate. The adapter was an unfinished NanoVG-style facade that was never
+  documented as a supported migration path; consumers should use `wsc::Canvas`,
+  `wsc::Paint`, `wsc::Path`, and `wsc::Image` directly.
+
 ## [0.1.19] - 2026-08-03
 
 ### Added

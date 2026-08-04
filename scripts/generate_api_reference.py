@@ -14,7 +14,6 @@ PUBLIC_HEADERS = [
     "wsc.h",
     "base.h",
     "Canvas.h",
-    "CanvasAdapter.h",
     "Color.h",
     "Font.h",
     "Image.h",
