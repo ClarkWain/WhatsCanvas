@@ -5,24 +5,26 @@ function(whatscanvas_add_common_dependencies project_root)
     set(glad_path "${third_party_dir}/glad")
     set(stb_path "${third_party_dir}/stb")
     set(glm_path "${third_party_dir}/glm")
-    set(polyline2d_path "${third_party_dir}/polyline2d")
     set(freetype_path "${third_party_dir}/freetype")
     set(harfbuzz_path "${third_party_dir}/harfbuzz")
-
-    if (NOT EXISTS "${glad_path}/src/glad.c" OR
-        NOT EXISTS "${glad_path}/include/glad/glad.h")
-        message(FATAL_ERROR "Missing third-party dependencies. Run: git submodule update --init --recursive")
-    endif()
 
     if (WHATSCANVAS_USE_SYSTEM_DEPENDENCIES)
         find_package(glm CONFIG REQUIRED)
         find_package(Stb REQUIRED)
+        if ((WHATSCANVAS_BUILD_OPENGL OR WHATSCANVAS_BUILD_OPENGLES))
+            find_package(glad CONFIG REQUIRED)
+        endif()
     elseif (NOT EXISTS "${glm_path}/glm/glm.hpp" OR
-            NOT EXISTS "${stb_path}/stb_image.h")
+            NOT EXISTS "${stb_path}/stb_image.h" OR
+            ((WHATSCANVAS_BUILD_OPENGL OR WHATSCANVAS_BUILD_OPENGLES)
+                AND (NOT EXISTS "${glad_path}/src/glad.c" OR
+                     NOT EXISTS "${glad_path}/include/glad/glad.h")))
         message(FATAL_ERROR "Missing third-party dependencies. Run: git submodule update --init --recursive")
     endif()
 
-    if (NOT TARGET WhatsCanvasGLAD)
+    if (NOT WHATSCANVAS_USE_SYSTEM_DEPENDENCIES
+        AND (WHATSCANVAS_BUILD_OPENGL OR WHATSCANVAS_BUILD_OPENGLES)
+        AND NOT TARGET WhatsCanvasGLAD)
         add_library(WhatsCanvasGLAD INTERFACE)
         target_include_directories(WhatsCanvasGLAD INTERFACE "${glad_path}/include")
     endif()
@@ -46,11 +48,6 @@ function(whatscanvas_add_common_dependencies project_root)
         else()
             target_include_directories(WhatsCanvasSTB INTERFACE "${stb_path}")
         endif()
-    endif()
-
-    if (NOT TARGET WhatsCanvasPolyline2D)
-        add_library(WhatsCanvasPolyline2D INTERFACE)
-        target_include_directories(WhatsCanvasPolyline2D SYSTEM INTERFACE "${polyline2d_path}/include")
     endif()
 
     # Do not create the bundled FreeType target when its rasterizer is
@@ -110,6 +107,29 @@ function(whatscanvas_add_common_dependencies project_root)
     endif()
 endfunction()
 
+function(whatscanvas_link_x11_if_enabled target_name)
+    if (NOT UNIX OR APPLE OR WHATSCANVAS_X11 STREQUAL "OFF")
+        return()
+    endif()
+
+    if (WHATSCANVAS_X11 STREQUAL "ON")
+        find_package(X11 REQUIRED)
+    else()
+        find_package(X11 QUIET)
+    endif()
+
+    if (X11_FOUND)
+        target_compile_definitions(${target_name} PRIVATE WHATSCANVAS_HAS_X11)
+        set_property(TARGET ${target_name} PROPERTY WHATSCANVAS_REQUIRES_X11 ON)
+        if (TARGET X11::X11)
+            target_link_libraries(${target_name} PRIVATE X11::X11)
+        else()
+            target_include_directories(${target_name} PRIVATE ${X11_INCLUDE_DIR})
+            target_link_libraries(${target_name} PRIVATE ${X11_LIBRARIES})
+        endif()
+    endif()
+endfunction()
+
 function(whatscanvas_add_glfw_dependency project_root)
     set(glfw_path "${project_root}/third_party/glfw")
 
@@ -144,6 +164,16 @@ function(whatscanvas_add_gl_family_library target_name project_root)
     set(glad_path "${project_root}/third_party/glad")
     set(options OPENGLES)
     cmake_parse_arguments(WSC_GL "${options}" "" "" ${ARGN})
+
+    set(glad_sources)
+    set(glad_include_directories)
+    if (WHATSCANVAS_USE_SYSTEM_DEPENDENCIES)
+        set(glad_library glad::glad)
+    else()
+        list(APPEND glad_sources "${glad_path}/src/glad.c")
+        list(APPEND glad_include_directories "${glad_path}/include")
+        set(glad_library "$<BUILD_INTERFACE:WhatsCanvasGLAD>")
+    endif()
 
     set(text_shaping_sources)
     set(text_shaping_libraries)
@@ -239,7 +269,7 @@ function(whatscanvas_add_gl_family_library target_name project_root)
     endif()
 
     add_library(${target_name}
-        "${glad_path}/src/glad.c"
+        ${glad_sources}
         "${src_dir}/core/Log.cpp"
         "${src_dir}/canvas/base.cpp"
         "${src_dir}/canvas/Canvas.cpp"
@@ -247,6 +277,7 @@ function(whatscanvas_add_gl_family_library target_name project_root)
         "${src_dir}/canvas/Matrix.cpp"
         "${src_dir}/canvas/Paint.cpp"
         "${src_dir}/canvas/Path.cpp"
+        "${src_dir}/canvas/StrokeTessellator.cpp"
         "${src_dir}/text/BasicTextBackend.cpp"
         "${src_dir}/text/FontRasterizer.cpp"
         "${src_dir}/text/GlyphAtlas.cpp"
@@ -318,7 +349,7 @@ function(whatscanvas_add_gl_family_library target_name project_root)
         PRIVATE
             "${src_dir}"
             "${project_root}/include"
-            "${glad_path}/include"
+            ${glad_include_directories}
         INTERFACE
             "$<BUILD_INTERFACE:${project_root}/include>"
             "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
@@ -327,9 +358,8 @@ function(whatscanvas_add_gl_family_library target_name project_root)
     target_link_libraries(${target_name}
         PRIVATE
             "$<BUILD_INTERFACE:WhatsCanvasGLM>"
-            "$<BUILD_INTERFACE:WhatsCanvasGLAD>"
+            ${glad_library}
             "$<BUILD_INTERFACE:WhatsCanvasSTB>"
-            "$<BUILD_INTERFACE:WhatsCanvasPolyline2D>"
             Threads::Threads
             ${text_shaping_libraries}
             ${text_rasterizer_libraries}
@@ -359,14 +389,7 @@ function(whatscanvas_add_gl_family_library target_name project_root)
         target_link_libraries(${target_name} PRIVATE gdi32 user32 dwrite d2d1 windowscodecs ole32)
     endif()
 
-    if (UNIX AND NOT APPLE)
-        find_package(X11)
-        if (X11_FOUND)
-            target_compile_definitions(${target_name} PRIVATE WHATSCANVAS_HAS_X11)
-            target_include_directories(${target_name} PRIVATE ${X11_INCLUDE_DIR})
-            target_link_libraries(${target_name} PRIVATE ${X11_LIBRARIES})
-        endif()
-    endif()
+    whatscanvas_link_x11_if_enabled(${target_name})
 endfunction()
 
 function(whatscanvas_add_opengl_library target_name project_root)
@@ -394,6 +417,7 @@ function(whatscanvas_add_software_library target_name project_root)
         "${src_dir}/canvas/Matrix.cpp"
         "${src_dir}/canvas/Paint.cpp"
         "${src_dir}/canvas/Path.cpp"
+        "${src_dir}/canvas/StrokeTessellator.cpp"
         "${src_dir}/text/BasicTextBackend.cpp"
         "${src_dir}/text/FontRasterizer.cpp"
         "${src_dir}/text/GlyphAtlas.cpp"
@@ -423,7 +447,6 @@ function(whatscanvas_add_software_library target_name project_root)
         PRIVATE
             "$<BUILD_INTERFACE:WhatsCanvasGLM>"
             "$<BUILD_INTERFACE:WhatsCanvasSTB>"
-            "$<BUILD_INTERFACE:WhatsCanvasPolyline2D>"
             Threads::Threads
     )
 
@@ -439,14 +462,7 @@ function(whatscanvas_add_software_library target_name project_root)
         target_link_libraries(${target_name} PRIVATE gdi32 user32 dwrite d2d1 windowscodecs ole32)
     endif()
 
-    if (UNIX AND NOT APPLE)
-        find_package(X11)
-        if (X11_FOUND)
-            target_compile_definitions(${target_name} PRIVATE WHATSCANVAS_HAS_X11)
-            target_include_directories(${target_name} PRIVATE ${X11_INCLUDE_DIR})
-            target_link_libraries(${target_name} PRIVATE ${X11_LIBRARIES})
-        endif()
-    endif()
+    whatscanvas_link_x11_if_enabled(${target_name})
 endfunction()
 
 function(whatscanvas_link_gl_app target_name project_root)
