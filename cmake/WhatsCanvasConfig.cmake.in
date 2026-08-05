@@ -39,6 +39,13 @@ endif()
 if (_whatscanvas_want_opengl)
     find_dependency(OpenGL)
 endif()
+if ((_whatscanvas_want_opengl OR _whatscanvas_want_opengles) AND @WHATSCANVAS_PACKAGE_REQUIRES_GLAD@)
+    find_dependency(glad CONFIG)
+endif()
+if ((_whatscanvas_want_opengl OR _whatscanvas_want_opengles OR _whatscanvas_want_software)
+    AND @WHATSCANVAS_PACKAGE_REQUIRES_X11@)
+    find_dependency(X11)
+endif()
 
 # FreeType and HarfBuzz are bundled only when the installed renderer was
 # configured to use them and their config exports were installed alongside.

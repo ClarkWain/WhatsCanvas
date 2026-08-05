@@ -4,7 +4,7 @@ English | [中文](README_zh.md)
 
 [![CI](https://github.com/ClarkWain/WhatsCanvas/actions/workflows/cross-platform-validation.yml/badge.svg)](https://github.com/ClarkWain/WhatsCanvas/actions/workflows/cross-platform-validation.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.1.19-informational.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.1.20-informational.svg)](CHANGELOG.md)
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C.svg)](CMakeLists.txt)
 [![Documentation](https://img.shields.io/badge/docs-online-success.svg)](https://clarkwain.github.io/WhatsCanvas/)
 
@@ -27,7 +27,7 @@ This project aims to bridge the gap between minimal drawing libraries (such as N
 | **Text Capabilities** | Font discovery and fallback, CJK/RTL, UAX #9, line breaking and ellipsis, glyph atlas, COLR/CPAL v0; FreeType and HarfBuzz shaping are enabled by default for OpenGL/OpenGL ES. |
 | **Integration** | vcpkg overlay port, CMake `find_package`, `add_subdirectory`, or portable installation directories generated from source. |
 | **Footprint** | Not header-only. Supports linking only against `WhatsCanvas::Software`, `::OpenGL`, or `::OpenGLES` based on backend; see [Footprint and Dependencies](#footprint-and-dependencies) for reference. |
-| **Maturity** | Current version `0.1.19`, still pre-1.0. Public API boundaries, cross-platform CI, pixel regression, package-consumer integration tests, and auditable performance baselines are in place; upgrade and platform risks should still be evaluated against the boundaries described below. |
+| **Maturity** | Current version `0.1.20`, still pre-1.0. Public API boundaries, cross-platform CI, pixel regression, package-consumer integration tests, and auditable performance baselines are in place; upgrade and platform risks should still be evaluated against the boundaries described below. |
 | **License** | MIT; components in `third_party/` follow their respective licenses. |
 
 **When to Choose WhatsCanvas?**
@@ -71,7 +71,7 @@ cmake_minimum_required(VERSION 3.16)
 project(MyApp LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
-find_package(WhatsCanvas 0.1.19 CONFIG REQUIRED)
+find_package(WhatsCanvas 0.1.20 CONFIG REQUIRED)
 
 add_executable(MyApp main.cpp)
 target_link_libraries(MyApp PRIVATE WhatsCanvas::Software)
@@ -99,7 +99,7 @@ For advanced features like in-window OpenGL, OpenGL ES, Vulkan, font registratio
 
 ### Using Precompiled Packages
 
-Tagged release assets are named `whatscanvas-<platform>-release-<version>.zip`, e.g., `whatscanvas-win64-release-0.1.19.zip`. The package layout is:
+Tagged release assets are named `whatscanvas-<platform>-release-<version>.zip`, e.g., `whatscanvas-win64-release-0.1.20.zip`. The package layout is:
 
 ```text
 include/wsc/                 Public headers
@@ -111,7 +111,7 @@ lib/cmake/WhatsCanvas/       find_package configurations
 The targets provided by the precompiled packages may differ across platforms. In practice, verify the required targets exist via CMake:
 
 ```cmake
-find_package(WhatsCanvas 0.1.19 CONFIG REQUIRED)
+find_package(WhatsCanvas 0.1.20 CONFIG REQUIRED)
 if (NOT TARGET WhatsCanvas::Software)
     message(FATAL_ERROR "This package does not contain the Software backend")
 endif()
@@ -196,6 +196,12 @@ sh ./build.sh --release --package --no-run
 The installation directory is located at `out/package/Release/`. For standard Windows multi-config builds, the demos typically reside in `build/Debug/` or `build/Release/`; the default single-config build in Unix systems is generally found in `build/`.
 
 If you have already cloned the repository, execute `git submodule update --init --recursive` to refresh submodule states. Build scripts also pull missing submodules automatically upon execution, so please ensure network connectivity on the first build; if a fully offline build is necessary, be sure to fetch all submodule codebases in advance. Common system dependencies needed in Ubuntu to compile the demos include `libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev`.
+
+Package-manager builds can set `WHATSCANVAS_USE_SYSTEM_DEPENDENCIES=ON` to use
+registry-provided GLAD, GLM, stb, FreeType, and HarfBuzz. On Linux,
+`WHATSCANVAS_X11` controls presentation support explicitly: `AUTO` preserves
+source-build discovery, `ON` requires X11, and `OFF` guarantees a headless
+build without probing the host for X11.
 
 ### As Source Subdirectory
 
@@ -310,7 +316,7 @@ These numbers only reflect the specific hardware, driver, backend, and workload 
 
 By "lightweight" we mean that backends can be linked separately, the public API surface is small, and the library does not take over the host application's windowing or event loop—not that it is header-only.
 
-A clean build snapshot of the current repository `0.1.19` using **VS 2022 x64, static Release, default FreeType/HarfBuzz enabled** can serve as a volume reference:
+A clean build snapshot of the current repository `0.1.20` using **VS 2022 x64, static Release, default FreeType/HarfBuzz enabled** can serve as a volume reference:
 
 | Content | File footprint |
 | --- | ---: |
@@ -418,4 +424,4 @@ WhatsCanvas is currently focused on four areas: cross-backend pixel consistency,
 
 ## License
 
-WhatsCanvas is released under the [MIT License](LICENSE). Third-party components like FreeType, HarfBuzz, GLFW, stb, and polyline2d follow their respective licenses.
+WhatsCanvas is released under the [MIT License](LICENSE). Third-party components like FreeType, HarfBuzz, GLFW, and stb follow their respective licenses.
