@@ -24,4 +24,4 @@ SOFTWARE.
 
 WhatsCanvas bundles third-party components under third_party/, each governed by
 its own license (see the LICENSE/COPYING files in those directories), including
-FreeType, HarfBuzz, GLFW, stb, and polyline2d.
+FreeType, HarfBuzz, GLFW, and stb.

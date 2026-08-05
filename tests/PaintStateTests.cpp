@@ -1,6 +1,6 @@
 #include "wsc/wsc.h"
 
-#include "../third_party/polyline2d/include/Polyline2D.h"
+#include "../src/canvas/StrokeTessellator.h"
 
 #include <array>
 #include <cmath>
@@ -213,27 +213,19 @@ bool testTextAndStrokeState()
 
 bool testMiterLimitAffectsStrokeMesh()
 {
-    const std::vector<crushedpixel::Vec2> points = {
+    const std::vector<wsc::detail::Vec2> points = {
         {0.0f, 0.0f},
         {50.0f, 0.0f},
         {52.0f, 100.0f},
     };
 
-    const auto mitered = crushedpixel::Polyline2D::create<crushedpixel::Vec2>(
+    const auto mitered = wsc::detail::tessellateStroke(
         points,
-        10.0f,
-        crushedpixel::Polyline2D::JointStyle::MITER,
-        crushedpixel::Polyline2D::EndCapStyle::BUTT,
-        false,
-        64.0f);
+        {10.0f, wsc::detail::StrokeJoin::Miter, wsc::detail::StrokeCap::Butt, false, 64.0f});
 
-    const auto beveled = crushedpixel::Polyline2D::create<crushedpixel::Vec2>(
+    const auto beveled = wsc::detail::tessellateStroke(
         points,
-        10.0f,
-        crushedpixel::Polyline2D::JointStyle::MITER,
-        crushedpixel::Polyline2D::EndCapStyle::BUTT,
-        false,
-        1.0f);
+        {10.0f, wsc::detail::StrokeJoin::Miter, wsc::detail::StrokeCap::Butt, false, 1.0f});
 
     return expect(mitered.size() == 12, "high miter limit should keep the miter joint")
         && expect(beveled.size() > mitered.size(), "low miter limit should bevel sharp joints");

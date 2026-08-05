@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(WhatsCanvas VERSION 0.1.19 LANGUAGES C CXX)
+project(WhatsCanvas VERSION 0.1.20 LANGUAGES C CXX)
 
 include(CTest)
 include(GNUInstallDirs)
@@ -26,8 +26,13 @@ set(WHATSCANVAS_NANOVG_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.nanovg"
 option(WHATSCANVAS_INSTALL_GLFW "Install GLFW when WhatsCanvas is embedded by a package that exports a GLFW-dependent target." OFF)
 option(WHATSCANVAS_ENABLE_OPENTYPE_SHAPING "Enable HarfBuzz OpenType shaping when HarfBuzz is available." ON)
 option(WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER "Enable FreeType glyph rasterization when FreeType is available." ON)
-option(WHATSCANVAS_USE_SYSTEM_DEPENDENCIES "Use package-manager-provided glm, stb, FreeType, and HarfBuzz instead of bundled submodules." OFF)
+option(WHATSCANVAS_USE_SYSTEM_DEPENDENCIES "Use package-manager-provided glad, glm, stb, FreeType, and HarfBuzz instead of bundled sources." OFF)
 option(WHATSCANVAS_ENABLE_VULKAN "Enable the optional Vulkan render backend when a Vulkan SDK is available." OFF)
+set(WHATSCANVAS_X11 "AUTO" CACHE STRING "X11 presentation support on Linux: AUTO, ON, or OFF.")
+set_property(CACHE WHATSCANVAS_X11 PROPERTY STRINGS AUTO ON OFF)
+if (NOT WHATSCANVAS_X11 MATCHES "^(AUTO|ON|OFF)$")
+    message(FATAL_ERROR "WHATSCANVAS_X11 must be AUTO, ON, or OFF (got '${WHATSCANVAS_X11}').")
+endif()
 set(WHATSCANVAS_DEFAULT_SMOKE_HASH "2808591959994190122" CACHE STRING "Default local smoke hash for regression ctest registration.")
 set(WHATSCANVAS_CLIP_SMOKE_HASH "7173893163224947210" CACHE STRING "Default local clip-path smoke hash for regression ctest registration.")
 
@@ -1340,6 +1345,20 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGLES)
     )
 endif()
 
+if (BUILD_TESTING)
+    add_executable(WhatsCanvasStrokeTessellatorTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/StrokeTessellatorTests.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/canvas/StrokeTessellator.cpp"
+    )
+    target_include_directories(WhatsCanvasStrokeTessellatorTests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    add_test(NAME WhatsCanvasStrokeTessellatorTests
+        COMMAND $<TARGET_FILE:WhatsCanvasStrokeTessellatorTests>
+    )
+    set_tests_properties(WhatsCanvasStrokeTessellatorTests PROPERTIES LABELS "unit;geometry;compatibility")
+endif()
+
 # Standalone proof for the GPU-free path: the same head-less software tests
 # linked against ONLY the dependency-free WhatsCanvasSoftware library (no
 # OpenGL / glad / Vulkan). Guarded solely on WhatsCanvasSoftware so it is
@@ -1788,6 +1807,8 @@ if (WHATSCANVAS_INSTALL)
     set(WHATSCANVAS_PACKAGE_HAS_OPENGLES OFF)
     set(WHATSCANVAS_PACKAGE_HAS_SOFTWARE OFF)
     set(WHATSCANVAS_PACKAGE_REQUIRES_OPENGL OFF)
+    set(WHATSCANVAS_PACKAGE_REQUIRES_GLAD OFF)
+    set(WHATSCANVAS_PACKAGE_REQUIRES_X11 OFF)
     set(WHATSCANVAS_PACKAGE_REQUIRES_FREETYPE OFF)
     set(WHATSCANVAS_PACKAGE_REQUIRES_HARFBUZZ OFF)
 
@@ -1801,6 +1822,9 @@ if (WHATSCANVAS_INSTALL)
         set(WHATSCANVAS_OPENGL_IMPORTED_TYPE STATIC)
         set(WHATSCANVAS_OPENGL_PACKAGE_LOCATION "${CMAKE_INSTALL_LIBDIR}/${CMAKE_STATIC_LIBRARY_PREFIX}${WHATSCANVAS_OPENGL_OUTPUT_NAME}${CMAKE_STATIC_LIBRARY_SUFFIX}")
         set(WHATSCANVAS_PACKAGE_REQUIRES_OPENGL ON)
+        if (WHATSCANVAS_USE_SYSTEM_DEPENDENCIES)
+            set(WHATSCANVAS_PACKAGE_REQUIRES_GLAD ON)
+        endif()
 
         if (WIN32 AND BUILD_SHARED_LIBS)
             set(WHATSCANVAS_OPENGL_IMPORTED_TYPE SHARED)
@@ -1811,10 +1835,22 @@ if (WHATSCANVAS_INSTALL)
 
     if (TARGET WhatsCanvasOpenGLES)
         set(WHATSCANVAS_PACKAGE_HAS_OPENGLES ON)
+        if (WHATSCANVAS_USE_SYSTEM_DEPENDENCIES)
+            set(WHATSCANVAS_PACKAGE_REQUIRES_GLAD ON)
+        endif()
     endif()
     if (TARGET WhatsCanvasSoftware)
         set(WHATSCANVAS_PACKAGE_HAS_SOFTWARE ON)
     endif()
+
+    foreach(_whatscanvas_target IN ITEMS WhatsCanvasOpenGL WhatsCanvasOpenGLES WhatsCanvasSoftware)
+        if (TARGET ${_whatscanvas_target})
+            get_target_property(_whatscanvas_target_requires_x11 ${_whatscanvas_target} WHATSCANVAS_REQUIRES_X11)
+            if (_whatscanvas_target_requires_x11)
+                set(WHATSCANVAS_PACKAGE_REQUIRES_X11 ON)
+            endif()
+        endif()
+    endforeach()
 
     # Advertise text dependencies when their targets remain in the installed
     # static library's link interface. Bundled builds install matching configs;
