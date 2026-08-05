@@ -12,6 +12,8 @@ WhatsCanvas is an embeddable 2D rendering library written in C++17, aimed at nat
 
 This project aims to bridge the gap between minimal drawing libraries (such as NanoVG) and heavyweight graphics engines (such as Skia), providing a lightweight alternative that is easy to integrate, understand, and validate.
 
+> **Need a complete UI framework?** [WhatsUI](https://github.com/ClarkWain/WhatsUI) is a real downstream project built on WhatsCanvas. It provides a retained-mode C++17 UI layer with a Fluent 2 design system, controls, layout, input, focus, overlays, deterministic visual tests, and native desktop windows. WhatsUI is designed for portable native desktop UI and currently uses Windows as its primary delivery and validation platform.
+
 ![WhatsCanvas image filters showcase](images/image-filter-showcase.png)
 
 > The image above was rendered by the WhatsCanvas desktop OpenGL backend and read directly back from the framebuffer at 1920 × 1080; it is not a design mockup or UI screenshot.
