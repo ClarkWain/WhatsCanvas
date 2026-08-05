@@ -1,6 +1,6 @@
 {
   "name": "whatscanvas",
-  "version": "0.1.19",
+  "version": "0.1.20",
   "description": "Lightweight Canvas-style 2D rendering library for native C++ applications",
   "homepage": "https://github.com/ClarkWain/WhatsCanvas",
   "documentation": "https://clarkwain.github.io/WhatsCanvas/",
@@ -17,20 +17,19 @@
       "host": true
     }
   ],
-  "default-features": [
-    "opengl",
-    "software",
-    "text"
-  ],
   "features": {
     "opengl": {
       "description": "Build the desktop OpenGL renderer",
       "dependencies": [
+        {
+          "name": "glad",
+          "default-features": false,
+          "features": [
+            "gl-api-33"
+          ]
+        },
         "opengl"
       ]
-    },
-    "software": {
-      "description": "Build the CPU-only software renderer"
     },
     "text": {
       "description": "Enable FreeType rasterization and HarfBuzz shaping for the OpenGL renderer",
@@ -42,6 +41,13 @@
         {
           "name": "harfbuzz",
           "default-features": false
+        },
+        {
+          "name": "whatscanvas",
+          "default-features": false,
+          "features": [
+            "opengl"
+          ]
         }
       ]
     }
