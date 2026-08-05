@@ -48,8 +48,7 @@
 #include "render/GammaCorrect.h"
 #include "render/DeprecationTracker.h"
 #include "render/ResizeHandler.h"
-#include "Polyline2D.h"
-#include "Vec2.h"
+#include "StrokeTessellator.h"
 #include "stb_easy_font.h"
 
 namespace wsc {
@@ -125,16 +124,16 @@ struct ShadowPass {
 };
 
 struct PathContour {
-    std::vector<crushedpixel::Vec2> points;
+    std::vector<detail::Vec2> points;
     bool closed = false;
 };
 
-std::vector<float> flattenPoints(const std::vector<crushedpixel::Vec2> &points);
+std::vector<float> flattenPoints(const std::vector<detail::Vec2> &points);
 void appendSafePoint(
-    std::vector<crushedpixel::Vec2> &points,
+    std::vector<detail::Vec2> &points,
     float x, float y);
 std::vector<PathContour> extractContours(const Path &path);
-std::vector<crushedpixel::Vec2> triangulateContours(const std::vector<PathContour> &contours,
+std::vector<detail::Vec2> triangulateContours(const std::vector<PathContour> &contours,
                                                     Path::FillType fillType);
 std::uint64_t hashFillTessellation(const std::vector<PathContour> &contours, Path::FillType fillType);
 
@@ -152,32 +151,32 @@ PathDrawMode toPathDrawMode(Paint::Style style)
     return PathDrawMode::Fill;
 }
 
-crushedpixel::Polyline2D::JointStyle toPolylineJointStyle(Paint::StrokeJoin join)
+detail::StrokeJoin toStrokeJoin(Paint::StrokeJoin join)
 {
     switch (join) {
     case Paint::StrokeJoin::MITER:
-        return crushedpixel::Polyline2D::JointStyle::MITER;
+        return detail::StrokeJoin::Miter;
     case Paint::StrokeJoin::ROUND:
-        return crushedpixel::Polyline2D::JointStyle::ROUND;
+        return detail::StrokeJoin::Round;
     case Paint::StrokeJoin::BEVEL:
-        return crushedpixel::Polyline2D::JointStyle::BEVEL;
+        return detail::StrokeJoin::Bevel;
     }
 
-    return crushedpixel::Polyline2D::JointStyle::MITER;
+    return detail::StrokeJoin::Miter;
 }
 
-crushedpixel::Polyline2D::EndCapStyle toPolylineEndCapStyle(Paint::StrokeCap cap)
+detail::StrokeCap toStrokeCap(Paint::StrokeCap cap)
 {
     switch (cap) {
     case Paint::StrokeCap::BUTT:
-        return crushedpixel::Polyline2D::EndCapStyle::BUTT;
+        return detail::StrokeCap::Butt;
     case Paint::StrokeCap::ROUND:
-        return crushedpixel::Polyline2D::EndCapStyle::ROUND;
+        return detail::StrokeCap::Round;
     case Paint::StrokeCap::SQUARE:
-        return crushedpixel::Polyline2D::EndCapStyle::SQUARE;
+        return detail::StrokeCap::Square;
     }
 
-    return crushedpixel::Polyline2D::EndCapStyle::BUTT;
+    return detail::StrokeCap::Butt;
 }
 
 DrawBlendMode toDrawBlendMode(Paint::BlendMode blendMode)
@@ -502,7 +501,7 @@ bool isFinitePoint(float x, float y)
     return std::isfinite(x) && std::isfinite(y);
 }
 
-bool nearlySamePoint(const crushedpixel::Vec2 &a, const crushedpixel::Vec2 &b)
+bool nearlySamePoint(const detail::Vec2 &a, const detail::Vec2 &b)
 {
     return std::abs(a.x - b.x) <= kPointEpsilon && std::abs(a.y - b.y) <= kPointEpsilon;
 }
@@ -701,7 +700,7 @@ bool factorContourTranslation(std::vector<PathContour> &contours, glm::mat4 &tra
         return false;
     }
 
-    const crushedpixel::Vec2 anchor = anchorContour->points.front();
+    const detail::Vec2 anchor = anchorContour->points.front();
     if (!std::isfinite(anchor.x) || !std::isfinite(anchor.y)
         || (std::abs(anchor.x) <= kPointEpsilon
             && std::abs(anchor.y) <= kPointEpsilon)) {
@@ -709,7 +708,7 @@ bool factorContourTranslation(std::vector<PathContour> &contours, glm::mat4 &tra
     }
 
     for (PathContour &contour : contours) {
-        for (crushedpixel::Vec2 &point : contour.points) {
+        for (detail::Vec2 &point : contour.points) {
             point.x -= anchor.x;
             point.y -= anchor.y;
         }
@@ -721,7 +720,7 @@ bool factorContourTranslation(std::vector<PathContour> &contours, glm::mat4 &tra
 }
 
 bool buildClipMaskPath(const Path &path, const glm::mat4 &transform, ClipMaskPath &maskPath,
-                       wsc::render::LruCache<std::vector<crushedpixel::Vec2>> *tessellationCache = nullptr)
+                       wsc::render::LruCache<std::vector<detail::Vec2>> *tessellationCache = nullptr)
 {
     auto contours = extractContours(path);
     if (contours.empty()) {
@@ -732,8 +731,8 @@ bool buildClipMaskPath(const Path &path, const glm::mat4 &transform, ClipMaskPat
 
     // The clip mask is the fill triangulation of the path, so it shares the fill
     // tessellation cache: a shape used as both a fill and a clip triangulates once.
-    std::vector<crushedpixel::Vec2> storage;
-    const std::vector<crushedpixel::Vec2> *fillTriangles = nullptr;
+    std::vector<detail::Vec2> storage;
+    const std::vector<detail::Vec2> *fillTriangles = nullptr;
     if (tessellationCache != nullptr) {
         const std::uint64_t key = hashFillTessellation(contours, path.getFillType());
         if (const auto *cached = tessellationCache->find(key)) {
@@ -868,7 +867,7 @@ void addQuarterArc(Path &path, float centerX, float centerY, float radius,
 }
 
 void appendQuarterArcPoints(
-    std::vector<crushedpixel::Vec2> &points,
+    std::vector<detail::Vec2> &points,
     float centerX, float centerY, float radius,
     float startAngle, float endAngle, int segments)
 {
@@ -953,13 +952,13 @@ ScissorState makeScissorForRect(const RectF &rect, int canvasWidth, int canvasHe
     return scissor;
 }
 
-void appendSafePoint(std::vector<crushedpixel::Vec2> &points, float x, float y)
+void appendSafePoint(std::vector<detail::Vec2> &points, float x, float y)
 {
     if (!isFinitePoint(x, y)) {
         return;
     }
 
-    crushedpixel::Vec2 point(x, y);
+    detail::Vec2 point(x, y);
     if (!points.empty() && nearlySamePoint(points.back(), point)) {
         return;
     }
@@ -967,7 +966,7 @@ void appendSafePoint(std::vector<crushedpixel::Vec2> &points, float x, float y)
     points.push_back(point);
 }
 
-std::vector<float> flattenPoints(const std::vector<crushedpixel::Vec2> &points)
+std::vector<float> flattenPoints(const std::vector<detail::Vec2> &points)
 {
     std::vector<float> flattened;
     flattened.reserve(points.size() * 2);
@@ -1012,10 +1011,10 @@ std::uint64_t hashSimpleFillPrimitive(const SimpleFillPrimitive &primitive)
     return hash;
 }
 
-std::vector<crushedpixel::Vec2> buildSimpleFillPrimitivePoints(
+std::vector<detail::Vec2> buildSimpleFillPrimitivePoints(
     const SimpleFillPrimitive &primitive)
 {
-    std::vector<crushedpixel::Vec2> points;
+    std::vector<detail::Vec2> points;
     switch (primitive.kind) {
     case SimpleFillPrimitiveKind::Rectangle:
         points.reserve(4);
@@ -1110,13 +1109,13 @@ std::vector<crushedpixel::Vec2> buildSimpleFillPrimitivePoints(
 
 /// Analytic anti-aliasing: a triangle soup expanded with a feathered fringe.
 struct AAExpandedMesh {
-    std::vector<crushedpixel::Vec2> vertices;
+    std::vector<detail::Vec2> vertices;
     std::vector<float> coverage;
     std::vector<std::uint32_t> indices;
 
     std::size_t residentBytes() const
     {
-        return vertices.capacity() * sizeof(crushedpixel::Vec2)
+        return vertices.capacity() * sizeof(detail::Vec2)
             + coverage.capacity() * sizeof(float)
             + indices.capacity() * sizeof(std::uint32_t);
     }
@@ -1135,7 +1134,7 @@ SharedAAExpandedMesh shareAAExpandedMesh(AAExpandedMesh mesh)
 {
     auto geometry = std::make_shared<DrawPathGeometry>();
     geometry->points.reserve(mesh.vertices.size() * 2u);
-    for (const crushedpixel::Vec2 &vertex : mesh.vertices) {
+    for (const detail::Vec2 &vertex : mesh.vertices) {
         geometry->points.push_back(vertex.x);
         geometry->points.push_back(vertex.y);
         if (!geometry->hasBounds) {
@@ -1232,7 +1231,7 @@ AAExpandedMesh indexAAExpandedMesh(AAExpandedMesh soup)
     vertexIndices.reserve(soup.vertices.size());
 
     for (std::size_t i = 0; i < soup.vertices.size(); ++i) {
-        const crushedpixel::Vec2 &vertex = soup.vertices[i];
+        const detail::Vec2 &vertex = soup.vertices[i];
         const AAIndexedVertexKey key{
             floatBitPattern(vertex.x),
             floatBitPattern(vertex.y),
@@ -1278,7 +1277,7 @@ float computeLocalFringe(const glm::mat4 &transform)
 /// and the shape keeps its nominal size. Adjacent fringe quads share per-vertex
 /// mitred inner/outer positions, so the band is seamless.
 AAExpandedMesh expandTrianglesWithAA(
-    const std::vector<crushedpixel::Vec2> &triangles, float fringe,
+    const std::vector<detail::Vec2> &triangles, float fringe,
     bool buildIndex = true)
 {
     AAExpandedMesh mesh;
@@ -1297,10 +1296,10 @@ AAExpandedMesh expandTrianglesWithAA(
     constexpr float kQuant = 128.0f;
     std::unordered_map<std::uint64_t, std::uint32_t> indexByKey;
     indexByKey.reserve(triVertCount);
-    std::vector<crushedpixel::Vec2> uniqueVerts;
+    std::vector<detail::Vec2> uniqueVerts;
     uniqueVerts.reserve(triVertCount);
 
-    auto indexOf = [&](const crushedpixel::Vec2 &p) -> std::uint32_t {
+    auto indexOf = [&](const detail::Vec2 &p) -> std::uint32_t {
         const std::int32_t qx = static_cast<std::int32_t>(std::lround(p.x * kQuant));
         const std::int32_t qy = static_cast<std::int32_t>(std::lround(p.y * kQuant));
         const std::uint64_t key = (static_cast<std::uint64_t>(static_cast<std::uint32_t>(qx)) << 32)
@@ -1345,9 +1344,9 @@ AAExpandedMesh expandTrianglesWithAA(
         if (i0 == i1 || i1 == i2 || i0 == i2) {
             continue; // degenerate triangle contributes no silhouette
         }
-        const crushedpixel::Vec2 &a = uniqueVerts[i0];
-        const crushedpixel::Vec2 &b = uniqueVerts[i1];
-        const crushedpixel::Vec2 &c = uniqueVerts[i2];
+        const detail::Vec2 &a = uniqueVerts[i0];
+        const detail::Vec2 &b = uniqueVerts[i1];
+        const detail::Vec2 &c = uniqueVerts[i2];
         const float area2 = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
         if (area2 < 0.0f) {
             std::swap(i1, i2); // make CCW so interior is left of each directed edge
@@ -1369,8 +1368,8 @@ AAExpandedMesh expandTrianglesWithAA(
         }
         const std::uint32_t f = kv.second.from;
         const std::uint32_t to = kv.second.to;
-        const crushedpixel::Vec2 &p0 = uniqueVerts[f];
-        const crushedpixel::Vec2 &p1 = uniqueVerts[to];
+        const detail::Vec2 &p0 = uniqueVerts[f];
+        const detail::Vec2 &p1 = uniqueVerts[to];
         glm::vec2 dir(p1.x - p0.x, p1.y - p0.y);
         const float len = glm::length(dir);
         if (len < 1e-6f) {
@@ -1387,11 +1386,11 @@ AAExpandedMesh expandTrianglesWithAA(
     // the true edge (half a feather-width inside at coverage 1.0, half outside
     // at coverage 0.0) so the perceived 50%-coverage edge stays on the real
     // silhouette and the shape keeps its nominal size instead of dilating.
-    struct EdgeOffset { crushedpixel::Vec2 inner; crushedpixel::Vec2 outer; };
+    struct EdgeOffset { detail::Vec2 inner; detail::Vec2 outer; };
     std::unordered_map<std::uint32_t, EdgeOffset> offsets;
     offsets.reserve(outwardAccum.size());
     for (const auto &kv : outwardAccum) {
-        const crushedpixel::Vec2 &base = uniqueVerts[kv.first];
+        const detail::Vec2 &base = uniqueVerts[kv.first];
         const float l = glm::length(kv.second);
         if (l < 1e-4f) {
             offsets.emplace(kv.first, EdgeOffset{base, base});
@@ -1400,8 +1399,8 @@ AAExpandedMesh expandTrianglesWithAA(
         const glm::vec2 dir = kv.second / l;
         const float mag = fringe / std::max(l, 0.5f); // half-feather each side; limit sharp mitres
         offsets.emplace(kv.first, EdgeOffset{
-            crushedpixel::Vec2(base.x - dir.x * mag, base.y - dir.y * mag),
-            crushedpixel::Vec2(base.x + dir.x * mag, base.y + dir.y * mag)});
+            detail::Vec2(base.x - dir.x * mag, base.y - dir.y * mag),
+            detail::Vec2(base.x + dir.x * mag, base.y + dir.y * mag)});
     }
 
     // Interior triangles first (fully covered), then the feathered fringe band.
@@ -1419,7 +1418,7 @@ AAExpandedMesh expandTrianglesWithAA(
         mesh.coverage.push_back(1.0f);
     }
 
-    auto pushVert = [&](const crushedpixel::Vec2 &p, float cov) {
+    auto pushVert = [&](const detail::Vec2 &p, float cov) {
         mesh.vertices.push_back(p);
         mesh.coverage.push_back(cov);
     };
@@ -1430,10 +1429,10 @@ AAExpandedMesh expandTrianglesWithAA(
         if (ita == offsets.end() || itb == offsets.end()) {
             continue;
         }
-        const crushedpixel::Vec2 innerA = ita->second.inner;
-        const crushedpixel::Vec2 innerB = itb->second.inner;
-        const crushedpixel::Vec2 outerA = ita->second.outer;
-        const crushedpixel::Vec2 outerB = itb->second.outer;
+        const detail::Vec2 innerA = ita->second.inner;
+        const detail::Vec2 innerB = itb->second.inner;
+        const detail::Vec2 outerA = ita->second.outer;
+        const detail::Vec2 outerB = itb->second.outer;
         pushVert(innerA, 1.0f); pushVert(outerA, 0.0f); pushVert(outerB, 0.0f);
         pushVert(innerA, 1.0f); pushVert(outerB, 0.0f); pushVert(innerB, 1.0f);
     }
@@ -1798,12 +1797,12 @@ std::vector<ShadowPass> buildTextStrokePasses(const Paint &paint, const glm::mat
     return passes;
 }
 
-float cross(const crushedpixel::Vec2 &a, const crushedpixel::Vec2 &b, const crushedpixel::Vec2 &c)
+float cross(const detail::Vec2 &a, const detail::Vec2 &b, const detail::Vec2 &c)
 {
     return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
 }
 
-float signedArea(const std::vector<crushedpixel::Vec2> &points)
+float signedArea(const std::vector<detail::Vec2> &points)
 {
     float area = 0.0f;
     for (size_t i = 0; i < points.size(); ++i) {
@@ -1814,7 +1813,7 @@ float signedArea(const std::vector<crushedpixel::Vec2> &points)
     return area * 0.5f;
 }
 
-bool pointInPolygon(const crushedpixel::Vec2 &point, const std::vector<crushedpixel::Vec2> &polygon)
+bool pointInPolygon(const detail::Vec2 &point, const std::vector<detail::Vec2> &polygon)
 {
     bool inside = false;
     if (polygon.size() < 3) {
@@ -1834,8 +1833,8 @@ bool pointInPolygon(const crushedpixel::Vec2 &point, const std::vector<crushedpi
     return inside;
 }
 
-bool pointInTriangle(const crushedpixel::Vec2 &point, const crushedpixel::Vec2 &a,
-                     const crushedpixel::Vec2 &b, const crushedpixel::Vec2 &c)
+bool pointInTriangle(const detail::Vec2 &point, const detail::Vec2 &a,
+                     const detail::Vec2 &b, const detail::Vec2 &c)
 {
     const float ab = cross(a, b, point);
     const float bc = cross(b, c, point);
@@ -1843,9 +1842,9 @@ bool pointInTriangle(const crushedpixel::Vec2 &point, const crushedpixel::Vec2 &
     return ab >= -kPointEpsilon && bc >= -kPointEpsilon && ca >= -kPointEpsilon;
 }
 
-std::vector<crushedpixel::Vec2> buildTriangleFan(const std::vector<crushedpixel::Vec2> &polygon)
+std::vector<detail::Vec2> buildTriangleFan(const std::vector<detail::Vec2> &polygon)
 {
-    std::vector<crushedpixel::Vec2> triangles;
+    std::vector<detail::Vec2> triangles;
     if (polygon.size() < 3) {
         return triangles;
     }
@@ -1859,9 +1858,9 @@ std::vector<crushedpixel::Vec2> buildTriangleFan(const std::vector<crushedpixel:
     return triangles;
 }
 
-std::vector<crushedpixel::Vec2> sanitizeFillPolygon(const std::vector<crushedpixel::Vec2> &points)
+std::vector<detail::Vec2> sanitizeFillPolygon(const std::vector<detail::Vec2> &points)
 {
-    std::vector<crushedpixel::Vec2> polygon;
+    std::vector<detail::Vec2> polygon;
     polygon.reserve(points.size());
     for (const auto &point : points) {
         appendSafePoint(polygon, point.x, point.y);
@@ -1889,9 +1888,9 @@ std::vector<crushedpixel::Vec2> sanitizeFillPolygon(const std::vector<crushedpix
     return polygon;
 }
 
-std::vector<crushedpixel::Vec2> normalizedContourForFill(const std::vector<crushedpixel::Vec2> &points, bool ccw)
+std::vector<detail::Vec2> normalizedContourForFill(const std::vector<detail::Vec2> &points, bool ccw)
 {
-    std::vector<crushedpixel::Vec2> polygon = sanitizeFillPolygon(points);
+    std::vector<detail::Vec2> polygon = sanitizeFillPolygon(points);
     if (polygon.size() < 3) {
         return polygon;
     }
@@ -1904,7 +1903,7 @@ std::vector<crushedpixel::Vec2> normalizedContourForFill(const std::vector<crush
     return polygon;
 }
 
-size_t findRightmostVertex(const std::vector<crushedpixel::Vec2> &points)
+size_t findRightmostVertex(const std::vector<detail::Vec2> &points)
 {
     size_t best = 0;
     for (size_t i = 1; i < points.size(); ++i) {
@@ -1916,7 +1915,7 @@ size_t findRightmostVertex(const std::vector<crushedpixel::Vec2> &points)
     return best;
 }
 
-size_t findNearestVertex(const std::vector<crushedpixel::Vec2> &points, const crushedpixel::Vec2 &target)
+size_t findNearestVertex(const std::vector<detail::Vec2> &points, const detail::Vec2 &target)
 {
     size_t best = 0;
     float bestDistance = std::numeric_limits<float>::max();
@@ -1932,8 +1931,8 @@ size_t findNearestVertex(const std::vector<crushedpixel::Vec2> &points, const cr
     return best;
 }
 
-std::vector<crushedpixel::Vec2> bridgeHoleIntoOuter(const std::vector<crushedpixel::Vec2> &outer,
-                                                    const std::vector<crushedpixel::Vec2> &hole)
+std::vector<detail::Vec2> bridgeHoleIntoOuter(const std::vector<detail::Vec2> &outer,
+                                                    const std::vector<detail::Vec2> &hole)
 {
     if (outer.size() < 3 || hole.size() < 3) {
         return outer;
@@ -1942,7 +1941,7 @@ std::vector<crushedpixel::Vec2> bridgeHoleIntoOuter(const std::vector<crushedpix
     const size_t holeIndex = findRightmostVertex(hole);
     const size_t outerIndex = findNearestVertex(outer, hole[holeIndex]);
 
-    std::vector<crushedpixel::Vec2> combined;
+    std::vector<detail::Vec2> combined;
     combined.reserve(outer.size() + hole.size() + 2);
     for (size_t i = 0; i <= outerIndex; ++i) {
         combined.push_back(outer[i]);
@@ -1961,9 +1960,9 @@ std::vector<crushedpixel::Vec2> bridgeHoleIntoOuter(const std::vector<crushedpix
     return combined;
 }
 
-std::vector<crushedpixel::Vec2> triangulateSimplePolygon(const std::vector<crushedpixel::Vec2> &points)
+std::vector<detail::Vec2> triangulateSimplePolygon(const std::vector<detail::Vec2> &points)
 {
-    std::vector<crushedpixel::Vec2> polygon = sanitizeFillPolygon(points);
+    std::vector<detail::Vec2> polygon = sanitizeFillPolygon(points);
     if (polygon.size() < 3) {
         return {};
     }
@@ -1983,7 +1982,7 @@ std::vector<crushedpixel::Vec2> triangulateSimplePolygon(const std::vector<crush
         indices.push_back(i);
     }
 
-    std::vector<crushedpixel::Vec2> triangles;
+    std::vector<detail::Vec2> triangles;
     triangles.reserve((polygon.size() - 2) * 3);
 
     size_t guard = 0;
@@ -2069,9 +2068,9 @@ std::vector<PathContour> extractContours(const Path &path)
     return contours;
 }
 
-std::vector<crushedpixel::Vec2> triangulateContours(const std::vector<PathContour> &contours, Path::FillType fillType)
+std::vector<detail::Vec2> triangulateContours(const std::vector<PathContour> &contours, Path::FillType fillType)
 {
-    std::vector<std::vector<crushedpixel::Vec2>> closedContours;
+    std::vector<std::vector<detail::Vec2>> closedContours;
     closedContours.reserve(contours.size());
     for (const auto &contour : contours) {
         if (!contour.closed || contour.points.size() < 3) {
@@ -2084,7 +2083,7 @@ std::vector<crushedpixel::Vec2> triangulateContours(const std::vector<PathContou
         }
     }
 
-    std::vector<crushedpixel::Vec2> triangles;
+    std::vector<detail::Vec2> triangles;
     if (closedContours.empty()) {
         return triangles;
     }
@@ -2148,14 +2147,14 @@ std::vector<crushedpixel::Vec2> triangulateContours(const std::vector<PathContou
     return triangles;
 }
 
-std::vector<crushedpixel::Vec2> buildStrokeMesh(const std::vector<crushedpixel::Vec2> &points,
+std::vector<detail::Vec2> buildStrokeMesh(const std::vector<detail::Vec2> &points,
                                                 bool closed, const Paint &paint)
 {
     if (paint.getStrokeWidth() <= 0.0f || points.size() < 2) {
         return {};
     }
 
-    std::vector<crushedpixel::Vec2> safePoints;
+    std::vector<detail::Vec2> safePoints;
     safePoints.reserve(points.size());
     for (const auto &point : points) {
         appendSafePoint(safePoints, point.x, point.y);
@@ -2169,22 +2168,19 @@ std::vector<crushedpixel::Vec2> buildStrokeMesh(const std::vector<crushedpixel::
         return {};
     }
 
-    auto capStyle = closed
-        ? crushedpixel::Polyline2D::EndCapStyle::JOINT
-        : toPolylineEndCapStyle(paint.getStrokeCap());
-
-    return crushedpixel::Polyline2D::create<crushedpixel::Vec2>(
-        safePoints,
+    const detail::StrokeStyle style{
         paint.getStrokeWidth(),
-        toPolylineJointStyle(paint.getStrokeJoin()),
-        capStyle,
+        toStrokeJoin(paint.getStrokeJoin()),
+        closed ? detail::StrokeCap::Closed : toStrokeCap(paint.getStrokeCap()),
         false,
-        paint.getStrokeMiterLimit());
+        paint.getStrokeMiterLimit(),
+    };
+    return detail::tessellateStroke(safePoints, style);
 }
 
-std::vector<crushedpixel::Vec2> sanitizePolylinePoints(const std::vector<Point> &points)
+std::vector<detail::Vec2> sanitizePolylinePoints(const std::vector<Point> &points)
 {
-    std::vector<crushedpixel::Vec2> safePoints;
+    std::vector<detail::Vec2> safePoints;
     safePoints.reserve(points.size());
     for (const auto &point : points) {
         appendSafePoint(safePoints, static_cast<float>(point.getX()), static_cast<float>(point.getY()));
@@ -2192,9 +2188,9 @@ std::vector<crushedpixel::Vec2> sanitizePolylinePoints(const std::vector<Point> 
     return safePoints;
 }
 
-std::vector<crushedpixel::Vec2> sanitizePolylinePoints(const std::vector<PointF> &points)
+std::vector<detail::Vec2> sanitizePolylinePoints(const std::vector<PointF> &points)
 {
-    std::vector<crushedpixel::Vec2> safePoints;
+    std::vector<detail::Vec2> safePoints;
     safePoints.reserve(points.size());
     for (const auto &point : points) {
         appendSafePoint(safePoints, point.getX(), point.getY());
@@ -2202,7 +2198,7 @@ std::vector<crushedpixel::Vec2> sanitizePolylinePoints(const std::vector<PointF>
     return safePoints;
 }
 
-Path makePathFromPolyline(const std::vector<crushedpixel::Vec2> &points, bool closed)
+Path makePathFromPolyline(const std::vector<detail::Vec2> &points, bool closed)
 {
     Path path;
     if (points.empty()) {
@@ -2221,12 +2217,12 @@ Path makePathFromPolyline(const std::vector<crushedpixel::Vec2> &points, bool cl
     return path;
 }
 
-std::vector<std::vector<crushedpixel::Vec2>> buildDashedPolylines(const std::vector<crushedpixel::Vec2> &points,
+std::vector<std::vector<detail::Vec2>> buildDashedPolylines(const std::vector<detail::Vec2> &points,
                                                                   bool closed,
                                                                   const std::vector<float> &intervals,
                                                                   float phase)
 {
-    std::vector<std::vector<crushedpixel::Vec2>> dashes;
+    std::vector<std::vector<detail::Vec2>> dashes;
     if (points.size() < 2 || intervals.empty()) {
         return dashes;
     }
@@ -2251,7 +2247,7 @@ std::vector<std::vector<crushedpixel::Vec2>> buildDashedPolylines(const std::vec
 
     bool drawing = (intervalIndex % 2) == 0;
     float remaining = intervals[intervalIndex] - phase;
-    std::vector<crushedpixel::Vec2> currentDash;
+    std::vector<detail::Vec2> currentDash;
 
     auto finishDash = [&]() {
         if (currentDash.size() >= 2) {
@@ -2272,12 +2268,12 @@ std::vector<std::vector<crushedpixel::Vec2>> buildDashedPolylines(const std::vec
         }
 
         float consumed = 0.0f;
-        crushedpixel::Vec2 current = start;
+        detail::Vec2 current = start;
         while (consumed < length - kPointEpsilon) {
             const float step = std::min(remaining, length - consumed);
             const float nextDistance = consumed + step;
             const float t = nextDistance / length;
-            crushedpixel::Vec2 next(start.x + dx * t, start.y + dy * t);
+            detail::Vec2 next(start.x + dx * t, start.y + dy * t);
 
             if (drawing) {
                 if (currentDash.empty()) {
@@ -2305,7 +2301,7 @@ std::vector<std::vector<crushedpixel::Vec2>> buildDashedPolylines(const std::vec
     if (closed && dashes.size() >= 2
         && !dashes.front().empty() && !dashes.back().empty()
         && nearlySamePoint(dashes.front().front(), dashes.back().back())) {
-        std::vector<crushedpixel::Vec2> merged = dashes.back();
+        std::vector<detail::Vec2> merged = dashes.back();
         merged.insert(merged.end(), dashes.front().begin() + 1, dashes.front().end());
         dashes.front() = std::move(merged);
         dashes.pop_back();
@@ -2316,7 +2312,7 @@ std::vector<std::vector<crushedpixel::Vec2>> buildDashedPolylines(const std::vec
 /// Content hash of the inputs to stroke meshing. The mesh is built in local
 /// path space, so identical geometry and stroke style share a key regardless
 /// of transform (the effective width already folds in any hairline widening).
-std::uint64_t hashStrokeMesh(const std::vector<crushedpixel::Vec2> &points, bool closed, const Paint &paint)
+std::uint64_t hashStrokeMesh(const std::vector<detail::Vec2> &points, bool closed, const Paint &paint)
 {
     std::uint64_t hash = kFnvOffsetBasis;
     hashUint64(hash, closed ? 1ull : 0ull);
@@ -2332,10 +2328,10 @@ std::uint64_t hashStrokeMesh(const std::vector<crushedpixel::Vec2> &points, bool
     return hash;
 }
 
-void submitStrokeMesh(IRenderer &renderer, const std::vector<crushedpixel::Vec2> &points,
+void submitStrokeMesh(IRenderer &renderer, const std::vector<detail::Vec2> &points,
                       bool closed, const Paint &paint, const glm::mat4 &transform,
                       const ScissorState &scissor, const ClipMaskState &clipMask = {},
-                      wsc::render::LruCache<std::vector<crushedpixel::Vec2>> *strokeCache = nullptr)
+                      wsc::render::LruCache<std::vector<detail::Vec2>> *strokeCache = nullptr)
 {
     if (paint.hasDashPathEffect()) {
         Paint dashPaint = paint;
@@ -2366,8 +2362,8 @@ void submitStrokeMesh(IRenderer &renderer, const std::vector<crushedpixel::Vec2>
     // Retain the transform-independent stroke mesh so repeated/static strokes
     // are not re-meshed every frame. Dashed strokes recurse above and are never
     // cached (their segmentation is phase dependent).
-    std::vector<crushedpixel::Vec2> strokeMeshStorage;
-    const std::vector<crushedpixel::Vec2> *strokeMeshPtr = nullptr;
+    std::vector<detail::Vec2> strokeMeshStorage;
+    const std::vector<detail::Vec2> *strokeMeshPtr = nullptr;
     if (strokeCache != nullptr) {
         const std::uint64_t key = hashStrokeMesh(points, closed, strokePaint);
         if (const auto *cached = strokeCache->find(key)) {
@@ -2382,7 +2378,7 @@ void submitStrokeMesh(IRenderer &renderer, const std::vector<crushedpixel::Vec2>
     if (strokeMeshPtr->empty()) {
         return;
     }
-    const std::vector<crushedpixel::Vec2> &strokeMesh = *strokeMeshPtr;
+    const std::vector<detail::Vec2> &strokeMesh = *strokeMeshPtr;
 
     std::vector<float> strokePoints;
     std::vector<float> strokeCoverage;
@@ -2614,7 +2610,7 @@ struct Canvas::Impl
     std::vector<LayerState> layerStack;
     // Retains transform-independent fill triangulations so repeated/static
     // shapes are not re-triangulated every frame.
-    wsc::render::LruCache<std::vector<crushedpixel::Vec2>> fillTessellationCache{
+    wsc::render::LruCache<std::vector<detail::Vec2>> fillTessellationCache{
         256, 8u * 1024u * 1024u};
     // Keep the AA cache aligned with the base tessellation cache. Equivalent
     // translated primitives can still produce a few quantization variants;
@@ -2622,7 +2618,7 @@ struct Canvas::Impl
     wsc::render::LruCache<SharedAAExpandedMesh> fillAaCache{
         256, 8u * 1024u * 1024u};
     // Retains transform-independent stroke meshes for the same reason.
-    wsc::render::LruCache<std::vector<crushedpixel::Vec2>> strokeTessellationCache{
+    wsc::render::LruCache<std::vector<detail::Vec2>> strokeTessellationCache{
         256, 8u * 1024u * 1024u};
     bool rendererInitialized = false;
     SharedImageResource glyphAtlasImageResource;
@@ -2956,7 +2952,7 @@ bool Canvas::Impl::submitSimpleFill(
         const SharedAAExpandedMesh *aa =
             fillAaCache.find(aaKey);
         if (aa == nullptr) {
-            const std::vector<crushedpixel::Vec2> *fillTriangles =
+            const std::vector<detail::Vec2> *fillTriangles =
                 fillTessellationCache.find(fillKey);
             if (fillTriangles == nullptr) {
                 fillTriangles = &fillTessellationCache.insert(
@@ -2975,7 +2971,7 @@ bool Canvas::Impl::submitSimpleFill(
         }
         data.sharedGeometry = aa->geometry;
     } else {
-        const std::vector<crushedpixel::Vec2> *fillTriangles =
+        const std::vector<detail::Vec2> *fillTriangles =
             fillTessellationCache.find(fillKey);
         if (fillTriangles == nullptr) {
             fillTriangles = &fillTessellationCache.insert(
@@ -3030,8 +3026,8 @@ bool Canvas::Impl::submitSimpleFillPrimitive(
         hashSimpleFillPrimitive(primitive);
     const GraphicsState &state = currentState();
     const auto findOrBuildTriangles = [&]()
-        -> const std::vector<crushedpixel::Vec2> * {
-        const std::vector<crushedpixel::Vec2> *fillTriangles =
+        -> const std::vector<detail::Vec2> * {
+        const std::vector<detail::Vec2> *fillTriangles =
             fillTessellationCache.find(fillKey);
         if (fillTriangles != nullptr) {
             return fillTriangles;
@@ -3057,7 +3053,7 @@ bool Canvas::Impl::submitSimpleFillPrimitive(
         const SharedAAExpandedMesh *aa =
             fillAaCache.find(aaKey);
         if (aa == nullptr) {
-            const std::vector<crushedpixel::Vec2> *fillTriangles =
+            const std::vector<detail::Vec2> *fillTriangles =
                 findOrBuildTriangles();
             if (fillTriangles->empty()) {
                 return true;
@@ -3070,7 +3066,7 @@ bool Canvas::Impl::submitSimpleFillPrimitive(
         }
         data.sharedGeometry = aa->geometry;
     } else {
-        const std::vector<crushedpixel::Vec2> *fillTriangles =
+        const std::vector<detail::Vec2> *fillTriangles =
             findOrBuildTriangles();
         if (fillTriangles->empty()) {
             return true;
@@ -3589,7 +3585,7 @@ void Canvas::drawLine(int x1, int y1, int x2, int y2, const Paint &paint)
 
 void Canvas::drawLine(float x1, float y1, float x2, float y2, const Paint &paint)
 {
-    std::vector<crushedpixel::Vec2> points;
+    std::vector<detail::Vec2> points;
     points.reserve(2);
     appendSafePoint(points, x1, y1);
     appendSafePoint(points, x2, y2);
@@ -3612,7 +3608,7 @@ void Canvas::drawLines(const std::vector<Point> &points, const Paint &paint)
     const ScissorState scissor = impl_->makeCurrentScissorState();
     const ClipMaskState clipMask = impl_->makeCurrentClipMaskState();
     for (size_t i = 0; i + 1 < points.size(); i += 2) {
-        std::vector<crushedpixel::Vec2> linePoints;
+        std::vector<detail::Vec2> linePoints;
         linePoints.reserve(2);
         appendSafePoint(linePoints, static_cast<float>(points[i].getX()), static_cast<float>(points[i].getY()));
         appendSafePoint(linePoints, static_cast<float>(points[i + 1].getX()), static_cast<float>(points[i + 1].getY()));
@@ -3625,7 +3621,7 @@ void Canvas::drawLines(const std::vector<PointF> &points, const Paint &paint)
     const ScissorState scissor = impl_->makeCurrentScissorState();
     const ClipMaskState clipMask = impl_->makeCurrentClipMaskState();
     for (size_t i = 0; i + 1 < points.size(); i += 2) {
-        std::vector<crushedpixel::Vec2> linePoints;
+        std::vector<detail::Vec2> linePoints;
         linePoints.reserve(2);
         appendSafePoint(linePoints, points[i].getX(), points[i].getY());
         appendSafePoint(linePoints, points[i + 1].getX(), points[i + 1].getY());
@@ -4077,7 +4073,7 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
         factorContourTranslation(contours, fillTransform);
     }
 
-    const std::vector<crushedpixel::Vec2> *fillTriangles = nullptr;
+    const std::vector<detail::Vec2> *fillTriangles = nullptr;
     std::uint64_t fillTessellationKey = 0;
     if (drawFill) {
         fillTessellationKey =
@@ -4116,7 +4112,7 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
         if (drawStroke && canBlur) {
             std::vector<float> strokeSilhouette;
             for (const auto &contour : contours) {
-                const std::vector<crushedpixel::Vec2> mesh =
+                const std::vector<detail::Vec2> mesh =
                     buildStrokeMesh(contour.points, contour.closed, effectivePaint);
                 if (mesh.empty()) {
                     continue;
@@ -4217,7 +4213,7 @@ RectF Canvas::measureStrokeBounds(const Path &path, const Paint &paint) const
     float maxX = 0.0f;
     float maxY = 0.0f;
 
-    auto addPoint = [&](const crushedpixel::Vec2 &point) {
+    auto addPoint = [&](const detail::Vec2 &point) {
         if (!hasPoint) {
             minX = maxX = point.x;
             minY = maxY = point.y;
@@ -4230,7 +4226,7 @@ RectF Canvas::measureStrokeBounds(const Path &path, const Paint &paint) const
         maxY = std::max(maxY, point.y);
     };
 
-    auto addMesh = [&](const std::vector<crushedpixel::Vec2> &mesh) {
+    auto addMesh = [&](const std::vector<detail::Vec2> &mesh) {
         for (const auto &point : mesh) {
             addPoint(point);
         }
@@ -6123,7 +6119,7 @@ ClipMaskState Canvas::Impl::makeCurrentClipMaskState() const
                 // Expand the fill triangulation with an analytic-AA fringe so the
                 // clip mask has smooth edges. Done once per clip and cached in the
                 // mask (the fill triangles are replaced by the expanded mesh).
-                std::vector<crushedpixel::Vec2> tris;
+                std::vector<detail::Vec2> tris;
                 tris.reserve(clipPath.mask.points.size() / 2);
                 for (std::size_t i = 0; i + 1 < clipPath.mask.points.size(); i += 2) {
                     tris.emplace_back(clipPath.mask.points[i], clipPath.mask.points[i + 1]);

@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/ClarkWain/WhatsCanvas/actions/workflows/cross-platform-validation.yml/badge.svg)](https://github.com/ClarkWain/WhatsCanvas/actions/workflows/cross-platform-validation.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.1.19-informational.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.1.20-informational.svg)](CHANGELOG.md)
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C.svg)](CMakeLists.txt)
 [![Documentation](https://img.shields.io/badge/docs-online-success.svg)](https://clarkwain.github.io/WhatsCanvas/)
 
@@ -27,7 +27,7 @@ WhatsCanvas 是一款基于 C++17 编写、面向原生应用的可嵌入 2D 渲
 | **文本能力** | 字体发现和 fallback、CJK/RTL、UAX #9、换行与省略号、glyph atlas、COLR/CPAL v0；OpenGL/OpenGL ES 默认启用 FreeType 与 HarfBuzz shaping。 |
 | **接入方式** | vcpkg overlay port、CMake `find_package`、`add_subdirectory`，或从源码生成可搬运的安装目录。 |
 | **体量** | 非 header-only。支持按后端仅链接 `WhatsCanvas::Software`、`::OpenGL` 或 `::OpenGLES`；参考体量见[体量与依赖](#体量与依赖)。 |
-| **成熟度** | 当前版本 `0.1.19`，仍处于 pre-1.0。公开 API 边界、跨平台 CI、像素回归、package consumer 集成测试与可审计的性能基线均已建立；升级与平台风险仍需结合下文的边界说明评估。 |
+| **成熟度** | 当前版本 `0.1.20`，仍处于 pre-1.0。公开 API 边界、跨平台 CI、像素回归、package consumer 集成测试与可审计的性能基线均已建立；升级与平台风险仍需结合下文的边界说明评估。 |
 | **许可证** | MIT；`third_party/` 组件遵循各自许可证。 |
 
 **何时推荐使用 WhatsCanvas？**
@@ -71,7 +71,7 @@ cmake_minimum_required(VERSION 3.16)
 project(MyApp LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
-find_package(WhatsCanvas 0.1.19 CONFIG REQUIRED)
+find_package(WhatsCanvas 0.1.20 CONFIG REQUIRED)
 
 add_executable(MyApp main.cpp)
 target_link_libraries(MyApp PRIVATE WhatsCanvas::Software)
@@ -99,7 +99,7 @@ build\Release\MyApp.exe
 
 ### 使用发布包
 
-tagged release 的资产名为 `whatscanvas-<platform>-release-<version>.zip`，例如 `whatscanvas-win64-release-0.1.19.zip`。目录布局如下：
+tagged release 的资产名为 `whatscanvas-<platform>-release-<version>.zip`，例如 `whatscanvas-win64-release-0.1.20.zip`。目录布局如下：
 
 ```text
 include/wsc/                 公开头文件
@@ -111,7 +111,7 @@ lib/cmake/WhatsCanvas/       find_package 配置
 各平台预编译包所包含的 target 可能有所差异。实际使用时，建议通过 CMake 显式校验所需 target 是否存在：
 
 ```cmake
-find_package(WhatsCanvas 0.1.19 CONFIG REQUIRED)
+find_package(WhatsCanvas 0.1.20 CONFIG REQUIRED)
 if (NOT TARGET WhatsCanvas::Software)
     message(FATAL_ERROR "This package does not contain the Software backend")
 endif()
@@ -196,6 +196,12 @@ sh ./build.sh --release --package --no-run
 安装目录位于 `out/package/Release/`。普通 Windows 多配置构建的 demo 通常位于 `build/Debug/` 或 `build/Release/`；默认 Unix 单配置构建通常位于 `build/`。
 
 若已克隆仓库，可直接执行 `git submodule update --init --recursive` 更新子模块状态。构建脚本在运行时也会自动拉取所需子模块，因此初次构建请确保网络畅通；如需进行完全离线的构建，请务必提前备足各子模块的完整源码。在 Ubuntu 环境下编译 demo 时，常见的系统依赖为 `libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev`。
+
+包管理器构建可以设置 `WHATSCANVAS_USE_SYSTEM_DEPENDENCIES=ON`，使用
+registry 提供的 GLAD、GLM、stb、FreeType 和 HarfBuzz。Linux 下可通过
+`WHATSCANVAS_X11` 明确控制窗口呈现支持：`AUTO` 保留源码构建时的自动
+发现行为，`ON` 要求 X11 必须存在，`OFF` 则保证 headless 构建不会探测
+宿主机上的 X11。
 
 ### 作为源码子目录
 
@@ -310,7 +316,7 @@ if (!canvas) {
 
 本文中所说的“轻量”，指的是后端可按需分离链接、公开 API 表面较小、库不干预宿主应用的窗口与事件循环，并不意味着 header-only。
 
-当前仓库 `0.1.19` 的一个 **VS 2022 x64、静态 Release、默认 FreeType/HarfBuzz 开启**的干净构建快照可作为量级参考：
+当前仓库 `0.1.20` 的一个 **VS 2022 x64、静态 Release、默认 FreeType/HarfBuzz 开启**的干净构建快照可作为量级参考：
 
 | 内容 | 文件体量 |
 | --- | ---: |
@@ -418,4 +424,4 @@ WhatsCanvas 当前的主要方向：跨后端像素一致性、文本排版质�
 
 ## 许可证
 
-WhatsCanvas 以 [MIT License](LICENSE) 发布。FreeType、HarfBuzz、GLFW、stb、polyline2d 等第三方组件遵循各自许可证。
+WhatsCanvas 以 [MIT License](LICENSE) 发布。FreeType、HarfBuzz、GLFW、stb 等第三方组件遵循各自许可证。

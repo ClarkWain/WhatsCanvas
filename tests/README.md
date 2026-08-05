@@ -21,6 +21,7 @@ This directory is the top-level home for WhatsCanvas validation beyond ad-hoc lo
   Mesa contexts for GL/GLES and uses lavapipe for the blocking Vulkan baseline.
 - `ctest -C Debug -R ^WhatsCanvasMatrixClipTests$ --output-on-failure`: public matrix mapping, clip bounds, quick reject, and transformed hit-test coverage.
 - `ctest -C Debug -R ^WhatsCanvasPaintStateTests$ --output-on-failure`: public `Paint` state, gradient stop, path effect, color matrix, shadow, sampling, and blend-mode coverage.
+- `ctest -C Debug -R ^WhatsCanvasStrokeTessellatorTests$ --output-on-failure`: internal stroke geometry compatibility, caps, joins, miter limits, closed paths, duplicate filtering, degenerate input, and deterministic robustness coverage.
 - `ctest -C Debug -R ^WhatsCanvasImageResourceLifecycleTests$ --output-on-failure`: backend-neutral `Image` load, replace, update, external texture, reset, and move lifecycle coverage.
 - `ctest -C Debug -R ^WhatsCanvasContextLifecycleTests$ --output-on-failure`: public `Canvas` context initialize, finalize, resource release, and recreation lifecycle coverage.
 - `ctest -C Debug -L smoke --output-on-failure`: standard entry for the registered smoke/example script gates.

@@ -9,10 +9,26 @@ For releases and downloadable artifacts, see the
 
 ## [Unreleased]
 
+## [0.1.20] - 2026-08-05
+
 ### Added
 - Added `examples/hello_world/` — a minimal CMake project that mirrors the
   README's "60 seconds to draw the first frame" snippet verbatim, links only
   against `WhatsCanvasSoftware`, and writes `first.ppm` off-screen.
+- Added a focused stroke-tessellation compatibility gate covering line caps,
+  joins, miter limits, closed paths, duplicate points, degenerate input, a
+  curated legacy-output fingerprint, and 300 deterministic robustness cases.
+
+### Changed
+- Replaced the vendored Polyline2D implementation with the internal
+  `StrokeTessellator`, preserving the previous triangle output while removing
+  an embedded third-party dependency.
+- Extended package-manager dependency mode to consume the registry-provided
+  `glad::glad` target instead of compiling the vendored GLAD source into
+  WhatsCanvas.
+- Added the explicit `WHATSCANVAS_X11=AUTO|ON|OFF` setting. Package builds can
+  now disable X11 discovery deterministically, while `ON` requires X11 rather
+  than silently changing the compiled feature set.
 
 ### Removed
 - Removed the experimental `wsc::CanvasAdapter` helper class, the
@@ -309,7 +325,8 @@ For releases and downloadable artifacts, see the
 For changes prior to 0.1.11, see the
 [GitHub Releases](https://github.com/ClarkWain/WhatsCanvas/releases) history.
 
-[Unreleased]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.19...HEAD
+[Unreleased]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.20...HEAD
+[0.1.20]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.19...v0.1.20
 [0.1.19]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.18...v0.1.19
 [0.1.18]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.17...v0.1.18
 [0.1.17]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.16...v0.1.17

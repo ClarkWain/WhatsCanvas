@@ -131,7 +131,7 @@ def main() -> None:
     external = [
         Box("app", (110, 130, 340, 112), "#e2e8f0", "#64748b", "应用 / 示例", "showcase / games", ("调用公共 Canvas API",)),
         Box("validation", (520, 130, 340, 112), "#e2e8f0", "#64748b", "验证入口", "tests / scripts / benchmarks", ("构建、冒烟、回归验证",)),
-        Box("third_party", (940, 130, 340, 112), "#e2e8f0", "#64748b", "第三方依赖", "GLAD / GLM / STB / Polyline2D", ("加载、数学、图像、几何",)),
+        Box("third_party", (940, 130, 340, 112), "#e2e8f0", "#64748b", "第三方依赖", "GLAD / GLM / STB", ("加载、数学、图像",)),
         Box("gpu", (1360, 130, 340, 112), "#e2e8f0", "#64748b", "OpenGL / GPU", "driver and GPU resources", ("纹理、FBO、stencil、readback",)),
     ]
 
