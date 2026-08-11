@@ -2752,8 +2752,9 @@ bool Canvas::isBackendAvailable(Backend backend)
 #endif
     case Backend::Vulkan:
         return RenderDeviceFactory::isBackendSupported(RenderBackendType::Vulkan);
-    case Backend::Auto:
     case Backend::Metal:
+        return RenderDeviceFactory::isBackendSupported(RenderBackendType::Metal);
+    case Backend::Auto:
     case Backend::Direct3D:
     default:
         return false;
@@ -2791,6 +2792,14 @@ std::unique_ptr<Canvas> Canvas::create(Backend backend, int width, int height)
     }
     case Backend::Vulkan: {
         auto device = RenderDeviceFactory::create(RenderBackendType::Vulkan);
+        if (device == nullptr) {
+            return nullptr;
+        }
+        renderer = std::make_unique<Renderer>(std::move(device));
+        break;
+    }
+    case Backend::Metal: {
+        auto device = RenderDeviceFactory::create(RenderBackendType::Metal);
         if (device == nullptr) {
             return nullptr;
         }

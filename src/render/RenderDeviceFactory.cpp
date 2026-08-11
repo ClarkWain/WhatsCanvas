@@ -1,6 +1,7 @@
 #include "RenderDeviceFactory.h"
 
 #include "OpenGLRenderDevice.h"
+#include "metal/MetalRenderDevice.h"
 #include "vulkan/VulkanRenderDevice.h"
 
 #include <iostream>
@@ -49,6 +50,10 @@ std::unique_ptr<IRenderDevice> RenderDeviceFactory::create(RenderBackendType typ
         return nullptr;
 
     case RenderBackendType::Metal:
+        if (MetalRenderDevice::isAvailable()) {
+            g_activeBackend = RenderBackendType::Metal;
+            return std::make_unique<MetalRenderDevice>();
+        }
         return nullptr;
     }
 
@@ -71,7 +76,7 @@ bool RenderDeviceFactory::isBackendSupported(RenderBackendType type)
         return VulkanRenderDevice::isAvailable();
 
     case RenderBackendType::Metal:
-        return false;
+        return MetalRenderDevice::isAvailable();
     }
 
     return false;

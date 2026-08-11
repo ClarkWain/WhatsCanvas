@@ -268,6 +268,37 @@ function(whatscanvas_add_gl_family_library target_name project_root)
         endif()
     endif()
 
+    # Optional Metal backend. Like Vulkan, the Metal source (an Objective-C++
+    # translation unit on Apple platforms, a small C++ stub elsewhere) is
+    # always fed to the compiler so the render device factory can reference
+    # MetalRenderDevice unconditionally. The real Metal API path only lights
+    # up when the option is ON and we are configuring for an Apple platform.
+    set(metal_backend_libraries)
+    set(metal_backend_enabled OFF)
+    set(metal_backend_source_ext "cpp")
+    if (APPLE AND WHATSCANVAS_ENABLE_METAL)
+        find_library(WHATSCANVAS_METAL_FRAMEWORK Metal)
+        find_library(WHATSCANVAS_FOUNDATION_FRAMEWORK Foundation)
+        find_library(WHATSCANVAS_QUARTZ_CORE_FRAMEWORK QuartzCore)
+        find_library(WHATSCANVAS_CORE_GRAPHICS_FRAMEWORK CoreGraphics)
+        if (WHATSCANVAS_METAL_FRAMEWORK AND WHATSCANVAS_FOUNDATION_FRAMEWORK
+                AND WHATSCANVAS_QUARTZ_CORE_FRAMEWORK)
+            set(metal_backend_enabled ON)
+            set(metal_backend_source_ext "mm")
+            list(APPEND metal_backend_libraries
+                "${WHATSCANVAS_METAL_FRAMEWORK}"
+                "${WHATSCANVAS_FOUNDATION_FRAMEWORK}"
+                "${WHATSCANVAS_QUARTZ_CORE_FRAMEWORK}")
+            if (WHATSCANVAS_CORE_GRAPHICS_FRAMEWORK)
+                list(APPEND metal_backend_libraries
+                    "${WHATSCANVAS_CORE_GRAPHICS_FRAMEWORK}")
+            endif()
+            message(STATUS "WhatsCanvas Metal backend enabled (Metal + Foundation + QuartzCore).")
+        else()
+            message(STATUS "WHATSCANVAS_ENABLE_METAL is ON, but Metal/Foundation/QuartzCore frameworks were not found. Building the Metal backend as an inert stub.")
+        endif()
+    endif()
+
     add_library(${target_name}
         ${glad_sources}
         "${src_dir}/core/Log.cpp"
@@ -318,6 +349,7 @@ function(whatscanvas_add_gl_family_library target_name project_root)
         "${src_dir}/render/software/SoftwareRenderer.cpp"
         "${src_dir}/render/software/SoftwarePresent.cpp"
         "${src_dir}/render/vulkan/VulkanRenderDevice.cpp"
+        "${src_dir}/render/metal/MetalRenderDevice.${metal_backend_source_ext}"
     )
 
     if (WSC_GL_OPENGLES)
@@ -344,6 +376,22 @@ function(whatscanvas_add_gl_family_library target_name project_root)
         WHATSCANVAS_VULKAN_BACKEND_ENABLED "${vulkan_backend_enabled}")
     set_property(GLOBAL PROPERTY
         WHATSCANVAS_VULKAN_BACKEND_ENABLED "${vulkan_backend_enabled}")
+
+    if (metal_backend_enabled)
+        target_compile_definitions(${target_name} PRIVATE WHATSCANVAS_ENABLE_METAL)
+        target_link_libraries(${target_name} PRIVATE ${metal_backend_libraries})
+        # The Metal backend source is Objective-C++ on Apple platforms. Enable
+        # ARC and modules only for that one translation unit so the rest of the
+        # library (plain C++) is untouched.
+        set_source_files_properties(
+            "${src_dir}/render/metal/MetalRenderDevice.mm"
+            PROPERTIES
+                COMPILE_FLAGS "-fobjc-arc -fmodules")
+    endif()
+    set_property(TARGET ${target_name} PROPERTY
+        WHATSCANVAS_METAL_BACKEND_ENABLED "${metal_backend_enabled}")
+    set_property(GLOBAL PROPERTY
+        WHATSCANVAS_METAL_BACKEND_ENABLED "${metal_backend_enabled}")
 
     target_include_directories(${target_name}
         PRIVATE
