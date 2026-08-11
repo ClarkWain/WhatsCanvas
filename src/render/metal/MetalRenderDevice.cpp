@@ -56,3 +56,8 @@ const std::string &MetalRenderDevice::selectedDeviceName() const
 }
 
 std::uintptr_t MetalRenderDevice::nativeHandle(int) const { return 0; }
+
+SharedImageResource MetalRenderDevice::rasterizeClipMask(const ClipMaskState &, int, int) const
+{
+    return {};
+}

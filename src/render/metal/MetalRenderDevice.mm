@@ -268,15 +268,18 @@ struct ClipUniforms {
     float4 uvScaleOffset; // xy = scale, zw = offset
 };
 
-vertex ClipVSOut clip_vs(ClipVSInput in [[stage_in]],
-                         constant ClipUniforms &u [[buffer(0)]])
+vertex ClipVSOut clip_vs(ClipVSInput in [[stage_in]])
 {
     ClipVSOut out;
     out.position = float4(in.position.x, -in.position.y, 0.0, 1.0);
-    // Full-target quad in NDC (-1..1). Convert to 0..1 texture UV.
-    float2 uv = in.position * 0.5 + 0.5;
-    uv.y = 1.0 - uv.y;
-    out.uv = uv * u.uvScaleOffset.xy + u.uvScaleOffset.zw;
+    // Full-target quad in Y-down NDC (-1..1). After the vertex Y-flip above
+    // the vertex at NDC (-1, -1) ends up at framebuffer top-left, so we want
+    // UV (0, 0) there too — Metal textures have top-left origin like the
+    // framebuffer. No extra Y-flip on the UV: just map NDC linearly to 0..1.
+    // The Canvas layer only ever uses the identity uv-scale/offset for
+    // clip fills, so the transform is baked into the shader instead of a
+    // per-draw uniform (avoids a vertex-buffer(0) collision with stage_in).
+    out.uv = in.position * 0.5 + 0.5;
     return out;
 }
 
@@ -507,26 +510,24 @@ private:
 class MetalClipMaskResource final : public ClipMaskResource
 {
 public:
-    MetalClipMaskResource(SharedImageResource texture, int width, int height,
+    MetalClipMaskResource(std::vector<float> points, std::vector<float> coverage,
                           const glm::mat4 &transform)
-        : texture_(std::move(texture)), width_(width), height_(height), transform_(transform) {}
+        : points_(std::move(points)), coverage_(std::move(coverage)), transform_(transform) {}
 
-    bool isValid() const override { return texture_ && texture_->isValid(); }
+    bool isValid() const override { return points_.size() >= 6; }
     void apply(const RenderContext & /*context*/, const ScissorState & /*scissor*/,
                std::size_t /*clipIndex*/) const override
     {
         // Metal's clip mask is sampled during draw; nothing to bind up-front.
     }
 
-    const SharedImageResource &texture() const { return texture_; }
-    int width() const { return width_; }
-    int height() const { return height_; }
+    const std::vector<float> &points() const { return points_; }
+    const std::vector<float> &coverage() const { return coverage_; }
     const glm::mat4 &transform() const { return transform_; }
 
 private:
-    SharedImageResource texture_;
-    int width_ = 0;
-    int height_ = 0;
+    std::vector<float> points_;
+    std::vector<float> coverage_;
     glm::mat4 transform_{1.0f};
 };
 
@@ -1195,9 +1196,10 @@ RenderResourceStats MetalRenderDevice::resourceStats() const
 }
 
 // -----------------------------------------------------------------------------
-// Clip mask resource. Rasterizes the coverage-annotated triangle fan into a
-// single-channel texture. This uses a solid pipeline with output written to an
-// R8 render target, sampled by the clip pass.
+// Clip mask resource. Stores the coverage-annotated path geometry passed from
+// the Canvas layer; the actual R8 mask texture is baked lazily inside
+// executeCommands's createClipMaskTexture callback so the target size can
+// track the current frame's canvas dimensions.
 SharedClipMaskResource MetalRenderDevice::createClipMaskResource(const ClipMaskPath &maskPath) const
 {
     if (!context_ || !context_->deviceReady) {
@@ -1206,17 +1208,125 @@ SharedClipMaskResource MetalRenderDevice::createClipMaskResource(const ClipMaskP
     if (maskPath.points.size() < 6) {
         return {};
     }
-    // Compute AABB from provided NDC positions to size the mask target. When
-    // the points arrive in canvas-space we still rasterize into a full-target
-    // 1024-wide texture — CommandDrawListEncoder produces canvas-space paths
-    // and provides a projection through the encode request instead. For MVP
-    // the clip texture is sampled through the encoder-provided helper, so
-    // clip resources built here are only used as passthrough placeholders.
-    (void)maskPath;
-    // Producing a full clip resource pipeline (path fill into R8) is a
-    // follow-up; the encoder falls back on createClipMaskTexture supplied via
-    // CommandDrawListEncodeRequest when this returns null.
-    return {};
+    return std::make_shared<MetalClipMaskResource>(maskPath.points, maskPath.coverage, maskPath.transform);
+}
+
+// -----------------------------------------------------------------------------
+// Clip-mask rasterization. The Canvas layer accumulates coverage-annotated
+// path resources via createClipMaskResource; the encoder then asks us for a
+// combined mask texture the size of the current canvas whenever it needs to
+// emit a ClipFill primitive. We walk each stored resource, transform its
+// canvas-space points into Y-down NDC (matching the Solid pipeline), and draw
+// them with the Solid pipeline into a fresh RGBA8 target. The ClipFill
+// fragment shader downstream samples the red channel.
+SharedImageResource MetalRenderDevice::rasterizeClipMask(const ClipMaskState &state,
+                                                         int canvasWidth, int canvasHeight) const
+{
+    if (!context_ || !context_->deviceReady || state.resources.empty()
+        || canvasWidth <= 0 || canvasHeight <= 0) {
+        return {};
+    }
+
+    id<MTLTexture> maskTex = nil;
+    @autoreleasepool {
+        MTLTextureDescriptor *desc =
+            [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
+                                                               width:static_cast<NSUInteger>(canvasWidth)
+                                                              height:static_cast<NSUInteger>(canvasHeight)
+                                                           mipmapped:NO];
+        desc.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+        desc.storageMode = preferredTextureStorageMode(context_->device);
+        maskTex = [context_->device newTextureWithDescriptor:desc];
+        if (maskTex == nil) {
+            return {};
+        }
+
+        MTLRenderPassDescriptor *pass = [MTLRenderPassDescriptor renderPassDescriptor];
+        pass.colorAttachments[0].texture = maskTex;
+        pass.colorAttachments[0].loadAction = MTLLoadActionClear;
+        pass.colorAttachments[0].storeAction = MTLStoreActionStore;
+        pass.colorAttachments[0].clearColor = MTLClearColorMake(0.0, 0.0, 0.0, 0.0);
+
+        id<MTLCommandBuffer> cb = [context_->commandQueue commandBuffer];
+        id<MTLRenderCommandEncoder> enc = [cb renderCommandEncoderWithDescriptor:pass];
+        [enc setViewport:makeViewport(canvasWidth, canvasHeight)];
+
+        // Blend mode 0 = SrcOver; each path's rasterization writes its
+        // coverage into the red channel where 1 - dst.a is transparent. For
+        // multi-clip intersection callers should compose by chaining a second
+        // pass (follow-up); the current path handles the common single-clip
+        // path used by clipRect / clipPath.
+        id<MTLRenderPipelineState> pso = obtainPipeline(*context_, MetalPipelineKind::Solid, 0);
+        if (pso == nil) {
+            [enc endEncoding];
+            [cb commit];
+            return {};
+        }
+        [enc setRenderPipelineState:pso];
+        MTLScissorRect fullRect;
+        fullRect.x = 0;
+        fullRect.y = 0;
+        fullRect.width = static_cast<NSUInteger>(canvasWidth);
+        fullRect.height = static_cast<NSUInteger>(canvasHeight);
+        [enc setScissorRect:fullRect];
+
+        for (const SharedClipMaskResource &resource : state.resources) {
+            const auto *mres = dynamic_cast<const MetalClipMaskResource *>(resource.get());
+            if (mres == nullptr || !mres->isValid()) {
+                continue;
+            }
+            const std::vector<float> &points = mres->points();
+            const std::vector<float> &coverage = mres->coverage();
+            const glm::mat4 &tf = mres->transform();
+            const std::size_t vcount = points.size() / 2;
+            const bool hasCoverage = coverage.size() >= vcount;
+
+            std::vector<wsc::CompactSolidVertex> verts;
+            verts.reserve(vcount);
+            const float widthF = static_cast<float>(canvasWidth);
+            const float heightF = static_cast<float>(canvasHeight);
+            for (std::size_t i = 0; i < vcount; ++i) {
+                glm::vec4 p = tf * glm::vec4(points[i * 2 + 0], points[i * 2 + 1], 0.0f, 1.0f);
+                const float ndcX = (p.x / widthF) * 2.0f - 1.0f;
+                const float ndcY = (p.y / heightF) * 2.0f - 1.0f;
+                wsc::CompactSolidVertex v;
+                v.x = ndcX;
+                v.y = ndcY;
+                v.color = 0xFFFFFFFFu;
+                if (hasCoverage) {
+                    const float c = std::min(1.0f, std::max(0.0f, coverage[i]));
+                    v.coverage = static_cast<std::uint8_t>(c * 255.0f + 0.5f);
+                } else {
+                    v.coverage = 255;
+                }
+                verts.push_back(v);
+            }
+            if (verts.empty()) {
+                continue;
+            }
+
+            const std::size_t vertexBytes = verts.size() * sizeof(wsc::CompactSolidVertex);
+            if (vertexBytes <= 4096) {
+                [enc setVertexBytes:verts.data() length:vertexBytes atIndex:0];
+            } else {
+                id<MTLBuffer> vb = [context_->device newBufferWithBytes:verts.data()
+                                                                 length:vertexBytes
+                                                                options:MTLResourceStorageModeShared];
+                [enc setVertexBuffer:vb offset:0 atIndex:0];
+            }
+            [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:verts.size()];
+        }
+        [enc endEncoding];
+        [cb commit];
+        [cb waitUntilCompleted];
+    }
+
+    if (maskTex == nil) {
+        return {};
+    }
+    context_->imageTextureCount += 1;
+    return std::make_shared<MetalTextureResource>(maskTex, canvasWidth, canvasHeight,
+                                                  /*alpha=*/false, /*owned=*/true);
 }
 
 // -----------------------------------------------------------------------------
@@ -1562,7 +1672,9 @@ void encodeClipFill(id<MTLRenderCommandEncoder> encoder, MetalRenderDevice::Meta
     u.uvScaleOffset[1] = 1.0f;
     u.uvScaleOffset[2] = 0.0f;
     u.uvScaleOffset[3] = 0.0f;
-    [encoder setVertexBytes:&u length:sizeof(u) atIndex:1];
+    // Only the fragment stage consumes ClipUniforms; the vertex shader bakes
+    // the identity UV transform in directly so its buffer(0) slot stays free
+    // for the vertex data attached via the stage_in vertex descriptor.
     [encoder setFragmentBytes:&u length:sizeof(u) atIndex:0];
 
     [encoder setFragmentTexture:mask atIndex:0];
@@ -1680,13 +1792,8 @@ bool MetalRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &ta
     encodeRequest.scissorOffsetX = 0;
     encodeRequest.scissorOffsetY = 0;
     encodeRequest.createClipMaskTexture =
-        [this](const ClipMaskState &, int width, int height) -> SharedImageResource {
-            // Rasterizing a clip mask into a texture through Metal is a
-            // follow-up; return an empty resource so any encoder consumer
-            // gracefully skips clip primitives that require a coverage texture.
-            (void)width;
-            (void)height;
-            return {};
+        [this](const ClipMaskState &state, int width, int height) -> SharedImageResource {
+            return rasterizeClipMask(state, width, height);
         };
 
     wsc::DrawList drawList;
