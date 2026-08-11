@@ -114,6 +114,15 @@ public:
     struct MetalContext;
 
 private:
+    /// Rasterize a Canvas clip-mask state (a set of coverage-annotated path
+    /// resources produced by `createClipMaskResource`) into an RGBA8 mask
+    /// texture whose red channel carries the aggregate coverage. Returns an
+    /// invalid image when the state is empty or the device is not ready.
+    /// The ClipFill fragment shader samples the red channel, so this format
+    /// is the natural drop-in for the encoder's `createClipMaskTexture` hook.
+    SharedImageResource rasterizeClipMask(const ClipMaskState &state,
+                                          int canvasWidth, int canvasHeight) const;
+
     std::unique_ptr<MetalContext> context_;
     mutable std::size_t lastExecutionDrawCallCount_ = 0;
     mutable std::size_t lastExecutionMergedBatchCount_ = 0;
