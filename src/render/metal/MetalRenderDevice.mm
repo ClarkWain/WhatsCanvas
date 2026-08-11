@@ -814,6 +814,19 @@ const std::string &MetalRenderDevice::selectedDeviceName() const
     return context_ ? context_->deviceName : kEmpty;
 }
 
+std::uintptr_t MetalRenderDevice::nativeHandle(int which) const
+{
+    if (!context_ || !context_->deviceReady) {
+        return 0;
+    }
+    switch (which) {
+    case 0: return reinterpret_cast<std::uintptr_t>((__bridge void *)context_->device);
+    case 1: return reinterpret_cast<std::uintptr_t>((__bridge void *)context_->commandQueue);
+    case 2: return reinterpret_cast<std::uintptr_t>((__bridge void *)context_->lastReadbackTexture);
+    default: return 0;
+    }
+}
+
 // -----------------------------------------------------------------------------
 // Pipeline / sampler helpers.
 namespace {

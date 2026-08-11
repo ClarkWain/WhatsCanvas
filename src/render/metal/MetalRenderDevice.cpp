@@ -54,3 +54,5 @@ const std::string &MetalRenderDevice::selectedDeviceName() const
     static const std::string kEmpty;
     return kEmpty;
 }
+
+std::uintptr_t MetalRenderDevice::nativeHandle(int) const { return 0; }

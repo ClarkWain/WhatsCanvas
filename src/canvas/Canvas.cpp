@@ -6324,6 +6324,21 @@ unsigned int Canvas::vulkanQueueFamily() const
     return impl_->renderer ? static_cast<unsigned int>(impl_->renderer->nativeHandle(4)) : 0u;
 }
 
+void *Canvas::metalDevice() const
+{
+    return impl_->renderer ? reinterpret_cast<void *>(impl_->renderer->nativeHandle(0)) : nullptr;
+}
+
+void *Canvas::metalCommandQueue() const
+{
+    return impl_->renderer ? reinterpret_cast<void *>(impl_->renderer->nativeHandle(1)) : nullptr;
+}
+
+void *Canvas::metalLastRenderedTexture() const
+{
+    return impl_->renderer ? reinterpret_cast<void *>(impl_->renderer->nativeHandle(2)) : nullptr;
+}
+
 bool Canvas::readPixelsRGBAAsync(ReadPixelsCallback callback)
 {
 #ifdef WHATSCANVAS_SOFTWARE_ONLY

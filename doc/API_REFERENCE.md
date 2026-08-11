@@ -322,6 +322,9 @@ Public members:
 - `void *vulkanDevice() const;`
 - `void *vulkanQueue() const;`
 - `unsigned int vulkanQueueFamily() const;`
+- `void *metalDevice() const;`
+- `void *metalCommandQueue() const;`
+- `void *metalLastRenderedTexture() const;`
 
 ## `wsc/Color.h`
 
