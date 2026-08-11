@@ -87,9 +87,75 @@ bool testMetalGaussianBlur()
     return ok;
 }
 
+// Inner shadow filter: the source silhouette is preserved but pixels near the
+// top edge of the shape should be darkened (offset (0, 4) shades the top),
+// while the shape's centre stays mostly the source colour.
+bool testMetalInnerShadow()
+{
+    if (!Canvas::isBackendAvailable(Canvas::Backend::Metal)) {
+        return true;
+    }
+
+    const int w = 96;
+    const int h = 96;
+    auto canvas = Canvas::create(Canvas::Backend::Metal, w, h);
+    if (!expect(canvas != nullptr, "create(Metal) for inner shadow should succeed")) {
+        return false;
+    }
+    canvas->initializeContext();
+
+    canvas->beginFrame();
+    Paint layerPaint;
+    layerPaint.setColor(Color(255, 255, 255, 255));
+    LayerOptions options;
+    // radius = 8 (=sigma 8/3), positive offsetY casts inset shadow along the
+    // top edge; shadow colour black.
+    options.setImageFilter(ImageFilter::innerShadow(8.0f, 8.0f, 0.0f, 8.0f, Color(0, 0, 0, 255)));
+    canvas->saveLayer(RectF(0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h)),
+                      layerPaint, options);
+
+    // A large yellow square well inside the canvas so the shadow can bleed
+    // into the interior without hitting the edge.
+    Paint fill;
+    fill.setStyle(Paint::Style::FILL);
+    fill.setColor(Color(255, 240, 80, 255));
+    fill.setAntiAlias(false);
+    canvas->drawRect(RectF(20.0f, 20.0f, 76.0f, 76.0f), fill);
+
+    canvas->restore();
+    canvas->endFrame();
+
+    std::vector<unsigned char> pixels;
+    if (!expect(canvas->readPixelsRGBA(pixels), "inner shadow readPixelsRGBA should succeed")) {
+        return false;
+    }
+    auto at = [&](int x, int y) { return &pixels[(static_cast<std::size_t>(y) * w + x) * 4u]; };
+
+    // Deep interior (dead centre) should keep the yellow source colour.
+    const unsigned char *centre = at(48, 48);
+    bool ok = expect(centre[0] > 200 && centre[1] > 180 && centre[3] > 200,
+                     "inner-shadow centre should stay close to the source yellow");
+
+    // Just below the top edge (well inside the shape but along the shaded
+    // seam) should be noticeably darker: G < interior G by a wide margin.
+    const unsigned char *nearTop = at(48, 24);
+    ok = expect(nearTop[1] + 40 < centre[1],
+                "inner shadow should darken pixels near the shaded (top) edge") && ok;
+    ok = expect(nearTop[3] > 200,
+                "inner-shadow pixels should keep the source silhouette's alpha") && ok;
+
+    // Fully outside the square should still be transparent.
+    const unsigned char *outside = at(4, 4);
+    ok = expect(outside[3] < 20, "pixels outside the source silhouette must stay transparent") && ok;
+    return ok;
+}
+
 } // namespace
 
 int main()
 {
-    return testMetalGaussianBlur() ? 0 : 1;
+    bool ok = true;
+    ok = testMetalGaussianBlur() && ok;
+    ok = testMetalInnerShadow() && ok;
+    return ok ? 0 : 1;
 }
