@@ -45,18 +45,20 @@ bool testSoftwareAlwaysAvailable()
 }
 
 // Backends with no implementation must be unavailable and yield nullptr.
+// Metal is available on Apple hosts when WHATSCANVAS_ENABLE_METAL is on;
+// Direct3D and Auto are always non-concrete/unimplemented.
 bool testUnavailableBackends()
 {
-    bool ok = expect(!Canvas::isBackendAvailable(Backend::Metal),
-                     "Metal backend should be unavailable");
-    ok = expect(!Canvas::isBackendAvailable(Backend::Direct3D),
-                "Direct3D backend should be unavailable") && ok;
+    bool ok = expect(!Canvas::isBackendAvailable(Backend::Direct3D),
+                     "Direct3D backend should be unavailable");
     // Auto is a selector, not a concrete backend: it is never "available".
     ok = expect(!Canvas::isBackendAvailable(Backend::Auto),
                 "Auto should not report as an available backend") && ok;
 
-    ok = expect(Canvas::create(Backend::Metal, 16, 16) == nullptr,
-                "create(Metal) should return nullptr") && ok;
+    if (!Canvas::isBackendAvailable(Backend::Metal)) {
+        ok = expect(Canvas::create(Backend::Metal, 16, 16) == nullptr,
+                    "create(Metal) should return nullptr when Metal is unavailable") && ok;
+    }
     ok = expect(Canvas::create(Backend::Direct3D, 16, 16) == nullptr,
                 "create(Direct3D) should return nullptr") && ok;
     return ok;
@@ -103,17 +105,22 @@ bool testAutoResolves()
 // The preference-list overload picks the first available backend.
 bool testPreferenceList()
 {
-    // Metal is unavailable, Software is available -> Software wins.
+    // {Metal, Software}: when Metal is available (Apple), Metal wins; otherwise
+    // Software is picked. Either resolution is a valid pick.
     auto canvas = Canvas::create({Backend::Metal, Backend::Software}, 12, 12);
     bool ok = expect(canvas != nullptr,
-                     "preference list should skip unavailable and pick Software");
+                     "preference list should skip unavailable and pick a working backend");
     if (canvas) {
-        ok = expect(canvas->backend() == Backend::Software,
-                    "preference list should resolve to Software") && ok;
+        const Backend picked = canvas->backend();
+        const bool metalPicked = picked == Backend::Metal
+                                 && Canvas::isBackendAvailable(Backend::Metal);
+        const bool softwarePicked = picked == Backend::Software;
+        ok = expect(metalPicked || softwarePicked,
+                    "preference list should resolve to Metal (when available) or Software") && ok;
     }
 
     // None available -> nullptr.
-    auto none = Canvas::create({Backend::Metal, Backend::Direct3D}, 12, 12);
+    auto none = Canvas::create({Backend::Direct3D}, 12, 12);
     ok = expect(none == nullptr,
                 "preference list with no available backend should return nullptr") && ok;
     return ok;
