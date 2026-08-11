@@ -368,6 +368,45 @@ fragment float4 mask_multiply_fs(BlurVSOut in [[stage_in]],
     float c = ca * cb;
     return float4(c, c, c, c);
 }
+
+// ---- Inner shadow support ----
+// filterImageResource(InnerShadow) is implemented as four full-target passes:
+//   1. invert_alpha_fs: emit (1 - source.a) in every channel so the blur has
+//      strong values inside "outside the silhouette" pixels and zero inside
+//      the shape.
+//   2. blur_fs (horizontal) on the inverted alpha.
+//   3. blur_fs (vertical) on the horizontal result.
+//   4. inner_shadow_compose_fs: sample the source and the blurred inverted
+//      alpha (offset by the caller-supplied direction), then composite the
+//      shadow inside the source silhouette with the requested colour.
+fragment float4 invert_alpha_fs(BlurVSOut in [[stage_in]],
+                                texture2d<float> src [[texture(0)]],
+                                sampler samp [[sampler(0)]])
+{
+    float a = src.sample(samp, in.uv).a;
+    float inv = 1.0 - a;
+    return float4(inv, inv, inv, inv);
+}
+
+struct InnerShadowUniforms {
+    float4 shadowColor;         // rgba in [0,1], premultiplied on the CPU side.
+    float2 offsetUv;            // per-pixel offset applied when sampling the blur.
+    float2 padding;
+};
+
+fragment float4 inner_shadow_compose_fs(BlurVSOut in [[stage_in]],
+                                        texture2d<float> src [[texture(0)]],
+                                        texture2d<float> blurredInverted [[texture(1)]],
+                                        sampler samp [[sampler(0)]],
+                                        constant InnerShadowUniforms &u [[buffer(0)]])
+{
+    float4 srcSample = src.sample(samp, in.uv);
+    float shadow = blurredInverted.sample(samp, in.uv - u.offsetUv).r;
+    // Restrict shadow to the silhouette and scale by the shadow colour alpha.
+    float intensity = shadow * srcSample.a * u.shadowColor.a;
+    float3 rgb = mix(srcSample.rgb, u.shadowColor.rgb, intensity);
+    return float4(rgb, srcSample.a);
+}
 )MSL";
 
 // -----------------------------------------------------------------------------
@@ -662,6 +701,8 @@ enum class MetalPipelineKind
     ClipFill = 4,
     Blur = 5,
     MaskMultiply = 6,
+    InvertAlpha = 7,
+    InnerShadowCompose = 8,
 };
 
 struct MetalPipelineKey
@@ -968,6 +1009,16 @@ id<MTLRenderPipelineState> obtainPipeline(MetalRenderDevice::MetalContext &ctx,
     case MetalPipelineKind::MaskMultiply:
         vsName = @"blur_vs";
         fsName = @"mask_multiply_fs";
+        vd = ctx.blurVertexDesc;
+        break;
+    case MetalPipelineKind::InvertAlpha:
+        vsName = @"blur_vs";
+        fsName = @"invert_alpha_fs";
+        vd = ctx.blurVertexDesc;
+        break;
+    case MetalPipelineKind::InnerShadowCompose:
+        vsName = @"blur_vs";
+        fsName = @"inner_shadow_compose_fs";
         vd = ctx.blurVertexDesc;
         break;
     }
@@ -2123,14 +2174,11 @@ SharedImageResource MetalRenderDevice::filterImageResource(const SharedImageReso
     if (!context_ || !context_->deviceReady || !source || width <= 0 || height <= 0) {
         return {};
     }
-    // Only the plain Gaussian blur type is implemented on Metal so far. Other
-    // filter kinds (inner shadow, color adjust, grain) fall through to an
-    // empty return so the caller can degrade gracefully.
-    if (filter.type() != wsc::ImageFilter::Type::Blur || !filter.isValid()) {
-        return {};
-    }
     auto *srcResource = dynamic_cast<const MetalTextureResource *>(source.get());
     if (srcResource == nullptr || !srcResource->isValid()) {
+        return {};
+    }
+    if (!filter.isValid()) {
         return {};
     }
 
@@ -2150,35 +2198,144 @@ SharedImageResource MetalRenderDevice::filterImageResource(const SharedImageReso
     uX.tileMode = tileMode;
     uY.tileMode = tileMode;
 
-    id<MTLTexture> tempTex = nil;
-    id<MTLTexture> finalTex = nil;
-    @autoreleasepool {
-        tempTex = makeFilterTexture(context_->device, width, height,
-                                    MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead);
-        finalTex = makeFilterTexture(context_->device, width, height,
-                                     MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead);
-        if (tempTex == nil || finalTex == nil) {
-            return {};
+    if (filter.type() == wsc::ImageFilter::Type::Blur) {
+        id<MTLTexture> tempTex = nil;
+        id<MTLTexture> finalTex = nil;
+        @autoreleasepool {
+            tempTex = makeFilterTexture(context_->device, width, height,
+                                        MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead);
+            finalTex = makeFilterTexture(context_->device, width, height,
+                                         MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead);
+            if (tempTex == nil || finalTex == nil) {
+                return {};
+            }
+
+            id<MTLCommandBuffer> cb = [context_->commandQueue commandBuffer];
+            encodeBlurPass(cb, *context_, srcResource->metalTexture(), tempTex, uX, width, height);
+            encodeBlurPass(cb, *context_, tempTex, finalTex, uY, width, height);
+            [cb commit];
+            [cb waitUntilCompleted];
         }
 
-        id<MTLCommandBuffer> cb = [context_->commandQueue commandBuffer];
-        encodeBlurPass(cb, *context_, srcResource->metalTexture(), tempTex, uX, width, height);
-        encodeBlurPass(cb, *context_, tempTex, finalTex, uY, width, height);
-        [cb commit];
-        [cb waitUntilCompleted];
+        if (finalTex == nil) {
+            return {};
+        }
+        if (executionStats != nullptr) {
+            executionStats->passCount = 2;
+            executionStats->pixelPassCount = 2;
+            executionStats->downsampled = false;
+        }
+        context_->imageTextureCount += 1;
+        return std::make_shared<MetalTextureResource>(finalTex, width, height,
+                                                      /*alpha=*/false, /*owned=*/true);
     }
 
-    if (finalTex == nil) {
-        return {};
+    if (filter.type() == wsc::ImageFilter::Type::InnerShadow) {
+        // Provision four full-target textures: one for the inverted alpha,
+        // two ping-pong buffers for the horizontal + vertical blur, and one
+        // final composite. Reuse the same allocator as the Blur path.
+        id<MTLTexture> inverted = nil;
+        id<MTLTexture> blurH = nil;
+        id<MTLTexture> blurV = nil;
+        id<MTLTexture> finalTex = nil;
+        @autoreleasepool {
+            MTLTextureUsage usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+            inverted = makeFilterTexture(context_->device, width, height, usage);
+            blurH = makeFilterTexture(context_->device, width, height, usage);
+            blurV = makeFilterTexture(context_->device, width, height, usage);
+            finalTex = makeFilterTexture(context_->device, width, height, usage);
+            if (!inverted || !blurH || !blurV || !finalTex) {
+                return {};
+            }
+
+            id<MTLCommandBuffer> cb = [context_->commandQueue commandBuffer];
+            id<MTLTexture> src = srcResource->metalTexture();
+
+            // Pass 1: invert alpha into `inverted`.
+            {
+                MTLRenderPassDescriptor *pass = [MTLRenderPassDescriptor renderPassDescriptor];
+                pass.colorAttachments[0].texture = inverted;
+                pass.colorAttachments[0].loadAction = MTLLoadActionClear;
+                pass.colorAttachments[0].storeAction = MTLStoreActionStore;
+                pass.colorAttachments[0].clearColor = MTLClearColorMake(0.0, 0.0, 0.0, 0.0);
+                id<MTLRenderCommandEncoder> enc = [cb renderCommandEncoderWithDescriptor:pass];
+                [enc setViewport:makeViewport(width, height)];
+                id<MTLRenderPipelineState> pso = obtainPipeline(*context_, MetalPipelineKind::InvertAlpha, /*Src=*/1);
+                if (pso != nil) {
+                    [enc setRenderPipelineState:pso];
+                    const float verts[] = {
+                        -1.0f, -1.0f, 0.0f, 0.0f,  1.0f, -1.0f, 1.0f, 0.0f,  1.0f,  1.0f, 1.0f, 1.0f,
+                        -1.0f, -1.0f, 0.0f, 0.0f,  1.0f,  1.0f, 1.0f, 1.0f, -1.0f,  1.0f, 0.0f, 1.0f,
+                    };
+                    [enc setVertexBytes:verts length:sizeof(verts) atIndex:0];
+                    [enc setFragmentTexture:src atIndex:0];
+                    [enc setFragmentSamplerState:context_->clipSampler atIndex:0];
+                    [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6];
+                }
+                [enc endEncoding];
+            }
+            // Passes 2+3: separable Gaussian blur on inverted alpha.
+            encodeBlurPass(cb, *context_, inverted, blurH, uX, width, height);
+            encodeBlurPass(cb, *context_, blurH, blurV, uY, width, height);
+
+            // Pass 4: composite source + blurred inverted alpha into `finalTex`.
+            {
+                MTLRenderPassDescriptor *pass = [MTLRenderPassDescriptor renderPassDescriptor];
+                pass.colorAttachments[0].texture = finalTex;
+                pass.colorAttachments[0].loadAction = MTLLoadActionClear;
+                pass.colorAttachments[0].storeAction = MTLStoreActionStore;
+                pass.colorAttachments[0].clearColor = MTLClearColorMake(0.0, 0.0, 0.0, 0.0);
+                id<MTLRenderCommandEncoder> enc = [cb renderCommandEncoderWithDescriptor:pass];
+                [enc setViewport:makeViewport(width, height)];
+                id<MTLRenderPipelineState> pso = obtainPipeline(*context_, MetalPipelineKind::InnerShadowCompose, /*Src=*/1);
+                if (pso != nil) {
+                    [enc setRenderPipelineState:pso];
+                    const float verts[] = {
+                        -1.0f, -1.0f, 0.0f, 0.0f,  1.0f, -1.0f, 1.0f, 0.0f,  1.0f,  1.0f, 1.0f, 1.0f,
+                        -1.0f, -1.0f, 0.0f, 0.0f,  1.0f,  1.0f, 1.0f, 1.0f, -1.0f,  1.0f, 0.0f, 1.0f,
+                    };
+                    [enc setVertexBytes:verts length:sizeof(verts) atIndex:0];
+
+                    struct ComposeUniforms {
+                        float color[4];
+                        float offsetUv[2];
+                        float padding[2];
+                    } u{};
+                    const wsc::Color c = filter.shadowColor();
+                    u.color[0] = static_cast<float>(c.getR()) / 255.0f;
+                    u.color[1] = static_cast<float>(c.getG()) / 255.0f;
+                    u.color[2] = static_cast<float>(c.getB()) / 255.0f;
+                    u.color[3] = static_cast<float>(c.getA()) / 255.0f;
+                    u.offsetUv[0] = filter.offsetX() / static_cast<float>(width);
+                    u.offsetUv[1] = filter.offsetY() / static_cast<float>(height);
+                    [enc setFragmentBytes:&u length:sizeof(u) atIndex:0];
+
+                    [enc setFragmentTexture:src atIndex:0];
+                    [enc setFragmentTexture:blurV atIndex:1];
+                    [enc setFragmentSamplerState:context_->clipSampler atIndex:0];
+                    [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6];
+                }
+                [enc endEncoding];
+            }
+
+            [cb commit];
+            [cb waitUntilCompleted];
+        }
+
+        if (finalTex == nil) {
+            return {};
+        }
+        if (executionStats != nullptr) {
+            executionStats->passCount = 4;
+            executionStats->pixelPassCount = 4;
+            executionStats->downsampled = false;
+        }
+        context_->imageTextureCount += 1;
+        return std::make_shared<MetalTextureResource>(finalTex, width, height,
+                                                      /*alpha=*/false, /*owned=*/true);
     }
-    if (executionStats != nullptr) {
-        executionStats->passCount = 2;
-        executionStats->pixelPassCount = 2;
-        executionStats->downsampled = false;
-    }
-    context_->imageTextureCount += 1;
-    return std::make_shared<MetalTextureResource>(finalTex, width, height,
-                                                  /*alpha=*/false, /*owned=*/true);
+
+    return {};
 }
 
 // -----------------------------------------------------------------------------
