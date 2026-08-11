@@ -293,6 +293,62 @@ fragment float4 clip_fs(ClipVSOut in [[stage_in]],
     c.a *= coverage;
     return c;
 }
+
+// ---- Gaussian blur pipeline (separable) ----
+// A full-target quad drives a fragment shader that walks a 1D kernel along
+// `direction`. filterImageResource() runs two passes: first horizontal into
+// a scratch target, then vertical into the final target.
+
+struct BlurVSInput {
+    float2 position [[attribute(0)]];
+    float2 uv       [[attribute(1)]];
+};
+
+struct BlurVSOut {
+    float4 position [[position]];
+    float2 uv;
+};
+
+constant int kMetalBlurMaxTaps = 31;
+
+struct BlurUniforms {
+    float2 direction;      // per-pixel step (1/W, 0) or (0, 1/H)
+    float2 padding;
+    int    tapCount;       // number of one-sided samples (excluding center)
+    int    tileMode;       // 0 = clamp, 1 = decal
+    float  padding2[2];
+    float4 weights[32];    // weights[i].x used; kept as float4 for alignment
+};
+
+vertex BlurVSOut blur_vs(BlurVSInput in [[stage_in]])
+{
+    BlurVSOut out;
+    out.position = float4(in.position.x, -in.position.y, 0.0, 1.0);
+    out.uv = in.uv;
+    return out;
+}
+
+fragment float4 blur_fs(BlurVSOut in [[stage_in]],
+                        texture2d<float> src [[texture(0)]],
+                        sampler samp [[sampler(0)]],
+                        constant BlurUniforms &u [[buffer(0)]])
+{
+    float4 acc = src.sample(samp, in.uv) * u.weights[0].x;
+    for (int i = 1; i <= kMetalBlurMaxTaps; ++i) {
+        if (i > u.tapCount) break;
+        float2 off = u.direction * float(i);
+        float2 uvA = in.uv + off;
+        float2 uvB = in.uv - off;
+        float4 sA = src.sample(samp, uvA);
+        float4 sB = src.sample(samp, uvB);
+        if (u.tileMode == 1) {
+            if (uvA.x < 0.0 || uvA.x > 1.0 || uvA.y < 0.0 || uvA.y > 1.0) sA = float4(0.0);
+            if (uvB.x < 0.0 || uvB.x > 1.0 || uvB.y < 0.0 || uvB.y > 1.0) sB = float4(0.0);
+        }
+        acc += (sA + sB) * u.weights[i].x;
+    }
+    return acc;
+}
 )MSL";
 
 // -----------------------------------------------------------------------------
@@ -585,6 +641,7 @@ enum class MetalPipelineKind
     TexturedAlpha = 2,
     Gradient = 3,
     ClipFill = 4,
+    Blur = 5,
 };
 
 struct MetalPipelineKey
@@ -640,6 +697,7 @@ struct MetalRenderDevice::MetalContext
     MTLVertexDescriptor *texturedVertexDesc = nil;
     MTLVertexDescriptor *gradientVertexDesc = nil;
     MTLVertexDescriptor *clipVertexDesc = nil;
+    MTLVertexDescriptor *blurVertexDesc = nil;
 
     // Cached pipeline states.
     std::unordered_map<MetalPipelineKey, id<MTLRenderPipelineState>, MetalPipelineKeyHash> pipelines;
@@ -768,6 +826,18 @@ void MetalRenderDevice::initializeBackend()
         cd.layouts[0].stepFunction = MTLVertexStepFunctionPerVertex;
         context_->clipVertexDesc = cd;
 
+        // Blur vertex descriptor: pos float2, uv float2, stride 16.
+        MTLVertexDescriptor *bd = [MTLVertexDescriptor vertexDescriptor];
+        bd.attributes[0].format = MTLVertexFormatFloat2;
+        bd.attributes[0].offset = 0;
+        bd.attributes[0].bufferIndex = 0;
+        bd.attributes[1].format = MTLVertexFormatFloat2;
+        bd.attributes[1].offset = 8;
+        bd.attributes[1].bufferIndex = 0;
+        bd.layouts[0].stride = 16;
+        bd.layouts[0].stepFunction = MTLVertexStepFunctionPerVertex;
+        context_->blurVertexDesc = bd;
+
         // Clip mask sampler: linear + clamp-to-edge.
         MTLSamplerDescriptor *sampDesc = [[MTLSamplerDescriptor alloc] init];
         sampDesc.minFilter = MTLSamplerMinMagFilterLinear;
@@ -796,6 +866,7 @@ void MetalRenderDevice::finalizeBackend()
     context_->solidVertexDesc = nil;
     context_->texturedVertexDesc = nil;
     context_->gradientVertexDesc = nil;
+    context_->blurVertexDesc = nil;
     context_->clipVertexDesc = nil;
     context_->library = nil;
     context_->commandQueue = nil;
@@ -868,6 +939,11 @@ id<MTLRenderPipelineState> obtainPipeline(MetalRenderDevice::MetalContext &ctx,
         vsName = @"clip_vs";
         fsName = @"clip_fs";
         vd = ctx.clipVertexDesc;
+        break;
+    case MetalPipelineKind::Blur:
+        vsName = @"blur_vs";
+        fsName = @"blur_fs";
+        vd = ctx.blurVertexDesc;
         break;
     }
     id<MTLFunction> vs = [ctx.library newFunctionWithName:vsName];
@@ -1830,6 +1906,171 @@ SharedImageResource MetalRenderDevice::renderCommandsToImageResource(
         return {};
     }
     return target->getImageResource();
+}
+
+// -----------------------------------------------------------------------------
+// Gaussian blur (separable two-pass).
+namespace {
+
+constexpr int kMetalBlurMaxTaps = 31;
+
+struct MetalBlurUniforms
+{
+    float direction[4];    // xy = per-pixel step, zw = padding
+    int   tapCount = 0;
+    int   tileMode = 0;
+    float padding2[2] = {0.0f, 0.0f};
+    float weights[32][4] = {}; // .x holds the weight; kMetalBlurMaxTaps + 1 slots
+};
+
+int computeGaussianWeights(float sigma, MetalBlurUniforms &out)
+{
+    if (sigma < 0.05f) {
+        // Effectively identity.
+        out.tapCount = 0;
+        out.weights[0][0] = 1.0f;
+        return 0;
+    }
+    const int radius = std::min(kMetalBlurMaxTaps,
+                                std::max(1, static_cast<int>(std::ceil(sigma * 3.0f))));
+    double sum = 0.0;
+    std::vector<double> w(radius + 1);
+    const double twoSigmaSq = 2.0 * static_cast<double>(sigma) * static_cast<double>(sigma);
+    for (int i = 0; i <= radius; ++i) {
+        const double d = static_cast<double>(i);
+        w[i] = std::exp(-(d * d) / twoSigmaSq);
+        sum += (i == 0 ? w[i] : 2.0 * w[i]);
+    }
+    if (sum <= 0.0) sum = 1.0;
+    for (int i = 0; i <= radius; ++i) {
+        out.weights[i][0] = static_cast<float>(w[i] / sum);
+    }
+    out.tapCount = radius;
+    return radius;
+}
+
+id<MTLTexture> makeFilterTexture(id<MTLDevice> device, int width, int height,
+                                 MTLTextureUsage usage)
+{
+    MTLTextureDescriptor *desc =
+        [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
+                                                           width:static_cast<NSUInteger>(width)
+                                                          height:static_cast<NSUInteger>(height)
+                                                       mipmapped:NO];
+    desc.usage = usage;
+    desc.storageMode = preferredTextureStorageMode(device);
+    return [device newTextureWithDescriptor:desc];
+}
+
+void encodeBlurPass(id<MTLCommandBuffer> cb,
+                    MetalRenderDevice::MetalContext &ctx,
+                    id<MTLTexture> src,
+                    id<MTLTexture> dst,
+                    const MetalBlurUniforms &u,
+                    int width, int height)
+{
+    MTLRenderPassDescriptor *pass = [MTLRenderPassDescriptor renderPassDescriptor];
+    pass.colorAttachments[0].texture = dst;
+    pass.colorAttachments[0].loadAction = MTLLoadActionClear;
+    pass.colorAttachments[0].storeAction = MTLStoreActionStore;
+    pass.colorAttachments[0].clearColor = MTLClearColorMake(0.0, 0.0, 0.0, 0.0);
+
+    id<MTLRenderCommandEncoder> enc = [cb renderCommandEncoderWithDescriptor:pass];
+    [enc setViewport:makeViewport(width, height)];
+    id<MTLRenderPipelineState> pso = obtainPipeline(ctx, MetalPipelineKind::Blur, /*blend=*/1 /*Src*/);
+    if (pso == nil) {
+        [enc endEncoding];
+        return;
+    }
+    [enc setRenderPipelineState:pso];
+
+    // Full-target quad in Y-down NDC + top-left UV mapping. The vertex shader
+    // flips Y so (0,0) UV pairs up with the framebuffer top-left.
+    const float verts[] = {
+        -1.0f, -1.0f, 0.0f, 0.0f,
+         1.0f, -1.0f, 1.0f, 0.0f,
+         1.0f,  1.0f, 1.0f, 1.0f,
+        -1.0f, -1.0f, 0.0f, 0.0f,
+         1.0f,  1.0f, 1.0f, 1.0f,
+        -1.0f,  1.0f, 0.0f, 1.0f,
+    };
+    [enc setVertexBytes:verts length:sizeof(verts) atIndex:0];
+    [enc setFragmentBytes:&u length:sizeof(MetalBlurUniforms) atIndex:0];
+    [enc setFragmentTexture:src atIndex:0];
+    [enc setFragmentSamplerState:ctx.clipSampler atIndex:0];
+    [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6];
+    [enc endEncoding];
+}
+
+} // namespace
+
+SharedImageResource MetalRenderDevice::filterImageResource(const SharedImageResource &source,
+                                                           int width, int height,
+                                                           const wsc::ImageFilter &filter,
+                                                           FilterExecutionStats *executionStats) const
+{
+    if (executionStats != nullptr) {
+        *executionStats = {};
+    }
+    if (!context_ || !context_->deviceReady || !source || width <= 0 || height <= 0) {
+        return {};
+    }
+    // Only the plain Gaussian blur type is implemented on Metal so far. Other
+    // filter kinds (inner shadow, color adjust, grain) fall through to an
+    // empty return so the caller can degrade gracefully.
+    if (filter.type() != wsc::ImageFilter::Type::Blur || !filter.isValid()) {
+        return {};
+    }
+    auto *srcResource = dynamic_cast<const MetalTextureResource *>(source.get());
+    if (srcResource == nullptr || !srcResource->isValid()) {
+        return {};
+    }
+
+    // Radii are expressed in filter-target pixels; sigma follows the same
+    // 3-sigma reach convention as `ImageFilter::blurSigma` (radius = 3σ).
+    const float sigmaX = std::max(0.0f, filter.radiusX() / 3.0f);
+    const float sigmaY = std::max(0.0f, filter.radiusY() / 3.0f);
+    MetalBlurUniforms uX{};
+    MetalBlurUniforms uY{};
+    computeGaussianWeights(sigmaX, uX);
+    computeGaussianWeights(sigmaY, uY);
+    uX.direction[0] = 1.0f / static_cast<float>(width);
+    uX.direction[1] = 0.0f;
+    uY.direction[0] = 0.0f;
+    uY.direction[1] = 1.0f / static_cast<float>(height);
+    const int tileMode = filter.tileMode() == wsc::ImageFilter::TileMode::Decal ? 1 : 0;
+    uX.tileMode = tileMode;
+    uY.tileMode = tileMode;
+
+    id<MTLTexture> tempTex = nil;
+    id<MTLTexture> finalTex = nil;
+    @autoreleasepool {
+        tempTex = makeFilterTexture(context_->device, width, height,
+                                    MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead);
+        finalTex = makeFilterTexture(context_->device, width, height,
+                                     MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead);
+        if (tempTex == nil || finalTex == nil) {
+            return {};
+        }
+
+        id<MTLCommandBuffer> cb = [context_->commandQueue commandBuffer];
+        encodeBlurPass(cb, *context_, srcResource->metalTexture(), tempTex, uX, width, height);
+        encodeBlurPass(cb, *context_, tempTex, finalTex, uY, width, height);
+        [cb commit];
+        [cb waitUntilCompleted];
+    }
+
+    if (finalTex == nil) {
+        return {};
+    }
+    if (executionStats != nullptr) {
+        executionStats->passCount = 2;
+        executionStats->pixelPassCount = 2;
+        executionStats->downsampled = false;
+    }
+    context_->imageTextureCount += 1;
+    return std::make_shared<MetalTextureResource>(finalTex, width, height,
+                                                  /*alpha=*/false, /*owned=*/true);
 }
 
 // -----------------------------------------------------------------------------

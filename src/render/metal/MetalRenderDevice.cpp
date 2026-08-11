@@ -43,6 +43,8 @@ ImageResourceHandle MetalRenderDevice::nativeImageHandle(const SharedImageResour
 RenderResourceStats MetalRenderDevice::resourceStats() const { return {}; }
 SharedImageResource MetalRenderDevice::renderCommandsToImageResource(
     const std::vector<std::unique_ptr<Command>> &, const OffscreenRenderRequest &) const { return {}; }
+SharedImageResource MetalRenderDevice::filterImageResource(
+    const SharedImageResource &, int, int, const wsc::ImageFilter &, FilterExecutionStats *) const { return {}; }
 bool MetalRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &,
                                         const wsc::DrawList &) const { return false; }
 bool MetalRenderDevice::executeCommands(const std::unique_ptr<IRenderTarget> &,

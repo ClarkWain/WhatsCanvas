@@ -75,6 +75,15 @@ public:
     SharedImageResource renderCommandsToImageResource(const std::vector<std::unique_ptr<Command>> &commands,
                                                       const OffscreenRenderRequest &request) const override;
 
+    /// Gaussian blur via a separable two-pass shader (horizontal then
+    /// vertical). Ignores color-adjust / grain / inner-shadow modifiers on the
+    /// filter (Stage 3 follow-up); returns an empty resource for non-Blur
+    /// filter types so the Canvas image-filter chain falls back gracefully.
+    SharedImageResource filterImageResource(const SharedImageResource &source,
+                                            int width, int height,
+                                            const wsc::ImageFilter &filter,
+                                            FilterExecutionStats *executionStats = nullptr) const override;
+
     /// Backend-neutral entry point: execute a wsc::DrawList into an offscreen
     /// render target. Public so tests can drive the low-level path directly.
     bool executeDrawList(const std::unique_ptr<IRenderTarget> &target, const wsc::DrawList &drawList) const;

@@ -1198,6 +1198,23 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     )
     set_tests_properties(WhatsCanvasMetalClipTests PROPERTIES LABELS "unit;metal;clip" TIMEOUT 60)
 
+    add_executable(WhatsCanvasMetalFilterTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalFilterTests.cpp"
+    )
+    target_link_libraries(WhatsCanvasMetalFilterTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasMetalFilterTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasMetalFilterTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasMetalFilterTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasMetalFilterTests PROPERTIES LABELS "unit;metal;image-filter" TIMEOUT 60)
+
     # Ad-hoc Metal-vs-OpenGL throughput smoke. Built as an executable rather
     # than a CTest gate so per-run timing noise never breaks the CI signal.
     add_executable(WhatsCanvasMetalPerformanceSmoke
