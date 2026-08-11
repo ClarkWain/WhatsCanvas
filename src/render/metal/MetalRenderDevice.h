@@ -101,6 +101,15 @@ public:
     /// Human-readable name of the selected physical device (Metal GPU).
     const std::string &selectedDeviceName() const;
 
+    /// Raw native handle accessor for advanced interop. `which` selects:
+    ///   0: id<MTLDevice> (the default system device)
+    ///   1: id<MTLCommandQueue>
+    ///   2: last render-target texture (id<MTLTexture>) — the one Canvas
+    ///      most recently rendered into, suitable for blit-presenting to a
+    ///      CAMetalLayer drawable.
+    /// Returns 0 when Metal is not compiled in or the device is not ready.
+    std::uintptr_t nativeHandle(int which) const override;
+
     /// Opaque backend context, defined in the .mm translation unit.
     struct MetalContext;
 

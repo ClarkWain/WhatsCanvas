@@ -467,6 +467,15 @@ public:
 	void *vulkanQueue() const;
 	unsigned int vulkanQueueFamily() const;
 
+	// Advanced Metal interop. Return the raw handles of the Metal backend as
+	// opaque pointers (id<MTLDevice>, id<MTLCommandQueue>, id<MTLTexture>), or
+	// null for non-Metal canvases. `metalLastRenderedTexture()` is the offscreen
+	// MTLTexture the Canvas most recently drew into; consumers can blit it into
+	// a CAMetalLayer drawable to present the frame on screen.
+	void *metalDevice() const;
+	void *metalCommandQueue() const;
+	void *metalLastRenderedTexture() const;
+
 private:
 	friend class CanvasLifecycleTestAccess;
 	explicit Canvas(std::unique_ptr<::IRenderer> renderer);
