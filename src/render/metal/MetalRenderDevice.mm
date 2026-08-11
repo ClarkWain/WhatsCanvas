@@ -349,6 +349,25 @@ fragment float4 blur_fs(BlurVSOut in [[stage_in]],
     }
     return acc;
 }
+
+// ---- Mask multiply pipeline ----
+// A full-target compose that reads two coverage textures and outputs their
+// per-pixel product. Used by rasterizeClipMask to intersect stacked clip
+// paths — plain multi-draw rasterisation cannot do this because pixels
+// outside a shape never invoke the fragment shader, so the "outside second
+// clip" region silently keeps the first clip's coverage. Compositing two
+// separately rasterised masks with this shader forces every pixel through a
+// fragment invocation.
+fragment float4 mask_multiply_fs(BlurVSOut in [[stage_in]],
+                                 texture2d<float> a [[texture(0)]],
+                                 texture2d<float> b [[texture(1)]],
+                                 sampler samp [[sampler(0)]])
+{
+    float ca = a.sample(samp, in.uv).r;
+    float cb = b.sample(samp, in.uv).r;
+    float c = ca * cb;
+    return float4(c, c, c, c);
+}
 )MSL";
 
 // -----------------------------------------------------------------------------
@@ -642,6 +661,7 @@ enum class MetalPipelineKind
     Gradient = 3,
     ClipFill = 4,
     Blur = 5,
+    MaskMultiply = 6,
 };
 
 struct MetalPipelineKey
@@ -943,6 +963,11 @@ id<MTLRenderPipelineState> obtainPipeline(MetalRenderDevice::MetalContext &ctx,
     case MetalPipelineKind::Blur:
         vsName = @"blur_vs";
         fsName = @"blur_fs";
+        vd = ctx.blurVertexDesc;
+        break;
+    case MetalPipelineKind::MaskMultiply:
+        vsName = @"blur_vs";
+        fsName = @"mask_multiply_fs";
         vd = ctx.blurVertexDesc;
         break;
     }
@@ -1291,10 +1316,142 @@ SharedClipMaskResource MetalRenderDevice::createClipMaskResource(const ClipMaskP
 // Clip-mask rasterization. The Canvas layer accumulates coverage-annotated
 // path resources via createClipMaskResource; the encoder then asks us for a
 // combined mask texture the size of the current canvas whenever it needs to
-// emit a ClipFill primitive. We walk each stored resource, transform its
-// canvas-space points into Y-down NDC (matching the Solid pipeline), and draw
-// them with the Solid pipeline into a fresh RGBA8 target. The ClipFill
-// fragment shader downstream samples the red channel.
+// emit a ClipFill primitive.
+//
+// For a single clip, we rasterise straight into the mask target. Multiple
+// clips must intersect (Canvas semantics), so each additional path is
+// rasterised into a scratch target and then composed with the running
+// accumulator through a MaskMultiply full-target pass. Plain repeated
+// rasterisation with SrcOver / Multiply blends unions the shapes because
+// pixels outside a triangle never invoke a fragment.
+namespace {
+
+// Fill an RGBA8 mask target with the tessellated triangles from a single
+// clip resource, using the Solid pipeline.
+void rasterizeSingleClipIntoTarget(id<MTLCommandBuffer> cb,
+                                   MetalRenderDevice::MetalContext &ctx,
+                                   id<MTLTexture> dst,
+                                   const MetalClipMaskResource &mres,
+                                   int canvasWidth, int canvasHeight)
+{
+    MTLRenderPassDescriptor *pass = [MTLRenderPassDescriptor renderPassDescriptor];
+    pass.colorAttachments[0].texture = dst;
+    pass.colorAttachments[0].loadAction = MTLLoadActionClear;
+    pass.colorAttachments[0].storeAction = MTLStoreActionStore;
+    pass.colorAttachments[0].clearColor = MTLClearColorMake(0.0, 0.0, 0.0, 0.0);
+
+    id<MTLRenderCommandEncoder> enc = [cb renderCommandEncoderWithDescriptor:pass];
+    [enc setViewport:makeViewport(canvasWidth, canvasHeight)];
+
+    id<MTLRenderPipelineState> pso = obtainPipeline(ctx, MetalPipelineKind::Solid, 0);
+    if (pso == nil) {
+        [enc endEncoding];
+        return;
+    }
+    [enc setRenderPipelineState:pso];
+    MTLScissorRect rect;
+    rect.x = 0; rect.y = 0;
+    rect.width = static_cast<NSUInteger>(canvasWidth);
+    rect.height = static_cast<NSUInteger>(canvasHeight);
+    [enc setScissorRect:rect];
+
+    const std::vector<float> &points = mres.points();
+    const std::vector<float> &coverage = mres.coverage();
+    const glm::mat4 &tf = mres.transform();
+    const std::size_t vcount = points.size() / 2;
+    const bool hasCoverage = coverage.size() >= vcount;
+    std::vector<wsc::CompactSolidVertex> verts;
+    verts.reserve(vcount);
+    const float widthF = static_cast<float>(canvasWidth);
+    const float heightF = static_cast<float>(canvasHeight);
+    for (std::size_t i = 0; i < vcount; ++i) {
+        glm::vec4 p = tf * glm::vec4(points[i * 2 + 0], points[i * 2 + 1], 0.0f, 1.0f);
+        const float ndcX = (p.x / widthF) * 2.0f - 1.0f;
+        const float ndcY = (p.y / heightF) * 2.0f - 1.0f;
+        wsc::CompactSolidVertex v;
+        v.x = ndcX;
+        v.y = ndcY;
+        v.color = 0xFFFFFFFFu;
+        if (hasCoverage) {
+            const float c = std::min(1.0f, std::max(0.0f, coverage[i]));
+            v.coverage = static_cast<std::uint8_t>(c * 255.0f + 0.5f);
+        } else {
+            v.coverage = 255;
+        }
+        verts.push_back(v);
+    }
+    if (verts.empty()) {
+        [enc endEncoding];
+        return;
+    }
+    const std::size_t vertexBytes = verts.size() * sizeof(wsc::CompactSolidVertex);
+    if (vertexBytes <= 4096) {
+        [enc setVertexBytes:verts.data() length:vertexBytes atIndex:0];
+    } else {
+        id<MTLBuffer> vb = [ctx.device newBufferWithBytes:verts.data()
+                                                   length:vertexBytes
+                                                  options:MTLResourceStorageModeShared];
+        [enc setVertexBuffer:vb offset:0 atIndex:0];
+    }
+    [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:verts.size()];
+    [enc endEncoding];
+}
+
+// Full-target compose: dst = tex0.r * tex1.r everywhere. Runs the
+// mask_multiply pipeline via the standard blur vertex descriptor.
+void composeMultiplyIntoTarget(id<MTLCommandBuffer> cb,
+                               MetalRenderDevice::MetalContext &ctx,
+                               id<MTLTexture> dst,
+                               id<MTLTexture> texA,
+                               id<MTLTexture> texB,
+                               int canvasWidth, int canvasHeight)
+{
+    MTLRenderPassDescriptor *pass = [MTLRenderPassDescriptor renderPassDescriptor];
+    pass.colorAttachments[0].texture = dst;
+    pass.colorAttachments[0].loadAction = MTLLoadActionClear;
+    pass.colorAttachments[0].storeAction = MTLStoreActionStore;
+    pass.colorAttachments[0].clearColor = MTLClearColorMake(0.0, 0.0, 0.0, 0.0);
+
+    id<MTLRenderCommandEncoder> enc = [cb renderCommandEncoderWithDescriptor:pass];
+    [enc setViewport:makeViewport(canvasWidth, canvasHeight)];
+
+    id<MTLRenderPipelineState> pso = obtainPipeline(ctx, MetalPipelineKind::MaskMultiply, /*blend=*/1 /*Src*/);
+    if (pso == nil) {
+        [enc endEncoding];
+        return;
+    }
+    [enc setRenderPipelineState:pso];
+
+    const float verts[] = {
+        -1.0f, -1.0f, 0.0f, 0.0f,
+         1.0f, -1.0f, 1.0f, 0.0f,
+         1.0f,  1.0f, 1.0f, 1.0f,
+        -1.0f, -1.0f, 0.0f, 0.0f,
+         1.0f,  1.0f, 1.0f, 1.0f,
+        -1.0f,  1.0f, 0.0f, 1.0f,
+    };
+    [enc setVertexBytes:verts length:sizeof(verts) atIndex:0];
+    [enc setFragmentTexture:texA atIndex:0];
+    [enc setFragmentTexture:texB atIndex:1];
+    [enc setFragmentSamplerState:ctx.clipSampler atIndex:0];
+    [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6];
+    [enc endEncoding];
+}
+
+id<MTLTexture> allocateMaskTexture(id<MTLDevice> device, int canvasWidth, int canvasHeight)
+{
+    MTLTextureDescriptor *desc =
+        [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
+                                                           width:static_cast<NSUInteger>(canvasWidth)
+                                                          height:static_cast<NSUInteger>(canvasHeight)
+                                                       mipmapped:NO];
+    desc.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+    desc.storageMode = preferredTextureStorageMode(device);
+    return [device newTextureWithDescriptor:desc];
+}
+
+} // namespace
+
 SharedImageResource MetalRenderDevice::rasterizeClipMask(const ClipMaskState &state,
                                                          int canvasWidth, int canvasHeight) const
 {
@@ -1303,105 +1460,56 @@ SharedImageResource MetalRenderDevice::rasterizeClipMask(const ClipMaskState &st
         return {};
     }
 
-    id<MTLTexture> maskTex = nil;
+    id<MTLTexture> finalTex = nil;
     @autoreleasepool {
-        MTLTextureDescriptor *desc =
-            [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
-                                                               width:static_cast<NSUInteger>(canvasWidth)
-                                                              height:static_cast<NSUInteger>(canvasHeight)
-                                                           mipmapped:NO];
-        desc.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
-        desc.storageMode = preferredTextureStorageMode(context_->device);
-        maskTex = [context_->device newTextureWithDescriptor:desc];
-        if (maskTex == nil) {
+        id<MTLTexture> accum = allocateMaskTexture(context_->device, canvasWidth, canvasHeight);
+        id<MTLTexture> scratch = nil;
+        id<MTLTexture> composed = nil;
+        if (accum == nil) {
             return {};
         }
-
-        MTLRenderPassDescriptor *pass = [MTLRenderPassDescriptor renderPassDescriptor];
-        pass.colorAttachments[0].texture = maskTex;
-        pass.colorAttachments[0].loadAction = MTLLoadActionClear;
-        pass.colorAttachments[0].storeAction = MTLStoreActionStore;
-        pass.colorAttachments[0].clearColor = MTLClearColorMake(0.0, 0.0, 0.0, 0.0);
 
         id<MTLCommandBuffer> cb = [context_->commandQueue commandBuffer];
-        id<MTLRenderCommandEncoder> enc = [cb renderCommandEncoderWithDescriptor:pass];
-        [enc setViewport:makeViewport(canvasWidth, canvasHeight)];
 
-        // Blend mode 0 = SrcOver; each path's rasterization writes its
-        // coverage into the red channel where 1 - dst.a is transparent. For
-        // multi-clip intersection callers should compose by chaining a second
-        // pass (follow-up); the current path handles the common single-clip
-        // path used by clipRect / clipPath.
-        id<MTLRenderPipelineState> pso = obtainPipeline(*context_, MetalPipelineKind::Solid, 0);
-        if (pso == nil) {
-            [enc endEncoding];
-            [cb commit];
-            return {};
-        }
-        [enc setRenderPipelineState:pso];
-        MTLScissorRect fullRect;
-        fullRect.x = 0;
-        fullRect.y = 0;
-        fullRect.width = static_cast<NSUInteger>(canvasWidth);
-        fullRect.height = static_cast<NSUInteger>(canvasHeight);
-        [enc setScissorRect:fullRect];
-
+        bool haveAccum = false;
         for (const SharedClipMaskResource &resource : state.resources) {
             const auto *mres = dynamic_cast<const MetalClipMaskResource *>(resource.get());
             if (mres == nullptr || !mres->isValid()) {
                 continue;
             }
-            const std::vector<float> &points = mres->points();
-            const std::vector<float> &coverage = mres->coverage();
-            const glm::mat4 &tf = mres->transform();
-            const std::size_t vcount = points.size() / 2;
-            const bool hasCoverage = coverage.size() >= vcount;
-
-            std::vector<wsc::CompactSolidVertex> verts;
-            verts.reserve(vcount);
-            const float widthF = static_cast<float>(canvasWidth);
-            const float heightF = static_cast<float>(canvasHeight);
-            for (std::size_t i = 0; i < vcount; ++i) {
-                glm::vec4 p = tf * glm::vec4(points[i * 2 + 0], points[i * 2 + 1], 0.0f, 1.0f);
-                const float ndcX = (p.x / widthF) * 2.0f - 1.0f;
-                const float ndcY = (p.y / heightF) * 2.0f - 1.0f;
-                wsc::CompactSolidVertex v;
-                v.x = ndcX;
-                v.y = ndcY;
-                v.color = 0xFFFFFFFFu;
-                if (hasCoverage) {
-                    const float c = std::min(1.0f, std::max(0.0f, coverage[i]));
-                    v.coverage = static_cast<std::uint8_t>(c * 255.0f + 0.5f);
-                } else {
-                    v.coverage = 255;
-                }
-                verts.push_back(v);
-            }
-            if (verts.empty()) {
+            if (!haveAccum) {
+                rasterizeSingleClipIntoTarget(cb, *context_, accum, *mres,
+                                              canvasWidth, canvasHeight);
+                haveAccum = true;
                 continue;
             }
-
-            const std::size_t vertexBytes = verts.size() * sizeof(wsc::CompactSolidVertex);
-            if (vertexBytes <= 4096) {
-                [enc setVertexBytes:verts.data() length:vertexBytes atIndex:0];
-            } else {
-                id<MTLBuffer> vb = [context_->device newBufferWithBytes:verts.data()
-                                                                 length:vertexBytes
-                                                                options:MTLResourceStorageModeShared];
-                [enc setVertexBuffer:vb offset:0 atIndex:0];
+            // Lazy-allocate scratch + composed once we know there is more than
+            // one active clip. Both are reused across subsequent iterations.
+            if (scratch == nil) {
+                scratch = allocateMaskTexture(context_->device, canvasWidth, canvasHeight);
+                composed = allocateMaskTexture(context_->device, canvasWidth, canvasHeight);
+                if (scratch == nil || composed == nil) {
+                    break;
+                }
             }
-            [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:verts.size()];
+            rasterizeSingleClipIntoTarget(cb, *context_, scratch, *mres,
+                                          canvasWidth, canvasHeight);
+            composeMultiplyIntoTarget(cb, *context_, composed, accum, scratch,
+                                      canvasWidth, canvasHeight);
+            std::swap(accum, composed);
         }
-        [enc endEncoding];
+
         [cb commit];
         [cb waitUntilCompleted];
+
+        finalTex = haveAccum ? accum : nil;
     }
 
-    if (maskTex == nil) {
+    if (finalTex == nil) {
         return {};
     }
     context_->imageTextureCount += 1;
-    return std::make_shared<MetalTextureResource>(maskTex, canvasWidth, canvasHeight,
+    return std::make_shared<MetalTextureResource>(finalTex, canvasWidth, canvasHeight,
                                                   /*alpha=*/false, /*owned=*/true);
 }
 
