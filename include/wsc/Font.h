@@ -397,6 +397,14 @@ public:
         chain.addFallbackFamily(kDefaultMonoFamily);
         return chain;
     }
+
+    /// Query the platform's native font manager (CoreText on macOS,
+    /// DirectWrite on Windows, fontconfig on Linux) for every installed
+    /// font face. Each returned FontFace is registered under its real
+    /// system family name (e.g. "Menlo", "Consolas", "PingFang SC"),
+    /// weight, and file path. Returns an empty vector when the platform
+    /// API is unavailable or not linked in.
+    static std::vector<FontFace> discoverInstalledFontFaces();
 };
 
 } // namespace wsc
