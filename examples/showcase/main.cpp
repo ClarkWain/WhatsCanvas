@@ -143,6 +143,38 @@ void registerTextShowcaseFonts(Canvas& canvas)
     chain.addFallbackFamily("ArabicShowcase");
     chain.addFallbackFamily("SerifShowcase");
     canvas.setFontFallbackChain(chain);
+#else
+    // Non-Windows: register system fonts under the showcase's own family
+    // names so setFontFamily("InterShowcase") etc. resolve correctly.
+    for (const FontFace &face : FontSystem::defaultSystemFontFaces()) {
+        canvas.registerFontFace(face);
+    }
+    canvas.setFontFallbackChain(FontSystem::defaultFallbackChain());
+#if defined(__APPLE__)
+    const char *interPath = "/System/Library/Fonts/SFNS.ttf";
+    const char *monoPath = "/System/Library/Fonts/Menlo.ttc";
+    const char *cjkPath = "/System/Library/Fonts/PingFang.ttc";
+    const char *arabicPath = "/System/Library/Fonts/Supplemental/Arial.ttf";
+    const char *serifPath = "/System/Library/Fonts/Supplemental/Georgia.ttf";
+#else
+    const char *interPath = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
+    const char *monoPath = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf";
+    const char *cjkPath = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc";
+    const char *arabicPath = "/usr/share/fonts/truetype/noto/NotoNaskhArabic-Regular.ttf";
+    const char *serifPath = "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf";
+#endif
+    canvas.registerFontFace(FontFace::fromFile(FontDescriptor("InterShowcase"), interPath));
+    canvas.registerFontFace(FontFace::fromFile(FontDescriptor("InterShowcase", 700), interPath));
+    canvas.registerFontFace(FontFace::fromFile(FontDescriptor("MonoShowcase"), monoPath, 0));
+    canvas.registerFontFace(FontFace::fromFile(FontDescriptor("CjkShowcase"), cjkPath, 0));
+    canvas.registerFontFace(FontFace::fromFile(FontDescriptor("ArabicShowcase"), arabicPath));
+    canvas.registerFontFace(FontFace::fromFile(FontDescriptor("SerifShowcase"), serifPath));
+
+    FontFallbackChain chain("InterShowcase");
+    chain.addFallbackFamily("CjkShowcase");
+    chain.addFallbackFamily("ArabicShowcase");
+    chain.addFallbackFamily("SerifShowcase");
+    canvas.setFontFallbackChain(chain);
 #endif
 }
 
