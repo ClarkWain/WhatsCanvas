@@ -11,6 +11,31 @@ This note records the current iOS-oriented integration path for the GL-family ba
 - The current GL-family backend expects an OpenGLES 3.0-compatible context.
 - Runtime validation on a physical iOS device or simulator remains separate from the desktop GLES compile smoke gate.
 
+## Metal Backend on iOS
+
+WhatsCanvas ships a Metal render backend that is enabled by default on all
+Apple platforms, including iOS and tvOS (`-DWHATSCANVAS_ENABLE_METAL=ON`).
+The Objective-C++ implementation gates all platform-specific code through
+`TARGET_OS_IPHONE` / `TARGET_OS_TV`:
+
+- Storage mode selection uses `MTLStorageModeShared` unconditionally on
+  iOS/tvOS (unified memory) and skips the managed-mode
+  `synchronizeResource` blit.
+- The Cocoa/UIKit surface bridge accepts either a `CAMetalLayer *` handed
+  through `NativeSurface::Cocoa` or a `UIView *` whose `+layerClass`
+  already returns `CAMetalLayer`. Because `UIView.layer` is read-only,
+  the host application is responsible for the `+layerClass` subclass —
+  Canvas does not attempt to replace an existing layer.
+- The CMake package links `Metal`, `Foundation`, `QuartzCore`, and
+  (when found) `CoreGraphics`, `AppKit`, `UIKit` on Apple builds; the
+  UIKit link is a no-op on macOS-only configurations because the
+  framework is not found there.
+
+The library can therefore be used on iOS through either
+`Canvas::Backend::OpenGLES` (existing GLES 3.0 path) or
+`Canvas::Backend::Metal`. The two paths coexist in the same target and
+are selected at runtime.
+
 ## CMake Shape
 
 A minimal iOS configure should keep only the GLES library target enabled:
@@ -72,4 +97,4 @@ The public context lifecycle methods added for this flow are:
 - No in-repository Xcode/iOS sample app is currently checked in.
 - No automated iOS simulator/device smoke target is currently registered in CTest.
 - Text and font backend parity across iOS and desktop is still tracked separately in the text feature matrix.
-- A future Metal backend would be a separate render-device implementation, not a change to this GLES integration contract.
+- The Metal backend now ships alongside the GLES path on Apple builds, but on-device / simulator smoke coverage is still an open item.
