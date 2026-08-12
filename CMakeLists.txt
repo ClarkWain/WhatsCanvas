@@ -1334,6 +1334,26 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     )
     set_tests_properties(WhatsCanvasMetalMipmapTests PROPERTIES LABELS "unit;metal;mipmap" TIMEOUT 60)
 
+    add_executable(WhatsCanvasMetalGpuTimingTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalGpuTimingTests.cpp"
+    )
+    target_include_directories(WhatsCanvasMetalGpuTimingTests PRIVATE
+        "${SRC_DIR}"
+    )
+    target_link_libraries(WhatsCanvasMetalGpuTimingTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasMetalGpuTimingTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasMetalGpuTimingTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasMetalGpuTimingTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasMetalGpuTimingTests PROPERTIES LABELS "unit;metal;performance" TIMEOUT 60)
+
     # Ad-hoc Metal-vs-OpenGL throughput smoke. Built as an executable rather
     # than a CTest gate so per-run timing noise never breaks the CI signal.
     add_executable(WhatsCanvasMetalPerformanceSmoke
