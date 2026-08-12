@@ -1,19 +1,20 @@
 // Metal on-screen presentation example (feat/metal-backend stage 2).
 //
-// Renders an animated frame with the WhatsCanvas Metal backend off-screen,
-// then blit-copies the result into a CAMetalLayer drawable and presents. Set
-// WHATSCANVAS_MAX_FRAMES=N in the environment to render N frames and exit
-// (useful for automated verification / CI).
+// Uses the Canvas `setOutputTarget(ToWindow(...))` + `present()` seam to
+// exercise the MetalSwapchain end-to-end: the swapchain owns the
+// CAMetalLayer bound to the NSWindow's contentView, and each present()
+// blit-copies the offscreen frame into layer.nextDrawable and swaps.
+//
+// Set WHATSCANVAS_MAX_FRAMES=N in the environment to render N frames and
+// exit (useful for automated verification / CI).
 
 #define GLFW_INCLUDE_NONE
 #define GLFW_EXPOSE_NATIVE_COCOA
 #include <GLFW/glfw3.h>
 #include <GLFW/glfw3native.h>
 
-#import <Foundation/Foundation.h>
-#import <Metal/Metal.h>
-#import <QuartzCore/CAMetalLayer.h>
 #import <AppKit/AppKit.h>
+#import <Metal/Metal.h>
 
 #include <cmath>
 #include <cstdlib>
@@ -25,57 +26,6 @@
 using namespace wsc;
 
 namespace {
-
-CAMetalLayer *installMetalLayer(GLFWwindow *window, id<MTLDevice> device,
-                                int drawableWidth, int drawableHeight)
-{
-    NSWindow *nsWindow = glfwGetCocoaWindow(window);
-    if (nsWindow == nil) {
-        return nil;
-    }
-    NSView *view = nsWindow.contentView;
-    view.wantsLayer = YES;
-
-    CAMetalLayer *layer = [CAMetalLayer layer];
-    layer.device = device;
-    layer.pixelFormat = MTLPixelFormatRGBA8Unorm;
-    layer.framebufferOnly = NO; // must allow blit destination
-    layer.drawableSize = CGSizeMake(drawableWidth, drawableHeight);
-    view.layer = layer;
-    return layer;
-}
-
-void blitAndPresent(id<MTLDevice> device, id<MTLCommandQueue> queue,
-                    CAMetalLayer *layer, id<MTLTexture> src)
-{
-    if (device == nil || queue == nil || layer == nil || src == nil) {
-        return;
-    }
-    @autoreleasepool {
-        id<CAMetalDrawable> drawable = [layer nextDrawable];
-        if (drawable == nil) {
-            return;
-        }
-        id<MTLTexture> dst = drawable.texture;
-
-        id<MTLCommandBuffer> cb = [queue commandBuffer];
-        id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
-        MTLSize copySize = MTLSizeMake(std::min<NSUInteger>(src.width, dst.width),
-                                       std::min<NSUInteger>(src.height, dst.height), 1);
-        [blit copyFromTexture:src
-                  sourceSlice:0
-                  sourceLevel:0
-                 sourceOrigin:MTLOriginMake(0, 0, 0)
-                    sourceSize:copySize
-                    toTexture:dst
-             destinationSlice:0
-             destinationLevel:0
-            destinationOrigin:MTLOriginMake(0, 0, 0)];
-        [blit endEncoding];
-        [cb presentDrawable:drawable];
-        [cb commit];
-    }
-}
 
 void drawFrame(Canvas &canvas, float t)
 {
@@ -138,23 +88,26 @@ int main()
     }
     canvas->initializeContext();
 
-    id<MTLDevice> device = (__bridge id<MTLDevice>)(canvas->metalDevice());
-    id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)(canvas->metalCommandQueue());
-    if (device == nil || queue == nil) {
-        std::cerr << "[MetalPresent] FAIL: canvas has no Metal device/queue." << std::endl;
-        glfwDestroyWindow(window);
-        glfwTerminate();
-        return 1;
-    }
+    // Hand off the NSWindow's contentView to the swapchain — MetalRenderDevice
+    // installs a CAMetalLayer on it and drives present() from the offscreen
+    // MTLTexture the Canvas already renders into.
+    NSWindow *nsWindow = glfwGetCocoaWindow(window);
+    NSView *contentView = nsWindow.contentView;
+    contentView.wantsLayer = YES;
 
-    CAMetalLayer *layer = installMetalLayer(window, device, drawableWidth, drawableHeight);
-    if (layer == nil) {
-        std::cerr << "[MetalPresent] FAIL: could not install CAMetalLayer." << std::endl;
+    NativeSurface surface;
+    surface.platform = NativeSurface::Platform::Cocoa;
+    surface.window = (__bridge void *)contentView;
+    if (!canvas->setOutputTarget(OutputTarget::ToWindow(surface))) {
+        std::cerr << "[MetalPresent] FAIL: setOutputTarget(Window) failed." << std::endl;
         glfwDestroyWindow(window);
         glfwTerminate();
         return 1;
     }
-    std::cout << "[MetalPresent] Presenting on device: " << [layer.device.name UTF8String] << std::endl;
+    canvas->resizeOutput(drawableWidth, drawableHeight);
+    id<MTLDevice> device = (__bridge id<MTLDevice>)canvas->metalDevice();
+    std::cout << "[MetalPresent] Presenting on device: "
+              << (device ? [device.name UTF8String] : "unknown") << std::endl;
 
     int maxFrames = 0;
     if (const char *env = std::getenv("WHATSCANVAS_MAX_FRAMES")) {
@@ -167,8 +120,7 @@ int main()
         glfwPollEvents();
         const float t = static_cast<float>(glfwGetTime() - start);
         drawFrame(*canvas, t);
-        id<MTLTexture> src = (__bridge id<MTLTexture>)(canvas->metalLastRenderedTexture());
-        blitAndPresent(device, queue, layer, src);
+        canvas->present();
         ++frame;
         if (maxFrames > 0 && frame >= maxFrames) {
             break;

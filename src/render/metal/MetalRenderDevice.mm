@@ -30,6 +30,11 @@
 #import <Foundation/Foundation.h>
 #import <Metal/Metal.h>
 #import <QuartzCore/QuartzCore.h>
+#if TARGET_OS_OSX
+#import <AppKit/AppKit.h>
+#elif TARGET_OS_IPHONE || TARGET_OS_TV
+#import <UIKit/UIKit.h>
+#endif
 
 namespace {
 
@@ -2451,6 +2456,160 @@ bool MetalRenderDevice::readPixelsRGBA(int width, int height, std::vector<unsign
        fromRegion:region
       mipmapLevel:0];
     return true;
+}
+
+// -----------------------------------------------------------------------------
+// On-screen presentation via CAMetalLayer.
+//
+// The swapchain does not own the render loop: MetalRenderDevice keeps its
+// existing offscreen render target (`lastReadbackTexture`) as the canonical
+// frame source, and present() blit-copies that texture into the CAMetalLayer's
+// nextDrawable. That mirrors the Vulkan pattern (VulkanSwapchain::present
+// reuses the readback image) and avoids threading swapchain drawables
+// through the Renderer's frame execution.
+//
+// NativeSurface::Cocoa is expected to carry either an NSView* (in which case
+// we install a CAMetalLayer as its backing layer) or an existing
+// CAMetalLayer* (used as-is). Populating an NSWindow* directly is not
+// supported — call sites typically resolve to the window's contentView.
+namespace {
+
+CAMetalLayer *coerceLayerFromSurface(const NativeSurface &surface, id<MTLDevice> device,
+                                     CGSize drawableSize)
+{
+    if (surface.platform != NativeSurface::Platform::Cocoa || surface.window == nullptr) {
+        return nil;
+    }
+    id obj = (__bridge id)surface.window;
+    CAMetalLayer *layer = nil;
+    if ([obj isKindOfClass:[CAMetalLayer class]]) {
+        layer = (CAMetalLayer *)obj;
+    }
+#if TARGET_OS_OSX
+    else if ([obj isKindOfClass:[NSView class]]) {
+        NSView *view = (NSView *)obj;
+        view.wantsLayer = YES;
+        if ([view.layer isKindOfClass:[CAMetalLayer class]]) {
+            layer = (CAMetalLayer *)view.layer;
+        } else {
+            layer = [CAMetalLayer layer];
+            view.layer = layer;
+        }
+    }
+#elif TARGET_OS_IPHONE || TARGET_OS_TV
+    else if ([obj isKindOfClass:[UIView class]]) {
+        UIView *view = (UIView *)obj;
+        if ([view.layer isKindOfClass:[CAMetalLayer class]]) {
+            layer = (CAMetalLayer *)view.layer;
+        }
+    }
+#endif
+    if (layer == nil) {
+        return nil;
+    }
+    if (layer.device == nil) {
+        layer.device = device;
+    }
+    layer.pixelFormat = MTLPixelFormatRGBA8Unorm;
+    layer.framebufferOnly = NO;
+    if (drawableSize.width > 0.0 && drawableSize.height > 0.0) {
+        layer.drawableSize = drawableSize;
+    }
+    return layer;
+}
+
+class MetalSwapchain final : public ISwapchain
+{
+public:
+    MetalSwapchain(MetalRenderDevice *owner, CAMetalLayer *layer,
+                   const SwapchainConfig &config)
+        : owner_(owner), layer_(layer), config_(config)
+    {
+        if (@available(macOS 10.13, iOS 8.0, tvOS 9.0, *)) {
+            layer_.displaySyncEnabled = config_.vsync ? YES : NO;
+        }
+    }
+
+    AcquiredImage acquire() override
+    {
+        AcquiredImage img;
+        if (layer_ == nil) {
+            return img;
+        }
+        img.width = static_cast<int>(layer_.drawableSize.width);
+        img.height = static_cast<int>(layer_.drawableSize.height);
+        img.valid = true;
+        return img;
+    }
+
+    bool present() override
+    {
+        if (owner_ == nullptr || layer_ == nil) {
+            return false;
+        }
+        id<MTLTexture> src = (__bridge id<MTLTexture>)(void *)owner_->nativeHandle(2);
+        id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)(void *)owner_->nativeHandle(1);
+        if (src == nil || queue == nil) {
+            return false;
+        }
+        @autoreleasepool {
+            id<CAMetalDrawable> drawable = [layer_ nextDrawable];
+            if (drawable == nil) {
+                return false;
+            }
+            id<MTLTexture> dst = drawable.texture;
+            id<MTLCommandBuffer> cb = [queue commandBuffer];
+            id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
+            MTLSize copySize = MTLSizeMake(std::min<NSUInteger>(src.width, dst.width),
+                                           std::min<NSUInteger>(src.height, dst.height), 1);
+            [blit copyFromTexture:src
+                      sourceSlice:0
+                      sourceLevel:0
+                     sourceOrigin:MTLOriginMake(0, 0, 0)
+                       sourceSize:copySize
+                        toTexture:dst
+                 destinationSlice:0
+                 destinationLevel:0
+                destinationOrigin:MTLOriginMake(0, 0, 0)];
+            [blit endEncoding];
+            [cb presentDrawable:drawable];
+            [cb commit];
+        }
+        return true;
+    }
+
+    void resize(int width, int height) override
+    {
+        if (layer_ != nil && width > 0 && height > 0) {
+            layer_.drawableSize = CGSizeMake(width, height);
+        }
+    }
+
+private:
+    MetalRenderDevice *owner_ = nullptr;
+    CAMetalLayer *layer_ = nil;
+    SwapchainConfig config_{};
+};
+
+} // namespace
+
+bool MetalRenderDevice::supportsPresentation() const
+{
+    return context_ && context_->deviceReady;
+}
+
+std::unique_ptr<ISwapchain> MetalRenderDevice::createSwapchain(const NativeSurface &surface,
+                                                               const SwapchainConfig &config)
+{
+    if (!context_ || !context_->deviceReady) {
+        return nullptr;
+    }
+    CGSize drawableSize = CGSizeMake(0.0, 0.0);
+    CAMetalLayer *layer = coerceLayerFromSurface(surface, context_->device, drawableSize);
+    if (layer == nil) {
+        return nullptr;
+    }
+    return std::make_unique<MetalSwapchain>(this, layer, config);
 }
 
 #else // !WHATSCANVAS_ENABLE_METAL || !__APPLE__
