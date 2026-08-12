@@ -1388,6 +1388,66 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     )
     set_tests_properties(WhatsCanvasMetalShadowAndTextTests PROPERTIES LABELS "unit;metal;shadow;text" TIMEOUT 60)
 
+    add_executable(WhatsCanvasMetalDeviceTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalDeviceTests.cpp"
+    )
+    target_include_directories(WhatsCanvasMetalDeviceTests PRIVATE
+        "${SRC_DIR}"
+    )
+    target_link_libraries(WhatsCanvasMetalDeviceTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasMetalDeviceTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasMetalDeviceTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasMetalDeviceTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasMetalDeviceTests PROPERTIES LABELS "unit;metal;device" TIMEOUT 60)
+
+    add_executable(WhatsCanvasMetalPaintTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalPaintTests.cpp"
+    )
+    target_link_libraries(WhatsCanvasMetalPaintTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasMetalPaintTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasMetalPaintTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasMetalPaintTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasMetalPaintTests PROPERTIES LABELS "unit;metal;paint" TIMEOUT 60)
+
+    add_executable(WhatsCanvasMetalWrapExternalTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalWrapExternalTests.cpp"
+    )
+    target_link_libraries(WhatsCanvasMetalWrapExternalTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalWrapExternalTests.cpp"
+        PROPERTIES COMPILE_FLAGS "-fobjc-arc -fmodules"
+        LANGUAGE OBJCXX)
+    target_link_libraries(WhatsCanvasMetalWrapExternalTests PRIVATE
+        "-framework Metal"
+        "-framework Foundation")
+    add_test(NAME WhatsCanvasMetalWrapExternalTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasMetalWrapExternalTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasMetalWrapExternalTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasMetalWrapExternalTests PROPERTIES LABELS "unit;metal;image" TIMEOUT 60)
+
     # Ad-hoc Metal-vs-OpenGL throughput smoke. Built as an executable rather
     # than a CTest gate so per-run timing noise never breaks the CI signal.
     add_executable(WhatsCanvasMetalPerformanceSmoke
