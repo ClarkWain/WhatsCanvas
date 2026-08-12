@@ -131,5 +131,16 @@ int main()
     }
 #endif
 
+    // refreshDefaultSystemFontFaces() invalidates the process-wide cache so
+    // the next defaultSystemFontFaces() call re-runs discovery. Ask twice
+    // and ensure the observable behaviour is stable (equal-size vectors,
+    // no crash under the mutex).
+    const std::vector<FontFace> beforeRefresh = FontSystem::defaultSystemFontFaces();
+    FontSystem::refreshDefaultSystemFontFaces();
+    const std::vector<FontFace> afterRefresh = FontSystem::defaultSystemFontFaces();
+    ok = expect(beforeRefresh.size() == afterRefresh.size(),
+                "defaultSystemFontFaces() should return a stable slot count "
+                "before and after refreshDefaultSystemFontFaces()") && ok;
+
     return ok ? 0 : 1;
 }

@@ -426,6 +426,7 @@ Public members:
 
 - `static bool fileExists(const std::string &path);`
 - `static std::vector<FontFace> defaultSystemFontFaces();`
+- `static void refreshDefaultSystemFontFaces();`
 - `static FontFallbackChain defaultFallbackChain(const std::string &primaryFamily = kDefaultPrimaryFamily);`
 - `static std::vector<FontFace> discoverInstalledFontFaces();`
 
