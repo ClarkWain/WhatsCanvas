@@ -59,6 +59,12 @@ const std::string &MetalRenderDevice::selectedDeviceName() const
 
 std::uintptr_t MetalRenderDevice::nativeHandle(int) const { return 0; }
 
+bool MetalRenderDevice::supportsPresentation() const { return false; }
+std::unique_ptr<ISwapchain> MetalRenderDevice::createSwapchain(const NativeSurface &, const SwapchainConfig &)
+{
+    return nullptr;
+}
+
 SharedImageResource MetalRenderDevice::rasterizeClipMask(const ClipMaskState &, int, int) const
 {
     return {};
