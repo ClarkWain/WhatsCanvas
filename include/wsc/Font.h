@@ -316,6 +316,11 @@ public:
     /// platform font manager. No operating-system font paths are assumed.
     static std::vector<FontFace> defaultSystemFontFaces();
 
+    /// Discard the process-wide cache used by defaultSystemFontFaces() so
+    /// the next call re-runs discovery. Cheap to call; useful after the
+    /// host installs a new font at runtime.
+    static void refreshDefaultSystemFontFaces();
+
     static FontFallbackChain defaultFallbackChain(const std::string &primaryFamily = kDefaultPrimaryFamily)
     {
         FontFallbackChain chain(primaryFamily);

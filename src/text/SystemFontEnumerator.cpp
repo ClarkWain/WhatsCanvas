@@ -12,6 +12,8 @@
 #include <cstring>
 #include <initializer_list>
 #include <limits>
+#include <mutex>
+#include <optional>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -458,9 +460,30 @@ std::vector<FontFace> FontSystem::discoverInstalledFontFaces()
     return out;
 }
 
+namespace {
+
+struct DefaultsCache
+{
+    std::mutex mutex;
+    std::optional<std::vector<FontFace>> value;
+};
+
+DefaultsCache &defaultsCache()
+{
+    static DefaultsCache cache;
+    return cache;
+}
+
+} // namespace
+
 std::vector<FontFace> FontSystem::defaultSystemFontFaces()
 {
-    static const std::vector<FontFace> defaults = [] {
+    {
+        std::lock_guard<std::mutex> lock(defaultsCache().mutex);
+        if (defaultsCache().value.has_value()) return *defaultsCache().value;
+    }
+
+    std::vector<FontFace> built = [] {
         const std::vector<FontFace> installed = discoverInstalledFontFaces();
         std::vector<FontFace> faces;
         if (installed.empty()) {
@@ -553,7 +576,16 @@ std::vector<FontFace> FontSystem::defaultSystemFontFaces()
         addAlias(kDefaultMonoFamily, monoFamilies, 400);
         return faces;
     }();
-    return defaults;
+
+    std::lock_guard<std::mutex> lock(defaultsCache().mutex);
+    if (!defaultsCache().value.has_value()) defaultsCache().value = std::move(built);
+    return *defaultsCache().value;
+}
+
+void FontSystem::refreshDefaultSystemFontFaces()
+{
+    std::lock_guard<std::mutex> lock(defaultsCache().mutex);
+    defaultsCache().value.reset();
 }
 
 } // namespace wsc
