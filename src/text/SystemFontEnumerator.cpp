@@ -139,6 +139,43 @@ std::vector<DiscoveredFontFace> discoverApple()
         CFRelease(matches);
     }
     CFRelease(families);
+
+    // CTFontManagerCopyAvailableFontFamilyNames filters out the private
+    // system UI family (whose CoreText name starts with a dot), so
+    // "SF Pro" / "SF Pro Text" never appear in the enumeration. Query the
+    // UI font explicitly for a handful of weights, take its family name
+    // (typically ".AppleSystemUIFont" on modern macOS), and append it to
+    // the discovery so preferred-family lookups can find it.
+    struct UiFontWeight { CTFontUIFontType uiType; int cssWeight; };
+    const UiFontWeight uiWeights[] = {
+        {kCTFontUIFontSystem, 400},
+        {kCTFontUIFontEmphasizedSystem, 700},
+    };
+    for (const UiFontWeight &uw : uiWeights) {
+        CTFontRef uiFont = CTFontCreateUIFontForLanguage(uw.uiType, 0.0, nullptr);
+        if (uiFont == nullptr) continue;
+        CTFontDescriptorRef desc = CTFontCopyFontDescriptor(uiFont);
+        CFRelease(uiFont);
+        if (desc == nullptr) continue;
+
+        CFStringRef familyRef = static_cast<CFStringRef>(
+            CTFontDescriptorCopyAttribute(desc, kCTFontFamilyNameAttribute));
+        CFURLRef urlRef = static_cast<CFURLRef>(CTFontDescriptorCopyAttribute(desc, kCTFontURLAttribute));
+        if (familyRef != nullptr && urlRef != nullptr) {
+            std::string family = cfStringToUtf8(familyRef);
+            std::string path = cfUrlToPath(urlRef);
+            if (!family.empty() && !path.empty()) {
+                DiscoveredFontFace face;
+                face.family = std::move(family);
+                face.path = std::move(path);
+                face.weight = uw.cssWeight;
+                out.push_back(std::move(face));
+            }
+        }
+        if (familyRef != nullptr) CFRelease(familyRef);
+        if (urlRef != nullptr) CFRelease(urlRef);
+        CFRelease(desc);
+    }
     return out;
 }
 
@@ -437,7 +474,7 @@ std::vector<FontFace> FontSystem::defaultSystemFontFaces()
         const auto serifFamilies = {"Georgia", "Times New Roman"};
         const auto monoFamilies = {"Consolas", "Courier New"};
 #elif defined(__APPLE__)
-        const auto primaryFamilies = {"SF Pro", "SF Pro Text", "Helvetica Neue", "Helvetica"};
+        const auto primaryFamilies = {".AppleSystemUIFont", "SF Pro", "SF Pro Text", "Helvetica Neue", "Helvetica"};
         const auto cjkFamilies = {"PingFang SC", "PingFang TC", "Hiragino Sans"};
         const auto arabicFamilies = {"SF Arabic", "Geeza Pro", "Arial"};
         const auto hebrewFamilies = {"SF Hebrew", "Arial Hebrew", "Arial"};
