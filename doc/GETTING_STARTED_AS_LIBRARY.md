@@ -335,6 +335,28 @@ backend instead encodes the same drawing into a backend-neutral draw list and
 submits it through the device with its own command buffers and queues. Same Canvas
 API and same visual result — different plumbing underneath.
 
+### The Metal backend, in short
+
+On macOS and iOS, WhatsCanvas ships a Metal backend that follows the same
+backend-neutral draw list plumbing as Vulkan. It is enabled by default on
+Apple platforms (`-DWHATSCANVAS_ENABLE_METAL=ON`) and selected at runtime
+with `Canvas::Backend::Metal`:
+
+```cpp
+using Backend = wsc::Canvas::Backend;
+auto canvas = wsc::Canvas::isBackendAvailable(Backend::Metal)
+                  ? wsc::Canvas::create(Backend::Metal, 512, 512)
+                  : wsc::Canvas::create(Backend::Software, 512, 512);
+```
+
+Off-screen usage (`readPixelsRGBA`) works exactly like the other GPU backends.
+For on-screen presentation, wrap a `CAMetalLayer` in an `OutputTarget` and
+call `Canvas::setOutputTarget(...)` + `Canvas::present()`; see
+[`examples/metal_present`](../examples/metal_present). GPU frame timing
+(`beginGpuFrameTiming` / `lastGpuFrameTimeNs`) is backed by
+`MTLCommandBuffer.GPUStartTime`, and the Canvas exposes the underlying
+`MTLDevice` / `MTLCommandQueue` handles for tighter host integration.
+
 ---
 
 ## 5. Common tasks
