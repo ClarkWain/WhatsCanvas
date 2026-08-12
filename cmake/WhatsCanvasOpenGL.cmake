@@ -282,6 +282,7 @@ function(whatscanvas_add_gl_family_library target_name project_root)
         find_library(WHATSCANVAS_QUARTZ_CORE_FRAMEWORK QuartzCore)
         find_library(WHATSCANVAS_CORE_GRAPHICS_FRAMEWORK CoreGraphics)
         find_library(WHATSCANVAS_APPKIT_FRAMEWORK AppKit)
+        find_library(WHATSCANVAS_UIKIT_FRAMEWORK UIKit)
         if (WHATSCANVAS_METAL_FRAMEWORK AND WHATSCANVAS_FOUNDATION_FRAMEWORK
                 AND WHATSCANVAS_QUARTZ_CORE_FRAMEWORK)
             set(metal_backend_enabled ON)
@@ -297,6 +298,10 @@ function(whatscanvas_add_gl_family_library target_name project_root)
             if (WHATSCANVAS_APPKIT_FRAMEWORK)
                 list(APPEND metal_backend_libraries
                     "${WHATSCANVAS_APPKIT_FRAMEWORK}")
+            endif()
+            if (WHATSCANVAS_UIKIT_FRAMEWORK)
+                list(APPEND metal_backend_libraries
+                    "${WHATSCANVAS_UIKIT_FRAMEWORK}")
             endif()
             message(STATUS "WhatsCanvas Metal backend enabled (Metal + Foundation + QuartzCore).")
         else()
