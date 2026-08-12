@@ -769,6 +769,23 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     )
     set_tests_properties(WhatsCanvasTextBackendContractTests PROPERTIES LABELS "unit;text")
 
+    add_executable(WhatsCanvasSystemFontDiscoveryTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/SystemFontDiscoveryTests.cpp"
+    )
+    target_link_libraries(WhatsCanvasSystemFontDiscoveryTests PRIVATE
+        WhatsCanvasSoftware
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasSystemFontDiscoveryTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasSystemFontDiscoveryTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasSystemFontDiscoveryTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasSystemFontDiscoveryTests PROPERTIES LABELS "unit;text" TIMEOUT 60)
+
     add_executable(WhatsCanvasTextRegressionTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/TextRegressionTests.cpp"
     )
