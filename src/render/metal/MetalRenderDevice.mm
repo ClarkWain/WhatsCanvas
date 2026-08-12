@@ -901,6 +901,18 @@ struct MetalRenderDevice::MetalContext
     // Reusable identity sampler for clip masks (linear + clamp).
     id<MTLSamplerState> clipSampler = nil;
 
+    // Reusable scratch buffers for large vertex / index uploads. When a
+    // draw's payload exceeds the setVertexBytes 4 KB inline limit the
+    // encoder normally allocates a fresh MTLBuffer per draw. Keeping one
+    // per pool avoids that allocation on steady-state frames — the buffer
+    // grows on demand and stays owned by the context. Storage is Shared so
+    // both CPU writes and GPU reads use the same memory on unified-memory
+    // hosts.
+    id<MTLBuffer> vertexScratchBuffer = nil;
+    id<MTLBuffer> indexScratchBuffer = nil;
+    std::size_t vertexScratchCapacity = 0;
+    std::size_t indexScratchCapacity = 0;
+
     // Most recent render-target texture rendered into. `readPixelsRGBA`
     // consumes this because the IRenderDevice contract does not carry the
     // target through the readback call.
@@ -953,6 +965,14 @@ id<MTLRenderPipelineState> obtainPipeline(MetalRenderDevice::MetalContext &ctx,
                                           MetalPipelineKind kind, int blendMode);
 id<MTLSamplerState> obtainSampler(MetalRenderDevice::MetalContext &ctx,
                                   int sampling, int tileMode);
+
+// Grow the vertex-scratch buffer to hold at least `neededBytes` (round-up
+// to the caller's block size) and copy `bytes` into it. Returns the buffer
+// suitable for setVertexBuffer:offset:atIndex:; offset is always 0.
+id<MTLBuffer> uploadToVertexScratch(MetalRenderDevice::MetalContext &ctx,
+                                    const void *bytes, std::size_t neededBytes);
+id<MTLBuffer> uploadToIndexScratch(MetalRenderDevice::MetalContext &ctx,
+                                   const void *bytes, std::size_t neededBytes);
 } // namespace
 
 void MetalRenderDevice::initializeBackend()
@@ -1098,6 +1118,10 @@ void MetalRenderDevice::finalizeBackend()
     }
     context_->pipelines.clear();
     context_->samplers.clear();
+    context_->vertexScratchBuffer = nil;
+    context_->indexScratchBuffer = nil;
+    context_->vertexScratchCapacity = 0;
+    context_->indexScratchCapacity = 0;
     context_->clipSampler = nil;
     context_->solidVertexDesc = nil;
     context_->texturedVertexDesc = nil;
@@ -1230,6 +1254,41 @@ id<MTLSamplerState> obtainSampler(MetalRenderDevice::MetalContext &ctx, int samp
     id<MTLSamplerState> s = makeSampler(ctx.device, sampling, tileMode);
     ctx.samplers.emplace(key, s);
     return s;
+}
+
+static std::size_t nextScratchCapacity(std::size_t current, std::size_t needed)
+{
+    std::size_t next = current > 0 ? current : 64 * 1024;
+    while (next < needed) {
+        next *= 2;
+    }
+    return next;
+}
+
+id<MTLBuffer> uploadToVertexScratch(MetalRenderDevice::MetalContext &ctx,
+                                    const void *bytes, std::size_t neededBytes)
+{
+    if (ctx.vertexScratchBuffer == nil || ctx.vertexScratchCapacity < neededBytes) {
+        const std::size_t capacity = nextScratchCapacity(ctx.vertexScratchCapacity, neededBytes);
+        ctx.vertexScratchBuffer = [ctx.device newBufferWithLength:capacity
+                                                          options:MTLResourceStorageModeShared];
+        ctx.vertexScratchCapacity = capacity;
+    }
+    std::memcpy([ctx.vertexScratchBuffer contents], bytes, neededBytes);
+    return ctx.vertexScratchBuffer;
+}
+
+id<MTLBuffer> uploadToIndexScratch(MetalRenderDevice::MetalContext &ctx,
+                                   const void *bytes, std::size_t neededBytes)
+{
+    if (ctx.indexScratchBuffer == nil || ctx.indexScratchCapacity < neededBytes) {
+        const std::size_t capacity = nextScratchCapacity(ctx.indexScratchCapacity, neededBytes);
+        ctx.indexScratchBuffer = [ctx.device newBufferWithLength:capacity
+                                                         options:MTLResourceStorageModeShared];
+        ctx.indexScratchCapacity = capacity;
+    }
+    std::memcpy([ctx.indexScratchBuffer contents], bytes, neededBytes);
+    return ctx.indexScratchBuffer;
 }
 
 MTLViewport makeViewport(int width, int height)
@@ -1654,9 +1713,7 @@ void rasterizeSingleClipIntoTarget(id<MTLCommandBuffer> cb,
     if (vertexBytes <= 4096) {
         [enc setVertexBytes:verts.data() length:vertexBytes atIndex:0];
     } else {
-        id<MTLBuffer> vb = [ctx.device newBufferWithBytes:verts.data()
-                                                   length:vertexBytes
-                                                  options:MTLResourceStorageModeShared];
+        id<MTLBuffer> vb = uploadToVertexScratch(ctx, verts.data(), vertexBytes);
         [enc setVertexBuffer:vb offset:0 atIndex:0];
     }
     [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:verts.size()];
@@ -1832,18 +1889,14 @@ void encodeSolid(id<MTLRenderCommandEncoder> encoder, MetalRenderDevice::MetalCo
     if (vertexBytes <= 4096) {
         [encoder setVertexBytes:vertices.data() length:vertexBytes atIndex:0];
     } else {
-        id<MTLBuffer> buf = [ctx.device newBufferWithBytes:vertices.data()
-                                                    length:vertexBytes
-                                                   options:MTLResourceStorageModeShared];
+        id<MTLBuffer> buf = uploadToVertexScratch(ctx, vertices.data(), vertexBytes);
         [encoder setVertexBuffer:buf offset:0 atIndex:0];
     }
     stats.vertexBytes += vertexBytes;
 
     if (!prim.shortIndices.empty()) {
         const std::size_t byteCount = prim.shortIndices.size() * sizeof(std::uint16_t);
-        id<MTLBuffer> ib = [ctx.device newBufferWithBytes:prim.shortIndices.data()
-                                                   length:byteCount
-                                                  options:MTLResourceStorageModeShared];
+        id<MTLBuffer> ib = uploadToIndexScratch(ctx, prim.shortIndices.data(), byteCount);
         [encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
                             indexCount:prim.shortIndices.size()
                              indexType:MTLIndexTypeUInt16
@@ -1852,9 +1905,7 @@ void encodeSolid(id<MTLRenderCommandEncoder> encoder, MetalRenderDevice::MetalCo
         stats.indexBytes += byteCount;
     } else if (!prim.indices.empty()) {
         const std::size_t byteCount = prim.indices.size() * sizeof(std::uint32_t);
-        id<MTLBuffer> ib = [ctx.device newBufferWithBytes:prim.indices.data()
-                                                   length:byteCount
-                                                  options:MTLResourceStorageModeShared];
+        id<MTLBuffer> ib = uploadToIndexScratch(ctx, prim.indices.data(), byteCount);
         [encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
                             indexCount:prim.indices.size()
                              indexType:MTLIndexTypeUInt32
@@ -1953,9 +2004,7 @@ void encodeTextured(id<MTLRenderCommandEncoder> encoder, MetalRenderDevice::Meta
     if (vertexBytes <= 4096) {
         [encoder setVertexBytes:vertices.data() length:vertexBytes atIndex:0];
     } else {
-        id<MTLBuffer> buf = [ctx.device newBufferWithBytes:vertices.data()
-                                                    length:vertexBytes
-                                                   options:MTLResourceStorageModeShared];
+        id<MTLBuffer> buf = uploadToVertexScratch(ctx, vertices.data(), vertexBytes);
         [encoder setVertexBuffer:buf offset:0 atIndex:0];
     }
     stats.vertexBytes += vertexBytes;
@@ -2044,9 +2093,7 @@ void encodeGradient(id<MTLRenderCommandEncoder> encoder, MetalRenderDevice::Meta
     if (vertexBytes <= 4096) {
         [encoder setVertexBytes:vertices.data() length:vertexBytes atIndex:0];
     } else {
-        id<MTLBuffer> buf = [ctx.device newBufferWithBytes:vertices.data()
-                                                    length:vertexBytes
-                                                   options:MTLResourceStorageModeShared];
+        id<MTLBuffer> buf = uploadToVertexScratch(ctx, vertices.data(), vertexBytes);
         [encoder setVertexBuffer:buf offset:0 atIndex:0];
     }
     stats.vertexBytes += vertexBytes;
@@ -2079,9 +2126,7 @@ void encodeGradient(id<MTLRenderCommandEncoder> encoder, MetalRenderDevice::Meta
 
     if (!prim.shortIndices.empty()) {
         const std::size_t byteCount = prim.shortIndices.size() * sizeof(std::uint16_t);
-        id<MTLBuffer> ib = [ctx.device newBufferWithBytes:prim.shortIndices.data()
-                                                   length:byteCount
-                                                  options:MTLResourceStorageModeShared];
+        id<MTLBuffer> ib = uploadToIndexScratch(ctx, prim.shortIndices.data(), byteCount);
         [encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
                             indexCount:prim.shortIndices.size()
                              indexType:MTLIndexTypeUInt16
@@ -2090,9 +2135,7 @@ void encodeGradient(id<MTLRenderCommandEncoder> encoder, MetalRenderDevice::Meta
         stats.indexBytes += byteCount;
     } else if (!prim.indices.empty()) {
         const std::size_t byteCount = prim.indices.size() * sizeof(std::uint32_t);
-        id<MTLBuffer> ib = [ctx.device newBufferWithBytes:prim.indices.data()
-                                                   length:byteCount
-                                                  options:MTLResourceStorageModeShared];
+        id<MTLBuffer> ib = uploadToIndexScratch(ctx, prim.indices.data(), byteCount);
         [encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
                             indexCount:prim.indices.size()
                              indexType:MTLIndexTypeUInt32
