@@ -480,6 +480,15 @@ enum class MetalBlendMode
     Add = 2,
     Multiply = 3,
     Screen = 4,
+    Dst = 5,
+    Clear = 6,
+    SrcIn = 7,
+    DstIn = 8,
+    SrcOut = 9,
+    DstOut = 10,
+    SrcAtop = 11,
+    DstAtop = 12,
+    Xor = 13,
 };
 
 MetalBlendMode blendModeFromInt(int value)
@@ -489,6 +498,15 @@ MetalBlendMode blendModeFromInt(int value)
     case 2: return MetalBlendMode::Add;
     case 3: return MetalBlendMode::Multiply;
     case 4: return MetalBlendMode::Screen;
+    case 5: return MetalBlendMode::Dst;
+    case 6: return MetalBlendMode::Clear;
+    case 7: return MetalBlendMode::SrcIn;
+    case 8: return MetalBlendMode::DstIn;
+    case 9: return MetalBlendMode::SrcOut;
+    case 10: return MetalBlendMode::DstOut;
+    case 11: return MetalBlendMode::SrcAtop;
+    case 12: return MetalBlendMode::DstAtop;
+    case 13: return MetalBlendMode::Xor;
     case 0:
     default:
         return MetalBlendMode::SrcOver;
@@ -499,39 +517,95 @@ void configureBlend(MTLRenderPipelineColorAttachmentDescriptor *color, MetalBlen
 {
     color.blendingEnabled = YES;
     color.writeMask = MTLColorWriteMaskAll;
+    color.rgbBlendOperation = MTLBlendOperationAdd;
+    color.alphaBlendOperation = MTLBlendOperationAdd;
     switch (mode) {
     case MetalBlendMode::Src:
         color.blendingEnabled = NO;
         break;
     case MetalBlendMode::Add:
-        color.rgbBlendOperation = MTLBlendOperationAdd;
-        color.alphaBlendOperation = MTLBlendOperationAdd;
         color.sourceRGBBlendFactor = MTLBlendFactorOne;
         color.sourceAlphaBlendFactor = MTLBlendFactorOne;
         color.destinationRGBBlendFactor = MTLBlendFactorOne;
         color.destinationAlphaBlendFactor = MTLBlendFactorOne;
         break;
     case MetalBlendMode::Multiply:
-        color.rgbBlendOperation = MTLBlendOperationAdd;
-        color.alphaBlendOperation = MTLBlendOperationAdd;
         color.sourceRGBBlendFactor = MTLBlendFactorDestinationColor;
         color.sourceAlphaBlendFactor = MTLBlendFactorDestinationAlpha;
         color.destinationRGBBlendFactor = MTLBlendFactorZero;
         color.destinationAlphaBlendFactor = MTLBlendFactorZero;
         break;
     case MetalBlendMode::Screen:
-        color.rgbBlendOperation = MTLBlendOperationAdd;
-        color.alphaBlendOperation = MTLBlendOperationAdd;
         color.sourceRGBBlendFactor = MTLBlendFactorOne;
         color.sourceAlphaBlendFactor = MTLBlendFactorOne;
         color.destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceColor;
         color.destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
         break;
+    case MetalBlendMode::Dst:
+        // Keep destination untouched: src contributes nothing.
+        color.sourceRGBBlendFactor = MTLBlendFactorZero;
+        color.sourceAlphaBlendFactor = MTLBlendFactorZero;
+        color.destinationRGBBlendFactor = MTLBlendFactorOne;
+        color.destinationAlphaBlendFactor = MTLBlendFactorOne;
+        break;
+    case MetalBlendMode::Clear:
+        color.sourceRGBBlendFactor = MTLBlendFactorZero;
+        color.sourceAlphaBlendFactor = MTLBlendFactorZero;
+        color.destinationRGBBlendFactor = MTLBlendFactorZero;
+        color.destinationAlphaBlendFactor = MTLBlendFactorZero;
+        break;
+    case MetalBlendMode::SrcIn:
+        // src * dst.a: source only where destination exists.
+        color.sourceRGBBlendFactor = MTLBlendFactorDestinationAlpha;
+        color.sourceAlphaBlendFactor = MTLBlendFactorDestinationAlpha;
+        color.destinationRGBBlendFactor = MTLBlendFactorZero;
+        color.destinationAlphaBlendFactor = MTLBlendFactorZero;
+        break;
+    case MetalBlendMode::DstIn:
+        // dst * src.a: destination masked by source alpha.
+        color.sourceRGBBlendFactor = MTLBlendFactorZero;
+        color.sourceAlphaBlendFactor = MTLBlendFactorZero;
+        color.destinationRGBBlendFactor = MTLBlendFactorSourceAlpha;
+        color.destinationAlphaBlendFactor = MTLBlendFactorSourceAlpha;
+        break;
+    case MetalBlendMode::SrcOut:
+        // src * (1 - dst.a): source only where destination is transparent.
+        color.sourceRGBBlendFactor = MTLBlendFactorOneMinusDestinationAlpha;
+        color.sourceAlphaBlendFactor = MTLBlendFactorOneMinusDestinationAlpha;
+        color.destinationRGBBlendFactor = MTLBlendFactorZero;
+        color.destinationAlphaBlendFactor = MTLBlendFactorZero;
+        break;
+    case MetalBlendMode::DstOut:
+        // dst * (1 - src.a): destination punched by source alpha.
+        color.sourceRGBBlendFactor = MTLBlendFactorZero;
+        color.sourceAlphaBlendFactor = MTLBlendFactorZero;
+        color.destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+        color.destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+        break;
+    case MetalBlendMode::SrcAtop:
+        // src * dst.a + dst * (1 - src.a).
+        color.sourceRGBBlendFactor = MTLBlendFactorDestinationAlpha;
+        color.sourceAlphaBlendFactor = MTLBlendFactorDestinationAlpha;
+        color.destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+        color.destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+        break;
+    case MetalBlendMode::DstAtop:
+        // src * (1 - dst.a) + dst * src.a.
+        color.sourceRGBBlendFactor = MTLBlendFactorOneMinusDestinationAlpha;
+        color.sourceAlphaBlendFactor = MTLBlendFactorOneMinusDestinationAlpha;
+        color.destinationRGBBlendFactor = MTLBlendFactorSourceAlpha;
+        color.destinationAlphaBlendFactor = MTLBlendFactorSourceAlpha;
+        break;
+    case MetalBlendMode::Xor:
+        // Symmetric difference: src * (1 - dst.a) + dst * (1 - src.a).
+        color.sourceRGBBlendFactor = MTLBlendFactorOneMinusDestinationAlpha;
+        color.sourceAlphaBlendFactor = MTLBlendFactorOneMinusDestinationAlpha;
+        color.destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+        color.destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+        break;
     case MetalBlendMode::SrcOver:
     default:
         // Standard premultiplied alpha over.
-        color.rgbBlendOperation = MTLBlendOperationAdd;
-        color.alphaBlendOperation = MTLBlendOperationAdd;
         color.sourceRGBBlendFactor = MTLBlendFactorOne;
         color.sourceAlphaBlendFactor = MTLBlendFactorOne;
         color.destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
