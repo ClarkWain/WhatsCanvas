@@ -442,11 +442,39 @@ FontFace aliasFace(const FontFace &source, const char *alias, int weight,
 
 } // namespace
 
+namespace {
+
+template <typename T>
+struct CachedResult
+{
+    std::mutex mutex;
+    std::optional<T> value;
+};
+
+CachedResult<std::vector<FontFace>> &discoveryCache()
+{
+    static CachedResult<std::vector<FontFace>> cache;
+    return cache;
+}
+
+CachedResult<std::vector<FontFace>> &defaultsCache()
+{
+    static CachedResult<std::vector<FontFace>> cache;
+    return cache;
+}
+
+} // namespace
+
 std::vector<FontFace> FontSystem::discoverInstalledFontFaces()
 {
+    {
+        std::lock_guard<std::mutex> lock(discoveryCache().mutex);
+        if (discoveryCache().value.has_value()) return *discoveryCache().value;
+    }
+
     const std::vector<detail::DiscoveredFontFace> raw = detail::discoverInstalledFontFaces();
-    std::vector<FontFace> out;
-    out.reserve(raw.size());
+    std::vector<FontFace> built;
+    built.reserve(raw.size());
     std::unordered_set<std::string> seen;
     for (const detail::DiscoveredFontFace &face : raw) {
         const std::string key = face.family + "\x1f" + face.path + "\x1f"
@@ -455,26 +483,13 @@ std::vector<FontFace> FontSystem::discoverInstalledFontFaces()
         if (!seen.insert(key).second) continue;
         FontDescriptor descriptor(face.family, face.weight,
                                   face.italic ? FontSlant::ITALIC : FontSlant::NORMAL);
-        out.push_back(FontFace::fromFile(descriptor, face.path, face.faceIndex));
+        built.push_back(FontFace::fromFile(descriptor, face.path, face.faceIndex));
     }
-    return out;
+
+    std::lock_guard<std::mutex> lock(discoveryCache().mutex);
+    if (!discoveryCache().value.has_value()) discoveryCache().value = std::move(built);
+    return *discoveryCache().value;
 }
-
-namespace {
-
-struct DefaultsCache
-{
-    std::mutex mutex;
-    std::optional<std::vector<FontFace>> value;
-};
-
-DefaultsCache &defaultsCache()
-{
-    static DefaultsCache cache;
-    return cache;
-}
-
-} // namespace
 
 std::vector<FontFace> FontSystem::defaultSystemFontFaces()
 {
@@ -584,6 +599,10 @@ std::vector<FontFace> FontSystem::defaultSystemFontFaces()
 
 void FontSystem::refreshDefaultSystemFontFaces()
 {
+    {
+        std::lock_guard<std::mutex> lock(discoveryCache().mutex);
+        discoveryCache().value.reset();
+    }
     std::lock_guard<std::mutex> lock(defaultsCache().mutex);
     defaultsCache().value.reset();
 }
