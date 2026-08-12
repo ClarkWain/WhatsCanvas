@@ -1379,6 +1379,7 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     target_link_libraries(WhatsCanvasMetalPerformanceSmoke PRIVATE
         WhatsCanvasOpenGL
         WhatsCanvasGLM
+        glfw
     )
 
     if (WHATSCANVAS_VULKAN_BACKEND_ENABLED)
