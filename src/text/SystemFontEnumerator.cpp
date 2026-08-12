@@ -463,7 +463,44 @@ std::vector<FontFace> FontSystem::defaultSystemFontFaces()
     static const std::vector<FontFace> defaults = [] {
         const std::vector<FontFace> installed = discoverInstalledFontFaces();
         std::vector<FontFace> faces;
-        if (installed.empty()) return faces;
+        if (installed.empty()) {
+#if defined(__linux__)
+            // Fall back to the pre-discovery hardcoded DejaVu / Noto set so
+            // Linux hosts that ship without fontconfig at build time still
+            // get a usable Sans / Mono / Serif / CJK / Arabic / Hebrew slot
+            // when the fonts are installed at their standard paths.
+            auto addFace = [&](FontFace face) {
+                if (face.sourceType() == FontSourceType::FILE && fileExists(face.path())) {
+                    faces.push_back(std::move(face));
+                }
+            };
+            auto addRangedFace = [&](FontFace face, std::initializer_list<FontCodepointRange> ranges) {
+                for (const FontCodepointRange &range : ranges) {
+                    face.addCodepointRange(range.first, range.last);
+                }
+                addFace(std::move(face));
+            };
+            addRangedFace(FontFace::fromFile(FontDescriptor(kDefaultPrimaryFamily),
+                          "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+                          {FontCodepointRange(0x0000, 0x024F), FontCodepointRange(0x2000, 0x206F)});
+            addRangedFace(FontFace::fromFile(FontDescriptor(kDefaultCjkFamily),
+                          "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", 0),
+                          {FontCodepointRange(0x3000, 0x30FF), FontCodepointRange(0x3400, 0x9FFF),
+                           FontCodepointRange(0xF900, 0xFAFF), FontCodepointRange(0xFF00, 0xFFEF)});
+            addRangedFace(FontFace::fromFile(FontDescriptor(kDefaultArabicFamily),
+                          "/usr/share/fonts/truetype/noto/NotoNaskhArabic-Regular.ttf"),
+                          {FontCodepointRange(0x0600, 0x06FF), FontCodepointRange(0x0750, 0x077F),
+                           FontCodepointRange(0x08A0, 0x08FF)});
+            addRangedFace(FontFace::fromFile(FontDescriptor(kDefaultHebrewFamily),
+                          "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+                          {FontCodepointRange(0x0590, 0x05FF)});
+            addFace(FontFace::fromFile(FontDescriptor(kDefaultSerifFamily),
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf"));
+            addFace(FontFace::fromFile(FontDescriptor(kDefaultMonoFamily),
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"));
+#endif
+            return faces;
+        }
 
 #if defined(_WIN32)
         const auto primaryFamilies = {"Segoe UI", "Arial"};
