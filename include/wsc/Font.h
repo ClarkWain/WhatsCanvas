@@ -346,7 +346,16 @@ public:
         addFace(FontFace::fromFile(FontDescriptor(kDefaultSerifFamily), "C:/Windows/Fonts/georgia.ttf"));
         addFace(FontFace::fromFile(FontDescriptor(kDefaultMonoFamily), "C:/Windows/Fonts/consola.ttf"));
 #elif defined(__APPLE__)
-        addRangedFace(FontFace::fromFile(FontDescriptor(kDefaultPrimaryFamily), "/System/Library/Fonts/SFNS.ttf"),
+        addRangedFace(FontFace::fromFile(FontDescriptor(kDefaultPrimaryFamily, 400), "/System/Library/Fonts/SFNS.ttf"),
+                      {FontCodepointRange(0x0000, 0x024F), FontCodepointRange(0x2000, 0x206F)});
+        // macOS ships SFNS as a variable font, so the 600 / 700 registrations
+        // re-use the same file. Consumers that drive the wght axis (via a
+        // FreeType / HarfBuzz build with variation support) get a real
+        // semi-bold / bold; simpler pipelines fall back to synthetic bold or
+        // the regular outline.
+        addRangedFace(FontFace::fromFile(FontDescriptor(kDefaultPrimaryFamily, 600), "/System/Library/Fonts/SFNS.ttf"),
+                      {FontCodepointRange(0x0000, 0x024F), FontCodepointRange(0x2000, 0x206F)});
+        addRangedFace(FontFace::fromFile(FontDescriptor(kDefaultPrimaryFamily, 700), "/System/Library/Fonts/SFNS.ttf"),
                       {FontCodepointRange(0x0000, 0x024F), FontCodepointRange(0x2000, 0x206F)});
         addRangedFace(FontFace::fromFile(FontDescriptor(kDefaultCjkFamily), "/System/Library/Fonts/PingFang.ttc", 0),
                       {FontCodepointRange(0x3000, 0x30FF), FontCodepointRange(0x3400, 0x9FFF),
@@ -354,6 +363,10 @@ public:
         addRangedFace(FontFace::fromFile(FontDescriptor(kDefaultArabicFamily), "/System/Library/Fonts/Supplemental/Arial.ttf"),
                       {FontCodepointRange(0x0590, 0x05FF), FontCodepointRange(0x0600, 0x06FF),
                        FontCodepointRange(0x0750, 0x077F), FontCodepointRange(0x08A0, 0x08FF)});
+        addRangedFace(FontFace::fromFile(FontDescriptor(kDefaultHebrewFamily), "/System/Library/Fonts/SFHebrew.ttf"),
+                      {FontCodepointRange(0x0590, 0x05FF)});
+        addRangedFace(FontFace::fromFile(FontDescriptor(kDefaultSymbolFamily), "/System/Library/Fonts/Apple Symbols.ttf"),
+                      {FontCodepointRange(0x2000, 0x27BF), FontCodepointRange(0x2B00, 0x2BFF)});
         addFace(FontFace::fromFile(FontDescriptor(kDefaultSerifFamily), "/System/Library/Fonts/Supplemental/Georgia.ttf"));
         addFace(FontFace::fromFile(FontDescriptor(kDefaultMonoFamily), "/System/Library/Fonts/Menlo.ttc", 0));
 #else
