@@ -945,6 +945,16 @@ MetalRenderDevice::~MetalRenderDevice()
 
 // -----------------------------------------------------------------------------
 // Lifecycle.
+namespace {
+// Forward decls so initializeBackend() can pre-warm the pipeline / sampler
+// caches before the anonymous namespace containing the definitions further
+// down the translation unit is visited.
+id<MTLRenderPipelineState> obtainPipeline(MetalRenderDevice::MetalContext &ctx,
+                                          MetalPipelineKind kind, int blendMode);
+id<MTLSamplerState> obtainSampler(MetalRenderDevice::MetalContext &ctx,
+                                  int sampling, int tileMode);
+} // namespace
+
 void MetalRenderDevice::initializeBackend()
 {
     if (context_->deviceReady) {
@@ -1055,6 +1065,26 @@ void MetalRenderDevice::initializeBackend()
         NSString *name = [device name];
         context_->deviceName = name ? [name UTF8String] : "Metal Device";
         context_->deviceReady = true;
+
+        // Pipeline pre-warm. Compiling a Metal render-pipeline state hits the
+        // driver's shader compiler and can take a few hundred milliseconds on
+        // first draw. Baking the common (kind, SrcOver-blend) combinations
+        // eagerly moves that cost to backend initialisation and lets the
+        // first rendered frame skip the driver stall.
+        const int kSrcOver = 0;
+        const int kSrc = 1;
+        obtainPipeline(*context_, MetalPipelineKind::Solid,              kSrcOver);
+        obtainPipeline(*context_, MetalPipelineKind::Textured,           kSrcOver);
+        obtainPipeline(*context_, MetalPipelineKind::TexturedAlpha,      kSrcOver);
+        obtainPipeline(*context_, MetalPipelineKind::Gradient,           kSrcOver);
+        obtainPipeline(*context_, MetalPipelineKind::ClipFill,           kSrcOver);
+        obtainPipeline(*context_, MetalPipelineKind::Blur,               kSrc);
+        obtainPipeline(*context_, MetalPipelineKind::MaskMultiply,       kSrc);
+        obtainPipeline(*context_, MetalPipelineKind::InvertAlpha,        kSrc);
+        obtainPipeline(*context_, MetalPipelineKind::InnerShadowCompose, kSrc);
+        // Pre-warm the default linear/clamp sampler too so per-draw obtainSampler
+        // never allocates on the hot path in the common case.
+        obtainSampler(*context_, /*sampling=*/0, /*tileMode=*/0);
     }
     backendInitialized_ = true;
     WSC_LOG_INFO("MetalRenderDevice",
