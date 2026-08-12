@@ -908,6 +908,17 @@ struct MetalRenderDevice::MetalContext
     int lastReadbackWidth = 0;
     int lastReadbackHeight = 0;
 
+    // GPU frame timing plumbing. When the caller opts in, executeDrawList
+    // records the GPUStartTime / GPUEndTime of the frame's command buffer
+    // and stashes the delta in `lastFrameGpuTimeNs` for
+    // lastGpuFrameTimeNs() to surface. `frameTimingActive` gates a fresh
+    // measurement window opened by beginGpuFrameTiming(); it resets to
+    // false when the value is read to match Vulkan semantics.
+    bool gpuTimingEnabled = false;
+    bool gpuTimingActive = false;
+    bool gpuTimingResultAvailable = false;
+    std::uint64_t lastFrameGpuTimeNs = 0;
+
     // Stats.
     std::size_t imageTextureCount = 0;
     std::size_t renderTargetCount = 0;
@@ -2184,6 +2195,16 @@ bool MetalRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &ta
 #endif
         [cb commit];
         [cb waitUntilCompleted];
+        if (context_->gpuTimingActive) {
+            const CFTimeInterval start = cb.GPUStartTime;
+            const CFTimeInterval end = cb.GPUEndTime;
+            if (end > start) {
+                context_->lastFrameGpuTimeNs =
+                    static_cast<std::uint64_t>((end - start) * 1'000'000'000.0);
+                context_->gpuTimingResultAvailable = true;
+            }
+            context_->gpuTimingActive = false;
+        }
     }
 
     lastExecutionDrawCallCount_ = stats.drawCallCount;
@@ -2569,6 +2590,51 @@ bool MetalRenderDevice::readPixelsRGBA(int width, int height, std::vector<unsign
       bytesPerRow:static_cast<NSUInteger>(width) * 4u
        fromRegion:region
       mipmapLevel:0];
+    return true;
+}
+
+// -----------------------------------------------------------------------------
+// GPU frame timing. Metal exposes GPUStartTime / GPUEndTime on every
+// MTLCommandBuffer after waitUntilCompleted, so we don't need
+// MTLCounterSampleBuffer for the coarse frame-level measurement Canvas asks
+// for. beginGpuFrameTiming arms the next frame; executeDrawList captures the
+// delta and stores it for lastGpuFrameTimeNs. Behaves as an inert stub when
+// the caller has not enabled timing.
+bool MetalRenderDevice::beginGpuFrameTiming()
+{
+    if (!context_ || !context_->deviceReady || !context_->gpuTimingEnabled) {
+        return false;
+    }
+    context_->gpuTimingActive = true;
+    context_->gpuTimingResultAvailable = false;
+    return true;
+}
+
+void MetalRenderDevice::endGpuFrameTiming()
+{
+    // executeDrawList closes out the window on its own once the command
+    // buffer completes; nothing to do here besides matching the interface.
+}
+
+void MetalRenderDevice::setGpuFrameTimingEnabled(bool enabled)
+{
+    if (!context_) {
+        return;
+    }
+    context_->gpuTimingEnabled = enabled;
+    if (!enabled) {
+        context_->gpuTimingActive = false;
+        context_->gpuTimingResultAvailable = false;
+    }
+}
+
+bool MetalRenderDevice::lastGpuFrameTimeNs(std::uint64_t &nanoseconds) const
+{
+    if (!context_ || !context_->gpuTimingResultAvailable) {
+        nanoseconds = 0;
+        return false;
+    }
+    nanoseconds = context_->lastFrameGpuTimeNs;
     return true;
 }
 

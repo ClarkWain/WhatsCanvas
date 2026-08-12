@@ -65,6 +65,15 @@ std::unique_ptr<ISwapchain> MetalRenderDevice::createSwapchain(const NativeSurfa
     return nullptr;
 }
 
+bool MetalRenderDevice::beginGpuFrameTiming() { return false; }
+void MetalRenderDevice::endGpuFrameTiming() {}
+void MetalRenderDevice::setGpuFrameTimingEnabled(bool) {}
+bool MetalRenderDevice::lastGpuFrameTimeNs(std::uint64_t &nanoseconds) const
+{
+    nanoseconds = 0;
+    return false;
+}
+
 SharedImageResource MetalRenderDevice::rasterizeClipMask(const ClipMaskState &, int, int) const
 {
     return {};
