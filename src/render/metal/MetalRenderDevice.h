@@ -104,6 +104,12 @@ public:
     /// and read the result with readPixelsRGBA().
     bool usesDeviceCommandExecution() const override { return true; }
 
+    /// Metal supports on-screen presentation on Apple platforms via
+    /// CAMetalLayer swapchains. Non-Apple / Metal-disabled builds return false.
+    bool supportsPresentation() const override;
+    std::unique_ptr<ISwapchain> createSwapchain(const NativeSurface &surface,
+                                                const SwapchainConfig &config) override;
+
     /// True once the Metal device has been created successfully.
     bool isDeviceReady() const;
 
