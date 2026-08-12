@@ -24,7 +24,7 @@ WhatsCanvas 是一款基于 C++17 编写、面向原生应用的可嵌入 2D 渲
 | --- | --- |
 | **适用场景** | 原生应用自定义 UI、工具与数据界面、HUD、2D 游戏渲染层、服务端或测试环境中的离屏图片生成。 |
 | **API 与语言** | C++17；公开 API 位于 `include/wsc/`，入口是 `#include <wsc/wsc.h>`。 |
-| **渲染后端** | OpenGL、纯 CPU Software；可选 OpenGL ES 和 Vulkan。Metal / WebGPU 尚未实现。 |
+| **渲染后端** | OpenGL、纯 CPU Software；可选 OpenGL ES、Vulkan 以及 Metal（macOS/iOS）。WebGPU 尚未实现。 |
 | **平台状态** | Windows、Linux、macOS 持续执行构建和单元测试；发布包覆盖 Windows x64、Linux x64 和 macOS universal。移动端目前主要通过 OpenGL ES 宿主接入，并不代表已完成完整设备矩阵的验证。 |
 | **文本能力** | 字体发现和 fallback、CJK/RTL、UAX #9、换行与省略号、glyph atlas、COLR/CPAL v0；OpenGL/OpenGL ES 默认启用 FreeType 与 HarfBuzz shaping。 |
 | **接入方式** | vcpkg overlay port、CMake `find_package`、`add_subdirectory`，或从源码生成可搬运的安装目录。 |
@@ -260,7 +260,7 @@ if (!canvas) {
 | --- | --- | --- |
 | Windows x64 | MSVC 单元测试、包消费、OpenGL/Software；发布矩阵可启用 GLES、Vulkan、FreeType、HarfBuzz | DirectWrite 文本后端可选；Vulkan 窗口呈现支持 Win32。 |
 | Linux x64 | GCC 构建、单元测试、OpenGL/GLES 滤镜像素门禁、包消费 | 自动化 GL 场景使用 Mesa/Xvfb；GLX 窗口呈现源码仍缺少持续验证。 |
-| macOS x86_64/arm64 | 单元测试与 universal 发布包 | 使用系统 OpenGL；Metal 渲染后端尚未实现。 |
+| macOS x86_64/arm64 | 单元测试与 universal 发布包 | 使用系统 OpenGL；Metal 渲染后端已上线（Apple 平台默认开启，可通过 `-DWHATSCANVAS_ENABLE_METAL=OFF` 关闭）。 |
 | iOS / Android | OpenGL ES target 与 iOS 接入说明 | 尚无常态化的真机 CI，集成前请在目标设备上自行验证。 |
 | Web | 未支持 | WebAssembly / WebGL 2 桥接仍在规划。 |
 
