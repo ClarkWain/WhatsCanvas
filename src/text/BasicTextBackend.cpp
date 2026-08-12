@@ -513,6 +513,8 @@ public:
 private:
     void registerSystemFontFallbacks()
     {
+        // These aliases are resolved from the native system-font enumeration;
+        // this backend does not assume any platform-specific font directory.
         const std::vector<wsc::FontFace> faces = wsc::FontSystem::defaultSystemFontFaces();
         if (faces.empty()) {
             diagnostics_.push_back({wsc::text::TextBackendDiagnostic::Severity::Info,
