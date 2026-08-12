@@ -462,7 +462,6 @@ fragment float4 inner_shadow_compose_fs(BlurVSOut in [[stage_in]],
 {
     float4 srcSample = src.sample(samp, in.uv);
     float shadow = blurredInverted.sample(samp, in.uv - u.offsetUv).r;
-    // Restrict shadow to the silhouette and scale by the shadow colour alpha.
     float intensity = shadow * srcSample.a * u.shadowColor.a;
     float3 rgb = mix(srcSample.rgb, u.shadowColor.rgb, intensity);
     return float4(rgb, srcSample.a);
