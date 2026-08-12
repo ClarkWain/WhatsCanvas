@@ -24,7 +24,7 @@ This project aims to bridge the gap between minimal drawing libraries (such as N
 | --- | --- |
 | **Applicability** | Custom UIs in native apps, tool/data interfaces, HUDs, 2D game render layers, offscreen image generation on servers or in test environments. |
 | **API & Language** | C++17; the public API is located in `include/wsc/`, with the entry point being `#include <wsc/wsc.h>`. |
-| **Render Backends** | OpenGL, pure CPU Software; optional OpenGL ES and Vulkan. Metal / WebGPU are not yet implemented. |
+| **Render Backends** | OpenGL, pure CPU Software; optional OpenGL ES, Vulkan, and Metal (macOS/iOS). WebGPU is not yet implemented. |
 | **Platform Status** | Windows, Linux, and macOS run continuous builds and unit tests; release packages cover Windows x64, Linux x64, and macOS universal. Mobile integration is currently primarily through OpenGL ES hosts and does not yet represent a validated device matrix. |
 | **Text Capabilities** | Font discovery and fallback, CJK/RTL, UAX #9, line breaking and ellipsis, glyph atlas, COLR/CPAL v0; FreeType and HarfBuzz shaping are enabled by default for OpenGL/OpenGL ES. |
 | **Integration** | vcpkg overlay port, CMake `find_package`, `add_subdirectory`, or portable installation directories generated from source. |
