@@ -10,9 +10,11 @@
 // Runs on the pure-CPU software backend: deterministic, no GPU/context needed.
 
 #include <algorithm>
-#include <fstream>
 #include <iostream>
+#include <limits>
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "wsc/wsc.h"
@@ -29,27 +31,46 @@ bool expect(bool condition, const std::string &message)
     return condition;
 }
 
-std::string findSystemFont()
+std::optional<FontFace> findSystemFont()
 {
-    const char *candidates[] = {
-        "C:/Windows/Fonts/segoeui.ttf",
-        "C:/Windows/Fonts/arial.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
-        "/System/Library/Fonts/Supplemental/Arial.ttf",
-    };
-    for (const char *p : candidates) {
-        std::ifstream f(p, std::ios::binary);
-        if (f.good()) {
-            return p;
+    const auto installed = FontSystem::discoverInstalledFontFaces();
+    const char *preferredFamilies[] = {"Segoe UI", "Arial", "DejaVu Sans", "Helvetica"};
+    for (const char *family : preferredFamilies) {
+        const FontFace *best = nullptr;
+        int bestDistance = std::numeric_limits<int>::max();
+        for (const FontFace &face : installed) {
+            if (face.family() == family && face.slant() == FontSlant::NORMAL) {
+                const int distance = std::abs(face.weight() - 400);
+                if (distance < bestDistance) {
+                    best = &face;
+                    bestDistance = distance;
+                }
+            }
+        }
+        if (best != nullptr) return *best;
+    }
+    const FontFace *best = nullptr;
+    int bestDistance = std::numeric_limits<int>::max();
+    for (const FontFace &face : installed) {
+        if (face.slant() != FontSlant::NORMAL) continue;
+        const int distance = std::abs(face.weight() - 400);
+        if (distance < bestDistance) {
+            best = &face;
+            bestDistance = distance;
         }
     }
-    return {};
+    if (best != nullptr) return *best;
+    return std::nullopt;
+}
+
+FontFace testFace(const FontFace &source, FontDescriptor descriptor)
+{
+    return FontFace::fromFile(std::move(descriptor), source.path(), source.faceIndex());
 }
 
 // Render black text at `x` on a white canvas; return the darkest luma found in
 // the text band (lower = crisper/more solid coverage), or 255 if nothing drawn.
-int darkestTextLuma(float x, const std::string &fontPath)
+int darkestTextLuma(float x, const FontFace &systemFont)
 {
     const int w = 96;
     const int h = 40;
@@ -58,7 +79,7 @@ int darkestTextLuma(float x, const std::string &fontPath)
         return -1;
     }
     canvas->initializeContext();
-    canvas->registerFontFace(FontFace::fromFile(FontDescriptor("AlignProbe"), fontPath));
+    canvas->registerFontFace(testFace(systemFont, FontDescriptor("AlignProbe")));
 
     canvas->beginFrame();
     Paint bg;
@@ -93,14 +114,14 @@ int darkestTextLuma(float x, const std::string &fontPath)
 
 bool testFractionalTextStaysCrisp()
 {
-    const std::string fontPath = findSystemFont();
-    if (fontPath.empty()) {
+    const auto systemFont = findSystemFont();
+    if (!systemFont) {
         std::cout << "Skipping text alignment test; no system font found." << std::endl;
         return true;
     }
 
-    const int integerDarkest = darkestTextLuma(20.0f, fontPath);
-    const int fractionalDarkest = darkestTextLuma(20.5f, fontPath);
+    const int integerDarkest = darkestTextLuma(20.0f, *systemFont);
+    const int fractionalDarkest = darkestTextLuma(20.5f, *systemFont);
 
     bool ok = expect(integerDarkest >= 0 && fractionalDarkest >= 0,
                      "software text rendering should produce readable pixels");
@@ -127,7 +148,7 @@ bool testFractionalTextStaysCrisp()
 // Count solidly-inked (near-black) pixels produced by black text rendered with
 // a given logical text size under a given uniform canvas scale, placed so the
 // on-screen size is the same for every (size, scale) pair.
-int nearBlackCount(float textSize, float scale, const std::string &fontPath)
+int nearBlackCount(float textSize, float scale, const FontFace &systemFont)
 {
     const int w = 320;
     const int h = 128;
@@ -136,7 +157,7 @@ int nearBlackCount(float textSize, float scale, const std::string &fontPath)
         return -1;
     }
     canvas->initializeContext();
-    canvas->registerFontFace(FontFace::fromFile(FontDescriptor("ScaleProbe"), fontPath));
+    canvas->registerFontFace(testFace(systemFont, FontDescriptor("ScaleProbe")));
 
     canvas->beginFrame();
     Paint bg;
@@ -179,19 +200,19 @@ int nearBlackCount(float textSize, float scale, const std::string &fontPath)
 
 bool testScaledTextRasterizedAtDeviceResolution()
 {
-    const std::string fontPath = findSystemFont();
-    if (fontPath.empty()) {
+    const auto systemFont = findSystemFont();
+    if (!systemFont) {
         std::cout << "Skipping scaled-text test; no system font found." << std::endl;
         return true;
     }
 
     // Reference: a natively large glyph at scale 1 (true device resolution).
-    const int reference = nearBlackCount(64.0f, 1.0f, fontPath);
+    const int reference = nearBlackCount(64.0f, 1.0f, *systemFont);
     // Under test: a small glyph magnified 4x to the same on-screen size. With
     // device-resolution rasterization this rasterizes at ~64px and matches the
     // reference. Without it, the 16px bitmap is bilinearly magnified into a
     // washed-out blur with far fewer solidly-inked pixels.
-    const int scaledUp = nearBlackCount(16.0f, 4.0f, fontPath);
+    const int scaledUp = nearBlackCount(16.0f, 4.0f, *systemFont);
 
     bool ok = expect(reference > 0 && scaledUp > 0,
                      "both reference and scaled text should render solid ink");
@@ -210,7 +231,7 @@ bool testScaledTextRasterizedAtDeviceResolution()
 
 // Near-black ink count for text drawn at a device pixel ratio, placed so the
 // device-space origin is fixed regardless of dpr.
-int nearBlackCountDpr(float textSize, float dpr, const std::string &fontPath)
+int nearBlackCountDpr(float textSize, float dpr, const FontFace &systemFont)
 {
     const int w = 320;
     const int h = 128;
@@ -219,7 +240,7 @@ int nearBlackCountDpr(float textSize, float dpr, const std::string &fontPath)
         return -1;
     }
     canvas->initializeContext();
-    canvas->registerFontFace(FontFace::fromFile(FontDescriptor("DprProbe"), fontPath));
+    canvas->registerFontFace(testFace(systemFont, FontDescriptor("DprProbe")));
     canvas->setDevicePixelRatio(dpr);
 
     canvas->beginFrame();
@@ -254,8 +275,8 @@ int nearBlackCountDpr(float textSize, float dpr, const std::string &fontPath)
 
 bool testDevicePixelRatioScalesAndStaysCrisp()
 {
-    const std::string fontPath = findSystemFont();
-    if (fontPath.empty()) {
+    const auto systemFont = findSystemFont();
+    if (!systemFont) {
         std::cout << "Skipping devicePixelRatio test; no system font found." << std::endl;
         return true;
     }
@@ -269,9 +290,9 @@ bool testDevicePixelRatioScalesAndStaysCrisp()
         }
     }
 
-    const int dpr1 = nearBlackCountDpr(16.0f, 1.0f, fontPath);      // 16px logical @ 1x
-    const int dpr2 = nearBlackCountDpr(16.0f, 2.0f, fontPath);      // 16px logical @ 2x -> 32px device
-    const int native32 = nearBlackCountDpr(32.0f, 1.0f, fontPath);  // native 32px reference
+    const int dpr1 = nearBlackCountDpr(16.0f, 1.0f, *systemFont);      // 16px logical @ 1x
+    const int dpr2 = nearBlackCountDpr(16.0f, 2.0f, *systemFont);      // 16px logical @ 2x -> 32px device
+    const int native32 = nearBlackCountDpr(32.0f, 1.0f, *systemFont);  // native 32px reference
 
     bool ok = expect(dpr1 > 0 && dpr2 > 0 && native32 > 0, "all dpr renders should produce ink");
     if (!ok) {
@@ -330,7 +351,7 @@ bool testSetMatrixPreservesDevicePixelRatio()
 // Count inked pixels (any coverage) for text at a device pixel ratio. Unlike a
 // pure-black count this measures the text footprint, which is robust to the
 // anti-aliasing softness that fractional scales introduce.
-int inkedCountDpr(float textSize, float dpr, const std::string &fontPath)
+int inkedCountDpr(float textSize, float dpr, const FontFace &systemFont)
 {
     const int w = 320;
     const int h = 128;
@@ -339,7 +360,7 @@ int inkedCountDpr(float textSize, float dpr, const std::string &fontPath)
         return -1;
     }
     canvas->initializeContext();
-    canvas->registerFontFace(FontFace::fromFile(FontDescriptor("DpiScene"), fontPath));
+    canvas->registerFontFace(testFace(systemFont, FontDescriptor("DpiScene")));
     canvas->setDevicePixelRatio(dpr);
 
     canvas->beginFrame();
@@ -376,8 +397,8 @@ int inkedCountDpr(float textSize, float dpr, const std::string &fontPath)
 // low-res bitmap) and grow physically with the ratio.
 bool testMultiDpiTextScenes()
 {
-    const std::string fontPath = findSystemFont();
-    if (fontPath.empty()) {
+    const auto systemFont = findSystemFont();
+    if (!systemFont) {
         std::cout << "Skipping multi-DPI test; no system font found." << std::endl;
         return true;
     }
@@ -386,8 +407,8 @@ bool testMultiDpiTextScenes()
     bool ok = true;
     int previousInk = 0;
     for (const float ratio : ratios) {
-        const int dprInk = inkedCountDpr(16.0f, ratio, fontPath);
-        const int nativeInk = inkedCountDpr(16.0f * ratio, 1.0f, fontPath);
+        const int dprInk = inkedCountDpr(16.0f, ratio, *systemFont);
+        const int nativeInk = inkedCountDpr(16.0f * ratio, 1.0f, *systemFont);
 
         ok = expect(dprInk > 0, "text should render at each DPI scale") && ok;
         // Device-resolution rasterization: the footprint tracks the native pixel
@@ -409,8 +430,8 @@ bool testMultiDpiTextScenes()
 // (DirectWrite) backend and text still renders through the Canvas.
 bool testPublicTextBackendSelection()
 {
-    const std::string fontPath = findSystemFont();
-    if (fontPath.empty()) {
+    const auto systemFont = findSystemFont();
+    if (!systemFont) {
         std::cout << "Skipping text-backend selection test; no system font found." << std::endl;
         return true;
     }
@@ -424,7 +445,7 @@ bool testPublicTextBackendSelection()
         }
         canvas->initializeContext();
         canvas->setTextBackend(which);
-        canvas->registerFontFace(FontFace::fromFile(FontDescriptor("Segoe UI"), fontPath));
+        canvas->registerFontFace(testFace(*systemFont, FontDescriptor("Segoe UI")));
 
         canvas->beginFrame();
         Paint bg;
@@ -479,8 +500,8 @@ bool testPublicTextBackendSelection()
 // and the underline lands below the text band.
 bool testPortableTextDecorations()
 {
-    const std::string fontPath = findSystemFont();
-    if (fontPath.empty()) {
+    const auto systemFont = findSystemFont();
+    if (!systemFont) {
         std::cout << "Skipping decoration test; no system font found." << std::endl;
         return true;
     }
@@ -492,7 +513,7 @@ bool testPortableTextDecorations()
         auto canvas = Canvas::create(Canvas::Backend::Software, w, h);
         canvas->initializeContext();
         canvas->setTextBackend(Canvas::TextBackend::Portable);
-        canvas->registerFontFace(FontFace::fromFile(FontDescriptor("Deco"), fontPath));
+        canvas->registerFontFace(testFace(*systemFont, FontDescriptor("Deco")));
         canvas->beginFrame();
         Paint bg;
         bg.setStyle(Paint::Style::FILL);
@@ -548,8 +569,8 @@ bool testPortableTextDecorations()
 // pixel counts (which differ across raster engines by design).
 bool testDecorationsCrossBackendConsistency()
 {
-    const std::string fontPath = findSystemFont();
-    if (fontPath.empty()) {
+    const auto systemFont = findSystemFont();
+    if (!systemFont) {
         std::cout << "Skipping decoration cross-backend test; no system font found." << std::endl;
         return true;
     }
@@ -566,7 +587,7 @@ bool testDecorationsCrossBackendConsistency()
         auto canvas = Canvas::create(Canvas::Backend::Software, w, h);
         canvas->initializeContext();
         canvas->setTextBackend(which);
-        canvas->registerFontFace(FontFace::fromFile(FontDescriptor("XBackDeco"), fontPath));
+        canvas->registerFontFace(testFace(*systemFont, FontDescriptor("XBackDeco")));
         canvas->beginFrame();
         Paint bg;
         bg.setStyle(Paint::Style::FILL);

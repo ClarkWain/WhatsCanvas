@@ -5,6 +5,8 @@
 // (e.g. Linux without fontconfig at build time).
 
 #include <cstdint>
+#include <cstdlib>
+#include <filesystem>
 #include <iostream>
 #include <string>
 #include <unordered_set>
@@ -43,6 +45,10 @@ int main()
                 "expected at least a handful of system fonts to be discovered") && ok;
 
     std::unordered_set<std::string> families;
+    std::unordered_set<std::string> faceKeys;
+#ifdef _WIN32
+    const FontFace *windowsProbe = nullptr;
+#endif
     for (const FontFace &face : faces) {
         ok = expect(!face.descriptor().family.empty(),
                     "every discovered face should carry a non-empty family name") && ok;
@@ -50,7 +56,26 @@ int main()
                     "every discovered face should be file-backed") && ok;
         ok = expect(!face.path().empty(),
                     "every discovered face should carry a non-empty path") && ok;
+        ok = expect(face.faceIndex() >= 0,
+                    "every discovered face should carry a non-negative face index") && ok;
+        ok = expect(face.weight() >= 1 && face.weight() <= 1000,
+                    "every discovered face should carry a valid CSS-style weight") && ok;
+        ok = expect(FontSystem::fileExists(face.path()),
+                    "every discovered face should point to a readable local file") && ok;
+
+        const std::string key = face.family() + "\x1f" + face.path() + "\x1f"
+            + std::to_string(face.faceIndex()) + "\x1f" + std::to_string(face.weight())
+            + "\x1f" + std::to_string(static_cast<int>(face.slant()));
+        ok = expect(faceKeys.insert(key).second,
+                    "discovery should not return duplicate face records") && ok;
         families.insert(face.descriptor().family);
+#ifdef _WIN32
+        if (face.family() == "Segoe UI"
+            && (windowsProbe == nullptr
+                || std::abs(face.weight() - 400) < std::abs(windowsProbe->weight() - 400))) {
+            windowsProbe = &face;
+        }
+#endif
     }
 
     ok = expect(!families.empty(), "family set should be non-empty") && ok;
@@ -63,10 +88,48 @@ int main()
     if (!expect(canvas != nullptr, "software canvas should be creatable")) {
         return 1;
     }
-    canvas->initializeContext();
+    ok = expect(canvas->initializeContext(), "software canvas should initialize") && ok;
     for (const FontFace &face : faces) {
-        canvas->registerFontFace(face);
+        ok = expect(canvas->registerFontFace(face),
+                    "software canvas should accept every discovered face") && ok;
     }
+
+#ifdef _WIN32
+    ok = expect(windowsProbe != nullptr,
+                "DirectWrite discovery should expose the standard Segoe UI family") && ok;
+    if (windowsProbe != nullptr) {
+        Paint paint;
+        paint.setTextSize(18.0f);
+        paint.setFontFamily(windowsProbe->family());
+        paint.setFontWeight(windowsProbe->weight());
+        paint.setFontSlant(windowsProbe->slant());
+        ok = expect(canvas->measureText("Windows font discovery", paint) > 0.0f,
+                    "a DirectWrite-discovered face should load in the portable rasterizer") && ok;
+
+        // Exercise the UTF-8 path used by fonts installed below a non-ASCII
+        // Windows user profile, not just the ASCII-only C:/Windows/Fonts case.
+        std::error_code fileError;
+        const std::filesystem::path unicodePath =
+            std::filesystem::current_path() / std::filesystem::u8path(u8"动态字体测试.ttf");
+        std::filesystem::copy_file(std::filesystem::u8path(windowsProbe->path()), unicodePath,
+                                   std::filesystem::copy_options::overwrite_existing, fileError);
+        ok = expect(!fileError, "test should copy a discovered font to a UTF-8 path") && ok;
+        if (!fileError) {
+            const FontFace unicodeFace = FontFace::fromFile(
+                FontDescriptor("Windows UTF-8 Path Probe", windowsProbe->weight(), windowsProbe->slant()),
+                unicodePath.u8string(), windowsProbe->faceIndex());
+            ok = expect(FontSystem::fileExists(unicodeFace.path()),
+                        "FontSystem should open a UTF-8 Windows font path") && ok;
+            ok = expect(canvas->registerFontFace(unicodeFace),
+                        "software canvas should register a UTF-8 Windows font path") && ok;
+            paint.setFontFamily(unicodeFace.family());
+            ok = expect(canvas->measureText("UTF-8 font path", paint) > 0.0f,
+                        "portable rasterizer should load a UTF-8 Windows font path") && ok;
+        }
+        fileError.clear();
+        std::filesystem::remove(unicodePath, fileError);
+    }
+#endif
 
     return ok ? 0 : 1;
 }

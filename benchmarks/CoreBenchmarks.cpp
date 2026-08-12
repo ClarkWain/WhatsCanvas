@@ -9,10 +9,11 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
-#include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -206,24 +207,41 @@ void printSkippedMetric(const std::string &name, const std::string &reason)
     std::cout << "BENCHMARK_SKIPPED name=" << name << " reason=\"" << reason << "\"" << std::endl;
 }
 
-std::string findBenchmarkFontPath()
+std::optional<wsc::FontFace> findBenchmarkFont()
 {
-    const std::vector<std::string> candidates = {
-        "C:/Windows/Fonts/arial.ttf",
-        "C:/Windows/Fonts/segoeui.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
-        "/System/Library/Fonts/Supplemental/Arial.ttf",
-        "/System/Library/Fonts/SFNS.ttf"
-    };
-
-    for (const std::string &path : candidates) {
-        std::ifstream input(path, std::ios::binary);
-        if (input.good()) {
-            return path;
+    const auto installed = wsc::FontSystem::discoverInstalledFontFaces();
+    const char *preferredFamilies[] = {"Arial", "Segoe UI", "DejaVu Sans", "Helvetica"};
+    for (const char *family : preferredFamilies) {
+        const wsc::FontFace *best = nullptr;
+        int bestDistance = std::numeric_limits<int>::max();
+        for (const wsc::FontFace &face : installed) {
+            if (face.family() == family && face.slant() == wsc::FontSlant::NORMAL) {
+                const int distance = std::abs(face.weight() - 400);
+                if (distance < bestDistance) {
+                    best = &face;
+                    bestDistance = distance;
+                }
+            }
+        }
+        if (best != nullptr) return *best;
+    }
+    const wsc::FontFace *best = nullptr;
+    int bestDistance = std::numeric_limits<int>::max();
+    for (const wsc::FontFace &face : installed) {
+        if (face.slant() != wsc::FontSlant::NORMAL) continue;
+        const int distance = std::abs(face.weight() - 400);
+        if (distance < bestDistance) {
+            best = &face;
+            bestDistance = distance;
         }
     }
-    return {};
+    if (best != nullptr) return *best;
+    return std::nullopt;
+}
+
+wsc::FontFace benchmarkFace(const wsc::FontFace &source, const char *family)
+{
+    return wsc::FontFace::fromFile(wsc::FontDescriptor(family), source.path(), source.faceIndex());
 }
 
 void benchmarkTextLayout(int iterations)
@@ -272,8 +290,8 @@ void benchmarkTextCacheHitPath(int iterations)
 
 void benchmarkFontGlyphMetrics(int iterations)
 {
-    const std::string fontPath = findBenchmarkFontPath();
-    if (fontPath.empty()) {
+    const auto systemFont = findBenchmarkFont();
+    if (!systemFont) {
         printSkippedMetric("font_glyph_metrics_cache", "no benchmark font found");
         return;
     }
@@ -281,7 +299,7 @@ void benchmarkFontGlyphMetrics(int iterations)
     wsc::text::FontRasterizer rasterizer;
     rasterizer.clearCache();
     rasterizer.setCacheCapacity(16);
-    const wsc::FontFace face = wsc::FontFace::fromFile(wsc::FontDescriptor("BenchmarkFontMetrics"), fontPath);
+    const wsc::FontFace face = benchmarkFace(*systemFont, "BenchmarkFontMetrics");
     const std::string glyphs = "WhatsCanvasTypography12345";
     float accumulatedAdvance = 0.0f;
 
@@ -308,8 +326,8 @@ void benchmarkFontGlyphMetrics(int iterations)
 
 void benchmarkFontGlyphRasterize(int iterations)
 {
-    const std::string fontPath = findBenchmarkFontPath();
-    if (fontPath.empty()) {
+    const auto systemFont = findBenchmarkFont();
+    if (!systemFont) {
         printSkippedMetric("font_glyph_rasterize", "no benchmark font found");
         return;
     }
@@ -317,7 +335,7 @@ void benchmarkFontGlyphRasterize(int iterations)
     wsc::text::FontRasterizer rasterizer;
     rasterizer.clearCache();
     rasterizer.setCacheCapacity(16);
-    const wsc::FontFace face = wsc::FontFace::fromFile(wsc::FontDescriptor("BenchmarkFontRaster"), fontPath);
+    const wsc::FontFace face = benchmarkFace(*systemFont, "BenchmarkFontRaster");
     const std::string glyphs = "GlyphAtlas";
     std::size_t totalPixels = 0;
 
@@ -344,14 +362,14 @@ void benchmarkFontGlyphRasterize(int iterations)
 
 void benchmarkPortableGlyphAtlasText(int iterations)
 {
-    const std::string fontPath = findBenchmarkFontPath();
-    if (fontPath.empty()) {
+    const auto systemFont = findBenchmarkFont();
+    if (!systemFont) {
         printSkippedMetric("portable_glyph_atlas_text", "no benchmark font found");
         return;
     }
 
     std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createPortableTextBackend();
-    (void)backend->registerFontFace(wsc::FontFace::fromFile(wsc::FontDescriptor("BenchmarkAtlasFont"), fontPath));
+    (void)backend->registerFontFace(benchmarkFace(*systemFont, "BenchmarkAtlasFont"));
 
     wsc::Paint paint;
     paint.setTextSize(22.0f);

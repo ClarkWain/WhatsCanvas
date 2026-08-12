@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdint>
 #include <deque>
+#include <filesystem>
 #include <fstream>
 #include <memory>
 #include <mutex>
@@ -61,7 +62,7 @@ std::string makeFaceKey(const wsc::FontFace &face)
 
 std::vector<unsigned char> readFileBytes(const std::string &path)
 {
-    std::ifstream input(path, std::ios::binary);
+    std::ifstream input(std::filesystem::u8path(path), std::ios::binary);
     if (!input) {
         return {};
     }

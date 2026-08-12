@@ -7,6 +7,8 @@
 
 #include "MetalRenderDevice.h"
 
+#include "../IRenderTarget.h"
+
 #include <string>
 #include <vector>
 

@@ -769,23 +769,6 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     )
     set_tests_properties(WhatsCanvasTextBackendContractTests PROPERTIES LABELS "unit;text")
 
-    add_executable(WhatsCanvasSystemFontDiscoveryTests
-        "${CMAKE_CURRENT_SOURCE_DIR}/tests/SystemFontDiscoveryTests.cpp"
-    )
-    target_link_libraries(WhatsCanvasSystemFontDiscoveryTests PRIVATE
-        WhatsCanvasSoftware
-        WhatsCanvasGLM
-    )
-    add_test(NAME WhatsCanvasSystemFontDiscoveryTests
-        COMMAND ${CMAKE_COMMAND}
-            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
-            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasSystemFontDiscoveryTests
-            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasSystemFontDiscoveryTests>
-            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
-            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
-    )
-    set_tests_properties(WhatsCanvasSystemFontDiscoveryTests PROPERTIES LABELS "unit;text" TIMEOUT 60)
-
     add_executable(WhatsCanvasTextRegressionTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/TextRegressionTests.cpp"
     )
@@ -1462,28 +1445,30 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     )
     set_tests_properties(WhatsCanvasMetalPaintTests PROPERTIES LABELS "unit;metal;paint" TIMEOUT 60)
 
-    add_executable(WhatsCanvasMetalWrapExternalTests
-        "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalWrapExternalTests.cpp"
-    )
-    target_link_libraries(WhatsCanvasMetalWrapExternalTests PRIVATE
-        WhatsCanvasOpenGL
-        WhatsCanvasGLM
-    )
-    set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalWrapExternalTests.cpp"
-        PROPERTIES COMPILE_FLAGS "-fobjc-arc -fmodules"
-        LANGUAGE OBJCXX)
-    target_link_libraries(WhatsCanvasMetalWrapExternalTests PRIVATE
-        "-framework Metal"
-        "-framework Foundation")
-    add_test(NAME WhatsCanvasMetalWrapExternalTests
-        COMMAND ${CMAKE_COMMAND}
-            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
-            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasMetalWrapExternalTests
-            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasMetalWrapExternalTests>
-            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
-            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
-    )
-    set_tests_properties(WhatsCanvasMetalWrapExternalTests PROPERTIES LABELS "unit;metal;image" TIMEOUT 60)
+    if (APPLE AND WHATSCANVAS_METAL_BACKEND_ENABLED)
+        add_executable(WhatsCanvasMetalWrapExternalTests
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalWrapExternalTests.cpp"
+        )
+        target_link_libraries(WhatsCanvasMetalWrapExternalTests PRIVATE
+            WhatsCanvasOpenGL
+            WhatsCanvasGLM
+        )
+        set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalWrapExternalTests.cpp"
+            PROPERTIES COMPILE_FLAGS "-fobjc-arc -fmodules"
+            LANGUAGE OBJCXX)
+        target_link_libraries(WhatsCanvasMetalWrapExternalTests PRIVATE
+            "-framework Metal"
+            "-framework Foundation")
+        add_test(NAME WhatsCanvasMetalWrapExternalTests
+            COMMAND ${CMAKE_COMMAND}
+                -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+                -DWHATSCANVAS_TEST_TARGET=WhatsCanvasMetalWrapExternalTests
+                -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasMetalWrapExternalTests>
+                -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+        )
+        set_tests_properties(WhatsCanvasMetalWrapExternalTests PROPERTIES LABELS "unit;metal;image" TIMEOUT 60)
+    endif()
 
     add_executable(WhatsCanvasMetalFilterPixelParityTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalFilterPixelParityTests.cpp"
@@ -1788,6 +1773,26 @@ endif()
 # available in a truly GPU-free configuration (WHATSCANVAS_BUILD_OPENGL=OFF,
 # WHATSCANVAS_BUILD_SOFTWARE=ON) as well as the default build.
 if (BUILD_TESTING AND TARGET WhatsCanvasSoftware)
+    add_executable(WhatsCanvasSystemFontDiscoveryTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/SystemFontDiscoveryTests.cpp"
+    )
+    target_link_libraries(WhatsCanvasSystemFontDiscoveryTests PRIVATE
+        WhatsCanvasSoftware
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasSystemFontDiscoveryTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasSystemFontDiscoveryTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasSystemFontDiscoveryTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasSystemFontDiscoveryTests PROPERTIES
+        LABELS "unit;text;font"
+        TIMEOUT 60
+    )
+
     add_executable(WhatsCanvasSoftwareLibTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/SoftwareRendererTests.cpp"
     )
