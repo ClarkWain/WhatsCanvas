@@ -1382,12 +1382,11 @@ SharedImageResource MetalRenderDevice::createImageResourceAlpha8(int width, int 
 
 SharedImageResource MetalRenderDevice::createImageResourceFromImageData(int width, int height, int channels,
                                                                         const unsigned char *pixels,
-                                                                        bool /*generateMipmaps*/) const
+                                                                        bool generateMipmaps) const
 {
     if (!context_ || !context_->deviceReady || width <= 0 || height <= 0 || pixels == nullptr) {
         return {};
     }
-    // Expand RGB to RGBA if needed (Metal has no widely-supported RGB8 storage).
     std::vector<unsigned char> rgba;
     const unsigned char *source = pixels;
     if (channels == 4) {
@@ -1408,19 +1407,60 @@ SharedImageResource MetalRenderDevice::createImageResourceFromImageData(int widt
     } else {
         return {};
     }
-    std::vector<unsigned char> owned(source, source + static_cast<std::size_t>(width) * height * 4u);
-    return createImageResourceRGBA(width, height, owned);
+    if (!generateMipmaps) {
+        std::vector<unsigned char> owned(source, source + static_cast<std::size_t>(width) * height * 4u);
+        return createImageResourceRGBA(width, height, owned);
+    }
+
+    MTLTextureDescriptor *desc =
+        [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
+                                                           width:static_cast<NSUInteger>(width)
+                                                          height:static_cast<NSUInteger>(height)
+                                                       mipmapped:YES];
+    desc.usage = MTLTextureUsageShaderRead;
+    desc.storageMode = preferredTextureStorageMode(context_->device);
+    id<MTLTexture> texture = [context_->device newTextureWithDescriptor:desc];
+    if (texture == nil) {
+        return {};
+    }
+    MTLRegion region = MTLRegionMake2D(0, 0, width, height);
+    [texture replaceRegion:region mipmapLevel:0 withBytes:source
+               bytesPerRow:static_cast<NSUInteger>(width) * 4];
+    // Mip levels above 0 are populated by the GPU via a blit encoder.
+    @autoreleasepool {
+        id<MTLCommandBuffer> cb = [context_->commandQueue commandBuffer];
+        id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
+        [blit generateMipmapsForTexture:texture];
+        [blit endEncoding];
+        [cb commit];
+        [cb waitUntilCompleted];
+    }
+    context_->imageTextureCount += 1;
+    return std::make_shared<MetalTextureResource>(texture, width, height, /*alpha=*/false, /*owned=*/true);
 }
 
 bool MetalRenderDevice::updateImageResourceRGBA(const SharedImageResource &imageResource, int x, int y, int width,
                                                 int height, const unsigned char *pixels,
-                                                bool /*regenerateMipmaps*/) const
+                                                bool regenerateMipmaps) const
 {
     auto *res = dynamic_cast<MetalTextureResource *>(imageResource.get());
     if (res == nullptr || !res->isValid() || pixels == nullptr) {
         return false;
     }
-    return res->updateRGBA(x, y, width, height, pixels, false);
+    if (!res->updateRGBA(x, y, width, height, pixels, false)) {
+        return false;
+    }
+    if (regenerateMipmaps && res->metalTexture().mipmapLevelCount > 1) {
+        @autoreleasepool {
+            id<MTLCommandBuffer> cb = [context_->commandQueue commandBuffer];
+            id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
+            [blit generateMipmapsForTexture:res->metalTexture()];
+            [blit endEncoding];
+            [cb commit];
+            [cb waitUntilCompleted];
+        }
+    }
+    return true;
 }
 
 bool MetalRenderDevice::updateImageResourceAlpha8(const SharedImageResource &imageResource, int x, int y, int width,
