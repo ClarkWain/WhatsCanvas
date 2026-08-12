@@ -101,8 +101,16 @@ struct TexturedVSOut {
 };
 
 struct TexturedUniforms {
-    float4 tint;      // rgba multiplier
-    float4 params;    // x = layerAlpha, y = unused, z = unused, w = unused
+    float4 tint;         // rgba multiplier
+    float4 params;       // x = layerAlpha, y = roundedRadius (px), zw = quad size (px)
+    // Row-major 4x4 color matrix + rgba offset. Applied to the sampled colour
+    // (before tint/alpha) when useColorMatrix.x > 0.5. Rows stored as float4s.
+    float4 useColorMatrix; // x flag, yzw unused
+    float4 colorMatrixRow0;
+    float4 colorMatrixRow1;
+    float4 colorMatrixRow2;
+    float4 colorMatrixRow3;
+    float4 colorMatrixOffset;
 };
 
 vertex TexturedVSOut textured_vs(TexturedVSInput in [[stage_in]])
@@ -114,19 +122,44 @@ vertex TexturedVSOut textured_vs(TexturedVSInput in [[stage_in]])
     return out;
 }
 
+// Coverage of a rounded-rectangle mask: returns 1 fully inside, 0 outside the
+// corner, and a smooth 1-pixel roll-off along the arc for cheap AA. The
+// destination rect is (0,0)..(w,h) in local pixels; the same math applies at
+// all four corners by symmetry.
+static float roundedRectCoverage(float2 localPx, float2 sizePx, float radius)
+{
+    if (radius <= 0.5) return 1.0;
+    float2 corner = min(localPx, sizePx - localPx);
+    if (corner.x >= radius || corner.y >= radius) return 1.0;
+    float2 d = float2(radius, radius) - corner;
+    float dist = length(d);
+    return saturate(radius + 0.5 - dist);
+}
+
 fragment float4 textured_fs(TexturedVSOut in [[stage_in]],
                             texture2d<float> tex [[texture(0)]],
                             sampler samp [[sampler(0)]],
                             constant TexturedUniforms &u [[buffer(0)]])
 {
     float4 s = tex.sample(samp, in.uv);
+    if (u.useColorMatrix.x > 0.5) {
+        float4 m = float4(
+            dot(u.colorMatrixRow0, s),
+            dot(u.colorMatrixRow1, s),
+            dot(u.colorMatrixRow2, s),
+            dot(u.colorMatrixRow3, s));
+        s = m + u.colorMatrixOffset;
+    }
     float4 c = s * u.tint * in.vertexTint;
     c.a *= u.params.x;
+    if (u.params.y > 0.5) {
+        float2 sizePx = u.params.zw;
+        float coverage = roundedRectCoverage(in.uv * sizePx, sizePx, u.params.y);
+        c.a *= coverage;
+    }
     return c;
 }
 
-// Alpha-only path (glyph atlas / mask sampled as R8): fragment reads the red
-// channel and multiplies it by the tint color to produce coloured coverage.
 fragment float4 textured_alpha_fs(TexturedVSOut in [[stage_in]],
                                   texture2d<float> tex [[texture(0)]],
                                   sampler samp [[sampler(0)]],
@@ -1655,7 +1688,13 @@ void encodeSolid(id<MTLRenderCommandEncoder> encoder, MetalRenderDevice::MetalCo
 struct MetalTexturedUniforms
 {
     float tint[4];
-    float params[4];
+    float params[4];             // x = layerAlpha, y = roundedRadius, zw = quad size (px)
+    float useColorMatrix[4];     // x flag (1.0 = active), yzw padding
+    float colorMatrixRow0[4];
+    float colorMatrixRow1[4];
+    float colorMatrixRow2[4];
+    float colorMatrixRow3[4];
+    float colorMatrixOffset[4];
 };
 
 void encodeTextured(id<MTLRenderCommandEncoder> encoder, MetalRenderDevice::MetalContext &ctx,
@@ -1745,9 +1784,28 @@ void encodeTextured(id<MTLRenderCommandEncoder> encoder, MetalRenderDevice::Meta
     u.tint[2] = prim.tint[2];
     u.tint[3] = prim.tint[3];
     u.params[0] = prim.layerAlpha;
-    u.params[1] = 0.0f;
-    u.params[2] = 0.0f;
-    u.params[3] = 0.0f;
+    // The rounded-rectangle uniform slot is repurposed to carry (radius, w, h)
+    // in destination-pixel units. The Textured fragment shader activates the
+    // rounded-corner branch only when both radius > 0.5 and size > 0.
+    u.params[1] = prim.roundedRadius;
+    u.params[2] = prim.roundedWidth;
+    u.params[3] = prim.roundedHeight;
+    u.useColorMatrix[0] = prim.hasColorMatrix ? 1.0f : 0.0f;
+    if (prim.hasColorMatrix) {
+        for (int row = 0; row < 4; ++row) {
+            float *dst = (row == 0 ? u.colorMatrixRow0
+                        : row == 1 ? u.colorMatrixRow1
+                        : row == 2 ? u.colorMatrixRow2
+                                   : u.colorMatrixRow3);
+            for (int col = 0; col < 4; ++col) {
+                dst[col] = prim.colorMatrix[row * 4 + col];
+            }
+        }
+        u.colorMatrixOffset[0] = prim.colorMatrixOffset[0];
+        u.colorMatrixOffset[1] = prim.colorMatrixOffset[1];
+        u.colorMatrixOffset[2] = prim.colorMatrixOffset[2];
+        u.colorMatrixOffset[3] = prim.colorMatrixOffset[3];
+    }
     [encoder setFragmentBytes:&u length:sizeof(u) atIndex:0];
 
     [encoder setFragmentTexture:tex atIndex:0];
