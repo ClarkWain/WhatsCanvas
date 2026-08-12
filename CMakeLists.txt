@@ -1354,6 +1354,26 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     )
     set_tests_properties(WhatsCanvasMetalGpuTimingTests PROPERTIES LABELS "unit;metal;performance" TIMEOUT 60)
 
+    add_executable(WhatsCanvasMetalDrawListTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalDrawListTests.cpp"
+    )
+    target_include_directories(WhatsCanvasMetalDrawListTests PRIVATE
+        "${SRC_DIR}"
+    )
+    target_link_libraries(WhatsCanvasMetalDrawListTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasMetalDrawListTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasMetalDrawListTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasMetalDrawListTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasMetalDrawListTests PROPERTIES LABELS "unit;metal;drawlist" TIMEOUT 60)
+
     add_executable(WhatsCanvasMetalInteractionTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalInteractionTests.cpp"
     )
