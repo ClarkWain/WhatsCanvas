@@ -110,6 +110,11 @@ public:
     std::unique_ptr<ISwapchain> createSwapchain(const NativeSurface &surface,
                                                 const SwapchainConfig &config) override;
 
+    bool beginGpuFrameTiming() override;
+    void endGpuFrameTiming() override;
+    void setGpuFrameTimingEnabled(bool enabled) override;
+    bool lastGpuFrameTimeNs(std::uint64_t &nanoseconds) const override;
+
     /// True once the Metal device has been created successfully.
     bool isDeviceReady() const;
 
