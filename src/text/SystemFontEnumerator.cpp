@@ -599,10 +599,18 @@ std::vector<FontFace> FontSystem::defaultSystemFontFaces()
 
 void FontSystem::refreshDefaultSystemFontFaces()
 {
-    {
-        std::lock_guard<std::mutex> lock(discoveryCache().mutex);
-        discoveryCache().value.reset();
-    }
+    refreshDiscoveredFontFaces();
+    refreshDefaultSystemFontFacesOnly();
+}
+
+void FontSystem::refreshDiscoveredFontFaces()
+{
+    std::lock_guard<std::mutex> lock(discoveryCache().mutex);
+    discoveryCache().value.reset();
+}
+
+void FontSystem::refreshDefaultSystemFontFacesOnly()
+{
     std::lock_guard<std::mutex> lock(defaultsCache().mutex);
     defaultsCache().value.reset();
 }
