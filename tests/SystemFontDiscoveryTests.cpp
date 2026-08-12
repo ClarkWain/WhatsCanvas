@@ -142,5 +142,21 @@ int main()
                 "defaultSystemFontFaces() should return a stable slot count "
                 "before and after refreshDefaultSystemFontFaces()") && ok;
 
+    // The narrower refresh entry points should be independently exercisable
+    // without invalidating the whole two-layer cache.
+    const std::size_t discoveredBefore = FontSystem::discoverInstalledFontFaces().size();
+    FontSystem::refreshDiscoveredFontFaces();
+    const std::size_t discoveredAfter = FontSystem::discoverInstalledFontFaces().size();
+    ok = expect(discoveredBefore == discoveredAfter,
+                "refreshDiscoveredFontFaces() should preserve discovery result "
+                "shape across a re-enumeration") && ok;
+
+    const std::size_t defaultsBefore = FontSystem::defaultSystemFontFaces().size();
+    FontSystem::refreshDefaultSystemFontFacesOnly();
+    const std::size_t defaultsAfter = FontSystem::defaultSystemFontFaces().size();
+    ok = expect(defaultsBefore == defaultsAfter,
+                "refreshDefaultSystemFontFacesOnly() should preserve the slot "
+                "count on rebuild") && ok;
+
     return ok ? 0 : 1;
 }

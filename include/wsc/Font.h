@@ -316,10 +316,24 @@ public:
     /// platform font manager. No operating-system font paths are assumed.
     static std::vector<FontFace> defaultSystemFontFaces();
 
-    /// Discard the process-wide cache used by defaultSystemFontFaces() so
-    /// the next call re-runs discovery. Cheap to call; useful after the
+    /// Discard both the discovery and the default-slot process-wide caches
+    /// so the next discoverInstalledFontFaces() / defaultSystemFontFaces()
+    /// call re-runs platform enumeration. Cheap to call; useful after the
     /// host installs a new font at runtime.
     static void refreshDefaultSystemFontFaces();
+
+    /// Discard only the discoverInstalledFontFaces() cache. defaultSystemFontFaces()
+    /// keeps its own cached slot table until refreshDefaultSystemFontFaces()
+    /// is called. Prefer this entry point when the caller only consumes the
+    /// discovery output directly (e.g. a font picker) and wants to avoid
+    /// rebuilding the WhatsCanvas fallback slot table.
+    static void refreshDiscoveredFontFaces();
+
+    /// Discard only the defaultSystemFontFaces() cache. The next call
+    /// rebuilds the slot table from the cached discovery output; call
+    /// refreshDiscoveredFontFaces() first if the underlying installed
+    /// font set has actually changed.
+    static void refreshDefaultSystemFontFacesOnly();
 
     static FontFallbackChain defaultFallbackChain(const std::string &primaryFamily = kDefaultPrimaryFamily)
     {
