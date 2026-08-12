@@ -88,6 +88,41 @@ bool testMetalBlendModes()
     ok = expect(drawOverlap(Paint::BlendMode::MULTIPLY, center)
                 && center[0] < 30 && center[2] < 30,
                 "Multiply of red and blue should read black") && ok;
+
+    // The Porter-Duff modes below all draw a full-canvas foreground so
+    // src.a = dst.a = 1 everywhere, giving predictable channel outcomes.
+    // Dst: destination is left untouched, so the background red must come
+    // through unchanged even though we drew a blue fg on top.
+    ok = expect(drawOverlap(Paint::BlendMode::DST, center)
+                && center[0] > 200 && center[2] < 30,
+                "Dst blend should preserve the background red") && ok;
+    // SrcIn (opaque fg over opaque bg): result = fg (destination alpha 1),
+    // so the readback is pure blue.
+    ok = expect(drawOverlap(Paint::BlendMode::SRC_IN, center)
+                && center[2] > 200 && center[0] < 30,
+                "SrcIn of opaque blue over opaque red should read blue") && ok;
+    // DstIn: dst * src.a. src.a=1 so destination survives -> red.
+    ok = expect(drawOverlap(Paint::BlendMode::DST_IN, center)
+                && center[0] > 200 && center[2] < 30,
+                "DstIn should preserve the destination red when src is opaque") && ok;
+    // SrcOut: src * (1 - dst.a). dst.a=1 -> result is (0,0,0,0) transparent.
+    ok = expect(drawOverlap(Paint::BlendMode::SRC_OUT, center) && center[3] < 20,
+                "SrcOut against an opaque destination should be transparent") && ok;
+    // DstOut: dst * (1 - src.a). src.a=1 -> destination punched to transparent.
+    ok = expect(drawOverlap(Paint::BlendMode::DST_OUT, center) && center[3] < 20,
+                "DstOut against an opaque source should erase the destination") && ok;
+    // SrcAtop: src * dst.a + dst * (1 - src.a). With src.a=1 and dst.a=1 the
+    // result is src -> blue.
+    ok = expect(drawOverlap(Paint::BlendMode::SRC_ATOP, center)
+                && center[2] > 200 && center[0] < 30,
+                "SrcAtop with opaque src+dst should read blue") && ok;
+    // Xor: src * (1 - dst.a) + dst * (1 - src.a). Both alphas 1 -> zero.
+    ok = expect(drawOverlap(Paint::BlendMode::XOR, center) && center[3] < 20,
+                "Xor of two opaque fills should read transparent") && ok;
+    // Clear: always zero.
+    ok = expect(drawOverlap(Paint::BlendMode::CLEAR, center)
+                && center[0] < 20 && center[3] < 20,
+                "Clear must zero out both RGB and alpha") && ok;
     return ok;
 }
 
