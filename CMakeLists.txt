@@ -1232,6 +1232,40 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     )
     set_tests_properties(WhatsCanvasMetalImageEffectsTests PROPERTIES LABELS "unit;metal;image" TIMEOUT 60)
 
+    add_executable(WhatsCanvasMetalBlendModeTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalBlendModeTests.cpp"
+    )
+    target_link_libraries(WhatsCanvasMetalBlendModeTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasMetalBlendModeTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasMetalBlendModeTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasMetalBlendModeTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasMetalBlendModeTests PROPERTIES LABELS "unit;metal;blend" TIMEOUT 60)
+
+    add_executable(WhatsCanvasMetalGeometryTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalGeometryTests.cpp"
+    )
+    target_link_libraries(WhatsCanvasMetalGeometryTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasMetalGeometryTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasMetalGeometryTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasMetalGeometryTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasMetalGeometryTests PROPERTIES LABELS "unit;metal;geometry" TIMEOUT 60)
+
     # Ad-hoc Metal-vs-OpenGL throughput smoke. Built as an executable rather
     # than a CTest gate so per-run timing noise never breaks the CI signal.
     add_executable(WhatsCanvasMetalPerformanceSmoke
