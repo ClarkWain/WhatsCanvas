@@ -328,6 +328,7 @@ function(whatscanvas_add_gl_family_library target_name project_root)
         "${src_dir}/text/GlyphAtlas.cpp"
         "${src_dir}/text/NativeText.cpp"
         "${src_dir}/text/DirectWriteTextBackend.cpp"
+        "${src_dir}/text/SystemFontEnumerator.cpp"
         "${src_dir}/text/TextShaper.cpp"
         "${src_dir}/text/TextUtils.cpp"
         "${src_dir}/text/UnicodeBidi.cpp"
@@ -451,6 +452,30 @@ function(whatscanvas_add_gl_family_library target_name project_root)
         target_link_libraries(${target_name} PRIVATE gdi32 user32 dwrite d2d1 windowscodecs ole32)
     endif()
 
+    if (APPLE)
+        find_library(WHATSCANVAS_CORETEXT_FRAMEWORK CoreText)
+        if (WHATSCANVAS_CORETEXT_FRAMEWORK)
+            target_link_libraries(${target_name} PRIVATE "${WHATSCANVAS_CORETEXT_FRAMEWORK}")
+        endif()
+        if (NOT DEFINED WHATSCANVAS_FOUNDATION_FRAMEWORK OR NOT WHATSCANVAS_FOUNDATION_FRAMEWORK)
+            find_library(WHATSCANVAS_FOUNDATION_FRAMEWORK Foundation)
+        endif()
+        if (WHATSCANVAS_FOUNDATION_FRAMEWORK)
+            target_link_libraries(${target_name} PRIVATE "${WHATSCANVAS_FOUNDATION_FRAMEWORK}")
+        endif()
+    endif()
+
+    if (UNIX AND NOT APPLE)
+        find_package(PkgConfig QUIET)
+        if (PkgConfig_FOUND)
+            pkg_check_modules(WHATSCANVAS_FONTCONFIG QUIET fontconfig)
+            if (WHATSCANVAS_FONTCONFIG_FOUND)
+                target_link_libraries(${target_name} PRIVATE ${WHATSCANVAS_FONTCONFIG_LIBRARIES})
+                target_include_directories(${target_name} PRIVATE ${WHATSCANVAS_FONTCONFIG_INCLUDE_DIRS})
+            endif()
+        endif()
+    endif()
+
     whatscanvas_link_x11_if_enabled(${target_name})
 endfunction()
 
@@ -485,6 +510,7 @@ function(whatscanvas_add_software_library target_name project_root)
         "${src_dir}/text/GlyphAtlas.cpp"
         "${src_dir}/text/NativeText.cpp"
         "${src_dir}/text/DirectWriteTextBackend.cpp"
+        "${src_dir}/text/SystemFontEnumerator.cpp"
         "${src_dir}/text/TextShaper.cpp"
         "${src_dir}/text/TextUtils.cpp"
         "${src_dir}/text/UnicodeBidi.cpp"
@@ -522,6 +548,30 @@ function(whatscanvas_add_software_library target_name project_root)
 
     if (WIN32)
         target_link_libraries(${target_name} PRIVATE gdi32 user32 dwrite d2d1 windowscodecs ole32)
+    endif()
+
+    if (APPLE)
+        find_library(WHATSCANVAS_CORETEXT_FRAMEWORK CoreText)
+        if (WHATSCANVAS_CORETEXT_FRAMEWORK)
+            target_link_libraries(${target_name} PRIVATE "${WHATSCANVAS_CORETEXT_FRAMEWORK}")
+        endif()
+        if (NOT DEFINED WHATSCANVAS_FOUNDATION_FRAMEWORK OR NOT WHATSCANVAS_FOUNDATION_FRAMEWORK)
+            find_library(WHATSCANVAS_FOUNDATION_FRAMEWORK Foundation)
+        endif()
+        if (WHATSCANVAS_FOUNDATION_FRAMEWORK)
+            target_link_libraries(${target_name} PRIVATE "${WHATSCANVAS_FOUNDATION_FRAMEWORK}")
+        endif()
+    endif()
+
+    if (UNIX AND NOT APPLE)
+        find_package(PkgConfig QUIET)
+        if (PkgConfig_FOUND)
+            pkg_check_modules(WHATSCANVAS_FONTCONFIG QUIET fontconfig)
+            if (WHATSCANVAS_FONTCONFIG_FOUND)
+                target_link_libraries(${target_name} PRIVATE ${WHATSCANVAS_FONTCONFIG_LIBRARIES})
+                target_include_directories(${target_name} PRIVATE ${WHATSCANVAS_FONTCONFIG_INCLUDE_DIRS})
+            endif()
+        endif()
     endif()
 
     whatscanvas_link_x11_if_enabled(${target_name})
