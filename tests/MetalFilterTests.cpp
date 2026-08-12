@@ -8,6 +8,7 @@
 // the Gaussian kernel parameters — the test only checks that a real blur was
 // applied vs the fully-transparent output the filter used to return.
 
+#include <algorithm>
 #include <cstdint>
 #include <iostream>
 #include <memory>
@@ -150,6 +151,58 @@ bool testMetalInnerShadow()
     return ok;
 }
 
+// Blur with grayscale colour adjustment: saturation 0 must collapse the
+// blurred colour to a grey (R ≈ G ≈ B). The centre of the source is a fully
+// saturated blue; after saturation=0 it should read back close to grey.
+bool testMetalBlurColorAdjust()
+{
+    if (!Canvas::isBackendAvailable(Canvas::Backend::Metal)) {
+        return true;
+    }
+    const int w = 64;
+    const int h = 64;
+    auto canvas = Canvas::create(Canvas::Backend::Metal, w, h);
+    if (!expect(canvas != nullptr, "create(Metal) should succeed")) {
+        return false;
+    }
+    canvas->initializeContext();
+
+    canvas->beginFrame();
+    Paint layerPaint;
+    layerPaint.setColor(Color(255, 255, 255, 255));
+    LayerOptions options;
+    ImageFilter filter = ImageFilter::blur(2.0f);
+    filter.setColorAdjustment(0.0f, 1.0f, 1.0f);
+    options.setImageFilter(filter);
+    canvas->saveLayer(RectF(0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h)),
+                      layerPaint, options);
+
+    Paint fill;
+    fill.setStyle(Paint::Style::FILL);
+    fill.setColor(Color(0, 0, 240, 255));
+    fill.setAntiAlias(false);
+    canvas->drawRect(RectF(20.0f, 20.0f, 44.0f, 44.0f), fill);
+
+    canvas->restore();
+    canvas->endFrame();
+
+    std::vector<unsigned char> pixels;
+    if (!expect(canvas->readPixelsRGBA(pixels), "readPixels should succeed")) {
+        return false;
+    }
+    auto at = [&](int x, int y) { return &pixels[(static_cast<std::size_t>(y) * w + x) * 4u]; };
+    const unsigned char *centre = at(32, 32);
+    // With saturation=0 the blue channel should have collapsed toward the
+    // luminance of the source (~28 for pure blue). All three channels must be
+    // within a tight band.
+    int maxCh = std::max({int(centre[0]), int(centre[1]), int(centre[2])});
+    int minCh = std::min({int(centre[0]), int(centre[1]), int(centre[2])});
+    bool ok = expect(maxCh - minCh <= 20,
+                     "saturation=0 must collapse the blur result to (near) grey");
+    ok = expect(centre[3] > 200, "alpha should stay opaque after the post pass") && ok;
+    return ok;
+}
+
 } // namespace
 
 int main()
@@ -157,5 +210,6 @@ int main()
     bool ok = true;
     ok = testMetalGaussianBlur() && ok;
     ok = testMetalInnerShadow() && ok;
+    ok = testMetalBlurColorAdjust() && ok;
     return ok ? 0 : 1;
 }

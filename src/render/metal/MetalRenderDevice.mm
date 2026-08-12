@@ -349,7 +349,12 @@ struct BlurUniforms {
     float2 padding;
     int    tapCount;       // number of one-sided samples (excluding center)
     int    tileMode;       // 0 = clamp, 1 = decal
-    float  padding2[2];
+    // Post-blur adjustment payload, active only when applyPost > 0.5. Saturation
+    // 1 leaves the source untouched; brightness/contrast pivot around 0.5 grey.
+    // Grain adds a small deterministic dither driven by the UV hash.
+    float  applyPost;
+    float  saturation;
+    float4 colorAdjust;    // x brightness, y contrast, z grain amount, w unused
     float4 weights[32];    // weights[i].x used; kept as float4 for alignment
 };
 
@@ -359,6 +364,20 @@ vertex BlurVSOut blur_vs(BlurVSInput in [[stage_in]])
     out.position = float4(in.position.x, -in.position.y, 0.0, 1.0);
     out.uv = in.uv;
     return out;
+}
+
+static float4 applyBlurPost(float4 c, constant BlurUniforms &u, float2 uv)
+{
+    // Saturation.
+    float luma = dot(c.rgb, float3(0.299, 0.587, 0.114));
+    c.rgb = mix(float3(luma), c.rgb, u.saturation);
+    // Brightness and contrast (about 0.5 pivot).
+    c.rgb *= u.colorAdjust.x;
+    c.rgb = (c.rgb - 0.5) * u.colorAdjust.y + 0.5;
+    // Grain: deterministic per-fragment dither in [-0.5, 0.5] * amount.
+    float noise = fract(sin(dot(uv, float2(12.9898, 78.233))) * 43758.5453);
+    c.rgb += (noise - 0.5) * u.colorAdjust.z;
+    return c;
 }
 
 fragment float4 blur_fs(BlurVSOut in [[stage_in]],
@@ -379,6 +398,9 @@ fragment float4 blur_fs(BlurVSOut in [[stage_in]],
             if (uvB.x < 0.0 || uvB.x > 1.0 || uvB.y < 0.0 || uvB.y > 1.0) sB = float4(0.0);
         }
         acc += (sA + sB) * u.weights[i].x;
+    }
+    if (u.applyPost > 0.5) {
+        acc = applyBlurPost(acc, u, in.uv);
     }
     return acc;
 }
@@ -2136,7 +2158,9 @@ struct MetalBlurUniforms
     float direction[4];    // xy = per-pixel step, zw = padding
     int   tapCount = 0;
     int   tileMode = 0;
-    float padding2[2] = {0.0f, 0.0f};
+    float applyPost = 0.0f;   // > 0.5 activates saturation/brightness/contrast/grain
+    float saturation = 1.0f;
+    float colorAdjust[4] = {1.0f, 1.0f, 0.0f, 0.0f}; // brightness, contrast, grain, unused
     float weights[32][4] = {}; // .x holds the weight; kMetalBlurMaxTaps + 1 slots
 };
 
@@ -2257,6 +2281,17 @@ SharedImageResource MetalRenderDevice::filterImageResource(const SharedImageReso
     uY.tileMode = tileMode;
 
     if (filter.type() == wsc::ImageFilter::Type::Blur) {
+        // Fold post-blur colour adjustments and grain into the vertical
+        // (final) pass so they only take effect once. Skia's blur-with-color
+        // model keeps colour untouched during accumulation and applies the
+        // transforms once at the end.
+        if (filter.hasColorAdjustment() || filter.hasGrain()) {
+            uY.applyPost = 1.0f;
+            uY.saturation = filter.saturation();
+            uY.colorAdjust[0] = filter.brightness();
+            uY.colorAdjust[1] = filter.contrast();
+            uY.colorAdjust[2] = filter.grain();
+        }
         id<MTLTexture> tempTex = nil;
         id<MTLTexture> finalTex = nil;
         @autoreleasepool {
