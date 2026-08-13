@@ -158,7 +158,7 @@ public:
 
 public:
 	/// Render backend selection for `create`. `Auto` picks the first available
-	/// of Vulkan → OpenGL/OpenGLES → Software.
+	/// of Vulkan → Metal → OpenGL/OpenGLES → Software.
 	enum class Backend
 	{
 		Auto,
@@ -180,7 +180,7 @@ public:
 	/// not initialized. Call `beginFrame()` (which initializes lazily) or
 	/// `initializeContext()` before drawing. For the OpenGL backends, make your
 	/// GL context current and call `loadOpenGL()` before initialization or the
-	/// first frame; software/Vulkan need no external context.
+	/// first frame; Software/Vulkan/Metal need no external GL context.
 	static std::unique_ptr<Canvas> create(Backend backend, int width, int height);
 
 	/// Create a canvas on the first available backend from `preferred`, or
@@ -214,7 +214,7 @@ protected:
 public:
 	// Canvas lifetime and state.
 	/// Resize the drawing surface. Must be called before initializeContext for
-	/// GL-backed canvases; software/Vulkan canvases are pre-sized by their factory.
+	/// GL-backed canvases; Software/Vulkan/Metal canvases are pre-sized by their factory.
 	void setSize(int width, int height);
 	int getWidth() const;
 	int getHeight() const;
@@ -310,6 +310,10 @@ public:
 	                     int height, bool regenerateMipmaps = true);
 	bool wrapExternalTexture(Image &image, std::uint32_t textureId, int width, int height,
 	                         bool mipmapsGenerated = false);
+	/// Wrap an externally-owned id<MTLTexture> as an Image on a Metal canvas.
+	/// `texture` must be a valid MTLTexture from this canvas's MTLDevice.
+	bool wrapExternalMetalTexture(Image &image, void *texture, int width, int height,
+	                              bool mipmapsGenerated = false);
 
 	// Text drawing and measurement.
 	/// Draw a single line of text with its baseline anchored per the paint.
@@ -330,6 +334,9 @@ public:
 	TextMetrics measureTextMetrics(const std::string &text, const Paint &paint) const;
 	/// Register a font face so its family can be selected via Paint::setFontFamily.
 	bool registerFontFace(const FontFace &face);
+	/// Re-enumerate installed fonts and update this Canvas while preserving
+	/// explicitly registered fonts and fallback chains.
+	bool refreshSystemFonts();
 	/// Set the fallback chain used to resolve glyphs missing from the primary font.
 	bool setFontFallbackChain(const FontFallbackChain &chain);
 
@@ -428,7 +435,7 @@ public:
 	///
 	/// The offscreen flow is `beginFrame -> draw -> endFrame -> readPixelsRGBA`.
 	/// endFrame() submits and consumes the recorded commands. On the normal output
-	/// path, Software clears on every submission, Vulkan clears when a non-empty
+	/// path, Software clears on every submission, Vulkan/Metal clear when a
 	/// draw list starts, and OpenGL does not clear implicitly. A render-target
 	/// canvas rebuilds its offscreen texture only when commands are queued. Call
 	/// endFrame() exactly once per frame, right before reading back or presenting.
@@ -446,7 +453,7 @@ public:
 	// Output target — where this canvas delivers rendered frames.
 	// See doc/windowed-presentation-design.md.
 	/// Set where frames go: off-screen, an on-screen window, or a host-owned
-	/// GL/Vulkan render target. Returns false when the target is unsupported for
+	/// GL/Vulkan/Metal render target. Returns false when the target is unsupported for
 	/// this backend/platform. Default is `OutputTarget::Offscreen()`.
 	bool setOutputTarget(const OutputTarget &target);
 	/// Deliver the current frame to the output target. Call after `endFrame()`.
@@ -466,6 +473,15 @@ public:
 	void *vulkanDevice() const;
 	void *vulkanQueue() const;
 	unsigned int vulkanQueueFamily() const;
+
+	// Advanced Metal interop. Return the raw handles of the Metal backend as
+	// opaque pointers (id<MTLDevice>, id<MTLCommandQueue>, id<MTLTexture>), or
+	// null for non-Metal canvases. `metalLastRenderedTexture()` is the offscreen
+	// MTLTexture the Canvas most recently drew into; consumers can blit it into
+	// a CAMetalLayer drawable to present the frame on screen.
+	void *metalDevice() const;
+	void *metalCommandQueue() const;
+	void *metalLastRenderedTexture() const;
 
 private:
 	friend class CanvasLifecycleTestAccess;

@@ -220,7 +220,7 @@ private:
 
     static void applyGameFont(Paint &paint)
     {
-        paint.setFont("Consolas");
+        paint.setFont(FontSystem::kDefaultMonoFamily);
     }
     int turnsUntilDrop_ = TURNS_PER_DROP;
     float displayedFps_ = 0.0f;
@@ -1201,6 +1201,10 @@ int main()
     auto canvasOwner = Canvas::create(Canvas::Backend::OpenGL, 0, 0);
     Canvas &canvas = *canvasOwner;
     canvas.setSize(framebufferWidth, framebufferHeight);
+    for (const FontFace &face : FontSystem::defaultSystemFontFaces()) {
+        canvas.registerFontFace(face);
+    }
+    canvas.setFontFallbackChain(FontSystem::defaultFallbackChain());
     // Render at physical resolution while laying the game out in logical units.
     canvas.setDevicePixelRatio(devicePixelRatio);
 

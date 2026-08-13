@@ -146,6 +146,18 @@ bool testSystemFontFallbackChain()
 #endif
 }
 
+bool testSystemFontRefreshGeneration()
+{
+    (void)wsc::FontSystem::defaultSystemFontFaces();
+    const std::uint64_t before = wsc::FontSystem::installedFontGeneration();
+    const std::uint64_t refreshed = wsc::FontSystem::refreshInstalledFonts();
+    const std::uint64_t after = wsc::FontSystem::installedFontGeneration();
+
+    return expect(before > 0, "default font discovery should initialize a generation")
+        && expect(refreshed == before + 1, "refresh should advance the font generation once")
+        && expect(after == refreshed, "reported generation should match the refreshed snapshot");
+}
+
 } // namespace
 
 int main()
@@ -156,6 +168,7 @@ int main()
         && testFontFaceCollectionIndex()
         && testFallbackResolutionOrder()
         && testBestFaceMatching()
-        && testSystemFontFallbackChain();
+        && testSystemFontFallbackChain()
+        && testSystemFontRefreshGeneration();
     return ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }

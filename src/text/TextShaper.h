@@ -12,6 +12,13 @@
 
 namespace wsc::text {
 
+enum class TextDirection
+{
+    Auto,
+    LeftToRight,
+    RightToLeft
+};
+
 struct ShapedGlyph
 {
     std::uint32_t codepoint = 0;
@@ -22,6 +29,7 @@ struct ShapedGlyph
     float offsetX = 0.0f;
     float offsetY = 0.0f;
     bool visible = false;
+    const wsc::FontFace *fontFace = nullptr;
 };
 
 struct ShapedTextRun
@@ -44,6 +52,12 @@ struct ResolvedGlyph
     float advanceX = 0.0f;
 };
 
+struct OpenTypeFeature
+{
+    std::string tag;
+    std::uint32_t value = 1;
+};
+
 using GlyphResolver = std::function<std::optional<ResolvedGlyph>(std::uint32_t codepoint)>;
 
 struct TextShapeInput
@@ -51,6 +65,9 @@ struct TextShapeInput
     std::string normalizedText;
     float letterSpacing = 0.0f;
     float pixelSize = 0.0f;
+    std::string language;
+    TextDirection direction = TextDirection::Auto;
+    std::vector<OpenTypeFeature> openTypeFeatures;
     std::optional<FontDataView> fontData;
 };
 

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstdint>
+#include <filesystem>
 #include <fstream>
 #include <initializer_list>
 #include <memory>
@@ -10,6 +11,8 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+
+#include "Export.h"
 
 namespace wsc {
 
@@ -294,7 +297,7 @@ private:
     std::unordered_map<std::string, FontFallbackChain> fallbackChains_;
 };
 
-class FontSystem
+class WSC_API FontSystem
 {
 public:
     static constexpr const char *kDefaultPrimaryFamily = "WhatsCanvas Sans";
@@ -307,71 +310,42 @@ public:
 
     static bool fileExists(const std::string &path)
     {
-        std::ifstream stream(path, std::ios::binary);
+        std::ifstream stream(std::filesystem::u8path(path), std::ios::binary);
         return stream.good();
     }
 
-    static std::vector<FontFace> defaultSystemFontFaces()
-    {
-        std::vector<FontFace> faces;
-        auto addFace = [&](FontFace face) {
-            if (face.sourceType() == FontSourceType::FILE && fileExists(face.path())) {
-                faces.push_back(std::move(face));
-            }
-        };
-        auto addRangedFace = [&](FontFace face, std::initializer_list<FontCodepointRange> ranges) {
-            for (const FontCodepointRange &range : ranges) {
-                face.addCodepointRange(range.first, range.last);
-            }
-            addFace(std::move(face));
-        };
+    /// Build the portable fallback aliases from fonts reported by the native
+    /// platform font manager's current cached snapshot. No operating-system
+    /// font paths are assumed.
+    static std::vector<FontFace> defaultSystemFontFaces();
 
-#ifdef _WIN32
-        addRangedFace(FontFace::fromFile(FontDescriptor(kDefaultPrimaryFamily, 400), "C:/Windows/Fonts/segoeui.ttf"),
-                      {FontCodepointRange(0x0000, 0x024F), FontCodepointRange(0x2000, 0x206F)});
-        addRangedFace(FontFace::fromFile(FontDescriptor(kDefaultPrimaryFamily, 600), "C:/Windows/Fonts/seguisb.ttf"),
-                      {FontCodepointRange(0x0000, 0x024F), FontCodepointRange(0x2000, 0x206F)});
-        addRangedFace(FontFace::fromFile(FontDescriptor(kDefaultPrimaryFamily, 700), "C:/Windows/Fonts/segoeuib.ttf"),
-                      {FontCodepointRange(0x0000, 0x024F), FontCodepointRange(0x2000, 0x206F)});
-        addRangedFace(FontFace::fromFile(FontDescriptor(kDefaultCjkFamily), "C:/Windows/Fonts/msyh.ttc", 0),
-                      {FontCodepointRange(0x3000, 0x30FF), FontCodepointRange(0x3400, 0x9FFF),
-                       FontCodepointRange(0xF900, 0xFAFF), FontCodepointRange(0xFF00, 0xFFEF)});
-        addRangedFace(FontFace::fromFile(FontDescriptor(kDefaultArabicFamily), "C:/Windows/Fonts/arial.ttf"),
-                      {FontCodepointRange(0x0590, 0x05FF), FontCodepointRange(0x0600, 0x06FF),
-                       FontCodepointRange(0x0750, 0x077F), FontCodepointRange(0x08A0, 0x08FF)});
-        addRangedFace(FontFace::fromFile(FontDescriptor(kDefaultHebrewFamily), "C:/Windows/Fonts/arial.ttf"),
-                      {FontCodepointRange(0x0590, 0x05FF)});
-        addRangedFace(FontFace::fromFile(FontDescriptor(kDefaultSymbolFamily), "C:/Windows/Fonts/seguisym.ttf"),
-                      {FontCodepointRange(0x2000, 0x27BF), FontCodepointRange(0x2B00, 0x2BFF)});
-        addFace(FontFace::fromFile(FontDescriptor(kDefaultSerifFamily), "C:/Windows/Fonts/georgia.ttf"));
-        addFace(FontFace::fromFile(FontDescriptor(kDefaultMonoFamily), "C:/Windows/Fonts/consola.ttf"));
-#elif defined(__APPLE__)
-        addRangedFace(FontFace::fromFile(FontDescriptor(kDefaultPrimaryFamily), "/System/Library/Fonts/SFNS.ttf"),
-                      {FontCodepointRange(0x0000, 0x024F), FontCodepointRange(0x2000, 0x206F)});
-        addRangedFace(FontFace::fromFile(FontDescriptor(kDefaultCjkFamily), "/System/Library/Fonts/PingFang.ttc", 0),
-                      {FontCodepointRange(0x3000, 0x30FF), FontCodepointRange(0x3400, 0x9FFF),
-                       FontCodepointRange(0xF900, 0xFAFF), FontCodepointRange(0xFF00, 0xFFEF)});
-        addRangedFace(FontFace::fromFile(FontDescriptor(kDefaultArabicFamily), "/System/Library/Fonts/Supplemental/Arial.ttf"),
-                      {FontCodepointRange(0x0590, 0x05FF), FontCodepointRange(0x0600, 0x06FF),
-                       FontCodepointRange(0x0750, 0x077F), FontCodepointRange(0x08A0, 0x08FF)});
-        addFace(FontFace::fromFile(FontDescriptor(kDefaultSerifFamily), "/System/Library/Fonts/Supplemental/Georgia.ttf"));
-        addFace(FontFace::fromFile(FontDescriptor(kDefaultMonoFamily), "/System/Library/Fonts/Menlo.ttc", 0));
-#else
-        addRangedFace(FontFace::fromFile(FontDescriptor(kDefaultPrimaryFamily), "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
-                      {FontCodepointRange(0x0000, 0x024F), FontCodepointRange(0x2000, 0x206F)});
-        addRangedFace(FontFace::fromFile(FontDescriptor(kDefaultCjkFamily), "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", 0),
-                      {FontCodepointRange(0x3000, 0x30FF), FontCodepointRange(0x3400, 0x9FFF),
-                       FontCodepointRange(0xF900, 0xFAFF), FontCodepointRange(0xFF00, 0xFFEF)});
-        addRangedFace(FontFace::fromFile(FontDescriptor(kDefaultArabicFamily), "/usr/share/fonts/truetype/noto/NotoNaskhArabic-Regular.ttf"),
-                      {FontCodepointRange(0x0600, 0x06FF), FontCodepointRange(0x0750, 0x077F),
-                       FontCodepointRange(0x08A0, 0x08FF)});
-        addRangedFace(FontFace::fromFile(FontDescriptor(kDefaultHebrewFamily), "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
-                      {FontCodepointRange(0x0590, 0x05FF)});
-        addFace(FontFace::fromFile(FontDescriptor(kDefaultSerifFamily), "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf"));
-        addFace(FontFace::fromFile(FontDescriptor(kDefaultMonoFamily), "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"));
-#endif
-        return faces;
-    }
+    /// Discard both the discovery and the default-slot process-wide caches
+    /// so the next discoverInstalledFontFaces() / defaultSystemFontFaces()
+    /// call re-runs platform enumeration. Cheap to call; useful after the
+    /// host installs a new font at runtime.
+    static void refreshDefaultSystemFontFaces();
+
+    /// Discard only the discoverInstalledFontFaces() cache. defaultSystemFontFaces()
+    /// keeps its own cached slot table until refreshDefaultSystemFontFaces()
+    /// is called. Prefer this entry point when the caller only consumes the
+    /// discovery output directly (e.g. a font picker) and wants to avoid
+    /// rebuilding the WhatsCanvas fallback slot table.
+    static void refreshDiscoveredFontFaces();
+
+    /// Discard only the defaultSystemFontFaces() cache. The next call
+    /// rebuilds the slot table from the cached discovery output; call
+    /// refreshDiscoveredFontFaces() first if the underlying installed
+    /// font set has actually changed.
+    static void refreshDefaultSystemFontFacesOnly();
+
+    /// Re-enumerate installed fonts, publish a new process-wide snapshot, and
+    /// invalidate the default-slot cache. Returns the monotonically increasing
+    /// discovery generation. This is the preferred high-level refresh API.
+    static std::uint64_t refreshInstalledFonts();
+
+    /// Generation of the current discovery snapshot, or zero before the first
+    /// discovery/default lookup or explicit refresh is requested.
+    static std::uint64_t installedFontGeneration();
 
     static FontFallbackChain defaultFallbackChain(const std::string &primaryFamily = kDefaultPrimaryFamily)
     {
@@ -384,6 +358,14 @@ public:
         chain.addFallbackFamily(kDefaultMonoFamily);
         return chain;
     }
+
+    /// Query the platform's native font manager (CoreText on macOS,
+    /// DirectWrite on Windows, fontconfig on Linux) for every installed
+    /// font face. Each returned FontFace is registered under its real
+    /// system family name (e.g. "Menlo", "Consolas", "PingFang SC"),
+    /// weight, and file path. Returns an empty vector when the platform
+    /// API is unavailable or not linked in.
+    static std::vector<FontFace> discoverInstalledFontFaces();
 };
 
 } // namespace wsc

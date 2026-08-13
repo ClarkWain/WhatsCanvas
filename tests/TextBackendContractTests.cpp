@@ -1,11 +1,13 @@
 #include <iostream>
-#include <fstream>
 #include <atomic>
 #include <cmath>
 #include <functional>
+#include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "canvas/Paint.h"
@@ -54,6 +56,27 @@ bool testFontRegistrationAndFallback()
         && expect(resolved.size() == 2, "fallback resolution should include primary and fallback")
         && expect(resolved[0] == "Primary", "primary family should resolve first")
         && expect(resolved[1] == "Fallback", "fallback family should resolve second");
+}
+
+bool testFontRefreshPreservesExplicitRegistrations()
+{
+    std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createPortableTextBackend();
+    const bool primary = backend->registerFontFace(
+        wsc::FontFace::fromFile(wsc::FontDescriptor("RefreshPrimary"), "refresh-primary.ttf"));
+    const bool fallback = backend->registerFontFace(wsc::FontFace::fromMemory(
+        wsc::FontDescriptor("RefreshFallback"), std::vector<std::uint8_t>{1, 2, 3, 4}));
+    wsc::FontFallbackChain chain("RefreshPrimary");
+    chain.addFallbackFamily("RefreshFallback");
+    const bool chainSet = backend->setFontFallbackChain(chain);
+    const bool refreshed = backend->refreshSystemFonts();
+    const auto resolved = backend->resolveFontFamilies("RefreshPrimary");
+
+    return expect(primary && fallback && chainSet, "refresh fixtures should register")
+        && expect(refreshed, "portable backend should refresh system fonts")
+        && expect(resolved.size() == 2
+                      && resolved[0] == "RefreshPrimary"
+                      && resolved[1] == "RefreshFallback",
+                  "refresh should preserve explicit faces and fallback chains");
 }
 
 bool testLineBreakAndGlyphQuery()
@@ -141,6 +164,23 @@ bool testLongWordLineBreakQuery()
                   "first long-word line should expose a partial source span");
 }
 
+bool testPortableLineBreakingPreservesGraphemeClusters()
+{
+    std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createPortableTextBackend();
+    Paint paint;
+    paint.setTextSize(12.0f);
+    const std::string text = "A\xCC\x81" "B";
+    const std::vector<wsc::text::TextLineBreak> lines = backend->breakLines(text, 7.0f, paint);
+
+    bool ok = expect(lines.size() >= 2, "narrow text should wrap into multiple lines");
+    for (const auto &line : lines) {
+        const std::size_t end = line.sourceStart + line.sourceLength;
+        ok = expect(line.sourceStart != 1 && end != 1,
+                    "portable wrapping must not split a base from its combining mark") && ok;
+    }
+    return ok;
+}
+
 bool testDiagnosticsForRejectedFallback()
 {
     std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createBasicTextBackend();
@@ -186,54 +226,65 @@ bool testPortableBackendSkipsZeroWidthBreak()
                   "zero-width break should not report missing glyphs");
 }
 
-std::string findSystemFontPath()
+std::optional<wsc::FontFace> findSystemFontFace()
 {
-    const std::vector<std::string> candidates = {
-        "C:/Windows/Fonts/arial.ttf",
-        "C:/Windows/Fonts/segoeui.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/System/Library/Fonts/Supplemental/Arial.ttf",
-        "/System/Library/Fonts/SFNS.ttf"
-    };
-
-    for (const std::string &path : candidates) {
-        std::ifstream input(path, std::ios::binary);
-        if (input.good()) {
-            return path;
+    const auto installed = wsc::FontSystem::discoverInstalledFontFaces();
+    const char *preferredFamilies[] = {"Arial", "Segoe UI", "DejaVu Sans", "Helvetica"};
+    for (const char *family : preferredFamilies) {
+        const wsc::FontFace *best = nullptr;
+        int bestDistance = std::numeric_limits<int>::max();
+        for (const wsc::FontFace &face : installed) {
+            if (face.family() == family && face.slant() == wsc::FontSlant::NORMAL) {
+                const int distance = std::abs(face.weight() - 400);
+                if (distance < bestDistance) {
+                    best = &face;
+                    bestDistance = distance;
+                }
+            }
+        }
+        if (best != nullptr) return *best;
+    }
+    const wsc::FontFace *best = nullptr;
+    int bestDistance = std::numeric_limits<int>::max();
+    for (const wsc::FontFace &face : installed) {
+        if (face.slant() != wsc::FontSlant::NORMAL) continue;
+        const int distance = std::abs(face.weight() - 400);
+        if (distance < bestDistance) {
+            best = &face;
+            bestDistance = distance;
         }
     }
-    return {};
+    if (best != nullptr) return *best;
+    return std::nullopt;
 }
 
-std::string findColorSystemFontPath()
+std::optional<wsc::FontFace> findColorSystemFontFace()
 {
-    const std::vector<std::string> candidates = {
-        "C:/Windows/Fonts/seguiemj.ttf",
-        "/System/Library/Fonts/Apple Color Emoji.ttc",
-        "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",
-        "/usr/share/fonts/google-noto-color-emoji/NotoColorEmoji.ttf"
-    };
-
-    for (const std::string &path : candidates) {
-        std::ifstream input(path, std::ios::binary);
-        if (input.good()) {
-            return path;
+    const auto installed = wsc::FontSystem::discoverInstalledFontFaces();
+    const char *families[] = {"Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji"};
+    for (const char *family : families) {
+        for (const wsc::FontFace &face : installed) {
+            if (face.family() == family) return face;
         }
     }
-    return {};
+    return std::nullopt;
+}
+
+wsc::FontFace testFace(const wsc::FontFace &source, wsc::FontDescriptor descriptor)
+{
+    return wsc::FontFace::fromFile(std::move(descriptor), source.path(), source.faceIndex());
 }
 
 bool testPortableBackendUsesGlyphAtlasForRegisteredFont()
 {
-    const std::string fontPath = findSystemFontPath();
-    if (fontPath.empty()) {
-        std::cout << "Skipping glyph atlas registered-font test; no known system font path found." << std::endl;
+    const auto systemFont = findSystemFontFace();
+    if (!systemFont) {
+        std::cout << "Skipping glyph atlas registered-font test; no system font found." << std::endl;
         return true;
     }
 
     std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createPortableTextBackend();
-    bool ok = expect(backend->registerFontFace(wsc::FontFace::fromFile(wsc::FontDescriptor("AtlasPrimary"),
-                                                                       fontPath)),
+    bool ok = expect(backend->registerFontFace(testFace(*systemFont, wsc::FontDescriptor("AtlasPrimary"))),
                      "registered system font should be accepted") && true;
 
     Paint paint;
@@ -270,17 +321,16 @@ bool testPortableBackendUsesGlyphAtlasForRegisteredFont()
 
 bool testPortableGlyphLayoutCacheIsPositionIndependent()
 {
-    const std::string fontPath = findSystemFontPath();
-    if (fontPath.empty()) {
-        std::cout << "Skipping glyph layout cache position test; no known system font path found." << std::endl;
+    const auto systemFont = findSystemFontFace();
+    if (!systemFont) {
+        std::cout << "Skipping glyph layout cache position test; no system font found." << std::endl;
         return true;
     }
 
     const auto makeBackend = [&]() {
         std::unique_ptr<wsc::text::ITextBackend> backend =
             wsc::text::createPortableTextBackend();
-        if (!backend->registerFontFace(wsc::FontFace::fromFile(
-                wsc::FontDescriptor("LayoutCache"), fontPath))) {
+        if (!backend->registerFontFace(testFace(*systemFont, wsc::FontDescriptor("LayoutCache")))) {
             return std::unique_ptr<wsc::text::ITextBackend>{};
         }
         return backend;
@@ -337,20 +387,20 @@ bool testPortableGlyphLayoutCacheIsPositionIndependent()
 
 bool testPortableGlyphAtlasCacheKeepsFontFacesDistinct()
 {
-    const std::string fontPath = findSystemFontPath();
-    if (fontPath.empty()) {
-        std::cout << "Skipping glyph atlas face-key test; no known system font path found." << std::endl;
+    const auto systemFont = findSystemFontFace();
+    if (!systemFont) {
+        std::cout << "Skipping glyph atlas face-key test; no system font found." << std::endl;
         return true;
     }
 
     std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createPortableTextBackend();
     bool ok = expect(
-        backend->registerFontFace(wsc::FontFace::fromFile(
-            wsc::FontDescriptor("AtlasFaceKey", 400, wsc::FontSlant::NORMAL), fontPath)),
+        backend->registerFontFace(testFace(
+            *systemFont, wsc::FontDescriptor("AtlasFaceKey", 400, wsc::FontSlant::NORMAL))),
         "regular atlas face should register");
     ok = expect(
-        backend->registerFontFace(wsc::FontFace::fromFile(
-            wsc::FontDescriptor("AtlasFaceKey", 700, wsc::FontSlant::NORMAL), fontPath)),
+        backend->registerFontFace(testFace(
+            *systemFont, wsc::FontDescriptor("AtlasFaceKey", 700, wsc::FontSlant::NORMAL))),
         "bold atlas face should register") && ok;
 
     Paint paint;
@@ -388,13 +438,13 @@ bool testPortableGlyphAtlasCacheKeepsFontFacesDistinct()
 
 bool testPortableBackendUsesRgbaAtlasForColorGlyphs()
 {
-    const std::string fontPath = findColorSystemFontPath();
-    if (fontPath.empty()) {
-        std::cout << "Skipping color glyph atlas test; no known color system font path found." << std::endl;
+    const auto systemFont = findColorSystemFontFace();
+    if (!systemFont) {
+        std::cout << "Skipping color glyph atlas test; no color system font found." << std::endl;
         return true;
     }
 
-    wsc::FontFace face = wsc::FontFace::fromFile(wsc::FontDescriptor("ColorPrimary"), fontPath);
+    wsc::FontFace face = testFace(*systemFont, wsc::FontDescriptor("ColorPrimary"));
     wsc::text::FontRasterizer rasterizer;
     const auto tables = rasterizer.colorFontTables(face);
     if (!tables || !tables->colr || !tables->cpal || !rasterizer.hasGlyph(face, 0x1F600u)) {
@@ -507,13 +557,13 @@ bool testFontRasterizerCacheThreadSafety()
 
 bool testPortableBackendAppliesSimpleKerning()
 {
-    const std::string fontPath = findSystemFontPath();
-    if (fontPath.empty()) {
-        std::cout << "Skipping simple kerning test; no known system font path found." << std::endl;
+    const auto systemFont = findSystemFontFace();
+    if (!systemFont) {
+        std::cout << "Skipping simple kerning test; no system font found." << std::endl;
         return true;
     }
 
-    wsc::FontFace face = wsc::FontFace::fromFile(wsc::FontDescriptor("KerningPrimary"), fontPath);
+    wsc::FontFace face = testFace(*systemFont, wsc::FontDescriptor("KerningPrimary"));
     wsc::text::FontRasterizer rasterizer;
     const auto a = rasterizer.glyphMetrics(face, 'A', 48.0f);
     const auto v = rasterizer.glyphMetrics(face, 'V', 48.0f);
@@ -528,7 +578,12 @@ bool testPortableBackendAppliesSimpleKerning()
         return true;
     }
 
-    std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createPortableTextBackend();
+    wsc::text::BasicTextBackendOptions options;
+    options.backendKind = wsc::text::TextBackendKind::Portable;
+    options.enableNativeText = false;
+    options.enableSystemFontFallback = false;
+    options.shapingBackend = wsc::text::TextShapingBackend::Simple;
+    std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createBasicTextBackend(options);
     bool ok = expect(backend->registerFontFace(face), "kerning test font should register");
 
     Paint paint;
@@ -595,23 +650,27 @@ bool testPortableBackendResolvesFallbackGlyphRange()
     ok = expect(!diagnostics.empty(), "missing glyph query should add diagnostics") && ok;
     ok = expect(diagnostics.back().codepoint == 0x4E2D, "missing glyph diagnostic should include codepoint") && ok;
     ok = expect(diagnostics.back().fontFamily == "Primary", "missing glyph diagnostic should include requested family") && ok;
-    ok = expect(diagnostics.size() == 1, "duplicate missing glyph diagnostics should be coalesced") && ok;
+    const std::size_t missingCount = static_cast<std::size_t>(std::count_if(
+        diagnostics.begin(), diagnostics.end(), [](const wsc::text::TextBackendDiagnostic &diagnostic) {
+            return diagnostic.codepoint == 0x4E2D && diagnostic.fontFamily == "Primary";
+        }));
+    ok = expect(missingCount == 1, "duplicate missing glyph diagnostics should be coalesced") && ok;
     return ok;
 }
 
 bool testPortableBackendShapesFallbackFontSegments()
 {
-    const std::string fontPath = findSystemFontPath();
-    if (fontPath.empty()) {
-        std::cout << "Skipping fallback font segment shaping test; no known system font path found." << std::endl;
+    const auto systemFont = findSystemFontFace();
+    if (!systemFont) {
+        std::cout << "Skipping fallback font segment shaping test; no system font found." << std::endl;
         return true;
     }
 
     std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createPortableTextBackend();
 
-    wsc::FontFace primary = wsc::FontFace::fromFile(wsc::FontDescriptor("SegmentPrimary"), fontPath);
+    wsc::FontFace primary = testFace(*systemFont, wsc::FontDescriptor("SegmentPrimary"));
     primary.addCodepointRange('A', 'A');
-    wsc::FontFace fallback = wsc::FontFace::fromFile(wsc::FontDescriptor("SegmentFallback"), fontPath);
+    wsc::FontFace fallback = testFace(*systemFont, wsc::FontDescriptor("SegmentFallback"));
     fallback.addCodepointRange('B', 'B');
 
     bool ok = expect(backend->registerFontFace(primary), "segment primary font should register");
@@ -662,6 +721,13 @@ bool testOpenTypeShapingRequestFallsBackWithDiagnostic()
                     "unavailable OpenType shaping diagnostic should name the fallback") && ok;
     }
     return ok;
+}
+
+bool testPortableBackendDefaultsToOpenTypeShaping()
+{
+    const wsc::text::BasicTextBackendOptions options;
+    return expect(options.shapingBackend == wsc::text::TextShapingBackend::OpenType,
+                  "portable backend should request OpenType shaping by default");
 }
 
 bool testTextBackendCapabilityMatrix()
@@ -716,8 +782,11 @@ bool testUnavailableNativeTextAdaptersFallback()
         const float width = directWrite->measureTextWidth("Ag", paint);
         bool sawUnavailable = false;
         for (const auto &d : directWrite->diagnostics()) {
-            if (d.message.find("not available") != std::string::npos
-                || d.message.find("unavailable") != std::string::npos) {
+            const bool namesDirectWrite = d.message.find("DirectWrite") != std::string::npos
+                || d.message.find("directwrite") != std::string::npos;
+            if (namesDirectWrite
+                && (d.message.find("not available") != std::string::npos
+                    || d.message.find("unavailable") != std::string::npos)) {
                 sawUnavailable = true;
             }
         }
@@ -801,11 +870,13 @@ bool testWindowsNativeTextPreservesClearTypeCoverage()
 int main()
 {
     const bool ok = testFontRegistrationAndFallback()
+        && testFontRefreshPreservesExplicitRegistrations()
         && testLineBreakAndGlyphQuery()
         && testBasicBackendUsesSystemFontFallbackWhenAvailable()
         && testCrLfLineBreakQuery()
         && testCjkLineBreakQuery()
         && testLongWordLineBreakQuery()
+        && testPortableLineBreakingPreservesGraphemeClusters()
         && testDiagnosticsForRejectedFallback()
         && testPortableBackendUsesGeometryPath()
         && testPortableBackendSkipsZeroWidthBreak()
@@ -820,6 +891,7 @@ int main()
         && testPortableBackendResolvesFallbackGlyphRange()
         && testPortableBackendShapesFallbackFontSegments()
         && testOpenTypeShapingRequestFallsBackWithDiagnostic()
+        && testPortableBackendDefaultsToOpenTypeShaping()
         && testTextBackendCapabilityMatrix()
         && testUnavailableNativeTextAdaptersFallback()
         && testWindowsNativeTextPreservesClearTypeCoverage();
