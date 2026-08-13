@@ -49,9 +49,9 @@ cmd /c scripts\release_preflight.bat
 Use a tag matching the package workflow pattern:
 
 ```sh
-git tag v0.1.x
+git tag v0.2.0
 git push origin master
-git push origin v0.1.x
+git push origin v0.2.0
 ```
 
 ## GitHub Actions Checks

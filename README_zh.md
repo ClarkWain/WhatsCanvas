@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/ClarkWain/WhatsCanvas/actions/workflows/cross-platform-validation.yml/badge.svg)](https://github.com/ClarkWain/WhatsCanvas/actions/workflows/cross-platform-validation.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.1.20-informational.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.2.0-informational.svg)](CHANGELOG.md)
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C.svg)](CMakeLists.txt)
 [![Documentation](https://img.shields.io/badge/docs-online-success.svg)](https://clarkwain.github.io/WhatsCanvas/)
 
@@ -29,7 +29,7 @@ WhatsCanvas 是一款基于 C++17 编写、面向原生应用的可嵌入 2D 渲
 | **文本能力** | 字体发现和 fallback、CJK/RTL、UAX #9、换行与省略号、glyph atlas、COLR/CPAL v0；OpenGL/OpenGL ES 默认启用 FreeType 与 HarfBuzz shaping。 |
 | **接入方式** | vcpkg overlay port、CMake `find_package`、`add_subdirectory`，或从源码生成可搬运的安装目录。 |
 | **体量** | 非 header-only。支持按后端仅链接 `WhatsCanvas::Software`、`::OpenGL`（也承载可选 Vulkan 与 Apple Metal）或 `::OpenGLES`；参考体量见[体量与依赖](#体量与依赖)。 |
-| **成熟度** | 当前版本 `0.1.20`，仍处于 pre-1.0。公开 API 边界、跨平台 CI、像素回归、package consumer 集成测试与可审计的性能基线均已建立；升级与平台风险仍需结合下文的边界说明评估。 |
+| **成熟度** | 当前版本 `0.2.0`，仍处于 pre-1.0。公开 API 边界、跨平台 CI、像素回归、package consumer 集成测试与可审计的性能基线均已建立；升级与平台风险仍需结合下文的边界说明评估。 |
 | **许可证** | MIT；`third_party/` 组件遵循各自许可证。 |
 
 **何时推荐使用 WhatsCanvas？**
@@ -73,7 +73,7 @@ cmake_minimum_required(VERSION 3.16)
 project(MyApp LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
-find_package(WhatsCanvas 0.1.20 CONFIG REQUIRED)
+find_package(WhatsCanvas 0.2.0 CONFIG REQUIRED)
 
 add_executable(MyApp main.cpp)
 target_link_libraries(MyApp PRIVATE WhatsCanvas::Software)
@@ -101,7 +101,7 @@ build\Release\MyApp.exe
 
 ### 使用发布包
 
-tagged release 的资产名为 `whatscanvas-<platform>-release-<version>.zip`，例如 `whatscanvas-win64-release-0.1.20.zip`。目录布局如下：
+tagged release 的资产名为 `whatscanvas-<platform>-release-<version>.zip`，例如 `whatscanvas-win64-release-0.2.0.zip`。目录布局如下：
 
 ```text
 include/wsc/                 公开头文件
@@ -113,7 +113,7 @@ lib/cmake/WhatsCanvas/       find_package 配置
 各平台预编译包所包含的 target 可能有所差异。实际使用时，建议通过 CMake 显式校验所需 target 是否存在：
 
 ```cmake
-find_package(WhatsCanvas 0.1.20 CONFIG REQUIRED)
+find_package(WhatsCanvas 0.2.0 CONFIG REQUIRED)
 if (NOT TARGET WhatsCanvas::Software)
     message(FATAL_ERROR "This package does not contain the Software backend")
 endif()
@@ -319,7 +319,7 @@ if (!canvas) {
 
 本文中所说的“轻量”，指的是后端可按需分离链接、公开 API 表面较小、库不干预宿主应用的窗口与事件循环，并不意味着 header-only。
 
-当前仓库 `0.1.20` 的一个 **VS 2022 x64、静态 Release、默认 FreeType/HarfBuzz 开启**的干净构建快照可作为量级参考：
+当前仓库 `0.2.0` 的一个 **VS 2022 x64、静态 Release、默认 FreeType/HarfBuzz 开启**的干净构建快照可作为量级参考：
 
 | 内容 | 文件体量 |
 | --- | ---: |
@@ -349,7 +349,7 @@ WhatsCanvas 不只是“能画出图形”，仓库配套的工程与自动化�
 
 仍需明确的风险：
 
-- 版本仍是 `0.1.x`，升级前应阅读 CHANGELOG 并执行 package consumer 测试。
+- 版本仍处于 pre-1.0（`0.2.x`），升级前应阅读 CHANGELOG 并执行 package consumer 测试。
 - README 的能力表不是所有 backend × platform 组合的完全 parity 承诺；滤镜、文字和输出目标应查对应的 feature matrix，并验证项目的实际组合。
 - Vulkan 不是默认后端，跨平台窗口呈现和更大场景的像素覆盖仍在扩展。
 - Metal 已在 Apple 平台可用，但 iOS 模拟器/真机 CI 与仓库内 iOS 示例仍待补齐；WebGPU、WebAssembly 和 CoreText native text adapter 尚未实现。
