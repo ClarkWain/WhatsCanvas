@@ -512,6 +512,53 @@ bool testFontFallbackClustersPreserveGraphemeSequences()
         && expect(sawFlagCluster, "regional-indicator pair should share one fallback cluster");
 }
 
+bool testFontFallbackClustersFollowExtendedGraphemeRules()
+{
+    const std::vector<std::string> indivisible = {
+        "\xE0\xA4\x95\xE0\xA4\xBE",             // Devanagari base + SpacingMark (GB9a)
+        "\xE1\x84\x80\xE1\x85\xA1\xE1\x86\xA8", // Hangul L + V + T (GB6-GB8)
+        "\xD8\x80" "A",                           // Prepend + base (GB9b)
+        "\xE0\xA4\x95\xE0\xA5\x8D\xE0\xA4\x95", // Indic consonant + linker + consonant (GB9c)
+        "\xF0\x9F\x91\xA9\xEF\xB8\x8F\xE2\x80\x8D\xF0\x9F\x92\xBB" // GB11
+    };
+
+    bool ok = true;
+    for (const std::string &text : indivisible) {
+        const auto clusters = wsc::text::buildFontFallbackClusters(text, 0, text.size());
+        ok = expect(clusters.size() == 1
+                        && clusters.front().sourceStart == 0
+                        && clusters.front().sourceEnd == text.size(),
+                    "each extended grapheme sequence should remain one cluster") && ok;
+    }
+
+    const std::string regionalTriplet =
+        "\xF0\x9F\x87\xA6\xF0\x9F\x87\xA7\xF0\x9F\x87\xA8";
+    const auto regionalClusters =
+        wsc::text::buildFontFallbackClusters(regionalTriplet, 0, regionalTriplet.size());
+    ok = expect(regionalClusters.size() == 2
+                    && regionalClusters[0].sourceEnd == 8
+                    && regionalClusters[1].sourceStart == 8,
+                "regional indicators should pair from the start of the sequence") && ok;
+
+    const std::string controls("A\0B", 3);
+    const auto controlClusters =
+        wsc::text::buildFontFallbackClusters(controls, 0, controls.size());
+    ok = expect(controlClusters.size() == 3,
+                "controls should force grapheme boundaries on both sides") && ok;
+    return ok;
+}
+
+bool testBreakTokensPreserveCjkVariationSequence()
+{
+    const std::string text = "\xE4\xB8\x80\xEF\xB8\x8F\xE4\xBA\x8C";
+    const auto tokens = wsc::text::buildTextBreakTokens(text, 0, text.size());
+    return expect(tokens.size() == 2, "two CJK grapheme clusters should produce two tokens")
+        && expect(tokens[0].sourceStart == 0 && tokens[0].sourceEnd == 6,
+                  "CJK variation selector must remain attached to its base token")
+        && expect(tokens[1].sourceStart == 6 && tokens[1].sourceEnd == text.size(),
+                  "the following CJK cluster should start after the variation sequence");
+}
+
 bool testBidiRunSegmentation()
 {
     const std::string mixed = "abc \xd7\x90\xd7\x91 def";
@@ -766,6 +813,8 @@ int main()
         && testOpenTypeShaperProducesRealLigatures()
         && testOpenTypeFeaturesCanDisableLigatures()
         && testFontFallbackClustersPreserveGraphemeSequences()
+        && testFontFallbackClustersFollowExtendedGraphemeRules()
+        && testBreakTokensPreserveCjkVariationSequence()
         && testBidiRunSegmentation()
         && testBidiRunSegmentationKeepsLeadingNeutrals()
         && testBidiRunSegmentationKeepsWeakOnlyText()

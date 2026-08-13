@@ -455,22 +455,28 @@ FontFace aliasFace(const FontFace &source, const char *alias, int weight,
 
 namespace {
 
-template <typename T>
-struct CachedResult
+struct DiscoveryCache
 {
     std::mutex mutex;
-    std::optional<T> value;
+    std::optional<std::vector<FontFace>> value;
+    std::uint64_t generation = 0;
 };
 
-CachedResult<std::vector<FontFace>> &discoveryCache()
+struct DefaultsCache
 {
-    static CachedResult<std::vector<FontFace>> cache;
+    std::mutex mutex;
+    std::optional<std::vector<FontFace>> value;
+};
+
+DiscoveryCache &discoveryCache()
+{
+    static DiscoveryCache cache;
     return cache;
 }
 
-CachedResult<std::vector<FontFace>> &defaultsCache()
+DefaultsCache &defaultsCache()
 {
-    static CachedResult<std::vector<FontFace>> cache;
+    static DefaultsCache cache;
     return cache;
 }
 
@@ -497,9 +503,14 @@ std::vector<FontFace> FontSystem::discoverInstalledFontFaces()
         built.push_back(FontFace::fromFile(descriptor, face.path, face.faceIndex));
     }
 
-    std::lock_guard<std::mutex> lock(discoveryCache().mutex);
-    if (!discoveryCache().value.has_value()) discoveryCache().value = std::move(built);
-    return *discoveryCache().value;
+    DiscoveryCache &cache = discoveryCache();
+    std::lock_guard<std::mutex> lock(cache.mutex);
+    if (!cache.value.has_value()) {
+        cache.value = std::move(built);
+        ++cache.generation;
+        if (cache.generation == 0) cache.generation = 1;
+    }
+    return *cache.value;
 }
 
 std::vector<FontFace> FontSystem::defaultSystemFontFaces()
@@ -587,6 +598,21 @@ void FontSystem::refreshDefaultSystemFontFacesOnly()
 {
     std::lock_guard<std::mutex> lock(defaultsCache().mutex);
     defaultsCache().value.reset();
+}
+
+std::uint64_t FontSystem::refreshInstalledFonts()
+{
+    refreshDiscoveredFontFaces();
+    (void)discoverInstalledFontFaces();
+    refreshDefaultSystemFontFacesOnly();
+    return installedFontGeneration();
+}
+
+std::uint64_t FontSystem::installedFontGeneration()
+{
+    DiscoveryCache &cache = discoveryCache();
+    std::lock_guard<std::mutex> lock(cache.mutex);
+    return cache.generation;
 }
 
 } // namespace wsc

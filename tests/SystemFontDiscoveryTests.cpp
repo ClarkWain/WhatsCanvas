@@ -89,6 +89,11 @@ int main()
         return 1;
     }
     ok = expect(canvas->initializeContext(), "software canvas should initialize") && ok;
+    const std::uint64_t generationBeforeRefresh = FontSystem::installedFontGeneration();
+    ok = expect(canvas->refreshSystemFonts(),
+                "an existing canvas should refresh its system font snapshot") && ok;
+    ok = expect(FontSystem::installedFontGeneration() == generationBeforeRefresh + 1,
+                "canvas refresh should publish a new system font generation") && ok;
     for (const FontFace &face : faces) {
         ok = expect(canvas->registerFontFace(face),
                     "software canvas should accept every discovered face") && ok;

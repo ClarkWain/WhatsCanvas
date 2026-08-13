@@ -315,7 +315,8 @@ public:
     }
 
     /// Build the portable fallback aliases from fonts reported by the native
-    /// platform font manager. No operating-system font paths are assumed.
+    /// platform font manager's current cached snapshot. No operating-system
+    /// font paths are assumed.
     static std::vector<FontFace> defaultSystemFontFaces();
 
     /// Discard both the discovery and the default-slot process-wide caches
@@ -336,6 +337,15 @@ public:
     /// refreshDiscoveredFontFaces() first if the underlying installed
     /// font set has actually changed.
     static void refreshDefaultSystemFontFacesOnly();
+
+    /// Re-enumerate installed fonts, publish a new process-wide snapshot, and
+    /// invalidate the default-slot cache. Returns the monotonically increasing
+    /// discovery generation. This is the preferred high-level refresh API.
+    static std::uint64_t refreshInstalledFonts();
+
+    /// Generation of the current discovery snapshot, or zero before the first
+    /// discovery/default lookup or explicit refresh is requested.
+    static std::uint64_t installedFontGeneration();
 
     static FontFallbackChain defaultFallbackChain(const std::string &primaryFamily = kDefaultPrimaryFamily)
     {

@@ -107,8 +107,37 @@ public:
         if (!registered) {
             diagnostics_.push_back({wsc::text::TextBackendDiagnostic::Severity::Warning,
                                     "Rejected invalid font face registration."});
+        } else {
+            userFontFaces_.push_back(face);
         }
         return registered;
+    }
+
+    bool refreshSystemFonts() override
+    {
+        if (directWriteBackend_ != nullptr) {
+            return directWriteBackend_->refreshSystemFonts();
+        }
+
+        wsc::FontSystem::refreshInstalledFonts();
+        clearRasterCaches();
+        glyphAtlas_.clear();
+#ifdef _WIN32
+        nativeMeasureCache_.clear();
+        nativeBitmapCache_.clear();
+#endif
+        fontManager_.clear();
+        registerSystemFontFallbacks();
+        for (const wsc::FontFace &face : userFontFaces_) {
+            fontManager_.registerFace(face);
+        }
+        for (const auto &entry : userFallbackChains_) {
+            const wsc::FontFallbackChain &chain = entry.second;
+            for (const std::string &family : chain.fallbackFamilies()) {
+                fontManager_.addFallbackFamily(chain.primaryFamily(), family);
+            }
+        }
+        return true;
     }
 
     bool setFontFallbackChain(const wsc::FontFallbackChain &chain) override
@@ -130,6 +159,8 @@ public:
         if (!ok) {
             diagnostics_.push_back({wsc::text::TextBackendDiagnostic::Severity::Warning,
                                     "Skipped one or more unknown fallback families."});
+        } else {
+            userFallbackChains_.insert_or_assign(chain.primaryFamily(), chain);
         }
         return ok;
     }
@@ -176,24 +207,27 @@ public:
                     currentLine.clear();
                 }
             };
-            auto appendScalarToken = [&](const std::string &tokenText,
-                                         std::size_t tokenStart,
-                                         std::size_t tokenEnd) {
-                const std::vector<wsc::text::Utf8Codepoint> codepoints = wsc::text::decodeUtf8(tokenText);
-                for (const wsc::text::Utf8Codepoint &codepoint : codepoints) {
-                    const std::string scalarText = tokenText.substr(codepoint.offset, codepoint.length);
-                    const std::size_t scalarStart = tokenStart + codepoint.offset;
-                    const std::size_t scalarEnd = std::min(tokenStart + codepoint.offset + codepoint.length,
-                                                           tokenEnd);
-                    const std::string candidate = currentLine.empty() ? scalarText : currentLine + scalarText;
+            auto appendClusterToken = [&](const std::string &tokenText,
+                                          std::size_t tokenStart,
+                                          std::size_t tokenEnd) {
+                const auto clusters =
+                    wsc::text::buildFontFallbackClusters(tokenText, 0, tokenText.size());
+                for (const wsc::text::FontFallbackCluster &cluster : clusters) {
+                    const std::string clusterText = tokenText.substr(
+                        cluster.sourceStart, cluster.sourceEnd - cluster.sourceStart);
+                    const std::size_t clusterStart = tokenStart + cluster.sourceStart;
+                    const std::size_t clusterEnd = std::min(tokenStart + cluster.sourceEnd, tokenEnd);
+                    const std::string candidate = currentLine.empty()
+                        ? clusterText
+                        : currentLine + clusterText;
                     if (!currentLine.empty() && measureTextWidth(candidate, paint) > maxWidth) {
                         pushCurrentLine();
                     }
                     if (currentLine.empty()) {
-                        currentStart = scalarStart;
+                        currentStart = clusterStart;
                     }
-                    currentLine += scalarText;
-                    currentEnd = scalarEnd;
+                    currentLine += clusterText;
+                    currentEnd = clusterEnd;
                 }
             };
             const std::vector<wsc::text::TextBreakToken> tokens =
@@ -203,7 +237,7 @@ public:
                 const std::string candidate =
                     currentLine.empty() ? tokenText : currentLine + (token.prefixSpace ? " " : "") + tokenText;
                 if (currentLine.empty() && measureTextWidth(tokenText, paint) > maxWidth) {
-                    appendScalarToken(tokenText, token.sourceStart, token.sourceEnd);
+                    appendClusterToken(tokenText, token.sourceStart, token.sourceEnd);
                 } else if (currentLine.empty() || measureTextWidth(candidate, paint) <= maxWidth) {
                     if (currentLine.empty()) {
                         currentStart = token.sourceStart;
@@ -213,7 +247,7 @@ public:
                 } else {
                     pushCurrentLine();
                     if (measureTextWidth(tokenText, paint) > maxWidth) {
-                        appendScalarToken(tokenText, token.sourceStart, token.sourceEnd);
+                        appendClusterToken(tokenText, token.sourceStart, token.sourceEnd);
                     } else {
                         currentLine = tokenText;
                         currentStart = token.sourceStart;
@@ -789,6 +823,7 @@ private:
             cachedKey.weight = face->weight();
             cachedKey.slant = face->slant();
             cachedKey.faceIndex = face->faceIndex();
+            cachedKey.fontIdentity = wsc::text::fontFaceIdentity(*face);
             if (const auto *cached = glyphAtlas_.find(cachedKey)) {
                 pendingGlyphs.push_back(
                     {glyph, std::move(cachedKey), std::nullopt, *cached});
@@ -1166,6 +1201,8 @@ private:
         nativeBitmapCache_{kMaxNativeTextCacheEntries};
 #endif
     wsc::FontManager fontManager_;
+    std::vector<wsc::FontFace> userFontFaces_;
+    std::unordered_map<std::string, wsc::FontFallbackChain> userFallbackChains_;
     mutable wsc::text::FontRasterizer rasterizer_;
     mutable wsc::text::GlyphAtlas glyphAtlas_{kDefaultGlyphAtlasSize, kDefaultGlyphAtlasSize, 1};
     std::unique_ptr<wsc::text::ITextBackend> directWriteBackend_;
