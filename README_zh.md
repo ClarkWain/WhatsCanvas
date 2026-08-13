@@ -8,9 +8,9 @@
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C.svg)](CMakeLists.txt)
 [![Documentation](https://img.shields.io/badge/docs-online-success.svg)](https://clarkwain.github.io/WhatsCanvas/)
 
-WhatsCanvas 是一款基于 C++17 编写、面向原生应用的可嵌入 2D 渲染库。它提供了类似 HTML Canvas 的 `Canvas` / `Paint` / `Path` API，覆盖多语言文本、图层滤镜、图片渲染、离屏渲染与像素回读等常用能力。不同于完整的 UI 框架，它聚焦于核心渲染逻辑，未内置控件、布局、输入事件与无障碍支持，也不是 HTML Canvas 的源码级兼容实现。
+WhatsCanvas 是一个使用 C++17 开发、面向原生应用的可嵌入式 2D 渲染库。它提供类似 HTML Canvas 的 `Canvas` / `Paint` / `Path` API，支持多语言文本、图层滤镜、图片渲染、离屏渲染与像素回读。WhatsCanvas 只负责渲染，不包含控件、布局、输入事件和无障碍支持，也不与 HTML Canvas 源码兼容。
 
-该项目旨在填补“极简基础绘制库（如 NanoVG）”与“重型图形引擎（如 Skia）”之间的空白，提供一个易于集成、理解和验证的轻量级方案。
+WhatsCanvas 的定位介于 NanoVG 这类基础绘制库和 Skia 这类大型图形引擎之间：它提供多语言文本、滤镜和像素回归等能力，但不接管宿主应用的窗口、布局或事件循环。
 
 > **需要完整 UI 框架？** [WhatsUI](https://github.com/ClarkWain/WhatsUI) 是基于 WhatsCanvas 构建的真实下游项目，提供 C++17 保留模式 UI、Fluent 2 设计系统、控件、布局、输入、焦点、浮层、确定性视觉测试和原生桌面窗口。如果你的需求不只是 2D 绘制，而是完整 UI 库，可以直接评估 WhatsUI。它面向可移植的原生桌面 UI，目前以 Windows 为主要交付和验证平台。
 
@@ -25,18 +25,18 @@ WhatsCanvas 是一款基于 C++17 编写、面向原生应用的可嵌入 2D 渲
 | **适用场景** | 原生应用自定义 UI、工具与数据界面、HUD、2D 游戏渲染层、服务端或测试环境中的离屏图片生成。 |
 | **API 与语言** | C++17；公开 API 位于 `include/wsc/`，入口是 `#include <wsc/wsc.h>`。 |
 | **渲染后端** | OpenGL、纯 CPU Software；可选 OpenGL ES、Vulkan 以及 Metal（macOS/iOS）。WebGPU 尚未实现。 |
-| **平台状态** | Windows、Linux、macOS 持续执行构建和单元测试；发布包覆盖 Windows x64、Linux x64 和 macOS universal。Metal 已在 macOS 验证；移动端仍不代表已完成完整设备矩阵验证。 |
+| **平台状态** | Windows、Linux、macOS 持续执行构建和单元测试；发布包覆盖 Windows x64、Linux x64 和 macOS universal。Metal 已在 macOS 验证；移动端尚未完成多类设备的系统验证。 |
 | **文本能力** | 字体发现和 fallback、CJK/RTL、UAX #9、换行与省略号、glyph atlas、COLR/CPAL v0；OpenGL/OpenGL ES 默认启用 FreeType 与 HarfBuzz shaping。 |
 | **接入方式** | vcpkg overlay port、CMake `find_package`、`add_subdirectory`，或从源码生成可搬运的安装目录。 |
 | **体量** | 非 header-only。支持按后端仅链接 `WhatsCanvas::Software`、`::OpenGL`（也承载可选 Vulkan 与 Apple Metal）或 `::OpenGLES`；参考体量见[体量与依赖](#体量与依赖)。 |
-| **成熟度** | 当前版本 `0.2.0`，仍处于 pre-1.0。公开 API 边界、跨平台 CI、像素回归、package consumer 集成测试与可审计的性能基线均已建立；升级与平台风险仍需结合下文的边界说明评估。 |
+| **成熟度** | 当前版本 `0.2.0`，尚未达到 1.0。仓库已经建立公开 API 边界、跨平台 CI、像素回归、package consumer 集成测试与可审计的性能基线；升级前仍需评估下文列出的平台和兼容性风险。 |
 | **许可证** | MIT；`third_party/` 组件遵循各自许可证。 |
 
 **何时推荐使用 WhatsCanvas？**
 如果你希望用统一的 Canvas 风格 API 处理 CPU/GPU 渲染、多语言文本以及常见 UI 效果，同时看重截图确定性、像素级回归测试与源码可读性，WhatsCanvas 是一个合适的选择。
 
 **何时需要另寻方案？**
-如果你的项目强依赖现成的 UI 控件体系、需要在浏览器中运行、需要 WebGPU 原生支持、需要严格的色彩管理、要求生成文档/PDF、涉及复杂的富文本编辑，或需要依赖已进入长期稳定期（1.0+）、承诺 ABI 稳定的成熟渲染库，那么 WhatsCanvas 可能暂时不适合你。
+如果项目强依赖现成的 UI 控件体系，需要在浏览器中运行，或必须使用 WebGPU，WhatsCanvas 暂时不合适。严格色彩管理、文档/PDF 生成、复杂富文本编辑和长期稳定的 ABI 也不在当前支持范围内。
 
 ## 60 秒画出第一帧
 
@@ -95,13 +95,13 @@ set "PATH=C:\path\to\whatscanvas\bin;%PATH%"
 build\Release\MyApp.exe
 ```
 
-若需使用窗口内 OpenGL、OpenGL ES、Vulkan、字体注册或宿主 render target 等进阶功能，请直接查阅 **[Using WhatsCanvas as a Library](doc/GETTING_STARTED_AS_LIBRARY.md)**。该指南包含了完整的上下文生命周期介绍及可独立运行的 consumer 示例。
+若需使用窗口内 OpenGL、OpenGL ES、Vulkan、字体注册或宿主 render target 等进阶功能，请查阅 **[Using WhatsCanvas as a Library](doc/GETTING_STARTED_AS_LIBRARY.md)**。该指南说明上下文的创建、使用与销毁，并提供可独立运行的 consumer 示例。
 
 ## 获取与构建
 
 ### 使用发布包
 
-tagged release 的资产名为 `whatscanvas-<platform>-release-<version>.zip`，例如 `whatscanvas-win64-release-0.2.0.zip`。目录布局如下：
+GitHub Release 中的发布包名为 `whatscanvas-<platform>-release-<version>.zip`，例如 `whatscanvas-win64-release-0.2.0.zip`。目录布局如下：
 
 ```text
 include/wsc/                 公开头文件
@@ -119,7 +119,7 @@ if (NOT TARGET WhatsCanvas::Software)
 endif()
 ```
 
-请注意，目前发布的预编译包在三大平台上并未做到完全一致的分发：
+三个平台的预编译包配置并不完全一致：
 
 | 发布资产 | 交付形式和 target | 字体/Vulkan 配置 |
 | --- | --- | --- |
@@ -131,7 +131,7 @@ FreeType/HarfBuzz 配置作用于 GL 家族的 target；`WhatsCanvas::Software` 
 
 Windows 包由 VS 2022 工具链生成。正式接入时应匹配平台、架构、配置与 C/C++ runtime；如需不同的 target 或依赖组合，请从源码构建。
 
-官方包的具体构建参数记录在 [package-release workflow](.github/workflows/package-release.yml)；本地执行 `--package` 时会采用下文所述的默认设置，因此产物与 Windows 官方包的完整配置并不一致。
+官方包的具体构建参数记录在 [package-release workflow](.github/workflows/package-release.yml)；本地执行 `--package` 时采用下文所述的默认设置，因此产物配置与 Windows 官方包不同。
 
 ### vcpkg
 
@@ -143,7 +143,7 @@ git clone https://github.com/microsoft/vcpkg.git ..\vcpkg
 ..\vcpkg\vcpkg.exe install whatscanvas --overlay-ports=.\ports
 ```
 
-如果 `vcpkg` 已加入 `PATH`，可直接安装默认的 OpenGL、Software 与完整文本 feature 组合：
+如果 `vcpkg` 已加入 `PATH`，可直接安装包含 OpenGL、Software 和文本相关 feature 的默认组合：
 
 ```sh
 vcpkg install whatscanvas --overlay-ports=./ports
@@ -166,7 +166,7 @@ target_link_libraries(MyApp PRIVATE WhatsCanvas::OpenGL)
 
 ### 从源码构建
 
-源码构建需要 CMake 3.16+、C++17 编译器以及完整的 Git 子模块环境。根构建流程默认启用 OpenGL、Software、demo、测试及 benchmark，并默认输出静态库。此外，运行 OpenGL demo 另需宿主系统预装可用的 GLFW 系统图形开发库。
+源码构建需要 CMake 3.16+、C++17 编译器和全部 Git 子模块。默认构建启用 OpenGL、Software、demo、测试和 benchmark，输出静态库。运行 OpenGL demo 还需要安装 GLFW 开发库。
 
 ```sh
 git clone --recursive https://github.com/ClarkWain/WhatsCanvas.git
@@ -197,7 +197,9 @@ sh ./build.sh --release --package --no-run
 
 安装目录位于 `out/package/Release/`。普通 Windows 多配置构建的 demo 通常位于 `build/Debug/` 或 `build/Release/`；默认 Unix 单配置构建通常位于 `build/`。
 
-若已克隆仓库，可直接执行 `git submodule update --init --recursive` 更新子模块状态。构建脚本在运行时也会自动拉取所需子模块，因此初次构建请确保网络畅通；如需进行完全离线的构建，请务必提前备足各子模块的完整源码。在 Ubuntu 环境下编译 demo 时，常见的系统依赖为 `libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev`。
+若已克隆仓库，可执行 `git submodule update --init --recursive` 更新子模块。构建脚本也会自动拉取缺失的子模块；如果子模块尚未下载，首次构建需要联网。离线构建前，请先下载所有子模块源码。
+
+在 Ubuntu 环境下编译 demo 时，通常需要安装 `libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev`。
 
 包管理器构建可以设置 `WHATSCANVAS_USE_SYSTEM_DEPENDENCIES=ON`，使用
 registry 提供的 GLAD、GLM、stb、FreeType 和 HarfBuzz。Linux 下可通过
@@ -255,7 +257,7 @@ if (!canvas) {
 
 平台验证现状：
 
-**测试约定**：下表中的“单元测试”主要覆盖 headless 环境下的逻辑与契约校验；“像素门禁”会实际启动对应的图形后端，并与参考输出逐像素比对；“发布包”仅表示编译、打包与 package consumer 集成流程已通过，并不等同于已在真机上完成窗口渲染的完整验证。
+**测试约定**：下表中的“单元测试”主要覆盖 headless 环境下的逻辑与契约校验；“像素门禁”会启动对应的图形后端，并与参考输出逐像素比对；“发布包”只表示编译、打包与 package consumer 集成流程已通过，不表示窗口渲染已经过真机验证。
 
 | 平台 | 自动化覆盖 | 备注 |
 | --- | --- | --- |
@@ -282,9 +284,9 @@ if (!canvas) {
 
 ### 文本实现说明
 
-默认的跨平台文本处理体系涵盖了 UTF-8 布局、字体 fallback、CJK 无空格换行、Unicode 17.0.0 双向文本支持以及 glyph atlas 构建。已归档的 UAX #9 一致性测试覆盖 **861,948 例，全部通过，无跳过、无失败**。
+默认的跨平台文本处理支持 UTF-8 布局、字体 fallback、CJK 无空格换行、Unicode 17.0.0 双向文本以及 glyph atlas 构建。已归档的 UAX #9 一致性测试覆盖 **861,948 例，全部通过，无跳过、无失败**。
 
-需要注意的是，双向文本处理并不等同于简单的 script shaping。阿拉伯文、印度语系等语言涉及复杂的字形替换与重排，完整支持依赖 HarfBuzz。相关功能在所有 GL 家族的 target 上默认启用；上线前建议先检查 package diagnostics，并结合真实业务字体与文案做回归测试。若关闭该选项，或因依赖缺失而退化到 simple shaping，排版结果与完整 shaping 并不等价，不应作为等效替代。
+双向文本处理负责确定字符方向和顺序；阿拉伯文、印度语系等文字还需要复杂的字形替换与重排，这部分依赖 HarfBuzz shaping。所有 GL 家族的 target 默认启用该功能。发布前应检查 package diagnostics，并使用实际字体和文案执行回归测试；关闭该选项或缺少依赖时，排版会退化到 simple shaping，结果可能不同。
 
 - `WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=ON`（默认）：优先使用 FreeType 处理 glyph lookup、metrics、kerning 和栅格化；不可用时回退 `stb_truetype`。
 - `WHATSCANVAS_ENABLE_OPENTYPE_SHAPING=ON`（默认）：启用 HarfBuzz OpenType shaping；不可用或关闭时使用 simple shaping + kerning。
@@ -293,13 +295,13 @@ if (!canvas) {
 
 ![WhatsCanvas 字体 fallback、CJK、双向文本与 text-on-path](images/text-rendering-showcase.png)
 
-完整能力矩阵见 [Text Feature Matrix](doc/TEXT_FEATURE_MATRIX.md) 与 [Text Sharpness & HiDPI](doc/TEXT_SHARPNESS_AND_HIDPI.md)。
+各项文本能力的支持状态见 [Text Feature Matrix](doc/TEXT_FEATURE_MATRIX.md) 与 [Text Sharpness & HiDPI](doc/TEXT_SHARPNESS_AND_HIDPI.md)。
 
-## 性能：有证据，也有适用范围
+## 性能数据与适用范围
 
 <!-- PERFORMANCE_CLAIM baseline=benchmarks/baselines/nanovg-win-i7-8700-gtx1060/matrix-summary.json wins=26 losses=0 inconclusive=1 quality=27/27 -->
 
-在仓库当前归档的 **Windows、Core i7-8700、GTX 1060、1920 × 1080、Release、OpenGL** 画质对齐基准矩阵中，WhatsCanvas 对比 NanoVG GL3 为 **26 项领先、0 项落后、1 项持平**，并有 **27 项像素质量验证通过**。
+仓库归档的 **Windows、Core i7-8700、GTX 1060、1920 × 1080、Release、OpenGL** 画质对齐基准矩阵显示：WhatsCanvas 对比 NanoVG GL3 为 **26 项领先、0 项落后、1 项持平**，并通过 **27 项像素质量验证**。
 
 审计元数据：Windows 10、NVIDIA 560.94、MSVC 19.43、OpenGL 3.3；每进程预热 5 帧并测量 30 帧，每个 cell 使用 2 个 ABBA block、每端 4 个新进程和 10,000 次 bootstrap；NanoVG commit 为 `ce3bf745eb2d2dbc14a50bf2446783f691ac4353`。矩阵于 2026-07-29 归档在 WhatsCanvas commit `0358151`，质量阈值与一键复现命令见基线 README。
 
@@ -319,7 +321,7 @@ if (!canvas) {
 
 本文中所说的“轻量”，指的是后端可按需分离链接、公开 API 表面较小、库不干预宿主应用的窗口与事件循环，并不意味着 header-only。
 
-当前仓库 `0.2.0` 的一个 **VS 2022 x64、静态 Release、默认 FreeType/HarfBuzz 开启**的干净构建快照可作为量级参考：
+以下体量数据来自当前仓库 `0.2.0` 的一次干净构建，环境为 **VS 2022 x64、静态 Release、默认启用 FreeType/HarfBuzz**：
 
 | 内容 | 文件体量 |
 | --- | ---: |
@@ -339,7 +341,7 @@ if (!canvas) {
 
 ## 成熟度与工程质量
 
-WhatsCanvas 不只是“能画出图形”，仓库配套的工程与自动化验证包括：
+仓库包含以下工程检查与自动化验证：
 
 - Windows、Linux、macOS 跨平台 CI；OpenGL ES、Vulkan 和 Metal 有独立构建/像素门禁。
 - Software golden image 基线、OpenGL/OpenGL ES/Vulkan/Metal 滤镜结果对齐、严格 hash 回归与模糊 PPM 回归。
@@ -347,10 +349,10 @@ WhatsCanvas 不只是“能画出图形”，仓库配套的工程与自动化�
 - 同步/异步像素回读、确定性首帧时序、render stats、资源统计和可复现 benchmark。
 - 公开头文件与 CMake target 的支持边界记录在 [API Stability](doc/API_STABILITY.md)，发布记录见 [CHANGELOG](CHANGELOG.md)。
 
-仍需明确的风险：
+已知风险：
 
 - 版本仍处于 pre-1.0（`0.2.x`），升级前应阅读 CHANGELOG 并执行 package consumer 测试。
-- README 的能力表不是所有 backend × platform 组合的完全 parity 承诺；滤镜、文字和输出目标应查对应的 feature matrix，并验证项目的实际组合。
+- README 的能力表不保证所有 backend × platform 组合都具备相同能力；滤镜、文字和输出目标应查对应的 feature matrix，并验证项目的实际组合。
 - Vulkan 不是默认后端，跨平台窗口呈现和更大场景的像素覆盖仍在扩展。
 - Metal 已在 Apple 平台可用，但 iOS 模拟器/真机 CI 与仓库内 iOS 示例仍待补齐；WebGPU、WebAssembly 和 CoreText native text adapter 尚未实现。
 - 跨 GPU 的实时渲染结果可能受驱动影响；确定性基线应优先使用 Software，GPU 回归使用容差比较。
@@ -404,11 +406,11 @@ sh ./scripts/package_consumer_smoke.sh
 sh ./scripts/release_preflight.sh
 ```
 
-发版预检覆盖 API reference、版本、单元测试和 package consumer，但不替代完整 GPU/视觉回归。基线更新规则见 [Regression Baseline Policy](doc/REGRESSION_BASELINES.md)。
+发版预检覆盖 API reference、版本、单元测试和 package consumer，但不替代全部 GPU/视觉回归测试。基线更新规则见 [Regression Baseline Policy](doc/REGRESSION_BASELINES.md)。
 
 ## 文档导航
 
-优先从 **[在线文档](https://clarkwain.github.io/WhatsCanvas/)** 或以下入口继续：
+文档可从 **[在线文档](https://clarkwain.github.io/WhatsCanvas/)** 开始，也可按用途选择以下入口：
 
 | 目的 | 文档 |
 | --- | --- |
@@ -423,7 +425,7 @@ sh ./scripts/release_preflight.sh
 
 ## 路线与边界
 
-WhatsCanvas 当前的主要方向是跨后端像素一致性、文本排版质量、更广的 Vulkan 与 Apple 设备覆盖，以及更可复现的性能基准。较远期方向包括 WebAssembly / WebGL 2、WebGPU，以及更完整的 color glyph 格式（CBDT/CBLC、SBIX、SVG、COLR v1）。这些方向仍在规划中，请勿视为已可直接使用的能力。
+WhatsCanvas 当前主要改进跨后端像素一致性、文本排版质量、Vulkan 与 Apple 设备覆盖，以及性能基准的可复现性。长期计划包括 WebAssembly / WebGL 2、WebGPU 和更多 color glyph 格式（CBDT/CBLC、SBIX、SVG、COLR v1）。这些功能仍在规划中，当前版本尚不可用。
 
 ## 许可证
 
