@@ -2765,7 +2765,8 @@ bool Canvas::isBackendAvailable(Backend backend)
 std::unique_ptr<Canvas> Canvas::create(Backend backend, int width, int height)
 {
     if (backend == Backend::Auto) {
-        return create({Backend::Vulkan, Backend::OpenGL, Backend::OpenGLES, Backend::Software}, width, height);
+        return create({Backend::Vulkan, Backend::Metal, Backend::OpenGL, Backend::OpenGLES, Backend::Software},
+                      width, height);
     }
     if (!isBackendAvailable(backend)) {
         return nullptr;
@@ -2775,7 +2776,8 @@ std::unique_ptr<Canvas> Canvas::create(Backend backend, int width, int height)
 
     switch (backend) {
     case Backend::Auto:
-        return create({Backend::Vulkan, Backend::OpenGL, Backend::OpenGLES, Backend::Software}, width, height);
+        return create({Backend::Vulkan, Backend::Metal, Backend::OpenGL, Backend::OpenGLES, Backend::Software},
+                      width, height);
     case Backend::Software:
         renderer = std::make_unique<wsc::software::SoftwareRenderer>(width, height);
         break;
@@ -2807,7 +2809,7 @@ std::unique_ptr<Canvas> Canvas::create(Backend backend, int width, int height)
         break;
     }
 #endif
-    default: // Metal / Direct3D (unimplemented), or GL family in a software-only build
+    default: // Direct3D (unimplemented), or a GPU backend in a software-only build
         return nullptr;
     }
 
@@ -4731,6 +4733,17 @@ bool Canvas::wrapExternalTexture(Image &image, std::uint32_t textureId, int widt
     }
 
     return image.wrapExternalTexture(*impl_->renderer, textureId, width, height, mipmapsGenerated);
+}
+
+bool Canvas::wrapExternalMetalTexture(Image &image, void *texture, int width, int height, bool mipmapsGenerated)
+{
+    if (impl_->backend != Backend::Metal || texture == nullptr || width <= 0 || height <= 0
+        || !impl_->ensureRendererInitialized()) {
+        return false;
+    }
+
+    const auto handle = static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(texture));
+    return image.wrapExternalTexture(*impl_->renderer, handle, width, height, mipmapsGenerated);
 }
 
 void Canvas::drawText(const std::string &text, float x, float y, const Paint &paint)

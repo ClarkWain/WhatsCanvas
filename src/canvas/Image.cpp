@@ -249,10 +249,16 @@ bool wsc::Image::wrapExternalTexture(Canvas &canvas, std::uint32_t textureId, in
     return canvas.wrapExternalTexture(*this, textureId, width, height, mipmapsGenerated);
 }
 
-bool wsc::Image::wrapExternalTexture(IRenderer &renderer, std::uint32_t textureId, int width, int height,
+bool wsc::Image::wrapExternalMetalTexture(Canvas &canvas, void *texture, int width, int height,
+                                          bool mipmapsGenerated)
+{
+    return canvas.wrapExternalMetalTexture(*this, texture, width, height, mipmapsGenerated);
+}
+
+bool wsc::Image::wrapExternalTexture(IRenderer &renderer, std::uint64_t textureHandle, int width, int height,
                                      bool mipmapsGenerated)
 {
-    if (textureId == 0 || width <= 0 || height <= 0) {
+    if (textureHandle == 0 || width <= 0 || height <= 0) {
         reset();
         return false;
     }
@@ -262,7 +268,7 @@ bool wsc::Image::wrapExternalTexture(IRenderer &renderer, std::uint32_t textureI
         storage_ = std::make_unique<Storage>();
     }
 
-    storage_->imageResource = renderer.wrapExternalImageResource(ImageResourceHandle{textureId});
+    storage_->imageResource = renderer.wrapExternalImageResource(ImageResourceHandle{textureHandle});
     if (!storage_->imageResource || !storage_->imageResource->isValid()) {
         reset();
         return false;

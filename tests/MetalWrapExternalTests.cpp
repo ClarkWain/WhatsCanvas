@@ -1,9 +1,9 @@
 // Metal wrap-external-texture test. Creates an MTLTexture on the same
 // MTLDevice that a Metal Canvas holds, uploads pixels manually, feeds the
-// texture pointer through Image::wrapExternalTexture, and asserts the
+// texture pointer through Image::wrapExternalMetalTexture, and asserts the
 // wrapped image draws correctly on the Canvas.
 //
-// Exercises Canvas::metalDevice() + wrapExternalTexture() +
+// Exercises Canvas::metalDevice() + wrapExternalMetalTexture() +
 // MetalRenderDevice::wrapExternalImageResource end to end.
 
 #import <Metal/Metal.h>
@@ -61,31 +61,31 @@ bool testMetalWrapExternalMTLTexture()
     }
     std::vector<unsigned char> pixels(static_cast<std::size_t>(iw) * ih * 4u);
     for (std::size_t i = 0; i < pixels.size() / 4; ++i) {
-        pixels[i * 4 + 0] = 30;
-        pixels[i * 4 + 1] = 200;
-        pixels[i * 4 + 2] = 255;
+        pixels[i * 4 + 0] = 255;
+        pixels[i * 4 + 1] = 20;
+        pixels[i * 4 + 2] = 10;
         pixels[i * 4 + 3] = 255;
     }
     MTLRegion region = MTLRegionMake2D(0, 0, iw, ih);
     [tex replaceRegion:region mipmapLevel:0 withBytes:pixels.data()
            bytesPerRow:static_cast<NSUInteger>(iw) * 4];
 
-    // Round-trip the MTLTexture through the public wrap-external API.
+    // Wrap the real MTLTexture through the public 64-bit-safe API, then mutate
+    // it after wrapping. Seeing the new color proves the Image samples the
+    // external texture instead of a copied upload.
     Image img;
-    const std::uint32_t handle = reinterpret_cast<std::uintptr_t>((__bridge void *)tex)
-                                 & 0xFFFFFFFFu;
-    // The Metal handle round-trip in Canvas is delivered via a uint64 handle,
-    // not the OpenGL-style uint32 wrapExternalTexture entry point; use it via
-    // the render-device layer through Canvas::metalLastRenderedTexture-adjacent
-    // path. For the smoke here we just draw the texture directly through the
-    // Canvas's drawImage path after loading it via loadFromRGBA (identical
-    // storage semantics) — the MetalTextureResource then round-trips the same
-    // MTLTexture pointer for the encoded draw.
-    (void)handle;
-    if (!expect(img.loadFromRGBA(*canvas, pixels.data(), iw, ih, /*generateMipmaps=*/false),
-                "loadFromRGBA on the wrapping canvas should succeed")) {
+    if (!expect(img.wrapExternalMetalTexture(*canvas, (__bridge void *)tex, iw, ih),
+                "wrapExternalMetalTexture should accept a same-device MTLTexture")) {
         return false;
     }
+    for (std::size_t i = 0; i < pixels.size() / 4; ++i) {
+        pixels[i * 4 + 0] = 30;
+        pixels[i * 4 + 1] = 200;
+        pixels[i * 4 + 2] = 255;
+        pixels[i * 4 + 3] = 255;
+    }
+    [tex replaceRegion:region mipmapLevel:0 withBytes:pixels.data()
+           bytesPerRow:static_cast<NSUInteger>(iw) * 4];
 
     canvas->beginFrame();
     Paint imgPaint;
@@ -98,8 +98,8 @@ bool testMetalWrapExternalMTLTexture()
         return false;
     }
     const std::size_t idx = (static_cast<std::size_t>(h / 2) * w + w / 2) * 4u;
-    bool ok = expect(readback[idx + 1] > 150 && readback[idx + 2] > 200,
-                     "the pre-populated MTLTexture pixels should end up on the canvas");
+    bool ok = expect(readback[idx + 0] < 80 && readback[idx + 1] > 150 && readback[idx + 2] > 200,
+                     "post-wrap MTLTexture mutations should be sampled without a copy");
     return ok;
 }
 

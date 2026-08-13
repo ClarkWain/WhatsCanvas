@@ -253,6 +253,7 @@ Public members:
 - `bool updateImageRGBA(Image &image, const unsigned char *pixels, int x, int y, int width, int height, bool regenerateMipmaps = true);`
 - `bool updateImageRGBA(Image &image, const std::vector<unsigned char> &pixels, int x, int y, int width, int height, bool regenerateMipmaps = true);`
 - `bool wrapExternalTexture(Image &image, std::uint32_t textureId, int width, int height, bool mipmapsGenerated = false);`
+- `bool wrapExternalMetalTexture(Image &image, void *texture, int width, int height, bool mipmapsGenerated = false);`
 - `void drawText(const std::string &text, float x, float y, const Paint &paint);`
 - `void drawTextBox(const std::string &text, const RectF &bounds, const Paint &paint);`
 - `void drawTextBox(const std::string &text, const RectF &bounds, float lineHeight, const Paint &paint);`
@@ -458,6 +459,7 @@ Public members:
 - `bool updatePixelsRGBA(Canvas &canvas, const unsigned char *pixels, int x, int y, int width, int height, bool regenerateMipmaps = true);`
 - `bool updatePixelsRGBA(Canvas &canvas, const std::vector<unsigned char> &pixels, int x, int y, int width, int height, bool regenerateMipmaps = true);`
 - `bool wrapExternalTexture(Canvas &canvas, std::uint32_t textureId, int width, int height, bool mipmapsGenerated = false);`
+- `bool wrapExternalMetalTexture(Canvas &canvas, void *texture, int width, int height, bool mipmapsGenerated = false);`
 - `int getTextureWidth() const override;`
 - `int getTextureHeight() const override;`
 - `bool isTextureValid() const override;`
