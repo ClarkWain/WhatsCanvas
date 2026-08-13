@@ -130,20 +130,10 @@ std::string utf8TextShowcaseArabic()
 
 void registerTextShowcaseFonts(Canvas& canvas)
 {
-#ifdef _WIN32
-    canvas.registerFontFace(FontFace::fromFile(FontDescriptor("InterShowcase"), "C:/Windows/Fonts/segoeui.ttf"));
-    canvas.registerFontFace(FontFace::fromFile(FontDescriptor("InterShowcase", 700), "C:/Windows/Fonts/segoeuib.ttf"));
-    canvas.registerFontFace(FontFace::fromFile(FontDescriptor("MonoShowcase"), "C:/Windows/Fonts/consola.ttf"));
-    canvas.registerFontFace(FontFace::fromFile(FontDescriptor("CjkShowcase"), "C:/Windows/Fonts/msyh.ttc", 0));
-    canvas.registerFontFace(FontFace::fromFile(FontDescriptor("ArabicShowcase"), "C:/Windows/Fonts/arial.ttf"));
-    canvas.registerFontFace(FontFace::fromFile(FontDescriptor("SerifShowcase"), "C:/Windows/Fonts/georgia.ttf"));
-
-    FontFallbackChain chain("InterShowcase");
-    chain.addFallbackFamily("CjkShowcase");
-    chain.addFallbackFamily("ArabicShowcase");
-    chain.addFallbackFamily("SerifShowcase");
-    canvas.setFontFallbackChain(chain);
-#endif
+    for (const FontFace &face : FontSystem::defaultSystemFontFaces()) {
+        canvas.registerFontFace(face);
+    }
+    canvas.setFontFallbackChain(FontSystem::defaultFallbackChain());
 }
 
 struct ValidationImages
@@ -254,14 +244,14 @@ void drawTextShowcaseScene(Canvas& canvas, float currentTime)
     label.setStyle(Paint::Style::FILL);
     label.setFillColor(Color(170, 222, 255, 230));
     label.setTextSize(18.0f);
-    label.setFontFamily("MonoShowcase");
+    label.setFontFamily(FontSystem::kDefaultMonoFamily);
     label.setLetterSpacing(1.4f);
 
     Paint hero;
     hero.setStyle(Paint::Style::FILL);
     hero.setFillColor(Color(255, 250, 230, 245));
     hero.setTextSize(74.0f);
-    hero.setFontFamily("InterShowcase");
+    hero.setFontFamily(FontSystem::kDefaultPrimaryFamily);
     hero.setShadowLayer(12.0f, 0.0f, 8.0f, Color(0, 0, 0, 150));
     canvas.drawText("Text rendering showcase", 72.0f, 66.0f, hero);
 
@@ -269,7 +259,7 @@ void drawTextShowcaseScene(Canvas& canvas, float currentTime)
     caption.setStyle(Paint::Style::FILL);
     caption.setFillColor(Color(225, 232, 240, 220));
     caption.setTextSize(27.0f);
-    caption.setFontFamily("InterShowcase");
+    caption.setFontFamily(FontSystem::kDefaultPrimaryFamily);
     canvas.drawText("Real Canvas output: fallback shaping, atlas glyphs, wrapping, stroke, shadow and path text.", 78.0f, 156.0f, caption);
 
     canvas.drawRoundRect(RectF(64.0f, 220.0f, 700.0f, 250.0f), 14.0f, panel);
@@ -278,14 +268,14 @@ void drawTextShowcaseScene(Canvas& canvas, float currentTime)
     cjk.setStyle(Paint::Style::FILL);
     cjk.setFillColor(Color(246, 248, 255, 235));
     cjk.setTextSize(42.0f);
-    cjk.setFontFamily("InterShowcase");
+    cjk.setFontFamily(FontSystem::kDefaultPrimaryFamily);
     cjk.setLetterSpacing(0.4f);
     canvas.drawTextBox(utf8TextShowcaseCjk(), RectF(104.0f, 300.0f, 600.0f, 112.0f), 52.0f, 2, true, cjk);
     Paint small;
     small.setStyle(Paint::Style::FILL);
     small.setFillColor(Color(190, 200, 210, 210));
     small.setTextSize(20.0f);
-    small.setFontFamily("InterShowcase");
+    small.setFontFamily(FontSystem::kDefaultPrimaryFamily);
     canvas.drawText("file / memory / TTC face index capable", 104.0f, 430.0f, small);
 
     canvas.drawRoundRect(RectF(836.0f, 220.0f, 700.0f, 250.0f), 14.0f, panel);
@@ -296,7 +286,7 @@ void drawTextShowcaseScene(Canvas& canvas, float currentTime)
     outlined.setStrokeColor(Color(55, 70, 92, 245));
     outlined.setStrokeWidth(5.0f);
     outlined.setTextSize(72.0f);
-    outlined.setFontFamily("InterShowcase");
+    outlined.setFontFamily(FontSystem::kDefaultPrimaryFamily);
     outlined.setShadowLayer(9.0f, 0.0f, 7.0f, Color(0, 0, 0, 120));
     outlined.setLinearGradient(876.0f, 300.0f, 1210.0f, 365.0f,
                                {
@@ -306,7 +296,7 @@ void drawTextShowcaseScene(Canvas& canvas, float currentTime)
                                });
     canvas.drawText("Aa Glyphs", 876.0f, 310.0f, outlined);
     Paint mono = small;
-    mono.setFontFamily("MonoShowcase");
+    mono.setFontFamily(FontSystem::kDefaultMonoFamily);
     mono.setFillColor(Color(210, 235, 255, 220));
     mono.setTextSize(21.0f);
     const Canvas::TextMetrics metrics = canvas.measureTextMetrics("Aa Glyphs", outlined);
@@ -321,7 +311,7 @@ void drawTextShowcaseScene(Canvas& canvas, float currentTime)
     bidi.setStyle(Paint::Style::FILL);
     bidi.setFillColor(Color(236, 246, 255, 232));
     bidi.setTextSize(34.0f);
-    bidi.setFontFamily("InterShowcase");
+    bidi.setFontFamily(FontSystem::kDefaultPrimaryFamily);
     canvas.drawText(utf8TextShowcaseBidi(), 104.0f, 595.0f, bidi);
     canvas.drawText(utf8TextShowcaseArabic(), 104.0f, 647.0f, bidi);
     Paint right = bidi;
@@ -334,7 +324,7 @@ void drawTextShowcaseScene(Canvas& canvas, float currentTime)
     Paint sizes;
     sizes.setStyle(Paint::Style::FILL);
     sizes.setFillColor(Color(245, 247, 250, 235));
-    sizes.setFontFamily("InterShowcase");
+    sizes.setFontFamily(FontSystem::kDefaultPrimaryFamily);
     for (int i = 0; i < 4; ++i) {
         sizes.setTextSize(22.0f + static_cast<float>(i) * 7.0f);
         sizes.setLetterSpacing(static_cast<float>(i) * 1.0f);
@@ -357,7 +347,7 @@ void drawTextShowcaseScene(Canvas& canvas, float currentTime)
     pathText.setStyle(Paint::Style::FILL);
     pathText.setFillColor(Color(255, 246, 170, 235));
     pathText.setTextSize(34.0f);
-    pathText.setFontFamily("SerifShowcase");
+    pathText.setFontFamily(FontSystem::kDefaultSerifFamily);
     pathText.setLetterSpacing(1.2f);
     canvas.drawTextOnPath("text-on-path rendered from glyph atlas", wave, std::fmod(currentTime * 28.0f, 110.0f), -26.0f, pathText);
 }

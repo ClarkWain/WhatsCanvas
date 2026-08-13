@@ -24,11 +24,11 @@ WhatsCanvas 是一款基于 C++17 编写、面向原生应用的可嵌入 2D 渲
 | --- | --- |
 | **适用场景** | 原生应用自定义 UI、工具与数据界面、HUD、2D 游戏渲染层、服务端或测试环境中的离屏图片生成。 |
 | **API 与语言** | C++17；公开 API 位于 `include/wsc/`，入口是 `#include <wsc/wsc.h>`。 |
-| **渲染后端** | OpenGL、纯 CPU Software；可选 OpenGL ES 和 Vulkan。Metal / WebGPU 尚未实现。 |
-| **平台状态** | Windows、Linux、macOS 持续执行构建和单元测试；发布包覆盖 Windows x64、Linux x64 和 macOS universal。移动端目前主要通过 OpenGL ES 宿主接入，并不代表已完成完整设备矩阵的验证。 |
+| **渲染后端** | OpenGL、纯 CPU Software；可选 OpenGL ES、Vulkan 以及 Metal（macOS/iOS）。WebGPU 尚未实现。 |
+| **平台状态** | Windows、Linux、macOS 持续执行构建和单元测试；发布包覆盖 Windows x64、Linux x64 和 macOS universal。Metal 已在 macOS 验证；移动端仍不代表已完成完整设备矩阵验证。 |
 | **文本能力** | 字体发现和 fallback、CJK/RTL、UAX #9、换行与省略号、glyph atlas、COLR/CPAL v0；OpenGL/OpenGL ES 默认启用 FreeType 与 HarfBuzz shaping。 |
 | **接入方式** | vcpkg overlay port、CMake `find_package`、`add_subdirectory`，或从源码生成可搬运的安装目录。 |
-| **体量** | 非 header-only。支持按后端仅链接 `WhatsCanvas::Software`、`::OpenGL` 或 `::OpenGLES`；参考体量见[体量与依赖](#体量与依赖)。 |
+| **体量** | 非 header-only。支持按后端仅链接 `WhatsCanvas::Software`、`::OpenGL`（也承载可选 Vulkan 与 Apple Metal）或 `::OpenGLES`；参考体量见[体量与依赖](#体量与依赖)。 |
 | **成熟度** | 当前版本 `0.1.20`，仍处于 pre-1.0。公开 API 边界、跨平台 CI、像素回归、package consumer 集成测试与可审计的性能基线均已建立；升级与平台风险仍需结合下文的边界说明评估。 |
 | **许可证** | MIT；`third_party/` 组件遵循各自许可证。 |
 
@@ -36,7 +36,7 @@ WhatsCanvas 是一款基于 C++17 编写、面向原生应用的可嵌入 2D 渲
 如果你希望用统一的 Canvas 风格 API 处理 CPU/GPU 渲染、多语言文本以及常见 UI 效果，同时看重截图确定性、像素级回归测试与源码可读性，WhatsCanvas 是一个合适的选择。
 
 **何时需要另寻方案？**
-如果你的项目强依赖现成的 UI 控件体系、需要在浏览器中运行、需要对 Metal / WebGPU 的原生支持、需要严格的色彩管理、要求生成文档/PDF、涉及复杂的富文本编辑，或需要依赖已进入长期稳定期（1.0+）、承诺 ABI 稳定的成熟渲染库，那么 WhatsCanvas 可能暂时不适合你。
+如果你的项目强依赖现成的 UI 控件体系、需要在浏览器中运行、需要 WebGPU 原生支持、需要严格的色彩管理、要求生成文档/PDF、涉及复杂的富文本编辑，或需要依赖已进入长期稳定期（1.0+）、承诺 ABI 稳定的成熟渲染库，那么 WhatsCanvas 可能暂时不适合你。
 
 ## 60 秒画出第一帧
 
@@ -235,18 +235,19 @@ cmake -S . -B build \
 | 后端 | CMake target | 默认状态 | 宿主要求 | 当前边界 |
 | --- | --- | --- | --- | --- |
 | **Software** | `WhatsCanvas::Software` | 开启 | 无 GPU 或图形 API | 确定性 CPU 参考实现，适合 headless、测试、截图和 fallback。 |
-| **OpenGL 3.3 Core** | `WhatsCanvas::OpenGL` | 开启，主 GPU 路径 | 应用创建 GL 上下文并保持为当前上下文，提供 proc address | 桌面应用的主要实时渲染路径。 |
+| **OpenGL 3.3 Core** | `WhatsCanvas::OpenGL` | 开启，主要跨平台 GL 路径 | 应用创建 GL 上下文并保持为当前上下文，提供 proc address | 桌面应用的主要 GL 渲染路径。 |
 | **OpenGL ES 3.0** | `WhatsCanvas::OpenGLES` | 关闭 | 宿主 EGL/GLES context | 独立 target；Linux Mesa 执行构建和滤镜像素门禁，移动设备仍需宿主侧验证。 |
 | **Vulkan** | 编入 `WhatsCanvas::OpenGL` | 关闭 | 源码构建需 Vulkan SDK；运行需 loader、驱动和可用设备 | 默认离屏；Win32 支持 Canvas 窗口呈现，其他平台的窗口 surface 仍在完善。 |
+| **Metal** | Apple 平台编入 `WhatsCanvas::OpenGL` | Apple 平台默认开启 | 支持 Metal 的 macOS/iOS/tvOS 设备 | 支持离屏渲染、外部 `MTLTexture` 互操作和 `CAMetalLayer` 窗口呈现；iOS 真机/模拟器验证仍由宿主负责。 |
 
-Vulkan 用 `-DWHATSCANVAS_ENABLE_VULKAN=ON` 启用。它目前没有独立 package target：代码编入 `WhatsCanvas::OpenGL`，该 target 仍声明系统 OpenGL 依赖，然后在运行时用 `Backend::Vulkan` 选择设备。
+Vulkan 用 `-DWHATSCANVAS_ENABLE_VULKAN=ON` 启用。Metal 在 Apple 平台默认开启，可通过 `-DWHATSCANVAS_ENABLE_METAL=OFF` 关闭。两者目前都没有独立 package target：代码编入 `WhatsCanvas::OpenGL`，运行时分别用 `Backend::Vulkan` 或 `Backend::Metal` 选择设备。
 
-OpenGL / OpenGL ES 由应用拥有窗口和上下文；Software 和离屏 Vulkan 不需要 GL 上下文。所有后端都通过 `Canvas::create(Backend, width, height)` 创建，失败时返回 `nullptr`，因此可显式提供 fallback：
+OpenGL / OpenGL ES 由应用拥有窗口和上下文；Software、Vulkan 和 Metal 不需要外部 GL 上下文。所有后端都通过 `Canvas::create(Backend, width, height)` 创建，失败时返回 `nullptr`，因此可显式提供 fallback：
 
 ```cpp
 using Backend = wsc::Canvas::Backend;
 auto canvas = wsc::Canvas::create(
-    {Backend::Vulkan, Backend::OpenGL, Backend::Software}, width, height);
+    {Backend::Vulkan, Backend::Metal, Backend::OpenGL, Backend::Software}, width, height);
 if (!canvas) {
     return 1;
 }
@@ -260,7 +261,7 @@ if (!canvas) {
 | --- | --- | --- |
 | Windows x64 | MSVC 单元测试、包消费、OpenGL/Software；发布矩阵可启用 GLES、Vulkan、FreeType、HarfBuzz | DirectWrite 文本后端可选；Vulkan 窗口呈现支持 Win32。 |
 | Linux x64 | GCC 构建、单元测试、OpenGL/GLES 滤镜像素门禁、包消费 | 自动化 GL 场景使用 Mesa/Xvfb；GLX 窗口呈现源码仍缺少持续验证。 |
-| macOS x86_64/arm64 | 单元测试与 universal 发布包 | 使用系统 OpenGL；Metal 渲染后端尚未实现。 |
+| macOS x86_64/arm64 | 单元测试、Metal 像素/契约门禁与 universal 发布包 | Metal 默认开启，支持离屏渲染和 `CAMetalLayer` 呈现；系统 OpenGL 仍可用。 |
 | iOS / Android | OpenGL ES target 与 iOS 接入说明 | 尚无常态化的真机 CI，集成前请在目标设备上自行验证。 |
 | Web | 未支持 | WebAssembly / WebGL 2 桥接仍在规划。 |
 
@@ -276,7 +277,7 @@ if (!canvas) {
 | 图片 | PNG/JPEG 解码、raw RGBA、外部纹理、局部更新、contain/cover、九宫格、圆角/圆形裁剪、平铺 | `Image`、`drawImageFit`、`wrapExternalTexture` |
 | 图层滤镜 | content/backdrop blur、内阴影、毛玻璃、饱和度/亮度/对比度/颗粒、颜色矩阵和 offset chain | `ImageFilter`、`ImageFilterChain`、`LayerOptions` |
 | 文字 | 系统字体、fallback、weight/slant、CJK/RTL、换行/省略号、letter spacing、描边/阴影/渐变文本、text-on-path | `FontManager`、`drawTextBox`、`drawTextOnPath` |
-| 输出与互操作 | 离屏图片、render-target canvas、GL framebuffer、外部 Vulkan image、同步/异步 RGBA 回读、窗口 present | `OutputTarget`、`readPixelsRGBAAsync`、`present` |
+| 输出与互操作 | 离屏图片、render-target canvas、GL framebuffer、外部 Vulkan image/Metal texture、同步/异步 RGBA 回读、窗口 present | `OutputTarget`、`wrapExternalTexture`、`readPixelsRGBAAsync`、`present` |
 | 诊断 | 像素 hash/PPM、后端与字体 diagnostics、render stats、资源与 atlas 统计 | `computePixelsHashRGBA`、`RenderStats` |
 
 ### 文本实现说明
@@ -340,8 +341,8 @@ if (!canvas) {
 
 WhatsCanvas 不只是“能画出图形”，仓库配套的工程与自动化验证包括：
 
-- Windows、Linux、macOS 跨平台 CI；OpenGL ES 和 Vulkan 有独立构建/像素门禁。
-- Software golden image 基线、OpenGL/OpenGL ES/Vulkan 滤镜结果对齐、严格 hash 回归与模糊 PPM 回归。
+- Windows、Linux、macOS 跨平台 CI；OpenGL ES、Vulkan 和 Metal 有独立构建/像素门禁。
+- Software golden image 基线、OpenGL/OpenGL ES/Vulkan/Metal 滤镜结果对齐、严格 hash 回归与模糊 PPM 回归。
 - 公开 API 参考文档时效性、版本一致性、package consumer 与示例构建检查。
 - 同步/异步像素回读、确定性首帧时序、render stats、资源统计和可复现 benchmark。
 - 公开头文件与 CMake target 的支持边界记录在 [API Stability](doc/API_STABILITY.md)，发布记录见 [CHANGELOG](CHANGELOG.md)。
@@ -351,13 +352,13 @@ WhatsCanvas 不只是“能画出图形”，仓库配套的工程与自动化�
 - 版本仍是 `0.1.x`，升级前应阅读 CHANGELOG 并执行 package consumer 测试。
 - README 的能力表不是所有 backend × platform 组合的完全 parity 承诺；滤镜、文字和输出目标应查对应的 feature matrix，并验证项目的实际组合。
 - Vulkan 不是默认后端，跨平台窗口呈现和更大场景的像素覆盖仍在扩展。
-- Metal、WebGPU、WebAssembly 尚不可用；CoreText native text adapter 尚未实现。
+- Metal 已在 Apple 平台可用，但 iOS 模拟器/真机 CI 与仓库内 iOS 示例仍待补齐；WebGPU、WebAssembly 和 CoreText native text adapter 尚未实现。
 - 跨 GPU 的实时渲染结果可能受驱动影响；确定性基线应优先使用 Software，GPU 回归使用容差比较。
 - `Canvas` 应在其渲染 / 上下文线程内使用；当前公开文档不承诺同一实例的并发访问，也未定义跨 Canvas 共享图片、字体或外部纹理的跨线程约定。
 
 ## 示例
 
-仓库包含根 demo、API snippets、package consumer、Software/OpenGL/Vulkan present，以及两个游戏示例：
+仓库包含根 demo、API snippets、package consumer、Software/OpenGL/Vulkan/Metal present，以及两个游戏示例：
 
 <table>
 <tr>
@@ -422,7 +423,7 @@ sh ./scripts/release_preflight.sh
 
 ## 路线与边界
 
-WhatsCanvas 当前的主要方向：跨后端像素一致性、文本排版质量、Vulkan 平台覆盖度，以及更可复现的性能基准。较远期的方向包括 WebAssembly / WebGL 2 支持、Metal 与 WebGPU 后端，以及更完整的 color glyph 格式（CBDT/CBLC、SBIX、SVG、COLR v1）。这些方向仍在规划中，请勿视为已可直接使用的能力。
+WhatsCanvas 当前的主要方向是跨后端像素一致性、文本排版质量、更广的 Vulkan 与 Apple 设备覆盖，以及更可复现的性能基准。较远期方向包括 WebAssembly / WebGL 2、WebGPU，以及更完整的 color glyph 格式（CBDT/CBLC、SBIX、SVG、COLR v1）。这些方向仍在规划中，请勿视为已可直接使用的能力。
 
 ## 许可证
 

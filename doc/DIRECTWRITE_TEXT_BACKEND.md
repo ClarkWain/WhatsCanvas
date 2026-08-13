@@ -60,6 +60,12 @@ All of these `Paint` knobs flow through to DirectWrite:
 - `setLetterSpacing` — baked into the layout via `IDWriteTextLayout1::SetCharacterSpacing`, so measurement and rendering stay consistent
 - `setTextAlign` / `setTextBaseline`
 - `setTextLocale` (BCP-47, e.g. `"en-US"`, `"ja-JP"`) — locale-aware shaping and Han-unification fallback
+- `setFontFeature` — whole-run, case-sensitive four-byte OpenType tags are
+  applied through `IDWriteTypography` and included in bitmap cache keys. There
+  is no whitelist; unsupported features have no effect. Value `0` disables,
+  value `1` normally enables, and other values are passed through for
+  feature-specific alternate selection. See the
+  [Text Feature Matrix](TEXT_FEATURE_MATRIX.md#opentype-feature-controls).
 - `setUnderline` / `setStrikethrough` — text decorations drawn by DirectWrite over the run
 - `setTextRenderMode` — per-Paint raster mode override (`Grayscale` / `ClearType` /
   `Default` = inherit backend setting). Lets a single canvas mix ClearType body
@@ -71,8 +77,9 @@ All of these `Paint` knobs flow through to DirectWrite:
 `registerFontFace` accepts both on-disk and in-memory fonts:
 
 ```cpp
+const std::string fontPath = resolveApplicationFont("Inter-Regular.ttf");
 backend->registerFontFace(wsc::FontFace::fromFile(wsc::FontDescriptor("Inter"),
-                                                  "C:/fonts/Inter-Regular.ttf"));
+                                                  fontPath));
 
 std::vector<std::uint8_t> bytes = /* load a .ttf/.otf */;
 backend->registerFontFace(wsc::FontFace::fromMemory(wsc::FontDescriptor("Inter"), bytes));
@@ -83,6 +90,24 @@ backend->registerFontFace(wsc::FontFace::fromMemory(wsc::FontDescriptor("Inter")
   Windows 10+); unavailable factories degrade gracefully (returns `false`).
 - A registered family is preferred over the system collection; the system
   collection still drives automatic fallback.
+
+## Refreshing installed fonts
+
+Applications that install or remove fonts while a canvas is alive can refresh
+the process snapshot and the native DirectWrite collection without recreating
+the canvas:
+
+```cpp
+const std::uint64_t before = wsc::FontSystem::installedFontGeneration();
+if (canvas->refreshSystemFonts()) {
+    const std::uint64_t after = wsc::FontSystem::installedFontGeneration();
+    // after > before; application-registered fonts and fallback chains remain.
+}
+```
+
+Refreshing invalidates text/atlas bitmap caches whose results may depend on the
+installed collection. Explicit file-backed and memory-backed font registrations
+and custom fallback chains are preserved.
 
 ## Custom font fallback chains
 

@@ -11,7 +11,7 @@ enum class RenderBackendType
     OpenGL,   ///< Desktop OpenGL.
     OpenGLES, ///< OpenGL ES.
     Vulkan,  ///< Optional Vulkan backend.
-    Metal    ///< Metal on Apple platforms (future)
+    Metal    ///< Metal on Apple platforms.
 };
 
 /// Returns a human-readable name for the backend type.

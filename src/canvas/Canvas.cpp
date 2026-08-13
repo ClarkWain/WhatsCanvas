@@ -2752,8 +2752,9 @@ bool Canvas::isBackendAvailable(Backend backend)
 #endif
     case Backend::Vulkan:
         return RenderDeviceFactory::isBackendSupported(RenderBackendType::Vulkan);
-    case Backend::Auto:
     case Backend::Metal:
+        return RenderDeviceFactory::isBackendSupported(RenderBackendType::Metal);
+    case Backend::Auto:
     case Backend::Direct3D:
     default:
         return false;
@@ -2764,7 +2765,8 @@ bool Canvas::isBackendAvailable(Backend backend)
 std::unique_ptr<Canvas> Canvas::create(Backend backend, int width, int height)
 {
     if (backend == Backend::Auto) {
-        return create({Backend::Vulkan, Backend::OpenGL, Backend::OpenGLES, Backend::Software}, width, height);
+        return create({Backend::Vulkan, Backend::Metal, Backend::OpenGL, Backend::OpenGLES, Backend::Software},
+                      width, height);
     }
     if (!isBackendAvailable(backend)) {
         return nullptr;
@@ -2774,7 +2776,8 @@ std::unique_ptr<Canvas> Canvas::create(Backend backend, int width, int height)
 
     switch (backend) {
     case Backend::Auto:
-        return create({Backend::Vulkan, Backend::OpenGL, Backend::OpenGLES, Backend::Software}, width, height);
+        return create({Backend::Vulkan, Backend::Metal, Backend::OpenGL, Backend::OpenGLES, Backend::Software},
+                      width, height);
     case Backend::Software:
         renderer = std::make_unique<wsc::software::SoftwareRenderer>(width, height);
         break;
@@ -2797,8 +2800,16 @@ std::unique_ptr<Canvas> Canvas::create(Backend backend, int width, int height)
         renderer = std::make_unique<Renderer>(std::move(device));
         break;
     }
+    case Backend::Metal: {
+        auto device = RenderDeviceFactory::create(RenderBackendType::Metal);
+        if (device == nullptr) {
+            return nullptr;
+        }
+        renderer = std::make_unique<Renderer>(std::move(device));
+        break;
+    }
 #endif
-    default: // Metal / Direct3D (unimplemented), or GL family in a software-only build
+    default: // Direct3D (unimplemented), or a GPU backend in a software-only build
         return nullptr;
     }
 
@@ -4724,6 +4735,17 @@ bool Canvas::wrapExternalTexture(Image &image, std::uint32_t textureId, int widt
     return image.wrapExternalTexture(*impl_->renderer, textureId, width, height, mipmapsGenerated);
 }
 
+bool Canvas::wrapExternalMetalTexture(Image &image, void *texture, int width, int height, bool mipmapsGenerated)
+{
+    if (impl_->backend != Backend::Metal || texture == nullptr || width <= 0 || height <= 0
+        || !impl_->ensureRendererInitialized()) {
+        return false;
+    }
+
+    const auto handle = static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(texture));
+    return image.wrapExternalTexture(*impl_->renderer, handle, width, height, mipmapsGenerated);
+}
+
 void Canvas::drawText(const std::string &text, float x, float y, const Paint &paint)
 {
     if (!impl_->textBackend) {
@@ -5440,6 +5462,11 @@ Canvas::TextMetrics Canvas::measureTextMetrics(const std::string &text, const Pa
 bool Canvas::registerFontFace(const FontFace &face)
 {
     return impl_->textBackend != nullptr && impl_->textBackend->registerFontFace(face);
+}
+
+bool Canvas::refreshSystemFonts()
+{
+    return impl_->textBackend != nullptr && impl_->textBackend->refreshSystemFonts();
 }
 
 bool Canvas::setFontFallbackChain(const FontFallbackChain &chain)
@@ -6313,6 +6340,21 @@ void *Canvas::vulkanQueue() const
 unsigned int Canvas::vulkanQueueFamily() const
 {
     return impl_->renderer ? static_cast<unsigned int>(impl_->renderer->nativeHandle(4)) : 0u;
+}
+
+void *Canvas::metalDevice() const
+{
+    return impl_->renderer ? reinterpret_cast<void *>(impl_->renderer->nativeHandle(0)) : nullptr;
+}
+
+void *Canvas::metalCommandQueue() const
+{
+    return impl_->renderer ? reinterpret_cast<void *>(impl_->renderer->nativeHandle(1)) : nullptr;
+}
+
+void *Canvas::metalLastRenderedTexture() const
+{
+    return impl_->renderer ? reinterpret_cast<void *>(impl_->renderer->nativeHandle(2)) : nullptr;
 }
 
 bool Canvas::readPixelsRGBAAsync(ReadPixelsCallback callback)

@@ -9,6 +9,38 @@ For releases and downloadable artifacts, see the
 
 ## [Unreleased]
 
+### Added
+- Added a Metal render backend for macOS / iOS, complementing the existing
+  Software / OpenGL / Vulkan backends. The backend is selectable via
+  `Canvas::create(Canvas::Backend::Metal, w, h)` and is enabled by default on
+  Apple platforms (opt out with `-DWHATSCANVAS_ENABLE_METAL=OFF`).
+  - Nine Metal render pipelines cover Solid, Textured, Gradient (linear +
+    radial), Clip-fill, Clip-mask rasterisation, Mask multiplication, Blur
+    (separable), Inner-shadow, and full-target Blit.
+  - The full 14-mode Porter-Duff blend set is implemented per pipeline.
+  - Image filters supported: Gaussian blur (separable, 31-tap), Inner shadow
+    (4-pass), Color matrix, Rounded-corner mask, and post-blur saturation /
+    brightness / contrast / grain modifiers.
+  - Multi-clip path intersection uses ping-pong mask multiplication so
+    stacked `clipPath` / `clipRect` calls correctly narrow the clipping
+    region instead of unioning.
+  - Windowed presentation via `ISwapchain` on top of `CAMetalLayer`
+    `nextDrawable` + blit, wired through `Canvas::setOutputTarget` +
+    `Canvas::present`. See `examples/metal_present/` for a CAMetalLayer demo.
+  - GPU frame timing (`beginGpuFrameTiming` / `endGpuFrameTiming` /
+    `lastGpuFrameTimeNs`) is backed by `MTLCommandBuffer.GPUStartTime` /
+    `GPUEndTime`.
+  - Pipeline and sampler caches are pre-warmed at `initializeBackend`;
+    large vertex and index uploads reuse pooled scratch `MTLBuffer`s.
+  - Twenty-one dedicated Metal test targets cover the Vulkan-equivalent
+    rendering surface, including a `MetalFilterPixelParityTests` gate that compares the Metal
+    Blur output against the Software reference and a `MetalDrawListTests`
+    gate that drives `MetalRenderDevice::executeDrawList` directly with
+    hand-authored primitives.
+  - Cross-backend performance benchmark on Apple M3 Pro (256×256, 128 rects
+    × 200 frames) shows Metal 1.66 ms/frame vs OpenGL 2.45 ms/frame
+    (~32% faster wall-clock, ~40% faster GPU-side).
+
 ## [0.1.20] - 2026-08-05
 
 ### Added

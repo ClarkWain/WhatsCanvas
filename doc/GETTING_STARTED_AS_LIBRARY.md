@@ -103,7 +103,7 @@ One `beginFrame`, your draws, one `endFrame`, then read/present.
 WhatsCanvas separates the **Canvas API** (what you draw) from the **backend**
 (where it renders). One factory selects the backend:
 `Canvas::create(Backend, width, height)` — returns `nullptr` if that backend is
-unavailable in your build/host. Adding a future backend (Metal, D3D) needs no
+unavailable in your build/host. Adding a future backend (for example D3D) needs no
 new API, just a new `Backend` value.
 
 | Backend | `Backend` value | Needs a GL context / window? | Use when |
@@ -112,6 +112,7 @@ new API, just a new `Backend` value.
 | **OpenGL** | `Backend::OpenGL` | Yes (you own it) | Desktop apps/games with a window (GLFW, SDL, Qt, your engine) |
 | **OpenGL ES** | `Backend::OpenGLES` | Yes (you own it) | Mobile / embedded GLES 3.0 |
 | **Vulkan** (optional) | `Backend::Vulkan` | No external GL context; off-screen by default | Vulkan pipelines, off-screen rendering, or Win32 `ToWindow`; `nullptr` when unavailable |
+| **Metal** (Apple) | `Backend::Metal` | No external GL context; off-screen or `CAMetalLayer` | Native macOS/iOS rendering; enabled by default on Apple platforms |
 
 ```cpp
 using Backend = wsc::Canvas::Backend;
@@ -122,7 +123,8 @@ auto canvas = wsc::Canvas::create(Backend::Software, 256, 256);
 canvas->initializeContext();
 
 // Or let WhatsCanvas pick the first available from a preference list:
-auto best = wsc::Canvas::create({Backend::Vulkan, Backend::OpenGL, Backend::Software}, 256, 256);
+auto best = wsc::Canvas::create(
+    {Backend::Vulkan, Backend::Metal, Backend::OpenGL, Backend::Software}, 256, 256);
 
 // Query support / which backend you got:
 bool hasVk = wsc::Canvas::isBackendAvailable(Backend::Vulkan);
@@ -185,7 +187,7 @@ The lifecycle contract for the GL/GLES backends:
 4. `canvas.releaseResources()` before tearing down the context. On context loss
    (e.g. Android background), call `releaseResources()` and re-`initializeContext()`.
 
-> The software and Vulkan backends need no `loadOpenGL`. `beginFrame()` initializes
+> The Software, Vulkan, and Metal backends need no `loadOpenGL`. `beginFrame()` initializes
 > them lazily; call `initializeContext()` explicitly if you want initialization
 > outside the frame loop.
 
@@ -234,7 +236,8 @@ cmake --build build --config Release
 > assets use the platform defaults. If a required imported target is absent from
 > your platform archive, build from source with the corresponding option (for
 > Vulkan, `-DWHATSCANVAS_ENABLE_VULKAN=ON`; see
-> [section 4](#4-the-vulkan-backend-explained)).
+> [section 4](#4-the-vulkan-backend-explained)). On Apple platforms Metal is
+> included in `WhatsCanvas::OpenGL` by default.
 
 ### Option B — Build the package yourself
 
@@ -263,8 +266,8 @@ target_link_libraries(MyApp PRIVATE WhatsCanvas::OpenGL)
 
 | Target | Backend | Extra dependencies |
 | --- | --- | --- |
-| `WhatsCanvas::Software` | CPU only | **none** (no OpenGL/Vulkan) |
-| `WhatsCanvas::OpenGL` | Desktop GL (+ optional Vulkan, see §4) | system OpenGL |
+| `WhatsCanvas::Software` | CPU only | **none** (no OpenGL/Vulkan/Metal) |
+| `WhatsCanvas::OpenGL` | Desktop GL (+ optional Vulkan and Apple Metal, see §4) | system OpenGL; Apple frameworks when Metal is enabled |
 | `WhatsCanvas::OpenGLES` | GLES 3.0 | system GLES |
 
 #### Software-only (no GPU dependency)
@@ -334,6 +337,41 @@ by immediate GL calls issued per command against the current context. The Vulkan
 backend instead encodes the same drawing into a backend-neutral draw list and
 submits it through the device with its own command buffers and queues. Same Canvas
 API and same visual result — different plumbing underneath.
+
+### The Metal backend, in short
+
+On macOS and iOS, WhatsCanvas ships a Metal backend that follows the same
+backend-neutral draw list plumbing as Vulkan. It is enabled by default on
+Apple platforms (`-DWHATSCANVAS_ENABLE_METAL=ON`) and selected at runtime
+with `Canvas::Backend::Metal`:
+
+```cpp
+using Backend = wsc::Canvas::Backend;
+auto canvas = wsc::Canvas::isBackendAvailable(Backend::Metal)
+                  ? wsc::Canvas::create(Backend::Metal, 512, 512)
+                  : wsc::Canvas::create(Backend::Software, 512, 512);
+```
+
+Off-screen usage (`readPixelsRGBA`) works exactly like the other GPU backends.
+For on-screen presentation, wrap a `CAMetalLayer` in an `OutputTarget` and
+call `Canvas::setOutputTarget(...)` + `Canvas::present()`; see
+[`examples/metal_present`](../examples/metal_present). GPU frame timing
+(`beginGpuFrameTiming` / `lastGpuFrameTimeNs`) is backed by
+`MTLCommandBuffer.GPUStartTime`, and the Canvas exposes the underlying
+`MTLDevice` / `MTLCommandQueue` handles for tighter host integration.
+
+Objective-C++ hosts can also wrap a same-device external texture without a
+pixel copy:
+
+```objective-c++
+wsc::Image image;
+image.wrapExternalMetalTexture(*canvas, (__bridge void *)texture,
+                               texture.width, texture.height);
+```
+
+`Canvas::create(Backend::Auto, ...)` includes Metal in its built-in preference
+order (`Vulkan -> Metal -> OpenGL/OpenGLES -> Software`), so a normal Apple
+build selects Metal when Vulkan is unavailable.
 
 ---
 
@@ -553,16 +591,16 @@ target and is a no-op for the others; read pixels with `readPixelsRGBA`.
 `setOutputTarget` returns `false` when a target is unsupported for the current
 backend/platform, so you can fall back. On-screen present is implemented for
 **software (Windows GDI + Linux X11)**, **OpenGL (WGL; GLX on Linux)** and
-**Vulkan** (Windows, validated).
+**Vulkan** (Windows, validated), and **Metal** (`CAMetalLayer` on Apple platforms).
 
 **Present to a window** (WhatsCanvas does not own the window — you create it and
 hand over the native handle):
 
 ```cpp
 using Backend = wsc::Canvas::Backend;
-auto canvas = wsc::Canvas::create(Backend::Software, width, height);   // or Backend::OpenGL / Backend::Vulkan
-// Required before setOutputTarget for GL/Vulkan. For OpenGL, make the context
-// current and call Canvas::loadOpenGL(...) first; Software needs no setup.
+auto canvas = wsc::Canvas::create(Backend::Software, width, height);   // or OpenGL / Vulkan / Metal
+// Initialize before setOutputTarget. For OpenGL, make the context current and
+// call Canvas::loadOpenGL(...) first; Software/Vulkan/Metal need no GL setup.
 canvas->initializeContext();
 
 wsc::NativeSurface surface;
@@ -582,7 +620,8 @@ if (canvas->setOutputTarget(wsc::OutputTarget::ToWindow(surface))) {  // false i
 Runnable demos:
 [`software_present`](../examples/software_present),
 [`gl_present`](../examples/gl_present),
-[`vulkan_canvas_present`](../examples/vulkan_canvas_present).
+[`vulkan_canvas_present`](../examples/vulkan_canvas_present),
+[`metal_present`](../examples/metal_present).
 
 **Embed into an existing renderer** — draw into *your* GPU target instead of a
 window (no `present()`; your engine composites/presents its own target):
@@ -641,6 +680,7 @@ cmd /c scripts\package_consumer_smoke.bat
 
 ```bash
 ctest --test-dir build -C Release -L unit --output-on-failure
+ctest --test-dir build -C Release -L metal --output-on-failure  # Apple only
 sh ./scripts/smoke_test.sh
 sh ./scripts/text_pixel_regression.sh
 sh ./scripts/opengles_build_smoke.sh
@@ -658,4 +698,5 @@ See `doc/REGRESSION_BASELINES.md` for the baseline policy and
 - [API Stability](API_STABILITY.md) — what is guaranteed stable.
 - [Text Feature Matrix](TEXT_FEATURE_MATRIX.md) — text/font capabilities.
 - [Vulkan backend status](vulkan-backend-status.md) — enabling Vulkan.
+- [iOS Build Notes](IOS_BUILD_NOTES.md) — Metal/GLES integration and Apple-device validation boundaries.
 - Runnable examples: [`examples/`](../examples) and [`tests/package_consumer`](../tests/package_consumer).

@@ -6,8 +6,10 @@
 #include <chrono>
 #include <cstdint>
 #include <cmath>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -142,6 +144,30 @@ int main()
         return 1;
     }
 
+    // Public OpenType features must reach DirectWrite typography and must be
+    // part of the bitmap cache identity. Roboto contains a real ffi ligature.
+    auto featureBackend = wsc::text::createDirectWriteTextBackend();
+    if (featureBackend != nullptr
+        && featureBackend->registerFontFace(wsc::FontFace::fromFile(
+            wsc::FontDescriptor("Roboto"), WHATSCANVAS_TEST_OPENTYPE_FONT))) {
+        wsc::Paint ligaturesOn;
+        ligaturesOn.setFontFamily("Roboto");
+        ligaturesOn.setTextSize(32.0f);
+        ligaturesOn.setFontFeature("liga", 1);
+        wsc::Paint ligaturesOff = ligaturesOn;
+        ligaturesOff.setFontFeature("liga", 0);
+        const auto withLigature = featureBackend->renderText("ffi", 0.0f, 0.0f, ligaturesOn);
+        const auto withoutLigature = featureBackend->renderText("ffi", 0.0f, 0.0f, ligaturesOff);
+        if (withLigature.kind != wsc::text::TextRenderKind::Bitmap
+            || withoutLigature.kind != wsc::text::TextRenderKind::Bitmap
+            || (withLigature.bitmapContentId == withoutLigature.bitmapContentId
+                && withLigature.bitmapPixels == withoutLigature.bitmapPixels)) {
+            std::cerr << "[DirectWriteBackendTests] FAIL: OpenType liga feature did not affect DirectWrite output."
+                      << std::endl;
+            return 1;
+        }
+    }
+
     std::cout << "[DirectWriteBackendTests] PASS: measured width=" << width << ", ascent=" << metrics.ascent
               << ", descent=" << metrics.descent << ", coverage=" << covered
               << " px; letter-spacing base=" << baseWidth << " spaced=" << spacedWidth
@@ -149,29 +175,30 @@ int main()
 
     // Custom font-file registration: registering an on-disk font builds a usable
     // custom collection whose family resolves for measurement and rendering.
-    struct FontCandidate { const char *path; const char *family; };
-    const FontCandidate candidates[] = {
-        {"C:/Windows/Fonts/consola.ttf", "Consolas"},
-        {"C:/Windows/Fonts/arial.ttf", "Arial"},
-        {"C:/Windows/Fonts/segoeui.ttf", "Segoe UI"},
-    };
-    const FontCandidate *chosen = nullptr;
-    for (const FontCandidate &c : candidates) {
-        std::ifstream f(c.path, std::ios::binary);
-        if (f.good()) {
-            chosen = &c;
-            break;
+    const std::vector<wsc::FontFace> installed = wsc::FontSystem::discoverInstalledFontFaces();
+    const char *preferredFamilies[] = {"Consolas", "Arial", "Segoe UI"};
+    const wsc::FontFace *chosen = nullptr;
+    for (const char *family : preferredFamilies) {
+        int bestDistance = std::numeric_limits<int>::max();
+        for (const wsc::FontFace &face : installed) {
+            if (face.family() == family && face.slant() == wsc::FontSlant::NORMAL) {
+                const int distance = std::abs(face.weight() - 400);
+                if (distance < bestDistance) {
+                    chosen = &face;
+                    bestDistance = distance;
+                }
+            }
         }
+        if (chosen != nullptr) break;
     }
     if (chosen != nullptr) {
-        if (!backend->registerFontFace(
-                wsc::FontFace::fromFile(wsc::FontDescriptor(chosen->family), chosen->path))) {
+        if (!backend->registerFontFace(*chosen)) {
             std::cerr << "[DirectWriteBackendTests] FAIL: registerFontFace(file) returned false for "
-                      << chosen->path << "." << std::endl;
+                      << chosen->path() << "." << std::endl;
             return 1;
         }
         wsc::Paint customPaint;
-        customPaint.setFontFamily(chosen->family);
+        customPaint.setFontFamily(chosen->family());
         customPaint.setTextSize(18.0f);
         if (!(backend->measureTextWidth("Reg", customPaint) > 0.0f)) {
             std::cerr << "[DirectWriteBackendTests] FAIL: registered custom font did not measure." << std::endl;
@@ -185,16 +212,16 @@ int main()
         }
         // In-memory font registration: load the same font file into memory and
         // register it via fromMemory; it must measure and render.
-        std::ifstream fontStream(chosen->path, std::ios::binary);
+        std::ifstream fontStream(std::filesystem::u8path(chosen->path()), std::ios::binary);
         std::vector<std::uint8_t> fontBytes((std::istreambuf_iterator<char>(fontStream)),
                                             std::istreambuf_iterator<char>());
         if (!fontBytes.empty()) {
             auto memBackend = wsc::text::createDirectWriteTextBackend();
             if (memBackend
                 && memBackend->registerFontFace(
-                       wsc::FontFace::fromMemory(wsc::FontDescriptor(chosen->family), fontBytes))) {
+                       wsc::FontFace::fromMemory(chosen->descriptor(), fontBytes, chosen->faceIndex()))) {
                 wsc::Paint memPaint;
-                memPaint.setFontFamily(chosen->family);
+                memPaint.setFontFamily(chosen->family());
                 memPaint.setTextSize(18.0f);
                 const wsc::text::TextRenderResult memRender = memBackend->renderText("Mem", 0.0f, 0.0f, memPaint);
                 if (!(memBackend->measureTextWidth("Mem", memPaint) > 0.0f)
@@ -203,11 +230,11 @@ int main()
                     std::cerr << "[DirectWriteBackendTests] FAIL: in-memory font did not render." << std::endl;
                     return 1;
                 }
-                std::cout << "[DirectWriteBackendTests] in-memory font '" << chosen->family
+                std::cout << "[DirectWriteBackendTests] in-memory font '" << chosen->family()
                           << "' registered and rendered." << std::endl;
             }
         }
-        std::cout << "[DirectWriteBackendTests] custom font '" << chosen->family
+        std::cout << "[DirectWriteBackendTests] custom font '" << chosen->family()
                   << "' registered and rendered." << std::endl;
     }
 
