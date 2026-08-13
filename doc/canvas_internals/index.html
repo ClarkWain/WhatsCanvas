@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark">
+  <title>Canvas 绘制内部原理 · 互动实验室</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="noise" aria-hidden="true"></div>
+  <header class="hero" id="top">
+    <nav class="topbar">
+      <a class="brand" href="../"><span class="brand-mark">W</span> WhatsCanvas Lab</a>
+      <span class="topbar-note">8 个实验 · 无外部依赖 · 可离线运行</span>
+    </nav>
+
+    <div class="hero-grid">
+      <div class="hero-copy">
+        <p class="kicker">INTERACTIVE RENDERING NOTEBOOK / 01</p>
+        <h1>别急着读实现。<br><em>先把参数弄坏。</em></h1>
+        <p class="lead">把圆角拉到放不下，把图片翻转，把贝塞尔曲线拆成折线，在 <code>endFrame()</code> 前后观察 command queue。每个实验都对应 WhatsCanvas 当前的一段真实分支。</p>
+        <div class="hero-actions">
+          <a class="primary-action" href="#frame">从一帧开始</a>
+          <a class="text-action" href="#map">查看实验地图 ↓</a>
+        </div>
+      </div>
+      <div class="hero-terminal" aria-label="教程说明">
+        <div class="terminal-bar"><i></i><i></i><i></i><span>about_this_lab.txt</span></div>
+        <div class="terminal-body">
+          <p><span class="prompt">$</span> 这不是 API 清单。</p>
+          <p><span class="prompt">$</span> 左侧控件改变输入，画布显示中间结果。</p>
+          <p><span class="prompt">$</span> 右侧读数告诉你代码会选择哪条路径。</p>
+          <p class="terminal-muted">浏览器 Canvas 用于复现几何和合成概念，并未直接执行 C++ renderer。函数名、限制和分支来自仓库当前实现。</p>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <section class="map" id="map" aria-labelledby="map-title">
+    <div class="section-number">00</div>
+    <div class="map-head">
+      <p class="kicker">LAB MAP</p>
+      <h2 id="map-title">从一次 API 调用，走到最终像素</h2>
+      <p>可以顺序操作，也可以直接跳到你最想拆开的 API。</p>
+    </div>
+    <div class="lab-map">
+      <a href="#frame"><b>01</b><span>Frame</span><small>命令何时执行</small></a>
+      <a href="#roundrect"><b>02</b><span>RoundRect</span><small>半径、细分与缓存</small></a>
+      <a href="#image"><b>03</b><span>Image</span><small>src/dst、UV 与采样</small></a>
+      <a href="#path"><b>04</b><span>Path</span><small>曲线怎样变成三角形</small></a>
+      <a href="#text"><b>05</b><span>Text</span><small>排版之后的三条路</small></a>
+      <a href="#clip"><b>06</b><span>Clip</span><small>Scissor 与 coverage mask</small></a>
+      <a href="#state"><b>07</b><span>State</span><small>save/restore 到底保存什么</small></a>
+      <a href="#layer"><b>08</b><span>Layer</span><small>整体 alpha 与离屏合成</small></a>
+    </div>
+  </section>
+
+  <main>
+    <section class="lab lab-frame" id="frame">
+      <header class="lab-head">
+        <div class="section-number">01</div>
+        <div>
+          <p class="kicker">COMMAND LIFECYCLE</p>
+          <h2><code>drawText()</code> 返回时，屏幕可能还没变化</h2>
+          <p>按顺序录制几条命令。只有点击 <code>endFrame()</code>，右侧 framebuffer 才更新。</p>
+        </div>
+      </header>
+      <div class="workbench frame-layout">
+        <div class="control-deck">
+          <div class="deck-title"><span>API CONSOLE</span><span id="frameState" class="status idle">IDLE</span></div>
+          <div class="button-grid frame-buttons">
+            <button type="button" data-frame-action="begin">beginFrame()</button>
+            <button type="button" data-frame-action="round">drawRoundRect()</button>
+            <button type="button" data-frame-action="image">drawImage()</button>
+            <button type="button" data-frame-action="text">drawText()</button>
+            <button type="button" data-frame-action="end" class="accent">endFrame()</button>
+            <button type="button" data-frame-action="present">present()</button>
+          </div>
+          <button type="button" class="reset-button" data-frame-action="reset">重置实验</button>
+          <div class="queue-panel">
+            <div class="readout-label">COMMAND QUEUE <span id="queueCount">0</span></div>
+            <div id="commandQueue" class="command-queue"><span class="empty">队列为空</span></div>
+          </div>
+          <ol id="frameLog" class="event-log" aria-live="polite"></ol>
+        </div>
+        <div class="stage-card">
+          <div class="stage-bar"><span>framebuffer.preview</span><span id="presentCount">presented: 0</span></div>
+          <canvas id="frameCanvas" width="760" height="420"></canvas>
+          <p class="stage-caption">试一次：先录制两个 draw，再点第二次 <code>beginFrame()</code>。队列会被清掉，framebuffer 保持原样。</p>
+        </div>
+      </div>
+      <div class="code-strip"><code>beginFrame()</code><i>→</i><code>record commands</code><i>→</i><code>endFrame(): compile + execute + consume</code><i>→</i><code>present/read</code></div>
+    </section>
+
+    <section class="lab" id="roundrect">
+      <header class="lab-head">
+        <div class="section-number">02</div>
+        <div>
+          <p class="kicker">PRIMITIVE FAST PATH</p>
+          <h2>把圆角拉到放不下，看看四个半径怎样一起缩</h2>
+          <p>左侧画布显示约束后的轮廓和细分点；右侧实时给出 fast path、segment count 和缓存复用量。</p>
+        </div>
+      </header>
+      <div class="workbench two-col">
+        <div class="stage-card">
+          <div class="stage-bar"><span>round_rect.mesh</span><label class="switch"><input id="rrMesh" type="checkbox" checked><span></span>显示三角形</label></div>
+          <canvas id="roundCanvas" width="760" height="500"></canvas>
+          <p class="stage-caption">橙色点是离散后的圆弧。放大 zoom 后，物理误差增加，代码会提高每个角的细分数。</p>
+        </div>
+        <div class="control-deck">
+          <div class="range-control"><label for="rrWidth">宽度 <output id="rrWidthOut"></output></label><input id="rrWidth" type="range" min="100" max="520" value="360"></div>
+          <div class="range-control"><label for="rrHeight">高度 <output id="rrHeightOut"></output></label><input id="rrHeight" type="range" min="60" max="280" value="180"></div>
+          <div class="range-control"><label for="rrRadius">原始半径 <output id="rrRadiusOut"></output></label><input id="rrRadius" type="range" min="0" max="260" value="72"></div>
+          <div class="range-control"><label for="rrZoom">设备缩放 <output id="rrZoomOut"></output></label><input id="rrZoom" type="range" min="1" max="4" step="0.25" value="1"></div>
+          <div class="segmented" id="rrStyle">
+            <button type="button" data-value="fill" class="active">纯色 FILL</button>
+            <button type="button" data-value="stroke">STROKE</button>
+            <button type="button" data-value="gradient">GRADIENT</button>
+          </div>
+          <div class="metrics" id="roundMetrics"></div>
+          <div class="trace-box" id="roundTrace"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="lab" id="image">
+      <header class="lab-head">
+        <div class="section-number">03</div>
+        <div>
+          <p class="kicker">TEXTURE SAMPLING</p>
+          <h2>裁剪框移动 1 像素，UV 到底变了多少</h2>
+          <p>拖动源区域和缩放比例。左边是生成的 sprite sheet，右边是实际采样结果。</p>
+        </div>
+      </header>
+      <div class="workbench image-grid">
+        <div class="stage-card compact">
+          <div class="stage-bar"><span>source.texture</span><span>256 × 256</span></div>
+          <canvas id="sourceCanvas" width="512" height="512"></canvas>
+        </div>
+        <div class="control-deck image-controls">
+          <div class="range-control"><label for="srcX">src.x <output id="srcXOut"></output></label><input id="srcX" type="range" min="0" max="192" value="48"></div>
+          <div class="range-control"><label for="srcY">src.y <output id="srcYOut"></output></label><input id="srcY" type="range" min="0" max="192" value="32"></div>
+          <div class="range-control"><label for="srcSize">src size <output id="srcSizeOut"></output></label><input id="srcSize" type="range" min="16" max="128" step="8" value="64"></div>
+          <div class="range-control"><label for="dstScale">dst scale <output id="dstScaleOut"></output></label><input id="dstScale" type="range" min="0.25" max="5" step="0.25" value="3"></div>
+          <label class="select-control">Sampling<select id="imageSampling"><option value="nearest">NEAREST</option><option value="linear" selected>LINEAR</option><option value="mipmap">MIPMAP_LINEAR</option></select></label>
+          <label class="check-control"><input id="flipV" type="checkbox">模拟 BottomLeft render target</label>
+          <div class="uv-readout" id="uvReadout"></div>
+        </div>
+        <div class="stage-card compact">
+          <div class="stage-bar"><span>destination.quad</span><span id="batchBadge">BATCH: ELIGIBLE</span></div>
+          <canvas id="destCanvas" width="512" height="512"></canvas>
+          <p class="stage-caption" id="samplingNote"></p>
+        </div>
+      </div>
+    </section>
+
+    <section class="lab" id="path">
+      <header class="lab-head">
+        <div class="section-number">04</div>
+        <div>
+          <p class="kicker">GEOMETRY TRANSFORMATION</p>
+          <h2>拖动控制点，亲眼看着 Bézier 消失</h2>
+          <p>橙色控制点可以拖动。切换阶段后，画布依次显示 curve、flattened contour、fill triangles 和 AA fringe。</p>
+        </div>
+      </header>
+      <div class="workbench two-col path-layout">
+        <div class="stage-card">
+          <div class="stage-bar"><span>path.pipeline</span><span id="pathHint">拖动 P1 / P2</span></div>
+          <canvas id="pathCanvas" width="840" height="520"></canvas>
+        </div>
+        <div class="control-deck">
+          <div class="segmented vertical" id="pathStage">
+            <button type="button" data-value="curve" class="active"><b>1</b> Path verbs</button>
+            <button type="button" data-value="contour"><b>2</b> Flattened contour</button>
+            <button type="button" data-value="fill"><b>3</b> Fill triangles</button>
+            <button type="button" data-value="stroke"><b>4</b> Stroke ribbon</button>
+            <button type="button" data-value="aa"><b>5</b> AA fringe</button>
+          </div>
+          <div class="range-control"><label for="pathSegments">教学细分数 <output id="pathSegmentsOut"></output></label><input id="pathSegments" type="range" min="4" max="40" value="14"></div>
+          <div class="range-control"><label for="pathStroke">Stroke width <output id="pathStrokeOut"></output></label><input id="pathStroke" type="range" min="2" max="38" value="18"></div>
+          <div class="metrics" id="pathMetrics"></div>
+          <p class="fine-print">教学演示使用可调固定采样，便于观察顶点变化；WhatsCanvas 实际曲线展开使用自己的容差规则。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="lab" id="text">
+      <header class="lab-head">
+        <div class="section-number">05</div>
+        <div>
+          <p class="kicker">TEXT AFTER SHAPING</p>
+          <h2>11px × 1.5 为什么按 17px 栅格化，却仍占 11px 布局</h2>
+          <p>改变字号和 DPR，观察 raster size、逻辑回缩与 ClearType 资格如何联动。</p>
+        </div>
+      </header>
+      <div class="workbench text-grid">
+        <div class="stage-card">
+          <div class="stage-bar"><span>glyph.output</span><span id="textKindBadge">GLYPH ATLAS</span></div>
+          <canvas id="textCanvas" width="820" height="400"></canvas>
+        </div>
+        <div class="control-deck">
+          <div class="range-control"><label for="textSize">逻辑字号 <output id="textSizeOut"></output></label><input id="textSize" type="range" min="8" max="36" step="1" value="11"></div>
+          <div class="range-control"><label for="textDpr">DPR / scale <output id="textDprOut"></output></label><input id="textDpr" type="range" min="1" max="3" step="0.25" value="1.5"></div>
+          <div class="segmented" id="textKind">
+            <button type="button" data-value="atlas" class="active">Atlas</button>
+            <button type="button" data-value="bitmap">Bitmap</button>
+            <button type="button" data-value="geometry">Geometry</button>
+          </div>
+          <label class="check-control"><input id="textOpaque" type="checkbox" checked>Opaque output</label>
+          <label class="check-control"><input id="textLayer" type="checkbox">Inside saveLayer()</label>
+          <label class="check-control"><input id="textRotate" type="checkbox">Rotated transform</label>
+          <div class="equation" id="textEquation"></div>
+          <div class="trace-box" id="clearTypeTrace"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="lab" id="clip">
+      <header class="lab-head">
+        <div class="section-number">06</div>
+        <div>
+          <p class="kicker">CLIP COVERAGE</p>
+          <h2>同样一句 <code>clip*</code>，矩形只要四个整数，圆形需要一张 mask</h2>
+          <p>切换形状并增加裁剪层数。右侧会放大显示最终 coverage accumulator。</p>
+        </div>
+      </header>
+      <div class="workbench clip-grid">
+        <div class="control-deck">
+          <div class="segmented vertical" id="clipShape">
+            <button type="button" data-value="rect" class="active">Axis-aligned rect</button>
+            <button type="button" data-value="rotated">Rotated rect</button>
+            <button type="button" data-value="circle">Circle path</button>
+            <button type="button" data-value="star">Star path</button>
+          </div>
+          <div class="range-control"><label for="clipLayers">Path clip 层数 <output id="clipLayersOut"></output></label><input id="clipLayers" type="range" min="1" max="5" value="2"></div>
+          <div class="metrics" id="clipMetrics"></div>
+        </div>
+        <div class="stage-card">
+          <div class="stage-bar"><span>content + coarse bounds</span><span>SCISSOR</span></div>
+          <canvas id="clipCanvas" width="640" height="430"></canvas>
+        </div>
+        <div class="stage-card">
+          <div class="stage-bar"><span>coverage.accumulator</span><span>MASK</span></div>
+          <canvas id="maskCanvas" width="430" height="430"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <section class="lab" id="state">
+      <header class="lab-head">
+        <div class="section-number">07</div>
+        <div>
+          <p class="kicker">GRAPHICS STATE STACK</p>
+          <h2><code>restore()</code> 不会擦掉红色矩形</h2>
+          <p>拖动步骤，观察 current matrix、clip 和 save count。已经录制的 command 会留在画面里。</p>
+        </div>
+      </header>
+      <div class="workbench two-col">
+        <div class="stage-card">
+          <div class="stage-bar"><span>state.timeline</span><span id="stateStepLabel">STEP 0 / 6</span></div>
+          <canvas id="stateCanvas" width="760" height="460"></canvas>
+          <input id="stateStep" class="timeline-range" type="range" min="0" max="6" value="0" aria-label="状态执行步骤">
+          <div class="timeline-labels"><span>初始</span><span>save</span><span>translate</span><span>clip</span><span>draw</span><span>restore</span><span>draw</span></div>
+        </div>
+        <div class="control-deck">
+          <pre class="code-list" id="stateCode"><code></code></pre>
+          <div class="metrics" id="stateMetrics"></div>
+          <div class="trace-box" id="stateTrace"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="lab" id="layer">
+      <header class="lab-head">
+        <div class="section-number">08</div>
+        <div>
+          <p class="kicker">OFFSCREEN COMPOSITING</p>
+          <h2>三个半透明图元，和一个半透明图层差在哪里</h2>
+          <p>左右两幅图使用同一组形状。左边逐个混合，右边先画入离屏 Canvas，再整体合成。</p>
+        </div>
+      </header>
+      <div class="workbench layer-grid">
+        <div class="stage-card">
+          <div class="stage-bar"><span>per_item_alpha</span><span>3 × COMPOSITE</span></div>
+          <canvas id="directAlphaCanvas" width="580" height="430"></canvas>
+        </div>
+        <div class="stage-card">
+          <div class="stage-bar"><span>saveLayer_alpha</span><span>1 × COMPOSITE</span></div>
+          <canvas id="layerAlphaCanvas" width="580" height="430"></canvas>
+        </div>
+        <div class="control-deck">
+          <div class="range-control"><label for="layerAlpha">Layer alpha <output id="layerAlphaOut"></output></label><input id="layerAlpha" type="range" min="0.1" max="1" step="0.05" value="0.5"></div>
+          <div class="range-control"><label for="layerBounds">Bounds scale <output id="layerBoundsOut"></output></label><input id="layerBounds" type="range" min="0.45" max="1" step="0.05" value="0.7"></div>
+          <div class="range-control"><label for="layerPasses">Filter passes <output id="layerPassesOut"></output></label><input id="layerPasses" type="range" min="1" max="8" value="2"></div>
+          <div class="metrics" id="layerMetrics"></div>
+          <div class="trace-box" id="layerTrace"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div>
+      <p class="kicker">JUMP TO LAB</p>
+      <h2>回到任一实验，继续观察参数如何改变中间结果。</h2>
+    </div>
+    <div class="footer-links">
+      <a href="#roundrect">RoundRect 实验</a>
+      <a href="#image">Image 实验</a>
+      <a href="#path">Path 实验</a>
+      <a href="#text">Text 实验</a>
+      <a href="#frame">Frame 实验</a>
+      <a href="#layer">Layer 实验</a>
+    </div>
+    <a class="back-top" href="#top">回到顶部 ↑</a>
+  </footer>
+
+  <script src="tutorial.js"></script>
+</body>
+</html>
