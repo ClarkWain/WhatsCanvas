@@ -4,7 +4,7 @@ English | [中文](README_zh.md)
 
 [![CI](https://github.com/ClarkWain/WhatsCanvas/actions/workflows/cross-platform-validation.yml/badge.svg)](https://github.com/ClarkWain/WhatsCanvas/actions/workflows/cross-platform-validation.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.1.20-informational.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.2.0-informational.svg)](CHANGELOG.md)
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C.svg)](CMakeLists.txt)
 [![Documentation](https://img.shields.io/badge/docs-online-success.svg)](https://clarkwain.github.io/WhatsCanvas/)
 
@@ -29,7 +29,7 @@ This project aims to bridge the gap between minimal drawing libraries (such as N
 | **Text Capabilities** | Font discovery and fallback, CJK/RTL, UAX #9, line breaking and ellipsis, glyph atlas, COLR/CPAL v0; FreeType and HarfBuzz shaping are enabled by default for OpenGL/OpenGL ES. |
 | **Integration** | vcpkg overlay port, CMake `find_package`, `add_subdirectory`, or portable installation directories generated from source. |
 | **Footprint** | Not header-only. Supports linking only against `WhatsCanvas::Software`, `::OpenGL` (also hosts optional Vulkan and Apple Metal), or `::OpenGLES` based on backend; see [Footprint and Dependencies](#footprint-and-dependencies) for reference. |
-| **Maturity** | Current version `0.1.20`, still pre-1.0. Public API boundaries, cross-platform CI, pixel regression, package-consumer integration tests, and auditable performance baselines are in place; upgrade and platform risks should still be evaluated against the boundaries described below. |
+| **Maturity** | Current version `0.2.0`, still pre-1.0. Public API boundaries, cross-platform CI, pixel regression, package-consumer integration tests, and auditable performance baselines are in place; upgrade and platform risks should still be evaluated against the boundaries described below. |
 | **License** | MIT; components in `third_party/` follow their respective licenses. |
 
 **When to Choose WhatsCanvas?**
@@ -73,7 +73,7 @@ cmake_minimum_required(VERSION 3.16)
 project(MyApp LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
-find_package(WhatsCanvas 0.1.20 CONFIG REQUIRED)
+find_package(WhatsCanvas 0.2.0 CONFIG REQUIRED)
 
 add_executable(MyApp main.cpp)
 target_link_libraries(MyApp PRIVATE WhatsCanvas::Software)
@@ -101,7 +101,7 @@ For advanced features like in-window OpenGL, OpenGL ES, Vulkan, font registratio
 
 ### Using Precompiled Packages
 
-Tagged release assets are named `whatscanvas-<platform>-release-<version>.zip`, e.g., `whatscanvas-win64-release-0.1.20.zip`. The package layout is:
+Tagged release assets are named `whatscanvas-<platform>-release-<version>.zip`, e.g., `whatscanvas-win64-release-0.2.0.zip`. The package layout is:
 
 ```text
 include/wsc/                 Public headers
@@ -113,7 +113,7 @@ lib/cmake/WhatsCanvas/       find_package configurations
 The targets provided by the precompiled packages may differ across platforms. In practice, verify the required targets exist via CMake:
 
 ```cmake
-find_package(WhatsCanvas 0.1.20 CONFIG REQUIRED)
+find_package(WhatsCanvas 0.2.0 CONFIG REQUIRED)
 if (NOT TARGET WhatsCanvas::Software)
     message(FATAL_ERROR "This package does not contain the Software backend")
 endif()
@@ -319,7 +319,7 @@ These numbers only reflect the specific hardware, driver, backend, and workload 
 
 By "lightweight" we mean that backends can be linked separately, the public API surface is small, and the library does not take over the host application's windowing or event loop—not that it is header-only.
 
-A clean build snapshot of the current repository `0.1.20` using **VS 2022 x64, static Release, default FreeType/HarfBuzz enabled** can serve as a volume reference:
+A clean build snapshot of the current repository `0.2.0` using **VS 2022 x64, static Release, default FreeType/HarfBuzz enabled** can serve as a volume reference:
 
 | Content | File footprint |
 | --- | ---: |
@@ -349,7 +349,7 @@ WhatsCanvas is more than just "able to draw pixels". The engineering and automat
 
 Risks to keep in mind:
 
-- The version is still `0.1.x`; read the CHANGELOG and run package-consumer tests before upgrading.
+- The version is still pre-1.0 (`0.2.x`); read the CHANGELOG and run package-consumer tests before upgrading.
 - The capability tables in this README are not a parity guarantee for every backend × platform combination; consult the feature matrices for filters, text, and output targets, and validate the combination you actually use.
 - Vulkan is opt-in and not the default backend; cross-platform window presentation and broader pixel coverage are still being extended.
 - Metal is available on Apple platforms, but iOS simulator/device CI and an in-repository iOS sample app remain open; WebGPU, WebAssembly, and a native CoreText adapter are not yet available.
