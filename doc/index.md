@@ -17,6 +17,16 @@ optional Vulkan backend, and a Metal backend on Apple platforms.
 
 ![WhatsCanvas quality showcase — analytic AA, gradients, Gaussian shadows, AA path clipping](images/aa/quality_showcase.png)
 
+## Open the renderer and move the parts
+
+**[Launch the interactive Canvas internals lab →](canvas_internals/index.html)**
+
+Change a radius until it no longer fits. Move an image crop by one pixel and
+watch its UVs change. Drag a Bézier control point, then step through the contour,
+triangles, stroke ribbon, and AA fringe. Eight small experiments expose the
+intermediate values behind `beginFrame`, `drawRoundRect`, `drawImage`,
+`drawPath`, `drawText`, clipping, state stacks, and `saveLayer`.
+
 ## First pixel in 60 seconds
 
 The software backend needs no window, GL context, or GPU:
