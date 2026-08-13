@@ -12,6 +12,8 @@
 #include <utility>
 #include <vector>
 
+#include "Export.h"
+
 namespace wsc {
 
 /// Slant style of a font face.
@@ -295,7 +297,7 @@ private:
     std::unordered_map<std::string, FontFallbackChain> fallbackChains_;
 };
 
-class FontSystem
+class WSC_API FontSystem
 {
 public:
     static constexpr const char *kDefaultPrimaryFamily = "WhatsCanvas Sans";

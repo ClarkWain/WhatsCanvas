@@ -39,6 +39,7 @@ struct FontDataView
 {
     const unsigned char *data = nullptr;
     std::size_t size = 0;
+    int faceIndex = 0;
 };
 
 struct ColorFontTables

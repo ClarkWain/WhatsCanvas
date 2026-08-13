@@ -258,6 +258,23 @@ Paint::TextBaseline Paint::getTextBaseline() const { return textBaseline_; }
 void Paint::setTextLocale(const std::string &locale) { textLocale_ = locale; }
 const std::string &Paint::getTextLocale() const { return textLocale_; }
 bool Paint::hasTextLocale() const { return !textLocale_.empty(); }
+void Paint::setFontFeature(const std::string &tag, std::uint32_t value)
+{
+    if (tag.size() != 4) {
+        return;
+    }
+    const auto existing = std::find_if(fontFeatures_.begin(), fontFeatures_.end(),
+                                       [&](const FontFeature &feature) {
+                                           return feature.tag == tag;
+                                       });
+    if (existing != fontFeatures_.end()) {
+        existing->value = value;
+        return;
+    }
+    fontFeatures_.emplace_back(tag, value);
+}
+void Paint::clearFontFeatures() { fontFeatures_.clear(); }
+const std::vector<Paint::FontFeature> &Paint::getFontFeatures() const { return fontFeatures_; }
 void Paint::setUnderline(bool enabled) { underline_ = enabled; }
 bool Paint::isUnderline() const { return underline_; }
 void Paint::setStrikethrough(bool enabled) { strikethrough_ = enabled; }

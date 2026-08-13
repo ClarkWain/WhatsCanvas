@@ -116,7 +116,11 @@ public:
             return std::nullopt;
         }
 
-        HbFacePtr face(hb_face_create(blob.get(), 0));
+        const unsigned int faceIndex = static_cast<unsigned int>(std::max(0, input.fontData->faceIndex));
+        if (faceIndex >= hb_face_count(blob.get())) {
+            return std::nullopt;
+        }
+        HbFacePtr face(hb_face_create(blob.get(), faceIndex));
         if (!face) {
             return std::nullopt;
         }
@@ -133,13 +137,35 @@ public:
         if (!buffer) {
             return std::nullopt;
         }
+        if (!input.language.empty()) {
+            hb_buffer_set_language(buffer.get(), hb_language_from_string(input.language.c_str(), -1));
+        }
+        if (input.direction == TextDirection::LeftToRight) {
+            hb_buffer_set_direction(buffer.get(), HB_DIRECTION_LTR);
+        } else if (input.direction == TextDirection::RightToLeft) {
+            hb_buffer_set_direction(buffer.get(), HB_DIRECTION_RTL);
+        }
         hb_buffer_add_utf8(buffer.get(),
                            input.normalizedText.c_str(),
                            static_cast<int>(input.normalizedText.size()),
                            0,
                            static_cast<int>(input.normalizedText.size()));
         hb_buffer_guess_segment_properties(buffer.get());
-        hb_shape(font.get(), buffer.get(), nullptr, 0);
+        std::vector<hb_feature_t> features;
+        features.reserve(input.openTypeFeatures.size());
+        for (const OpenTypeFeature &feature : input.openTypeFeatures) {
+            if (feature.tag.size() != 4) {
+                continue;
+            }
+            hb_feature_t hbFeature;
+            hbFeature.tag = hb_tag_from_string(feature.tag.c_str(), 4);
+            hbFeature.value = feature.value;
+            hbFeature.start = HB_FEATURE_GLOBAL_START;
+            hbFeature.end = HB_FEATURE_GLOBAL_END;
+            features.push_back(hbFeature);
+        }
+        hb_shape(font.get(), buffer.get(), features.empty() ? nullptr : features.data(),
+                 static_cast<unsigned int>(features.size()));
 
         unsigned int glyphCount = 0;
         hb_glyph_info_t *glyphInfos = hb_buffer_get_glyph_infos(buffer.get(), &glyphCount);
