@@ -5,6 +5,7 @@
 // (SrcOver / Src / Add / Multiply / Screen).
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <iostream>
 #include <memory>
