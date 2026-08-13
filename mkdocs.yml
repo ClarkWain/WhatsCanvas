@@ -69,6 +69,7 @@ exclude_docs: |
 
 nav:
   - Home: index.md
+  - Interactive Internals Lab: canvas_internals/index.html
   - Get Started: GETTING_STARTED_AS_LIBRARY.md
   - Troubleshooting & FAQ: TROUBLESHOOTING.md
   - Reference:
