@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
+import shutil
+import subprocess
 from typing import Iterable
 
 from PIL import Image, ImageChops, ImageDraw, ImageFont
@@ -9,7 +12,53 @@ from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "images" / "canvas-architecture.png"
-FONT = Path("C:/Windows/Fonts/msyh.ttc")
+
+
+def resolve_font() -> str:
+    override = os.environ.get("WHATSCANVAS_DIAGRAM_FONT")
+    if override:
+        path = Path(override).expanduser()
+        if path.is_file():
+            return str(path)
+        raise FileNotFoundError(f"WHATSCANVAS_DIAGRAM_FONT does not exist: {path}")
+
+    if os.name == "nt":
+        import winreg
+
+        registry_key = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts"
+        preferred_names = ("yahei", "dengxian", "simhei", "cjk")
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, registry_key) as fonts:
+            values = [winreg.EnumValue(fonts, index)[:2]
+                      for index in range(winreg.QueryInfoKey(fonts)[1])]
+        windows_root = os.environ.get("WINDIR")
+        for preferred in preferred_names:
+            for display_name, registered_path in values:
+                if preferred not in display_name.casefold():
+                    continue
+                path = Path(registered_path)
+                if not path.is_absolute() and windows_root:
+                    path = Path(windows_root) / "Fonts" / path
+                if path.is_file():
+                    return str(path)
+
+    fontconfig = shutil.which("fc-match")
+    if fontconfig:
+        result = subprocess.run(
+            [fontconfig, "-f", "%{file}", "sans-serif:lang=zh-cn"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        path = Path(result.stdout.strip())
+        if path.is_file():
+            return str(path)
+
+    raise RuntimeError(
+        "No CJK font was discovered; set WHATSCANVAS_DIAGRAM_FONT to a font file."
+    )
+
+
+FONT = resolve_font()
 
 
 @dataclass(frozen=True)
@@ -24,7 +73,7 @@ class Box:
 
 
 def font(size: int) -> ImageFont.FreeTypeFont:
-    return ImageFont.truetype(str(FONT), size)
+    return ImageFont.truetype(FONT, size)
 
 
 TITLE = font(38)

@@ -281,7 +281,7 @@ See [Cross-Platform Validation Matrix](doc/CROSS_PLATFORM_VALIDATION_MATRIX.md),
 
 ### Text Implementation Details
 
-The default cross-platform text pipeline covers UTF-8 layout, font fallback, space-less CJK line breaking, Unicode 17.0.0 bi-directional text support, and glyph atlas construction. The archived UAX #9 conformance run covers **861,948 cases, all passing, with 0 skipped and 0 failed**.
+The default cross-platform text pipeline covers UTF-8 layout, UAX #29 extended grapheme clusters, cluster-safe wrapping, font fallback, space-less CJK line breaking, Unicode 17.0.0 bi-directional text support, and source-aware glyph atlas construction. Installed-font snapshots can be refreshed on a live `Canvas` without losing explicitly registered fonts or fallback chains. The archived UAX #9 conformance run covers **861,948 cases, all passing, with 0 skipped and 0 failed**.
 
 Note that bi-directional text processing is more than script-level shaping. Scripts such as Arabic and Indic involve complex glyph substitution and reordering, which rely on HarfBuzz for full support. These features are enabled by default on all GL-family targets; before shipping, check package diagnostics and run regression tests with your actual fonts and content. Disabling the option or falling back to simple shaping because of missing dependencies is not equivalent to full HarfBuzz shaping and should not be treated as one.
 

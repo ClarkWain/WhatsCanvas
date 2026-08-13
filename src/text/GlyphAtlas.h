@@ -27,6 +27,7 @@ struct GlyphKey
     int weight = 400;
     FontSlant slant = FontSlant::NORMAL;
     int faceIndex = 0;
+    std::string fontIdentity;
 
     bool operator==(const GlyphKey &other) const;
 };

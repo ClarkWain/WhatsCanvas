@@ -266,6 +266,7 @@ Public members:
 - `RectF measureTextBounds(const std::string &text, const Paint &paint) const;`
 - `TextMetrics measureTextMetrics(const std::string &text, const Paint &paint) const;`
 - `bool registerFontFace(const FontFace &face);`
+- `bool refreshSystemFonts();`
 - `bool setFontFallbackChain(const FontFallbackChain &chain);`
 - `bool setTextBackend(TextBackend backend, TextRenderMode renderMode = TextRenderMode::Grayscale);`
 - `TextBackend textBackend() const;`
@@ -429,6 +430,8 @@ Public members:
 - `static void refreshDefaultSystemFontFaces();`
 - `static void refreshDiscoveredFontFaces();`
 - `static void refreshDefaultSystemFontFacesOnly();`
+- `static std::uint64_t refreshInstalledFonts();`
+- `static std::uint64_t installedFontGeneration();`
 - `static FontFallbackChain defaultFallbackChain(const std::string &primaryFamily = kDefaultPrimaryFamily);`
 - `static std::vector<FontFace> discoverInstalledFontFaces();`
 

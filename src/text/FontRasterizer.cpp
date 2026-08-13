@@ -275,6 +275,11 @@ bool setFreeTypePixelSize(FT_Face face, float pixelSize)
 
 namespace wsc::text {
 
+std::string fontFaceIdentity(const FontFace &face)
+{
+    return makeFaceKey(face);
+}
+
 ColorFontTables detectColorFontTables(FontDataView fontData, int faceIndex)
 {
     ColorFontTables result;
@@ -687,6 +692,7 @@ std::optional<RasterizedGlyph> FontRasterizer::rasterizeGlyphIndex(const FontFac
         glyph.key.weight = face.weight();
         glyph.key.slant = face.slant();
         glyph.key.faceIndex = face.faceIndex();
+        glyph.key.fontIdentity = fontFaceIdentity(face);
         glyph.bitmap = std::move(bitmap);
         return glyph;
     }
@@ -730,6 +736,7 @@ std::optional<RasterizedGlyph> FontRasterizer::rasterizeGlyphIndex(const FontFac
     glyph.key.weight = face.weight();
     glyph.key.slant = face.slant();
     glyph.key.faceIndex = face.faceIndex();
+    glyph.key.fontIdentity = fontFaceIdentity(face);
     glyph.bitmap = std::move(bitmap);
     return glyph;
 }
@@ -846,6 +853,7 @@ std::optional<RasterizedGlyph> FontRasterizer::rasterizeColorGlyph(const FontFac
     glyph.key.weight = face.weight();
     glyph.key.slant = face.slant();
     glyph.key.faceIndex = face.faceIndex();
+    glyph.key.fontIdentity = fontFaceIdentity(face);
     glyph.bitmap = std::move(bitmap);
     return glyph;
 }

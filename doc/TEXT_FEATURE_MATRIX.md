@@ -13,7 +13,7 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 | FreeType rasterizer | Default for GL-family targets | When FreeType is found and `WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=ON` (default), glyph lookup, metrics, kerning, and alpha glyph rasterization use FreeType. The Software-only target retains `stb_truetype`. |
 | Font rasterizer cache policy | Supported | Loaded font faces are bounded by a mutex-protected LRU cache with explicit capacity control, cache clearing, and hit/miss/eviction stats. |
 | Atlas-backed glyph rendering | Supported | Rasterized glyphs are packed into `GlyphAtlas`; Canvas submits atlas quads through the image path. |
-| Indexed glyph lookup | Supported | `GlyphAtlas` maintains a hash index from glyph key to entry slot, avoiding linear scans on repeated glyph uploads in longer text runs. |
+| Indexed glyph lookup | Supported | `GlyphAtlas` maintains a hash index from glyph key to entry slot, avoiding linear scans on repeated glyph uploads in longer text runs. Keys include stable file/memory font-source identity and collection face index, so different font sources cannot alias merely because their family/style metadata matches. |
 | Persistent GPU atlas resource | Supported | Canvas owns a reusable GPU atlas image resource and updates it when the CPU atlas content changes. |
 | Dirty-rect atlas updates | Supported | Glyph uploads expose dirty rectangles; Canvas updates matching GPU atlas subregions when possible. |
 | Dirty-rect collapse | Supported | Glyph uploads keep precise dirty rectangles for short updates and collapse to one full-atlas dirty rectangle when a long text run would exceed the per-frame dirty-rect count or dirty-area budget; collapse events are exposed through atlas stats. |
@@ -28,15 +28,17 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 | OpenType shaping adapter boundary | Supported | `BasicTextBackendOptions` can request an OpenType shaping backend; unavailable adapters fall back to simple shaping with diagnostics. |
 | OpenType shaping implementation | Default for GL-family targets | When HarfBuzz is found and `WHATSCANVAS_ENABLE_OPENTYPE_SHAPING=ON` (default), the OpenType backend emits glyph-index shaped runs from HarfBuzz output. The Software-only target retains simple shaping. |
 | Locale/direction shaping input | Supported | Portable HarfBuzz shaping receives `Paint::setTextLocale` plus the resolved bidi-run direction before script/property guessing. |
-| OpenType feature control | Supported | `Paint::setFontFeature` applies global four-character OpenType features such as `liga`, `kern`, and `smcp` to portable HarfBuzz shaping. |
-| Multi-font shaping segmentation | Supported | Portable raster text resolves one face per fallback cluster before shaping; combining marks, variation selectors, emoji modifiers, ZWJ sequences, and regional-indicator pairs are not split between faces. |
+| OpenType feature control | Supported | `Paint::setFontFeature` applies global four-character OpenType features such as `liga`, `kern`, and `smcp` to portable HarfBuzz shaping and native DirectWrite typography. Feature settings participate in native bitmap cache identity. |
+| Extended grapheme segmentation | Supported | Portable text uses generated Unicode property tables and UAX #29 GB1–GB999 rules, including Hangul, Prepend/SpacingMark, Indic conjuncts, emoji ZWJ sequences, and regional-indicator pairing. The generator is a maintainer tool; consumers do not need Python or Unicode data files at runtime. |
+| Multi-font shaping segmentation | Supported | Portable raster text resolves one face per extended grapheme cluster before shaping, so a user-perceived character is not split between fallback faces. |
 | Public font face model | Supported | `FontFace`, `FontDescriptor`, `FontFallbackChain`, and `FontManager` are public value/model types. |
 | Font file registration contract | Supported | `ITextBackend::registerFontFace` accepts file-backed faces. |
 | Font memory registration contract | Supported | `ITextBackend::registerFontFace` accepts memory-backed faces. |
 | TrueType Collection face selection | Supported | `FontFace::fromFile` and `FontFace::fromMemory` accept a collection face index; HarfBuzz shaping, portable rasterization, FreeType/stb loading, atlas/cache keys, CoreText/DirectWrite/fontconfig discovery, and color table detection honor the selected face. |
 | Fallback chain contract | Supported | `ITextBackend::setFontFallbackChain` and `resolveFontFamilies` define resolution order. |
 | Text metrics | Supported | `measureText`, `measureTextBounds`, `measureTextMetrics`, and backend metrics are available; registered font metrics use real ascent/descent/line-gap data. |
-| Bounded multiline layout | Supported | `Canvas::layoutTextBox` returns line rows, source ranges, widths, line height, and ellipsis state; line breaking supports ASCII words, tab/Unicode space separators, zero-width break opportunities, long unspaced tokens, basic CJK no-space wrapping, common CJK punctuation attachment, and UTF-8-safe ellipsis trimming. |
+| Bounded multiline layout | Supported | `Canvas::layoutTextBox` returns line rows, source ranges, widths, line height, and ellipsis state; line breaking supports ASCII words, tab/Unicode space separators, zero-width break opportunities, long unspaced tokens, basic CJK no-space wrapping, common CJK punctuation attachment, and UTF-8-safe ellipsis trimming. Emergency wrapping is UAX #29 cluster-safe; the broader break-opportunity policy is intentionally a compact UAX #14 subset. |
+| Installed-font refresh | Supported | `FontSystem::refreshInstalledFonts` publishes a process-wide snapshot with a monotonic generation, while `Canvas::refreshSystemFonts` rebuilds system aliases/caches without discarding application-registered faces or fallback chains. DirectWrite refreshes its native system collection as well. |
 | Text box rendering | Supported | `drawTextBox` uses the same layout path as `layoutTextBox`. |
 | Letter spacing | Supported | Basic geometry and native bitmap paths apply letter spacing. |
 | Alignment and baseline | Supported | Left/center/right and top/middle/bottom modes are exposed through `Paint`. |
@@ -51,6 +53,44 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 | Missing glyph diagnostics | Contract supported | Missing non-ASCII glyph queries add coalesced diagnostics with codepoint and requested family. |
 | Raster text fallback diagnostics | Contract supported | Raster shaping, face resolution, glyph rasterization, atlas upload, and atlas retry failures add coalesced diagnostics before falling back to alternate text rendering. |
 | Missing glyph render hooks | Contract supported | Geometry fallback render results expose missing glyph codepoints and source ranges. |
+
+## OpenType Feature Controls
+
+`Paint::setFontFeature(tag, value)` does not use a fixed feature whitelist. It
+accepts any case-sensitive OpenType tag of exactly four bytes and applies the
+override to the complete text run. Portable HarfBuzz shaping and native
+DirectWrite consume the setting; the dependency-free simple shaper ignores it.
+The selected font must contain and use the feature for output to change.
+
+Use value `0` to explicitly disable a feature, `1` to enable its usual form,
+and another unsigned value only when the feature defines alternate indices.
+Calling `setFontFeature` again with the same tag updates it. Calling
+`clearFontFeatures()` removes all overrides and restores font/shaper defaults,
+which is different from keeping a feature explicitly disabled with value `0`.
+
+```cpp
+wsc::Paint body;
+body.setFontFeature("liga", 0); // Explicitly disable standard ligatures.
+body.setFontFeature("tnum", 1); // Request tabular-width numerals.
+
+wsc::Paint defaults = body;
+defaults.clearFontFeatures();   // Restore the font/shaper defaults.
+```
+
+Common standardized tags include:
+
+| Category | Tags | Typical use |
+| --- | --- | --- |
+| Ligatures and context | `liga`, `clig`, `dlig`, `calt` | Standard/contextual/discretionary substitutions. |
+| Spacing and marks | `kern`, `mark`, `mkmk` | Pair kerning and combining-mark positioning. |
+| Capitals | `smcp`, `c2sc`, `case` | Small capitals and case-sensitive forms. |
+| Numeral style | `lnum`, `onum`, `pnum`, `tnum` | Lining/old-style and proportional/tabular numerals. |
+| Fractions | `frac`, `numr`, `dnom` | Fractions, numerators, and denominators. |
+| Font-specific alternates | `ss01`–`ss20`, `cv01`–`cv99` | Stylistic sets and character variants, when supplied by the font. |
+| Vertical forms | `vert`, `vrt2` | Vertical substitutions; normally ineffective in the current horizontal layout. |
+
+This table is illustrative rather than exhaustive. Unknown four-byte tags are
+still forwarded and normally have no effect.
 
 ## Planned Backend Work
 

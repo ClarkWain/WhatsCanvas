@@ -58,6 +58,27 @@ bool testFontRegistrationAndFallback()
         && expect(resolved[1] == "Fallback", "fallback family should resolve second");
 }
 
+bool testFontRefreshPreservesExplicitRegistrations()
+{
+    std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createPortableTextBackend();
+    const bool primary = backend->registerFontFace(
+        wsc::FontFace::fromFile(wsc::FontDescriptor("RefreshPrimary"), "refresh-primary.ttf"));
+    const bool fallback = backend->registerFontFace(wsc::FontFace::fromMemory(
+        wsc::FontDescriptor("RefreshFallback"), std::vector<std::uint8_t>{1, 2, 3, 4}));
+    wsc::FontFallbackChain chain("RefreshPrimary");
+    chain.addFallbackFamily("RefreshFallback");
+    const bool chainSet = backend->setFontFallbackChain(chain);
+    const bool refreshed = backend->refreshSystemFonts();
+    const auto resolved = backend->resolveFontFamilies("RefreshPrimary");
+
+    return expect(primary && fallback && chainSet, "refresh fixtures should register")
+        && expect(refreshed, "portable backend should refresh system fonts")
+        && expect(resolved.size() == 2
+                      && resolved[0] == "RefreshPrimary"
+                      && resolved[1] == "RefreshFallback",
+                  "refresh should preserve explicit faces and fallback chains");
+}
+
 bool testLineBreakAndGlyphQuery()
 {
     std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createBasicTextBackend();
@@ -141,6 +162,23 @@ bool testLongWordLineBreakQuery()
         && expect(lines[0].sourceStart == 0, "first long-word line should start at source zero")
         && expect(lines[0].sourceLength > 0 && lines[0].sourceLength < text.size(),
                   "first long-word line should expose a partial source span");
+}
+
+bool testPortableLineBreakingPreservesGraphemeClusters()
+{
+    std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createPortableTextBackend();
+    Paint paint;
+    paint.setTextSize(12.0f);
+    const std::string text = "A\xCC\x81" "B";
+    const std::vector<wsc::text::TextLineBreak> lines = backend->breakLines(text, 7.0f, paint);
+
+    bool ok = expect(lines.size() >= 2, "narrow text should wrap into multiple lines");
+    for (const auto &line : lines) {
+        const std::size_t end = line.sourceStart + line.sourceLength;
+        ok = expect(line.sourceStart != 1 && end != 1,
+                    "portable wrapping must not split a base from its combining mark") && ok;
+    }
+    return ok;
 }
 
 bool testDiagnosticsForRejectedFallback()
@@ -832,11 +870,13 @@ bool testWindowsNativeTextPreservesClearTypeCoverage()
 int main()
 {
     const bool ok = testFontRegistrationAndFallback()
+        && testFontRefreshPreservesExplicitRegistrations()
         && testLineBreakAndGlyphQuery()
         && testBasicBackendUsesSystemFontFallbackWhenAvailable()
         && testCrLfLineBreakQuery()
         && testCjkLineBreakQuery()
         && testLongWordLineBreakQuery()
+        && testPortableLineBreakingPreservesGraphemeClusters()
         && testDiagnosticsForRejectedFallback()
         && testPortableBackendUsesGeometryPath()
         && testPortableBackendSkipsZeroWidthBreak()

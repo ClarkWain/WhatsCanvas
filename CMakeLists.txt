@@ -678,6 +678,9 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
         WhatsCanvasOpenGL
         WhatsCanvasGLM
     )
+    target_compile_definitions(WhatsCanvasDirectWriteBackendTests PRIVATE
+        WHATSCANVAS_TEST_OPENTYPE_FONT="${CMAKE_CURRENT_SOURCE_DIR}/third_party/harfbuzz/perf/fonts/Roboto-Regular.ttf"
+    )
     add_test(NAME WhatsCanvasDirectWriteBackendTests
         COMMAND ${CMAKE_COMMAND}
             -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}

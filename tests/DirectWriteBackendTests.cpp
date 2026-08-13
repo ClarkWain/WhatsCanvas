@@ -144,6 +144,30 @@ int main()
         return 1;
     }
 
+    // Public OpenType features must reach DirectWrite typography and must be
+    // part of the bitmap cache identity. Roboto contains a real ffi ligature.
+    auto featureBackend = wsc::text::createDirectWriteTextBackend();
+    if (featureBackend != nullptr
+        && featureBackend->registerFontFace(wsc::FontFace::fromFile(
+            wsc::FontDescriptor("Roboto"), WHATSCANVAS_TEST_OPENTYPE_FONT))) {
+        wsc::Paint ligaturesOn;
+        ligaturesOn.setFontFamily("Roboto");
+        ligaturesOn.setTextSize(32.0f);
+        ligaturesOn.setFontFeature("liga", 1);
+        wsc::Paint ligaturesOff = ligaturesOn;
+        ligaturesOff.setFontFeature("liga", 0);
+        const auto withLigature = featureBackend->renderText("ffi", 0.0f, 0.0f, ligaturesOn);
+        const auto withoutLigature = featureBackend->renderText("ffi", 0.0f, 0.0f, ligaturesOff);
+        if (withLigature.kind != wsc::text::TextRenderKind::Bitmap
+            || withoutLigature.kind != wsc::text::TextRenderKind::Bitmap
+            || (withLigature.bitmapContentId == withoutLigature.bitmapContentId
+                && withLigature.bitmapPixels == withoutLigature.bitmapPixels)) {
+            std::cerr << "[DirectWriteBackendTests] FAIL: OpenType liga feature did not affect DirectWrite output."
+                      << std::endl;
+            return 1;
+        }
+    }
+
     std::cout << "[DirectWriteBackendTests] PASS: measured width=" << width << ", ascent=" << metrics.ascent
               << ", descent=" << metrics.descent << ", coverage=" << covered
               << " px; letter-spacing base=" << baseWidth << " spaced=" << spacedWidth

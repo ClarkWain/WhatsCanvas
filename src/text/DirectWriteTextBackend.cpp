@@ -425,6 +425,23 @@ public:
         return false;
     }
 
+    bool refreshSystemFonts() override
+    {
+        wsc::FontSystem::refreshInstalledFonts();
+        if (!available_ || dwriteFactory_ == nullptr) {
+            return false;
+        }
+        IDWriteFontCollection *refreshed = nullptr;
+        if (FAILED(dwriteFactory_->GetSystemFontCollection(&refreshed, TRUE))
+            || refreshed == nullptr) {
+            return false;
+        }
+        safeRelease(systemFontCollection_);
+        systemFontCollection_ = refreshed;
+        invalidateRenderCache();
+        return true;
+    }
+
     bool setFontFallbackChain(const FontFallbackChain &chain) override
     {
         // Build a custom DirectWrite fallback: map the whole Unicode range to the
@@ -797,6 +814,13 @@ private:
         key += '|';
         key += paint.hasTextLocale() ? paint.getTextLocale() : std::string();
         key += '|';
+        for (const Paint::FontFeature &feature : paint.getFontFeatures()) {
+            key += feature.tag;
+            key += '=';
+            appendInt(feature.value);
+            key += ';';
+        }
+        key += '|';
         key += static_cast<char>('0' + (effectiveRasterMode(paint) == DirectWriteRasterMode::ClearType));
         key += static_cast<char>('0' + paint.isUnderline());
         key += static_cast<char>('0' + paint.isStrikethrough());
@@ -1103,6 +1127,28 @@ private:
                                                  reinterpret_cast<void **>(&layout2)))
                 && layout2 != nullptr) {
                 layout2->SetFontFallback(customFontFallback_);
+            }
+        }
+
+        // Apply the same public OpenType feature list used by the portable
+        // HarfBuzz path. IDWriteTypography owns a whole-layout feature set.
+        if (!paint.getFontFeatures().empty()) {
+            ComPtr<IDWriteTypography> typography;
+            if (SUCCEEDED(dwriteFactory_->CreateTypography(&typography))
+                && typography != nullptr) {
+                for (const Paint::FontFeature &feature : paint.getFontFeatures()) {
+                    if (feature.tag.size() != 4) {
+                        continue;
+                    }
+                    const DWRITE_FONT_FEATURE directWriteFeature = {
+                        static_cast<DWRITE_FONT_FEATURE_TAG>(DWRITE_MAKE_OPENTYPE_TAG(
+                            feature.tag[0], feature.tag[1], feature.tag[2], feature.tag[3])),
+                        feature.value
+                    };
+                    typography->AddFontFeature(directWriteFeature);
+                }
+                const DWRITE_TEXT_RANGE fullRange{0, static_cast<UINT32>(wide.size())};
+                layout->SetTypography(typography.Get(), fullRange);
             }
         }
 
