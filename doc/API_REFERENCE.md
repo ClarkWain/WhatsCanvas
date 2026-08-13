@@ -641,6 +641,9 @@ Public members:
 - `void setTextLocale(const std::string &locale);`
 - `const std::string &getTextLocale() const;`
 - `bool hasTextLocale() const;`
+- `void setFontFeature(const std::string &tag, std::uint32_t value = 1);`
+- `void clearFontFeatures();`
+- `const std::vector<FontFeature> &getFontFeatures() const;`
 - `void setUnderline(bool enabled);`
 - `bool isUnderline() const;`
 - `void setStrikethrough(bool enabled);`

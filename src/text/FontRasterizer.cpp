@@ -686,6 +686,7 @@ std::optional<RasterizedGlyph> FontRasterizer::rasterizeGlyphIndex(const FontFac
         glyph.key.format = GlyphBitmapFormat::Alpha;
         glyph.key.weight = face.weight();
         glyph.key.slant = face.slant();
+        glyph.key.faceIndex = face.faceIndex();
         glyph.bitmap = std::move(bitmap);
         return glyph;
     }
@@ -728,6 +729,7 @@ std::optional<RasterizedGlyph> FontRasterizer::rasterizeGlyphIndex(const FontFac
     glyph.key.format = GlyphBitmapFormat::Alpha;
     glyph.key.weight = face.weight();
     glyph.key.slant = face.slant();
+    glyph.key.faceIndex = face.faceIndex();
     glyph.bitmap = std::move(bitmap);
     return glyph;
 }
@@ -843,6 +845,7 @@ std::optional<RasterizedGlyph> FontRasterizer::rasterizeColorGlyph(const FontFac
     glyph.key.format = GlyphBitmapFormat::RGBA;
     glyph.key.weight = face.weight();
     glyph.key.slant = face.slant();
+    glyph.key.faceIndex = face.faceIndex();
     glyph.bitmap = std::move(bitmap);
     return glyph;
 }
@@ -857,7 +860,7 @@ std::optional<FontDataView> FontRasterizer::fontData(const FontFace &face) const
 
     thread_local std::vector<unsigned char> snapshot;
     snapshot = loaded->bytes;
-    return FontDataView{snapshot.data(), snapshot.size()};
+    return FontDataView{snapshot.data(), snapshot.size(), face.faceIndex()};
 }
 
 std::optional<ColorFontTables> FontRasterizer::colorFontTables(const FontFace &face) const
@@ -867,7 +870,8 @@ std::optional<ColorFontTables> FontRasterizer::colorFontTables(const FontFace &f
     if (loaded == nullptr || loaded->bytes.empty()) {
         return std::nullopt;
     }
-    return detectColorFontTables(FontDataView{loaded->bytes.data(), loaded->bytes.size()}, face.faceIndex());
+    return detectColorFontTables(FontDataView{loaded->bytes.data(), loaded->bytes.size(), face.faceIndex()},
+                                 face.faceIndex());
 }
 
 } // namespace wsc::text
