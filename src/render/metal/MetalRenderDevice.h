@@ -28,8 +28,10 @@ class RenderTargetPool;
 ///   * image resources (RGBA8 + Alpha8) with sub-region updates
 ///   * external image wrapping (id<MTLTexture> handle round-trip)
 ///   * synchronous readback via a shared/managed MTLBuffer
-///
-/// Presentation, image filters, and mipmap generation are follow-ups.
+///   * CAMetalLayer presentation through the swapchain abstraction
+///   * Gaussian blur, inner shadow, and post-blur color/grain adjustments
+///   * mipmap creation and regeneration for image resources
+///   * GPU frame timing through MTLCommandBuffer timestamps
 class MetalRenderDevice : public IRenderDevice
 {
 public:
@@ -75,10 +77,9 @@ public:
     SharedImageResource renderCommandsToImageResource(const std::vector<std::unique_ptr<Command>> &commands,
                                                       const OffscreenRenderRequest &request) const override;
 
-    /// Gaussian blur via a separable two-pass shader (horizontal then
-    /// vertical). Ignores color-adjust / grain / inner-shadow modifiers on the
-    /// filter (Stage 3 follow-up); returns an empty resource for non-Blur
-    /// filter types so the Canvas image-filter chain falls back gracefully.
+    /// Executes Blur (including post-blur color/grain adjustments) or
+    /// InnerShadow filters on Metal. Unsupported filter types return an empty
+    /// resource so the Canvas image-filter chain can fall back gracefully.
     SharedImageResource filterImageResource(const SharedImageResource &source,
                                             int width, int height,
                                             const wsc::ImageFilter &filter,

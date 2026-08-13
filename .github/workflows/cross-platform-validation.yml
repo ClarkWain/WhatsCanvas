@@ -67,6 +67,13 @@ jobs:
       - name: Unit tests
         run: ctest --test-dir ${{ matrix.build_dir }} -C Debug -L unit --output-on-failure
 
+      # Keep Metal visible as a first-class blocking gate. These tests are also
+      # part of the unit label, but the explicit Apple-only run prevents a
+      # future label/configuration change from silently dropping GPU coverage.
+      - name: Metal backend tests
+        if: runner.os == 'macOS'
+        run: ctest --test-dir ${{ matrix.build_dir }} -C Debug -L metal --output-on-failure
+
   opengles-smoke:
     runs-on: ubuntu-latest
     steps:

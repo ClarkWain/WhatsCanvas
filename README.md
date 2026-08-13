@@ -25,10 +25,10 @@ This project aims to bridge the gap between minimal drawing libraries (such as N
 | **Applicability** | Custom UIs in native apps, tool/data interfaces, HUDs, 2D game render layers, offscreen image generation on servers or in test environments. |
 | **API & Language** | C++17; the public API is located in `include/wsc/`, with the entry point being `#include <wsc/wsc.h>`. |
 | **Render Backends** | OpenGL, pure CPU Software; optional OpenGL ES, Vulkan, and Metal (macOS/iOS). WebGPU is not yet implemented. |
-| **Platform Status** | Windows, Linux, and macOS run continuous builds and unit tests; release packages cover Windows x64, Linux x64, and macOS universal. Mobile integration is currently primarily through OpenGL ES hosts and does not yet represent a validated device matrix. |
+| **Platform Status** | Windows, Linux, and macOS run continuous builds and unit tests; release packages cover Windows x64, Linux x64, and macOS universal. Metal is validated on macOS; mobile integration does not yet represent a validated device matrix. |
 | **Text Capabilities** | Font discovery and fallback, CJK/RTL, UAX #9, line breaking and ellipsis, glyph atlas, COLR/CPAL v0; FreeType and HarfBuzz shaping are enabled by default for OpenGL/OpenGL ES. |
 | **Integration** | vcpkg overlay port, CMake `find_package`, `add_subdirectory`, or portable installation directories generated from source. |
-| **Footprint** | Not header-only. Supports linking only against `WhatsCanvas::Software`, `::OpenGL`, or `::OpenGLES` based on backend; see [Footprint and Dependencies](#footprint-and-dependencies) for reference. |
+| **Footprint** | Not header-only. Supports linking only against `WhatsCanvas::Software`, `::OpenGL` (also hosts optional Vulkan and Apple Metal), or `::OpenGLES` based on backend; see [Footprint and Dependencies](#footprint-and-dependencies) for reference. |
 | **Maturity** | Current version `0.1.20`, still pre-1.0. Public API boundaries, cross-platform CI, pixel regression, package-consumer integration tests, and auditable performance baselines are in place; upgrade and platform risks should still be evaluated against the boundaries described below. |
 | **License** | MIT; components in `third_party/` follow their respective licenses. |
 
@@ -36,7 +36,7 @@ This project aims to bridge the gap between minimal drawing libraries (such as N
 If you want a unified Canvas-style API for CPU/GPU rendering, multilingual text, and common UI effects, and you value snapshot determinism, pixel-level regression testing, and source readability, WhatsCanvas is a good fit.
 
 **When to Look Elsewhere?**
-If your project heavily relies on a ready-made UI control system, needs to run in the browser, requires native Metal / WebGPU support, needs strict color management, needs document/PDF generation, involves complex rich-text editing, or requires a mature rendering library already in a long-term ABI-stable release line (1.0+), then WhatsCanvas may not be the right fit today.
+If your project heavily relies on a ready-made UI control system, needs to run in the browser, requires native WebGPU support, needs strict color management, needs document/PDF generation, involves complex rich-text editing, or requires a mature rendering library already in a long-term ABI-stable release line (1.0+), then WhatsCanvas may not be the right fit today.
 
 ## 60 Seconds to Draw the First Frame
 
@@ -235,18 +235,19 @@ cmake -S . -B build \
 | Backend | CMake target | Default state | Host requirement | Current boundaries |
 | --- | --- | --- | --- | --- |
 | **Software** | `WhatsCanvas::Software` | Enabled | No GPU or Graphics API | Deterministic CPU reference implementation, suitable for headless, tests, screenshots, and fallback. |
-| **OpenGL 3.3 Core** | `WhatsCanvas::OpenGL` | Enabled, primary GPU path | App creates the GL context and keeps it current, provides the proc address | Main real-time rendering path for desktop applications. |
+| **OpenGL 3.3 Core** | `WhatsCanvas::OpenGL` | Enabled, primary cross-platform GL path | App creates the GL context and keeps it current, provides the proc address | Main GL rendering path for desktop applications. |
 | **OpenGL ES 3.0** | `WhatsCanvas::OpenGLES` | Disabled | Host EGL/GLES context | Independent target; Linux Mesa executes build and filter pixel gates; mobile devices require host-side verification. |
 | **Vulkan** | Built into `WhatsCanvas::OpenGL` | Disabled | Vulkan SDK for source build; loader, driver, and device for running | Offscreen by default; Win32 supports Canvas window presentation; window surfaces for other platforms are still evolving. |
+| **Metal** | Built into `WhatsCanvas::OpenGL` on Apple platforms | Enabled on Apple platforms | Metal-capable macOS/iOS/tvOS device | Offscreen rendering, external `MTLTexture` interop, and `CAMetalLayer` window presentation; iOS device/simulator validation remains host-owned. |
 
-Vulkan is enabled with `-DWHATSCANVAS_ENABLE_VULKAN=ON`. It does not have an independent package target currently: the code is compiled into `WhatsCanvas::OpenGL`, which still declares system OpenGL dependencies, using `Backend::Vulkan` to select the device at runtime.
+Vulkan is enabled with `-DWHATSCANVAS_ENABLE_VULKAN=ON`. Metal is enabled by default on Apple platforms and can be disabled with `-DWHATSCANVAS_ENABLE_METAL=OFF`. Neither currently has an independent package target: each is compiled into `WhatsCanvas::OpenGL` and selected at runtime with `Backend::Vulkan` or `Backend::Metal`.
 
-For OpenGL/OpenGL ES, the application inherently manages the window and context; Software and offscreen Vulkan operations require no GL context. All backends are initialized via `Canvas::create(Backend, width, height)`, which yields `nullptr` upon failure, naturally accommodating graceful fallbacks:
+For OpenGL/OpenGL ES, the application inherently manages the window and context; Software, Vulkan, and Metal require no external GL context. All backends are initialized via `Canvas::create(Backend, width, height)`, which yields `nullptr` upon failure, naturally accommodating graceful fallbacks:
 
 ```cpp
 using Backend = wsc::Canvas::Backend;
 auto canvas = wsc::Canvas::create(
-    {Backend::Vulkan, Backend::OpenGL, Backend::Software}, width, height);
+    {Backend::Vulkan, Backend::Metal, Backend::OpenGL, Backend::Software}, width, height);
 if (!canvas) {
     return 1;
 }
@@ -260,7 +261,7 @@ Platform Validation Status:
 | --- | --- | --- |
 | Windows x64 | MSVC unit tests, package consumption, OpenGL/Software; release matrix can enable GLES, Vulkan, FreeType, HarfBuzz | DirectWrite text backend optional; Vulkan window presentation supports Win32. |
 | Linux x64 | GCC build, unit tests, OpenGL/GLES filter pixel gates, package consumption | Automated GL scenarios use Mesa/Xvfb; GLX window presentation from source lacks continuous verification. |
-| macOS x86_64/arm64 | Unit tests and universal release packages | Uses system OpenGL; Metal rendering backend is not yet implemented. |
+| macOS x86_64/arm64 | Unit tests, Metal pixel/contract gates, and universal release packages | Metal is enabled by default and supports offscreen rendering plus `CAMetalLayer` presentation; system OpenGL remains available. |
 | iOS / Android | OpenGL ES target and iOS integration notes | No regular real-device CI is set up yet; validate on the target device before integrating. |
 | Web | Not supported | WebAssembly / WebGL 2 bridging is still planned. |
 
@@ -276,7 +277,7 @@ See [Cross-Platform Validation Matrix](doc/CROSS_PLATFORM_VALIDATION_MATRIX.md),
 | Images | PNG/JPEG decoding, raw RGBA, external textures, partial updates, contain/cover, 9-patch, rounded/circular clipping, tiling | `Image`, `drawImageFit`, `wrapExternalTexture` |
 | Layer Filters | Content/backdrop blur, inner shadow, frosted glass, saturation/brightness/contrast/grain, color matrix, and offset chain | `ImageFilter`, `ImageFilterChain`, `LayerOptions` |
 | Text | System fonts, fallback, weight/slant, CJK/RTL, line breaking/ellipsis, letter spacing, stroked/shadowed/gradient text, text-on-path | `FontManager`, `drawTextBox`, `drawTextOnPath` |
-| Output & Interop | Offscreen images, render-target canvas, GL framebuffer, external Vulkan image, sync/async RGBA readback, window present | `OutputTarget`, `readPixelsRGBAAsync`, `present` |
+| Output & Interop | Offscreen images, render-target canvas, GL framebuffer, external Vulkan images/Metal textures, sync/async RGBA readback, window present | `OutputTarget`, `wrapExternalTexture`, `readPixelsRGBAAsync`, `present` |
 | Diagnostics | Pixel hash/PPM, backend and font diagnostics, render stats, resource and atlas stats | `computePixelsHashRGBA`, `RenderStats` |
 
 ### Text Implementation Details
@@ -340,8 +341,8 @@ Dependency model:
 
 WhatsCanvas is more than just "able to draw pixels". The engineering and automated checks that ship with the repository include:
 
-- Cross-platform CI across Windows, Linux, and macOS; dedicated builds and pixel gates for OpenGL ES and Vulkan.
-- Software golden-image baselines, filter parity across OpenGL/OpenGL ES/Vulkan, strict hash regressions, and fuzzy PPM regressions.
+- Cross-platform CI across Windows, Linux, and macOS; dedicated builds and pixel gates for OpenGL ES, Vulkan, and Metal.
+- Software golden-image baselines, filter parity across OpenGL/OpenGL ES/Vulkan/Metal, strict hash regressions, and fuzzy PPM regressions.
 - API reference freshness checks, release/version consistency checks, and package-consumer plus example-build checks.
 - Synchronous/asynchronous pixel readback, deterministic first-frame timing, render stats, resource tracking, and reproducible benchmarks.
 - Support boundaries for public headers and CMake targets are documented in [API Stability](doc/API_STABILITY.md); release history is in [CHANGELOG](CHANGELOG.md).
@@ -351,13 +352,13 @@ Risks to keep in mind:
 - The version is still `0.1.x`; read the CHANGELOG and run package-consumer tests before upgrading.
 - The capability tables in this README are not a parity guarantee for every backend × platform combination; consult the feature matrices for filters, text, and output targets, and validate the combination you actually use.
 - Vulkan is opt-in and not the default backend; cross-platform window presentation and broader pixel coverage are still being extended.
-- Metal, WebGPU, and WebAssembly are not yet available; a native CoreText adapter is not yet implemented.
+- Metal is available on Apple platforms, but iOS simulator/device CI and an in-repository iOS sample app remain open; WebGPU, WebAssembly, and a native CoreText adapter are not yet available.
 - Real-time GPU rendering results may vary with drivers; use Software as the deterministic baseline and use tolerance-based comparison for GPU regressions.
 - `Canvas` should be used from within its rendering / context thread; current public documentation does not promise concurrent access to a single instance, and no cross-thread contract is defined for sharing images, fonts, or external textures across Canvas instances.
 
 ## Examples
 
-The repository includes a root demo, API snippets, package consumers, Software/OpenGL/Vulkan present examples, and two full games:
+The repository includes a root demo, API snippets, package consumers, Software/OpenGL/Vulkan/Metal present examples, and two full games:
 
 <table>
 <tr>
@@ -422,7 +423,7 @@ Start from the **[Online Documentation](https://clarkwain.github.io/WhatsCanvas/
 
 ## Roadmap
 
-WhatsCanvas is currently focused on four areas: cross-backend pixel consistency, text rendering quality, broader Vulkan platform coverage, and more reproducible performance benchmarks. Longer-term directions include WebAssembly / WebGL 2 support, Metal and WebGPU backends, and richer color glyph formats (CBDT/CBLC, SBIX, SVG, COLR v1). These directions are still in planning and should not be treated as available features today.
+WhatsCanvas is currently focused on cross-backend pixel consistency, text rendering quality, broader Vulkan and Apple-device coverage, and more reproducible performance benchmarks. Longer-term directions include WebAssembly / WebGL 2 and WebGPU support, plus richer color glyph formats (CBDT/CBLC, SBIX, SVG, COLR v1). These directions are still in planning and should not be treated as available features today.
 
 ## License
 

@@ -99,6 +99,23 @@ bool testAutoResolves()
                 "resolved backend should report as available") && ok;
     ok = expect(canvas->getWidth() == 40 && canvas->getHeight() == 20,
                 "Auto-created canvas should keep its size") && ok;
+
+    const Backend preferenceOrder[] = {
+        Backend::Vulkan,
+        Backend::Metal,
+        Backend::OpenGL,
+        Backend::OpenGLES,
+        Backend::Software,
+    };
+    Backend expected = Backend::Software;
+    for (Backend candidate : preferenceOrder) {
+        if (Canvas::isBackendAvailable(candidate)) {
+            expected = candidate;
+            break;
+        }
+    }
+    ok = expect(canvas->backend() == expected,
+                "Auto should honor Vulkan -> Metal -> OpenGL/OpenGLES -> Software preference order") && ok;
     return ok;
 }
 
