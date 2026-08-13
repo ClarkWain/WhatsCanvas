@@ -699,6 +699,10 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
         WhatsCanvasOpenGL
         WhatsCanvasGLM
     )
+    target_compile_definitions(WhatsCanvasTextUtilsTests PRIVATE
+        WHATSCANVAS_TEST_OPENTYPE_FONT="${CMAKE_CURRENT_SOURCE_DIR}/third_party/harfbuzz/perf/fonts/Roboto-Regular.ttf"
+        WHATSCANVAS_TEST_TTC_FONT="${CMAKE_CURRENT_SOURCE_DIR}/third_party/harfbuzz/test/shape/data/in-house/fonts/TTC.ttc"
+    )
     add_test(NAME WhatsCanvasTextUtilsTests
         COMMAND ${CMAKE_COMMAND}
             -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}

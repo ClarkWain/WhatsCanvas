@@ -1,7 +1,9 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "Color.h"
@@ -23,6 +25,20 @@ public:
         ColorStop() = default;
         ColorStop(float position, const Color &color)
             : position(position), color(color)
+        {
+        }
+    };
+
+    /// Global OpenType shaping feature applied to a text run. Tags use the
+    /// standard four-character form such as "liga", "kern", or "smcp".
+    struct FontFeature
+    {
+        std::string tag;
+        std::uint32_t value = 1;
+
+        FontFeature() = default;
+        FontFeature(std::string featureTag, std::uint32_t featureValue = 1)
+            : tag(std::move(featureTag)), value(featureValue)
         {
         }
     };
@@ -226,10 +242,16 @@ public:
     void setTextBaseline(TextBaseline baseline);
     TextBaseline getTextBaseline() const;
     /// BCP-47 locale (e.g. "en-US", "ja-JP") for locale-aware shaping and
-    /// fallback. Honoured by the native (DirectWrite) backend; empty by default.
+    /// fallback. Honoured by portable HarfBuzz and native DirectWrite paths;
+    /// empty by default.
     void setTextLocale(const std::string &locale);
     const std::string &getTextLocale() const;
     bool hasTextLocale() const;
+    /// Set or update a global OpenType feature for portable HarfBuzz shaping.
+    /// Invalid tags (anything other than four characters) are ignored.
+    void setFontFeature(const std::string &tag, std::uint32_t value = 1);
+    void clearFontFeatures();
+    const std::vector<FontFeature> &getFontFeatures() const;
     /// Text decorations. Honoured by the native (DirectWrite) backend; off by
     /// default.
     void setUnderline(bool enabled);
@@ -293,6 +315,7 @@ private:
     TextAlign textAlign_ = TextAlign::LEFT;
     TextBaseline textBaseline_ = TextBaseline::TOP;
     std::string textLocale_;
+    std::vector<FontFeature> fontFeatures_;
     bool underline_ = false;
     bool strikethrough_ = false;
     TextRenderMode textRenderMode_ = TextRenderMode::Default;

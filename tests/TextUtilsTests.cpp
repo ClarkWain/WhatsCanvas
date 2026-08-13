@@ -1,6 +1,7 @@
 #include <cstdlib>
 #include <cstdint>
 #include <algorithm>
+#include <fstream>
 #include <iostream>
 #include <optional>
 #include <string>
@@ -20,6 +21,16 @@ bool expect(bool condition, const std::string &message)
 
     std::cerr << "EXPECTATION FAILED: " << message << std::endl;
     return false;
+}
+
+std::vector<std::uint8_t> readFileBytes(const std::string &path)
+{
+    std::ifstream stream(path, std::ios::binary);
+    if (!stream) {
+        return {};
+    }
+    return std::vector<std::uint8_t>(std::istreambuf_iterator<char>(stream),
+                                     std::istreambuf_iterator<char>());
 }
 
 void appendU16BE(std::vector<std::uint8_t> &bytes, std::uint16_t value)
@@ -398,6 +409,109 @@ bool testTextShapingEngineFactoryFallsBackToSimple()
     return ok;
 }
 
+bool testOpenTypeShaperHonorsCollectionFaceIndex()
+{
+    if (!wsc::text::isOpenTypeShapingAvailable()) {
+        return true;
+    }
+
+    const std::vector<std::uint8_t> bytes = readFileBytes(WHATSCANVAS_TEST_TTC_FONT);
+    if (!expect(!bytes.empty(), "TTC shaping fixture should load")) {
+        return false;
+    }
+
+    const auto resolver = [](std::uint32_t codepoint) -> std::optional<wsc::text::ResolvedGlyph> {
+        return wsc::text::ResolvedGlyph{static_cast<int>(codepoint), 10.0f};
+    };
+    auto shaper = wsc::text::createOpenTypeTextShapingEngine();
+    wsc::text::TextShapeInput input;
+    input.normalizedText = ".";
+    input.pixelSize = 16.0f;
+    input.fontData = wsc::text::FontDataView{bytes.data(), bytes.size(), 1};
+    const auto secondFace = shaper->shape(input, resolver);
+
+    input.fontData->faceIndex = 2;
+    const auto outOfRangeFace = shaper->shape(input, resolver);
+    return expect(secondFace.has_value(), "TTC face index 1 should shape successfully")
+        && expect(!outOfRangeFace.has_value(),
+                  "out-of-range TTC face index must not silently shape face 0");
+}
+
+bool testOpenTypeShaperProducesRealLigatures()
+{
+    if (!wsc::text::isOpenTypeShapingAvailable()) {
+        return true;
+    }
+
+    const std::vector<std::uint8_t> bytes = readFileBytes(WHATSCANVAS_TEST_OPENTYPE_FONT);
+    if (!expect(!bytes.empty(), "OpenType shaping fixture should load")) {
+        return false;
+    }
+
+    const auto resolver = [](std::uint32_t codepoint) -> std::optional<wsc::text::ResolvedGlyph> {
+        return wsc::text::ResolvedGlyph{static_cast<int>(codepoint), 10.0f};
+    };
+    auto shaper = wsc::text::createOpenTypeTextShapingEngine();
+    wsc::text::TextShapeInput input;
+    input.normalizedText = "ffi";
+    input.pixelSize = 20.0f;
+    input.language = "en";
+    input.fontData = wsc::text::FontDataView{bytes.data(), bytes.size(), 0};
+    const auto shaped = shaper->shape(input, resolver);
+
+    return expect(shaped.has_value(), "HarfBuzz should shape the ligature fixture")
+        && expect(shaped->glyphs.size() < 3,
+                  "default OpenType features should combine the ffi ligature");
+}
+
+bool testOpenTypeFeaturesCanDisableLigatures()
+{
+    if (!wsc::text::isOpenTypeShapingAvailable()) {
+        return true;
+    }
+
+    const std::vector<std::uint8_t> bytes = readFileBytes(WHATSCANVAS_TEST_OPENTYPE_FONT);
+    const auto resolver = [](std::uint32_t codepoint) -> std::optional<wsc::text::ResolvedGlyph> {
+        return wsc::text::ResolvedGlyph{static_cast<int>(codepoint), 10.0f};
+    };
+    auto shaper = wsc::text::createOpenTypeTextShapingEngine();
+    wsc::text::TextShapeInput input;
+    input.normalizedText = "ffi";
+    input.pixelSize = 20.0f;
+    input.fontData = wsc::text::FontDataView{bytes.data(), bytes.size(), 0};
+    input.openTypeFeatures.push_back({"liga", 0});
+    const auto shaped = shaper->shape(input, resolver);
+
+    return expect(shaped.has_value(), "HarfBuzz should shape with explicit features")
+        && expect(shaped->glyphs.size() == 3,
+                  "disabling liga should keep the three source glyphs separate");
+}
+
+bool testFontFallbackClustersPreserveGraphemeSequences()
+{
+    const std::string text = "A\xCC\x81" "B "
+        "\xF0\x9F\x91\xA9\xE2\x80\x8D\xF0\x9F\x92\xBB "
+        "\xF0\x9F\x87\xA8\xF0\x9F\x87\xB3";
+    const auto clusters = wsc::text::buildFontFallbackClusters(text, 0, text.size());
+
+    bool sawCombiningCluster = false;
+    bool sawZwjCluster = false;
+    bool sawFlagCluster = false;
+    for (const auto &cluster : clusters) {
+        const std::string value = text.substr(cluster.sourceStart,
+                                              cluster.sourceEnd - cluster.sourceStart);
+        sawCombiningCluster = sawCombiningCluster || value == "A\xCC\x81";
+        sawZwjCluster = sawZwjCluster
+            || value == "\xF0\x9F\x91\xA9\xE2\x80\x8D\xF0\x9F\x92\xBB";
+        sawFlagCluster = sawFlagCluster
+            || value == "\xF0\x9F\x87\xA8\xF0\x9F\x87\xB3";
+    }
+
+    return expect(sawCombiningCluster, "base character and combining mark should share one fallback cluster")
+        && expect(sawZwjCluster, "emoji ZWJ sequence should share one fallback cluster")
+        && expect(sawFlagCluster, "regional-indicator pair should share one fallback cluster");
+}
+
 bool testBidiRunSegmentation()
 {
     const std::string mixed = "abc \xd7\x90\xd7\x91 def";
@@ -648,6 +762,10 @@ int main()
         && testSimpleShaperSkipsBidiControls()
         && testSimpleShaperSkipsZeroWidthBreak()
         && testTextShapingEngineFactoryFallsBackToSimple()
+        && testOpenTypeShaperHonorsCollectionFaceIndex()
+        && testOpenTypeShaperProducesRealLigatures()
+        && testOpenTypeFeaturesCanDisableLigatures()
+        && testFontFallbackClustersPreserveGraphemeSequences()
         && testBidiRunSegmentation()
         && testBidiRunSegmentationKeepsLeadingNeutrals()
         && testBidiRunSegmentationKeepsWeakOnlyText()

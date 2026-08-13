@@ -540,7 +540,12 @@ bool testPortableBackendAppliesSimpleKerning()
         return true;
     }
 
-    std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createPortableTextBackend();
+    wsc::text::BasicTextBackendOptions options;
+    options.backendKind = wsc::text::TextBackendKind::Portable;
+    options.enableNativeText = false;
+    options.enableSystemFontFallback = false;
+    options.shapingBackend = wsc::text::TextShapingBackend::Simple;
+    std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createBasicTextBackend(options);
     bool ok = expect(backend->registerFontFace(face), "kerning test font should register");
 
     Paint paint;
@@ -607,7 +612,11 @@ bool testPortableBackendResolvesFallbackGlyphRange()
     ok = expect(!diagnostics.empty(), "missing glyph query should add diagnostics") && ok;
     ok = expect(diagnostics.back().codepoint == 0x4E2D, "missing glyph diagnostic should include codepoint") && ok;
     ok = expect(diagnostics.back().fontFamily == "Primary", "missing glyph diagnostic should include requested family") && ok;
-    ok = expect(diagnostics.size() == 1, "duplicate missing glyph diagnostics should be coalesced") && ok;
+    const std::size_t missingCount = static_cast<std::size_t>(std::count_if(
+        diagnostics.begin(), diagnostics.end(), [](const wsc::text::TextBackendDiagnostic &diagnostic) {
+            return diagnostic.codepoint == 0x4E2D && diagnostic.fontFamily == "Primary";
+        }));
+    ok = expect(missingCount == 1, "duplicate missing glyph diagnostics should be coalesced") && ok;
     return ok;
 }
 
@@ -676,6 +685,13 @@ bool testOpenTypeShapingRequestFallsBackWithDiagnostic()
     return ok;
 }
 
+bool testPortableBackendDefaultsToOpenTypeShaping()
+{
+    const wsc::text::BasicTextBackendOptions options;
+    return expect(options.shapingBackend == wsc::text::TextShapingBackend::OpenType,
+                  "portable backend should request OpenType shaping by default");
+}
+
 bool testTextBackendCapabilityMatrix()
 {
     const std::vector<wsc::text::TextBackendCapability> capabilities =
@@ -728,8 +744,11 @@ bool testUnavailableNativeTextAdaptersFallback()
         const float width = directWrite->measureTextWidth("Ag", paint);
         bool sawUnavailable = false;
         for (const auto &d : directWrite->diagnostics()) {
-            if (d.message.find("not available") != std::string::npos
-                || d.message.find("unavailable") != std::string::npos) {
+            const bool namesDirectWrite = d.message.find("DirectWrite") != std::string::npos
+                || d.message.find("directwrite") != std::string::npos;
+            if (namesDirectWrite
+                && (d.message.find("not available") != std::string::npos
+                    || d.message.find("unavailable") != std::string::npos)) {
                 sawUnavailable = true;
             }
         }
@@ -832,6 +851,7 @@ int main()
         && testPortableBackendResolvesFallbackGlyphRange()
         && testPortableBackendShapesFallbackFontSegments()
         && testOpenTypeShapingRequestFallsBackWithDiagnostic()
+        && testPortableBackendDefaultsToOpenTypeShaping()
         && testTextBackendCapabilityMatrix()
         && testUnavailableNativeTextAdaptersFallback()
         && testWindowsNativeTextPreservesClearTypeCoverage();

@@ -286,7 +286,7 @@ The default cross-platform text pipeline covers UTF-8 layout, font fallback, spa
 Note that bi-directional text processing is more than script-level shaping. Scripts such as Arabic and Indic involve complex glyph substitution and reordering, which rely on HarfBuzz for full support. These features are enabled by default on all GL-family targets; before shipping, check package diagnostics and run regression tests with your actual fonts and content. Disabling the option or falling back to simple shaping because of missing dependencies is not equivalent to full HarfBuzz shaping and should not be treated as one.
 
 - `WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=ON` (default): Prefers FreeType for glyph lookup, metrics, kerning, and rasterization; falls back to `stb_truetype` if unavailable.
-- `WHATSCANVAS_ENABLE_OPENTYPE_SHAPING=ON` (default): Enables HarfBuzz OpenType shaping; uses simple shaping + kerning if unavailable or disabled.
+- `WHATSCANVAS_ENABLE_OPENTYPE_SHAPING=ON` (default): Enables HarfBuzz OpenType shaping for the public portable text path, including locale/direction input, global `Paint::setFontFeature` controls, and collection face selection; uses simple shaping + kerning if unavailable or disabled.
 - DirectWrite adapter is optional on Windows; CoreText adapter is not yet implemented.
 - COLR/CPAL v0 is supported; CBDT/CBLC, SBIX, SVG, and COLR v1 paint graphs remain subsequent endeavors.
 

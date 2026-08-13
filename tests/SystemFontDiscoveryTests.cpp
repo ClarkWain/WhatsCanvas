@@ -106,8 +106,8 @@ int main()
         ok = expect(canvas->measureText("Windows font discovery", paint) > 0.0f,
                     "a DirectWrite-discovered face should load in the portable rasterizer") && ok;
 
-        // Exercise the UTF-8 path used by fonts installed below a non-ASCII
-        // Windows user profile, not just the ASCII-only C:/Windows/Fonts case.
+        // Exercise a non-ASCII UTF-8 font path instead of assuming that
+        // discovered fonts always live below an ASCII-only directory.
         std::error_code fileError;
         const std::filesystem::path unicodePath =
             std::filesystem::current_path() / std::filesystem::u8path(u8"动态字体测试.ttf");

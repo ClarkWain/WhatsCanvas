@@ -24,7 +24,17 @@ struct TextBreakToken
     bool prefixSpace = false;
 };
 
+struct FontFallbackCluster
+{
+    std::size_t sourceStart = 0;
+    std::size_t sourceEnd = 0;
+    std::vector<std::uint32_t> codepoints;
+};
+
 std::vector<Utf8Codepoint> decodeUtf8(const std::string &text);
+std::vector<FontFallbackCluster> buildFontFallbackClusters(const std::string &text,
+                                                           std::size_t sourceStart,
+                                                           std::size_t sourceEnd);
 bool isValidUtf8(const std::string &text);
 std::string normalizeUtf8ForText(const std::string &text);
 std::string makeAsciiFallbackText(const std::string &text, char replacement = '?');

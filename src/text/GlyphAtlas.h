@@ -26,6 +26,7 @@ struct GlyphKey
     GlyphBitmapFormat format = GlyphBitmapFormat::Alpha;
     int weight = 400;
     FontSlant slant = FontSlant::NORMAL;
+    int faceIndex = 0;
 
     bool operator==(const GlyphKey &other) const;
 };

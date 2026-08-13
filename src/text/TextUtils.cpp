@@ -55,6 +55,141 @@ bool isLineBreak(std::uint32_t codepoint)
     return codepoint == '\n' || codepoint == '\r';
 }
 
+bool isCombiningMark(std::uint32_t codepoint)
+{
+    return (codepoint >= 0x0300 && codepoint <= 0x036F)
+        || (codepoint >= 0x0483 && codepoint <= 0x0489)
+        || (codepoint >= 0x0591 && codepoint <= 0x05BD)
+        || codepoint == 0x05BF
+        || (codepoint >= 0x05C1 && codepoint <= 0x05C2)
+        || (codepoint >= 0x05C4 && codepoint <= 0x05C5)
+        || codepoint == 0x05C7
+        || (codepoint >= 0x0610 && codepoint <= 0x061A)
+        || (codepoint >= 0x064B && codepoint <= 0x065F)
+        || codepoint == 0x0670
+        || (codepoint >= 0x06D6 && codepoint <= 0x06ED)
+        || codepoint == 0x0711
+        || (codepoint >= 0x0730 && codepoint <= 0x074A)
+        || (codepoint >= 0x07A6 && codepoint <= 0x07B0)
+        || (codepoint >= 0x07EB && codepoint <= 0x07F3)
+        || (codepoint >= 0x0816 && codepoint <= 0x082D)
+        || (codepoint >= 0x0859 && codepoint <= 0x085B)
+        || (codepoint >= 0x08D3 && codepoint <= 0x0903)
+        || (codepoint >= 0x093A && codepoint <= 0x093C)
+        || (codepoint >= 0x093E && codepoint <= 0x094D)
+        || (codepoint >= 0x0951 && codepoint <= 0x0957)
+        || (codepoint >= 0x0962 && codepoint <= 0x0963)
+        || (codepoint >= 0x0981 && codepoint <= 0x0983)
+        || codepoint == 0x09BC
+        || (codepoint >= 0x09BE && codepoint <= 0x09C4)
+        || (codepoint >= 0x09C7 && codepoint <= 0x09C8)
+        || (codepoint >= 0x09CB && codepoint <= 0x09CD)
+        || codepoint == 0x09D7
+        || (codepoint >= 0x09E2 && codepoint <= 0x09E3)
+        || (codepoint >= 0x0A01 && codepoint <= 0x0A03)
+        || codepoint == 0x0A3C
+        || (codepoint >= 0x0A3E && codepoint <= 0x0A42)
+        || (codepoint >= 0x0A47 && codepoint <= 0x0A48)
+        || (codepoint >= 0x0A4B && codepoint <= 0x0A4D)
+        || codepoint == 0x0A51
+        || (codepoint >= 0x0A70 && codepoint <= 0x0A71)
+        || codepoint == 0x0A75
+        || (codepoint >= 0x0A81 && codepoint <= 0x0A83)
+        || codepoint == 0x0ABC
+        || (codepoint >= 0x0ABE && codepoint <= 0x0AC5)
+        || (codepoint >= 0x0AC7 && codepoint <= 0x0AC9)
+        || (codepoint >= 0x0ACB && codepoint <= 0x0ACD)
+        || (codepoint >= 0x0AE2 && codepoint <= 0x0AE3)
+        || (codepoint >= 0x0B01 && codepoint <= 0x0B03)
+        || codepoint == 0x0B3C
+        || (codepoint >= 0x0B3E && codepoint <= 0x0B44)
+        || (codepoint >= 0x0B47 && codepoint <= 0x0B48)
+        || (codepoint >= 0x0B4B && codepoint <= 0x0B4D)
+        || (codepoint >= 0x0B55 && codepoint <= 0x0B57)
+        || (codepoint >= 0x0B62 && codepoint <= 0x0B63)
+        || codepoint == 0x0B82
+        || (codepoint >= 0x0BBE && codepoint <= 0x0BC2)
+        || (codepoint >= 0x0BC6 && codepoint <= 0x0BC8)
+        || (codepoint >= 0x0BCA && codepoint <= 0x0BCD)
+        || codepoint == 0x0BD7
+        || (codepoint >= 0x0C00 && codepoint <= 0x0C04)
+        || (codepoint >= 0x0C3E && codepoint <= 0x0C44)
+        || (codepoint >= 0x0C46 && codepoint <= 0x0C48)
+        || (codepoint >= 0x0C4A && codepoint <= 0x0C4D)
+        || (codepoint >= 0x0C55 && codepoint <= 0x0C56)
+        || (codepoint >= 0x0C62 && codepoint <= 0x0C63)
+        || (codepoint >= 0x0C81 && codepoint <= 0x0C83)
+        || codepoint == 0x0CBC
+        || (codepoint >= 0x0CBE && codepoint <= 0x0CC4)
+        || (codepoint >= 0x0CC6 && codepoint <= 0x0CC8)
+        || (codepoint >= 0x0CCA && codepoint <= 0x0CCD)
+        || (codepoint >= 0x0CD5 && codepoint <= 0x0CD6)
+        || (codepoint >= 0x0CE2 && codepoint <= 0x0CE3)
+        || (codepoint >= 0x0D00 && codepoint <= 0x0D03)
+        || (codepoint >= 0x0D3B && codepoint <= 0x0D3C)
+        || (codepoint >= 0x0D3E && codepoint <= 0x0D44)
+        || (codepoint >= 0x0D46 && codepoint <= 0x0D48)
+        || (codepoint >= 0x0D4A && codepoint <= 0x0D4D)
+        || codepoint == 0x0D57
+        || (codepoint >= 0x0D62 && codepoint <= 0x0D63)
+        || codepoint == 0x0E31
+        || (codepoint >= 0x0E34 && codepoint <= 0x0E3A)
+        || (codepoint >= 0x0E47 && codepoint <= 0x0E4E)
+        || (codepoint >= 0x0F18 && codepoint <= 0x0F19)
+        || codepoint == 0x0F35 || codepoint == 0x0F37 || codepoint == 0x0F39
+        || (codepoint >= 0x0F3E && codepoint <= 0x0F3F)
+        || (codepoint >= 0x0F71 && codepoint <= 0x0F84)
+        || (codepoint >= 0x0F86 && codepoint <= 0x0F87)
+        || (codepoint >= 0x0F8D && codepoint <= 0x0FBC)
+        || (codepoint >= 0x102B && codepoint <= 0x103E)
+        || (codepoint >= 0x1056 && codepoint <= 0x1059)
+        || (codepoint >= 0x105E && codepoint <= 0x1060)
+        || (codepoint >= 0x1062 && codepoint <= 0x1064)
+        || (codepoint >= 0x1067 && codepoint <= 0x106D)
+        || (codepoint >= 0x1071 && codepoint <= 0x1074)
+        || (codepoint >= 0x1082 && codepoint <= 0x108D)
+        || codepoint == 0x108F
+        || (codepoint >= 0x109A && codepoint <= 0x109D)
+        || (codepoint >= 0x135D && codepoint <= 0x135F)
+        || (codepoint >= 0x1712 && codepoint <= 0x1715)
+        || (codepoint >= 0x17B4 && codepoint <= 0x17D3)
+        || (codepoint >= 0x180B && codepoint <= 0x180F)
+        || (codepoint >= 0x1A17 && codepoint <= 0x1A1B)
+        || (codepoint >= 0x1A55 && codepoint <= 0x1A5E)
+        || (codepoint >= 0x1A60 && codepoint <= 0x1A7C)
+        || codepoint == 0x1A7F
+        || (codepoint >= 0x1AB0 && codepoint <= 0x1AFF)
+        || (codepoint >= 0x1B00 && codepoint <= 0x1B04)
+        || (codepoint >= 0x1B34 && codepoint <= 0x1B44)
+        || (codepoint >= 0x1B6B && codepoint <= 0x1B73)
+        || (codepoint >= 0x1B80 && codepoint <= 0x1B82)
+        || (codepoint >= 0x1BA1 && codepoint <= 0x1BAD)
+        || (codepoint >= 0x1BE6 && codepoint <= 0x1BF3)
+        || (codepoint >= 0x1C24 && codepoint <= 0x1C37)
+        || (codepoint >= 0x1CD0 && codepoint <= 0x1CE8)
+        || codepoint == 0x1CED || codepoint == 0x1CF4
+        || (codepoint >= 0x1CF7 && codepoint <= 0x1CF9)
+        || (codepoint >= 0x1DC0 && codepoint <= 0x1DFF)
+        || (codepoint >= 0x20D0 && codepoint <= 0x20FF)
+        || (codepoint >= 0xFE20 && codepoint <= 0xFE2F);
+}
+
+bool isVariationSelector(std::uint32_t codepoint)
+{
+    return (codepoint >= 0xFE00 && codepoint <= 0xFE0F)
+        || (codepoint >= 0xE0100 && codepoint <= 0xE01EF);
+}
+
+bool isEmojiModifier(std::uint32_t codepoint)
+{
+    return codepoint >= 0x1F3FB && codepoint <= 0x1F3FF;
+}
+
+bool isRegionalIndicator(std::uint32_t codepoint)
+{
+    return codepoint >= 0x1F1E6 && codepoint <= 0x1F1FF;
+}
+
 bool isCjkCodepoint(std::uint32_t codepoint)
 {
     return (codepoint >= 0x2E80 && codepoint <= 0x9FFF)
@@ -190,6 +325,53 @@ std::vector<Utf8Codepoint> decodeUtf8(const std::string &text)
     }
 
     return codepoints;
+}
+
+std::vector<FontFallbackCluster> buildFontFallbackClusters(const std::string &text,
+                                                           std::size_t sourceStart,
+                                                           std::size_t sourceEnd)
+{
+    std::vector<FontFallbackCluster> clusters;
+    const std::size_t clampedEnd = std::min(sourceEnd, text.size());
+    if (sourceStart >= clampedEnd) {
+        return clusters;
+    }
+
+    std::uint32_t previous = 0;
+    for (const Utf8Codepoint &codepoint : decodeUtf8(text)) {
+        if (codepoint.offset < sourceStart) {
+            continue;
+        }
+        if (codepoint.offset >= clampedEnd || isLineBreak(codepoint.value)) {
+            break;
+        }
+
+        bool extend = !clusters.empty()
+            && (isCombiningMark(codepoint.value)
+                || isVariationSelector(codepoint.value)
+                || isEmojiModifier(codepoint.value)
+                || codepoint.value == 0x200D
+                || previous == 0x200D);
+        if (!extend && !clusters.empty() && isRegionalIndicator(codepoint.value)
+            && isRegionalIndicator(previous)) {
+            std::size_t regionalCount = 0;
+            for (std::uint32_t value : clusters.back().codepoints) {
+                regionalCount += isRegionalIndicator(value) ? 1u : 0u;
+            }
+            extend = (regionalCount % 2u) == 1u;
+        }
+
+        if (!extend) {
+            FontFallbackCluster cluster;
+            cluster.sourceStart = codepoint.offset;
+            clusters.push_back(std::move(cluster));
+        }
+        FontFallbackCluster &cluster = clusters.back();
+        cluster.sourceEnd = std::min(codepoint.offset + codepoint.length, clampedEnd);
+        cluster.codepoints.push_back(codepoint.value);
+        previous = codepoint.value;
+    }
+    return clusters;
 }
 
 bool isValidUtf8(const std::string &text)
