@@ -10,7 +10,7 @@
 
 WhatsCanvas 是一个使用 C++17 开发、面向原生应用的可嵌入式 2D 渲染库。它提供类似 HTML Canvas 的 `Canvas` / `Paint` / `Path` API，支持多语言文本、图层滤镜、图片渲染、离屏渲染与像素回读。WhatsCanvas 只负责渲染，不包含控件、布局、输入事件和无障碍支持，也不与 HTML Canvas 源码兼容。
 
-WhatsCanvas 的定位介于 NanoVG 这类基础绘制库和 Skia 这类大型图形引擎之间：它提供多语言文本、滤镜和像素回归等能力，但不接管宿主应用的窗口、布局或事件循环。
+WhatsCanvas 的定位介于 NanoVG 这类基础绘制库和 Skia 这类大型图形引擎之间：它提供多语言文本和滤镜等运行时能力，仓库还配套像素回归测试，但不接管宿主应用的窗口、布局或事件循环。
 
 > **需要完整 UI 框架？** [WhatsUI](https://github.com/ClarkWain/WhatsUI) 是基于 WhatsCanvas 构建的真实下游项目，提供 C++17 保留模式 UI、Fluent 2 设计系统、控件、布局、输入、焦点、浮层、确定性视觉测试和原生桌面窗口。如果你的需求不只是 2D 绘制，而是完整 UI 库，可以直接评估 WhatsUI。它面向可移植的原生桌面 UI，目前以 Windows 为主要交付和验证平台。
 

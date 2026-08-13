@@ -51,7 +51,8 @@ hooks:
   - mkdocs_hooks.py
 
 # Keep internal engineering notes (ADRs, TODO lists, roadmaps, regression logs)
-# and the large standalone HTML tutorials out of the published site.
+# and unlisted standalone HTML tutorials out of the published site. Curated HTML
+# labs may be published when they are explicitly linked from nav.
 exclude_docs: |
   architecture/
   anti_aliasing/
