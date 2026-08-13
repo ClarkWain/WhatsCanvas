@@ -1588,7 +1588,7 @@ SharedImageResource MetalRenderDevice::wrapExternalImageResource(ImageResourceHa
         return {};
     }
     id<MTLTexture> texture = (__bridge id<MTLTexture>)(void *)handle.value;
-    if (texture == nil) {
+    if (texture == nil || texture.device != context_->device) {
         return {};
     }
     return std::make_shared<MetalTextureResource>(

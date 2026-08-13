@@ -49,6 +49,11 @@ public:
 	/// Wrap an externally-owned GL texture id as an Image (no ownership transfer).
 	bool wrapExternalTexture(Canvas &canvas, std::uint32_t textureId, int width, int height,
 	                         bool mipmapsGenerated = false);
+	/// Wrap an externally-owned id<MTLTexture> as an Image on a Metal Canvas.
+	/// Pass the Objective-C object as an opaque pointer; ownership remains with
+	/// the caller, while the Image retains it for the duration of the wrapper.
+	bool wrapExternalMetalTexture(Canvas &canvas, void *texture, int width, int height,
+	                              bool mipmapsGenerated = false);
 
 	// ITextureSource interface
 	int getTextureWidth() const override { return width_; }
@@ -72,7 +77,7 @@ private:
 	bool replaceRGBA(::IRenderer &renderer, const unsigned char *pixels, int width, int height, bool generateMipmaps);
 	bool updateRGBA(::IRenderer &renderer, const unsigned char *pixels, int x, int y, int width, int height,
 	                bool regenerateMipmaps);
-	bool wrapExternalTexture(::IRenderer &renderer, std::uint32_t textureId, int width, int height,
+	bool wrapExternalTexture(::IRenderer &renderer, std::uint64_t textureHandle, int width, int height,
 	                         bool mipmapsGenerated);
 	std::shared_ptr<::ImageResource> getImageResource() const;
 	void reset();

@@ -21,11 +21,12 @@ The first concrete step is already in place:
 - `IRenderTarget` now defines the backend-owned offscreen render target surface used inside the current device implementation;
 - non-rect `clipPath` execution now also uses backend-owned clip-resource objects at the render boundary, instead of carrying raw clip triangulation payloads all the way through generic draw execution;
 - `Renderer` implements `IRenderer`;
-- `OpenGLRenderDevice` and the optional `VulkanRenderDevice` implement `IRenderDevice`;
+- `OpenGLRenderDevice`, the optional `VulkanRenderDevice`, and the Apple
+  `MetalRenderDevice` implement `IRenderDevice`;
 - `Canvas` now owns `std::unique_ptr<IRenderer>`, lazily initializes the active
   renderer instance, exposes instance-level `shutdown()` for explicit teardown
   before context destruction, and uses the current `Backend::Auto` preference
-  order (Vulkan, OpenGL, OpenGLES, Software) when automatic selection is
+  order (Vulkan, Metal, OpenGL, OpenGLES, Software) when automatic selection is
   requested;
 - pixel readback, temporary bitmap texture upload, and offscreen layer rendering now route through the renderer/device boundary instead of being managed directly inside `Canvas.cpp`;
 - `Image` is now a move-only opaque resource owner, and image-file texture upload routes through the active `IRenderer` instance instead of direct OpenGL calls inside `Image.cpp`;

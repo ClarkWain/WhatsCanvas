@@ -32,8 +32,8 @@ For releases and downloadable artifacts, see the
     `GPUEndTime`.
   - Pipeline and sampler caches are pre-warmed at `initializeBackend`;
     large vertex and index uploads reuse pooled scratch `MTLBuffer`s.
-  - Test coverage matches Vulkan (22 test files, 100% file-level parity),
-    including a `MetalFilterPixelParityTests` gate that compares the Metal
+  - Twenty-one dedicated Metal test targets cover the Vulkan-equivalent
+    rendering surface, including a `MetalFilterPixelParityTests` gate that compares the Metal
     Blur output against the Software reference and a `MetalDrawListTests`
     gate that drives `MetalRenderDevice::executeDrawList` directly with
     hand-authored primitives.

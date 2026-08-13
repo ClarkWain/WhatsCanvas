@@ -15,6 +15,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -70,9 +71,57 @@ std::string cfUrlToPath(CFURLRef url)
     return std::string(buf);
 }
 
+using AppleFaceIndexCache = std::unordered_map<std::string, std::unordered_map<std::string, int>>;
+
+int appleFontFaceIndex(CTFontDescriptorRef descriptor, CFURLRef url,
+                       const std::string &path, AppleFaceIndexCache &cache)
+{
+    if (descriptor == nullptr || url == nullptr) return 0;
+
+    const std::size_t dot = path.find_last_of('.');
+    std::string extension = dot == std::string::npos ? std::string() : path.substr(dot);
+    std::transform(extension.begin(), extension.end(), extension.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (extension != ".ttc" && extension != ".otc" && extension != ".dfont") return 0;
+
+    CFStringRef targetName = static_cast<CFStringRef>(
+        CTFontDescriptorCopyAttribute(descriptor, kCTFontNameAttribute));
+    if (targetName == nullptr) return 0;
+    const std::string target = cfStringToUtf8(targetName);
+    CFRelease(targetName);
+    if (target.empty()) return 0;
+
+    auto cached = cache.find(path);
+    if (cached == cache.end()) {
+        std::unordered_map<std::string, int> indices;
+        CFArrayRef fileDescriptors = CTFontManagerCreateFontDescriptorsFromURL(url);
+        if (fileDescriptors != nullptr) {
+            const CFIndex count = CFArrayGetCount(fileDescriptors);
+            for (CFIndex index = 0; index < count; ++index) {
+                CTFontDescriptorRef candidate = static_cast<CTFontDescriptorRef>(
+                    CFArrayGetValueAtIndex(fileDescriptors, index));
+                CFStringRef candidateName = candidate == nullptr ? nullptr : static_cast<CFStringRef>(
+                    CTFontDescriptorCopyAttribute(candidate, kCTFontNameAttribute));
+                const std::string name = cfStringToUtf8(candidateName);
+                if (candidateName != nullptr) CFRelease(candidateName);
+                if (!name.empty()) {
+                    indices.emplace(name, static_cast<int>(std::clamp<CFIndex>(
+                        index, 0, static_cast<CFIndex>(std::numeric_limits<int>::max()))));
+                }
+            }
+            CFRelease(fileDescriptors);
+        }
+        cached = cache.emplace(path, std::move(indices)).first;
+    }
+
+    const auto match = cached->second.find(target);
+    return match == cached->second.end() ? 0 : match->second;
+}
+
 std::vector<DiscoveredFontFace> discoverApple()
 {
     std::vector<DiscoveredFontFace> out;
+    AppleFaceIndexCache faceIndexCache;
 
     CFArrayRef families = CTFontManagerCopyAvailableFontFamilyNames();
     if (families == nullptr) return out;
@@ -100,25 +149,16 @@ std::vector<DiscoveredFontFace> discoverApple()
             CFURLRef urlRef = static_cast<CFURLRef>(CTFontDescriptorCopyAttribute(desc, kCTFontURLAttribute));
             if (urlRef == nullptr) continue;
             std::string path = cfUrlToPath(urlRef);
+            const int faceIndex = appleFontFaceIndex(desc, urlRef, path, faceIndexCache);
             CFRelease(urlRef);
             if (path.empty()) continue;
 
             DiscoveredFontFace face;
             face.family = cfStringToUtf8(familyName);
             face.path = std::move(path);
+            face.faceIndex = faceIndex;
             face.weight = 400;
             face.italic = false;
-
-            CFNumberRef indexRef = static_cast<CFNumberRef>(
-                CTFontDescriptorCopyAttribute(desc, kCTFontIndexAttribute));
-            if (indexRef != nullptr) {
-                CFIndex index = 0;
-                if (CFNumberGetValue(indexRef, kCFNumberCFIndexType, &index)) {
-                    face.faceIndex = static_cast<int>(std::clamp<CFIndex>(
-                        index, 0, static_cast<CFIndex>(std::numeric_limits<int>::max())));
-                }
-                CFRelease(indexRef);
-            }
 
             CFDictionaryRef traits = static_cast<CFDictionaryRef>(
                 CTFontDescriptorCopyAttribute(desc, kCTFontTraitsAttribute));

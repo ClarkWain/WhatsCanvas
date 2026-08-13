@@ -128,7 +128,8 @@ struct SwapchainConfig { bool vsync = true; int imageCount = 3; /* HDR/format la
 
 auto canvas = wsc::Canvas::createWindowed(
     wsc::NativeSurface::fromGlfw(window), 1280, 720,
-    /*prefer=*/{ Backend::Vulkan, Backend::D3D12, Backend::OpenGL, Backend::Software });
+    /*prefer=*/{ Backend::Vulkan, Backend::Metal, Backend::D3D12,
+                 Backend::OpenGL, Backend::Software });
 
 while (running) {
     canvas->beginFrame();
