@@ -3,6 +3,7 @@
 // matrix (paint setColorMatrix). Both feed the same textured pipeline via
 // prim.roundedRadius / prim.hasColorMatrix, so they share the same test file.
 
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <iostream>

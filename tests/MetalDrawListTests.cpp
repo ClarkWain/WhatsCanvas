@@ -4,6 +4,7 @@
 // going through Canvas. Mirrors VulkanDrawListTests scenario-for-scenario
 // so both GPU backends carry equivalent primitive-level coverage.
 
+#include <cmath>
 #include <cstdint>
 #include <iostream>
 #include <memory>
