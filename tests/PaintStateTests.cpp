@@ -179,6 +179,21 @@ bool testTextAndStrokeState()
     ok = expect(paint.getFontWeight() == 650, "font weight should round trip") && ok;
     ok = expect(paint.getFontSlant() == wsc::FontSlant::ITALIC, "font slant should round trip") && ok;
 
+    paint.setFontFeature("liga", 0);
+    paint.setFontFeature("kern", 1);
+    paint.setFontFeature("bad", 1);
+    ok = expect(paint.getFontFeatures().size() == 2,
+                "only four-character OpenType feature tags should be retained") && ok;
+    ok = expect(paint.getFontFeatures()[0].tag == "liga"
+                    && paint.getFontFeatures()[0].value == 0,
+                "font feature values should round trip") && ok;
+    paint.setFontFeature("liga", 1);
+    ok = expect(paint.getFontFeatures().size() == 2
+                    && paint.getFontFeatures()[0].value == 1,
+                "setting an existing font feature should update it in place") && ok;
+    paint.clearFontFeatures();
+    ok = expect(paint.getFontFeatures().empty(), "font features should clear") && ok;
+
     paint.setLetterSpacing(std::numeric_limits<float>::infinity());
     ok = expect(near(paint.getLetterSpacing(), 0.0f), "non-finite letter spacing should reset to zero") && ok;
     paint.setLetterSpacing(1.25f);

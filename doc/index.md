@@ -5,9 +5,9 @@
 WhatsCanvas sits between heavyweight engines like Skia and minimal drawing
 layers like NanoVG: lighter and easier to embed and read than the former, more
 complete than the latter. It exposes a familiar `Canvas` / `Paint` / `Path` /
-`Image` / `FontFace` API and runs on **four selectable backends** — desktop
-OpenGL, OpenGL ES, a pure-CPU software rasterizer (no GPU at all), and an
-optional Vulkan backend.
+`Image` / `FontFace` API and runs on **five selectable backends** — desktop
+OpenGL, OpenGL ES, a pure-CPU software rasterizer (no GPU at all), an
+optional Vulkan backend, and a Metal backend on Apple platforms.
 
 !!! success "WhatsCanvas 0.1.19 is available"
     The latest patch release fixes indexed OpenGL path rendering after
@@ -58,6 +58,7 @@ windowed OpenGL, GitHub Release consumption, Vulkan, and common tasks.
 | **OpenGL** | `Canvas::create(Backend::OpenGL, w, h)` + `loadOpenGL(...)` | Yes (you own it) | Desktop apps/games with a window |
 | **OpenGL ES** | `Canvas::create(Backend::OpenGLES, w, h)` + `loadOpenGL(...)` | Yes (you own it) | Mobile / embedded GLES 3.0 |
 | **Vulkan** (optional) | `Canvas::create(Backend::Vulkan, w, h)` | No external GL context; off-screen by default | Vulkan pipelines, or Win32 `ToWindow`; degrades gracefully |
+| **Metal** (macOS / iOS) | `Canvas::create(Backend::Metal, w, h)` | No; on-screen via `CAMetalLayer` through `Canvas::setOutputTarget` | Apple platforms, unified memory GPUs; default when built on macOS/iOS |
 
 ## Capabilities at a glance
 
@@ -68,7 +69,7 @@ windowed OpenGL, GitHub Release consumption, Vulkan, and common tasks.
 | Images | File/encoded-memory/RGBA loading, texture updates, fit modes, nine-patch, rounded/circular clipping, tiling, mipmaps, and wrapped external textures |
 | Text | Font discovery and fallback, FreeType, HarfBuzz shaping, UAX #9 bidi, CJK wrapping, GPU glyph atlases, COLR/CPAL color glyphs, and styled/path text |
 | Effects | Image and backdrop blur, frosted glass, inner shadow, color matrix and offset nodes, and ordered `ImageFilterChain` composition |
-| Verification | Software golden images, GL/GLES/Vulkan pixel parity, deterministic readback, cross-platform CI, performance confidence intervals, and resource diagnostics |
+| Verification | Software golden images, GL/GLES/Vulkan/Metal pixel parity, deterministic readback, cross-platform CI, performance confidence intervals, and resource diagnostics |
 
 ## Text that belongs in a real product
 

@@ -36,7 +36,7 @@ struct BasicTextBackendOptions
     bool enableNativeText = true;
     bool enableSystemFontFallback = true;
     bool preferClearType = false; // DirectWrite: use ClearType instead of grayscale.
-    TextShapingBackend shapingBackend = TextShapingBackend::Simple;
+    TextShapingBackend shapingBackend = TextShapingBackend::OpenType;
 };
 
 std::vector<TextBackendCapability> queryTextBackendCapabilities();

@@ -201,7 +201,7 @@ private:
     std::vector<PieceType> bag_;
 
     static void applyGameFont(Paint& paint) {
-        paint.setFont("Consolas");
+        paint.setFont(FontSystem::kDefaultMonoFamily);
     }
 
     void updatePerformanceStats(float dt) {
@@ -723,6 +723,10 @@ int main() {
     auto canvasOwner = Canvas::create(Canvas::Backend::OpenGL, 0, 0);
     Canvas &canvas = *canvasOwner;
     canvas.setSize(fbw, fbh);
+    for (const FontFace &face : FontSystem::defaultSystemFontFaces()) {
+        canvas.registerFontFace(face);
+    }
+    canvas.setFontFallbackChain(FontSystem::defaultFallbackChain());
     float contentScaleX = 1.0f;
     float contentScaleY = 1.0f;
     glfwGetWindowContentScale(window, &contentScaleX, &contentScaleY);

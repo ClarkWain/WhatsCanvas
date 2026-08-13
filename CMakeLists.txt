@@ -28,6 +28,19 @@ option(WHATSCANVAS_ENABLE_OPENTYPE_SHAPING "Enable HarfBuzz OpenType shaping whe
 option(WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER "Enable FreeType glyph rasterization when FreeType is available." ON)
 option(WHATSCANVAS_USE_SYSTEM_DEPENDENCIES "Use package-manager-provided glad, glm, stb, FreeType, and HarfBuzz instead of bundled sources." OFF)
 option(WHATSCANVAS_ENABLE_VULKAN "Enable the optional Vulkan render backend when a Vulkan SDK is available." OFF)
+# The Metal backend is Apple-only. Default ON on Darwin/iOS platforms so
+# macOS/iOS builds get a first-class Metal path without extra configuration.
+if (APPLE)
+    option(WHATSCANVAS_ENABLE_METAL "Enable the Metal render backend on Apple platforms." ON)
+else()
+    option(WHATSCANVAS_ENABLE_METAL "Enable the Metal render backend on Apple platforms." OFF)
+endif()
+# The Metal backend requires Objective-C++. Enable OBJCXX as a project language
+# up-front so CMake dispatches ".mm" translation units to the correct compiler
+# driver on Apple platforms.
+if (APPLE AND WHATSCANVAS_ENABLE_METAL)
+    enable_language(OBJCXX)
+endif()
 set(WHATSCANVAS_X11 "AUTO" CACHE STRING "X11 presentation support on Linux: AUTO, ON, or OFF.")
 set_property(CACHE WHATSCANVAS_X11 PROPERTY STRINGS AUTO ON OFF)
 if (NOT WHATSCANVAS_X11 MATCHES "^(AUTO|ON|OFF)$")
@@ -143,6 +156,12 @@ if (TARGET WhatsCanvasOpenGL)
         GLOBAL PROPERTY WHATSCANVAS_VULKAN_BACKEND_ENABLED)
 endif()
 
+set(WHATSCANVAS_METAL_BACKEND_ENABLED OFF)
+if (TARGET WhatsCanvasOpenGL)
+    get_property(WHATSCANVAS_METAL_BACKEND_ENABLED
+        GLOBAL PROPERTY WHATSCANVAS_METAL_BACKEND_ENABLED)
+endif()
+
 if (WHATSCANVAS_BUILD_DEMO AND TARGET WhatsCanvasOpenGL)
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/showcase")
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/aa_showcase")
@@ -154,6 +173,9 @@ if (WHATSCANVAS_BUILD_DEMO AND TARGET WhatsCanvasOpenGL)
     if (WHATSCANVAS_VULKAN_BACKEND_ENABLED)
         add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/vulkan_present")
         add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/vulkan_canvas_present")
+    endif()
+    if (WHATSCANVAS_METAL_BACKEND_ENABLED)
+        add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/metal_present")
     endif()
 endif()
 
@@ -656,6 +678,9 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
         WhatsCanvasOpenGL
         WhatsCanvasGLM
     )
+    target_compile_definitions(WhatsCanvasDirectWriteBackendTests PRIVATE
+        WHATSCANVAS_TEST_OPENTYPE_FONT="${CMAKE_CURRENT_SOURCE_DIR}/third_party/harfbuzz/perf/fonts/Roboto-Regular.ttf"
+    )
     add_test(NAME WhatsCanvasDirectWriteBackendTests
         COMMAND ${CMAKE_COMMAND}
             -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
@@ -676,6 +701,10 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     target_link_libraries(WhatsCanvasTextUtilsTests PRIVATE
         WhatsCanvasOpenGL
         WhatsCanvasGLM
+    )
+    target_compile_definitions(WhatsCanvasTextUtilsTests PRIVATE
+        WHATSCANVAS_TEST_OPENTYPE_FONT="${CMAKE_CURRENT_SOURCE_DIR}/third_party/harfbuzz/perf/fonts/Roboto-Regular.ttf"
+        WHATSCANVAS_TEST_TTC_FONT="${CMAKE_CURRENT_SOURCE_DIR}/third_party/harfbuzz/test/shape/data/in-house/fonts/TTC.ttc"
     )
     add_test(NAME WhatsCanvasTextUtilsTests
         COMMAND ${CMAKE_COMMAND}
@@ -1108,6 +1137,392 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     )
     set_tests_properties(WhatsCanvasVulkanBackendSelectionTests PROPERTIES LABELS "unit;vulkan")
 
+    add_executable(WhatsCanvasMetalBackendSelectionTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalBackendSelectionTests.cpp"
+    )
+    target_link_libraries(WhatsCanvasMetalBackendSelectionTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasMetalBackendSelectionTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasMetalBackendSelectionTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasMetalBackendSelectionTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasMetalBackendSelectionTests PROPERTIES LABELS "unit;metal")
+
+    add_executable(WhatsCanvasMetalCommandTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalCommandTests.cpp"
+    )
+    target_link_libraries(WhatsCanvasMetalCommandTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasMetalCommandTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasMetalCommandTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasMetalCommandTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasMetalCommandTests PROPERTIES LABELS "unit;metal" TIMEOUT 60)
+
+    add_executable(WhatsCanvasMetalTextTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalTextTests.cpp"
+    )
+    target_link_libraries(WhatsCanvasMetalTextTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasMetalTextTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasMetalTextTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasMetalTextTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasMetalTextTests PROPERTIES LABELS "unit;metal;text" TIMEOUT 60)
+
+    add_executable(WhatsCanvasMetalClipTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalClipTests.cpp"
+    )
+    target_link_libraries(WhatsCanvasMetalClipTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasMetalClipTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasMetalClipTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasMetalClipTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasMetalClipTests PROPERTIES LABELS "unit;metal;clip" TIMEOUT 60)
+
+    add_executable(WhatsCanvasMetalFilterTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalFilterTests.cpp"
+    )
+    target_link_libraries(WhatsCanvasMetalFilterTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasMetalFilterTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasMetalFilterTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasMetalFilterTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasMetalFilterTests PROPERTIES LABELS "unit;metal;image-filter" TIMEOUT 60)
+
+    add_executable(WhatsCanvasMetalImageEffectsTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalImageEffectsTests.cpp"
+    )
+    target_link_libraries(WhatsCanvasMetalImageEffectsTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasMetalImageEffectsTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasMetalImageEffectsTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasMetalImageEffectsTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasMetalImageEffectsTests PROPERTIES LABELS "unit;metal;image" TIMEOUT 60)
+
+    add_executable(WhatsCanvasMetalBlendModeTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalBlendModeTests.cpp"
+    )
+    target_link_libraries(WhatsCanvasMetalBlendModeTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasMetalBlendModeTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasMetalBlendModeTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasMetalBlendModeTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasMetalBlendModeTests PROPERTIES LABELS "unit;metal;blend" TIMEOUT 60)
+
+    add_executable(WhatsCanvasMetalGeometryTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalGeometryTests.cpp"
+    )
+    target_link_libraries(WhatsCanvasMetalGeometryTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasMetalGeometryTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasMetalGeometryTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasMetalGeometryTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasMetalGeometryTests PROPERTIES LABELS "unit;metal;geometry" TIMEOUT 60)
+
+    add_executable(WhatsCanvasMetalLayerTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalLayerTests.cpp"
+    )
+    target_link_libraries(WhatsCanvasMetalLayerTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasMetalLayerTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasMetalLayerTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasMetalLayerTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasMetalLayerTests PROPERTIES LABELS "unit;metal;layer" TIMEOUT 60)
+
+    add_executable(WhatsCanvasMetalGradientTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalGradientTests.cpp"
+    )
+    target_link_libraries(WhatsCanvasMetalGradientTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasMetalGradientTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasMetalGradientTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasMetalGradientTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasMetalGradientTests PROPERTIES LABELS "unit;metal;gradient" TIMEOUT 60)
+
+    add_executable(WhatsCanvasMetalRenderTargetTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalRenderTargetTests.cpp"
+    )
+    target_link_libraries(WhatsCanvasMetalRenderTargetTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasMetalRenderTargetTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasMetalRenderTargetTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasMetalRenderTargetTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasMetalRenderTargetTests PROPERTIES LABELS "unit;metal;render-target" TIMEOUT 60)
+
+    add_executable(WhatsCanvasMetalMipmapTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalMipmapTests.cpp"
+    )
+    target_link_libraries(WhatsCanvasMetalMipmapTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasMetalMipmapTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasMetalMipmapTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasMetalMipmapTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasMetalMipmapTests PROPERTIES LABELS "unit;metal;mipmap" TIMEOUT 60)
+
+    add_executable(WhatsCanvasMetalGpuTimingTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalGpuTimingTests.cpp"
+    )
+    target_include_directories(WhatsCanvasMetalGpuTimingTests PRIVATE
+        "${SRC_DIR}"
+    )
+    target_link_libraries(WhatsCanvasMetalGpuTimingTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasMetalGpuTimingTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasMetalGpuTimingTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasMetalGpuTimingTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasMetalGpuTimingTests PROPERTIES LABELS "unit;metal;performance" TIMEOUT 60)
+
+    add_executable(WhatsCanvasMetalDrawListTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalDrawListTests.cpp"
+    )
+    target_include_directories(WhatsCanvasMetalDrawListTests PRIVATE
+        "${SRC_DIR}"
+    )
+    target_link_libraries(WhatsCanvasMetalDrawListTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasMetalDrawListTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasMetalDrawListTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasMetalDrawListTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasMetalDrawListTests PROPERTIES LABELS "unit;metal;drawlist" TIMEOUT 60)
+
+    add_executable(WhatsCanvasMetalInteractionTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalInteractionTests.cpp"
+    )
+    target_link_libraries(WhatsCanvasMetalInteractionTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasMetalInteractionTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasMetalInteractionTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasMetalInteractionTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasMetalInteractionTests PROPERTIES LABELS "unit;metal;interaction" TIMEOUT 60)
+
+    add_executable(WhatsCanvasMetalShadowAndTextTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalShadowAndTextTests.cpp"
+    )
+    target_link_libraries(WhatsCanvasMetalShadowAndTextTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasMetalShadowAndTextTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasMetalShadowAndTextTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasMetalShadowAndTextTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasMetalShadowAndTextTests PROPERTIES LABELS "unit;metal;shadow;text" TIMEOUT 60)
+
+    add_executable(WhatsCanvasMetalDeviceTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalDeviceTests.cpp"
+    )
+    target_include_directories(WhatsCanvasMetalDeviceTests PRIVATE
+        "${SRC_DIR}"
+    )
+    target_link_libraries(WhatsCanvasMetalDeviceTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasMetalDeviceTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasMetalDeviceTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasMetalDeviceTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasMetalDeviceTests PROPERTIES LABELS "unit;metal;device" TIMEOUT 60)
+
+    add_executable(WhatsCanvasMetalPaintTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalPaintTests.cpp"
+    )
+    target_link_libraries(WhatsCanvasMetalPaintTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasMetalPaintTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasMetalPaintTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasMetalPaintTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasMetalPaintTests PROPERTIES LABELS "unit;metal;paint" TIMEOUT 60)
+
+    if (APPLE AND WHATSCANVAS_METAL_BACKEND_ENABLED)
+        add_executable(WhatsCanvasMetalWrapExternalTests
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalWrapExternalTests.cpp"
+        )
+        target_link_libraries(WhatsCanvasMetalWrapExternalTests PRIVATE
+            WhatsCanvasOpenGL
+            WhatsCanvasGLM
+        )
+        set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalWrapExternalTests.cpp"
+            PROPERTIES COMPILE_FLAGS "-fobjc-arc -fmodules"
+            LANGUAGE OBJCXX)
+        target_link_libraries(WhatsCanvasMetalWrapExternalTests PRIVATE
+            "-framework Metal"
+            "-framework Foundation")
+        add_test(NAME WhatsCanvasMetalWrapExternalTests
+            COMMAND ${CMAKE_COMMAND}
+                -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+                -DWHATSCANVAS_TEST_TARGET=WhatsCanvasMetalWrapExternalTests
+                -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasMetalWrapExternalTests>
+                -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+        )
+        set_tests_properties(WhatsCanvasMetalWrapExternalTests PROPERTIES LABELS "unit;metal;image" TIMEOUT 60)
+    endif()
+
+    add_executable(WhatsCanvasMetalFilterPixelParityTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalFilterPixelParityTests.cpp"
+    )
+    target_link_libraries(WhatsCanvasMetalFilterPixelParityTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasSoftware
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasMetalFilterPixelParityTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasMetalFilterPixelParityTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasMetalFilterPixelParityTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasMetalFilterPixelParityTests PROPERTIES LABELS "unit;metal;image-filter" TIMEOUT 60)
+
+    add_executable(WhatsCanvasMetalSolidGeometryTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalSolidGeometryTests.cpp"
+    )
+    target_link_libraries(WhatsCanvasMetalSolidGeometryTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasMetalSolidGeometryTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasMetalSolidGeometryTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasMetalSolidGeometryTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasMetalSolidGeometryTests PROPERTIES LABELS "unit;metal;geometry" TIMEOUT 60)
+
+    # Ad-hoc Metal-vs-OpenGL throughput smoke. Built as an executable rather
+    # than a CTest gate so per-run timing noise never breaks the CI signal.
+    add_executable(WhatsCanvasMetalPerformanceSmoke
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalPerformanceSmoke.cpp"
+    )
+    target_link_libraries(WhatsCanvasMetalPerformanceSmoke PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+        glfw
+    )
+
     if (WHATSCANVAS_VULKAN_BACKEND_ENABLED)
         find_package(Vulkan QUIET)
         if (Vulkan_FOUND)
@@ -1365,6 +1780,26 @@ endif()
 # available in a truly GPU-free configuration (WHATSCANVAS_BUILD_OPENGL=OFF,
 # WHATSCANVAS_BUILD_SOFTWARE=ON) as well as the default build.
 if (BUILD_TESTING AND TARGET WhatsCanvasSoftware)
+    add_executable(WhatsCanvasSystemFontDiscoveryTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/SystemFontDiscoveryTests.cpp"
+    )
+    target_link_libraries(WhatsCanvasSystemFontDiscoveryTests PRIVATE
+        WhatsCanvasSoftware
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasSystemFontDiscoveryTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasSystemFontDiscoveryTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasSystemFontDiscoveryTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasSystemFontDiscoveryTests PROPERTIES
+        LABELS "unit;text;font"
+        TIMEOUT 60
+    )
+
     add_executable(WhatsCanvasSoftwareLibTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/SoftwareRendererTests.cpp"
     )

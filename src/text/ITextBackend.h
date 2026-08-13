@@ -134,6 +134,7 @@ public:
     virtual ~ITextBackend() = default;
 
     virtual bool registerFontFace(const FontFace &face) = 0;
+    virtual bool refreshSystemFonts() = 0;
     virtual bool setFontFallbackChain(const FontFallbackChain &chain) = 0;
     virtual std::vector<std::string> resolveFontFamilies(const std::string &preferredFamily) const = 0;
     virtual std::vector<TextLineBreak> breakLines(const std::string &text, float maxWidth, const Paint &paint) const = 0;

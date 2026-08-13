@@ -253,6 +253,7 @@ Public members:
 - `bool updateImageRGBA(Image &image, const unsigned char *pixels, int x, int y, int width, int height, bool regenerateMipmaps = true);`
 - `bool updateImageRGBA(Image &image, const std::vector<unsigned char> &pixels, int x, int y, int width, int height, bool regenerateMipmaps = true);`
 - `bool wrapExternalTexture(Image &image, std::uint32_t textureId, int width, int height, bool mipmapsGenerated = false);`
+- `bool wrapExternalMetalTexture(Image &image, void *texture, int width, int height, bool mipmapsGenerated = false);`
 - `void drawText(const std::string &text, float x, float y, const Paint &paint);`
 - `void drawTextBox(const std::string &text, const RectF &bounds, const Paint &paint);`
 - `void drawTextBox(const std::string &text, const RectF &bounds, float lineHeight, const Paint &paint);`
@@ -266,6 +267,7 @@ Public members:
 - `RectF measureTextBounds(const std::string &text, const Paint &paint) const;`
 - `TextMetrics measureTextMetrics(const std::string &text, const Paint &paint) const;`
 - `bool registerFontFace(const FontFace &face);`
+- `bool refreshSystemFonts();`
 - `bool setFontFallbackChain(const FontFallbackChain &chain);`
 - `bool setTextBackend(TextBackend backend, TextRenderMode renderMode = TextRenderMode::Grayscale);`
 - `TextBackend textBackend() const;`
@@ -322,6 +324,9 @@ Public members:
 - `void *vulkanDevice() const;`
 - `void *vulkanQueue() const;`
 - `unsigned int vulkanQueueFamily() const;`
+- `void *metalDevice() const;`
+- `void *metalCommandQueue() const;`
+- `void *metalLastRenderedTexture() const;`
 
 ## `wsc/Color.h`
 
@@ -423,7 +428,13 @@ Public members:
 
 - `static bool fileExists(const std::string &path);`
 - `static std::vector<FontFace> defaultSystemFontFaces();`
+- `static void refreshDefaultSystemFontFaces();`
+- `static void refreshDiscoveredFontFaces();`
+- `static void refreshDefaultSystemFontFacesOnly();`
+- `static std::uint64_t refreshInstalledFonts();`
+- `static std::uint64_t installedFontGeneration();`
 - `static FontFallbackChain defaultFallbackChain(const std::string &primaryFamily = kDefaultPrimaryFamily);`
+- `static std::vector<FontFace> discoverInstalledFontFaces();`
 
 ## `wsc/Image.h`
 
@@ -448,6 +459,7 @@ Public members:
 - `bool updatePixelsRGBA(Canvas &canvas, const unsigned char *pixels, int x, int y, int width, int height, bool regenerateMipmaps = true);`
 - `bool updatePixelsRGBA(Canvas &canvas, const std::vector<unsigned char> &pixels, int x, int y, int width, int height, bool regenerateMipmaps = true);`
 - `bool wrapExternalTexture(Canvas &canvas, std::uint32_t textureId, int width, int height, bool mipmapsGenerated = false);`
+- `bool wrapExternalMetalTexture(Canvas &canvas, void *texture, int width, int height, bool mipmapsGenerated = false);`
 - `int getTextureWidth() const override;`
 - `int getTextureHeight() const override;`
 - `bool isTextureValid() const override;`
@@ -634,6 +646,9 @@ Public members:
 - `void setTextLocale(const std::string &locale);`
 - `const std::string &getTextLocale() const;`
 - `bool hasTextLocale() const;`
+- `void setFontFeature(const std::string &tag, std::uint32_t value = 1);`
+- `void clearFontFeatures();`
+- `const std::vector<FontFeature> &getFontFeatures() const;`
 - `void setUnderline(bool enabled);`
 - `bool isUnderline() const;`
 - `void setStrikethrough(bool enabled);`

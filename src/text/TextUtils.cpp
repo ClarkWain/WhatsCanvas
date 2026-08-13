@@ -3,10 +3,14 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <iterator>
 
 #include "stb_easy_font.h"
+#include "text/GraphemeBreakData.h"
 
 namespace {
+
+namespace grapheme_data = wsc::text::grapheme_data;
 
 constexpr float kPointEpsilon = 0.0001f;
 constexpr std::uint32_t kReplacementCodepoint = 0xFFFD;
@@ -53,6 +57,155 @@ bool isBreakWhitespace(std::uint32_t codepoint)
 bool isLineBreak(std::uint32_t codepoint)
 {
     return codepoint == '\n' || codepoint == '\r';
+}
+
+template <typename Range, std::size_t N>
+bool containsCodepoint(const Range (&ranges)[N], std::uint32_t codepoint)
+{
+    std::size_t first = 0;
+    std::size_t last = N;
+    while (first < last) {
+        const std::size_t middle = first + (last - first) / 2;
+        if (codepoint < ranges[middle].first) {
+            last = middle;
+        } else if (codepoint > ranges[middle].last) {
+            first = middle + 1;
+        } else {
+            return true;
+        }
+    }
+    return false;
+}
+
+grapheme_data::BreakProperty graphemeBreakProperty(std::uint32_t codepoint)
+{
+    if (codepoint >= 0xAC00 && codepoint <= 0xD7A3) {
+        return ((codepoint - 0xAC00) % 28u) == 0u
+            ? grapheme_data::BreakProperty::LV
+            : grapheme_data::BreakProperty::LVT;
+    }
+
+    const auto &ranges = grapheme_data::kBreakPropertyRanges;
+    std::size_t first = 0;
+    std::size_t last = std::size(ranges);
+    while (first < last) {
+        const std::size_t middle = first + (last - first) / 2;
+        if (codepoint < ranges[middle].first) {
+            last = middle;
+        } else if (codepoint > ranges[middle].last) {
+            first = middle + 1;
+        } else {
+            return ranges[middle].property;
+        }
+    }
+    return grapheme_data::BreakProperty::Other;
+}
+
+bool isExtendedPictographic(std::uint32_t codepoint)
+{
+    return containsCodepoint(grapheme_data::kExtendedPictographicRanges, codepoint);
+}
+
+bool isInCbConsonant(std::uint32_t codepoint)
+{
+    return containsCodepoint(grapheme_data::kInCbConsonantRanges, codepoint);
+}
+
+bool isInCbExtend(std::uint32_t codepoint)
+{
+    return containsCodepoint(grapheme_data::kInCbExtendRanges, codepoint);
+}
+
+bool isInCbLinker(std::uint32_t codepoint)
+{
+    return containsCodepoint(grapheme_data::kInCbLinkerRanges, codepoint);
+}
+
+bool shouldBreakGrapheme(const std::vector<wsc::text::Utf8Codepoint> &codepoints,
+                         std::size_t index)
+{
+    using Property = grapheme_data::BreakProperty;
+    if (index == 0 || index >= codepoints.size()) {
+        return true; // GB1 / GB2
+    }
+
+    const Property previous = graphemeBreakProperty(codepoints[index - 1].value);
+    const Property current = graphemeBreakProperty(codepoints[index].value);
+    if (previous == Property::CR && current == Property::LF) {
+        return false; // GB3
+    }
+    const auto isControl = [](Property property) {
+        return property == Property::Control || property == Property::CR || property == Property::LF;
+    };
+    if (isControl(previous) || isControl(current)) {
+        return true; // GB4 / GB5
+    }
+    if (previous == Property::L
+        && (current == Property::L || current == Property::V
+            || current == Property::LV || current == Property::LVT)) {
+        return false; // GB6
+    }
+    if ((previous == Property::LV || previous == Property::V)
+        && (current == Property::V || current == Property::T)) {
+        return false; // GB7
+    }
+    if ((previous == Property::LVT || previous == Property::T) && current == Property::T) {
+        return false; // GB8
+    }
+    if (current == Property::Extend || current == Property::ZWJ
+        || current == Property::SpacingMark) {
+        return false; // GB9 / GB9a
+    }
+    if (previous == Property::Prepend) {
+        return false; // GB9b
+    }
+
+    // GB9c: InCB=Consonant (InCB=Extend|Linker)* InCB=Linker
+    //       (InCB=Extend|Linker)* x InCB=Consonant.
+    if (isInCbConsonant(codepoints[index].value)) {
+        bool sawLinker = false;
+        for (std::size_t cursor = index; cursor > 0;) {
+            const std::uint32_t value = codepoints[--cursor].value;
+            if (isInCbLinker(value)) {
+                sawLinker = true;
+                continue;
+            }
+            if (isInCbExtend(value)) {
+                continue;
+            }
+            if (sawLinker && isInCbConsonant(value)) {
+                return false;
+            }
+            break;
+        }
+    }
+
+    // GB11: Extended_Pictographic Extend* ZWJ x Extended_Pictographic.
+    if (previous == Property::ZWJ && isExtendedPictographic(codepoints[index].value)) {
+        std::size_t cursor = index - 1;
+        while (cursor > 0
+               && graphemeBreakProperty(codepoints[cursor - 1].value) == Property::Extend) {
+            --cursor;
+        }
+        if (cursor > 0 && isExtendedPictographic(codepoints[cursor - 1].value)) {
+            return false;
+        }
+    }
+
+    // GB12 / GB13: pair regional indicators from the start of each RI run.
+    if (previous == Property::RegionalIndicator && current == Property::RegionalIndicator) {
+        std::size_t precedingRegionalIndicators = 0;
+        for (std::size_t cursor = index; cursor > 0; --cursor) {
+            if (graphemeBreakProperty(codepoints[cursor - 1].value) != Property::RegionalIndicator) {
+                break;
+            }
+            ++precedingRegionalIndicators;
+        }
+        if ((precedingRegionalIndicators % 2u) == 1u) {
+            return false;
+        }
+    }
+    return true; // GB999
 }
 
 bool isCjkCodepoint(std::uint32_t codepoint)
@@ -192,6 +345,41 @@ std::vector<Utf8Codepoint> decodeUtf8(const std::string &text)
     return codepoints;
 }
 
+std::vector<FontFallbackCluster> buildFontFallbackClusters(const std::string &text,
+                                                           std::size_t sourceStart,
+                                                           std::size_t sourceEnd)
+{
+    std::vector<FontFallbackCluster> clusters;
+    const std::size_t clampedEnd = std::min(sourceEnd, text.size());
+    if (sourceStart >= clampedEnd) {
+        return clusters;
+    }
+
+    std::vector<Utf8Codepoint> codepoints;
+    for (const Utf8Codepoint &codepoint : decodeUtf8(text)) {
+        if (codepoint.offset < sourceStart) {
+            continue;
+        }
+        if (codepoint.offset >= clampedEnd || isLineBreak(codepoint.value)) {
+            break;
+        }
+        codepoints.push_back(codepoint);
+    }
+
+    for (std::size_t index = 0; index < codepoints.size(); ++index) {
+        const Utf8Codepoint &codepoint = codepoints[index];
+        if (shouldBreakGrapheme(codepoints, index)) {
+            FontFallbackCluster cluster;
+            cluster.sourceStart = codepoint.offset;
+            clusters.push_back(std::move(cluster));
+        }
+        FontFallbackCluster &cluster = clusters.back();
+        cluster.sourceEnd = std::min(codepoint.offset + codepoint.length, clampedEnd);
+        cluster.codepoints.push_back(codepoint.value);
+    }
+    return clusters;
+}
+
 bool isValidUtf8(const std::string &text)
 {
     const auto codepoints = decodeUtf8(text);
@@ -277,43 +465,43 @@ std::vector<TextBreakToken> buildTextBreakTokens(const std::string &text, std::s
         return tokens;
     }
 
-    const std::vector<Utf8Codepoint> codepoints = decodeUtf8(text);
+    const std::vector<FontFallbackCluster> clusters =
+        buildFontFallbackClusters(text, sourceStart, clampedEnd);
     bool pendingSpace = false;
     std::size_t index = 0;
-    while (index < codepoints.size()) {
-        const Utf8Codepoint &codepoint = codepoints[index];
-        if (codepoint.offset < sourceStart) {
+    while (index < clusters.size()) {
+        const FontFallbackCluster &cluster = clusters[index];
+        if (cluster.codepoints.empty()) {
             ++index;
             continue;
         }
-        if (codepoint.offset >= clampedEnd || isLineBreak(codepoint.value)) {
-            break;
-        }
-        if (isBreakWhitespace(codepoint.value)) {
+        const std::uint32_t firstCodepoint = cluster.codepoints.front();
+        if (isBreakWhitespace(firstCodepoint)) {
             pendingSpace = !tokens.empty();
             ++index;
             continue;
         }
-        if (isZeroWidthBreakCodepoint(codepoint.value)) {
+        if (isZeroWidthBreakCodepoint(firstCodepoint)) {
             pendingSpace = false;
             ++index;
             continue;
         }
 
         TextBreakToken token;
-        token.sourceStart = codepoint.offset;
-        token.sourceEnd = std::min(codepoint.offset + codepoint.length, clampedEnd);
+        token.sourceStart = cluster.sourceStart;
+        token.sourceEnd = cluster.sourceEnd;
         token.prefixSpace = pendingSpace;
         pendingSpace = false;
 
-        if (isCjkCodepoint(codepoint.value)) {
-            if (isClosingCjkPunctuation(codepoint.value) && !tokens.empty()) {
+        if (isCjkCodepoint(firstCodepoint)) {
+            if (isClosingCjkPunctuation(firstCodepoint) && !tokens.empty()) {
                 tokens.back().sourceEnd = token.sourceEnd;
-            } else if (isOpeningCjkPunctuation(codepoint.value) && index + 1 < codepoints.size()) {
-                const Utf8Codepoint &next = codepoints[index + 1];
-                if (next.offset < clampedEnd && !isLineBreak(next.value) && !isBreakWhitespace(next.value)
-                    && !isZeroWidthBreakCodepoint(next.value)) {
-                    token.sourceEnd = std::min(next.offset + next.length, clampedEnd);
+            } else if (isOpeningCjkPunctuation(firstCodepoint) && index + 1 < clusters.size()) {
+                const FontFallbackCluster &next = clusters[index + 1];
+                const std::uint32_t nextFirst = next.codepoints.empty() ? 0 : next.codepoints.front();
+                if (!next.codepoints.empty() && !isBreakWhitespace(nextFirst)
+                    && !isZeroWidthBreakCodepoint(nextFirst)) {
+                    token.sourceEnd = next.sourceEnd;
                     tokens.push_back(token);
                     index += 2;
                     continue;
@@ -327,13 +515,18 @@ std::vector<TextBreakToken> buildTextBreakTokens(const std::string &text, std::s
         }
 
         ++index;
-        while (index < codepoints.size()) {
-            const Utf8Codepoint &next = codepoints[index];
-            if (next.offset >= clampedEnd || isLineBreak(next.value) || isBreakWhitespace(next.value)
-                || isZeroWidthBreakCodepoint(next.value) || isCjkCodepoint(next.value)) {
+        while (index < clusters.size()) {
+            const FontFallbackCluster &next = clusters[index];
+            if (next.codepoints.empty()) {
+                ++index;
+                continue;
+            }
+            const std::uint32_t nextFirst = next.codepoints.front();
+            if (isBreakWhitespace(nextFirst) || isZeroWidthBreakCodepoint(nextFirst)
+                || isCjkCodepoint(nextFirst)) {
                 break;
             }
-            token.sourceEnd = std::min(next.offset + next.length, clampedEnd);
+            token.sourceEnd = next.sourceEnd;
             ++index;
         }
         tokens.push_back(token);

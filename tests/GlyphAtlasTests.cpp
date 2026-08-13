@@ -95,6 +95,42 @@ bool testDuplicateUploadHitsCache()
     return ok;
 }
 
+bool testCollectionFacesUseDistinctCacheEntries()
+{
+    wsc::text::GlyphAtlas atlas(32, 16, 1);
+    auto firstFace = makeKey('A');
+    auto secondFace = firstFace;
+    firstFace.faceIndex = 0;
+    secondFace.faceIndex = 1;
+
+    const auto first = atlas.uploadGlyph(firstFace, makeBitmap(4, 6, 90));
+    const auto second = atlas.uploadGlyph(secondFace, makeBitmap(4, 6, 180));
+    return expect(first.has_value() && second.has_value(),
+                  "glyphs from two TTC faces should both upload")
+        && expect(first->x != second->x || first->y != second->y,
+                  "glyph atlas must not alias distinct TTC face indices")
+        && expect(atlas.stats().glyphCount == 2,
+                  "distinct TTC faces should occupy distinct cache entries");
+}
+
+bool testDifferentFontSourcesUseDistinctCacheEntries()
+{
+    wsc::text::GlyphAtlas atlas(32, 16, 1);
+    auto firstSource = makeKey('A');
+    auto secondSource = firstSource;
+    firstSource.fontIdentity = "file:first.ttf#0";
+    secondSource.fontIdentity = "memory:42#0";
+
+    const auto first = atlas.uploadGlyph(firstSource, makeBitmap(4, 6, 90));
+    const auto second = atlas.uploadGlyph(secondSource, makeBitmap(4, 6, 180));
+    return expect(first.has_value() && second.has_value(),
+                  "glyphs from two font sources should both upload")
+        && expect(first->x != second->x || first->y != second->y,
+                  "glyph atlas must not alias distinct font sources")
+        && expect(atlas.stats().glyphCount == 2,
+                  "distinct font sources should occupy distinct cache entries");
+}
+
 bool testZeroAreaGlyphHitsCacheWithoutDirtyingTexture()
 {
     wsc::text::GlyphAtlas atlas(32, 16, 1);
@@ -248,6 +284,8 @@ int main()
     bool ok = true;
     ok = testUploadAndFind() && ok;
     ok = testDuplicateUploadHitsCache() && ok;
+    ok = testCollectionFacesUseDistinctCacheEntries() && ok;
+    ok = testDifferentFontSourcesUseDistinctCacheEntries() && ok;
     ok = testZeroAreaGlyphHitsCacheWithoutDirtyingTexture() && ok;
     ok = testResizeAndOversizedGlyph() && ok;
     ok = testLookupIndexClearsAfterReset() && ok;

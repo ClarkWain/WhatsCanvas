@@ -172,6 +172,10 @@ function(whatscanvas_add_gl_family_library target_name project_root)
     else()
         list(APPEND glad_sources "${glad_path}/src/glad.c")
         list(APPEND glad_include_directories "${glad_path}/include")
+        if (NOT TARGET WhatsCanvasGLAD)
+            add_library(WhatsCanvasGLAD INTERFACE)
+            target_include_directories(WhatsCanvasGLAD INTERFACE "${glad_path}/include")
+        endif()
         set(glad_library "$<BUILD_INTERFACE:WhatsCanvasGLAD>")
     endif()
 
@@ -268,6 +272,47 @@ function(whatscanvas_add_gl_family_library target_name project_root)
         endif()
     endif()
 
+    # Optional Metal backend. Like Vulkan, the Metal source (an Objective-C++
+    # translation unit on Apple platforms, a small C++ stub elsewhere) is
+    # always fed to the compiler so the render device factory can reference
+    # MetalRenderDevice unconditionally. The real Metal API path only lights
+    # up when the option is ON and we are configuring for an Apple platform.
+    set(metal_backend_libraries)
+    set(metal_backend_enabled OFF)
+    set(metal_backend_source_ext "cpp")
+    if (APPLE AND WHATSCANVAS_ENABLE_METAL)
+        find_library(WHATSCANVAS_METAL_FRAMEWORK Metal)
+        find_library(WHATSCANVAS_FOUNDATION_FRAMEWORK Foundation)
+        find_library(WHATSCANVAS_QUARTZ_CORE_FRAMEWORK QuartzCore)
+        find_library(WHATSCANVAS_CORE_GRAPHICS_FRAMEWORK CoreGraphics)
+        find_library(WHATSCANVAS_APPKIT_FRAMEWORK AppKit)
+        find_library(WHATSCANVAS_UIKIT_FRAMEWORK UIKit)
+        if (WHATSCANVAS_METAL_FRAMEWORK AND WHATSCANVAS_FOUNDATION_FRAMEWORK
+                AND WHATSCANVAS_QUARTZ_CORE_FRAMEWORK)
+            set(metal_backend_enabled ON)
+            set(metal_backend_source_ext "mm")
+            list(APPEND metal_backend_libraries
+                "${WHATSCANVAS_METAL_FRAMEWORK}"
+                "${WHATSCANVAS_FOUNDATION_FRAMEWORK}"
+                "${WHATSCANVAS_QUARTZ_CORE_FRAMEWORK}")
+            if (WHATSCANVAS_CORE_GRAPHICS_FRAMEWORK)
+                list(APPEND metal_backend_libraries
+                    "${WHATSCANVAS_CORE_GRAPHICS_FRAMEWORK}")
+            endif()
+            if (WHATSCANVAS_APPKIT_FRAMEWORK)
+                list(APPEND metal_backend_libraries
+                    "${WHATSCANVAS_APPKIT_FRAMEWORK}")
+            endif()
+            if (WHATSCANVAS_UIKIT_FRAMEWORK)
+                list(APPEND metal_backend_libraries
+                    "${WHATSCANVAS_UIKIT_FRAMEWORK}")
+            endif()
+            message(STATUS "WhatsCanvas Metal backend enabled (Metal + Foundation + QuartzCore).")
+        else()
+            message(STATUS "WHATSCANVAS_ENABLE_METAL is ON, but Metal/Foundation/QuartzCore frameworks were not found. Building the Metal backend as an inert stub.")
+        endif()
+    endif()
+
     add_library(${target_name}
         ${glad_sources}
         "${src_dir}/core/Log.cpp"
@@ -283,6 +328,7 @@ function(whatscanvas_add_gl_family_library target_name project_root)
         "${src_dir}/text/GlyphAtlas.cpp"
         "${src_dir}/text/NativeText.cpp"
         "${src_dir}/text/DirectWriteTextBackend.cpp"
+        "${src_dir}/text/SystemFontEnumerator.cpp"
         "${src_dir}/text/TextShaper.cpp"
         "${src_dir}/text/TextUtils.cpp"
         "${src_dir}/text/UnicodeBidi.cpp"
@@ -318,6 +364,7 @@ function(whatscanvas_add_gl_family_library target_name project_root)
         "${src_dir}/render/software/SoftwareRenderer.cpp"
         "${src_dir}/render/software/SoftwarePresent.cpp"
         "${src_dir}/render/vulkan/VulkanRenderDevice.cpp"
+        "${src_dir}/render/metal/MetalRenderDevice.${metal_backend_source_ext}"
     )
 
     if (WSC_GL_OPENGLES)
@@ -344,6 +391,22 @@ function(whatscanvas_add_gl_family_library target_name project_root)
         WHATSCANVAS_VULKAN_BACKEND_ENABLED "${vulkan_backend_enabled}")
     set_property(GLOBAL PROPERTY
         WHATSCANVAS_VULKAN_BACKEND_ENABLED "${vulkan_backend_enabled}")
+
+    if (metal_backend_enabled)
+        target_compile_definitions(${target_name} PRIVATE WHATSCANVAS_ENABLE_METAL)
+        target_link_libraries(${target_name} PRIVATE ${metal_backend_libraries})
+        # The Metal backend source is Objective-C++ on Apple platforms. Enable
+        # ARC and modules only for that one translation unit so the rest of the
+        # library (plain C++) is untouched.
+        set_source_files_properties(
+            "${src_dir}/render/metal/MetalRenderDevice.mm"
+            PROPERTIES
+                COMPILE_FLAGS "-fobjc-arc -fmodules")
+    endif()
+    set_property(TARGET ${target_name} PROPERTY
+        WHATSCANVAS_METAL_BACKEND_ENABLED "${metal_backend_enabled}")
+    set_property(GLOBAL PROPERTY
+        WHATSCANVAS_METAL_BACKEND_ENABLED "${metal_backend_enabled}")
 
     target_include_directories(${target_name}
         PRIVATE
@@ -389,6 +452,30 @@ function(whatscanvas_add_gl_family_library target_name project_root)
         target_link_libraries(${target_name} PRIVATE gdi32 user32 dwrite d2d1 windowscodecs ole32)
     endif()
 
+    if (APPLE)
+        find_library(WHATSCANVAS_CORETEXT_FRAMEWORK CoreText)
+        if (WHATSCANVAS_CORETEXT_FRAMEWORK)
+            target_link_libraries(${target_name} PRIVATE "${WHATSCANVAS_CORETEXT_FRAMEWORK}")
+        endif()
+        if (NOT DEFINED WHATSCANVAS_FOUNDATION_FRAMEWORK OR NOT WHATSCANVAS_FOUNDATION_FRAMEWORK)
+            find_library(WHATSCANVAS_FOUNDATION_FRAMEWORK Foundation)
+        endif()
+        if (WHATSCANVAS_FOUNDATION_FRAMEWORK)
+            target_link_libraries(${target_name} PRIVATE "${WHATSCANVAS_FOUNDATION_FRAMEWORK}")
+        endif()
+    endif()
+
+    if (UNIX AND NOT APPLE)
+        find_package(PkgConfig QUIET)
+        if (PkgConfig_FOUND)
+            pkg_check_modules(WHATSCANVAS_FONTCONFIG QUIET fontconfig)
+            if (WHATSCANVAS_FONTCONFIG_FOUND)
+                target_link_libraries(${target_name} PRIVATE ${WHATSCANVAS_FONTCONFIG_LIBRARIES})
+                target_include_directories(${target_name} PRIVATE ${WHATSCANVAS_FONTCONFIG_INCLUDE_DIRS})
+            endif()
+        endif()
+    endif()
+
     whatscanvas_link_x11_if_enabled(${target_name})
 endfunction()
 
@@ -423,6 +510,7 @@ function(whatscanvas_add_software_library target_name project_root)
         "${src_dir}/text/GlyphAtlas.cpp"
         "${src_dir}/text/NativeText.cpp"
         "${src_dir}/text/DirectWriteTextBackend.cpp"
+        "${src_dir}/text/SystemFontEnumerator.cpp"
         "${src_dir}/text/TextShaper.cpp"
         "${src_dir}/text/TextUtils.cpp"
         "${src_dir}/text/UnicodeBidi.cpp"
@@ -460,6 +548,30 @@ function(whatscanvas_add_software_library target_name project_root)
 
     if (WIN32)
         target_link_libraries(${target_name} PRIVATE gdi32 user32 dwrite d2d1 windowscodecs ole32)
+    endif()
+
+    if (APPLE)
+        find_library(WHATSCANVAS_CORETEXT_FRAMEWORK CoreText)
+        if (WHATSCANVAS_CORETEXT_FRAMEWORK)
+            target_link_libraries(${target_name} PRIVATE "${WHATSCANVAS_CORETEXT_FRAMEWORK}")
+        endif()
+        if (NOT DEFINED WHATSCANVAS_FOUNDATION_FRAMEWORK OR NOT WHATSCANVAS_FOUNDATION_FRAMEWORK)
+            find_library(WHATSCANVAS_FOUNDATION_FRAMEWORK Foundation)
+        endif()
+        if (WHATSCANVAS_FOUNDATION_FRAMEWORK)
+            target_link_libraries(${target_name} PRIVATE "${WHATSCANVAS_FOUNDATION_FRAMEWORK}")
+        endif()
+    endif()
+
+    if (UNIX AND NOT APPLE)
+        find_package(PkgConfig QUIET)
+        if (PkgConfig_FOUND)
+            pkg_check_modules(WHATSCANVAS_FONTCONFIG QUIET fontconfig)
+            if (WHATSCANVAS_FONTCONFIG_FOUND)
+                target_link_libraries(${target_name} PRIVATE ${WHATSCANVAS_FONTCONFIG_LIBRARIES})
+                target_include_directories(${target_name} PRIVATE ${WHATSCANVAS_FONTCONFIG_INCLUDE_DIRS})
+            endif()
+        endif()
     endif()
 
     whatscanvas_link_x11_if_enabled(${target_name})
