@@ -5,7 +5,7 @@ on:
     branches:
       - master
     tags:
-      - "v0.1.*"
+      - "v*"
   workflow_dispatch:
 
 permissions:
