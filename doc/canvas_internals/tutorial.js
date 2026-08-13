@@ -109,7 +109,7 @@ function initFrameLab() {
     $("frameState").className = `status ${recording ? "recording" : "idle"}`;
     $("queueCount").textContent = queue.length;
     $("commandQueue").innerHTML = queue.length
-      ? queue.map((item, i) => `<span><i>${String(i + 1).padStart(2, "0")}</i>${item.api}</span>`).join("")
+      ? queue.map((item, i) => `<span class="chip"><i>${String(i + 1).padStart(2, "0")}</i>${item.api}</span>`).join("")
       : '<span class="empty">队列为空</span>';
     $("presentCount").textContent = `presented: ${presented}`;
   }
