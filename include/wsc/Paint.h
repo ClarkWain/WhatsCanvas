@@ -29,8 +29,12 @@ public:
         }
     };
 
-    /// Global OpenType shaping feature applied to a text run. Tags use the
-    /// standard four-character form such as "liga", "kern", or "smcp".
+    /// Whole-run OpenType feature override. `tag` is the case-sensitive,
+    /// four-byte OpenType tag (for example "liga", "kern", or "smcp").
+    /// A value of 0 disables the feature, 1 normally enables it, and other
+    /// values are passed through for features that select an alternate.
+    /// Whether the override changes output depends on the selected font and
+    /// shaping backend.
     struct FontFeature
     {
         std::string tag;
@@ -247,10 +251,22 @@ public:
     void setTextLocale(const std::string &locale);
     const std::string &getTextLocale() const;
     bool hasTextLocale() const;
-    /// Set or update a global OpenType feature for portable HarfBuzz shaping.
-    /// Invalid tags (anything other than four characters) are ignored.
+    /// Set or update a whole-run OpenType feature override.
+    ///
+    /// There is no tag whitelist: any case-sensitive tag of exactly four bytes
+    /// is forwarded to portable HarfBuzz shaping and native DirectWrite. An
+    /// unsupported tag is normally ignored by the font/shaper, while tags of
+    /// any other length are silently ignored here. Repeating a tag replaces its
+    /// previous value. `value == 0` disables a feature, `value == 1` normally
+    /// enables it, and other values are passed through for feature-specific
+    /// alternate selection. The dependency-free simple shaper does not apply
+    /// OpenType feature overrides.
     void setFontFeature(const std::string &tag, std::uint32_t value = 1);
+    /// Remove every explicit feature override and restore font/shaper defaults.
+    /// This differs from retaining a tag with value 0, which explicitly
+    /// disables that feature.
     void clearFontFeatures();
+    /// Return the active whole-run overrides, with at most one entry per tag.
     const std::vector<FontFeature> &getFontFeatures() const;
     /// Text decorations. Honoured by the native (DirectWrite) backend; off by
     /// default.

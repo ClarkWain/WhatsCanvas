@@ -5451,6 +5451,11 @@ bool Canvas::registerFontFace(const FontFace &face)
     return impl_->textBackend != nullptr && impl_->textBackend->registerFontFace(face);
 }
 
+bool Canvas::refreshSystemFonts()
+{
+    return impl_->textBackend != nullptr && impl_->textBackend->refreshSystemFonts();
+}
+
 bool Canvas::setFontFallbackChain(const FontFallbackChain &chain)
 {
     return impl_->textBackend != nullptr && impl_->textBackend->setFontFallbackChain(chain);

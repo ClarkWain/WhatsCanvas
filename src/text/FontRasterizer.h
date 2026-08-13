@@ -42,6 +42,8 @@ struct FontDataView
     int faceIndex = 0;
 };
 
+std::string fontFaceIdentity(const FontFace &face);
+
 struct ColorFontTables
 {
     bool colr = false;

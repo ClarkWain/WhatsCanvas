@@ -330,6 +330,9 @@ public:
 	TextMetrics measureTextMetrics(const std::string &text, const Paint &paint) const;
 	/// Register a font face so its family can be selected via Paint::setFontFamily.
 	bool registerFontFace(const FontFace &face);
+	/// Re-enumerate installed fonts and update this Canvas while preserving
+	/// explicitly registered fonts and fallback chains.
+	bool refreshSystemFonts();
 	/// Set the fallback chain used to resolve glyphs missing from the primary font.
 	bool setFontFallbackChain(const FontFallbackChain &chain);
 
