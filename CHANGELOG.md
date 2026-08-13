@@ -9,6 +9,8 @@ For releases and downloadable artifacts, see the
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-13
+
 ### Added
 - Added a Metal render backend for macOS / iOS, complementing the existing
   Software / OpenGL / Vulkan backends. The backend is selectable via
@@ -40,6 +42,21 @@ For releases and downloadable artifacts, see the
   - Cross-backend performance benchmark on Apple M3 Pro (256×256, 128 rects
     × 200 frames) shows Metal 1.66 ms/frame vs OpenGL 2.45 ms/frame
     (~32% faster wall-clock, ~40% faster GPU-side).
+
+### Changed
+- Added cached native system-font discovery through CoreText, DirectWrite,
+  and fontconfig, with explicit cache refresh APIs and stronger cross-platform
+  fallback behavior.
+- Updated examples to use `FontSystem` for portable text rendering and aligned
+  the public documentation with the new Metal and font-discovery capabilities.
+- Updated the release workflow to accept semantic-version tags beyond the
+  `0.1.x` release line.
+
+### Fixed
+- Fixed collection-face discovery for `.ttc`, `.otc`, and `.dfont` resources
+  on current macOS SDKs.
+- Fixed missing direct standard-library includes in Metal tests so stricter
+  toolchains do not depend on transitive headers.
 
 ## [0.1.20] - 2026-08-05
 
@@ -357,7 +374,8 @@ For releases and downloadable artifacts, see the
 For changes prior to 0.1.11, see the
 [GitHub Releases](https://github.com/ClarkWain/WhatsCanvas/releases) history.
 
-[Unreleased]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.20...HEAD
+[Unreleased]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.20...v0.2.0
 [0.1.20]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.19...v0.1.20
 [0.1.19]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.18...v0.1.19
 [0.1.18]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.17...v0.1.18
