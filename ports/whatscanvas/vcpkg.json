@@ -1,6 +1,6 @@
 {
   "name": "whatscanvas",
-  "version": "0.1.20",
+  "version": "0.2.0",
   "description": "Lightweight Canvas-style 2D rendering library for native C++ applications",
   "homepage": "https://github.com/ClarkWain/WhatsCanvas",
   "documentation": "https://clarkwain.github.io/WhatsCanvas/",
