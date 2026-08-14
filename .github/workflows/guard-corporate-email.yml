@@ -49,12 +49,26 @@ jobs:
               { [ "${name}" = "Clark Wain" ] && [ "${email}" = "ggeieihihi@gmail.com" ]; }
           }
 
+          escape_workflow_command() {
+            local value="$1"
+
+            value="${value//%/%25}"
+            value="${value//$'\r'/%0D}"
+            value="${value//$'\n'/%0A}"
+            printf '%s' "${value}"
+          }
+
           failed=0
-          while IFS=$'\t' read -r sha author_name author_email committer_name committer_email; do
+          while IFS= read -r -d '' sha &&
+            IFS= read -r -d '' author_name &&
+            IFS= read -r -d '' author_email &&
+            IFS= read -r -d '' committer_name &&
+            IFS= read -r -d '' committer_email; do
             [ -n "${sha}" ] || continue
 
             if ! is_allowed_human "${author_name}" "${author_email}"; then
-              echo "::error title=Unapproved commit author::${sha:0:12} has author ${author_name} <${author_email}>" >&2
+              message="${sha:0:12} has author ${author_name} <${author_email}>"
+              echo "::error title=Unapproved commit author::$(escape_workflow_command "${message}")" >&2
               failed=1
             fi
 
@@ -62,10 +76,11 @@ jobs:
             # The human author must still be one of the two identities above.
             if ! is_allowed_human "${committer_name}" "${committer_email}" &&
               ! { [ "${committer_name}" = "GitHub" ] && [ "${committer_email}" = "noreply@github.com" ]; }; then
-              echo "::error title=Unapproved commit committer::${sha:0:12} has committer ${committer_name} <${committer_email}>" >&2
+              message="${sha:0:12} has committer ${committer_name} <${committer_email}>"
+              echo "::error title=Unapproved commit committer::$(escape_workflow_command "${message}")" >&2
               failed=1
             fi
-          done < <(git log "${range}" --pretty=tformat:'%H%x09%an%x09%ae%x09%cn%x09%ce')
+          done < <(git log "${range}" --pretty=format:'%H%x00%an%x00%ae%x00%cn%x00%ce%x00')
 
           if [ "${failed}" -ne 0 ]; then
             {
