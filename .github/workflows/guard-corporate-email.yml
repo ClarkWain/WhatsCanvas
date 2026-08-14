@@ -1,4 +1,4 @@
-name: Guard - forbidden email addresses
+name: Guard - allowed commit identities
 
 on:
   pull_request:
@@ -20,8 +20,6 @@ jobs:
 
       - name: Scan commit identities
         env:
-          # Extended-regex pattern. Add more domains with alternation, e.g. '@(joyy|example)\.com'
-          FORBIDDEN: '@joyy\.com'
           IS_PR: ${{ github.event_name == 'pull_request' }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -39,24 +37,61 @@ jobs:
           fi
 
           echo "Scanning commit range: ${range}"
-          echo "Forbidden email pattern: ${FORBIDDEN}"
+          echo "Allowed human identities:"
+          echo "  eieihihi <eieihihi@outlook.com>"
+          echo "  Clark Wain <ggeieihihi@gmail.com>"
 
-          offenders=$(git log "${range}" --pretty=format:'%h AUTHOR=%ae COMMITTER=%ce' 2>/dev/null | grep -E "${FORBIDDEN}" || true)
+          is_allowed_human() {
+            local name="$1"
+            local email="$2"
 
-          if [ -n "${offenders}" ]; then
+            { [ "${name}" = "eieihihi" ] && [ "${email}" = "eieihihi@outlook.com" ]; } ||
+              { [ "${name}" = "Clark Wain" ] && [ "${email}" = "ggeieihihi@gmail.com" ]; }
+          }
+
+          escape_workflow_command() {
+            local value="$1"
+
+            value="${value//%/%25}"
+            value="${value//$'\r'/%0D}"
+            value="${value//$'\n'/%0A}"
+            printf '%s' "${value}"
+          }
+
+          failed=0
+          while IFS= read -r -d '' sha &&
+            IFS= read -r -d '' author_name &&
+            IFS= read -r -d '' author_email &&
+            IFS= read -r -d '' committer_name &&
+            IFS= read -r -d '' committer_email; do
+            [ -n "${sha}" ] || continue
+
+            if ! is_allowed_human "${author_name}" "${author_email}"; then
+              message="${sha:0:12} has author ${author_name} <${author_email}>"
+              echo "::error title=Unapproved commit author::$(escape_workflow_command "${message}")" >&2
+              failed=1
+            fi
+
+            # GitHub is the committer for merge commits created by the Pull Request UI.
+            # The human author must still be one of the two identities above.
+            if ! is_allowed_human "${committer_name}" "${committer_email}" &&
+              ! { [ "${committer_name}" = "GitHub" ] && [ "${committer_email}" = "noreply@github.com" ]; }; then
+              message="${sha:0:12} has committer ${committer_name} <${committer_email}>"
+              echo "::error title=Unapproved commit committer::$(escape_workflow_command "${message}")" >&2
+              failed=1
+            fi
+          done < <(git log "${range}" --pretty=format:'%H%x00%an%x00%ae%x00%cn%x00%ce%x00')
+
+          if [ "${failed}" -ne 0 ]; then
             {
-              echo "::error title=Forbidden email address in commit history::One or more commits carry a forbidden author/committer email"
               echo ""
-              echo "Pattern: ${FORBIDDEN}"
+              echo "Only these human Git identities are accepted:"
+              echo "  eieihihi <eieihihi@outlook.com>"
+              echo "  Clark Wain <ggeieihihi@gmail.com>"
               echo ""
-              echo "${offenders}"
-              echo ""
-              echo "To fix: rewrite the offending commits with"
-              echo "  git rebase -i <range>       # then 'edit' or 'reword' each bad commit"
-              echo "  git commit --amend --author='New Name <new@example.com>' --no-edit"
-              echo "  git push --force-with-lease"
+              echo "Configure the repository-local identity and rewrite the rejected commit before pushing again."
             } >&2
             exit 1
           fi
 
-          echo "No forbidden email addresses detected in scanned commits."
+          echo "All scanned commits use approved identities."
