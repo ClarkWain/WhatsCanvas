@@ -28,14 +28,31 @@ constexpr unsigned int kOpenGLMultisample = 0x809D;
 enum PieceType : int { PIECE_I=0, PIECE_O, PIECE_T, PIECE_S, PIECE_Z, PIECE_J, PIECE_L, PIECE_COUNT };
 
 static const Color kColors[PIECE_COUNT] = {
-    Color(0, 240, 240),
-    Color(240, 240, 0),
-    Color(160, 0, 240),
-    Color(0, 240, 0),
-    Color(240, 0, 0),
-    Color(0, 0, 240),
-    Color(240, 160, 0),
+    Color(38, 190, 201),
+    Color(244, 197, 62),
+    Color(164, 91, 226),
+    Color(65, 196, 108),
+    Color(232, 76, 91),
+    Color(62, 105, 224),
+    Color(241, 137, 45),
 };
+
+Color toneColor(const Color& color, float factor, int alpha = 255) {
+    return Color(
+        std::clamp(static_cast<int>(std::lround(color.getR() * factor)), 0, 255),
+        std::clamp(static_cast<int>(std::lround(color.getG() * factor)), 0, 255),
+        std::clamp(static_cast<int>(std::lround(color.getB() * factor)), 0, 255),
+        std::clamp(alpha, 0, 255));
+}
+
+Color blendColor(const Color& from, const Color& to, float amount, int alpha = 255) {
+    amount = std::clamp(amount, 0.0f, 1.0f);
+    const auto blend = [amount](int a, int b) {
+        return static_cast<int>(std::lround(a + (b - a) * amount));
+    };
+    return Color(blend(from.getR(), to.getR()), blend(from.getG(), to.getG()),
+                 blend(from.getB(), to.getB()), std::clamp(alpha, 0, 255));
+}
 
 struct Piece {
     PieceType type;
@@ -360,23 +377,43 @@ private:
     }
 
     void drawBlock(Canvas& canvas, float px, float py, float sz, const Color& c, float alpha) {
-        int r = static_cast<int>(c.getR() * alpha);
-        int g = static_cast<int>(c.getG() * alpha);
-        int b = static_cast<int>(c.getB() * alpha);
-        int a = static_cast<int>(255 * alpha);
-        Color fc(r, g, b, a);
-        Paint p;
-        p.setStyle(Paint::Style::FILL);
-        p.setFillColor(fc);
-        canvas.drawRect(RectF(px + 2, py + 2, sz - 4, sz - 4), p);
-        int ha = static_cast<int>(60 * alpha);
-        int sa = static_cast<int>(100 * alpha);
-        p.setFillColor(Color(255, 255, 255, ha));
-        canvas.drawRect(RectF(px + 2, py + 2, sz - 4, 4), p);
-        canvas.drawRect(RectF(px + 2, py + 4, 4, sz - 6), p);
-        p.setFillColor(Color(0, 0, 0, sa));
-        canvas.drawRect(RectF(px + 2, py + sz - 6, sz - 4, 4), p);
-        canvas.drawRect(RectF(px + sz - 6, py + 4, 4, sz - 8), p);
+        alpha = std::clamp(alpha, 0.0f, 1.0f);
+        const int opacity = static_cast<int>(255.0f * alpha);
+
+        Paint rim;
+        rim.setStyle(Paint::Style::FILL);
+        rim.setLinearGradient(px, py, px + sz, py + sz, {
+            Paint::ColorStop(0.0f, toneColor(c, 1.08f, opacity)),
+            Paint::ColorStop(0.55f, toneColor(c, 0.78f, opacity)),
+            Paint::ColorStop(1.0f, toneColor(c, 0.58f, opacity))
+        });
+        canvas.drawRoundRect(RectF(px + 0.5f, py + 0.5f, sz - 1.0f, sz - 1.0f),
+                             3.0f, rim);
+
+        Paint face;
+        face.setStyle(Paint::Style::FILL);
+        face.setLinearGradient(px + 2.0f, py + 2.0f, px + sz - 2.0f, py + sz - 2.0f, {
+            Paint::ColorStop(0.0f, blendColor(c, Color(255, 255, 255), 0.18f, opacity)),
+            Paint::ColorStop(0.38f, toneColor(c, 1.03f, opacity)),
+            Paint::ColorStop(1.0f, toneColor(c, 0.82f, opacity))
+        });
+        canvas.drawRoundRect(RectF(px + 2.0f, py + 2.0f, sz - 4.0f, sz - 4.0f),
+                             2.0f, face);
+
+        Paint gloss;
+        gloss.setStyle(Paint::Style::FILL);
+        gloss.setLinearGradient(px + 3.0f, py + 3.0f, px + sz - 4.0f, py + 7.0f, {
+            Paint::ColorStop(0.0f, Color(255, 255, 255, static_cast<int>(58.0f * alpha))),
+            Paint::ColorStop(1.0f, Color(255, 255, 255, 0))
+        });
+        canvas.drawRoundRect(RectF(px + 3.0f, py + 3.0f, sz - 7.0f, 3.0f),
+                             1.5f, gloss);
+
+        Paint lowerReflection;
+        lowerReflection.setStyle(Paint::Style::FILL);
+        lowerReflection.setFillColor(Color(0, 0, 0, static_cast<int>(22.0f * alpha)));
+        canvas.drawRect(RectF(px + 3.0f, py + sz - 4.0f, sz - 6.0f, 1.0f),
+                        lowerReflection);
     }
 
     void drawBoard(Canvas& canvas) {
