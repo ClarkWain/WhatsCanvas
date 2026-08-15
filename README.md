@@ -349,7 +349,7 @@ WhatsCanvas is more than just "able to draw pixels". The engineering and automat
 
 Risks to keep in mind:
 
-- The version is still pre-1.0 (`0.2.x`); read the CHANGELOG and run package-consumer tests before upgrading.
+- The version is still pre-1.0 (`0.3.x`); read the CHANGELOG and run package-consumer tests before upgrading.
 - The capability tables in this README are not a parity guarantee for every backend × platform combination; consult the feature matrices for filters, text, and output targets, and validate the combination you actually use.
 - Vulkan is opt-in and not the default backend; cross-platform window presentation and broader pixel coverage are still being extended.
 - The Android GLSurfaceView/JNI host now builds both Arm ABIs plus `x86_64`, but broad device coverage, touch/encoded-image integration, AAR packaging, and Android CI remain open. Metal is available on Apple platforms, but iOS simulator/device CI and an in-repository iOS sample app also remain open; WebGPU, WebAssembly, and a native CoreText adapter are not yet available.

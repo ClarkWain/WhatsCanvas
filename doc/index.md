@@ -144,4 +144,4 @@ device layer is backend-specific.
   [Memory Management](MEMORY_MANAGEMENT.md).
 - [Image Filters](IMAGE_FILTERS.md) · [Text & Fonts](TEXT_FEATURE_MATRIX.md) ·
   [Shadows](SHADOW_MODEL.md) · [Blend Modes](BLEND_MODE_AUDIT.md).
-- [Vulkan Status](vulkan-backend-status.md) · [Shader Portability](SHADER_PORTABILITY.md) · [Android Integration](ANDROID_INTEGRATION.md) · [iOS Build Notes](IOS_BUILD_NOTES.md).
+- [Vulkan Status](vulkan-backend-status.md) · [Shader Portability](SHADER_PORTABILITY.md) · [iOS Build Notes](IOS_BUILD_NOTES.md).
