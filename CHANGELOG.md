@@ -9,6 +9,34 @@ For releases and downloadable artifacts, see the
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-15
+
+### Added
+- Added a runnable Android OpenGL ES host under `platforms/android/`, including
+  a `GLSurfaceView` renderer, JNI ownership, lifecycle handling, density-aware
+  input, Android system-font matching, and packaging for `armeabi-v7a`,
+  `arm64-v8a`, and `x86_64`.
+- Added an Android integration guide covering Gradle/NDK setup, native source
+  integration, JNI and GL-thread rules, font fallback, lifecycle behavior,
+  troubleshooting, and device validation.
+- Established `platforms/` as the repository convention for Android and future
+  iOS/Web hosts while keeping the cross-platform renderer in `src/` and
+  `include/`.
+
+### Changed
+- Updated cross-platform documentation and validation guidance for the Android
+  host and the future iOS integration path.
+- Improved round-cap tessellation so the cap and stroke body share the same
+  center split, preventing anti-aliased seams at their boundary.
+- Updated OpenGL ES single-channel texture swizzles to set the R/G/B/A
+  components individually for broader GLES driver compatibility.
+
+### Fixed
+- Fixed missing Android glyph output caused by incompatible single-channel
+  texture swizzle setup.
+- Fixed small gaps and dark seam artifacts in round caps and dashed strokes,
+  including the affected Android rendering examples.
+
 ## [0.2.0] - 2026-08-13
 
 ### Added
@@ -374,7 +402,8 @@ For releases and downloadable artifacts, see the
 For changes prior to 0.1.11, see the
 [GitHub Releases](https://github.com/ClarkWain/WhatsCanvas/releases) history.
 
-[Unreleased]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.20...v0.2.0
 [0.1.20]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.19...v0.1.20
 [0.1.19]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.18...v0.1.19

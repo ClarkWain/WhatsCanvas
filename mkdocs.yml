@@ -83,6 +83,7 @@ nav:
       - Shadows: SHADOW_MODEL.md
       - Blend Modes: BLEND_MODE_AUDIT.md
       - Shader Portability: SHADER_PORTABILITY.md
+      - Android Integration: ANDROID_INTEGRATION.md
       - iOS Build Notes: IOS_BUILD_NOTES.md
   - Backends:
       - Vulkan Status: vulkan-backend-status.md

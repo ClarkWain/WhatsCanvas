@@ -40,3 +40,11 @@ _site/
 __pycache__/
 *.pyc
 build-package-consumer/
+
+# Android / Android Studio
+/platforms/android/.gradle/
+/platforms/android/.idea/
+/platforms/android/local.properties
+/platforms/android/**/build/
+/platforms/android/**/.cxx/
+*.iml

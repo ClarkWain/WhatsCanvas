@@ -287,12 +287,41 @@ std::vector<Vec2> tessellateStroke(const std::vector<Vec2> &points, const Stroke
             nextRight = join.nextRight;
         }
 
-        vertices.push_back(startLeft);
-        vertices.push_back(startRight);
-        vertices.push_back(endLeft);
-        vertices.push_back(endLeft);
-        vertices.push_back(startRight);
-        vertices.push_back(endRight);
+        // A round cap is a triangle fan connected to the endpoint at its
+        // centre. Split the matching body edge at that same centre so the AA
+        // silhouette pass sees each radial seam twice (cap + body). Without
+        // this shared topology the cap's two internal radial edges look like
+        // exposed boundaries and receive a transparent fringe, leaving a
+        // visible hairline across every round-capped dash or arc endpoint.
+        const bool splitStart = style.cap == StrokeCap::Round && i == 0;
+        const bool splitEnd = style.cap == StrokeCap::Round
+            && i + 1 == segments.size();
+        if (!splitStart && !splitEnd) {
+            vertices.push_back(startLeft);
+            vertices.push_back(startRight);
+            vertices.push_back(endLeft);
+            vertices.push_back(endLeft);
+            vertices.push_back(startRight);
+            vertices.push_back(endRight);
+        } else {
+            std::vector<Vec2> bodyPolygon;
+            bodyPolygon.reserve(6);
+            if (splitStart) {
+                bodyPolygon.push_back(segments[i].center.a);
+            }
+            bodyPolygon.push_back(startLeft);
+            bodyPolygon.push_back(endLeft);
+            if (splitEnd) {
+                bodyPolygon.push_back(segments[i].center.b);
+            }
+            bodyPolygon.push_back(endRight);
+            bodyPolygon.push_back(startRight);
+            for (std::size_t vertex = 1; vertex + 1 < bodyPolygon.size(); ++vertex) {
+                vertices.push_back(bodyPolygon.front());
+                vertices.push_back(bodyPolygon[vertex]);
+                vertices.push_back(bodyPolygon[vertex + 1]);
+            }
+        }
         startLeft = nextLeft;
         startRight = nextRight;
     }

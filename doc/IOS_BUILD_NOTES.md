@@ -2,6 +2,12 @@
 
 This note records the current iOS-oriented integration path for the GL-family backend. It is a build and host-app contract, not a claim that the repository currently ships a full Xcode sample.
 
+For comparison, Android now has a complete host guide and runnable sample; see
+[Android Integration](ANDROID_INTEGRATION.md). Keep this file focused on Apple
+toolchain/backend constraints. When a UIKit/Metal sample is added, document its
+full lifecycle and packaging contract in a sibling `IOS_INTEGRATION.md` rather
+than mixing platform-specific host instructions into the Android guide.
+
 ## Current Support Boundary
 
 - Use the OpenGLES library target: `WhatsCanvasOpenGLES`.
