@@ -1,0 +1,11 @@
+<resources>
+    <style name="Theme.WhatsCanvas" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:colorAccent">#59D5E0</item>
+        <item name="android:navigationBarColor">#080B18</item>
+        <item name="android:statusBarColor">#080B18</item>
+    </style>
+</resources>

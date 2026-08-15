@@ -4,7 +4,7 @@ English | [中文](README_zh.md)
 
 [![CI](https://github.com/ClarkWain/WhatsCanvas/actions/workflows/cross-platform-validation.yml/badge.svg)](https://github.com/ClarkWain/WhatsCanvas/actions/workflows/cross-platform-validation.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.2.0-informational.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.3.0-informational.svg)](CHANGELOG.md)
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C.svg)](CMakeLists.txt)
 [![Documentation](https://img.shields.io/badge/docs-online-success.svg)](https://clarkwain.github.io/WhatsCanvas/)
 
@@ -29,7 +29,7 @@ This project aims to bridge the gap between minimal drawing libraries (such as N
 | **Text Capabilities** | Font discovery and fallback, CJK/RTL, UAX #9, line breaking and ellipsis, glyph atlas, COLR/CPAL v0; FreeType and HarfBuzz shaping are enabled by default for OpenGL/OpenGL ES. |
 | **Integration** | vcpkg overlay port, CMake `find_package`, `add_subdirectory`, or portable installation directories generated from source. |
 | **Footprint** | Not header-only. Supports linking only against `WhatsCanvas::Software`, `::OpenGL` (also hosts optional Vulkan and Apple Metal), or `::OpenGLES` based on backend; see [Footprint and Dependencies](#footprint-and-dependencies) for reference. |
-| **Maturity** | Current version `0.2.0`, still pre-1.0. Public API boundaries, cross-platform CI, pixel regression, package-consumer integration tests, and auditable performance baselines are in place; upgrade and platform risks should still be evaluated against the boundaries described below. |
+| **Maturity** | Current version `0.3.0`, still pre-1.0. Public API boundaries, cross-platform CI, pixel regression, package-consumer integration tests, and auditable performance baselines are in place; upgrade and platform risks should still be evaluated against the boundaries described below. |
 | **License** | MIT; components in `third_party/` follow their respective licenses. |
 
 **When to Choose WhatsCanvas?**
@@ -73,7 +73,7 @@ cmake_minimum_required(VERSION 3.16)
 project(MyApp LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
-find_package(WhatsCanvas 0.2.0 CONFIG REQUIRED)
+find_package(WhatsCanvas 0.3.0 CONFIG REQUIRED)
 
 add_executable(MyApp main.cpp)
 target_link_libraries(MyApp PRIVATE WhatsCanvas::Software)
@@ -101,7 +101,7 @@ For advanced features like in-window OpenGL, OpenGL ES, Vulkan, font registratio
 
 ### Using Precompiled Packages
 
-Tagged release assets are named `whatscanvas-<platform>-release-<version>.zip`, e.g., `whatscanvas-win64-release-0.2.0.zip`. The package layout is:
+Tagged release assets are named `whatscanvas-<platform>-release-<version>.zip`, e.g., `whatscanvas-win64-release-0.3.0.zip`. The package layout is:
 
 ```text
 include/wsc/                 Public headers
@@ -113,7 +113,7 @@ lib/cmake/WhatsCanvas/       find_package configurations
 The targets provided by the precompiled packages may differ across platforms. In practice, verify the required targets exist via CMake:
 
 ```cmake
-find_package(WhatsCanvas 0.2.0 CONFIG REQUIRED)
+find_package(WhatsCanvas 0.3.0 CONFIG REQUIRED)
 if (NOT TARGET WhatsCanvas::Software)
     message(FATAL_ERROR "This package does not contain the Software backend")
 endif()
@@ -262,10 +262,10 @@ Platform Validation Status:
 | Windows x64 | MSVC unit tests, package consumption, OpenGL/Software; release matrix can enable GLES, Vulkan, FreeType, HarfBuzz | DirectWrite text backend optional; Vulkan window presentation supports Win32. |
 | Linux x64 | GCC build, unit tests, OpenGL/GLES filter pixel gates, package consumption | Automated GL scenarios use Mesa/Xvfb; GLX window presentation from source lacks continuous verification. |
 | macOS x86_64/arm64 | Unit tests, Metal pixel/contract gates, and universal release packages | Metal is enabled by default and supports offscreen rendering plus `CAMetalLayer` presentation; system OpenGL remains available. |
-| iOS / Android | OpenGL ES target and iOS integration notes | No regular real-device CI is set up yet; validate on the target device before integrating. |
+| iOS / Android | OpenGL ES target, an [Android GLSurfaceView/JNI sample](platforms/android/README.md), an [Android integration guide](doc/ANDROID_INTEGRATION.md), and iOS integration notes | Platform hosts live under `platforms/`; the Android sample builds `armeabi-v7a`, `arm64-v8a`, and `x86_64`. No regular real-device CI is set up yet, so validate on the target device before integrating. |
 | Web | Not supported | WebAssembly / WebGL 2 bridging is still planned. |
 
-See [Cross-Platform Validation Matrix](doc/CROSS_PLATFORM_VALIDATION_MATRIX.md), [iOS Build Notes](doc/IOS_BUILD_NOTES.md), and [Vulkan Backend Status](doc/vulkan-backend-status.md) for detailed statuses.
+See [Android Integration](doc/ANDROID_INTEGRATION.md), [Cross-Platform Validation Matrix](doc/CROSS_PLATFORM_VALIDATION_MATRIX.md), [iOS Build Notes](doc/IOS_BUILD_NOTES.md), and [Vulkan Backend Status](doc/vulkan-backend-status.md) for detailed statuses.
 
 ## Capability Overview
 
@@ -319,7 +319,7 @@ These numbers only reflect the specific hardware, driver, backend, and workload 
 
 By "lightweight" we mean that backends can be linked separately, the public API surface is small, and the library does not take over the host application's windowing or event loop—not that it is header-only.
 
-A clean build snapshot of the current repository `0.2.0` using **VS 2022 x64, static Release, default FreeType/HarfBuzz enabled** can serve as a volume reference:
+A clean build snapshot of the current repository `0.3.0` using **VS 2022 x64, static Release, default FreeType/HarfBuzz enabled** can serve as a volume reference:
 
 | Content | File footprint |
 | --- | ---: |
@@ -352,7 +352,7 @@ Risks to keep in mind:
 - The version is still pre-1.0 (`0.2.x`); read the CHANGELOG and run package-consumer tests before upgrading.
 - The capability tables in this README are not a parity guarantee for every backend × platform combination; consult the feature matrices for filters, text, and output targets, and validate the combination you actually use.
 - Vulkan is opt-in and not the default backend; cross-platform window presentation and broader pixel coverage are still being extended.
-- Metal is available on Apple platforms, but iOS simulator/device CI and an in-repository iOS sample app remain open; WebGPU, WebAssembly, and a native CoreText adapter are not yet available.
+- The Android GLSurfaceView/JNI host now builds both Arm ABIs plus `x86_64`, but broad device coverage, touch/encoded-image integration, AAR packaging, and Android CI remain open. Metal is available on Apple platforms, but iOS simulator/device CI and an in-repository iOS sample app also remain open; WebGPU, WebAssembly, and a native CoreText adapter are not yet available.
 - Real-time GPU rendering results may vary with drivers; use Software as the deterministic baseline and use tolerance-based comparison for GPU regressions.
 - `Canvas` should be used from within its rendering / context thread; current public documentation does not promise concurrent access to a single instance, and no cross-thread contract is defined for sharing images, fonts, or external textures across Canvas instances.
 
@@ -413,6 +413,7 @@ Start from the **[Online Documentation](https://clarkwain.github.io/WhatsCanvas/
 | Purpose | Documentation |
 | --- | --- |
 | First-time integration | [Using WhatsCanvas as a Library](doc/GETTING_STARTED_AS_LIBRARY.md) |
+| Android host integration | [Android Integration Guide](doc/ANDROID_INTEGRATION.md) |
 | Look up APIs | [Public API Reference](doc/API_REFERENCE.md) · [Visual API Gallery](doc/visual-api-gallery.md) |
 | Evaluate API stability | [API Stability](doc/API_STABILITY.md) · [CHANGELOG](CHANGELOG.md) |
 | Text and fonts | [Text Feature Matrix](doc/TEXT_FEATURE_MATRIX.md) · [DirectWrite](doc/DIRECTWRITE_TEXT_BACKEND.md) |

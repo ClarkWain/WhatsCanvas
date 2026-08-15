@@ -28,10 +28,14 @@ TextureHandle createTexture(int width, int height, GLenum internalFormat, GLenum
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, width, height, 0, dataFormat, GL_UNSIGNED_BYTE, pixels);
     if (alphaSwizzle) {
-        const GLint swizzle[4] = {
-            GL_ONE, GL_ONE, GL_ONE, GL_RED};
-        glTexParameteriv(
-            GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, swizzle);
+        // OpenGL ES 3 exposes the four component swizzles individually but
+        // does not accept desktop GL's combined GL_TEXTURE_SWIZZLE_RGBA pname.
+        // Set them one by one so an R8 glyph atlas samples as white coverage
+        // on both desktop GL and GLES instead of opaque (R, 0, 0, 1).
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_R, GL_ONE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_G, GL_ONE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, GL_ONE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_A, GL_RED);
     }
     if (generateMipmaps) {
         glGenerateMipmap(GL_TEXTURE_2D);
