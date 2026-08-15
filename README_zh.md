@@ -351,7 +351,7 @@ if (!canvas) {
 
 已知风险：
 
-- 版本仍处于 pre-1.0（`0.2.x`），升级前应阅读 CHANGELOG 并执行 package consumer 测试。
+- 版本仍处于 pre-1.0（`0.3.x`），升级前应阅读 CHANGELOG 并执行 package consumer 测试。
 - README 的能力表不保证所有 backend × platform 组合都具备相同能力；滤镜、文字和输出目标应查对应的 feature matrix，并验证项目的实际组合。
 - Vulkan 不是默认后端，跨平台窗口呈现和更大场景的像素覆盖仍在扩展。
 - Android GLSurfaceView/JNI 宿主已能构建两个 Arm ABI 和 `x86_64`，但广泛真机覆盖、触摸/编码图片接入、AAR 打包和 Android CI 仍待补齐。Metal 已在 Apple 平台可用，但 iOS 模拟器/真机 CI 与仓库内 iOS 示例仍待补齐；WebGPU、WebAssembly 和 CoreText native text adapter 尚未实现。
