@@ -30,6 +30,29 @@ bool near(float actual, float expected, float epsilon = 0.0002f)
     return std::fabs(actual - expected) <= epsilon;
 }
 
+bool samePoint(const Vec2 &actual, const Vec2 &expected)
+{
+    return near(actual.x, expected.x) && near(actual.y, expected.y);
+}
+
+int countUndirectedEdge(const std::vector<Vec2> &triangles,
+                        const Vec2 &first, const Vec2 &second)
+{
+    int count = 0;
+    for (std::size_t triangle = 0; triangle + 2 < triangles.size(); triangle += 3) {
+        for (int edge = 0; edge < 3; ++edge) {
+            const Vec2 &a = triangles[triangle + static_cast<std::size_t>(edge)];
+            const Vec2 &b = triangles[
+                triangle + static_cast<std::size_t>((edge + 1) % 3)];
+            if ((samePoint(a, first) && samePoint(b, second))
+                || (samePoint(a, second) && samePoint(b, first))) {
+                ++count;
+            }
+        }
+    }
+    return count;
+}
+
 bool testKnownStraightLine()
 {
     const std::vector<Vec2> points = {{0.0f, 0.0f}, {10.0f, 0.0f}};
@@ -121,6 +144,23 @@ bool testCapsJoinsAndDuplicateFiltering()
         {6.0f, StrokeJoin::Round, StrokeCap::Closed, false, 4.0f});
     ok = expect(!closed.empty() && closed.size() % 3 == 0,
                 "closed paths should generate complete triangles") && ok;
+    return ok;
+}
+
+bool testRoundCapSharesBodySeams()
+{
+    const auto round = wsc::detail::tessellateStroke(
+        {{0.0f, 0.0f}, {10.0f, 0.0f}},
+        {10.0f, StrokeJoin::Miter, StrokeCap::Round, false, 4.0f});
+    bool ok = true;
+    ok = expect(countUndirectedEdge(round, {0.0f, 5.0f}, {0.0f, 0.0f}) == 2,
+                "round start cap left seam must be shared with the body") && ok;
+    ok = expect(countUndirectedEdge(round, {0.0f, 0.0f}, {0.0f, -5.0f}) == 2,
+                "round start cap right seam must be shared with the body") && ok;
+    ok = expect(countUndirectedEdge(round, {10.0f, 5.0f}, {10.0f, 0.0f}) == 2,
+                "round end cap left seam must be shared with the body") && ok;
+    ok = expect(countUndirectedEdge(round, {10.0f, 0.0f}, {10.0f, -5.0f}) == 2,
+                "round end cap right seam must be shared with the body") && ok;
     return ok;
 }
 
@@ -220,7 +260,9 @@ std::uint64_t compatibilityFingerprint()
 
 bool testLegacyCompatibilityFingerprint()
 {
-    constexpr std::uint64_t kExpectedFingerprint = 519859228437137184ull;
+    // Round-cap bodies now share the fan's endpoint split so analytic AA does
+    // not mistake the internal radial seams for silhouette edges.
+    constexpr std::uint64_t kExpectedFingerprint = 3756067681613486765ull;
     const std::uint64_t actual = compatibilityFingerprint();
     return expect(actual == kExpectedFingerprint,
                   "curated compatibility fingerprint changed: " + std::to_string(actual));
@@ -234,6 +276,7 @@ int main()
     ok = testKnownStraightLine() && ok;
     ok = testDegenerateInputs() && ok;
     ok = testCapsJoinsAndDuplicateFiltering() && ok;
+    ok = testRoundCapSharesBodySeams() && ok;
     ok = testLegacyCompatibilityFingerprint() && ok;
     ok = testDeterministicRandomRobustness() && ok;
     return ok ? 0 : 1;

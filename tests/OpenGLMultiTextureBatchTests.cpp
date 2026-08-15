@@ -8,6 +8,7 @@
 #include <GLFW/glfw3.h>
 
 #include "wsc/wsc.h"
+#include "opengl/GLTextureUtils.h"
 
 namespace {
 
@@ -152,6 +153,35 @@ int main()
         }
     } else {
         ok = expect(false, "readback should contain a complete frame") && ok;
+    }
+
+    // Glyph atlases are R8 textures. Their swizzle must expose white RGB and
+    // move the red coverage channel into alpha on both desktop GL and GLES.
+    const auto alphaTexture = wsc::opengl::createTextureAlpha8(
+        1, 1, std::vector<unsigned char>{128});
+    ok = expect(alphaTexture.isValid(), "alpha texture upload should succeed")
+        && ok;
+    if (alphaTexture.isValid()) {
+        GLint previousTexture = 0;
+        GLint swizzleR = 0;
+        GLint swizzleG = 0;
+        GLint swizzleB = 0;
+        GLint swizzleA = 0;
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &previousTexture);
+        glBindTexture(GL_TEXTURE_2D, alphaTexture.value);
+        glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_R, &swizzleR);
+        glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_G, &swizzleG);
+        glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, &swizzleB);
+        glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_A, &swizzleA);
+        ok = expect(swizzleR == GL_ONE && swizzleG == GL_ONE
+                        && swizzleB == GL_ONE && swizzleA == GL_RED,
+                    "R8 glyph atlas must sample as white alpha coverage")
+            && ok;
+        ok = expect(glGetError() == GL_NO_ERROR,
+                    "alpha swizzle must be valid for the active GL API")
+            && ok;
+        glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(previousTexture));
+        wsc::opengl::destroyTexture(alphaTexture);
     }
 
     canvas.reset();

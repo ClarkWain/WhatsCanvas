@@ -136,6 +136,8 @@ device layer is backend-specific.
 ## Where next
 
 - [Get Started](GETTING_STARTED_AS_LIBRARY.md) — integrate WhatsCanvas.
+- [Android Integration](ANDROID_INTEGRATION.md) — embed the OpenGL ES backend
+  with `GLSurfaceView`, JNI, and correct context lifecycle handling.
 - [API Reference](API_REFERENCE.md) · [API Stability](API_STABILITY.md).
 - [Performance Benchmarks](PERFORMANCE_BENCHMARKS.md) ·
   [NanoVG 性能优化实战](NANOVG_PERFORMANCE_OPTIMIZATION.md) ·

@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/ClarkWain/WhatsCanvas/actions/workflows/cross-platform-validation.yml/badge.svg)](https://github.com/ClarkWain/WhatsCanvas/actions/workflows/cross-platform-validation.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.2.0-informational.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.3.0-informational.svg)](CHANGELOG.md)
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C.svg)](CMakeLists.txt)
 [![Documentation](https://img.shields.io/badge/docs-online-success.svg)](https://clarkwain.github.io/WhatsCanvas/)
 
@@ -29,7 +29,7 @@ WhatsCanvas 的定位介于 NanoVG 这类基础绘制库和 Skia 这类大型图
 | **文本能力** | 字体发现和 fallback、CJK/RTL、UAX #9、换行与省略号、glyph atlas、COLR/CPAL v0；OpenGL/OpenGL ES 默认启用 FreeType 与 HarfBuzz shaping。 |
 | **接入方式** | vcpkg overlay port、CMake `find_package`、`add_subdirectory`，或从源码生成可搬运的安装目录。 |
 | **体量** | 非 header-only。支持按后端仅链接 `WhatsCanvas::Software`、`::OpenGL`（也承载可选 Vulkan 与 Apple Metal）或 `::OpenGLES`；参考体量见[体量与依赖](#体量与依赖)。 |
-| **成熟度** | 当前版本 `0.2.0`，尚未达到 1.0。仓库已经建立公开 API 边界、跨平台 CI、像素回归、package consumer 集成测试与可审计的性能基线；升级前仍需评估下文列出的平台和兼容性风险。 |
+| **成熟度** | 当前版本 `0.3.0`，尚未达到 1.0。仓库已经建立公开 API 边界、跨平台 CI、像素回归、package consumer 集成测试与可审计的性能基线；升级前仍需评估下文列出的平台和兼容性风险。 |
 | **许可证** | MIT；`third_party/` 组件遵循各自许可证。 |
 
 **何时推荐使用 WhatsCanvas？**
@@ -73,7 +73,7 @@ cmake_minimum_required(VERSION 3.16)
 project(MyApp LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
-find_package(WhatsCanvas 0.2.0 CONFIG REQUIRED)
+find_package(WhatsCanvas 0.3.0 CONFIG REQUIRED)
 
 add_executable(MyApp main.cpp)
 target_link_libraries(MyApp PRIVATE WhatsCanvas::Software)
@@ -101,7 +101,7 @@ build\Release\MyApp.exe
 
 ### 使用发布包
 
-GitHub Release 中的发布包名为 `whatscanvas-<platform>-release-<version>.zip`，例如 `whatscanvas-win64-release-0.2.0.zip`。目录布局如下：
+GitHub Release 中的发布包名为 `whatscanvas-<platform>-release-<version>.zip`，例如 `whatscanvas-win64-release-0.3.0.zip`。目录布局如下：
 
 ```text
 include/wsc/                 公开头文件
@@ -113,7 +113,7 @@ lib/cmake/WhatsCanvas/       find_package 配置
 各平台预编译包所包含的 target 可能有所差异。实际使用时，建议通过 CMake 显式校验所需 target 是否存在：
 
 ```cmake
-find_package(WhatsCanvas 0.2.0 CONFIG REQUIRED)
+find_package(WhatsCanvas 0.3.0 CONFIG REQUIRED)
 if (NOT TARGET WhatsCanvas::Software)
     message(FATAL_ERROR "This package does not contain the Software backend")
 endif()
@@ -264,10 +264,10 @@ if (!canvas) {
 | Windows x64 | MSVC 单元测试、包消费、OpenGL/Software；发布矩阵可启用 GLES、Vulkan、FreeType、HarfBuzz | DirectWrite 文本后端可选；Vulkan 窗口呈现支持 Win32。 |
 | Linux x64 | GCC 构建、单元测试、OpenGL/GLES 滤镜像素门禁、包消费 | 自动化 GL 场景使用 Mesa/Xvfb；GLX 窗口呈现源码仍缺少持续验证。 |
 | macOS x86_64/arm64 | 单元测试、Metal 像素/契约门禁与 universal 发布包 | Metal 默认开启，支持离屏渲染和 `CAMetalLayer` 呈现；系统 OpenGL 仍可用。 |
-| iOS / Android | OpenGL ES target 与 iOS 接入说明 | 尚无常态化的真机 CI，集成前请在目标设备上自行验证。 |
+| iOS / Android | OpenGL ES target、[Android GLSurfaceView/JNI 示例](platforms/android/README.md)、[Android 接入指南](doc/ANDROID_INTEGRATION.md)与 iOS 接入说明 | 平台宿主统一放在 `platforms/`；Android 示例已能构建 `armeabi-v7a`、`arm64-v8a` 和 `x86_64`。尚无常态化的真机 CI，集成前请在目标设备上自行验证。 |
 | Web | 未支持 | WebAssembly / WebGL 2 桥接仍在规划。 |
 
-详细状态见 [Cross-Platform Validation Matrix](doc/CROSS_PLATFORM_VALIDATION_MATRIX.md)、[iOS Build Notes](doc/IOS_BUILD_NOTES.md) 和 [Vulkan Backend Status](doc/vulkan-backend-status.md)。
+详细状态见 [Android 接入指南](doc/ANDROID_INTEGRATION.md)、[Cross-Platform Validation Matrix](doc/CROSS_PLATFORM_VALIDATION_MATRIX.md)、[iOS Build Notes](doc/IOS_BUILD_NOTES.md) 和 [Vulkan Backend Status](doc/vulkan-backend-status.md)。
 
 ## 能力概览
 
@@ -321,7 +321,7 @@ if (!canvas) {
 
 本文中所说的“轻量”，指的是后端可按需分离链接、公开 API 表面较小、库不干预宿主应用的窗口与事件循环，并不意味着 header-only。
 
-以下体量数据来自当前仓库 `0.2.0` 的一次干净构建，环境为 **VS 2022 x64、静态 Release、默认启用 FreeType/HarfBuzz**：
+以下体量数据来自当前仓库 `0.3.0` 的一次干净构建，环境为 **VS 2022 x64、静态 Release、默认启用 FreeType/HarfBuzz**：
 
 | 内容 | 文件体量 |
 | --- | ---: |
@@ -351,10 +351,10 @@ if (!canvas) {
 
 已知风险：
 
-- 版本仍处于 pre-1.0（`0.2.x`），升级前应阅读 CHANGELOG 并执行 package consumer 测试。
+- 版本仍处于 pre-1.0（`0.3.x`），升级前应阅读 CHANGELOG 并执行 package consumer 测试。
 - README 的能力表不保证所有 backend × platform 组合都具备相同能力；滤镜、文字和输出目标应查对应的 feature matrix，并验证项目的实际组合。
 - Vulkan 不是默认后端，跨平台窗口呈现和更大场景的像素覆盖仍在扩展。
-- Metal 已在 Apple 平台可用，但 iOS 模拟器/真机 CI 与仓库内 iOS 示例仍待补齐；WebGPU、WebAssembly 和 CoreText native text adapter 尚未实现。
+- Android GLSurfaceView/JNI 宿主已能构建两个 Arm ABI 和 `x86_64`，但广泛真机覆盖、触摸/编码图片接入、AAR 打包和 Android CI 仍待补齐。Metal 已在 Apple 平台可用，但 iOS 模拟器/真机 CI 与仓库内 iOS 示例仍待补齐；WebGPU、WebAssembly 和 CoreText native text adapter 尚未实现。
 - 跨 GPU 的实时渲染结果可能受驱动影响；确定性基线应优先使用 Software，GPU 回归使用容差比较。
 - `Canvas` 应在其渲染 / 上下文线程内使用；当前公开文档不承诺同一实例的并发访问，也未定义跨 Canvas 共享图片、字体或外部纹理的跨线程约定。
 
@@ -415,6 +415,7 @@ sh ./scripts/release_preflight.sh
 | 目的 | 文档 |
 | --- | --- |
 | 首次接入 | [Using WhatsCanvas as a Library](doc/GETTING_STARTED_AS_LIBRARY.md) |
+| Android 宿主接入 | [Android Integration Guide](doc/ANDROID_INTEGRATION.md) |
 | 查找 API | [Public API Reference](doc/API_REFERENCE.md) · [Visual API Gallery](doc/visual-api-gallery.md) |
 | 评估 API 稳定性 | [API Stability](doc/API_STABILITY.md) · [CHANGELOG](CHANGELOG.md) |
 | 文本和字体 | [Text Feature Matrix](doc/TEXT_FEATURE_MATRIX.md) · [DirectWrite](doc/DIRECTWRITE_TEXT_BACKEND.md) |

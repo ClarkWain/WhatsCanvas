@@ -202,9 +202,9 @@ Tagged releases publish per-platform prebuilt packages on the repository's
 
 ```
 whatscanvas-<os>-release-<version>.zip
-# e.g. whatscanvas-win64-release-0.2.0.zip
-#      whatscanvas-linux-x64-release-0.2.0.zip
-#      whatscanvas-macos-universal-release-0.2.0.zip
+# e.g. whatscanvas-win64-release-0.3.0.zip
+#      whatscanvas-linux-x64-release-0.3.0.zip
+#      whatscanvas-macos-universal-release-0.3.0.zip
 ```
 
 1. Download the archive for your OS from **Releases** and unzip it. You get:
@@ -220,7 +220,7 @@ project(MyApp LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(WhatsCanvas 0.2.0 CONFIG REQUIRED)
+find_package(WhatsCanvas 0.3.0 CONFIG REQUIRED)
 
 add_executable(MyApp main.cpp)
 target_link_libraries(MyApp PRIVATE WhatsCanvas::OpenGL)   # or ::Software / ::OpenGLES
