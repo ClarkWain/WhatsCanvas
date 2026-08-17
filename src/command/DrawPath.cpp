@@ -338,20 +338,30 @@ void DrawPathProgram::initialize()
     initialized_ = true;
 }
 
-void DrawPathProgram::release()
+void DrawPathProgram::release(bool abandon)
 {
     if (!initialized_)
         return;
 
-    if (program_ != nullptr)
+    if (program_ != nullptr) {
+        if (abandon) program_->abandonVolatile();
         delete program_;
+        program_ = nullptr;
+    }
 
-    if (VAO_ != -1)
+    if (!abandon && VAO_ != -1)
         glDeleteVertexArrays(1, &VAO_);
+    VAO_ = static_cast<unsigned int>(-1);
 
-    geometryBuffer_.release();
-    gradientStopBuffer_.release();
-    drawParameterBuffer_.release();
+    if (abandon) {
+        geometryBuffer_.abandon();
+        gradientStopBuffer_.abandon();
+        drawParameterBuffer_.abandon();
+    } else {
+        geometryBuffer_.release();
+        gradientStopBuffer_.release();
+        drawParameterBuffer_.release();
+    }
     projectionWidth_ = -1;
     projectionHeight_ = -1;
     batchActive_ = false;

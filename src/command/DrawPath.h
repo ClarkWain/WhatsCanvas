@@ -28,7 +28,7 @@ public:
     ~DrawPathProgram();
 
     void initialize();
-    void release();
+    void release(bool abandon = false);
     void beginFrame();
     void beginBatch();
     void endBatch();

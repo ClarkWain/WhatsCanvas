@@ -119,7 +119,7 @@ WhatsCanvas 当前有两条 Picture 回放路径。
 - 编辑器里的静态网格或底图；
 - UI 框架中由 RepaintBoundary 一类边界隔离的子树。
 
-栅格化会把多个矢量 draw 压缩成一个纹理 draw，但也改变了成本结构：它消耗额外显存，首次生成需要离屏渲染，而且缩放后的清晰度取决于缓存生成时的尺寸和状态。因此它只应该显式使用，不能替代普通 `drawPicture()`。WhatsCanvas 目前按整个 Canvas 尺寸生成 raster image，尚未提供带局部 bounds 的小纹理缓存；只缓存一个很小的控件也会占用整张画布大小的纹理。
+栅格化会把多个矢量 draw 压缩成一个纹理 draw，但也改变了成本结构：它消耗额外显存，首次生成需要离屏渲染，而且缩放后的清晰度取决于缓存生成时的尺寸和状态。因此它只应该显式使用，不能替代普通 `drawPicture()`。WhatsCanvas 会分析操作流的保守局部 bounds，只为实际覆盖区域分配离屏纹理；阴影等无法可靠界定的操作会安全回退到全画布 bounds。
 
 ## How：把现有渲染代码迁移到 Picture
 
@@ -132,7 +132,7 @@ WhatsCanvas 当前有两条 Picture 回放路径。
 - 哪些内容依赖当前 framebuffer 中已经存在的像素？
 - 某个区域变化时，能否整体重录，而不必维护大量细粒度失效规则？
 
-用于普通 `drawPicture()` 的边界宁可小而明确。把静态背景和动态进度条录进同一个 Picture，会迫使应用每帧重录整个 Picture，收益通常会消失。若准备使用当前的全画布 `drawPictureRasterized()`，还要把纹理占用纳入边界判断，不能为了一个小控件分配整屏缓存。
+用于普通 `drawPicture()` 的边界宁可小而明确。把静态背景和动态进度条录进同一个 Picture，会迫使应用每帧重录整个 Picture，收益通常会消失。即使局部 bounds 已减少小控件的纹理占用，仍要把离屏面积、失效频率和预算压力纳入边界判断。
 
 ### 第二步：在渲染循环之外录制
 
@@ -197,7 +197,7 @@ canvas.endFrame();
 - 必须与外部绘制逐项交错的内容；
 - 使用 destination-dependent blend、backdrop 或其他依赖已有目标像素的操作；
 - 在连续变化的 scale、clip 或变换状态下回放的内容；
-- 只占画面很小区域、却要使用当前全画布 raster target 的内容；
+- bounds 无法可靠收紧、会回退到大面积 raster target 的内容；
 - 面积很大、只绘制一两次，生成成本无法摊销的内容。
 
 ### 第五步：用统计数据验证缓存是否按预期工作
@@ -229,15 +229,15 @@ log("picture raster cache: hit=%zu miss=%zu layers=%zu bytes=%zu evictions=%zu",
 
 嵌套 `recordPicture()` 会被拒绝。`restoreToCount()` 会被转换成相对 pop 数量，使 Picture 能在不同的调用方 save 深度下安全回放。
 
-当前支持点、线、矩形、圆角矩形、圆、椭圆、路径、弧、文本、文本框、路径文字、渐变、阴影、混合、矩阵和裁剪。以下操作会使录制失败并返回空指针：
+当前支持点、线、矩形、圆角矩形、圆、椭圆、路径、弧、文本、文本框、路径文字、渐变、阴影、混合、矩阵、裁剪，以及拥有 CPU RGBA 快照的 Image。Image 的 Fit、NinePatch、圆角和圆形辅助绘制会展开为同样可移植的操作。以下操作会使录制失败并返回空指针：
 
-- `Image` / `ITextureSource` 绘制；
+- `ITextureSource`、外部纹理或没有 CPU 快照的 Image 绘制；
 - `saveLayer()`；
 - `setDevicePixelRatio()`。
 
-这些限制来自资源所有权，而不是 API 遗漏。当前 Image 可能绑定某个 Canvas 或 GPU Context；把它直接捕获到可跨 Context 的 Picture 中，会产生悬空纹理或在错误 Context 删除资源。
+这些限制来自资源所有权，而不是 API 遗漏。录制 CPU-backed Image 时，Picture 捕获不可变的 RGBA 快照；源 Image 后续更新采用 copy-on-write，因此不会改写已录制画面。外部纹理仍只属于创建它的 GPU Context，把它直接捕获到可跨 Context 的 Picture 中会产生悬空纹理或在错误 Context 删除资源。
 
-页面包含图片时，可以先把背景、文字和矢量图标录进 Picture，再在外层绘制 Image；也可以把图片所在区域留在动态覆盖层。等不可变、CPU-backed Image 能安全进入 Picture 后，再合并这两部分。
+页面中的静态、CPU-backed 图片可以和背景、文字、矢量图标一起录制。相机、视频、SurfaceTexture、render target 或应用自行管理的 GL 纹理应继续放在动态覆盖层。
 
 ### 编译命令缓存不是 Picture 本体
 
@@ -254,11 +254,11 @@ Context 初始化会推进 `contextGeneration`。尺寸、DPR、字体集合、�
 
 ### 栅格缓存有显存预算
 
-`drawPictureRasterized()` 首次执行时，会把编译后的命令渲染到与当前 Canvas 相符的离屏图像。后续帧提交一个纹理矩形。当前实现处理 render target 的上下原点差异，并使用 nearest sampling，避免全屏一比一回放时因为半像素采样引入模糊或边缘缝隙。
+`drawPictureRasterized()` 首次执行时，会计算操作流的保守局部 bounds，把编译后的命令以 viewport/scissor 偏移渲染到匹配该区域的离屏图像，再在原位置合成。后续帧只提交一个纹理矩形。当前实现处理 render target 的上下原点差异，并使用 nearest sampling，避免一比一回放时因为半像素采样引入模糊或边缘缝隙。
 
-栅格缓存由 Canvas 管理，默认使用 32 MB 软预算和 LRU 驱逐。单个大于预算的最新层仍会保留；否则它会在每一帧被驱逐、重新生成，内存没有下降，性能反而更差。
+栅格缓存由 Canvas 管理，默认使用 32 MB 软预算和 LRU 驱逐。应用可以通过 `setRetainedPictureRasterCacheBudgetBytes()` 调整；设为 0 会完全绕过纹理缓存并回退到普通 Picture 回放。单个大于非零预算的最新层仍会保留；否则它会在每一帧被驱逐、重新生成，内存没有下降，性能反而更差。
 
-Picture 与 Canvas 之间使用弱引用登记派生项。`finalizeContext()`、`releaseResources()` 和 Canvas 销毁会清除相关编译命令与纹理；内容 generation 改变会使旧条目失效，并在下一次编译时移除。CPU Picture 不受影响，可以在新 Context 中重新生成派生缓存。
+Picture 与 Canvas 之间使用弱引用登记派生项。`finalizeContext()`、`abandonContext()`、`releaseResources()` 和 Canvas 销毁会清除相关编译命令与纹理；内容 generation 改变会使旧条目失效，并在下一次编译时移除。CPU Picture 不受影响，可以在新 Context 中重新生成派生缓存。前者用于旧 Context 仍 current 的有序释放；`abandonContext()` 用于 Context 已经丢失的情况，它只忘记 GL 名称而不调用删除 API。
 
 ## 实现过程中遇到的坑
 
@@ -272,7 +272,7 @@ Android feature-matrix demo 最初把静态场景录成 Picture 后，场景构�
 
 早期实验把 GPU 资源与缓存对象绑定得过紧。Android Surface 或 EGL 生命周期变化后，旧纹理可能在新 Context 中被误用或释放；切后台前后甚至可能看到画面变化。
 
-现在的原则是：Picture 的 CPU 操作流是事实来源，GPU 命令和 raster image 都是可丢弃的派生数据。缓存键包含 Context generation，并在 orderly teardown 前清除。这个所有权关系比“是否使用纹理缓存”更重要。
+现在的原则是：Picture 的 CPU 操作流和 Image 的 CPU 快照是事实来源，GPU 命令和 raster image 都是可丢弃的派生数据。缓存键包含 Context generation；有序 teardown 时删除资源，意外 Context loss 时只 abandon 旧名称。这个所有权关系比“是否使用纹理缓存”更重要。
 
 ### 动态几何会污染静态缓存
 

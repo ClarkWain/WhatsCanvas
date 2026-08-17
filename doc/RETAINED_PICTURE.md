@@ -36,21 +36,23 @@ canvas.endFrame();
 - 点、线、矩形、圆角矩形、圆、椭圆、路径和弧；
 - 文本、文本框和沿路径文本；
 - Paint、渐变、阴影、混合模式；
+- 由文件、编码内存或 RGBA 数据创建、具有 CPU 快照的 `Image`，包括 Fit、
+  NinePatch、圆角和圆形辅助绘制；
 - save/restore、矩阵变换、矩形/路径裁剪；
 - 在 Context 销毁并重建后继续回放。
 
 以下操作目前会令 `recordPicture()` 返回空指针：
 
-- `Image` / `ITextureSource` 绘制；
+- `ITextureSource`、外部纹理以及其他没有 CPU 像素快照的 `Image` 绘制；
 - `saveLayer()`；
 - `setDevicePixelRatio()`；
 
 `restoreToCount()` 在录制时会转换为相对 pop 数量，因此 Picture 可以在任意调用方
 save 栈深度下安全回放。
 
-这些限制是有意的。当前 `Image` 是 Canvas/GPU 上下文拥有的可变资源；直接把它或
-离屏 layer 纹理塞进 Picture，会在 Android 切后台、Surface 重建或跨后端回放时留下
-失效资源。
+这些限制是有意的。CPU-backed Image 在录制时共享一份不可变 RGBA 快照；源 Image
+之后更新时采用 copy-on-write，不会改变已录制内容。外部纹理和离屏 layer 没有可移植
+像素事实来源，直接捕获会在 Android 切后台、Surface 重建或跨后端回放时留下失效资源。
 
 ## 两级派生缓存
 
@@ -71,8 +73,11 @@ drawChangingContent(canvas);
 canvas.endFrame();
 ```
 
-栅格缓存按 Canvas 管理，默认使用 32 MB 软预算和 LRU 驱逐。单个大于预算的最新层
-仍会保留，防止每帧反复重建。可以通过 `RenderStats` 观察：
+栅格缓存按 Canvas 管理，默认使用 32 MB 软预算和 LRU 驱逐，并只为 Picture 的保守
+局部 bounds 分配离屏纹理；阴影等无法安全界定的操作会回退到全画布 bounds。可通过
+`setRetainedPictureRasterCacheBudgetBytes()` 调整预算，设为 0 可禁用栅格缓存并回退到
+普通 `drawPicture()`。单个大于非零预算的最新层仍会保留，防止每帧反复重建。可以通过
+`RenderStats` 观察：
 
 - `retainedPictureCacheHits/Misses`；
 - `retainedPictureRasterCacheHits/Misses`；
@@ -85,9 +90,10 @@ canvas.endFrame();
 ## Context 生命周期
 
 编译命令与栅格纹理都不是 `Picture` 的可移植内容。Canvas 在 `finalizeContext()`、
-`releaseResources()`、尺寸/DPR/字体/后端变化时先清除这些派生项；CPU Picture 仍可在
-新 Context 上重新编译和栅格化。跨 Canvas 回放只使用高层操作，不借用原 Canvas 的
-派生资源。
+`abandonContext()`、`releaseResources()`、尺寸/DPR/字体/后端变化时清除这些派生项；
+CPU Picture 仍可在新 Context 上重新编译和栅格化。跨 Canvas 回放只使用高层操作，
+不借用原 Canvas 的派生资源。`finalizeContext()` 用于 Context 尚且 current 的有序释放，
+`abandonContext()` 用于旧 Context 已丢失、绝不能再调用其删除 API 的恢复路径。
 
 Android 示例在普通暂停时保留健康的 EGL Context，避免无意义地丢弃约 9.5 MB 的
 全屏静态层；真正 Context 丢失仍走完整重建路径。
@@ -102,10 +108,9 @@ Picture 与可选栅格层已经解决静态场景的 CPU 重建和大量静态 
 
 1. 把文本操作升级为不可变 GlyphRun/TextBlob，避免每帧重新 shaping；
 2. 使用瞬态 ring/arena 或驻留几何上传已编译包，不让 Picture 本体持有 GPU buffer；
-3. 增加不可变、CPU-backed Image，使图像能安全进入 Picture；
-4. 为真正 EGL Context 丢失增加核心库的 abandon-context 路径；
-5. 为冷启动/Context 丢失后的首次栅格化减少同步预热延迟。
+3. 为冷启动/Context 丢失后的首次栅格化减少同步预热延迟；
+4. 为 Android 增加 managed-emulator/instrumentation 生命周期门禁。
 
 Android Demo 已按“静态 Picture + 动态覆盖层”拆分。静态卡片、文字和固定几何只
-录制一次并显式栅格缓存；虚线相位、进度弧、旋转元素和进度条仍逐帧生成。图片暂留
-动态层，直到不可变 Image 完成。
+录制一次并显式栅格缓存；虚线相位、进度弧、旋转元素和进度条仍逐帧生成。具有 CPU
+快照的静态图片现在可以并入 Picture；相机、视频和外部纹理仍留在动态层。

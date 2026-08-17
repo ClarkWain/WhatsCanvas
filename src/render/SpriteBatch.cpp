@@ -490,43 +490,52 @@ void SpriteBatch::ensureIndexCapacity(std::size_t spriteCount)
     indexSpriteCapacity_ = nextCapacity;
 }
 
-void SpriteBatch::releaseGLResources()
+void SpriteBatch::abandonGLResources()
 {
-    endBatch();
+    releaseGLResources(true);
+}
+
+void SpriteBatch::releaseGLResources(bool abandon)
+{
+    if (!abandon) {
+        endBatch();
+    }
     if (program_ != nullptr) {
+        if (abandon) program_->abandonVolatile();
         delete program_;
         program_ = nullptr;
     }
     if (instanceProgram_ != nullptr) {
+        if (abandon) instanceProgram_->abandonVolatile();
         delete instanceProgram_;
         instanceProgram_ = nullptr;
     }
 
     if (VAO_ != static_cast<unsigned int>(-1)) {
-        glDeleteVertexArrays(1, &VAO_);
+        if (!abandon) glDeleteVertexArrays(1, &VAO_);
         VAO_ = static_cast<unsigned int>(-1);
     }
 
     if (VBO_ != static_cast<unsigned int>(-1)) {
-        glDeleteBuffers(1, &VBO_);
+        if (!abandon) glDeleteBuffers(1, &VBO_);
         VBO_ = static_cast<unsigned int>(-1);
     }
     if (EBO_ != static_cast<unsigned int>(-1)) {
-        glDeleteBuffers(1, &EBO_);
+        if (!abandon) glDeleteBuffers(1, &EBO_);
         EBO_ = static_cast<unsigned int>(-1);
     }
     if (sampler_ != static_cast<unsigned int>(-1)) {
 #if !defined(WHATSCANVAS_OPENGL_ES)
-        glDeleteSamplers(1, &sampler_);
+        if (!abandon) glDeleteSamplers(1, &sampler_);
 #endif
         sampler_ = static_cast<unsigned int>(-1);
     }
     if (instanceVAO_ != static_cast<unsigned int>(-1)) {
-        glDeleteVertexArrays(1, &instanceVAO_);
+        if (!abandon) glDeleteVertexArrays(1, &instanceVAO_);
         instanceVAO_ = static_cast<unsigned int>(-1);
     }
     if (instanceVBO_ != static_cast<unsigned int>(-1)) {
-        glDeleteBuffers(1, &instanceVBO_);
+        if (!abandon) glDeleteBuffers(1, &instanceVBO_);
         instanceVBO_ = static_cast<unsigned int>(-1);
     }
     indexSpriteCapacity_ = 0;
@@ -535,6 +544,9 @@ void SpriteBatch::releaseGLResources()
     boundTextures_.fill(0u);
     samplerUniformsInitialized_ = false;
     instanceSamplerInitialized_ = false;
+
+    texture_.reset();
+    textures_.clear();
 
     glInitialized_ = false;
 }

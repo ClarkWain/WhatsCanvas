@@ -95,7 +95,9 @@ This directory is the top-level home for WhatsCanvas validation beyond ad-hoc lo
 - `ctest -C Debug -R ^WhatsCanvasPaintStateTests$ --output-on-failure`: public `Paint` state, gradient stop, path effect, color matrix, shadow, sampling, and blend-mode coverage.
 - `ctest -C Debug -R ^WhatsCanvasStrokeTessellatorTests$ --output-on-failure`: internal stroke geometry compatibility, caps, joins, miter limits, closed paths, duplicate filtering, degenerate input, and deterministic robustness coverage.
 - `ctest -C Debug -R ^WhatsCanvasImageResourceLifecycleTests$ --output-on-failure`: backend-neutral `Image` load, replace, update, external texture, reset, and move lifecycle coverage.
-- `ctest -C Debug -R ^WhatsCanvasContextLifecycleTests$ --output-on-failure`: public `Canvas` context initialize, finalize, resource release, and recreation lifecycle coverage.
+- `ctest -C Debug -R ^WhatsCanvasContextLifecycleTests$ --output-on-failure`: public `Canvas` context initialize, orderly finalize, no-delete abandon, resource release, recreation, local Picture-raster bounds, zero-budget bypass, and LRU pressure coverage.
+- `ctest -C Debug -R ^WhatsCanvasGlyphAtlasTests$ --output-on-failure`: glyph lookup/atlas behavior plus repeated atlas-pressure and context-loss recreation stress.
+- `cmake -S . -B build-fuzz -DWHATSCANVAS_BUILD_FUZZERS=ON` with Clang builds `WhatsCanvasTextAndFontConfigFuzzer`; seed corpora live in `tests/fuzz/corpus/` and CI runs a bounded ASan/UBSan smoke.
 - `ctest -C Debug -L smoke --output-on-failure`: standard entry for the registered smoke/example script gates.
 - `ctest -C Release -R ^WhatsCanvasPerformanceMatrixSmoke$ --output-on-failure`: end-to-end parameterized geometry/image/text benchmark smoke, including stable and dynamic-structure workloads plus JSON/CSV/Markdown report generation.
 - `ctest -C Release -R ^WhatsCanvasPerformanceMatrixTests$ --output-on-failure`: unit coverage for workload generation, deterministic CLI construction, seed aggregation, and matrix report output.

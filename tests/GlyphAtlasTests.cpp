@@ -277,6 +277,37 @@ bool testColorGlyphUploadKeepsRgbaPixels()
     return ok;
 }
 
+bool testRepeatedContextLossAndAtlasPressure()
+{
+    wsc::text::GlyphAtlas atlas(64, 64, 1);
+    bool ok = true;
+    for (int cycle = 0; cycle < 64; ++cycle) {
+        for (std::uint32_t glyph = 0; glyph < 96; ++glyph) {
+            auto key = makeKey(0x400u + glyph, 12.0f + (glyph % 4u));
+            key.fontIdentity = "stress-face-" + std::to_string(glyph % 7u);
+            const auto uploaded = atlas.uploadGlyph(
+                key, makeBitmap(5 + static_cast<int>(glyph % 5u),
+                                7 + static_cast<int>(glyph % 3u),
+                                static_cast<unsigned char>(glyph)));
+            ok = expect(uploaded.has_value(),
+                        "stress glyph should fit after growth/eviction") && ok;
+        }
+        (void)atlas.consumeDirtyRects();
+        const std::uint64_t generationBeforeLoss = atlas.stats().generation;
+        atlas.onContextLost();
+        ok = expect(atlas.stats().generation == generationBeforeLoss + 1u,
+                    "every context loss should advance atlas generation") && ok;
+        ok = expect(atlas.stats().glyphCount == 0,
+                    "context loss should leave no live atlas entries") && ok;
+        ok = expect(!atlas.stats().textureValid,
+                    "lost atlas should remain invalid before restore") && ok;
+        atlas.onContextRestored();
+        ok = expect(atlas.stats().textureValid,
+                    "restored atlas should accept the next generation") && ok;
+    }
+    return ok;
+}
+
 } // namespace
 
 int main()
@@ -293,5 +324,6 @@ int main()
     ok = testDirtyRectsCollapseByArea() && ok;
     ok = testContextLossRebuildHooks() && ok;
     ok = testColorGlyphUploadKeepsRgbaPixels() && ok;
+    ok = testRepeatedContextLossAndAtlasPressure() && ok;
     return ok ? 0 : 1;
 }

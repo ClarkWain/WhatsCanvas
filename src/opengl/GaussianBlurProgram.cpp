@@ -223,47 +223,48 @@ void GaussianBlurProgram::initialize()
     initialized_ = true;
 }
 
-void GaussianBlurProgram::destroyTargets()
+void GaussianBlurProgram::destroyTargets(bool abandon)
 {
     if (fboA_ != 0) {
-        glDeleteFramebuffers(1, &fboA_);
+        if (!abandon) glDeleteFramebuffers(1, &fboA_);
         fboA_ = 0;
     }
     if (fboB_ != 0) {
-        glDeleteFramebuffers(1, &fboB_);
+        if (!abandon) glDeleteFramebuffers(1, &fboB_);
         fboB_ = 0;
     }
     if (textureA_ != 0) {
-        glDeleteTextures(1, &textureA_);
+        if (!abandon) glDeleteTextures(1, &textureA_);
         textureA_ = 0;
     }
     if (textureB_ != 0) {
-        glDeleteTextures(1, &textureB_);
+        if (!abandon) glDeleteTextures(1, &textureB_);
         textureB_ = 0;
     }
     targetWidth_ = 0;
     targetHeight_ = 0;
 }
 
-void GaussianBlurProgram::release()
+void GaussianBlurProgram::release(bool abandon)
 {
     if (!initialized_) {
         return;
     }
 
     if (program_ != nullptr) {
+        if (abandon) program_->abandonVolatile();
         delete program_;
         program_ = nullptr;
     }
     if (vbo_ != 0) {
-        glDeleteBuffers(1, &vbo_);
+        if (!abandon) glDeleteBuffers(1, &vbo_);
         vbo_ = 0;
     }
     if (vao_ != 0) {
-        glDeleteVertexArrays(1, &vao_);
+        if (!abandon) glDeleteVertexArrays(1, &vao_);
         vao_ = 0;
     }
-    destroyTargets();
+    destroyTargets(abandon);
     initialized_ = false;
 }
 

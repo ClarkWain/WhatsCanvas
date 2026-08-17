@@ -585,7 +585,7 @@ public:
         if (eglContext_ != EGL_NO_CONTEXT && eglContext_ != currentContext) {
             __android_log_print(ANDROID_LOG_WARN, kLogTag,
                                 "EGL context changed; rebuilding derived resources");
-            release();
+            abandon();
         }
         eglContext_ = currentContext;
         const bool loaded = wsc::Canvas::loadOpenGL(&loadOpenGlesProcedure);
@@ -747,6 +747,24 @@ public:
             // still current, then destroy other context-bound resources.
             canvas_->finalizeContext();
         }
+        staticPicture_.reset();
+        canvas_.reset();
+        eglContext_ = EGL_NO_CONTEXT;
+        physicalWidth_ = 0;
+        physicalHeight_ = 0;
+        density_ = 1.0f;
+        lastStatsSecond_ = -1;
+    }
+
+    void abandon()
+    {
+        // The previous EGLContext is already gone. Mark every resource from
+        // that generation invalid before releasing CPU owners, so no GL delete
+        // is accidentally issued against the replacement context.
+        if (canvas_) {
+            canvas_->abandonContext();
+        }
+        checkerImage_.reset();
         staticPicture_.reset();
         canvas_.reset();
         eglContext_ = EGL_NO_CONTEXT;

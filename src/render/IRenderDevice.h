@@ -20,6 +20,8 @@ public:
 
     virtual void initializeBackend() = 0;
     virtual void finalizeBackend() = 0;
+    /// Invalidate resources without calling the lost graphics context/device.
+    virtual void abandonBackend() { finalizeBackend(); }
     virtual bool readPixelsRGBA(int width, int height, std::vector<unsigned char> &pixels) const = 0;
     virtual std::unique_ptr<IRenderTarget> createRenderTarget(int width, int height) const = 0;
     virtual SharedClipMaskResource createClipMaskResource(const ClipMaskPath &maskPath) const = 0;

@@ -33,6 +33,9 @@ public:
 
     virtual void initializeBackend() = 0;
     virtual void finalizeBackend() = 0;
+    /// Drop backend state after involuntary context/device loss. Implementations
+    /// must not issue destruction calls against the lost backend context.
+    virtual void abandonBackend() { finalizeBackend(); }
     virtual void setViewport(int width, int height) = 0;
     virtual void submit(std::unique_ptr<Command> &&command) = 0;
     virtual bool tryAppendImageBatch(

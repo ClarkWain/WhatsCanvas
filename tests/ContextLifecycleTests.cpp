@@ -56,6 +56,13 @@ public:
         initialized = false;
     }
 
+    void abandonBackend() override
+    {
+        ++abandonCount;
+        initialized = false;
+        commands.clear();
+    }
+
     void setViewport(int width, int height) override
     {
         ++viewportCount;
@@ -115,9 +122,10 @@ public:
     void resetFrameStats() override { stats.reset(); }
     RenderResourceStats resourceStats() const override { return {}; }
     SharedImageResource renderCommandsToImageResource(const std::vector<std::unique_ptr<Command>> &,
-                                                      const OffscreenRenderRequest &) const override
+                                                       const OffscreenRenderRequest &request) const override
     {
         ++renderTargetRequests;
+        lastOffscreenRequest = request;
         stats.renderTargetSwitches += 1;
         return returnRenderTargetImage ? std::make_shared<FakeImageResource>() : SharedImageResource();
     }
@@ -139,11 +147,13 @@ public:
     bool initialized = false;
     int initializeCount = 0;
     int finalizeCount = 0;
+    int abandonCount = 0;
     int viewportCount = 0;
     int viewportWidth = 0;
     int viewportHeight = 0;
     int clearCount = 0;
     mutable int renderTargetRequests = 0;
+    mutable OffscreenRenderRequest lastOffscreenRequest;
     bool returnRenderTargetImage = false;
     std::vector<std::unique_ptr<Command>> commands;
     mutable FrameStats stats;
@@ -674,6 +684,136 @@ bool testContextRecreation()
     return ok;
 }
 
+bool testAbandonedContextRecreation()
+{
+    auto renderer = std::make_unique<FakeRenderer>();
+    FakeRenderer *rawRenderer = renderer.get();
+    std::unique_ptr<wsc::Canvas> canvas =
+        wsc::CanvasLifecycleTestAccess::create(std::move(renderer));
+
+    bool ok = expect(
+        canvas->initializeContext(),
+        "initial context should initialize before abandonment");
+    wsc::Paint paint;
+    canvas->drawRect(wsc::RectF(0.0f, 0.0f, 10.0f, 10.0f), paint);
+
+    canvas->abandonContext();
+    ok = expect(
+        !canvas->isContextInitialized(),
+        "abandonContext should clear initialized state") && ok;
+    ok = expect(
+        rawRenderer->abandonCount == 1,
+        "abandonContext should call the no-delete backend path") && ok;
+    ok = expect(
+        rawRenderer->finalizeCount == 0,
+        "abandonContext must not call orderly finalization") && ok;
+    ok = expect(
+        rawRenderer->commands.empty(),
+        "abandonContext should discard queued work") && ok;
+
+    canvas->abandonContext();
+    ok = expect(
+        rawRenderer->abandonCount == 1,
+        "abandonContext should be idempotent") && ok;
+    ok = expect(
+        canvas->initializeContext(),
+        "Canvas should initialize on a replacement context") && ok;
+    ok = expect(
+        rawRenderer->initializeCount == 2,
+        "replacement context should initialize the backend again") && ok;
+    return ok;
+}
+
+bool testPictureRasterCacheUsesContentBoundsAndBudget()
+{
+    auto renderer = std::make_unique<FakeRenderer>();
+    FakeRenderer *rawRenderer = renderer.get();
+    rawRenderer->returnRenderTargetImage = true;
+    std::unique_ptr<wsc::Canvas> canvas =
+        wsc::CanvasLifecycleTestAccess::create(std::move(renderer));
+    canvas->setSize(200, 120);
+    bool ok = expect(canvas->initializeContext(), "Picture Canvas should initialize");
+
+    const auto picture = canvas->recordPicture([](wsc::Canvas &recording) {
+        wsc::Paint paint;
+        paint.setColor(wsc::Color::RED);
+        recording.scale(2.0f, 2.0f);
+        recording.drawRect(wsc::RectF(40.0f, 30.0f, 24.0f, 18.0f), paint);
+    });
+    ok = expect(picture != nullptr, "bounded Picture should record") && ok;
+    ok = expect(
+        canvas->retainedPictureRasterCacheBudgetBytes() == 32u * 1024u * 1024u,
+        "Picture raster cache should expose its default budget") && ok;
+
+    canvas->beginFrame();
+    canvas->drawPictureRasterized(*picture);
+    ok = expect(rawRenderer->renderTargetRequests == 1,
+                "first raster draw should create one target") && ok;
+    ok = expect(rawRenderer->lastOffscreenRequest.targetWidth < 200
+                && rawRenderer->lastOffscreenRequest.targetHeight < 120,
+                "small Picture should use a content-sized target") && ok;
+    ok = expect(rawRenderer->lastOffscreenRequest.targetWidth >= 52,
+                "local bounds should scale the antialiasing outset") && ok;
+    ok = expect(rawRenderer->lastOffscreenRequest.viewportX < 0,
+                "bounded target should translate canvas X into local space") && ok;
+    const auto stats = canvas->getRenderStats();
+    const std::size_t expectedBytes =
+        static_cast<std::size_t>(rawRenderer->lastOffscreenRequest.targetWidth)
+        * static_cast<std::size_t>(rawRenderer->lastOffscreenRequest.targetHeight)
+        * 4u;
+    ok = expect(stats.retainedPictureRasterCacheBytes == expectedBytes,
+                "raster statistics should report local target bytes") && ok;
+
+    canvas->setRetainedPictureRasterCacheBudgetBytes(0u);
+    ok = expect(canvas->retainedPictureRasterCacheBudgetBytes() == 0u,
+                "zero budget should be observable") && ok;
+    ok = expect(canvas->getRenderStats().retainedPictureRasterCacheBytes == 0u,
+                "zero budget should release resident raster images") && ok;
+    canvas->beginFrame();
+    canvas->drawPictureRasterized(*picture);
+    ok = expect(rawRenderer->renderTargetRequests == 1,
+                "zero budget should bypass raster target creation") && ok;
+    ok = expect(canvas->getRenderStats().retainedPictureCacheHits == 1u,
+                "zero budget should preserve the compiled Picture cache") && ok;
+    return ok;
+}
+
+bool testPictureRasterCacheEvictsUnderPressure()
+{
+    auto renderer = std::make_unique<FakeRenderer>();
+    FakeRenderer *rawRenderer = renderer.get();
+    rawRenderer->returnRenderTargetImage = true;
+    std::unique_ptr<wsc::Canvas> canvas =
+        wsc::CanvasLifecycleTestAccess::create(std::move(renderer));
+    canvas->setSize(320, 180);
+    bool ok = expect(canvas->initializeContext(), "pressure Canvas should initialize");
+    canvas->setRetainedPictureRasterCacheBudgetBytes(8192u);
+
+    std::vector<std::shared_ptr<const wsc::Picture>> pictures;
+    for (int index = 0; index < 24; ++index) {
+        pictures.push_back(canvas->recordPicture([index](wsc::Canvas &recording) {
+            wsc::Paint paint;
+            paint.setColor(wsc::Color::BLUE);
+            recording.drawRect(
+                wsc::RectF(8.0f + static_cast<float>(index % 8) * 34.0f,
+                           8.0f + static_cast<float>(index / 8) * 42.0f,
+                           28.0f, 34.0f), paint);
+        }));
+    }
+    canvas->beginFrame();
+    for (const auto &picture : pictures) {
+        canvas->drawPictureRasterized(*picture);
+    }
+    const auto stats = canvas->getRenderStats();
+    ok = expect(stats.retainedPictureRasterCacheEvictions > 0,
+                "small budget should evict old Picture rasters") && ok;
+    ok = expect(stats.retainedPictureRasterCacheBytes <= 8192u,
+                "Picture raster cache should remain within its soft budget") && ok;
+    ok = expect(stats.retainedPictureRasterCacheSize < pictures.size(),
+                "pressure should not retain every raster") && ok;
+    return ok;
+}
+
 } // namespace
 
 int main()
@@ -695,5 +835,8 @@ int main()
     ok = testDashedStrokeUsesSinglePathCommand() && ok;
     ok = testAsyncReadbackRejectsInvalidState() && ok;
     ok = testContextRecreation() && ok;
+    ok = testAbandonedContextRecreation() && ok;
+    ok = testPictureRasterCacheUsesContentBoundsAndBudget() && ok;
+    ok = testPictureRasterCacheEvictsUnderPressure() && ok;
     return ok ? 0 : 1;
 }

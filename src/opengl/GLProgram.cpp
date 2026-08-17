@@ -82,6 +82,12 @@ void GLProgram::unloadVolatile()
     uniformLocations_.clear();
 }
 
+void GLProgram::abandonVolatile()
+{
+    program_ = 0;
+    uniformLocations_.clear();
+}
+
 GLProgram::~GLProgram()
 {
     glDeleteProgram(program_);

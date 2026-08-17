@@ -31,6 +31,8 @@ public:
     // IVolatile interface
     bool loadVolatile() override;
     void unloadVolatile() override;
+    /// Forget the program name after context loss without calling glDeleteProgram.
+    void abandonVolatile();
 
     // Uniform setter helpers
     void setFloat(const std::string& name, float value);

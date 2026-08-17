@@ -37,7 +37,7 @@ public:
     ~GaussianBlurProgram();
 
     void initialize();
-    void release();
+    void release(bool abandon = false);
     bool isInitialized() const { return initialized_; }
 
     /// Ensures the two ping-pong targets exist at the requested size.
@@ -86,7 +86,7 @@ private:
                       float contrast, float grain, bool sourcePremultiplied = false,
                       bool outputStraight = true,
                       bool resampleStraightAlpha = false);
-    void destroyTargets();
+    void destroyTargets(bool abandon = false);
 
     static GaussianBlurProgram *instance_;
 

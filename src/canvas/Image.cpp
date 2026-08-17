@@ -7,12 +7,35 @@
 #include "render/RenderTypes.h"
 #include "stb_image.h"
 
+#include <algorithm>
+#include <cstddef>
+#include <limits>
 #include <memory>
 #include <iostream>
 #include "core/LogInternal.h"
 
+namespace {
+
+bool rgbaByteCount(int width, int height, std::size_t &byteCount)
+{
+    if (width <= 0 || height <= 0) {
+        return false;
+    }
+    const std::size_t w = static_cast<std::size_t>(width);
+    const std::size_t h = static_cast<std::size_t>(height);
+    if (w > std::numeric_limits<std::size_t>::max() / h
+        || w * h > std::numeric_limits<std::size_t>::max() / 4u) {
+        return false;
+    }
+    byteCount = w * h * 4u;
+    return true;
+}
+
+} // namespace
+
 struct wsc::Image::Storage {
     SharedImageResource imageResource;
+    std::shared_ptr<std::vector<unsigned char>> cpuPixelsRGBA;
 };
 
 wsc::Image::Image()
@@ -61,10 +84,17 @@ std::shared_ptr<ImageResource> wsc::Image::getImageResource() const
     return storage_->imageResource;
 }
 
+std::shared_ptr<const std::vector<unsigned char>>
+wsc::Image::getCpuPixelsRGBA() const
+{
+    return storage_ ? storage_->cpuPixelsRGBA : nullptr;
+}
+
 void wsc::Image::reset()
 {
     if (storage_) {
         storage_->imageResource.reset();
+        storage_->cpuPixelsRGBA.reset();
     }
     width_ = 0;
     height_ = 0;
@@ -74,7 +104,7 @@ void wsc::Image::reset()
 bool wsc::Image::load(IRenderer &renderer, const char *imagePath)
 {
     int width, height, channels;
-    unsigned char *data = stbi_load(imagePath, &width, &height, &channels, 0);
+    unsigned char *data = stbi_load(imagePath, &width, &height, &channels, 4);
     if (data)
     {
         reset();
@@ -83,7 +113,15 @@ bool wsc::Image::load(IRenderer &renderer, const char *imagePath)
             storage_ = std::make_unique<Storage>();
         }
 
-        storage_->imageResource = renderer.createImageResourceFromImageData(width, height, channels, data, true);
+        std::size_t byteCount = 0;
+        if (!rgbaByteCount(width, height, byteCount)) {
+            stbi_image_free(data);
+            reset();
+            return false;
+        }
+        storage_->cpuPixelsRGBA = std::make_shared<std::vector<unsigned char>>(
+            data, data + byteCount);
+        storage_->imageResource = renderer.createImageResourceFromImageData(width, height, 4, data, true);
         stbi_image_free(data);
 
         if (!storage_ || !storage_->imageResource || !storage_->imageResource->isValid()) {
@@ -157,7 +195,7 @@ bool wsc::Image::loadEncodedMemory(IRenderer &renderer, const unsigned char *dat
     int width = 0;
     int height = 0;
     int channels = 0;
-    unsigned char *decoded = stbi_load_from_memory(data, size, &width, &height, &channels, 0);
+    unsigned char *decoded = stbi_load_from_memory(data, size, &width, &height, &channels, 4);
     if (decoded == nullptr) {
         reset();
         return false;
@@ -168,7 +206,16 @@ bool wsc::Image::loadEncodedMemory(IRenderer &renderer, const unsigned char *dat
         storage_ = std::make_unique<Storage>();
     }
 
-    storage_->imageResource = renderer.createImageResourceFromImageData(width, height, channels, decoded, generateMipmaps);
+    std::size_t byteCount = 0;
+    if (!rgbaByteCount(width, height, byteCount)) {
+        stbi_image_free(decoded);
+        reset();
+        return false;
+    }
+    storage_->cpuPixelsRGBA = std::make_shared<std::vector<unsigned char>>(
+        decoded, decoded + byteCount);
+    storage_->imageResource = renderer.createImageResourceFromImageData(
+        width, height, 4, decoded, generateMipmaps);
     stbi_image_free(decoded);
 
     if (!storage_->imageResource || !storage_->imageResource->isValid()) {
@@ -194,6 +241,11 @@ bool wsc::Image::loadRGBA(IRenderer &renderer, const unsigned char *pixels, int 
         storage_ = std::make_unique<Storage>();
     }
 
+    std::size_t byteCount = 0;
+    if (!rgbaByteCount(width, height, byteCount)) {
+        reset();
+        return false;
+    }
     storage_->imageResource = renderer.createImageResourceFromImageData(width, height, 4, pixels, generateMipmaps);
     if (!storage_->imageResource || !storage_->imageResource->isValid()) {
         reset();
@@ -203,6 +255,8 @@ bool wsc::Image::loadRGBA(IRenderer &renderer, const unsigned char *pixels, int 
     width_ = width;
     height_ = height;
     mipmapsGenerated_ = generateMipmaps;
+    storage_->cpuPixelsRGBA = std::make_shared<std::vector<unsigned char>>(
+        pixels, pixels + byteCount);
     return true;
 }
 
@@ -240,6 +294,25 @@ bool wsc::Image::updateRGBA(IRenderer &renderer, const unsigned char *pixels, in
     }
 
     mipmapsGenerated_ = regenerateMipmaps || mipmapsGenerated_;
+    if (storage_->cpuPixelsRGBA) {
+        if (!storage_->cpuPixelsRGBA.unique()) {
+            storage_->cpuPixelsRGBA =
+                std::make_shared<std::vector<unsigned char>>(
+                    *storage_->cpuPixelsRGBA);
+        }
+        for (int row = 0; row < height; ++row) {
+            const std::size_t sourceOffset =
+                static_cast<std::size_t>(row) * static_cast<std::size_t>(width) * 4u;
+            const std::size_t destinationOffset =
+                (static_cast<std::size_t>(y + row) * static_cast<std::size_t>(width_)
+                 + static_cast<std::size_t>(x)) * 4u;
+            std::copy_n(
+                pixels + sourceOffset,
+                static_cast<std::size_t>(width) * 4u,
+                storage_->cpuPixelsRGBA->begin()
+                    + static_cast<std::ptrdiff_t>(destinationOffset));
+        }
+    }
     return true;
 }
 

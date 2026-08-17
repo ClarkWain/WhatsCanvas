@@ -1,0 +1,2 @@
+WhatsCanvas 字体发现 العربية עברית 👨‍👩‍👧‍👦 🇨🇳 é
+软换行、ZWJ、variation selector 和 combining mark 应保持稳定。

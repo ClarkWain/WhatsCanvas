@@ -70,6 +70,10 @@ struct Picture::Impl
         SharedImageResource rasterImage;
         std::size_t rasterBytes = 0;
         std::uint64_t rasterLastUseEpoch = 0;
+        int rasterLeft = 0;
+        int rasterTop = 0;
+        int rasterWidth = 0;
+        int rasterHeight = 0;
     };
 
     std::vector<Operation> operations;
@@ -132,6 +136,152 @@ constexpr float kPointEpsilon = 0.0001f;
 constexpr std::uint64_t kFnvOffsetBasis = 1469598103934665603ull;
 constexpr std::uint64_t kFnvPrime = 1099511628211ull;
 constexpr std::size_t kMaxClipMaskPathCount = 255u;
+
+struct PictureRasterBounds
+{
+    int left = 0;
+    int top = 0;
+    int right = 0;
+    int bottom = 0;
+};
+
+bool computePictureRasterBounds(
+    const std::vector<std::unique_ptr<Command>> &commands,
+    int canvasWidth, int canvasHeight, PictureRasterBounds &output)
+{
+    float left = std::numeric_limits<float>::infinity();
+    float top = std::numeric_limits<float>::infinity();
+    float right = -std::numeric_limits<float>::infinity();
+    float bottom = -std::numeric_limits<float>::infinity();
+    bool hasPoint = false;
+
+    const auto includeRawPoint = [&](const glm::mat4 &transform, float x,
+                                     float y) -> bool {
+        const glm::vec4 transformed =
+            transform * glm::vec4(x, y, 0.0f, 1.0f);
+        if (!std::isfinite(transformed.x) || !std::isfinite(transformed.y)
+            || !std::isfinite(transformed.w)
+            || std::abs(transformed.w) <= kPointEpsilon) {
+            return false;
+        }
+        const float px = transformed.x / transformed.w;
+        const float py = transformed.y / transformed.w;
+        if (!std::isfinite(px) || !std::isfinite(py)) {
+            return false;
+        }
+        left = std::min(left, px);
+        top = std::min(top, py);
+        right = std::max(right, px);
+        bottom = std::max(bottom, py);
+        hasPoint = true;
+        return true;
+    };
+    const auto includePoint = [&](const glm::mat4 &transform, float x, float y,
+                                  float outset) -> bool {
+        // Expand in local space before mapping. Expanding only after mapping
+        // underestimates scaled/rotated strokes and can crop their AA fringe.
+        return includeRawPoint(transform, x - outset, y - outset)
+            && includeRawPoint(transform, x + outset, y - outset)
+            && includeRawPoint(transform, x + outset, y + outset)
+            && includeRawPoint(transform, x - outset, y + outset);
+    };
+    const auto includePairs = [&](const glm::mat4 &transform,
+                                  const std::vector<float> &points,
+                                  float outset) -> bool {
+        if ((points.size() & 1u) != 0u) {
+            return false;
+        }
+        for (std::size_t i = 0; i < points.size(); i += 2u) {
+            if (!includePoint(transform, points[i], points[i + 1u], outset)) {
+                return false;
+            }
+        }
+        return true;
+    };
+    const auto includeRect = [&](const glm::mat4 &transform, float x, float y,
+                                 float width, float height) -> bool {
+        return includePoint(transform, x, y, 1.0f)
+            && includePoint(transform, x + width, y, 1.0f)
+            && includePoint(transform, x + width, y + height, 1.0f)
+            && includePoint(transform, x, y + height, 1.0f);
+    };
+
+    for (const auto &command : commands) {
+        if (!command) {
+            continue;
+        }
+        switch (command->type()) {
+        case Command::Type::Points: {
+            const auto &data = static_cast<const DrawPointsCommand *>(
+                                   command.get())->data();
+            if (!includePairs(data.transform, data.points,
+                              std::max(1.0f, data.size * 0.5f + 1.0f))) {
+                return false;
+            }
+            break;
+        }
+        case Command::Type::Lines: {
+            const auto &data = static_cast<const DrawLinesCommand *>(
+                                   command.get())->data();
+            if (!includePairs(data.transform, data.points,
+                              std::max(1.0f, data.width * 0.5f + 1.0f))) {
+                return false;
+            }
+            break;
+        }
+        case Command::Type::Path: {
+            const auto &data = static_cast<const DrawPathCommand *>(
+                                   command.get())->data();
+            if (data.hasDrawParameters()
+                || !includePairs(data.transform, data.pointData(), 1.0f)) {
+                return false;
+            }
+            break;
+        }
+        case Command::Type::Image: {
+            const auto &data = static_cast<const DrawImageCommand *>(
+                                   command.get())->data();
+            if (!includeRect(data.transform, data.x, data.y,
+                             data.width, data.height)) {
+                return false;
+            }
+            break;
+        }
+        case Command::Type::ImageBatch: {
+            const auto &data = static_cast<const DrawImageBatchCommand *>(
+                                   command.get())->data();
+            for (const DrawImageBatchQuad &quad : data.quads) {
+                if (!includeRect(data.transform, quad.x, quad.y,
+                                 quad.width, quad.height)) {
+                    return false;
+                }
+            }
+            break;
+        }
+        case Command::Type::Text: {
+            const auto &data = static_cast<const DrawTextCommand *>(
+                                   command.get())->data();
+            if (!includePairs(data.transform, data.vertices, 1.0f)) {
+                return false;
+            }
+            break;
+        }
+        case Command::Type::Shadow:
+            // Shadow bounds include blur/filter outsets and are intentionally
+            // left on the conservative full-canvas path for now.
+            return false;
+        }
+    }
+
+    if (!hasPoint || canvasWidth <= 0 || canvasHeight <= 0) {
+        return false;
+    }
+    output.left = std::max(0, static_cast<int>(std::floor(left)));
+    output.top = std::max(0, static_cast<int>(std::floor(top)));
+    output.right = std::min(canvasWidth, static_cast<int>(std::ceil(right)));
+    output.bottom = std::min(canvasHeight, static_cast<int>(std::ceil(bottom)));
+    return output.right > output.left && output.bottom > output.top;
+}
 
 Matrix4 toPublicMatrix(const glm::mat4 &matrix)
 {
@@ -2760,6 +2910,7 @@ struct Canvas::Impl
     bool ensureRendererInitialized();
     void releaseResources();
     void finalizeRenderer();
+    void abandonRenderer();
     GraphicsState &currentState();
     const GraphicsState &currentState() const;
     Paint applyStateToPaint(const Paint &paint) const;
@@ -2805,6 +2956,7 @@ struct Canvas::Impl
     std::size_t retainedPictureRasterBudgetBytes = 32u * 1024u * 1024u;
     std::vector<std::weak_ptr<const Picture>> retainedPictures;
     void purgeRetainedPictures(const Canvas *canvas, bool detachOwner);
+    void purgeRetainedPictureRasters(const Canvas *canvas);
     void trimRetainedPictureRasterCache(const Canvas *canvas);
     std::pair<std::size_t, std::size_t>
         retainedPictureRasterCacheMetrics(const Canvas *canvas) const;
@@ -2953,6 +3105,29 @@ void Canvas::Impl::purgeRetainedPictures(const Canvas *canvas, bool detachOwner)
         *output++ = *it;
     }
     retainedPictures.erase(output, retainedPictures.end());
+}
+
+void Canvas::Impl::purgeRetainedPictureRasters(const Canvas *canvas)
+{
+    for (const auto &weakPicture : retainedPictures) {
+        auto picture = weakPicture.lock();
+        if (!picture) {
+            continue;
+        }
+        std::lock_guard<std::mutex> lock(picture->impl_->compiledMutex);
+        for (auto &entry : picture->impl_->compiledEntries) {
+            if (entry.canvas != canvas) {
+                continue;
+            }
+            entry.rasterImage.reset();
+            entry.rasterBytes = 0;
+            entry.rasterLastUseEpoch = 0;
+            entry.rasterLeft = 0;
+            entry.rasterTop = 0;
+            entry.rasterWidth = 0;
+            entry.rasterHeight = 0;
+        }
+    }
 }
 
 std::pair<std::size_t, std::size_t>
@@ -3685,6 +3860,19 @@ void Canvas::Impl::finalizeRenderer()
     rendererInitialized = false;
 }
 
+void Canvas::Impl::abandonRenderer()
+{
+    if (renderer == nullptr || !rendererInitialized) {
+        swapchain.reset();
+        return;
+    }
+
+    renderer->abandonBackend();
+    rendererInitialized = false;
+    swapchain.reset();
+    releaseResources();
+}
+
 bool Canvas::initializeContext()
 {
     return impl_->ensureRendererInitialized();
@@ -3694,6 +3882,13 @@ void Canvas::finalizeContext()
 {
     impl_->purgeRetainedPictures(this, false);
     impl_->finalizeRenderer();
+}
+
+void Canvas::abandonContext()
+{
+    impl_->purgeRetainedPictures(this, false);
+    ++impl_->retainedContentGeneration;
+    impl_->abandonRenderer();
 }
 
 bool Canvas::isContextInitialized() const
@@ -4774,10 +4969,15 @@ void Canvas::drawImage(const Image &image, const RectF &dst, const Paint &paint)
 void Canvas::drawImage(const Image &image, const RectF &src, const RectF &dst, const Paint &paint)
 {
     if (impl_->recordingPicture) {
-        // Image is currently a mutable, Canvas-owned GPU object. Retaining a
-        // raw reference would make Picture context/lifetime dependent, so this
-        // operation is rejected until Image has an immutable CPU-backed form.
-        impl_->pictureRecordingFailed = true;
+        const auto pixels = image.getCpuPixelsRGBA();
+        if (!pixels || image.getWidth() <= 0 || image.getHeight() <= 0) {
+            // External/native textures have no portable CPU snapshot.
+            impl_->pictureRecordingFailed = true;
+            return;
+        }
+        drawImageSnapshot(
+            pixels, image.getWidth(), image.getHeight(), image.hasMipmaps(),
+            src, dst, paint);
         return;
     }
     const SharedImageResource imageResource = image.getImageResource();
@@ -4823,6 +5023,86 @@ void Canvas::drawImage(const Image &image, const RectF &src, const RectF &dst, c
     data.clipMask = impl_->makeCurrentClipMaskState();
     applyImageColorMatrix(paint, data);
 
+    impl_->renderer->submit(std::make_unique<DrawImageCommand>(data));
+}
+
+void Canvas::drawImageSnapshot(
+    std::shared_ptr<const std::vector<unsigned char>> pixels,
+    int imageWidth, int imageHeight, bool mipmapsReady,
+    const RectF &src, const RectF &dst, const Paint &paint)
+{
+    const bool dimensionsOverflow = imageWidth > 0 && imageHeight > 0
+        && (static_cast<std::size_t>(imageWidth)
+                > std::numeric_limits<std::size_t>::max()
+                    / static_cast<std::size_t>(imageHeight)
+            || static_cast<std::size_t>(imageWidth)
+                    * static_cast<std::size_t>(imageHeight)
+                > std::numeric_limits<std::size_t>::max() / 4u);
+    const std::size_t requiredBytes =
+        imageWidth > 0 && imageHeight > 0 && !dimensionsOverflow
+        ? static_cast<std::size_t>(imageWidth)
+            * static_cast<std::size_t>(imageHeight) * 4u
+        : 0u;
+    if (!pixels || requiredBytes == 0u || pixels->size() < requiredBytes) {
+        if (impl_->recordingPicture) {
+            impl_->pictureRecordingFailed = true;
+        }
+        return;
+    }
+    if (impl_->recordingPicture) {
+        impl_->pictureOperations.emplace_back(
+            [pixels = std::move(pixels), imageWidth, imageHeight,
+             mipmapsReady, src, dst, paint](Canvas &canvas) {
+                canvas.drawImageSnapshot(
+                    pixels, imageWidth, imageHeight, mipmapsReady,
+                    src, dst, paint);
+            });
+        return;
+    }
+    if (!impl_->ensureRendererInitialized()) {
+        return;
+    }
+
+    SharedImageResource imageResource =
+        impl_->renderer->createImageResourceFromImageData(
+            imageWidth, imageHeight, 4, pixels->data(), mipmapsReady);
+    if (!imageResource || !imageResource->isValid()) {
+        return;
+    }
+    const RectF normalizedDst = normalizeRect(dst);
+    const RectF clampedSrc = clampSourceRect(src, imageWidth, imageHeight);
+    if (normalizedDst.getWidth() <= 0.0f || normalizedDst.getHeight() <= 0.0f
+        || clampedSrc.getWidth() <= 0.0f || clampedSrc.getHeight() <= 0.0f) {
+        return;
+    }
+
+    DrawImageData data;
+    data.imageResource = std::move(imageResource);
+    data.x = normalizedDst.getX();
+    data.y = normalizedDst.getY();
+    data.width = normalizedDst.getWidth();
+    data.height = normalizedDst.getHeight();
+    const float invWidth = 1.0f / static_cast<float>(imageWidth);
+    const float invHeight = 1.0f / static_cast<float>(imageHeight);
+    data.u0 = clampedSrc.getX() * invWidth;
+    data.v0 = clampedSrc.getY() * invHeight;
+    data.u1 = (clampedSrc.getX() + clampedSrc.getWidth()) * invWidth;
+    data.v1 = (clampedSrc.getY() + clampedSrc.getHeight()) * invHeight;
+    const Color tintColor = paint.getColor();
+    data.tintColor[0] = tintColor.r();
+    data.tintColor[1] = tintColor.g();
+    data.tintColor[2] = tintColor.b();
+    data.tintColor[3] = 1.0f;
+    data.alpha = std::clamp(
+        paint.getColor().a() * paint.getAlphaF(), 0.0f, 1.0f);
+    data.sampling = toDrawImageSampling(paint.getImageSampling());
+    data.tileMode = toDrawImageTileMode(paint.getImageTileMode());
+    data.mipmapsReady = mipmapsReady;
+    data.transform = impl_->currentState().matrix;
+    data.scissor = impl_->makeCurrentScissorState();
+    data.blendMode = toDrawBlendMode(paint.getBlendMode());
+    data.clipMask = impl_->makeCurrentClipMaskState();
+    applyImageColorMatrix(paint, data);
     impl_->renderer->submit(std::make_unique<DrawImageCommand>(data));
 }
 
@@ -4904,12 +5184,9 @@ void Canvas::drawImageFit(const Image &image, const RectF &dst, ImageFit fit, Im
 
 void Canvas::drawImageFit(const Image &image, const RectF &dst, ImageFit fit, float alignX, float alignY, const Paint &paint)
 {
-    if (impl_->recordingPicture) {
-        impl_->pictureRecordingFailed = true;
-        return;
-    }
-    if (const SharedImageResource imageResource = image.getImageResource();
-        !imageResource || !imageResource->isValid() || image.getWidth() <= 0 || image.getHeight() <= 0) {
+    if (image.getWidth() <= 0 || image.getHeight() <= 0
+        || (!impl_->recordingPicture
+            && (!image.getImageResource() || !image.getImageResource()->isValid()))) {
         return;
     }
 
@@ -4961,12 +5238,9 @@ void Canvas::drawImageFit(const Image &image, const RectF &dst, ImageFit fit, fl
 
 void Canvas::drawImageNinePatch(const Image &image, const RectF &centerSrc, const RectF &dst, const Paint &paint)
 {
-    if (impl_->recordingPicture) {
-        impl_->pictureRecordingFailed = true;
-        return;
-    }
-    if (const SharedImageResource imageResource = image.getImageResource();
-        !imageResource || !imageResource->isValid() || image.getWidth() <= 0 || image.getHeight() <= 0) {
+    if (image.getWidth() <= 0 || image.getHeight() <= 0
+        || (!impl_->recordingPicture
+            && (!image.getImageResource() || !image.getImageResource()->isValid()))) {
         return;
     }
 
@@ -5035,12 +5309,19 @@ void Canvas::drawImageRounded(const Image &image, const RectF &dst, float radius
 void Canvas::drawImageRounded(const Image &image, const RectF &dst, float topLeftRadius, float topRightRadius,
                               float bottomRightRadius, float bottomLeftRadius, const Paint &paint)
 {
-    if (impl_->recordingPicture) {
-        impl_->pictureRecordingFailed = true;
-        return;
-    }
     if (topLeftRadius <= 0.0f && topRightRadius <= 0.0f && bottomRightRadius <= 0.0f && bottomLeftRadius <= 0.0f) {
         drawImage(image, dst, paint);
+        return;
+    }
+
+    if (impl_->recordingPicture) {
+        Path clip;
+        clip.addRoundRect(dst, topLeftRadius, topRightRadius,
+                          bottomRightRadius, bottomLeftRadius);
+        save();
+        clipPath(clip);
+        drawImage(image, dst, paint);
+        restore();
         return;
     }
 
@@ -5099,10 +5380,6 @@ void Canvas::drawImageRounded(const Image &image, const RectF &dst, float topLef
 
 void Canvas::drawImageCircle(const Image &image, const PointF &center, float radius, const Paint &paint)
 {
-    if (impl_->recordingPicture) {
-        impl_->pictureRecordingFailed = true;
-        return;
-    }
     if (radius <= 0.0f) {
         return;
     }
@@ -6856,7 +7133,8 @@ void Canvas::drawPictureRasterized(const Picture &picture)
     const bool cacheEligible =
         picture.impl_->recordingCanvas == this
         && impl_->renderer != nullptr && impl_->rendererInitialized
-        && impl_->width > 0 && impl_->height > 0;
+        && impl_->width > 0 && impl_->height > 0
+        && impl_->retainedPictureRasterBudgetBytes > 0u;
     if (!cacheEligible) {
         drawPicture(picture);
         return;
@@ -6867,6 +7145,8 @@ void Canvas::drawPictureRasterized(const Picture &picture)
     const std::uint64_t rasterUseEpoch =
         ++impl_->retainedPictureRasterUseEpoch;
     SharedImageResource rasterImage;
+    PictureRasterBounds rasterBounds{
+        0, 0, impl_->width, impl_->height};
     {
         std::lock_guard<std::mutex> lock(picture.impl_->compiledMutex);
         for (auto &entry : picture.impl_->compiledEntries) {
@@ -6877,6 +7157,10 @@ void Canvas::drawPictureRasterized(const Picture &picture)
                 && entry.rasterImage && entry.rasterImage->isValid()) {
                 rasterImage = entry.rasterImage;
                 entry.rasterLastUseEpoch = rasterUseEpoch;
+                rasterBounds.left = entry.rasterLeft;
+                rasterBounds.top = entry.rasterTop;
+                rasterBounds.right = entry.rasterLeft + entry.rasterWidth;
+                rasterBounds.bottom = entry.rasterTop + entry.rasterHeight;
                 break;
             }
         }
@@ -6894,11 +7178,23 @@ void Canvas::drawPictureRasterized(const Picture &picture)
             return;
         }
 
+        PictureRasterBounds measuredBounds;
+        if (computePictureRasterBounds(
+                commands, impl_->width, impl_->height, measuredBounds)) {
+            rasterBounds = measuredBounds;
+        }
+        const int rasterWidth = rasterBounds.right - rasterBounds.left;
+        const int rasterHeight = rasterBounds.bottom - rasterBounds.top;
+
         OffscreenRenderRequest request;
         request.canvasWidth = impl_->width;
         request.canvasHeight = impl_->height;
-        request.targetWidth = impl_->width;
-        request.targetHeight = impl_->height;
+        request.targetWidth = rasterWidth;
+        request.targetHeight = rasterHeight;
+        request.viewportX = -rasterBounds.left;
+        request.viewportY = -(impl_->height - rasterBounds.bottom);
+        request.scissorOffsetX = request.viewportX;
+        request.scissorOffsetY = request.viewportY;
         rasterImage = impl_->renderer->renderCommandsToImageResource(
             commands, request);
         if (!rasterImage || !rasterImage->isValid()) {
@@ -6915,9 +7211,13 @@ void Canvas::drawPictureRasterized(const Picture &picture)
                 && entry.stateFingerprint == stateFingerprint) {
                 entry.rasterImage = rasterImage;
                 entry.rasterBytes =
-                    static_cast<std::size_t>(impl_->width)
-                    * static_cast<std::size_t>(impl_->height) * 4u;
+                    static_cast<std::size_t>(rasterWidth)
+                    * static_cast<std::size_t>(rasterHeight) * 4u;
                 entry.rasterLastUseEpoch = rasterUseEpoch;
+                entry.rasterLeft = rasterBounds.left;
+                entry.rasterTop = rasterBounds.top;
+                entry.rasterWidth = rasterWidth;
+                entry.rasterHeight = rasterHeight;
                 stored = true;
                 break;
             }
@@ -6930,9 +7230,13 @@ void Canvas::drawPictureRasterized(const Picture &picture)
             entry.stateFingerprint = stateFingerprint;
             entry.rasterImage = rasterImage;
             entry.rasterBytes =
-                static_cast<std::size_t>(impl_->width)
-                * static_cast<std::size_t>(impl_->height) * 4u;
+                static_cast<std::size_t>(rasterWidth)
+                * static_cast<std::size_t>(rasterHeight) * 4u;
             entry.rasterLastUseEpoch = rasterUseEpoch;
+            entry.rasterLeft = rasterBounds.left;
+            entry.rasterTop = rasterBounds.top;
+            entry.rasterWidth = rasterWidth;
+            entry.rasterHeight = rasterHeight;
             auto &entries = picture.impl_->compiledEntries;
             if (entries.size() >= 4u) {
                 entries.erase(entries.begin());
@@ -6947,10 +7251,10 @@ void Canvas::drawPictureRasterized(const Picture &picture)
 
     DrawImageData data;
     data.imageResource = rasterImage;
-    data.x = 0.0f;
-    data.y = 0.0f;
-    data.width = static_cast<float>(impl_->width);
-    data.height = static_cast<float>(impl_->height);
+    data.x = static_cast<float>(rasterBounds.left);
+    data.y = static_cast<float>(rasterBounds.top);
+    data.width = static_cast<float>(rasterBounds.right - rasterBounds.left);
+    data.height = static_cast<float>(rasterBounds.bottom - rasterBounds.top);
     data.u0 = 0.0f;
     data.u1 = 1.0f;
     const bool flipSource =
@@ -6963,6 +7267,21 @@ void Canvas::drawPictureRasterized(const Picture &picture)
     data.blendMode = DrawBlendMode::SrcOver;
     impl_->renderer->submit(
         std::make_unique<DrawImageCommand>(data));
+}
+
+void Canvas::setRetainedPictureRasterCacheBudgetBytes(std::size_t bytes)
+{
+    impl_->retainedPictureRasterBudgetBytes = bytes;
+    if (bytes == 0u) {
+        impl_->purgeRetainedPictureRasters(this);
+    } else {
+        impl_->trimRetainedPictureRasterCache(this);
+    }
+}
+
+std::size_t Canvas::retainedPictureRasterCacheBudgetBytes() const
+{
+    return impl_->retainedPictureRasterBudgetBytes;
 }
 
 bool Canvas::Impl::getClipBounds(RectF &bounds) const

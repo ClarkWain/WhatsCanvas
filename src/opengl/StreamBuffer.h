@@ -29,6 +29,8 @@ public:
 
     /// Release the GL buffer.
     void release();
+    /// Forget the buffer after context loss without calling glDeleteBuffers.
+    void abandon();
 
     /// Start a new frame using fresh backing storage.
     void beginFrame();

@@ -326,11 +326,14 @@ by broader script and shaping coverage, not this Latin performance contract.
 - [x] Add context/content-generation-keyed compiled Picture packets; derived
       resources are purged before orderly backend teardown.
 - [x] Add an explicit RepaintBoundary-like rasterized Picture path with a
-      per-Canvas 32 MB soft budget, LRU eviction, memory statistics, pixel
-      parity tests, and Android pause/resume validation.
+      configurable per-Canvas 32 MB soft budget, conservative local bounds,
+      zero-budget bypass, LRU eviction, memory statistics, pressure/pixel tests,
+      and Android pause/resume validation.
+- [x] Snapshot owned CPU-backed Images into backend-neutral Picture operations;
+      source mutation is copy-on-write and external textures remain rejected.
 - [x] Require a second observation before admitting final fill/stroke AA
       geometry, preventing one-shot animation keys from polluting stable caches.
-- [ ] Add a no-GL-delete abandon-context path for involuntary EGL loss.
+- [x] Add a no-GL-delete abandon-context path for involuntary EGL loss.
 - [ ] Reduce cold first-raster latency after a genuine Context loss.
 - [ ] Evaluate parallel frame compilation only after the single-threaded packet
       path no longer performs redundant copies.

@@ -184,6 +184,7 @@ Public members:
 - `void setGpuTimingEnabled(bool enabled);`
 - `bool initializeContext();`
 - `void finalizeContext();`
+- `void abandonContext();`
 - `bool isContextInitialized() const;`
 - `void releaseResources();`
 - `void setSize(int width, int height);`
@@ -310,6 +311,8 @@ Public members:
 - `std::shared_ptr<const Picture> recordPicture(const std::function<void(Canvas &)> &recorder);`
 - `void drawPicture(const Picture &picture);`
 - `void drawPictureRasterized(const Picture &picture);`
+- `void setRetainedPictureRasterCacheBudgetBytes(std::size_t bytes);`
+- `std::size_t retainedPictureRasterCacheBudgetBytes() const;`
 - `void beginFrame();`
 - `void endFrame();`
 - `void shutdown();`

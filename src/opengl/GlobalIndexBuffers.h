@@ -15,6 +15,8 @@ public:
 
     /// Release the global index buffers.
     static void finalize();
+    /// Forget names belonging to a lost context without deleting them.
+    static void abandon();
 
     /// Get the quad index buffer handle.
     /// Pattern: [0,1,2, 0,2,3, 4,5,6, 4,6,7, ...]
