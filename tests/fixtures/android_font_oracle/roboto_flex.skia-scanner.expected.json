@@ -1,0 +1,43 @@
+{
+  "schema": "whatscanvas.skia-font-scanner.v1",
+  "engine": "skia-freetype",
+  "family": "Roboto Flex",
+  "faceCount": 1,
+  "instanceCount": 20,
+  "faceIndex": 0,
+  "instanceIndex": 0,
+  "weight": 400,
+  "width": 5,
+  "slant": "normal",
+  "fixedPitch": false,
+  "axes": [
+    {"tag": "wght", "min": 100, "default": 400, "max": 1000, "hidden": false},
+    {"tag": "wdth", "min": 25, "default": 100, "max": 151, "hidden": false},
+    {"tag": "opsz", "min": 8, "default": 14, "max": 144, "hidden": false},
+    {"tag": "GRAD", "min": -200, "default": 0, "max": 150, "hidden": false},
+    {"tag": "slnt", "min": -10, "default": 0, "max": 0, "hidden": false},
+    {"tag": "XTRA", "min": 323, "default": 468, "max": 603, "hidden": false},
+    {"tag": "XOPQ", "min": 27, "default": 96, "max": 175, "hidden": false},
+    {"tag": "YOPQ", "min": 25, "default": 79, "max": 135, "hidden": false},
+    {"tag": "YTLC", "min": 416, "default": 514, "max": 570, "hidden": false},
+    {"tag": "YTUC", "min": 528, "default": 712, "max": 760, "hidden": false},
+    {"tag": "YTAS", "min": 649, "default": 750, "max": 854, "hidden": false},
+    {"tag": "YTDE", "min": -305, "default": -203, "max": -98, "hidden": false},
+    {"tag": "YTFI", "min": 560, "default": 738, "max": 788, "hidden": false}
+  ],
+  "position": [
+    {"tag": "wght", "value": 400},
+    {"tag": "wdth", "value": 100},
+    {"tag": "opsz", "value": 14},
+    {"tag": "GRAD", "value": 0},
+    {"tag": "slnt", "value": 0},
+    {"tag": "XTRA", "value": 468},
+    {"tag": "XOPQ", "value": 96},
+    {"tag": "YOPQ", "value": 79},
+    {"tag": "YTLC", "value": 514},
+    {"tag": "YTUC", "value": 712},
+    {"tag": "YTAS", "value": 750},
+    {"tag": "YTDE", "value": -203},
+    {"tag": "YTFI", "value": 738}
+  ]
+}

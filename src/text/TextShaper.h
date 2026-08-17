@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "text/FontRasterizer.h"
+#include "wsc/Font.h"
 
 namespace wsc::text {
 
@@ -68,6 +69,7 @@ struct TextShapeInput
     std::string language;
     TextDirection direction = TextDirection::Auto;
     std::vector<OpenTypeFeature> openTypeFeatures;
+    std::vector<wsc::FontVariationCoordinate> variationCoordinates;
     std::optional<FontDataView> fontData;
 };
 

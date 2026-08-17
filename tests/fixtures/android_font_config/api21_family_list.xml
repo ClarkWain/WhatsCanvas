@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<familyset version="21">
+  <family-list name="Ui-Grouped">
+    <family>
+      <font weight="400" style="normal">Grouped-Regular.ttf</font>
+    </family>
+    <family>
+      <font weight="700" style="italic">Grouped-BoldItalic.ttf</font>
+    </family>
+  </family-list>
+</familyset>

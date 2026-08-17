@@ -10,6 +10,8 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -17,6 +19,7 @@
 #include "text/DirectWriteTextBackend.h"
 #include "text/ITextBackend.h"
 #include "wsc/Font.h"
+#include "wsc/FontResolver.h"
 
 namespace {
 
@@ -163,6 +166,105 @@ int main()
             || (withLigature.bitmapContentId == withoutLigature.bitmapContentId
                 && withLigature.bitmapPixels == withoutLigature.bitmapPixels)) {
             std::cerr << "[DirectWriteBackendTests] FAIL: OpenType liga feature did not affect DirectWrite output."
+                      << std::endl;
+            return 1;
+        }
+    }
+
+    // Paint variable axes must reach IDWriteTextLayout4 and participate in the
+    // bitmap cache key. The bundled Source Serif fixture has a real wght axis.
+    auto variableBackend = wsc::text::createDirectWriteTextBackend();
+    if (variableBackend != nullptr
+        && variableBackend->registerFontFace(wsc::FontFace::fromFile(
+            wsc::FontDescriptor("Source Serif Variable"), WHATSCANVAS_TEST_VARIABLE_FONT))) {
+        wsc::Paint narrow;
+        narrow.setFontFamily("Source Serif Variable");
+        narrow.setTextSize(48.0f);
+        narrow.setFontVariation("wght", 200.0f);
+        wsc::Paint wide = narrow;
+        wide.setFontVariation("wght", 900.0f);
+        const float narrowVariableWidth =
+            variableBackend->measureTextWidth("Hamburgefontsiv", narrow);
+        const float wideVariableWidth =
+            variableBackend->measureTextWidth("Hamburgefontsiv", wide);
+        const auto narrowVariableRender =
+            variableBackend->renderText("Hamburgefontsiv", 0.0f, 0.0f, narrow);
+        const auto wideVariableRender =
+            variableBackend->renderText("Hamburgefontsiv", 0.0f, 0.0f, wide);
+        if (!(std::abs(wideVariableWidth - narrowVariableWidth) > 1.0f)
+            || narrowVariableRender.kind != wsc::text::TextRenderKind::Bitmap
+            || wideVariableRender.kind != wsc::text::TextRenderKind::Bitmap
+            || (narrowVariableRender.bitmapContentId == wideVariableRender.bitmapContentId
+                && narrowVariableRender.bitmapPixels == wideVariableRender.bitmapPixels)) {
+            std::cerr << "[DirectWriteBackendTests] FAIL: wght axis did not affect DirectWrite layout/render/cache."
+                      << " narrow=" << narrowVariableWidth
+                      << " wide=" << wideVariableWidth
+                      << " narrowKind=" << static_cast<int>(narrowVariableRender.kind)
+                      << " wideKind=" << static_cast<int>(wideVariableRender.kind)
+                      << std::endl;
+            for (const auto &diagnostic : variableBackend->diagnostics()) {
+                std::cerr << "  diagnostic: " << diagnostic.message << std::endl;
+            }
+            return 1;
+        }
+    }
+
+    // Lazy providers bridge into a DirectWrite custom collection only when the
+    // requested family is first used. A family generation change must rebuild
+    // the collection and bypass the old rendered-bitmap cache entry.
+    std::ifstream lazyFontStream(
+        std::filesystem::u8path(WHATSCANVAS_TEST_VARIABLE_FONT),
+        std::ios::binary);
+    const std::vector<std::uint8_t> lazyFontBytes(
+        (std::istreambuf_iterator<char>(lazyFontStream)),
+        std::istreambuf_iterator<char>());
+    if (!lazyFontBytes.empty()) {
+        int lazyLoadCount = 0;
+        auto lazyProvider = std::make_shared<wsc::LazyFontProvider>(
+            wsc::FontProviderKind::ASSET, "directwrite-assets",
+            [&](const std::string &sourceId)
+                -> std::optional<std::vector<std::uint8_t>> {
+                ++lazyLoadCount;
+                return sourceId == "source-serif"
+                    ? std::optional<std::vector<std::uint8_t>>(lazyFontBytes)
+                    : std::nullopt;
+            });
+        wsc::LazyFontSource source;
+        source.descriptor = wsc::FontDescriptor("Source Serif Variable", 400);
+        source.sourceId = "source-serif";
+        auto lazyBackend = wsc::text::createDirectWriteTextBackend();
+        if (!lazyBackend || !lazyProvider->registerSource(source)
+            || !lazyBackend->addFontProvider(lazyProvider)
+            || lazyLoadCount != 0) {
+            std::cerr << "[DirectWriteBackendTests] FAIL: lazy provider did not attach without loading."
+                      << std::endl;
+            return 1;
+        }
+        wsc::Paint lazyPaint;
+        lazyPaint.setFontFamily("Source Serif Variable");
+        lazyPaint.setTextSize(36.0f);
+        const float lazyWidth = lazyBackend->measureTextWidth(
+            "Provider bridge", lazyPaint);
+        const auto lazyRender = lazyBackend->renderText(
+            "Provider bridge", 0.0f, 0.0f, lazyPaint);
+        if (!(lazyWidth > 0.0f) || lazyLoadCount != 1
+            || lazyRender.kind != wsc::text::TextRenderKind::Bitmap
+            || countCoveredPixels(lazyRender.bitmapPixels) <= 0) {
+            std::cerr << "[DirectWriteBackendTests] FAIL: lazy provider family did not bridge into DirectWrite."
+                      << std::endl;
+            return 1;
+        }
+        if (!lazyProvider->invalidateFamily("Source Serif Variable")) {
+            std::cerr << "[DirectWriteBackendTests] FAIL: lazy DirectWrite family did not invalidate."
+                      << std::endl;
+            return 1;
+        }
+        const auto reloadedRender = lazyBackend->renderText(
+            "Provider bridge", 0.0f, 0.0f, lazyPaint);
+        if (lazyLoadCount != 2
+            || reloadedRender.kind != wsc::text::TextRenderKind::Bitmap
+            || countCoveredPixels(reloadedRender.bitmapPixels) <= 0) {
+            std::cerr << "[DirectWriteBackendTests] FAIL: DirectWrite provider generation did not reload."
                       << std::endl;
             return 1;
         }

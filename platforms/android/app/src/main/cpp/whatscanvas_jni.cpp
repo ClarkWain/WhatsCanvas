@@ -6,11 +6,12 @@
 #include <dlfcn.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cmath>
-#include <fstream>
 #include <memory>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -20,8 +21,12 @@ namespace {
 
 constexpr const char* kLogTag = "WhatsCanvas";
 
-constexpr const char* kSansFamily = "AndroidSans";
-constexpr const char* kCjkFamily = "AndroidCJK";
+constexpr const char* kSansFamily = wsc::FontSystem::kDefaultPrimaryFamily;
+constexpr const char* kCjkFamily = wsc::FontSystem::kDefaultCjkFamily;
+constexpr const char* kComplexEmojiText =
+    "\xE4\xB8\xAD\xE6\x96\x87 "
+    "\xF0\x9F\x91\xA9\xF0\x9F\x8F\xBD\xE2\x80\x8D\xF0\x9F\x92\xBB "
+    "\xF0\x9F\x87\xA8\xF0\x9F\x87\xB3 8\xEF\xB8\x8F\xE2\x83\xA3";
 constexpr float kPi = 3.14159265358979323846f;
 
 void logError(const char* message)
@@ -36,165 +41,6 @@ void* loadOpenGlesProcedure(const char* name)
         return reinterpret_cast<void*>(procedure);
     }
     return dlsym(RTLD_DEFAULT, name);
-}
-
-bool registerFontFile(wsc::Canvas& canvas, const char* family,
-                      const char* path, int faceIndex = 0, int weight = 400,
-                      wsc::FontSlant slant = wsc::FontSlant::NORMAL)
-{
-    std::ifstream stream(path, std::ios::binary);
-    if (!stream.good()) {
-        return false;
-    }
-
-    const bool registered = canvas.registerFontFace(wsc::FontFace::fromFile(
-        wsc::FontDescriptor(family, weight, slant), path, faceIndex));
-    __android_log_print(registered ? ANDROID_LOG_INFO : ANDROID_LOG_WARN,
-                        kLogTag, "Font %s: %s (%s)", family,
-                        registered ? "registered" : "registration failed", path);
-    return registered;
-}
-
-struct AFontMatcher;
-struct AFont;
-
-struct AndroidFontApi {
-    using CreateMatcher = AFontMatcher* (*)();
-    using DestroyMatcher = void (*)(AFontMatcher*);
-    using SetLocales = void (*)(AFontMatcher*, const char*);
-    using Match = AFont* (*)(const AFontMatcher*, const char*,
-                             const std::uint16_t*, std::uint32_t,
-                             std::uint32_t*);
-    using CloseFont = void (*)(AFont*);
-    using GetPath = const char* (*)(const AFont*);
-    using GetWeight = std::uint16_t (*)(const AFont*);
-    using IsItalic = bool (*)(const AFont*);
-    using GetCollectionIndex = std::size_t (*)(const AFont*);
-
-    void* library = nullptr;
-    CreateMatcher createMatcher = nullptr;
-    DestroyMatcher destroyMatcher = nullptr;
-    SetLocales setLocales = nullptr;
-    Match match = nullptr;
-    CloseFont closeFont = nullptr;
-    GetPath getPath = nullptr;
-    GetWeight getWeight = nullptr;
-    IsItalic isItalic = nullptr;
-    GetCollectionIndex getCollectionIndex = nullptr;
-
-    AndroidFontApi()
-    {
-        library = dlopen("libandroid.so", RTLD_NOW | RTLD_LOCAL);
-        if (!library) {
-            return;
-        }
-        createMatcher = reinterpret_cast<CreateMatcher>(
-            dlsym(library, "AFontMatcher_create"));
-        destroyMatcher = reinterpret_cast<DestroyMatcher>(
-            dlsym(library, "AFontMatcher_destroy"));
-        setLocales = reinterpret_cast<SetLocales>(
-            dlsym(library, "AFontMatcher_setLocales"));
-        match = reinterpret_cast<Match>(dlsym(library, "AFontMatcher_match"));
-        closeFont = reinterpret_cast<CloseFont>(dlsym(library, "AFont_close"));
-        getPath = reinterpret_cast<GetPath>(
-            dlsym(library, "AFont_getFontFilePath"));
-        getWeight = reinterpret_cast<GetWeight>(
-            dlsym(library, "AFont_getWeight"));
-        isItalic = reinterpret_cast<IsItalic>(
-            dlsym(library, "AFont_isItalic"));
-        getCollectionIndex = reinterpret_cast<GetCollectionIndex>(
-            dlsym(library, "AFont_getCollectionIndex"));
-    }
-
-    ~AndroidFontApi()
-    {
-        if (library) {
-            dlclose(library);
-        }
-    }
-
-    bool available() const
-    {
-        return createMatcher && destroyMatcher && setLocales && match
-            && closeFont && getPath && getWeight && isItalic
-            && getCollectionIndex;
-    }
-};
-
-struct AndroidFontMatch {
-    std::string path;
-    int faceIndex = 0;
-    int weight = 400;
-    wsc::FontSlant slant = wsc::FontSlant::NORMAL;
-};
-
-bool findAndroidFont(const AndroidFontApi& api, std::uint16_t character,
-                     const char* locales, AndroidFontMatch& result)
-{
-    if (!api.available()) {
-        return false;
-    }
-    AFontMatcher* matcher = api.createMatcher();
-    if (!matcher) {
-        return false;
-    }
-    if (locales && locales[0] != '\0') {
-        api.setLocales(matcher, locales);
-    }
-    std::uint32_t runLength = 0;
-    AFont* font = api.match(matcher, "sans-serif", &character, 1, &runLength);
-    if (font) {
-        const char* path = api.getPath(font);
-        if (path && path[0] != '\0' && runLength == 1) {
-            result.path = path;
-            result.faceIndex = static_cast<int>(api.getCollectionIndex(font));
-            result.weight = static_cast<int>(api.getWeight(font));
-            result.slant = api.isItalic(font)
-                ? wsc::FontSlant::ITALIC : wsc::FontSlant::NORMAL;
-        }
-        api.closeFont(font);
-    }
-    api.destroyMatcher(matcher);
-    return !result.path.empty();
-}
-
-void registerAndroidFonts(wsc::Canvas& canvas)
-{
-    AndroidFontApi fontApi;
-    AndroidFontMatch sansMatch;
-    AndroidFontMatch cjkMatch;
-    bool sans = findAndroidFont(fontApi, u'A', nullptr, sansMatch)
-        && registerFontFile(canvas, kSansFamily, sansMatch.path.c_str(),
-                            sansMatch.faceIndex, sansMatch.weight,
-                            sansMatch.slant);
-    bool cjk = findAndroidFont(fontApi, 0x4E2D, "zh-CN", cjkMatch)
-        && registerFontFile(canvas, kCjkFamily, cjkMatch.path.c_str(),
-                            cjkMatch.faceIndex, cjkMatch.weight,
-                            cjkMatch.slant);
-
-    // AFontMatcher is API 29+. Keep compatibility with the sample's minSdk 21.
-    if (!sans) {
-        sans = registerFontFile(
-            canvas, kSansFamily, "/system/fonts/Roboto-Regular.ttf");
-    }
-    if (!cjk) {
-        cjk = registerFontFile(
-            canvas, kCjkFamily, "/system/fonts/NotoSansCJK-Regular.ttc");
-    }
-    if (!cjk) {
-        cjk = registerFontFile(
-            canvas, kCjkFamily, "/product/fonts/NotoSansCJK-Regular.ttc");
-    }
-
-    wsc::FontFallbackChain fallback(kSansFamily);
-    if (cjk) {
-        fallback.addFallbackFamily(kCjkFamily);
-    }
-    canvas.setFontFallbackChain(fallback);
-
-    __android_log_print((sans && cjk) ? ANDROID_LOG_INFO : ANDROID_LOG_WARN,
-                        kLogTag, "Android fonts ready: latin=%s cjk=%s",
-                        sans ? "yes" : "no", cjk ? "yes" : "no");
 }
 
 void createCheckerImage(wsc::Canvas& canvas,
@@ -362,7 +208,8 @@ void drawScene(wsc::Canvas& canvas, const wsc::Image* checkerImage,
                     textCard.getY() + 32.0f, heroText);
     auto cjkText = makeTextPaint(compactCards ? 13.5f : 16.0f,
                                  Color(239, 244, 255), kCjkFamily);
-    canvas.drawText("\xE4\xB8\xAD\xE6\x96\x87\xE6\xB8\xB2\xE6\x9F\x93  Android",
+    cjkText.setTextLocale("zh-CN");
+    canvas.drawText(kComplexEmojiText,
                     textCard.getX() + 11.0f, textCard.getY() + 69.0f, cjkText);
     auto wrapText = makeTextPaint(compactCards ? 9.0f : 10.5f,
                                   Color(155, 178, 218));
@@ -411,7 +258,9 @@ void drawScene(wsc::Canvas& canvas, const wsc::Image* checkerImage,
     curveStroke.setStrokeWidth(4.0f);
     curveStroke.setStrokeCap(Paint::StrokeCap::ROUND);
     curveStroke.setDashPathEffect({9.0f, 6.0f}, elapsedSeconds * 12.0f);
-    canvas.drawPath(curve, curveStroke);
+    if (std::isfinite(elapsedSeconds)) {
+        canvas.drawPath(curve, curveStroke);
+    }
 
     // 3. Non-rectangular anti-aliased clip over a multi-stop gradient.
     const RectF clipCard = cardRect(2);
@@ -465,9 +314,11 @@ void drawScene(wsc::Canvas& canvas, const wsc::Image* checkerImage,
     arcValue.setStrokeColor(Color(67, 220, 198));
     arcValue.setStrokeWidth(12.0f);
     arcValue.setStrokeCap(Paint::StrokeCap::ROUND);
-    canvas.drawArc(arcBounds, -kPi * 0.85f,
-                   kPi * (0.35f + pulse * 1.25f),
-                   wsc::Canvas::ArcMode::OPEN, arcValue);
+    if (std::isfinite(elapsedSeconds)) {
+        canvas.drawArc(arcBounds, -kPi * 0.85f,
+                       kPi * (0.35f + pulse * 1.25f),
+                       wsc::Canvas::ArcMode::OPEN, arcValue);
+    }
     Paint arcInner = arcValue;
     arcInner.setStrokeColor(Color(113, 130, 247));
     arcInner.setStrokeWidth(4.0f);
@@ -480,27 +331,29 @@ void drawScene(wsc::Canvas& canvas, const wsc::Image* checkerImage,
     drawCard(canvas, transformCard, "SAVE + TRANSFORM");
     const PointF transformCenter(transformCard.getX() + cardWidth * 0.5f,
                                  transformCard.getY() + cardHeight * 0.60f);
-    canvas.save();
-    canvas.translate(transformCenter.getX(), transformCenter.getY());
-    canvas.rotate(elapsedSeconds * 0.45f);
-    canvas.scale(0.92f + pulse * 0.14f, 0.92f + pulse * 0.14f);
-    Paint rotated;
-    rotated.setStyle(Paint::Style::FILL);
-    rotated.setLinearGradient(-42.0f, -42.0f, 42.0f, 42.0f,
-                              Color(97, 121, 246), Color(69, 221, 203));
-    const float transformHalfSize = compactCards ? 29.0f : 40.0f;
-    canvas.drawRoundRect(RectF(-transformHalfSize, -transformHalfSize,
-                               transformHalfSize * 2.0f,
-                               transformHalfSize * 2.0f),
-                         compactCards ? 11.0f : 15.0f, rotated);
-    Paint axis;
-    axis.setStyle(Paint::Style::STROKE);
-    axis.setStrokeWidth(2.0f);
-    axis.setStrokeColor(Color(255, 255, 255, 170));
-    const float axisRadius = compactCards ? 38.0f : 54.0f;
-    canvas.drawLine(-axisRadius, 0.0f, axisRadius, 0.0f, axis);
-    canvas.drawLine(0.0f, -axisRadius, 0.0f, axisRadius, axis);
-    canvas.restore();
+    if (std::isfinite(elapsedSeconds)) {
+        canvas.save();
+        canvas.translate(transformCenter.getX(), transformCenter.getY());
+        canvas.rotate(elapsedSeconds * 0.45f);
+        canvas.scale(0.92f + pulse * 0.14f, 0.92f + pulse * 0.14f);
+        Paint rotated;
+        rotated.setStyle(Paint::Style::FILL);
+        rotated.setLinearGradient(-42.0f, -42.0f, 42.0f, 42.0f,
+                                  Color(97, 121, 246), Color(69, 221, 203));
+        const float transformHalfSize = compactCards ? 29.0f : 40.0f;
+        canvas.drawRoundRect(RectF(-transformHalfSize, -transformHalfSize,
+                                   transformHalfSize * 2.0f,
+                                   transformHalfSize * 2.0f),
+                             compactCards ? 11.0f : 15.0f, rotated);
+        Paint axis;
+        axis.setStyle(Paint::Style::STROKE);
+        axis.setStrokeWidth(2.0f);
+        axis.setStrokeColor(Color(255, 255, 255, 170));
+        const float axisRadius = compactCards ? 38.0f : 54.0f;
+        canvas.drawLine(-axisRadius, 0.0f, axisRadius, 0.0f, axis);
+        canvas.drawLine(0.0f, -axisRadius, 0.0f, axisRadius, axis);
+        canvas.restore();
+    }
 
     // 6. Gaussian shadow plus SCREEN and MULTIPLY compositing.
     const RectF blendCard = cardRect(5);
@@ -561,7 +414,9 @@ void drawScene(wsc::Canvas& canvas, const wsc::Image* checkerImage,
     dash.setStrokeCap(Paint::StrokeCap::ROUND);
     dash.setDashPathEffect({10.0f, 7.0f}, -elapsedSeconds * 18.0f);
     dash.setAntiAlias(true);
-    canvas.drawPath(motionPath, dash);
+    if (std::isfinite(elapsedSeconds)) {
+        canvas.drawPath(motionPath, dash);
+    }
     const float trackX = motionCard.getX() + 14.0f;
     const float trackY = motionCard.getY() + cardHeight - 39.0f;
     const float trackWidth = cardWidth - 28.0f;
@@ -573,9 +428,11 @@ void drawScene(wsc::Canvas& canvas, const wsc::Image* checkerImage,
     progress.setStyle(Paint::Style::FILL);
     progress.setLinearGradient(trackX, trackY, trackX + trackWidth, trackY,
                                Color(71, 222, 204), Color(105, 123, 247));
-    canvas.drawRoundRect(RectF(trackX, trackY,
-                              trackWidth * (0.18f + pulse * 0.78f), 12.0f),
-                         6.0f, progress);
+    if (std::isfinite(elapsedSeconds)) {
+        canvas.drawRoundRect(RectF(trackX, trackY,
+                                  trackWidth * (0.18f + pulse * 0.78f), 12.0f),
+                             6.0f, progress);
+    }
 
     auto footer = makeTextPaint(9.5f, Color(108, 132, 183));
     footer.setTextAlign(Paint::TextAlign::CENTER);
@@ -583,11 +440,154 @@ void drawScene(wsc::Canvas& canvas, const wsc::Image* checkerImage,
                     width * 0.5f, height - 23.0f, footer);
 }
 
+// Only the genuinely changing overlays are rebuilt each frame. The static
+// card chrome, text, paths and tracks live in a retained Picture.
+void drawDynamicScene(wsc::Canvas& canvas, const wsc::Image* checkerImage,
+                      float width, float height, float elapsedSeconds)
+{
+    using wsc::Color;
+    using wsc::Paint;
+    using wsc::Path;
+    using wsc::PointF;
+    using wsc::RectF;
+
+    const float pulse = 0.5f + 0.5f * std::sin(elapsedSeconds * 2.2f);
+    const float margin = 14.0f;
+    const float gapX = 8.0f;
+    const float gapY = 8.0f;
+    const float gridTop = 69.0f;
+    const float gridBottom = height - 35.0f;
+    const bool landscape = width > height;
+    const int columns = landscape ? 4 : 2;
+    const int rows = landscape ? 2 : 4;
+    const float cardWidth =
+        (width - margin * 2.0f - gapX * static_cast<float>(columns - 1))
+        / static_cast<float>(columns);
+    const float cardHeight =
+        (gridBottom - gridTop - gapY * static_cast<float>(rows - 1))
+        / static_cast<float>(rows);
+    const bool compactCards = cardHeight < 145.0f;
+    auto cardRect = [&](int index) {
+        const int column = index % columns;
+        const int row = index / columns;
+        return RectF(margin + static_cast<float>(column) * (cardWidth + gapX),
+                     gridTop + static_cast<float>(row) * (cardHeight + gapY),
+                     cardWidth, cardHeight);
+    };
+
+    const RectF pathCard = cardRect(1);
+    Path curve;
+    curve.moveTo(pathCard.getX() + 91.0f,
+                 pathCard.getY() + (compactCards ? cardHeight - 16.0f : 116.0f));
+    curve.cubicTo(pathCard.getX() + 111.0f,
+                  pathCard.getY() + (compactCards ? 42.0f : 45.0f),
+                  pathCard.getX() + 139.0f,
+                  pathCard.getY() + (compactCards ? cardHeight - 9.0f : 145.0f),
+                  pathCard.getX() + cardWidth - 13.0f,
+                  pathCard.getY() + (compactCards ? 55.0f : 65.0f));
+    Paint curveStroke;
+    curveStroke.setStyle(Paint::Style::STROKE);
+    curveStroke.setStrokeColor(Color(92, 213, 242));
+    curveStroke.setStrokeWidth(4.0f);
+    curveStroke.setStrokeCap(Paint::StrokeCap::ROUND);
+    curveStroke.setDashPathEffect({9.0f, 6.0f}, elapsedSeconds * 12.0f);
+    canvas.drawPath(curve, curveStroke);
+
+    const RectF arcCard = cardRect(3);
+    const float arcSize = std::min(104.0f, cardHeight - 52.0f);
+    const RectF arcBounds(arcCard.getX() + (cardWidth - arcSize) * 0.5f,
+                          arcCard.getY() + 41.0f, arcSize, arcSize);
+    Paint arcValue;
+    arcValue.setStyle(Paint::Style::STROKE);
+    arcValue.setStrokeColor(Color(67, 220, 198));
+    arcValue.setStrokeWidth(12.0f);
+    arcValue.setStrokeCap(Paint::StrokeCap::ROUND);
+    canvas.drawArc(arcBounds, -kPi * 0.85f,
+                   kPi * (0.35f + pulse * 1.25f),
+                   wsc::Canvas::ArcMode::OPEN, arcValue);
+
+    const RectF transformCard = cardRect(4);
+    const PointF transformCenter(transformCard.getX() + cardWidth * 0.5f,
+                                 transformCard.getY() + cardHeight * 0.60f);
+    canvas.save();
+    canvas.translate(transformCenter.getX(), transformCenter.getY());
+    canvas.rotate(elapsedSeconds * 0.45f);
+    canvas.scale(0.92f + pulse * 0.14f, 0.92f + pulse * 0.14f);
+    Paint rotated;
+    rotated.setStyle(Paint::Style::FILL);
+    rotated.setLinearGradient(-42.0f, -42.0f, 42.0f, 42.0f,
+                              Color(97, 121, 246), Color(69, 221, 203));
+    const float transformHalfSize = compactCards ? 29.0f : 40.0f;
+    canvas.drawRoundRect(RectF(-transformHalfSize, -transformHalfSize,
+                              transformHalfSize * 2.0f,
+                              transformHalfSize * 2.0f),
+                         compactCards ? 11.0f : 15.0f, rotated);
+    Paint axis;
+    axis.setStyle(Paint::Style::STROKE);
+    axis.setStrokeWidth(2.0f);
+    axis.setStrokeColor(Color(255, 255, 255, 170));
+    const float axisRadius = compactCards ? 38.0f : 54.0f;
+    canvas.drawLine(-axisRadius, 0.0f, axisRadius, 0.0f, axis);
+    canvas.drawLine(0.0f, -axisRadius, 0.0f, axisRadius, axis);
+    canvas.restore();
+
+    const RectF imageCard = cardRect(6);
+    if (checkerImage) {
+        Paint imagePaint;
+        imagePaint.setColor(Color::WHITE);
+        imagePaint.setImageSampling(Paint::ImageSampling::NEAREST);
+        canvas.drawImageTiled(*checkerImage,
+                              RectF(imageCard.getX() + 13.0f, imageCard.getY() + 40.0f,
+                                    cardWidth - 26.0f, cardHeight - 54.0f),
+                              31.0f, 31.0f, imagePaint);
+        canvas.drawImageRounded(*checkerImage,
+                                RectF(imageCard.getX() + cardWidth - 71.0f,
+                                      imageCard.getY() + cardHeight - 74.0f,
+                                      56.0f, 56.0f),
+                                18.0f, imagePaint);
+    }
+
+    const RectF motionCard = cardRect(7);
+    Path motionPath;
+    motionPath.moveTo(motionCard.getX() + 14.0f, motionCard.getY() + 58.0f);
+    motionPath.cubicTo(motionCard.getX() + 55.0f, motionCard.getY() + 28.0f,
+                       motionCard.getX() + 96.0f, motionCard.getY() + 100.0f,
+                       motionCard.getX() + cardWidth - 14.0f, motionCard.getY() + 61.0f);
+    Paint dash;
+    dash.setStyle(Paint::Style::STROKE);
+    dash.setStrokeColor(Color(246, 204, 91));
+    dash.setStrokeWidth(4.0f);
+    dash.setStrokeCap(Paint::StrokeCap::ROUND);
+    dash.setDashPathEffect({10.0f, 7.0f}, -elapsedSeconds * 18.0f);
+    dash.setAntiAlias(true);
+    canvas.drawPath(motionPath, dash);
+    const float trackX = motionCard.getX() + 14.0f;
+    const float trackY = motionCard.getY() + cardHeight - 39.0f;
+    const float trackWidth = cardWidth - 28.0f;
+    Paint progress;
+    progress.setStyle(Paint::Style::FILL);
+    progress.setLinearGradient(trackX, trackY, trackX + trackWidth, trackY,
+                               Color(71, 222, 204), Color(105, 123, 247));
+    canvas.drawRoundRect(RectF(trackX, trackY,
+                              trackWidth * (0.18f + pulse * 0.78f), 12.0f),
+                         6.0f, progress);
+}
+
 class NativeRenderer {
 public:
     bool surfaceCreated()
     {
-        release();
+        const EGLContext currentContext = eglGetCurrentContext();
+        if (currentContext == EGL_NO_CONTEXT) {
+            logError("surfaceCreated without a current EGL context");
+            return false;
+        }
+        if (eglContext_ != EGL_NO_CONTEXT && eglContext_ != currentContext) {
+            __android_log_print(ANDROID_LOG_WARN, kLogTag,
+                                "EGL context changed; rebuilding derived resources");
+            release();
+        }
+        eglContext_ = currentContext;
         const bool loaded = wsc::Canvas::loadOpenGL(&loadOpenGlesProcedure);
         if (!loaded) {
             logError("Canvas::loadOpenGL failed for the active OpenGL ES context");
@@ -601,10 +601,20 @@ public:
             return false;
         }
 
-        release();
-        glViewport(0, 0, width, height);
         const float safeDensity = std::isfinite(density) && density > 0.0f
             ? density : 1.0f;
+        glViewport(0, 0, width, height);
+        if (canvas_ && width == physicalWidth_ && height == physicalHeight_
+            && std::abs(safeDensity - density_) < 0.001f) {
+            return true;
+        }
+
+        const EGLContext currentContext = eglGetCurrentContext();
+        release();
+        eglContext_ = currentContext;
+        physicalWidth_ = width;
+        physicalHeight_ = height;
+        density_ = safeDensity;
         logicalWidth_ = static_cast<float>(width) / safeDensity;
         logicalHeight_ = static_cast<float>(height) / safeDensity;
 
@@ -621,18 +631,44 @@ public:
             canvas_.reset();
             return false;
         }
-
-        registerAndroidFonts(*canvas_);
         createCheckerImage(*canvas_, checkerImage_);
+        staticPicture_ = canvas_->recordPicture(
+            [&](wsc::Canvas& recordingCanvas) {
+                drawScene(recordingCanvas, nullptr, logicalWidth_, logicalHeight_,
+                          std::numeric_limits<float>::quiet_NaN());
+            });
+        if (!staticPicture_) {
+            logError("Static Picture recording failed");
+            canvas_->finalizeContext();
+            canvas_.reset();
+            return false;
+        }
 
         auto probePaint = makeTextPaint(18.0f, wsc::Color::WHITE);
         const float probeWidth = canvas_->measureText(
             "WhatsCanvas Aa 123", probePaint);
+        auto cjkProbePaint = makeTextPaint(
+            18.0f, wsc::Color::WHITE, kCjkFamily);
+        cjkProbePaint.setTextLocale("zh-CN");
+        const float cjkProbeWidth = canvas_->measureText(
+            "\xE4\xB8\xAD\xE6\x96\x87", cjkProbePaint);
+        auto boldProbePaint = probePaint;
+        boldProbePaint.setFontWeight(700);
+        const float boldProbeWidth = canvas_->measureText(
+            "Bold 700", boldProbePaint);
+        const float emojiProbeWidth = canvas_->measureText(
+            "\xF0\x9F\x98\x80\xEF\xB8\x8F", cjkProbePaint);
+        const float complexEmojiProbeWidth = canvas_->measureText(
+            kComplexEmojiText, cjkProbePaint);
         __android_log_print(
             ANDROID_LOG_INFO, kLogTag,
-            "OpenGLES renderer ready: %dx%d, dpr=%.2f, GL=%s, textWidth=%.1f",
+            "OpenGLES renderer ready: %dx%d, dpr=%.2f, GL=%s, "
+            "latinWidth=%.1f, zhCnWidth=%.1f, boldWidth=%.1f, emojiWidth=%.1f, "
+            "complexEmojiWidth=%.1f, pictureOps=%zu",
             width, height, density,
-            wsc::Canvas::getOpenGLVersionString().c_str(), probeWidth);
+            wsc::Canvas::getOpenGLVersionString().c_str(), probeWidth,
+            cjkProbeWidth, boldProbeWidth, emojiProbeWidth,
+            complexEmojiProbeWidth, staticPicture_->operationCount());
         return true;
     }
 
@@ -648,9 +684,25 @@ public:
         glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
         canvas_->beginFrame();
-        drawScene(*canvas_, checkerImage_.get(), logicalWidth_, logicalHeight_,
-                  elapsedSeconds);
+        const auto recordStart = std::chrono::steady_clock::now();
+        // The retained scene is an isolated, opaque full-screen layer. Cache
+        // its raster result like Flutter's RepaintBoundary/RasterCache so the
+        // steady state submits one textured quad instead of ~100 static draws.
+        canvas_->drawPictureRasterized(*staticPicture_);
+        const auto pictureEnd = std::chrono::steady_clock::now();
+        drawDynamicScene(*canvas_, checkerImage_.get(), logicalWidth_, logicalHeight_,
+                         elapsedSeconds);
+        const auto recordEnd = std::chrono::steady_clock::now();
         canvas_->endFrame();
+        lastRecordCpuTimeUs_ = static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::microseconds>(
+                recordEnd - recordStart).count());
+        lastPictureCpuTimeUs_ = static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::microseconds>(
+                pictureEnd - recordStart).count());
+        lastDynamicCpuTimeUs_ = static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::microseconds>(
+                recordEnd - pictureEnd).count());
 
         const int elapsedSecond = static_cast<int>(elapsedSeconds);
         if (elapsedSecond != lastStatsSecond_ && elapsedSecond % 5 == 0) {
@@ -658,10 +710,32 @@ public:
             const auto stats = canvas_->getRenderStats();
             __android_log_print(
                 ANDROID_LOG_INFO, kLogTag,
-                "Frame stats: commands=%zu draws=%zu paths=%zu glyphTextures=%zu images=%zu filters=%zu",
+                "Frame stats: commands=%zu draws=%zu paths=%zu uploads=%zu/%zuKB "
+                "fillAA=%zu/%zu/%zuKB strokeAA=%zu/%zu/%zuKB "
+                "glyphTextures=%zu images=%zu filters=%zu pictureCache=%zu/%zu "
+                "rasterCache=%zu/%zu/%zu/%zuKB/%zuevict "
+                "recordCpu=%lluus pictureCpu=%lluus dynamicCpu=%lluus flushCpu=%lluus",
                 stats.commandCount, stats.drawCallCount,
-                stats.pathVertexCount, stats.glyphAtlasTextureCount,
-                stats.imageTextureCount, stats.filterCount);
+                stats.pathVertexCount, stats.pathUploadCount,
+                stats.pathUploadBytes / 1024u,
+                stats.aaCacheHits, stats.aaCacheMisses,
+                stats.aaCacheBytes / 1024u,
+                stats.strokeAaCacheHits, stats.strokeAaCacheMisses,
+                stats.strokeAaCacheBytes / 1024u,
+                stats.glyphAtlasTextureCount,
+                stats.imageTextureCount,
+                stats.filterCount,
+                stats.retainedPictureCacheHits,
+                stats.retainedPictureCacheMisses,
+                stats.retainedPictureRasterCacheHits,
+                stats.retainedPictureRasterCacheMisses,
+                stats.retainedPictureRasterCacheSize,
+                stats.retainedPictureRasterCacheBytes / 1024u,
+                stats.retainedPictureRasterCacheEvictions,
+                static_cast<unsigned long long>(lastRecordCpuTimeUs_),
+                static_cast<unsigned long long>(lastPictureCpuTimeUs_),
+                static_cast<unsigned long long>(lastDynamicCpuTimeUs_),
+                static_cast<unsigned long long>(stats.flushCpuTimeNs / 1000u));
         }
     }
 
@@ -669,18 +743,33 @@ public:
     {
         checkerImage_.reset();
         if (canvas_) {
+            // Purge Picture-derived textures while their owning context is
+            // still current, then destroy other context-bound resources.
             canvas_->finalizeContext();
-            canvas_.reset();
         }
+        staticPicture_.reset();
+        canvas_.reset();
+        eglContext_ = EGL_NO_CONTEXT;
+        physicalWidth_ = 0;
+        physicalHeight_ = 0;
+        density_ = 1.0f;
         lastStatsSecond_ = -1;
     }
 
 private:
     std::unique_ptr<wsc::Canvas> canvas_;
     std::unique_ptr<wsc::Image> checkerImage_;
+    std::shared_ptr<const wsc::Picture> staticPicture_;
+    EGLContext eglContext_ = EGL_NO_CONTEXT;
+    int physicalWidth_ = 0;
+    int physicalHeight_ = 0;
+    float density_ = 1.0f;
     float logicalWidth_ = 1.0f;
     float logicalHeight_ = 1.0f;
     int lastStatsSecond_ = -1;
+    std::uint64_t lastRecordCpuTimeUs_ = 0;
+    std::uint64_t lastPictureCpuTimeUs_ = 0;
+    std::uint64_t lastDynamicCpuTimeUs_ = 0;
 };
 
 NativeRenderer* rendererFromHandle(jlong handle)

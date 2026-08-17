@@ -574,6 +574,28 @@ bool testAsyncReadbackRejectsInvalidState()
     return ok;
 }
 
+bool testDashedStrokeUsesSinglePathCommand()
+{
+    auto renderer = std::make_unique<FakeRenderer>();
+    FakeRenderer *rawRenderer = renderer.get();
+    std::unique_ptr<wsc::Canvas> canvas =
+        wsc::CanvasLifecycleTestAccess::create(std::move(renderer));
+
+    wsc::Path path;
+    path.moveTo(8.0f, 20.0f);
+    path.cubicTo(45.0f, 2.0f, 80.0f, 38.0f, 120.0f, 20.0f);
+    wsc::Paint stroke;
+    stroke.setStyle(wsc::Paint::Style::STROKE);
+    stroke.setStrokeWidth(4.0f);
+    stroke.setStrokeCap(wsc::Paint::StrokeCap::ROUND);
+    stroke.setDashPathEffect({9.0f, 6.0f}, 3.0f);
+    canvas->drawPath(path, stroke);
+
+    return expect(
+        rawRenderer->commandCount() == 1,
+        "all pieces of a dashed stroke should share one path command");
+}
+
 bool testUniformRoundedImageUsesNativeCoverage()
 {
     auto renderer = std::make_unique<FakeRenderer>();
@@ -670,6 +692,7 @@ int main()
     ok = testClipPathBuildsAntiAliasedCoverageMask() && ok;
     ok = testGradientQueuesShaderDescriptor() && ok;
     ok = testUniformRoundedImageUsesNativeCoverage() && ok;
+    ok = testDashedStrokeUsesSinglePathCommand() && ok;
     ok = testAsyncReadbackRejectsInvalidState() && ok;
     ok = testContextRecreation() && ok;
     return ok ? 0 : 1;

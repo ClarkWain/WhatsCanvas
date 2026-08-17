@@ -1,4 +1,6 @@
 #include "text/DirectWriteTextBackend.h"
+#include "text/FontRasterizer.h"
+#include "wsc/FontResolver.h"
 
 #include <algorithm>
 #include <cmath>
@@ -159,6 +161,9 @@ struct CustomFontSource
 {
     std::wstring path;                               // FILE-based (empty for memory).
     std::shared_ptr<std::vector<std::uint8_t>> data; // MEMORY-based (null for file).
+    // Non-empty only for a lazily bridged provider family. It allows a newer
+    // family generation to replace its old DirectWrite collection entries.
+    std::string providerFamilyKey;
 };
 
 struct CustomFontCollectionKey
@@ -425,6 +430,22 @@ public:
         return false;
     }
 
+    bool addFontProvider(std::shared_ptr<wsc::FontProvider> provider) override
+    {
+        if (!available_ || !provider) return false;
+        const bool duplicate = std::any_of(
+            fontProviders_.begin(), fontProviders_.end(),
+            [&](const auto &existing) { return existing.get() == provider.get(); });
+        if (duplicate) return true;
+        fontProviders_.push_back(std::move(provider));
+        std::stable_sort(fontProviders_.begin(), fontProviders_.end(),
+                         [](const auto &left, const auto &right) {
+            return providerPriority(left->kind()) < providerPriority(right->kind());
+        });
+        providerFamilyStates_.clear();
+        return true;
+    }
+
     bool refreshSystemFonts() override
     {
         wsc::FontSystem::refreshInstalledFonts();
@@ -582,6 +603,7 @@ public:
         if (!available_ || codepoint < 32) {
             return false;
         }
+        (void)ensureProviderFamily(paint);
         // Check the requested (or default) family first.
         const std::wstring family = toWideString(paint.hasFontFamily() ? paint.getFontFamily()
                                                                         : std::string("Segoe UI"));
@@ -723,6 +745,7 @@ public:
         if (normalized.empty()) {
             return result;
         }
+        (void)ensureProviderFamily(paint);
 
         // Position-independent bitmap + intrinsic metrics can be reused across
         // frames when the same text is drawn with the same styling. Cache them
@@ -802,6 +825,8 @@ private:
         };
         appendInt(static_cast<long long>(renderCacheGeneration_));
         key += '|';
+        appendInt(static_cast<long long>(providerFamilyCacheToken(paint)));
+        key += '|';
         appendFloat(paint.getTextSize());
         key += '|';
         appendInt(paint.getFontWeight());
@@ -820,6 +845,8 @@ private:
             appendInt(feature.value);
             key += ';';
         }
+        key += '|';
+        key += wsc::text::fontVariationIdentity(paint.getFontVariations());
         key += '|';
         key += static_cast<char>('0' + (effectiveRasterMode(paint) == DirectWriteRasterMode::ClearType));
         key += static_cast<char>('0' + paint.isUnderline());
@@ -872,7 +899,7 @@ private:
         return &insertedIt->second.entry;
     }
 
-    void invalidateRenderCache()
+    void invalidateRenderCache() const
     {
         ++renderCacheGeneration_;
         renderCache_.clear();
@@ -969,7 +996,9 @@ private:
         ComPtr(ComPtr &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
         ComPtr &operator=(ComPtr &&other) noexcept
         {
-            if (this != &other) {
+            // operator& exposes the COM out-parameter, so use addressof for
+            // actual object identity inside the move assignment.
+            if (std::addressof(*this) != std::addressof(other)) {
                 safeRelease(ptr_);
                 ptr_ = other.ptr_;
                 other.ptr_ = nullptr;
@@ -989,11 +1018,78 @@ private:
 
     // Rebuild the custom font collection from the registered fonts. The
     // generation counter busts DirectWrite's (loader,key) collection cache.
-    bool rebuildCustomFontCollection()
+    bool rebuildCustomFontCollection() const
     {
         if (dwriteFactory_ == nullptr) {
             return false;
         }
+        if (customFontSources_.empty()) {
+            safeRelease(customFontCollection_);
+            return true;
+        }
+
+        // Prefer the modern font-set path. Unlike the legacy collection
+        // loader, it retains variable-axis metadata needed by
+        // IDWriteFactory6::CreateTextFormat and IDWriteTextLayout4.
+        IDWriteFactory5 *factory5 = nullptr;
+        if (SUCCEEDED(dwriteFactory_->QueryInterface(
+                __uuidof(IDWriteFactory5),
+                reinterpret_cast<void **>(&factory5)))
+            && factory5 != nullptr) {
+            IDWriteFontSetBuilder1 *builder = nullptr;
+            HRESULT modernHr = factory5->CreateFontSetBuilder(&builder);
+            if (SUCCEEDED(modernHr) && builder != nullptr) {
+                for (const CustomFontSource &source : customFontSources_) {
+                    IDWriteFontFile *fontFile = nullptr;
+                    if (!source.path.empty()) {
+                        modernHr = dwriteFactory_->CreateFontFileReference(
+                            source.path.c_str(), nullptr, &fontFile);
+                    } else if (source.data != nullptr && !source.data->empty()
+                               && source.data->size()
+                                   <= static_cast<std::size_t>(
+                                       std::numeric_limits<UINT32>::max())
+                               && ensureMemoryFontLoader()) {
+                        modernHr = memoryFontLoader_->CreateInMemoryFontFileReference(
+                            dwriteFactory_, source.data->data(),
+                            static_cast<UINT32>(source.data->size()), nullptr,
+                            &fontFile);
+                    } else {
+                        modernHr = E_INVALIDARG;
+                    }
+                    if (SUCCEEDED(modernHr) && fontFile != nullptr) {
+                        modernHr = builder->AddFontFile(fontFile);
+                    }
+                    safeRelease(fontFile);
+                    if (FAILED(modernHr)) break;
+                }
+
+                IDWriteFontSet *fontSet = nullptr;
+                if (SUCCEEDED(modernHr)) {
+                    modernHr = builder->CreateFontSet(&fontSet);
+                }
+                IDWriteFontCollection1 *collection = nullptr;
+                if (SUCCEEDED(modernHr) && fontSet != nullptr) {
+                    modernHr = factory5->CreateFontCollectionFromFontSet(
+                        fontSet, &collection);
+                }
+                safeRelease(fontSet);
+                safeRelease(builder);
+                if (SUCCEEDED(modernHr) && collection != nullptr) {
+                    safeRelease(customFontCollection_);
+                    customFontCollection_ = collection;
+                    factory5->Release();
+                    return true;
+                }
+                safeRelease(collection);
+            } else {
+                safeRelease(builder);
+            }
+            factory5->Release();
+        }
+
+        // Older Windows releases retain the established custom-loader path.
+        // It supports static file/memory fonts but cannot promise axis-aware
+        // collection metadata.
         if (collectionLoader_ == nullptr) {
             collectionLoader_ = new CustomFontCollectionLoader();
             if (FAILED(dwriteFactory_->RegisterFontCollectionLoader(collectionLoader_))) {
@@ -1017,7 +1113,7 @@ private:
 
     // Lazily create + register an in-memory font file loader (IDWriteFactory5,
     // Windows 10+). Returns false when unavailable.
-    bool ensureMemoryFontLoader()
+    bool ensureMemoryFontLoader() const
     {
         if (memoryFontLoader_ != nullptr) {
             return true;
@@ -1060,6 +1156,117 @@ private:
         return systemFontCollection_;
     }
 
+    static int providerPriority(wsc::FontProviderKind kind)
+    {
+        switch (kind) {
+        case wsc::FontProviderKind::DYNAMIC: return 0;
+        case wsc::FontProviderKind::ASSET: return 1;
+        case wsc::FontProviderKind::TEST: return 2;
+        case wsc::FontProviderKind::SYSTEM: return 3;
+        }
+        return 4;
+    }
+
+    struct ProviderFamilyState
+    {
+        const wsc::FontProvider *provider = nullptr;
+        std::uint64_t generation = 0;
+    };
+
+    const wsc::FontProvider *winningProvider(
+        const std::string &family) const
+    {
+        for (const auto &provider : fontProviders_) {
+            if (provider->hasFamily(family)) return provider.get();
+        }
+        return nullptr;
+    }
+
+    std::uint64_t providerFamilyCacheToken(const Paint &paint) const
+    {
+        const std::string family = paint.hasFontFamily()
+            ? paint.getFontFamily() : std::string("Segoe UI");
+        const wsc::FontProvider *provider = winningProvider(family);
+        if (provider == nullptr) return 0;
+        std::uint64_t hash = static_cast<std::uint64_t>(
+            reinterpret_cast<std::uintptr_t>(provider));
+        hash ^= provider->generationForFamily(family)
+            + 0x9e3779b97f4a7c15ULL + (hash << 6U) + (hash >> 2U);
+        return hash == 0 ? 1 : hash;
+    }
+
+    bool ensureProviderFamily(const Paint &paint) const
+    {
+        if (fontProviders_.empty()) return true;
+        const std::string family = paint.hasFontFamily()
+            ? paint.getFontFamily() : std::string("Segoe UI");
+        const std::string familyKey = wsc::canonicalFontFamilyName(family);
+        const wsc::FontProvider *provider = winningProvider(family);
+        if (provider == nullptr) {
+            const auto previous = providerFamilyStates_.find(familyKey);
+            if (previous == providerFamilyStates_.end()) return true;
+            customFontSources_.erase(
+                std::remove_if(customFontSources_.begin(),
+                               customFontSources_.end(),
+                               [&](const CustomFontSource &source) {
+                    return source.providerFamilyKey == familyKey;
+                }),
+                customFontSources_.end());
+            providerFamilyStates_.erase(previous);
+            return rebuildCustomFontCollection();
+        }
+
+        const std::uint64_t generation =
+            provider->generationForFamily(family);
+        if (const auto found = providerFamilyStates_.find(familyKey);
+            found != providerFamilyStates_.end()
+            && found->second.provider == provider
+            && found->second.generation == generation) {
+            return true;
+        }
+
+        wsc::FontMatchRequest request;
+        request.family = family;
+        request.weight = paint.getFontWeight();
+        request.slant = paint.getFontSlant();
+        request.locale = paint.getTextLocale();
+        request.allowFallback = false;
+        const std::vector<const wsc::FontFace *> faces = provider->match(request);
+
+        customFontSources_.erase(
+            std::remove_if(customFontSources_.begin(),
+                           customFontSources_.end(),
+                           [&](const CustomFontSource &source) {
+                return source.providerFamilyKey == familyKey;
+            }),
+            customFontSources_.end());
+        for (const wsc::FontFace *face : faces) {
+            if (face == nullptr || !face->isValid()) continue;
+            CustomFontSource source;
+            source.providerFamilyKey = familyKey;
+            if (face->sourceType() == wsc::FontSourceType::FILE) {
+                source.path = toWideString(face->path());
+            } else if (face->bytes() != nullptr && !face->bytes()->empty()) {
+                if (!ensureMemoryFontLoader()) continue;
+                source.data = std::make_shared<std::vector<std::uint8_t>>(
+                    *face->bytes());
+            }
+            if (!source.path.empty() || source.data != nullptr) {
+                customFontSources_.push_back(std::move(source));
+            }
+        }
+        const bool rebuilt = rebuildCustomFontCollection();
+        if (!rebuilt) {
+            diagnostics_.push_back({
+                TextBackendDiagnostic::Severity::Warning,
+                "Failed to bridge a custom font provider family into DirectWrite.",
+                0, family});
+        } else {
+            providerFamilyStates_[familyKey] = {provider, generation};
+        }
+        return rebuilt;
+    }
+
     ComPtr<IDWriteTextLayout> createLayout(const std::wstring &wide, const Paint &paint,
                                            float maxWidth) const
     {
@@ -1067,11 +1274,28 @@ private:
             return nullptr;
         }
 
+        (void)ensureProviderFamily(paint);
+
         const std::wstring family = toWideString(paint.hasFontFamily() ? paint.getFontFamily()
                                                                        : "Segoe UI");
         IDWriteFontCollection *fontCollection = chooseFontCollection(family);
         if (fontCollection == nullptr) {
             return nullptr;
+        }
+        if (!paint.getFontVariations().empty()
+            && customFontCollection_ != nullptr
+            && fontCollection != customFontCollection_) {
+            const std::string message =
+                "Requested variable-font family was not found in the custom DirectWrite collection.";
+            const bool duplicate = std::any_of(
+                diagnostics_.begin(), diagnostics_.end(),
+                [&](const TextBackendDiagnostic &diagnostic) {
+                    return diagnostic.message == message;
+                });
+            if (!duplicate) {
+                diagnostics_.push_back({TextBackendDiagnostic::Severity::Warning,
+                                        message});
+            }
         }
 
         const float fontSize = paint.getTextSize() > 0.0f ? paint.getTextSize() : 16.0f;
@@ -1080,26 +1304,105 @@ private:
         const std::wstring locale = paint.hasTextLocale() ? toWideString(paint.getTextLocale())
                                                           : std::wstring(L"en-US");
 
+        std::vector<DWRITE_FONT_AXIS_VALUE> axisValues;
+        axisValues.reserve(paint.getFontVariations().size() + 2u);
+        for (const wsc::FontVariationCoordinate &coordinate :
+             paint.getFontVariations()) {
+            if (coordinate.tag.size() != 4 || !std::isfinite(coordinate.value)) {
+                continue;
+            }
+            axisValues.push_back({
+                static_cast<DWRITE_FONT_AXIS_TAG>(DWRITE_MAKE_OPENTYPE_TAG(
+                    coordinate.tag[0], coordinate.tag[1],
+                    coordinate.tag[2], coordinate.tag[3])),
+                coordinate.value
+            });
+        }
+        const auto hasAxis = [&](DWRITE_FONT_AXIS_TAG tag) {
+            return std::any_of(axisValues.begin(), axisValues.end(),
+                               [&](const DWRITE_FONT_AXIS_VALUE &axis) {
+                                   return axis.axisTag == tag;
+                               });
+        };
+        if (!axisValues.empty()
+            && !hasAxis(DWRITE_FONT_AXIS_TAG_WEIGHT)) {
+            axisValues.push_back({DWRITE_FONT_AXIS_TAG_WEIGHT,
+                                  static_cast<float>(paint.getFontWeight())});
+        }
+        if (!axisValues.empty() && paint.getFontSlant() == wsc::FontSlant::ITALIC
+            && !hasAxis(DWRITE_FONT_AXIS_TAG_ITALIC)) {
+            axisValues.push_back({DWRITE_FONT_AXIS_TAG_ITALIC, 1.0f});
+        } else if (!axisValues.empty()
+                   && paint.getFontSlant() == wsc::FontSlant::OBLIQUE
+                   && !hasAxis(DWRITE_FONT_AXIS_TAG_SLANT)) {
+            axisValues.push_back({DWRITE_FONT_AXIS_TAG_SLANT, -12.0f});
+        }
+
         ComPtr<IDWriteTextFormat> format;
-        HRESULT hr = dwriteFactory_->CreateTextFormat(
-            family.c_str(), fontCollection, mapFontWeight(paint.getFontWeight()),
-            mapFontSlant(paint.getFontSlant()), DWRITE_FONT_STRETCH_NORMAL, fontSize, locale.c_str(),
-            &format);
+        ComPtr<IDWriteTextFormat3> variableFormat;
+        IDWriteTextFormat *formatObject = nullptr;
+        const auto recordAxisDiagnostic = [&](const std::string &message) {
+            const bool duplicate = std::any_of(
+                diagnostics_.begin(), diagnostics_.end(),
+                [&](const TextBackendDiagnostic &diagnostic) {
+                    return diagnostic.message == message;
+                });
+            if (!duplicate) {
+                diagnostics_.push_back({TextBackendDiagnostic::Severity::Warning,
+                                        message});
+            }
+        };
+        const auto createFormat = [&](const std::wstring &fontFamily,
+                                      IDWriteFontCollection *collection) {
+            format = {};
+            variableFormat = {};
+            formatObject = nullptr;
+            if (!axisValues.empty()) {
+                ComPtr<IDWriteFactory6> factory6;
+                const HRESULT factoryHr = dwriteFactory_->QueryInterface(
+                        __uuidof(IDWriteFactory6),
+                        reinterpret_cast<void **>(&factory6));
+                if (SUCCEEDED(factoryHr) && factory6 != nullptr) {
+                    const HRESULT variableHr = factory6->CreateTextFormat(
+                        fontFamily.c_str(), collection, axisValues.data(),
+                        static_cast<UINT32>(axisValues.size()), fontSize,
+                        locale.c_str(), &variableFormat);
+                    if (SUCCEEDED(variableHr) && variableFormat != nullptr) {
+                        formatObject = variableFormat.Get();
+                        return variableHr;
+                    }
+                    recordAxisDiagnostic(
+                        "DirectWrite variable text-format creation failed (HRESULT "
+                        + std::to_string(static_cast<long>(variableHr)) + ").");
+                } else {
+                    recordAxisDiagnostic(
+                        "DirectWrite IDWriteFactory6 is unavailable; variable-font axes require a newer runtime.");
+                }
+            }
+            const HRESULT legacyHr = dwriteFactory_->CreateTextFormat(
+                fontFamily.c_str(), collection,
+                mapFontWeight(paint.getFontWeight()),
+                mapFontSlant(paint.getFontSlant()), DWRITE_FONT_STRETCH_NORMAL,
+                fontSize, locale.c_str(), &format);
+            if (SUCCEEDED(legacyHr) && format != nullptr) {
+                formatObject = format.Get();
+            }
+            return legacyHr;
+        };
+
+        HRESULT hr = createFormat(family, fontCollection);
         // Segoe UI Variable is the Windows Fluent default, but it is absent
         // on older Windows images. DirectWrite rejects an unknown family at
         // format creation, so retrying the stable Segoe UI face prevents an
         // invisible/serif fallback while preserving the preferred family on
         // Windows 11 and newer.
-        if (FAILED(hr) || format == nullptr) {
+        if (FAILED(hr) || formatObject == nullptr) {
             const std::wstring fallbackFamily(L"Segoe UI");
             fontCollection = chooseFontCollection(fallbackFamily);
             if (fontCollection == nullptr) return nullptr;
-            hr = dwriteFactory_->CreateTextFormat(
-                fallbackFamily.c_str(), fontCollection, mapFontWeight(paint.getFontWeight()),
-                mapFontSlant(paint.getFontSlant()), DWRITE_FONT_STRETCH_NORMAL, fontSize,
-                locale.c_str(), &format);
+            hr = createFormat(fallbackFamily, fontCollection);
         }
-        if (FAILED(hr) || format == nullptr) {
+        if (FAILED(hr) || formatObject == nullptr) {
             return nullptr;
         }
 
@@ -1108,9 +1411,34 @@ private:
 
         ComPtr<IDWriteTextLayout> layout;
         hr = dwriteFactory_->CreateTextLayout(wide.c_str(), static_cast<UINT32>(wide.size()),
-                                              format.Get(), layoutMaxWidth, layoutMaxHeight, &layout);
+                                              formatObject, layoutMaxWidth, layoutMaxHeight, &layout);
         if (FAILED(hr) || layout == nullptr) {
             return nullptr;
+        }
+
+        // DirectWrite 7 exposes the same whole-run variable-font axis model as
+        // the portable HarfBuzz/FreeType path. Keep the base weight/slant from
+        // the text format, then let explicit Paint axes override the selected
+        // variable instance over the complete UTF-16 range.
+        if (!axisValues.empty()) {
+            ComPtr<IDWriteTextLayout4> layout4;
+            if (SUCCEEDED(layout->QueryInterface(__uuidof(IDWriteTextLayout4),
+                                                 reinterpret_cast<void **>(&layout4)))
+                && layout4 != nullptr) {
+                const DWRITE_TEXT_RANGE fullRange{
+                    0, static_cast<UINT32>(wide.size())};
+                const HRESULT axisHr = layout4->SetFontAxisValues(
+                    axisValues.data(), static_cast<UINT32>(axisValues.size()),
+                    fullRange);
+                if (FAILED(axisHr)) {
+                    recordAxisDiagnostic(
+                        "DirectWrite layout rejected variable-font axes (HRESULT "
+                        + std::to_string(static_cast<long>(axisHr)) + ").");
+                }
+            } else {
+                recordAxisDiagnostic(
+                    "DirectWrite IDWriteTextLayout4 is unavailable; variable-font axes may be ignored.");
+            }
         }
 
         // Enable word wrapping if a max width was specified.
@@ -1310,16 +1638,19 @@ private:
     DirectWriteBackendOptions options_;
     IDWriteFactory *dwriteFactory_ = nullptr;
     IDWriteFontCollection *systemFontCollection_ = nullptr;
-    IDWriteFontCollection *customFontCollection_ = nullptr;
-    CustomFontCollectionLoader *collectionLoader_ = nullptr;
-    IDWriteInMemoryFontFileLoader *memoryFontLoader_ = nullptr;
+    mutable IDWriteFontCollection *customFontCollection_ = nullptr;
+    mutable CustomFontCollectionLoader *collectionLoader_ = nullptr;
+    mutable IDWriteInMemoryFontFileLoader *memoryFontLoader_ = nullptr;
     IDWriteFontFallback *customFontFallback_ = nullptr;
     IWICImagingFactory *wicFactory_ = nullptr;
     ID2D1Factory *d2dFactory_ = nullptr;
     bool comOwned_ = false;
-    std::vector<CustomFontSource> customFontSources_;
+    mutable std::vector<CustomFontSource> customFontSources_;
+    std::vector<std::shared_ptr<wsc::FontProvider>> fontProviders_;
+    mutable std::unordered_map<std::string, ProviderFamilyState>
+        providerFamilyStates_;
     std::vector<std::string> fallbackChainFamilies_;
-    unsigned int collectionGeneration_ = 0;
+    mutable unsigned int collectionGeneration_ = 0;
     bool available_ = false;
     mutable std::vector<TextBackendDiagnostic> diagnostics_;
 
@@ -1333,7 +1664,7 @@ private:
     mutable std::list<std::string> renderCacheOrder_;
     mutable std::size_t renderCacheBytes_ = 0;
     mutable CachedRender transientLastRender_; // Holds oversized results.
-    unsigned int renderCacheGeneration_ = 0;
+    mutable unsigned int renderCacheGeneration_ = 0;
 };
 
 } // anonymous namespace

@@ -38,7 +38,6 @@ public:
     std::size_t frameUploadCount() const { return frameUploadCount_; }
     std::size_t frameUploadBytes() const { return frameUploadBytes_; }
     std::size_t frameIndexBytes() const { return frameIndexBytes_; }
-
 private:
     DrawPathProgram();
 

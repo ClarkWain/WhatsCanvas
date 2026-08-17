@@ -1,0 +1,86 @@
+[
+  {
+    "fixture": "../android_font_config/api23_fonts.xml",
+    "mode": "strict",
+    "queries": [
+      "sans-serif-medium|400|normal||default",
+      "sans-serif|650|italic||default"
+    ]
+  },
+  {
+    "fixture": "../android_font_config/api21_family_list.xml",
+    "mode": "strict",
+    "queries": [
+      "ui-grouped|650|italic||default"
+    ]
+  },
+  {
+    "fixture": "../android_font_config/api21_alias_case.xml",
+    "mode": "strict",
+    "queries": [
+      "DISPLAY-BLACK|400|normal||default"
+    ]
+  },
+  {
+    "fixture": "../android_font_config/api29_locales.xml",
+    "mode": "strict",
+    "queries": [
+      "missing-family|400|normal|zh-TW|default",
+      "missing-family|400|normal|zh-CN|default"
+    ]
+  },
+  {
+    "fixture": "../android_font_config/api33_presentation.xml",
+    "mode": "strict",
+    "queries": [
+      "missing-family|400|normal||emoji",
+      "missing-family|400|normal||text"
+    ]
+  },
+  {
+    "fixture": "../android_font_config/aosp_api33_complete.xml",
+    "mode": "extension",
+    "expectedDifferencePath": "$.faces[82].locales",
+    "reason": "WhatsCanvas normalizes the documented comma-separated BCP-47 lang list into individual locale tags; this pinned Skia parser retains the list as one comma-containing string.",
+    "queries": [
+      "sans-serif|400|normal||default",
+      "missing-family|400|normal|zh-TW|default",
+      "missing-family|400|normal||emoji"
+    ]
+  },
+  {
+    "fixture": "../android_font_config/xiaomi_miui12_api30_complete.xml",
+    "mode": "extension",
+    "expectedDifferencePath": "$.faces[140].locales",
+    "reason": "WhatsCanvas normalizes the OEM config's comma-separated BCP-47 lang list into individual locale tags; this pinned Skia parser retains the list as one comma-containing string.",
+    "queries": [
+      "sans-serif|400|normal||default",
+      "mipro|400|normal||default",
+      "missing-family|400|normal||emoji"
+    ]
+  },
+  {
+    "fixture": "../android_font_config/api21_legacy.xml",
+    "mode": "extension",
+    "expectedDifferencePath": "$.faces[0].locales",
+    "reason": "WhatsCanvas preserves legacy per-file lang/variant instead of applying the last file metadata to the whole Skia family."
+  },
+  {
+    "fixture": "../android_font_config/api28_fallback.xml",
+    "mode": "extension",
+    "expectedDifferencePath": "$.faces[0].axes",
+    "reason": "WhatsCanvas rejects duplicate variation tags and also accepts lang/variant on a targeted font as a compatibility extension."
+  },
+  {
+    "fixture": "../android_font_config/api35_variable.xml",
+    "mode": "extension",
+    "expectedDifferencePath": "$.faces[0].slant",
+    "reason": "WhatsCanvas accepts oblique in Android XML while this Skia revision recognizes only normal and italic."
+  },
+  {
+    "fixture": "../android_font_config/vendor_product.xml",
+    "mode": "extension",
+    "expectedDifferencePath": "$.faces",
+    "reason": "WhatsCanvas skips empty font records while this Skia parser retains an empty-path face."
+  }
+]

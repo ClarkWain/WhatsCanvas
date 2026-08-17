@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -10,6 +11,7 @@ namespace wsc {
 class Paint;
 class FontFace;
 class FontFallbackChain;
+class FontProvider;
 }
 
 namespace wsc::text {
@@ -45,6 +47,9 @@ struct TextRenderResult
         float v0 = 0.0f;
         float u1 = 0.0f;
         float v1 = 0.0f;
+        // True when the atlas texels contain intrinsic glyph colors rather
+        // than a white coverage mask that should be tinted by Paint.
+        bool isColorGlyph = false;
     };
 
     struct GlyphAtlasDirtyRect
@@ -134,6 +139,7 @@ public:
     virtual ~ITextBackend() = default;
 
     virtual bool registerFontFace(const FontFace &face) = 0;
+    virtual bool addFontProvider(std::shared_ptr<FontProvider> provider) = 0;
     virtual bool refreshSystemFonts() = 0;
     virtual bool setFontFallbackChain(const FontFallbackChain &chain) = 0;
     virtual std::vector<std::string> resolveFontFamilies(const std::string &preferredFamily) const = 0;

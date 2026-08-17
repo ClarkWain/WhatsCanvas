@@ -4,6 +4,15 @@ This directory contains the first Android host for WhatsCanvas. It creates an
 OpenGL ES 3 context with `GLSurfaceView`, crosses JNI on the render thread, and
 draws through `WhatsCanvas::OpenGLES` into the host-owned framebuffer.
 
+The demo records static card chrome, text, and fixed paths once with
+`Canvas::recordPicture()`, raster-caches that explicitly isolated full-screen
+Picture, then draws only the animated overlays each frame. This mirrors
+Flutter's DisplayList + RepaintBoundary/RasterCache split while keeping GPU
+resources out of the retained core object. The cache is context-keyed, bounded
+by a per-Canvas byte budget, and purged before orderly context teardown. See the
+[Retained Picture guide](../../doc/RETAINED_PICTURE.md) for current image/layer
+limitations.
+
 This README is the runnable sample's quick-start. For the production embedding
 contract, JNI ownership, GL-thread lifecycle, fonts, orientation, validation,
 and troubleshooting, see the
@@ -54,8 +63,15 @@ The APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
   layouts and exercises UTF-8 text, system font fallback, gradients, paths,
   clipping, arcs, strokes, alpha blending, transforms, raw RGBA images, texture
   sampling, and animation through the device-pixel ratio.
-- Android 10+ font discovery through the public system font matcher, with a
-  legacy-path compatibility fallback for API 21-28.
+- Android 10+ font discovery through the public system font matcher. API 21-28
+  parse Android's system/vendor/product font configuration, with a small set of
+  legacy paths retained only as the final compatibility fallback. Both paths
+  preserve variable-font instance axes for HarfBuzz/FreeType and cache identity;
+  public `Paint::setFontVariation()` can override an axis for an application run.
+- Text/emoji presentation selectors, default emoji presentation, skin-tone ZWJ
+  sequences, regional-indicator flags, and keycaps rendered through HarfBuzz,
+  bundled FreeType, and the RGBA glyph atlas. The sample scene and startup probe
+  exercise these paths on the active device image.
 
 Touch input, encoded image decoding, lifecycle stress automation, Android CI,
 AAR packaging, and Vulkan presentation remain follow-up work.

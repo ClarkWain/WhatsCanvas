@@ -2494,9 +2494,9 @@ SharedImageResource MetalRenderDevice::filterImageResource(const SharedImageReso
 
     if (filter.type() == wsc::ImageFilter::Type::Blur) {
         // Fold post-blur colour adjustments and grain into the vertical
-        // (final) pass so they only take effect once. Skia's blur-with-color
-        // model keeps colour untouched during accumulation and applies the
-        // transforms once at the end.
+        // (final) pass so they only take effect once. Keeping these operations
+        // out of the horizontal pass leaves colour untouched during
+        // accumulation and applies the transforms once at the end.
         if (filter.hasColorAdjustment() || filter.hasGrain()) {
             uY.applyPost = 1.0f;
             uY.saturation = filter.saturation();

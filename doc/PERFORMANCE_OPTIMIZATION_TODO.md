@@ -321,7 +321,17 @@ by broader script and shaping coverage, not this Latin performance contract.
 
 - [ ] Make OpenGL, Vulkan, and Software consume the same compiled draw packets.
 - [ ] Preserve strict clip, layer, filter, blend, target, and snapshot barriers.
-- [ ] Add optional retained `GlyphRun`, `TextBlob`, and display-list APIs.
+- [x] Add a backend-neutral retained `Picture`/display-list API for static Canvas operations.
+- [ ] Retain shaped `GlyphRun`/`TextBlob` data inside Picture text operations.
+- [x] Add context/content-generation-keyed compiled Picture packets; derived
+      resources are purged before orderly backend teardown.
+- [x] Add an explicit RepaintBoundary-like rasterized Picture path with a
+      per-Canvas 32 MB soft budget, LRU eviction, memory statistics, pixel
+      parity tests, and Android pause/resume validation.
+- [x] Require a second observation before admitting final fill/stroke AA
+      geometry, preventing one-shot animation keys from polluting stable caches.
+- [ ] Add a no-GL-delete abandon-context path for involuntary EGL loss.
+- [ ] Reduce cold first-raster latency after a genuine Context loss.
 - [ ] Evaluate parallel frame compilation only after the single-threaded packet
       path no longer performs redundant copies.
 

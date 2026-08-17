@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <cstdint>
 #include <filesystem>
@@ -8,6 +9,7 @@
 #include <initializer_list>
 #include <memory>
 #include <string>
+#include <tuple>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -15,6 +17,32 @@
 #include "Export.h"
 
 namespace wsc {
+
+/// Return the stable lookup key used for font-family matching. Display names
+/// remain unchanged on FontFace; only ASCII case and whitespace are
+/// canonicalized so UTF-8 platform family names are preserved byte-for-byte.
+inline std::string canonicalFontFamilyName(const std::string &family)
+{
+    std::string result;
+    result.reserve(family.size());
+    bool pendingSpace = false;
+    for (unsigned char ch : family) {
+        const bool asciiWhitespace = ch == ' ' || ch == '\t' || ch == '\n'
+            || ch == '\r' || ch == '\f' || ch == '\v';
+        if (asciiWhitespace) {
+            pendingSpace = !result.empty();
+            continue;
+        }
+        if (pendingSpace) {
+            result.push_back(' ');
+            pendingSpace = false;
+        }
+        result.push_back(ch >= 'A' && ch <= 'Z'
+                             ? static_cast<char>(ch - 'A' + 'a')
+                             : static_cast<char>(ch));
+    }
+    return result;
+}
 
 /// Slant style of a font face.
 enum class FontSlant
@@ -70,6 +98,14 @@ struct FontCodepointRange
     }
 };
 
+/// A user-space coordinate for one OpenType variable-font axis. The tag must
+/// contain exactly four bytes (for example, "wght" or "wdth").
+struct FontVariationCoordinate
+{
+    std::string tag;
+    float value = 0.0f;
+};
+
 /// A concrete font face loaded from a file or memory, registered on a Canvas.
 class FontFace
 {
@@ -87,10 +123,26 @@ public:
 
     static FontFace fromMemory(FontDescriptor descriptor, std::vector<std::uint8_t> bytes, int faceIndex = 0)
     {
+        return fromSharedMemory(
+            std::move(descriptor),
+            std::make_shared<const std::vector<std::uint8_t>>(std::move(bytes)),
+            faceIndex);
+    }
+
+    /// Retain an immutable byte snapshot supplied by a platform/provider.
+    /// sourceId is diagnostic identity only; rendering never reopens it. This
+    /// lets a provider materialize an Android system font while its AFont
+    /// handle/path is valid and keep using it after that platform handle closes.
+    static FontFace fromSharedMemory(
+        FontDescriptor descriptor,
+        std::shared_ptr<const std::vector<std::uint8_t>> bytes,
+        int faceIndex = 0, std::string sourceId = std::string())
+    {
         FontFace face;
         face.descriptor_ = std::move(descriptor);
         face.sourceType_ = FontSourceType::MEMORY;
-        face.bytes_ = std::make_shared<std::vector<std::uint8_t>>(std::move(bytes));
+        face.bytes_ = std::move(bytes);
+        face.sourceId_ = std::move(sourceId);
         face.faceIndex_ = faceIndex < 0 ? 0 : faceIndex;
         return face;
     }
@@ -103,6 +155,32 @@ public:
     int faceIndex() const { return faceIndex_; }
     const std::string &path() const { return path_; }
     const std::vector<std::uint8_t> *bytes() const { return bytes_ ? bytes_.get() : nullptr; }
+    const std::shared_ptr<const std::vector<std::uint8_t>> &sharedBytes() const
+    {
+        return bytes_;
+    }
+    /// Provider-owned logical origin for memory-backed data. It may be a
+    /// platform identifier and is not required to be an openable file path.
+    const std::string &sourceId() const { return sourceId_; }
+    bool setVariationCoordinate(std::string tag, float value)
+    {
+        if (tag.size() != 4 || !std::isfinite(value)) return false;
+        const auto found = std::find_if(
+            variationCoordinates_.begin(), variationCoordinates_.end(),
+            [&](const FontVariationCoordinate &coordinate) {
+                return coordinate.tag == tag;
+            });
+        if (found != variationCoordinates_.end()) {
+            found->value = value;
+        } else {
+            variationCoordinates_.push_back({std::move(tag), value});
+        }
+        return true;
+    }
+    const std::vector<FontVariationCoordinate> &variationCoordinates() const
+    {
+        return variationCoordinates_;
+    }
     void addCodepointRange(std::uint32_t firstCodepoint, std::uint32_t lastCodepoint)
     {
         if (firstCodepoint <= lastCodepoint) {
@@ -130,8 +208,10 @@ private:
     FontSourceType sourceType_ = FontSourceType::FILE;
     int faceIndex_ = 0;
     std::string path_;
-    std::shared_ptr<std::vector<std::uint8_t>> bytes_;
+    std::shared_ptr<const std::vector<std::uint8_t>> bytes_;
+    std::string sourceId_;
     std::vector<FontCodepointRange> codepointRanges_;
+    std::vector<FontVariationCoordinate> variationCoordinates_;
 };
 
 class FontFallbackChain
@@ -148,7 +228,9 @@ public:
 
     void addFallbackFamily(std::string family)
     {
-        if (family.empty() || family == primaryFamily_ || contains(family)) {
+        if (family.empty()
+            || canonicalFontFamilyName(family) == canonicalFontFamilyName(primaryFamily_)
+            || contains(family)) {
             return;
         }
         fallbackFamilies_.push_back(std::move(family));
@@ -156,7 +238,11 @@ public:
 
     bool contains(const std::string &family) const
     {
-        return std::find(fallbackFamilies_.begin(), fallbackFamilies_.end(), family) != fallbackFamilies_.end();
+        const std::string key = canonicalFontFamilyName(family);
+        return std::any_of(fallbackFamilies_.begin(), fallbackFamilies_.end(),
+                           [&](const std::string &candidate) {
+                               return canonicalFontFamilyName(candidate) == key;
+                           });
     }
 
     void clearFallbacks() { fallbackFamilies_.clear(); }
@@ -180,6 +266,19 @@ private:
 class FontManager
 {
 public:
+    FontManager() = default;
+    FontManager(const FontManager &other)
+    {
+        copyFrom(other);
+    }
+    FontManager &operator=(const FontManager &other)
+    {
+        if (this != &other) copyFrom(other);
+        return *this;
+    }
+    FontManager(FontManager &&) noexcept = default;
+    FontManager &operator=(FontManager &&) noexcept = default;
+
     bool registerFontFile(const FontDescriptor &descriptor, const std::string &path, int faceIndex = 0)
     {
         return registerFace(FontFace::fromFile(descriptor, path, faceIndex));
@@ -197,38 +296,42 @@ public:
         }
 
         const std::size_t index = faces_.size();
-        familyToFaceIndices_[face.family()].push_back(index);
-        fallbackChains_.try_emplace(face.family(), FontFallbackChain(face.family()));
-        faces_.push_back(std::move(face));
+        const std::string familyKey = canonicalFontFamilyName(face.family());
+        familyToFaceIndices_[familyKey].push_back(index);
+        fallbackChains_.try_emplace(familyKey, FontFallbackChain(face.family()));
+        auto stableFace = std::make_unique<FontFace>(std::move(face));
+        faces_.push_back(*stableFace);
+        faceStorage_.push_back(std::move(stableFace));
+        advanceGeneration();
         return true;
     }
 
     bool hasFamily(const std::string &family) const
     {
-        const auto it = familyToFaceIndices_.find(family);
+        const auto it = familyToFaceIndices_.find(canonicalFontFamilyName(family));
         return it != familyToFaceIndices_.end() && !it->second.empty();
     }
 
     const FontFace *findFirstFace(const std::string &family) const
     {
-        const auto it = familyToFaceIndices_.find(family);
+        const auto it = familyToFaceIndices_.find(canonicalFontFamilyName(family));
         if (it == familyToFaceIndices_.end() || it->second.empty()) {
             return nullptr;
         }
-        return &faces_[it->second.front()];
+        return faceStorage_[it->second.front()].get();
     }
 
     std::vector<const FontFace *> findFaces(const std::string &family) const
     {
         std::vector<const FontFace *> result;
-        const auto it = familyToFaceIndices_.find(family);
+        const auto it = familyToFaceIndices_.find(canonicalFontFamilyName(family));
         if (it == familyToFaceIndices_.end()) {
             return result;
         }
 
         result.reserve(it->second.size());
         for (std::size_t index : it->second) {
-            result.push_back(&faces_[index]);
+            result.push_back(faceStorage_[index].get());
         }
         return result;
     }
@@ -236,24 +339,27 @@ public:
     const FontFace *findBestFace(const std::string &family, int weight = 400,
                                  FontSlant slant = FontSlant::NORMAL) const
     {
-        const auto faces = findFaces(family);
-        const FontFace *bestFace = nullptr;
-        int bestScore = 0;
-        const int requestedWeight = std::clamp(weight, 1, 1000);
-        for (const FontFace *face : faces) {
-            if (face == nullptr) {
-                continue;
-            }
+        const auto faces = findFacesInMatchOrder(family, weight, slant);
+        return faces.empty() ? nullptr : faces.front();
+    }
 
-            const int slantPenalty = face->slant() == slant ? 0 : 1000;
-            const int weightPenalty = std::abs(face->weight() - requestedWeight);
-            const int score = slantPenalty + weightPenalty;
-            if (bestFace == nullptr || score < bestScore) {
-                bestFace = face;
-                bestScore = score;
-            }
-        }
-        return bestFace;
+    /// Return every face in CSS-compatible style preference order. This keeps
+    /// coverage checks separate from style selection: a resolver may reject
+    /// the first face when it does not cover the requested character cluster.
+    std::vector<const FontFace *> findFacesInMatchOrder(
+        const std::string &family, int weight = 400,
+        FontSlant slant = FontSlant::NORMAL) const
+    {
+        auto result = findFaces(family);
+        const int requestedWeight = std::clamp(weight, 1, 1000);
+        std::stable_sort(result.begin(), result.end(),
+                         [&](const FontFace *left, const FontFace *right) {
+            if (left == nullptr) return false;
+            if (right == nullptr) return true;
+            return styleMatchRank(*left, requestedWeight, slant)
+                < styleMatchRank(*right, requestedWeight, slant);
+        });
+        return result;
     }
 
     bool addFallbackFamily(const std::string &primaryFamily, const std::string &fallbackFamily)
@@ -262,15 +368,19 @@ public:
             return false;
         }
 
-        auto &chain = fallbackChains_[primaryFamily];
-        chain.setPrimaryFamily(primaryFamily);
-        chain.addFallbackFamily(fallbackFamily);
+        const std::string primaryKey = canonicalFontFamilyName(primaryFamily);
+        auto &chain = fallbackChains_[primaryKey];
+        const FontFace *primaryFace = findFirstFace(primaryFamily);
+        const FontFace *fallbackFace = findFirstFace(fallbackFamily);
+        chain.setPrimaryFamily(primaryFace == nullptr ? primaryFamily : primaryFace->family());
+        chain.addFallbackFamily(fallbackFace == nullptr ? fallbackFamily : fallbackFace->family());
+        advanceGeneration();
         return true;
     }
 
     const FontFallbackChain *fallbackChain(const std::string &family) const
     {
-        const auto it = fallbackChains_.find(family);
+        const auto it = fallbackChains_.find(canonicalFontFamilyName(family));
         return it == fallbackChains_.end() ? nullptr : &it->second;
     }
 
@@ -284,17 +394,77 @@ public:
     }
 
     const std::vector<FontFace> &faces() const { return faces_; }
+    std::uint64_t generation() const { return generation_; }
     void clear()
     {
         faces_.clear();
+        faceStorage_.clear();
         familyToFaceIndices_.clear();
         fallbackChains_.clear();
+        advanceGeneration();
     }
 
 private:
+    void copyFrom(const FontManager &other)
+    {
+        faces_ = other.faces_;
+        familyToFaceIndices_ = other.familyToFaceIndices_;
+        fallbackChains_ = other.fallbackChains_;
+        generation_ = other.generation_;
+        faceStorage_.clear();
+        faceStorage_.reserve(faces_.size());
+        for (const FontFace &face : faces_) {
+            faceStorage_.push_back(std::make_unique<FontFace>(face));
+        }
+    }
+
+    static int slantMatchRank(FontSlant actual, FontSlant requested)
+    {
+        if (actual == requested) return 0;
+        if (actual != FontSlant::NORMAL && requested != FontSlant::NORMAL) return 1;
+        return 2;
+    }
+
+    // CSS Fonts matching deliberately does not use absolute weight distance.
+    // Around 400/500 the standard has a special preference order.
+    static std::pair<int, int> weightMatchRank(int actual, int requested)
+    {
+        actual = std::clamp(actual, 1, 1000);
+        if (requested >= 400 && requested <= 500) {
+            if (actual >= requested && actual <= 500) return {0, actual - requested};
+            if (actual < requested) return {1, requested - actual};
+            return {2, actual - 500};
+        }
+        if (requested < 400) {
+            if (actual <= requested) return {0, requested - actual};
+            return {1, actual - requested};
+        }
+        if (actual >= requested) return {0, actual - requested};
+        return {1, requested - actual};
+    }
+
+    static std::tuple<int, int, int> styleMatchRank(
+        const FontFace &face, int requestedWeight, FontSlant requestedSlant)
+    {
+        const auto weightRank = weightMatchRank(face.weight(), requestedWeight);
+        return {slantMatchRank(face.slant(), requestedSlant),
+                weightRank.first, weightRank.second};
+    }
+
+    void advanceGeneration()
+    {
+        ++generation_;
+        if (generation_ == 0) generation_ = 1;
+    }
+
     std::vector<FontFace> faces_;
+    // Public faces() retains its historical contiguous snapshot while lookup
+    // pointers come from stable allocations, so registering another face does
+    // not invalidate a previously returned resolution result.
+    std::vector<std::unique_ptr<FontFace>> faceStorage_;
     std::unordered_map<std::string, std::vector<std::size_t>> familyToFaceIndices_;
     std::unordered_map<std::string, FontFallbackChain> fallbackChains_;
+    std::uint64_t generation_ = 1;
 };
 
 class WSC_API FontSystem

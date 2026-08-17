@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<familyset version="23">
+  <family name="oracle-variable">
+    <font>subset/data/fonts/RobotoFlex-Variable.ttf</font>
+  </family>
+  <family lang="zh-Hans">
+    <font>api/fonts/SourceHanSans-Regular.41,4C2E.otf</font>
+  </family>
+  <family lang="ja">
+    <font>api/fonts/SourceHanSans-Regular.41,3041,4C2E.otf</font>
+  </family>
+  <family lang="und-Zsye">
+    <font>api/fonts/TwemojiMozilla.subset.ttf</font>
+  </family>
+  <family lang="und-Zsye">
+    <font>api/fonts/NotoColorEmoji.subset.ttf</font>
+  </family>
+</familyset>

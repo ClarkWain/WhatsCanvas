@@ -26,7 +26,7 @@ This project aims to bridge the gap between minimal drawing libraries (such as N
 | **API & Language** | C++17; the public API is located in `include/wsc/`, with the entry point being `#include <wsc/wsc.h>`. |
 | **Render Backends** | OpenGL, pure CPU Software; optional OpenGL ES, Vulkan, and Metal (macOS/iOS). WebGPU is not yet implemented. |
 | **Platform Status** | Windows, Linux, and macOS run continuous builds and unit tests; release packages cover Windows x64, Linux x64, and macOS universal. Metal is validated on macOS; mobile integration does not yet represent a validated device matrix. |
-| **Text Capabilities** | Font discovery and fallback, CJK/RTL, UAX #9, line breaking and ellipsis, glyph atlas, COLR/CPAL v0; FreeType and HarfBuzz shaping are enabled by default for OpenGL/OpenGL ES. |
+| **Text Capabilities** | Font discovery and fallback, CJK/RTL, UAX #9, line breaking and ellipsis, glyph atlas, COLR/CPAL v0 and common COLRv1 paint graphs; FreeType and HarfBuzz shaping are enabled by default for OpenGL/OpenGL ES. |
 | **Integration** | vcpkg overlay port, CMake `find_package`, `add_subdirectory`, or portable installation directories generated from source. |
 | **Footprint** | Not header-only. Supports linking only against `WhatsCanvas::Software`, `::OpenGL` (also hosts optional Vulkan and Apple Metal), or `::OpenGLES` based on backend; see [Footprint and Dependencies](#footprint-and-dependencies) for reference. |
 | **Maturity** | Current version `0.3.0`, still pre-1.0. Public API boundaries, cross-platform CI, pixel regression, package-consumer integration tests, and auditable performance baselines are in place; upgrade and platform risks should still be evaluated against the boundaries described below. |
@@ -289,7 +289,10 @@ Note that bi-directional text processing is more than script-level shaping. Scri
 - `WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=ON` (default): Prefers FreeType for glyph lookup, metrics, kerning, and rasterization; falls back to `stb_truetype` if unavailable.
 - `WHATSCANVAS_ENABLE_OPENTYPE_SHAPING=ON` (default): Enables HarfBuzz OpenType shaping for the public portable text path, including locale/direction input, global `Paint::setFontFeature` controls, and collection face selection; uses simple shaping + kerning if unavailable or disabled.
 - DirectWrite adapter is optional on Windows; CoreText adapter is not yet implemented.
-- COLR/CPAL v0 is supported; CBDT/CBLC, SBIX, SVG, and COLR v1 paint graphs remain subsequent endeavors.
+- COLR/CPAL v0, the common COLRv1 paint graph used by Android Noto Color Emoji,
+  and CBLC index-format 1 + CBDT image-format 17 PNG glyphs are supported when
+  FreeType is enabled. Other CBDT/CBLC formats, SBIX, SVG, and exact advanced
+  COLRv1 composite modes remain subsequent work.
 
 ![WhatsCanvas font fallback, CJK, BiDi text, and text-on-path](images/text-rendering-showcase.png)
 
@@ -416,7 +419,7 @@ Start from the **[Online Documentation](https://clarkwain.github.io/WhatsCanvas/
 | Android host integration | [Android Integration Guide](doc/ANDROID_INTEGRATION.md) |
 | Look up APIs | [Public API Reference](doc/API_REFERENCE.md) · [Visual API Gallery](doc/visual-api-gallery.md) |
 | Evaluate API stability | [API Stability](doc/API_STABILITY.md) · [CHANGELOG](CHANGELOG.md) |
-| Text and fonts | [Text Feature Matrix](doc/TEXT_FEATURE_MATRIX.md) · [DirectWrite](doc/DIRECTWRITE_TEXT_BACKEND.md) |
+| Text and fonts | [Text Feature Matrix](doc/TEXT_FEATURE_MATRIX.md) · [Web / Async Font Integration](doc/WEB_FONT_INTEGRATION.md) · [Font Discovery Design](doc/WHATS_CANVAS_VS_FLUTTER_FONT_DISCOVERY.md) · [DirectWrite](doc/DIRECTWRITE_TEXT_BACKEND.md) |
 | Layer effects | [Image Filters](doc/IMAGE_FILTERS.md) · [Shadow Model](doc/SHADOW_MODEL.md) · [Blend Modes](doc/BLEND_MODE_AUDIT.md) |
 | Backends and platforms | [Vulkan Status](doc/vulkan-backend-status.md) · [Shader Portability](doc/SHADER_PORTABILITY.md) · [Troubleshooting](doc/TROUBLESHOOTING.md) |
 | Performance and validation | [Performance Benchmarks](doc/PERFORMANCE_BENCHMARKS.md) · [Visual Regression](doc/VISUAL_REGRESSION.md) |
@@ -424,7 +427,7 @@ Start from the **[Online Documentation](https://clarkwain.github.io/WhatsCanvas/
 
 ## Roadmap
 
-WhatsCanvas is currently focused on cross-backend pixel consistency, text rendering quality, broader Vulkan and Apple-device coverage, and more reproducible performance benchmarks. Longer-term directions include WebAssembly / WebGL 2 and WebGPU support, plus richer color glyph formats (CBDT/CBLC, SBIX, SVG, COLR v1). These directions are still in planning and should not be treated as available features today.
+WhatsCanvas is currently focused on cross-backend pixel consistency, text rendering quality, broader Vulkan and Apple-device coverage, and more reproducible performance benchmarks. Longer-term directions include WebAssembly / WebGL 2 and WebGPU support, plus additional CBDT/CBLC bitmap formats, SBIX, SVG, and full COLRv1 compositing. These directions are still in planning and should not be treated as available features today.
 
 ## License
 

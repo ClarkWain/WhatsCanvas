@@ -313,6 +313,15 @@ void initializeSharedRenderBackend()
 
 void finalizeSharedRenderBackend()
 {
+    // These programs are initialized lazily, but still own context-bound GL
+    // objects (FBOs, textures, VAOs and VBOs).  They must be released together
+    // with the eagerly initialized programs before an EGL context is replaced.
+    // Otherwise a recreated Android surface can reuse stale object names from
+    // the previous context and render into incomplete framebuffers.
+    wsc::opengl::GaussianBlurProgram::getInstance()->release();
+    wsc::opengl::ClipCoverageProgram::getInstance()->release();
+    wsc::opengl::DrawClipFillProgram::getInstance()->release();
+
     DrawPointsProgram::getInstance()->release();
     DrawLinesProgram::getInstance()->release();
     DrawPathProgram::getInstance()->release();

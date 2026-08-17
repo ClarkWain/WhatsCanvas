@@ -9,7 +9,7 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 | UTF-8 input validation | Supported | Invalid byte sequences are normalized before measurement/render paths; multiline layout accepts LF and CRLF row separators. |
 | ASCII fallback geometry | Supported | Basic backend can render normalized text through ASCII fallback geometry. |
 | Native Windows text bitmap path | Supported | Used when a font family is supplied and native measurement/render succeeds. |
-| Cross-platform font rasterization | Supported | Registered file-backed or memory-backed TrueType faces can be rasterized through the portable font rasterizer; FreeType is used when available and `stb_truetype` remains the dependency-free fallback. |
+| Cross-platform font rasterization | Supported | Registered file-backed or memory-backed TrueType faces can be rasterized through the portable font rasterizer; immutable shared-memory sources let platform providers materialize fonts without retaining a stable path. FreeType is used when available and `stb_truetype` remains the dependency-free fallback. |
 | FreeType rasterizer | Default for GL-family targets | When FreeType is found and `WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=ON` (default), glyph lookup, metrics, kerning, and alpha glyph rasterization use FreeType. The Software-only target retains `stb_truetype`. |
 | Font rasterizer cache policy | Supported | Loaded font faces are bounded by a mutex-protected LRU cache with explicit capacity control, cache clearing, and hit/miss/eviction stats. |
 | Atlas-backed glyph rendering | Supported | Rasterized glyphs are packed into `GlyphAtlas`; Canvas submits atlas quads through the image path. |
@@ -20,6 +20,7 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 | RGBA glyph atlas path | Supported | `GlyphAtlas`, text render results, and Canvas atlas upload can carry RGBA glyph pixels for color font layers and alpha-derived glyphs. |
 | Color font table detection | Contract supported | Font rasterizer utilities can detect COLR/CPAL, CBDT/CBLC, SBIX, and SVG OpenType tables as a backend capability probe before concrete glyph extraction. |
 | COLR/CPAL v0 glyph decoding | Supported | Portable font rasterization can decode COLR/CPAL v0 layer records, rasterize each layer outline, composite palette colors into RGBA glyph bitmaps, and upload them through the atlas path. |
+| CBDT/CBLC bitmap glyph decoding | Partial | Portable font rasterization supports CBLC v3 index format 1 with CBDT v3 image format 17 PNG records, including strike selection, metrics, scaling, RGBA atlas upload, and a deterministic bundled-font contract. Other index/image formats remain planned. |
 | Shaped glyph run abstraction | Supported | Portable raster text uses shaped runs with source byte mapping, glyph indices, glyph advances, offsets, and letter spacing before atlas upload. |
 | Glyph-index rasterization path | Supported | Font rasterization can render by glyph index, which is required by real shaping outputs. |
 | Simple kerning | Supported | The portable simple shaping path applies registered-font glyph kerning pairs when OpenType shaping is not active. |
@@ -27,6 +28,7 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 | Unicode UAX #9 bidi resolution | Supported | Mixed-direction text is resolved through a dedicated bidi pass with paragraph direction, explicit embedding/override/isolate controls, weak type resolution, neutral resolution, implicit levels, invisible formatting controls, and visual run ordering. |
 | OpenType shaping adapter boundary | Supported | `BasicTextBackendOptions` can request an OpenType shaping backend; unavailable adapters fall back to simple shaping with diagnostics. |
 | OpenType shaping implementation | Default for GL-family targets | When HarfBuzz is found and `WHATSCANVAS_ENABLE_OPENTYPE_SHAPING=ON` (default), the OpenType backend emits glyph-index shaped runs from HarfBuzz output. The Software-only target retains simple shaping. |
+| Android complex emoji shaping | Supported | The Android project requires HarfBuzz and FreeType. Full UTF-16 clusters plus Unicode emoji-presentation intent drive system matching; ZWJ/skin-tone, regional-flag, keycap, and tag sequences remain indivisible and can use GSUB color glyphs. |
 | Locale/direction shaping input | Supported | Portable HarfBuzz shaping receives `Paint::setTextLocale` plus the resolved bidi-run direction before script/property guessing. |
 | OpenType feature control | Supported | `Paint::setFontFeature` applies global four-character OpenType features such as `liga`, `kern`, and `smcp` to portable HarfBuzz shaping and native DirectWrite typography. Feature settings participate in native bitmap cache identity. |
 | Extended grapheme segmentation | Supported | Portable text uses generated Unicode property tables and UAX #29 GB1–GB999 rules, including Hangul, Prepend/SpacingMark, Indic conjuncts, emoji ZWJ sequences, and regional-indicator pairing. The generator is a maintainer tool; consumers do not need Python or Unicode data files at runtime. |
@@ -34,6 +36,8 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 | Public font face model | Supported | `FontFace`, `FontDescriptor`, `FontFallbackChain`, and `FontManager` are public value/model types. |
 | Font file registration contract | Supported | `ITextBackend::registerFontFace` accepts file-backed faces. |
 | Font memory registration contract | Supported | `ITextBackend::registerFontFace` accepts memory-backed faces. |
+| Lazy application font providers | Portable and DirectWrite supported | `LazyFontProvider` records asset/dynamic source metadata without loading bytes, memoizes successful and failed first-match loads, supports family-scoped retry/removal, and attaches through `Canvas::addFontProvider`. DirectWrite lazily bridges the winning family into a generation-tracked custom collection. |
+| Asynchronous remote font providers | Core and portable backend supported | `RemoteFontProvider` exposes a host-driven `IDLE -> QUEUED -> DOWNLOADING -> LOADED/PERMANENT_FAILURE` lifecycle, coverage-aware deterministic subset selection, request deduplication, concurrency/retry limits, cumulative transfer budgets, optional content fingerprints, stale-callback tokens, family-scoped cache invalidation, and deduplicated `takeChangedFamilies()` notification draining. Browser fetch/FontFaceSet glue and frame scheduling remain platform-host work. |
 | TrueType Collection face selection | Supported | `FontFace::fromFile` and `FontFace::fromMemory` accept a collection face index; HarfBuzz shaping, portable rasterization, FreeType/stb loading, atlas/cache keys, CoreText/DirectWrite/fontconfig discovery, and color table detection honor the selected face. |
 | Fallback chain contract | Supported | `ITextBackend::setFontFallbackChain` and `resolveFontFamilies` define resolution order. |
 | Text metrics | Supported | `measureText`, `measureTextBounds`, `measureTextMetrics`, and backend metrics are available; registered font metrics use real ascent/descent/line-gap data. |
@@ -96,7 +100,7 @@ still forwarded and normally have no effect.
 
 | Capability | Status | Intended Direction |
 | --- | --- | --- |
-| Additional color font formats | Planned | Add CBDT/CBLC, SBIX, SVG, and newer COLR paint graph extraction on top of the table detection and RGBA glyph atlas path. |
+| Additional color font formats | Planned | Add the remaining CBDT/CBLC index/image formats, SBIX, SVG, and advanced COLR paint/composite extraction on top of the existing RGBA glyph atlas path. |
 
 ## Acceptance Targets
 

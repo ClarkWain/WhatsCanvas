@@ -80,6 +80,7 @@ nav:
       - Visual API Gallery: visual-api-gallery.md
       - Image Filters & Frosted Glass: IMAGE_FILTERS.md
       - Text & Fonts: TEXT_FEATURE_MATRIX.md
+      - Web / Async Fonts: WEB_FONT_INTEGRATION.md
       - Shadows: SHADOW_MODEL.md
       - Blend Modes: BLEND_MODE_AUDIT.md
       - Shader Portability: SHADER_PORTABILITY.md
@@ -89,5 +90,9 @@ nav:
       - Vulkan Status: vulkan-backend-status.md
   - Project:
       - Performance Benchmarks: PERFORMANCE_BENCHMARKS.md
+      - WhatsCanvas 深度解析:
+          - 目录: deep-dives/index.md
+          - recordPicture: deep-dives/RECORD_PICTURE_DEEP_DIVE.md
+      - Retained Picture / Display List: RETAINED_PICTURE.md
       - NanoVG Optimization Case Study: NANOVG_PERFORMANCE_OPTIMIZATION.md
       - Memory Management: MEMORY_MANAGEMENT.md

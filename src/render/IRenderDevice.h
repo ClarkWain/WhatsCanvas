@@ -105,8 +105,8 @@ public:
     virtual std::unique_ptr<ISwapchain> createSwapchain(const NativeSurface & /*surface*/,
                                                         const SwapchainConfig & /*config*/) { return nullptr; }
 
-    /// Draw subsequent frames into a host-owned backend render target
-    /// (Skia-style wrap-external). Returns false when unsupported (the default).
+    /// Draw subsequent frames into a host-owned backend render target.
+    /// Returns false when external-target wrapping is unsupported (the default).
     virtual bool wrapBackendRenderTarget(const BackendRenderTarget & /*target*/) { return false; }
 
     /// Raw native handle accessor for advanced interop. Meaning of `which` is

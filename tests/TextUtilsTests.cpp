@@ -297,6 +297,26 @@ bool testSimpleShaperStopsAtCarriageReturn()
                   "simple shaper should not render text after carriage return");
 }
 
+bool testSimpleShaperSkipsVariationSelectors()
+{
+    int resolverCalls = 0;
+    const auto run = wsc::text::shapeTextSimple(
+        "\xF0\x9F\x98\x80\xEF\xB8\x8F", 0.0f,
+        [&](std::uint32_t codepoint) -> std::optional<wsc::text::ResolvedGlyph> {
+            ++resolverCalls;
+            return codepoint == 0x1F600u
+                ? std::optional<wsc::text::ResolvedGlyph>(
+                    wsc::text::ResolvedGlyph{77, 18.0f})
+                : std::nullopt;
+        });
+    return expect(run.has_value() && run->glyphs.size() == 1,
+                  "simple shaping should keep one visible emoji glyph")
+        && expect(resolverCalls == 1,
+                  "variation selectors should not require standalone glyphs")
+        && expect(run->glyphs.front().codepoint == 0x1F600u,
+                  "the base emoji should retain the shaped glyph identity");
+}
+
 bool testSimpleShaperDirectionStopsAtLineBreak()
 {
     const auto lfRun = wsc::text::shapeTextSimple("123\n\xd7\x90",
@@ -485,6 +505,56 @@ bool testOpenTypeFeaturesCanDisableLigatures()
     return expect(shaped.has_value(), "HarfBuzz should shape with explicit features")
         && expect(shaped->glyphs.size() == 3,
                   "disabling liga should keep the three source glyphs separate");
+}
+
+bool testAndroidClusterEncodingPreservesCompleteUtf16Runs()
+{
+    const std::vector<std::uint16_t> zwj =
+        wsc::text::encodeCodepointsToUtf16({0x1F469, 0x200D, 0x1F4BB});
+    const std::vector<std::uint16_t> flag =
+        wsc::text::encodeCodepointsToUtf16({0x1F1E8, 0x1F1F3});
+    const std::vector<std::uint16_t> invalid =
+        wsc::text::encodeCodepointsToUtf16({0xD800, 0x110000});
+
+    return expect(zwj == std::vector<std::uint16_t>{
+                      0xD83D, 0xDC69, 0x200D, 0xD83D, 0xDCBB},
+                  "Android matching should receive the complete UTF-16 ZWJ cluster")
+        && expect(flag == std::vector<std::uint16_t>{
+                      0xD83C, 0xDDE8, 0xD83C, 0xDDF3},
+                  "regional indicators should retain both surrogate pairs")
+        && expect(invalid == std::vector<std::uint16_t>{0xFFFD, 0xFFFD},
+                  "invalid scalar values should become UTF-16 replacement characters");
+}
+
+bool testEmojiPresentationClassification()
+{
+    using Presentation = wsc::text::EmojiPresentation;
+    const auto classify = [](std::initializer_list<std::uint32_t> codepoints) {
+        return wsc::text::classifyEmojiPresentation(
+            std::vector<std::uint32_t>(codepoints));
+    };
+
+    return expect(classify({'A'}) == Presentation::Default,
+                  "ordinary text should not request an emoji family")
+        && expect(classify({0x00A9}) == Presentation::Default,
+                  "text-default emoji candidates should stay neutral without VS16")
+        && expect(classify({0x00A9, 0xFE0F}) == Presentation::Emoji,
+                  "VS16 should explicitly request emoji presentation")
+        && expect(classify({0x1F600, 0xFE0E}) == Presentation::Text,
+                  "VS15 should override a default emoji presentation")
+        && expect(classify({0x1F600}) == Presentation::Emoji,
+                  "Emoji_Presentation characters should prefer emoji fonts")
+        && expect(classify({0x1F469, 0x1F3FD}) == Presentation::Emoji,
+                  "skin-tone sequences should prefer emoji fonts")
+        && expect(classify({0x1F469, 0x200D, 0x1F4BB}) == Presentation::Emoji,
+                  "ZWJ pictographic sequences should prefer emoji fonts")
+        && expect(classify({0x1F1E8, 0x1F1F3}) == Presentation::Emoji,
+                  "regional-indicator flags should prefer emoji fonts")
+        && expect(classify({'8', 0x20E3}) == Presentation::Emoji,
+                  "keycap sequences should prefer emoji fonts")
+        && expect(classify({0x1F3F4, 0xE0067, 0xE0062, 0xE007F})
+                      == Presentation::Emoji,
+                  "emoji tag sequences should prefer emoji fonts");
 }
 
 bool testFontFallbackClustersPreserveGraphemeSequences()
@@ -803,6 +873,7 @@ int main()
         && testSimpleShaperBuildsGlyphRun()
         && testSimpleShaperStopsAtFirstLineAndFailsMissingGlyphs()
         && testSimpleShaperStopsAtCarriageReturn()
+        && testSimpleShaperSkipsVariationSelectors()
         && testSimpleShaperDirectionStopsAtLineBreak()
         && testSimpleShaperOrdersRightToLeftRuns()
         && testSimpleShaperMirrorsRightToLeftPunctuation()
@@ -812,6 +883,8 @@ int main()
         && testOpenTypeShaperHonorsCollectionFaceIndex()
         && testOpenTypeShaperProducesRealLigatures()
         && testOpenTypeFeaturesCanDisableLigatures()
+        && testAndroidClusterEncodingPreservesCompleteUtf16Runs()
+        && testEmojiPresentationClassification()
         && testFontFallbackClustersPreserveGraphemeSequences()
         && testFontFallbackClustersFollowExtendedGraphemeRules()
         && testBreakTokensPreserveCjkVariationSequence()
