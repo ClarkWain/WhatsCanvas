@@ -1,0 +1,37 @@
+# Minimal Windows build for the fixed-revision Android font oracle.
+# Update the toolchain paths deliberately when reproducing on another machine.
+is_official_build = true
+win_vc = "C:/Program Files/Microsoft Visual Studio/2022/Community/VC"
+win_toolchain_version = "14.43.34808"
+win_sdk = "C:/Program Files (x86)/Windows Kits/10"
+win_sdk_version = "10.0.22621.0"
+
+skia_use_expat = true
+skia_use_system_expat = false
+skia_enable_fontmgr_android = true
+skia_enable_fontmgr_win = false
+skia_enable_fontmgr_win_gdi = false
+
+skia_enable_ganesh = false
+skia_enable_graphite = false
+skia_enable_tools = false
+skia_use_gl = false
+skia_use_vulkan = false
+skia_use_direct3d = false
+skia_use_dawn = false
+skia_use_freetype = true
+skia_use_system_freetype2 = false
+skia_use_freetype_svg = false
+skia_use_system_libpng = false
+skia_use_system_zlib = false
+skia_use_fontconfig = false
+skia_use_icu = false
+skia_use_libjpeg_turbo_decode = false
+skia_use_libjpeg_turbo_encode = false
+skia_use_libpng_decode = false
+skia_use_libpng_encode = false
+skia_use_libwebp_decode = false
+skia_use_libwebp_encode = false
+skia_use_zlib = false
+skia_use_wuffs = false
+skia_use_xps = false

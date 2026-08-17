@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<familyset version="23">
+  <family name="sans-serif">
+    <font weight="400" style="normal">Sans-Regular.ttf</font>
+    <font weight="500" style="normal">Sans-Medium.ttf
+      <axis tag="wght" stylevalue="475"/>
+    </font>
+    <font weight="600" style="italic" index="2">Sans-SemiboldItalic.ttc</font>
+  </family>
+  <family name="fallback-container" lang="zh-Hant" variant="elegant">
+    <font weight="400" fallbackFor="sans-serif">Targeted-Hant.otf</font>
+  </family>
+  <family lang="ja" variant="compact">
+    <font weight="400">Compact-Japanese.otf</font>
+  </family>
+  <family lang="und-Zsye">
+    <font weight="400">Color-Emoji.ttf</font>
+  </family>
+  <family variant="elegant">
+    <font weight="400">Elegant-Global.otf</font>
+  </family>
+  <alias name="sans-serif-medium" to="sans-serif" weight="500"/>
+  <alias name="system-ui" to="sans-serif"/>
+</familyset>

@@ -69,7 +69,13 @@ if "%PACKAGE%"=="1" (
 rem Packaging installs the renderer libraries, not the demo, so skip optional
 rem executable targets to keep the package build lean and avoid linking
 rem internal-only helpers against shared-library exports.
-if "%PACKAGE%"=="1" set "CONFIGURE_ARGS=%CONFIGURE_ARGS% -DBUILD_TESTING=OFF -DWHATSCANVAS_BUILD_DEMO=OFF -DWHATSCANVAS_BUILD_BENCHMARKS=OFF"
+if "%PACKAGE%"=="1" (
+    set "CONFIGURE_ARGS=%CONFIGURE_ARGS% -DBUILD_TESTING=OFF -DWHATSCANVAS_BUILD_DEMO=OFF -DWHATSCANVAS_BUILD_BENCHMARKS=OFF"
+) else (
+    rem CMake cache values survive a package build. A normal build always targets
+    rem WhatsCanvasDemo, so explicitly restore the option instead of inheriting OFF.
+    set "CONFIGURE_ARGS=%CONFIGURE_ARGS% -DWHATSCANVAS_BUILD_DEMO=ON"
+)
 if "%BUILD_SHARED%"=="1" set "CONFIGURE_ARGS=%CONFIGURE_ARGS% -DBUILD_SHARED_LIBS=ON"
 if "%BUILD_OPENGLES%"=="1" set "CONFIGURE_ARGS=%CONFIGURE_ARGS% -DWHATSCANVAS_BUILD_OPENGLES=ON"
 if "%BUILD_VULKAN%"=="1" set "CONFIGURE_ARGS=%CONFIGURE_ARGS% -DWHATSCANVAS_ENABLE_VULKAN=ON"

@@ -80,7 +80,7 @@ public:
     std::unique_ptr<ISwapchain> createSwapchain(const NativeSurface &surface,
                                                 const SwapchainConfig &config) override;
 
-    // Skia-style wrap-external: render into a host-owned VkImage (created on this
+    // Render into a host-owned VkImage (created on this
     // device; format must be VK_FORMAT_R8G8B8A8_UNORM with COLOR_ATTACHMENT and
     // TRANSFER_SRC usage).
     bool wrapBackendRenderTarget(const BackendRenderTarget &target) override;

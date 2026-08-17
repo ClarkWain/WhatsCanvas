@@ -4,12 +4,83 @@ This directory is the top-level home for WhatsCanvas validation beyond ad-hoc lo
 
 ## Current Entry Points
 
+- `WhatsCanvasCoreDependencyBoundary`: prevents public headers, product source,
+  platform adapters, and the root CMake file from acquiring reference-engine
+  names or dependencies. Test-only Oracle tooling and comparison documentation
+  remain outside the scanned product boundary.
 - `ctest -C Debug -R ^WhatsCanvasGraphicsStateStackTests$ --output-on-failure`: lightweight unit executable covering `GraphicsStateStack` save/restore semantics and header-only `Path` behavior such as even-odd contains, stroke hit-testing, trim, and reverse.
 - `ctest -C Debug -R ^WhatsCanvasTextLayoutTests$ --output-on-failure`: public `Canvas::layoutTextBox` unit coverage for paragraph ranges, alignment, line height, max-line clipping, and ellipsis.
 - `ctest -C Debug -R ^WhatsCanvasUnicodeBidiConformanceTests$ --output-on-failure`: Unicode 17.0.0 `BidiTest.txt` conformance gate for the currently supported core Bidi profile. The default gate skips explicit embedding/isolate control cases and does not run `BidiCharacterTest.txt`.
 - `build\Debug\WhatsCanvasUnicodeBidiConformanceTests.exe tests/unicode --exhaustive`: full Unicode 17.0.0 conformance run across `BidiTest.txt` and `BidiCharacterTest.txt`; the latest local exhaustive run passes all 861,948 cases with 0 skips and 0 failures.
-- `WhatsCanvasTextUtilsTests`: includes rule-focused UAX #29 extended-grapheme coverage (Hangul, spacing marks, prepend characters, Indic conjuncts, emoji ZWJ sequences, regional indicators, and controls); generated Unicode property tables are committed for runtime use.
-- `ctest -C Debug -R ^WhatsCanvasTextBackendContractTests$ --output-on-failure`: internal text backend contract coverage for font registration, fallback resolution, line breaks, glyph availability, and diagnostics.
+- `WhatsCanvasTextUtilsTests`: includes rule-focused UAX #29 extended-grapheme coverage (Hangul, spacing marks, prepend characters, Indic conjuncts, emoji ZWJ sequences, regional indicators, and controls), complete UTF-16 cluster encoding for Android, and Unicode `Emoji_Presentation`/VS/ZWJ/skin-tone/flag/keycap/tag classification; generated Unicode property tables are committed for runtime use.
+- `WhatsCanvasAndroidFontConfigTests`: parses modern and legacy Android font
+  configuration, including product merges, aliases, style/TTC metadata, and
+  locale-sensitive Simplified/Traditional Chinese fallback order. It also locks
+  Skia-compatible `fallbackFor` isolation, exact-weight alias semantics,
+  legacy `lang/variant`, duplicate-axis handling, and variable-font coordinates.
+  Synthetic SFNT/TTC fixtures additionally verify intrinsic `OS/2/head/post`
+  style recovery, explicit-config precedence, CSS3 style order, targeted
+  fallback priority, and elegant/default/compact fallback passes. Disk-backed
+  sanitized corpus fixtures cover the API 21/23/28/29/33/35 feature eras and
+  vendor/product edge cases. Default emoji and structural emoji sequences must
+  reorder the `und-Zsye` fallback even when VS16 is absent; see
+  `fixtures/android_font_config/README.md`.
+- `WhatsCanvasAndroidBuildContract`: prevents the Android app from silently
+  disabling OpenGLES, FreeType, or HarfBuzz and verifies the three packaged ABI
+  filters used by the sample.
+- `WhatsCanvasAndroidFontOracleGolden`: runs the production Android parser
+  through the versioned discovery/matching snapshot protocol. See
+  `tools/font_oracle/README.md` for the offline golden gate and the independent
+  fixed-revision Skia differential producer. External reference tests require
+  `WHATSCANVAS_ENABLE_EXTERNAL_FONT_ORACLES=ON`; ordinary library builds expose
+  no engine-specific cache settings. When configured, the separate
+  `WhatsCanvasAndroidFontOracleSkia` test requires exact dual-engine equality;
+  `WhatsCanvasAndroidFontOracleCorpusSkia` also locks strict and explicitly
+  classified compatibility-extension behavior across the API/vendor corpus.
+- `WhatsCanvasSkiaFontScannerGolden`: requires the separately built pinned
+  Skia/FreeType scanner and opens the real bundled Roboto Flex fixture. It
+  locks face/instance discovery, intrinsic style, and all variation-axis
+  ranges/default positions independently of the virtual-path XML oracle.
+- `WhatsCanvasSkiaAndroidFontManagerGolden`: runs the same real font through
+  isolated `SkFontMgr_New_Android`, locking configured-family enumeration,
+  intrinsic style fallback, Latin glyph selection, distinct zh-Hans and ja
+  Source Han fallbacks, an `und-Zsye` color-emoji fallback, hidden
+  fallback-family enumeration, and a still-missing CJK match.
+- `WhatsCanvasSkiaFontRasterGolden`: renders the selected Latin, zh-Hans CJK,
+  COLR/CPAL, and CBDT glyphs with pinned Skia/FreeType. It locks metrics, ink
+  bounds/counts and engine-specific pixel hashes, and requires real colored
+  pixels instead of treating successful font matching as render proof.
+- `WhatsCanvasFontRasterGolden`: locks the same production-rasterizer scene.
+  FreeType now takes priority for supported color glyphs, keeping COLR metrics
+  aligned with the reference; the manual STB COLR path remains a fallback.
+- `WhatsCanvasFontRasterDifferential`: compares the two engine snapshots by
+  glyph, advance, bounds, ink area, and color classification without demanding
+  byte-identical anti-aliasing. The common CBDT/CBLC index-format-1 plus
+  image-format-17 PNG path is decoded through the existing stb image decoder
+  when bundled FreeType cannot decode PNG itself.
+- `WhatsCanvasAndroidFlagEmojiContract`: shapes the API 33 CN regional-indicator
+  pair with HarfBuzz into one glyph and rasterizes its CBDT bitmap. The two
+  component glyphs intentionally have no standalone bitmap metrics, so simple
+  shaping cannot accidentally satisfy this contract.
+- `WhatsCanvasFontManagerTests`: covers provider priority/generation, family and
+  CSS-weight matching, cluster fallback, collection indices, and canonical
+  variable-font face identity. Variation coordinate order is ignored while
+  exact IEEE-754 values remain distinct. It also validates lazy source loading,
+  failure memoization, callback re-entry outside internal locks, source
+  replacement, family-scoped invalidation, and remote-font request scheduling,
+  retry exhaustion, coverage selection, completion, transfer budgets, stale
+  callback rejection, and content-fingerprint no-op/replacement semantics.
+- `ctest -C Debug -R ^WhatsCanvasTextBackendContractTests$ --output-on-failure`: internal text backend contract coverage for font registration, fallback resolution, line breaks, glyph availability, and diagnostics. It also verifies that a remote provider queues a nonblocking miss, accepts host-supplied bytes, invalidates the cached miss, and shapes the downloaded face.
+- `WhatsCanvasDirectWriteBackendTests`: includes a real lazy-provider bridge
+  contract using bundled Source Serif variable bytes; attachment performs no
+  load, first use materializes one family, and family invalidation reloads the
+  native collection without hitting the old bitmap cache entry.
+- `ctest --test-dir build -C Debug -R ^WhatsCanvasVariableFontGoldenTests$ --output-on-failure`:
+  deterministic portable/software RGBA golden for bundled Roboto Flex at
+  `wdth=50` and `wdth=150`. It locks both complete hashes and structural pixel
+  differences. Set `WHATSCANVAS_UPDATE_VARIABLE_FONT_HASHES=1` only to print
+  replacement hashes after an intentional raster change; the test never
+  rewrites source automatically.
 - `ctest -C Debug -R ^WhatsCanvasTextRegressionTests$ --output-on-failure`: text fallback regression coverage for ASCII, Chinese, mixed Latin/CJK, uncovered codepoints, and declared fallback ranges.
 - `ctest -C Debug -R ^WhatsCanvasRenderStatsTests$ --output-on-failure`: public `Canvas::getRenderStats` diagnostics API coverage, including filter pass, downsample, input-pixel, and pixel-pass accounting.
 - `ctest --test-dir build-vulkan -C Debug -R ^WhatsCanvasVulkanImageFilterTests$ --output-on-failure`: real Vulkan GPU coverage for image/backdrop Gaussian blur, inner-shadow composition and clipping, Clamp/Decal edges, transparent-edge color safety, premultiplied translucent layers, per-axis adaptive downsampling, layer orientation, cropped clip coordinates, render statistics, and Software pixel parity.

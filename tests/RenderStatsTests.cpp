@@ -119,6 +119,8 @@ bool testDefaultStatsAreReadable()
         && expect(stats.pooledRenderTargetBytes == 0, "default pooled target bytes should be zero")
         && expect(stats.tessellationCacheBytes == 0, "default tessellation bytes should be zero")
         && expect(stats.strokeCacheBytes == 0, "default stroke cache bytes should be zero")
+        && expect(stats.strokeAaCacheBytes == 0,
+                  "default stroke AA cache bytes should be zero")
         && expect(stats.bitmapTextCacheSize == 0, "default bitmap text cache should be empty")
         && expect(stats.bitmapTextCacheBytes == 0, "default bitmap text bytes should be zero");
 }

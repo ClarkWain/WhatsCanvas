@@ -138,10 +138,14 @@ device layer is backend-specific.
 - [Get Started](GETTING_STARTED_AS_LIBRARY.md) — integrate WhatsCanvas.
 - [Android Integration](ANDROID_INTEGRATION.md) — embed the OpenGL ES backend
   with `GLSurfaceView`, JNI, and correct context lifecycle handling.
+- [Web / Async Font Integration](WEB_FONT_INTEGRATION.md) — connect browser or
+  host downloads to the nonblocking remote-font provider.
 - [API Reference](API_REFERENCE.md) · [API Stability](API_STABILITY.md).
 - [Performance Benchmarks](PERFORMANCE_BENCHMARKS.md) ·
   [NanoVG 性能优化实战](NANOVG_PERFORMANCE_OPTIMIZATION.md) ·
   [Memory Management](MEMORY_MANAGEMENT.md).
 - [Image Filters](IMAGE_FILTERS.md) · [Text & Fonts](TEXT_FEATURE_MATRIX.md) ·
+  [Web / Async Fonts](WEB_FONT_INTEGRATION.md) ·
+  [Font Discovery: WhatsCanvas vs Flutter](WHATS_CANVAS_VS_FLUTTER_FONT_DISCOVERY.md) ·
   [Shadows](SHADOW_MODEL.md) · [Blend Modes](BLEND_MODE_AUDIT.md).
 - [Vulkan Status](vulkan-backend-status.md) · [Shader Portability](SHADER_PORTABILITY.md) · [iOS Build Notes](IOS_BUILD_NOTES.md).

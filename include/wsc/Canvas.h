@@ -21,11 +21,13 @@ class IRenderer;
 namespace wsc {
 class FontFace;
 class FontFallbackChain;
+class FontProvider;
 class Image;
 class CanvasLifecycleTestAccess;
 class Matrix4;
 class Paint;
 class Path;
+class Picture;
 
 /// Main drawing surface exposed by WhatsCanvas.
 class WSC_API Canvas : public ITextureSource
@@ -104,8 +106,19 @@ public:
 		std::size_t strokeCacheMisses = 0;
 		std::size_t strokeCacheSize = 0;
 		std::size_t strokeCacheBytes = 0;
+		std::size_t strokeAaCacheHits = 0;
+		std::size_t strokeAaCacheMisses = 0;
+		std::size_t strokeAaCacheSize = 0;
+		std::size_t strokeAaCacheBytes = 0;
 		std::size_t bitmapTextCacheSize = 0;
 		std::size_t bitmapTextCacheBytes = 0;
+		std::size_t retainedPictureCacheHits = 0;
+		std::size_t retainedPictureCacheMisses = 0;
+		std::size_t retainedPictureRasterCacheHits = 0;
+		std::size_t retainedPictureRasterCacheMisses = 0;
+		std::size_t retainedPictureRasterCacheSize = 0;
+		std::size_t retainedPictureRasterCacheBytes = 0;
+		std::size_t retainedPictureRasterCacheEvictions = 0;
 		std::size_t trackedResourceBytes = 0;
 	};
 
@@ -334,6 +347,9 @@ public:
 	TextMetrics measureTextMetrics(const std::string &text, const Paint &paint) const;
 	/// Register a font face so its family can be selected via Paint::setFontFamily.
 	bool registerFontFace(const FontFace &face);
+	/// Add an application font provider. The Canvas retains shared ownership;
+	/// portable text supports lazy asset/dynamic providers.
+	bool addFontProvider(std::shared_ptr<FontProvider> provider);
 	/// Re-enumerate installed fonts and update this Canvas while preserving
 	/// explicitly registered fonts and fallback chains.
 	bool refreshSystemFonts();
@@ -423,6 +439,20 @@ public:
 	void translate(float dx, float dy);
 	void scale(float sx, float sy);
 	void rotate(float radians);
+
+	// Retained drawing.
+	/// Record backend-neutral Canvas operations into an immutable Picture.
+	/// Recording does not submit GPU work and leaves this Canvas' state exactly
+	/// as it was before the callback. Nested recording is rejected.
+	std::shared_ptr<const Picture> recordPicture(
+		const std::function<void(Canvas &)> &recorder);
+	/// Replay a retained Picture inside an implicit save/restore boundary.
+	void drawPicture(const Picture &picture);
+	/// Replay an isolated static Picture through a context-keyed raster cache.
+	/// This is intended for RepaintBoundary-like content whose compositing as one
+	/// offscreen layer is semantically correct. GPU resources are derived data
+	/// and are purged before context teardown.
+	void drawPictureRasterized(const Picture &picture);
 
 	// Frame and pixel readback helpers.
 	/// Begin a frame of drawing. Initializes the backend lazily, resets per-frame

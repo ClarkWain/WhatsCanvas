@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<familyset version="23">
+  <family lang="zh-Hans">
+    <font weight="400">NotoSansCJKsc-Regular.otf</font>
+  </family>
+  <family lang="zh-Hant zh-HK">
+    <font weight="400">NotoSansCJKtc-Regular.otf</font>
+  </family>
+</familyset>

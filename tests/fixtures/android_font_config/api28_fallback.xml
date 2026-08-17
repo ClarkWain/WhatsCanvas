@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<familyset version="23">
+  <family name="serif">
+    <font weight="400">NotoSerif-Regular.ttf
+      <axis tag="wdth" stylevalue="100"/>
+      <axis tag="wdth" stylevalue="75"/>
+      <axis tag="bad" stylevalue="10"/>
+    </font>
+    <font weight="400" fallbackFor="sans-serif" lang="zh-Hant" variant="elegant">
+      NotoSerifCJKtc-Regular.otf
+    </font>
+  </family>
+</familyset>

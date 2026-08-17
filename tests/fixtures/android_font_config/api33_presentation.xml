@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<familyset version="23">
+  <family lang="und-Zsym">
+    <font weight="400">NotoSansSymbols-Regular.ttf</font>
+  </family>
+  <family lang="und-Zsye">
+    <font weight="400">NotoColorEmoji.ttf</font>
+  </family>
+</familyset>

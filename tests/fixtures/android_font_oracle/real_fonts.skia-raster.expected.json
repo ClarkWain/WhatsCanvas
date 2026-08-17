@@ -1,0 +1,47 @@
+{
+  "schema": "whatscanvas.skia-font-raster.v1",
+  "engine": "skia-android-freetype",
+  "width": 128,
+  "height": 128,
+  "fontSize": 72,
+  "latin": {
+    "found": true,
+    "glyph": 36,
+    "advance": 45,
+    "glyphBounds": [0, -52, 45, 0],
+    "pixelHash": "14624582457262595407",
+    "inkPixels": 880,
+    "colorPixels": 0,
+    "inkBounds": [16, 40, 60, 91]
+  },
+  "simplifiedCjk": {
+    "found": true,
+    "glyph": 2,
+    "advance": 72.0000305,
+    "glyphBounds": [2, -61, 69, 5],
+    "pixelHash": "5530066173331691373",
+    "inkPixels": 2657,
+    "colorPixels": 0,
+    "inkBounds": [18, 31, 84, 96]
+  },
+  "colrEmoji": {
+    "found": true,
+    "glyph": 2,
+    "advance": 72,
+    "glyphBounds": [0, -63, 72, 9],
+    "pixelHash": "3176265557935593316",
+    "inkPixels": 4188,
+    "colorPixels": 3495,
+    "inkBounds": [16, 29, 87, 100]
+  },
+  "bitmapEmoji": {
+    "found": true,
+    "glyph": 4,
+    "advance": 89.828125,
+    "glyphBounds": [0, -67, 90, 18],
+    "pixelHash": "2915093021660819163",
+    "inkPixels": 2611,
+    "colorPixels": 2610,
+    "inkBounds": [28, 28, 93, 107]
+  }
+}

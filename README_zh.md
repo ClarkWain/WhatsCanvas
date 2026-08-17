@@ -291,7 +291,9 @@ if (!canvas) {
 - `WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=ON`（默认）：优先使用 FreeType 处理 glyph lookup、metrics、kerning 和栅格化；不可用时回退 `stb_truetype`。
 - `WHATSCANVAS_ENABLE_OPENTYPE_SHAPING=ON`（默认）：启用 HarfBuzz OpenType shaping；不可用或关闭时使用 simple shaping + kerning。
 - Windows 可选 DirectWrite adapter；CoreText adapter 尚未实现。
-- 已支持 COLR/CPAL v0；CBDT/CBLC、SBIX、SVG 和 COLR v1 paint graph 仍是后续工作。
+- 已支持 COLR/CPAL v0、Android Noto Color Emoji 使用的常见 COLRv1 paint
+  graph，以及 CBLC index format 1 + CBDT image format 17 PNG 字形；其他
+  CBDT/CBLC 格式、SBIX、SVG 和高级 COLRv1 composite 仍是后续工作。
 
 ![WhatsCanvas 字体 fallback、CJK、双向文本与 text-on-path](images/text-rendering-showcase.png)
 
@@ -418,7 +420,7 @@ sh ./scripts/release_preflight.sh
 | Android 宿主接入 | [Android Integration Guide](doc/ANDROID_INTEGRATION.md) |
 | 查找 API | [Public API Reference](doc/API_REFERENCE.md) · [Visual API Gallery](doc/visual-api-gallery.md) |
 | 评估 API 稳定性 | [API Stability](doc/API_STABILITY.md) · [CHANGELOG](CHANGELOG.md) |
-| 文本和字体 | [Text Feature Matrix](doc/TEXT_FEATURE_MATRIX.md) · [DirectWrite](doc/DIRECTWRITE_TEXT_BACKEND.md) |
+| 文本和字体 | [Text Feature Matrix](doc/TEXT_FEATURE_MATRIX.md) · [Web / Async Font Integration](doc/WEB_FONT_INTEGRATION.md) · [Font Discovery Design](doc/WHATS_CANVAS_VS_FLUTTER_FONT_DISCOVERY.md) · [DirectWrite](doc/DIRECTWRITE_TEXT_BACKEND.md) |
 | 图层效果 | [Image Filters](doc/IMAGE_FILTERS.md) · [Shadow Model](doc/SHADOW_MODEL.md) · [Blend Modes](doc/BLEND_MODE_AUDIT.md) |
 | 后端与平台 | [Vulkan Status](doc/vulkan-backend-status.md) · [Shader Portability](doc/SHADER_PORTABILITY.md) · [Troubleshooting](doc/TROUBLESHOOTING.md) |
 | 性能和验证 | [Performance Benchmarks](doc/PERFORMANCE_BENCHMARKS.md) · [Visual Regression](doc/VISUAL_REGRESSION.md) |
@@ -426,7 +428,7 @@ sh ./scripts/release_preflight.sh
 
 ## 路线与边界
 
-WhatsCanvas 当前主要改进跨后端像素一致性、文本排版质量、Vulkan 与 Apple 设备覆盖，以及性能基准的可复现性。长期计划包括 WebAssembly / WebGL 2、WebGPU 和更多 color glyph 格式（CBDT/CBLC、SBIX、SVG、COLR v1）。这些功能仍在规划中，当前版本尚不可用。
+WhatsCanvas 当前主要改进跨后端像素一致性、文本排版质量、Vulkan 与 Apple 设备覆盖，以及性能基准的可复现性。长期计划包括 WebAssembly / WebGL 2、WebGPU，以及更多 CBDT/CBLC bitmap 格式、SBIX、SVG 和完整 COLRv1 composite。这些能力仍在规划中，不应视为当前已经完整支持。
 
 ## 许可证
 

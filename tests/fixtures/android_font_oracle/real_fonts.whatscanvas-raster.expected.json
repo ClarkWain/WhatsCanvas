@@ -1,0 +1,51 @@
+{
+  "schema": "whatscanvas.font-raster.v1",
+  "engine": "whatscanvas-freetype",
+  "width": 128,
+  "height": 128,
+  "fontSize": 72,
+  "latin": {
+    "found": true,
+    "glyph": 36,
+    "advance": 45,
+    "glyphBounds": [0, -51, 45, 1],
+    "format": "alpha",
+    "pixelHash": "12459728676606814391",
+    "inkPixels": 881,
+    "colorPixels": 0,
+    "inkBounds": [16, 41, 60, 92]
+  },
+  "simplifiedCjk": {
+    "found": true,
+    "glyph": 2,
+    "advance": 72,
+    "glyphBounds": [2, -61, 69, 6],
+    "format": "alpha",
+    "pixelHash": "17716809961291490704",
+    "inkPixels": 2597,
+    "colorPixels": 0,
+    "inkBounds": [18, 31, 84, 97]
+  },
+  "colrEmoji": {
+    "found": true,
+    "glyph": 2,
+    "advance": 72,
+    "glyphBounds": [0, -63, 72, 9],
+    "format": "rgba",
+    "pixelHash": "11262329847627654229",
+    "inkPixels": 4192,
+    "colorPixels": 3450,
+    "inkBounds": [16, 29, 87, 100]
+  },
+  "bitmapEmoji": {
+    "found": true,
+    "glyph": 4,
+    "advance": 89.8348618,
+    "glyphBounds": [0, -66.7155991, 90, 18.2844009],
+    "format": "rgba",
+    "pixelHash": "3346322413386432317",
+    "inkPixels": 2653,
+    "colorPixels": 2653,
+    "inkBounds": [28, 27, 93, 107]
+  }
+}

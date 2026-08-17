@@ -71,13 +71,17 @@ bool testIdenticalFillReusesTessellation()
 
     canvas.drawPath(pentagon, fill);
     Canvas::RenderStats s2 = canvas.getRenderStats();
-    ok = expect(s2.tessellationCacheHits == 0 && s2.tessellationCacheMisses == 1
+    ok = expect(s2.tessellationCacheHits == 1 && s2.tessellationCacheMisses == 1
                     && s2.tessellationCacheSize == 1,
-                "an AA mesh hit should bypass the base tessellation cache") && ok;
+                "a second observation should reuse the base tessellation") && ok;
     ok = expect(
-             s2.aaCacheHits == 1 && s2.aaCacheMisses == 1
+             s2.aaCacheHits == 0 && s2.aaCacheMisses == 2
                  && s2.aaCacheSize == 1,
-             "re-drawing the identical shape should hit the AA mesh cache") && ok;
+             "a second observation should admit final AA geometry") && ok;
+    canvas.drawPath(pentagon, fill);
+    Canvas::RenderStats s3 = canvas.getRenderStats();
+    ok = expect(s3.aaCacheHits == 1 && s3.aaCacheSize == 1,
+                "a stable fill should reuse its admitted AA geometry") && ok;
     return ok;
 }
 
@@ -108,8 +112,8 @@ bool testTransformDoesNotInvalidateTessellation()
                    && stats.tessellationCacheSize == 1,
                "a new physical AA fringe should reuse base tessellation")
         && expect(
-               stats.aaCacheMisses == 2 && stats.aaCacheSize == 2,
-               "different physical AA fringes should use distinct meshes");
+               stats.aaCacheMisses == 2 && stats.aaCacheSize == 1,
+               "only a repeatedly observed fill should enter the AA cache");
 }
 
 bool testDistinctShapesUseDistinctEntries()
@@ -148,18 +152,38 @@ bool testTranslatedPrimitivesReuseParameterizedMeshes()
         RectF(130.0f, 160.0f, 60.0f, 36.0f), 8.0f, fill);
     canvas.drawCircle(35.0f, 180.0f, 16.0f, fill);
     canvas.drawCircle(210.0f, 40.0f, 16.0f, fill);
-
     const Canvas::RenderStats stats = canvas.getRenderStats();
     return expect(
                stats.tessellationCacheMisses == 3
-                   && stats.tessellationCacheHits == 0
+                   && stats.tessellationCacheHits == 3
                    && stats.tessellationCacheSize == 3,
-               "AA hits should bypass parameterized fill mesh lookups")
+               "translated primitives should reuse parameterized base meshes")
         && expect(
-               stats.aaCacheMisses == 3
-                   && stats.aaCacheHits == 3
+               stats.aaCacheMisses == 6
+                   && stats.aaCacheHits == 0
                    && stats.aaCacheSize == 3,
-               "translated primitives should share parameterized AA meshes");
+               "second observations should admit parameterized AA meshes");
+}
+
+bool testOneShotFillsDoNotPolluteAaCache()
+{
+    auto canvasOwner = Canvas::create(Canvas::Backend::OpenGL, 0, 0);
+    Canvas &canvas = *canvasOwner;
+    canvas.setSize(512, 512);
+
+    Paint fill;
+    fill.setStyle(Paint::Style::FILL);
+    fill.setColor(Color(70, 220, 190));
+    for (int i = 0; i < 300; ++i) {
+        canvas.drawRoundRect(
+            RectF(8.0f, 8.0f, 20.0f + static_cast<float>(i), 18.0f),
+            6.0f, fill);
+    }
+
+    const Canvas::RenderStats stats = canvas.getRenderStats();
+    return expect(
+        stats.aaCacheSize == 0,
+        "one-shot animated fill geometry must not evict stable AA meshes");
 }
 
 bool testStrokeOnlyDoesNotPopulateFillCache()
@@ -207,15 +231,53 @@ bool testIdenticalStrokeReusesMesh()
     Canvas::RenderStats s2 = canvas.getRenderStats();
     ok = expect(s2.strokeCacheHits == 1 && s2.strokeCacheSize == 1,
                 "transformed identical stroke should reuse the cached mesh") && ok;
+    ok = expect(s2.strokeAaCacheMisses == 1
+                    && s2.strokeAaCacheSize == 1,
+                "a reused base stroke should admit its final AA geometry") && ok;
+
+    canvas.drawPath(square, stroke);
+    Canvas::RenderStats s3 = canvas.getRenderStats();
+    ok = expect(s3.strokeAaCacheHits == 1
+                    && s3.strokeAaCacheSize == 1,
+                "a stable stroke should reuse its final AA geometry") && ok;
 
     // A different stroke width must not collide with the cached mesh.
     Paint thicker = stroke;
     thicker.setStrokeWidth(8.0f);
     canvas.drawPath(square, thicker);
-    Canvas::RenderStats s3 = canvas.getRenderStats();
-    ok = expect(s3.strokeCacheMisses == 2 && s3.strokeCacheSize == 2,
+    Canvas::RenderStats s4 = canvas.getRenderStats();
+    ok = expect(s4.strokeCacheMisses == 2 && s4.strokeCacheSize == 2,
                 "changing stroke width should produce a distinct cache entry") && ok;
     return ok;
+}
+
+bool testPeriodicDashPhaseReusesStrokeMesh()
+{
+    auto canvasOwner = Canvas::create(Canvas::Backend::OpenGL, 0, 0);
+    Canvas &canvas = *canvasOwner;
+    canvas.setSize(256, 256);
+
+    Paint stroke;
+    stroke.setStyle(Paint::Style::STROKE);
+    stroke.setStrokeWidth(4.0f);
+    stroke.setStrokeColor(Color(240, 200, 60));
+    stroke.setDashPathEffect({9.0f, 6.0f}, 3.0f);
+    const Path square = makeSquare(40.0f, 40.0f, 120.0f);
+
+    canvas.drawPath(square, stroke);
+    Paint nextCycle = stroke;
+    nextCycle.setDashPathEffect({9.0f, 6.0f}, 18.0f);
+    canvas.drawPath(square, nextCycle);
+
+    const Canvas::RenderStats stats = canvas.getRenderStats();
+    return expect(
+               stats.strokeCacheMisses == 1
+                   && stats.strokeCacheHits == 1,
+               "dash phases separated by one pattern should share a mesh")
+        && expect(
+               stats.strokeAaCacheMisses == 1
+                   && stats.strokeAaCacheSize == 1,
+               "periodic dash reuse should admit final AA geometry");
 }
 
 bool testClipMaskSharesFillTessellationCache()
@@ -256,8 +318,10 @@ int main()
     ok = testTransformDoesNotInvalidateTessellation() && ok;
     ok = testDistinctShapesUseDistinctEntries() && ok;
     ok = testTranslatedPrimitivesReuseParameterizedMeshes() && ok;
+    ok = testOneShotFillsDoNotPolluteAaCache() && ok;
     ok = testStrokeOnlyDoesNotPopulateFillCache() && ok;
     ok = testIdenticalStrokeReusesMesh() && ok;
+    ok = testPeriodicDashPhaseReusesStrokeMesh() && ok;
     ok = testClipMaskSharesFillTessellationCache() && ok;
     return ok ? 0 : 1;
 }

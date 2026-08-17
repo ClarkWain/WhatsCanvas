@@ -5,11 +5,13 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "text/GlyphAtlas.h"
 
 namespace wsc {
 class FontFace;
+struct FontVariationCoordinate;
 class Paint;
 }
 
@@ -43,6 +45,10 @@ struct FontDataView
 };
 
 std::string fontFaceIdentity(const FontFace &face);
+/// Stable cache identity for a set of OpenType axis coordinates. Coordinate
+/// order is ignored and each finite float is encoded by its exact bit value.
+std::string fontVariationIdentity(
+    const std::vector<FontVariationCoordinate> &coordinates);
 
 struct ColorFontTables
 {

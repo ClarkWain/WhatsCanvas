@@ -1,8 +1,12 @@
 package com.whatscanvas.demo
 
 import android.content.Context
+import android.os.Build
 import android.opengl.GLSurfaceView
 import android.util.Log
+import android.view.Choreographer
+import android.view.Surface
+import android.view.SurfaceHolder
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
@@ -10,12 +14,64 @@ class WhatsCanvasSurfaceView(context: Context) : GLSurfaceView(context) {
     private val canvasRenderer = WhatsCanvasRenderer {
         resources.displayMetrics.density
     }
+    private val choreographer = Choreographer.getInstance()
+    private var frameCallbackScheduled = false
+    private var rendering = false
+    private val frameCallback = Choreographer.FrameCallback {
+        frameCallbackScheduled = false
+        if (rendering) {
+            requestRender()
+            scheduleNextFrame()
+        }
+    }
 
     init {
         setEGLContextClientVersion(3)
         setEGLConfigChooser(8, 8, 8, 8, 24, 8)
+        // Match Flutter's normal mobile lifecycle: pausing rendering should
+        // not eagerly discard a healthy GPU context and all derived caches.
+        // Android may still revoke it under memory pressure; onSurfaceCreated
+        // remains the authoritative context-loss signal.
+        preserveEGLContextOnPause = true
         setRenderer(canvasRenderer)
-        renderMode = RENDERMODE_CONTINUOUSLY
+        // Rendering is paced by Android's display VSYNC. GLSurfaceView's
+        // continuous mode runs independently of SurfaceFlinger and can render
+        // frames that are never presented, wasting CPU and battery.
+        renderMode = RENDERMODE_WHEN_DIRTY
+    }
+
+    fun startRendering() {
+        if (rendering) return
+        rendering = true
+        scheduleNextFrame()
+    }
+
+    override fun surfaceCreated(holder: SurfaceHolder) {
+        super.surfaceCreated(holder)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            holder.surface.setFrameRate(
+                ANIMATION_REFRESH_RATE_HZ,
+                Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE
+            )
+        }
+    }
+
+    fun stopRendering() {
+        rendering = false
+        if (frameCallbackScheduled) {
+            choreographer.removeFrameCallback(frameCallback)
+            frameCallbackScheduled = false
+        }
+    }
+
+    private fun scheduleNextFrame() {
+        if (!rendering || frameCallbackScheduled) return
+        frameCallbackScheduled = true
+        choreographer.postFrameCallback(frameCallback)
+    }
+
+    private companion object {
+        const val ANIMATION_REFRESH_RATE_HZ = 60.0f
     }
 
     fun releaseNativeRenderer() {
@@ -31,6 +87,8 @@ class WhatsCanvasRenderer(
     private val densityProvider: () -> Float
 ) : GLSurfaceView.Renderer {
     private val startedAtNanos = System.nanoTime()
+    private var frameWindowStartedAtNanos = 0L
+    private var frameWindowCount = 0
     @Volatile
     private var nativeHandle: Long = nativeCreate()
 
@@ -47,8 +105,21 @@ class WhatsCanvasRenderer(
     }
 
     override fun onDrawFrame(gl: GL10?) {
-        val elapsedSeconds = (System.nanoTime() - startedAtNanos) / 1_000_000_000.0f
+        val nowNanos = System.nanoTime()
+        val elapsedSeconds = (nowNanos - startedAtNanos) / 1_000_000_000.0f
         nativeRender(nativeHandle, elapsedSeconds)
+
+        if (frameWindowStartedAtNanos == 0L) {
+            frameWindowStartedAtNanos = nowNanos
+        }
+        frameWindowCount++
+        val windowNanos = nowNanos - frameWindowStartedAtNanos
+        if (windowNanos >= FRAME_LOG_INTERVAL_NANOS) {
+            val renderedFps = frameWindowCount * 1_000_000_000.0 / windowNanos
+            Log.i(TAG, "Frame pacing: renderedFps=%.1f frames=%d".format(renderedFps, frameWindowCount))
+            frameWindowStartedAtNanos = nowNanos
+            frameWindowCount = 0
+        }
     }
 
     fun ensureNativeRenderer() {
@@ -73,6 +144,7 @@ class WhatsCanvasRenderer(
 
     private companion object {
         const val TAG = "WhatsCanvas"
+        const val FRAME_LOG_INTERVAL_NANOS = 5_000_000_000L
 
         init {
             System.loadLibrary("whatscanvas_android")
