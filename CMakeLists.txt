@@ -22,6 +22,7 @@ option(WHATSCANVAS_BUILD_OPENGL "Build the desktop OpenGL renderer library targe
 option(WHATSCANVAS_BUILD_OPENGLES "Build the OpenGL ES renderer library target." OFF)
 option(WHATSCANVAS_BUILD_SOFTWARE "Build the dependency-free CPU (software) renderer library target." ON)
 option(WHATSCANVAS_BUILD_BENCHMARKS "Build lightweight benchmark executables." ON)
+option(WHATSCANVAS_BUILD_FUZZERS "Build Clang libFuzzer targets." OFF)
 option(WHATSCANVAS_BUILD_NANOVG_BENCHMARK_ADAPTER "Build the optional NanoVG cross-library benchmark adapter." OFF)
 set(WHATSCANVAS_NANOVG_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.nanovg"
     CACHE PATH "Path to a NanoVG source checkout used only by its benchmark adapter.")
@@ -146,6 +147,31 @@ endif()
 if (WHATSCANVAS_BUILD_SOFTWARE)
     whatscanvas_add_software_library(WhatsCanvasSoftware ${CMAKE_CURRENT_LIST_DIR})
     add_library(WhatsCanvas::Software ALIAS WhatsCanvasSoftware)
+endif()
+
+if (WHATSCANVAS_BUILD_FUZZERS)
+    if (NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        message(FATAL_ERROR "WHATSCANVAS_BUILD_FUZZERS requires Clang/libFuzzer.")
+    endif()
+    if (NOT TARGET WhatsCanvasSoftware)
+        message(FATAL_ERROR "WhatsCanvas fuzzers require WHATSCANVAS_BUILD_SOFTWARE=ON.")
+    endif()
+    add_executable(WhatsCanvasTextAndFontConfigFuzzer
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/fuzz/TextAndFontConfigFuzzer.cpp"
+    )
+    target_include_directories(WhatsCanvasTextAndFontConfigFuzzer PRIVATE
+        "${SRC_DIR}"
+        "${SRC_DIR}/canvas"
+    )
+    target_link_libraries(WhatsCanvasTextAndFontConfigFuzzer PRIVATE
+        WhatsCanvasSoftware
+    )
+    target_compile_options(WhatsCanvasTextAndFontConfigFuzzer PRIVATE
+        -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer
+    )
+    target_link_options(WhatsCanvasTextAndFontConfigFuzzer PRIVATE
+        -fsanitize=fuzzer,address,undefined
+    )
 endif()
 
 if (NOT TARGET WhatsCanvasOpenGL AND NOT TARGET WhatsCanvasOpenGLES AND NOT TARGET WhatsCanvasSoftware)

@@ -24,7 +24,7 @@ public:
     ~DrawPointsProgram();
 
     void initialize();
-    void release();
+    void release(bool abandon = false);
 
     void draw(const RenderContext &context, const DrawPointsData &data);
 

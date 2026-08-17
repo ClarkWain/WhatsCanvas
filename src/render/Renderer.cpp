@@ -264,6 +264,30 @@ void Renderer::finalizeBackend()
     backendInitialized_ = false;
 }
 
+void Renderer::abandonBackend()
+{
+    if (!backendInitialized_ || device_ == nullptr) {
+        return;
+    }
+
+    // Mark device-created resources invalid first. Commands, targets and the
+    // sprite batch can then drop their CPU owners without deleting names from
+    // the context that has already disappeared.
+    device_->abandonBackend();
+    if (spriteBatch_) {
+        spriteBatch_->abandonGLResources();
+        spriteBatch_.reset();
+    }
+    mainTarget_.reset();
+    mainTargetWidth_ = 0;
+    mainTargetHeight_ = 0;
+    commands_.clear();
+    imageBatchAppendFloor_ = 0;
+    pathBatchCaches_.clear();
+    stats_.reset();
+    backendInitialized_ = false;
+}
+
 void Renderer::setViewport(int width, int height)
 {
     context_.setSize(width, height);

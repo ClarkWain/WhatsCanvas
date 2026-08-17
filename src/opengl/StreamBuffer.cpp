@@ -31,6 +31,13 @@ void StreamBuffer::release()
     }
 }
 
+void StreamBuffer::abandon()
+{
+    buffer_ = 0;
+    capacityBytes_ = 0;
+    writeOffsetBytes_ = 0;
+}
+
 void StreamBuffer::beginFrame()
 {
     writeOffsetBytes_ = 0;

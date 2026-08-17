@@ -38,7 +38,7 @@ public:
     ~ClipCoverageProgram();
 
     void initialize();
-    void release();
+    void release(bool abandon = false);
 
     /// Ensures the accumulator and temp R8 targets exist at the requested size.
     bool ensureTargets(int width, int height);
@@ -65,7 +65,7 @@ public:
 private:
     ClipCoverageProgram() = default;
 
-    void destroyTargets();
+    void destroyTargets(bool abandon = false);
     void ensureCoverageBuffer(std::size_t floatCount);
 
     static ClipCoverageProgram *instance_;

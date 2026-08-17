@@ -176,6 +176,45 @@ int main()
             "context recreation should invalidate the Picture raster cache");
     }
 
+    std::vector<unsigned char> redPixels(4u * 4u * 4u, 0u);
+    std::vector<unsigned char> bluePixels(4u * 4u * 4u, 0u);
+    for (std::size_t pixel = 0; pixel < 16u; ++pixel) {
+        redPixels[pixel * 4u] = 255u;
+        redPixels[pixel * 4u + 3u] = 255u;
+        bluePixels[pixel * 4u + 2u] = 255u;
+        bluePixels[pixel * 4u + 3u] = 255u;
+    }
+    wsc::Image snapshotSource;
+    ok &= expect(snapshotSource.loadFromRGBA(
+                     *recorder, redPixels, 4, 4),
+                 "owned RGBA image should load before Picture recording");
+    const auto imagePicture = recorder->recordPicture(
+        [&](wsc::Canvas &canvas) {
+            canvas.drawImage(
+                snapshotSource, wsc::RectF(12.0f, 14.0f, 20.0f, 18.0f),
+                wsc::Paint());
+        });
+    ok &= expect(imagePicture != nullptr,
+                 "CPU-backed image should enter a backend-neutral Picture");
+    ok &= expect(snapshotSource.replacePixelsRGBA(
+                     *recorder, bluePixels, 4, 4),
+                 "source image should remain mutable after recording");
+
+    wsc::Image expectedRed;
+    ok &= expect(expectedRed.loadFromRGBA(*direct, redPixels, 4, 4),
+                 "reference image should load");
+    direct->resetMatrix();
+    replay->resetMatrix();
+    direct->beginFrame();
+    direct->drawImage(
+        expectedRed, wsc::RectF(12.0f, 14.0f, 20.0f, 18.0f), wsc::Paint());
+    direct->endFrame();
+    const auto expectedImagePixels = direct->readPixelsRGBA();
+    const auto actualImagePixels = renderPicture(
+        *replay, *imagePicture);
+    ok &= expect(actualImagePixels == expectedImagePixels,
+                 "Picture image snapshot should be immutable after source mutation");
+
     wsc::Image mutableGpuImage;
     const auto rejected = recorder->recordPicture(
         [&](wsc::Canvas &canvas) {
@@ -183,7 +222,7 @@ int main()
             canvas.drawImage(mutableGpuImage, 0.0f, 0.0f, paint);
         });
     ok &= expect(rejected == nullptr,
-                 "mutable GPU-backed images must not enter a backend-neutral Picture");
+                 "images without a CPU snapshot must not enter a backend-neutral Picture");
 
     replay.reset();
     direct.reset();

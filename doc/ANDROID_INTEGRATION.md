@@ -303,9 +303,11 @@ renderer-owned resources.
 
 On an ordinary resume the retained EGL Context, Canvas, Picture-derived command
 cache, and raster layer remain valid. If Android revoked the context,
-`onSurfaceCreated` reports a different current `EGLContext`; discard the old
-derived state and rebuild images, glyph atlases, fonts, clip resources, and
-Picture raster layers.
+`onSurfaceCreated` reports a different current `EGLContext`; the sample calls
+`Canvas::abandonContext()` before initializing the replacement Context. This
+drops all old GL names without issuing deletion calls against the new Context,
+then rebuilds images, glyph atlases, fonts, clip resources, and Picture raster
+layers from portable CPU state.
 
 Do not finalize a GLES Canvas from `Activity.onDestroy` on the UI thread. At
 that point the EGL context may no longer be current.
@@ -331,10 +333,10 @@ selected its 50 Hz mode.
 
 The static card/text/path scene is an explicit opaque compositing boundary. It
 is recorded as backend-neutral Picture operations, compiled per Context, then
-rasterized to one context-owned texture. The raster cache has a 32 MB per-Canvas
-soft budget, LRU eviction, and size/byte/eviction statistics. Context teardown
-purges the derived texture before backend finalization; the CPU Picture remains
-portable.
+rasterized to a context-owned texture covering the Picture's conservative local
+bounds. The raster cache has a configurable 32 MB per-Canvas soft budget, LRU
+eviction, and size/byte/eviction statistics. Context teardown purges the derived
+texture before backend finalization; the CPU Picture remains portable.
 
 Continuously changing fill geometry no longer enters the final AA cache after a
 single observation. It must reuse its base geometry once before admission. This
@@ -356,10 +358,12 @@ names.
 
 Orderly pause/resume is not the same as involuntary EGL context loss. After the
 old context has already been lost, do not call GL deletion/finalization for its
-objects against the newly created context. The current sample validates the
-orderly pause path but does not yet expose a Canvas "abandon context" operation
-for this case. A production host that must recover from unexpected loss needs a
-separate abandoned-resource path, followed by complete renderer recreation.
+objects against the newly created context. Call `Canvas::abandonContext()` on
+the GL thread instead. It invalidates shared image handles, compiled Picture
+commands, raster layers, programs, buffers, atlases, clip/filter targets, and
+other backend state without issuing GL deletes. Then make the replacement
+Context current and call `initializeContext()`. Use `finalizeContext()` only for
+orderly teardown while the owning Context is still current.
 
 ## 8. Fonts and Text
 
@@ -556,14 +560,14 @@ with another emulator GPU backend. On the reference Windows machine,
 ## Current Limitations
 
 - No published AAR or Prefab package.
-- No Android CI or managed emulator gate yet.
+- Android Gradle debug/release builds and lint run in CI, but there is no managed
+  emulator or instrumentation gate yet.
 - No checked-in touch/input abstraction.
 - Encoded image decoding is available in the library but is not demonstrated by
   the current Android scene.
 - Vulkan Android presentation is not wired into this host.
-- Lifecycle validation is currently manual rather than an instrumentation test.
-- Unexpected EGL context loss still needs an explicit abandoned-resource API;
-  only orderly pause/resume recreation is implemented by the sample.
+- Device lifecycle validation is currently manual rather than an instrumentation
+  test; core orderly-finalize and no-delete-abandon paths have unit coverage.
 
 ## Relationship to iOS
 

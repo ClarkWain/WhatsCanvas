@@ -27,6 +27,7 @@ public:
 
     void initializeBackend() override;
     void finalizeBackend() override;
+    void abandonBackend() override;
 
     void setViewport(int width, int height) override;
     void submit(std::unique_ptr<Command> &&command) override;

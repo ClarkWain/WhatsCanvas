@@ -22,7 +22,7 @@ public:
     ~DrawImageProgram();
 
     void initialize();
-    void release();
+    void release(bool abandon = false);
     void draw(const RenderContext &context, const DrawImageData &data);
 
 private:

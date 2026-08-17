@@ -21,7 +21,7 @@ public:
     ~DrawLinesProgram();
 
     void initialize();
-    void release();
+    void release(bool abandon = false);
     void draw(const RenderContext &context, const DrawLinesData &data);
 
 private:

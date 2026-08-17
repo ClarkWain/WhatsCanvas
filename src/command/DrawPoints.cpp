@@ -85,20 +85,24 @@ void DrawPointsProgram::initialize()
     initialized_ = true;
 }
 
-void DrawPointsProgram::release()
+void DrawPointsProgram::release(bool abandon)
 {
     if (!initialized_)
     {
         return;
     }
 
-    if (program_ != nullptr)
+    if (program_ != nullptr) {
+        if (abandon) program_->abandonVolatile();
         delete program_;
+        program_ = nullptr;
+    }
 
-    if (VAO_ != -1)
+    if (!abandon && VAO_ != -1)
         glDeleteVertexArrays(1, &VAO_);
+    VAO_ = static_cast<unsigned int>(-1);
 
-    vertexBuffer_.release();
+    if (abandon) vertexBuffer_.abandon(); else vertexBuffer_.release();
 
     initialized_ = false;
 }

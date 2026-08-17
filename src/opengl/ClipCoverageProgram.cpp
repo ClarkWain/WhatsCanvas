@@ -103,55 +103,57 @@ void ClipCoverageProgram::initialize()
     initialized_ = true;
 }
 
-void ClipCoverageProgram::destroyTargets()
+void ClipCoverageProgram::destroyTargets(bool abandon)
 {
     if (accumulatorFbo_ != 0) {
-        glDeleteFramebuffers(1, &accumulatorFbo_);
+        if (!abandon) glDeleteFramebuffers(1, &accumulatorFbo_);
         accumulatorFbo_ = 0;
     }
     if (tempFbo_ != 0) {
-        glDeleteFramebuffers(1, &tempFbo_);
+        if (!abandon) glDeleteFramebuffers(1, &tempFbo_);
         tempFbo_ = 0;
     }
     if (accumulatorTexture_ != 0) {
-        glDeleteTextures(1, &accumulatorTexture_);
+        if (!abandon) glDeleteTextures(1, &accumulatorTexture_);
         accumulatorTexture_ = 0;
     }
     if (tempTexture_ != 0) {
-        glDeleteTextures(1, &tempTexture_);
+        if (!abandon) glDeleteTextures(1, &tempTexture_);
         tempTexture_ = 0;
     }
     targetWidth_ = 0;
     targetHeight_ = 0;
 }
 
-void ClipCoverageProgram::release()
+void ClipCoverageProgram::release(bool abandon)
 {
     if (!initialized_) {
         return;
     }
+    if (abandon && coverageProgram_) coverageProgram_->abandonVolatile();
     delete coverageProgram_;
     coverageProgram_ = nullptr;
+    if (abandon && multiplyProgram_) multiplyProgram_->abandonVolatile();
     delete multiplyProgram_;
     multiplyProgram_ = nullptr;
     if (coverageVbo_ != 0) {
-        glDeleteBuffers(1, &coverageVbo_);
+        if (!abandon) glDeleteBuffers(1, &coverageVbo_);
         coverageVbo_ = 0;
     }
     if (coverageVao_ != 0) {
-        glDeleteVertexArrays(1, &coverageVao_);
+        if (!abandon) glDeleteVertexArrays(1, &coverageVao_);
         coverageVao_ = 0;
     }
     if (quadVbo_ != 0) {
-        glDeleteBuffers(1, &quadVbo_);
+        if (!abandon) glDeleteBuffers(1, &quadVbo_);
         quadVbo_ = 0;
     }
     if (quadVao_ != 0) {
-        glDeleteVertexArrays(1, &quadVao_);
+        if (!abandon) glDeleteVertexArrays(1, &quadVao_);
         quadVao_ = 0;
     }
     coverageVboCapacity_ = 0;
-    destroyTargets();
+    destroyTargets(abandon);
     initialized_ = false;
 }
 

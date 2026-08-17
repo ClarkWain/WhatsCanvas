@@ -218,6 +218,11 @@ public:
 	void setGpuTimingEnabled(bool enabled);
 	bool initializeContext();
 	void finalizeContext();
+	/// Forget all GPU objects after an involuntary backend-context loss.
+	/// Unlike finalizeContext(), this never attempts to delete objects from the
+	/// lost context. The Canvas keeps its CPU-side state and can be initialized
+	/// again when a replacement context is current.
+	void abandonContext();
 	bool isContextInitialized() const;
 	void releaseResources();
 
@@ -453,6 +458,10 @@ public:
 	/// offscreen layer is semantically correct. GPU resources are derived data
 	/// and are purged before context teardown.
 	void drawPictureRasterized(const Picture &picture);
+	/// Set the soft memory budget shared by rasterized Pictures on this Canvas.
+	/// A zero budget disables raster caching and falls back to drawPicture().
+	void setRetainedPictureRasterCacheBudgetBytes(std::size_t bytes);
+	std::size_t retainedPictureRasterCacheBudgetBytes() const;
 
 	// Frame and pixel readback helpers.
 	/// Begin a frame of drawing. Initializes the backend lazily, resets per-frame
@@ -516,6 +525,10 @@ public:
 private:
 	friend class CanvasLifecycleTestAccess;
 	explicit Canvas(std::unique_ptr<::IRenderer> renderer);
+	void drawImageSnapshot(
+		std::shared_ptr<const std::vector<unsigned char>> pixels,
+		int imageWidth, int imageHeight, bool mipmapsReady,
+		const RectF &src, const RectF &dst, const Paint &paint);
 
 	struct Impl;
 	std::unique_ptr<Impl> impl_;

@@ -31,6 +31,8 @@ public:
 
     /// Initialize capability queries. Must be called after GL context creation.
     static void initialize();
+    /// Clear context-specific capability results.
+    static void reset();
 
     /// Check if a format supports the requested usage flags.
     static bool isSupported(Format format, int usageFlags);
