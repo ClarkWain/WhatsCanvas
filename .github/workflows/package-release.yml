@@ -141,15 +141,17 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Set up Java 11
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      # sdkmanager needs the runner's JDK 17; the pinned AGP/Gradle build then
+      # switches to its validated JDK 11 runtime.
+      - name: Set up Java 11 for Gradle
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '11'
           cache: gradle
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
 
       - name: Install pinned Android toolchain
         run: sdkmanager 'platforms;android-33' 'build-tools;33.0.1' 'ndk;21.4.7075529' 'cmake;3.18.1'
