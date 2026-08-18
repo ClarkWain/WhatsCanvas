@@ -1,0 +1,142 @@
+{
+  "schema": "whatscanvas.android-font-oracle.v1",
+  "engine": "whatscanvas",
+  "faces": [
+    {
+      "index": 0,
+      "families": ["sans-serif"],
+      "locales": [],
+      "fallbackFor": "",
+      "path": "Sans-Regular.ttf",
+      "faceIndex": 0,
+      "weight": 400,
+      "slant": "normal",
+      "weightSpecified": true,
+      "slantSpecified": true,
+      "variant": "default",
+      "axes": []
+    },
+    {
+      "index": 1,
+      "families": ["sans-serif"],
+      "locales": [],
+      "fallbackFor": "",
+      "path": "Sans-Medium.ttf",
+      "faceIndex": 0,
+      "weight": 500,
+      "slant": "normal",
+      "weightSpecified": true,
+      "slantSpecified": true,
+      "variant": "default",
+      "axes": [{"tag": "wght", "value": 475}]
+    },
+    {
+      "index": 2,
+      "families": ["sans-serif"],
+      "locales": [],
+      "fallbackFor": "",
+      "path": "Sans-SemiboldItalic.ttc",
+      "faceIndex": 2,
+      "weight": 600,
+      "slant": "italic",
+      "weightSpecified": true,
+      "slantSpecified": true,
+      "variant": "default",
+      "axes": []
+    },
+    {
+      "index": 3,
+      "families": [],
+      "locales": ["zh-Hant"],
+      "fallbackFor": "sans-serif",
+      "path": "Targeted-Hant.otf",
+      "faceIndex": 0,
+      "weight": 400,
+      "slant": "normal",
+      "weightSpecified": true,
+      "slantSpecified": false,
+      "variant": "elegant",
+      "axes": []
+    },
+    {
+      "index": 4,
+      "families": [],
+      "locales": ["ja"],
+      "fallbackFor": "",
+      "path": "Compact-Japanese.otf",
+      "faceIndex": 0,
+      "weight": 400,
+      "slant": "normal",
+      "weightSpecified": true,
+      "slantSpecified": false,
+      "variant": "compact",
+      "axes": []
+    },
+    {
+      "index": 5,
+      "families": [],
+      "locales": ["und-Zsye"],
+      "fallbackFor": "",
+      "path": "Color-Emoji.ttf",
+      "faceIndex": 0,
+      "weight": 400,
+      "slant": "normal",
+      "weightSpecified": true,
+      "slantSpecified": false,
+      "variant": "default",
+      "axes": []
+    },
+    {
+      "index": 6,
+      "families": [],
+      "locales": [],
+      "fallbackFor": "",
+      "path": "Elegant-Global.otf",
+      "faceIndex": 0,
+      "weight": 400,
+      "slant": "normal",
+      "weightSpecified": true,
+      "slantSpecified": false,
+      "variant": "elegant",
+      "axes": []
+    }
+  ],
+  "aliases": [
+    {"name": "sans-serif-medium", "target": "sans-serif", "weight": 500},
+    {"name": "system-ui", "target": "sans-serif", "weight": 0}
+  ],
+  "queries": [
+    {
+      "family": "sans-serif",
+      "weight": 450,
+      "slant": "normal",
+      "locale": "ja",
+      "presentation": "default",
+      "matches": [1, 0, 2, 3, 6, 5, 4]
+    },
+    {
+      "family": "sans-serif-medium",
+      "weight": 400,
+      "slant": "normal",
+      "locale": "",
+      "presentation": "default",
+      "matches": [1, 3, 5, 6, 4]
+    },
+    {
+      "family": "system-ui",
+      "weight": 600,
+      "slant": "italic",
+      "locale": "zh-TW",
+      "presentation": "default",
+      "matches": [2, 1, 0, 3, 6, 5, 4]
+    },
+    {
+      "family": "sans-serif",
+      "weight": 400,
+      "slant": "normal",
+      "locale": "",
+      "presentation": "emoji",
+      "matches": [0, 1, 2, 5, 3, 6, 4]
+    }
+  ]
+}

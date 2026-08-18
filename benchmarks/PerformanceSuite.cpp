@@ -163,6 +163,8 @@ struct Scene
 struct FrameTimings
 {
     double recordMs = 0.0;
+    double endFrameCpuMs = 0.0;
+    double gpuWaitMs = 0.0;
     double submitMs = 0.0;
     double totalMs = 0.0;
 };
@@ -1886,10 +1888,13 @@ FrameTimings renderFrame(
     }
     const Clock::time_point recorded = Clock::now();
     canvas.endFrame();
+    const Clock::time_point submitted = Clock::now();
     context.finishFrame();
     const Clock::time_point finished = Clock::now();
     return {
         std::chrono::duration<double, std::milli>(recorded - start).count(),
+        std::chrono::duration<double, std::milli>(submitted - recorded).count(),
+        std::chrono::duration<double, std::milli>(finished - submitted).count(),
         std::chrono::duration<double, std::milli>(finished - recorded).count(),
         std::chrono::duration<double, std::milli>(finished - start).count(),
     };
@@ -2151,9 +2156,13 @@ bool runScene(
     }
 
     std::vector<double> recordSamples;
+    std::vector<double> endFrameCpuSamples;
+    std::vector<double> gpuWaitSamples;
     std::vector<double> submitSamples;
     std::vector<double> totalSamples;
     recordSamples.reserve(static_cast<std::size_t>(options.frames));
+    endFrameCpuSamples.reserve(static_cast<std::size_t>(options.frames));
+    gpuWaitSamples.reserve(static_cast<std::size_t>(options.frames));
     submitSamples.reserve(static_cast<std::size_t>(options.frames));
     totalSamples.reserve(static_cast<std::size_t>(options.frames));
     for (int i = 0; i < options.frames; ++i) {
@@ -2162,6 +2171,8 @@ bool runScene(
                 context, scene, resources, options,
                 options.warmup + i + 1);
         recordSamples.push_back(timings.recordMs);
+        endFrameCpuSamples.push_back(timings.endFrameCpuMs);
+        gpuWaitSamples.push_back(timings.gpuWaitMs);
         submitSamples.push_back(timings.submitMs);
         totalSamples.push_back(timings.totalMs);
     }
@@ -2207,6 +2218,8 @@ bool runScene(
     }
 
     const Distribution record = summarize(recordSamples);
+    const Distribution endFrameCpu = summarize(endFrameCpuSamples);
+    const Distribution gpuWait = summarize(gpuWaitSamples);
     const Distribution submit = summarize(submitSamples);
     const Distribution total = summarize(totalSamples);
     const ProcessMemory after = processMemory();
@@ -2260,9 +2273,13 @@ bool runScene(
          << ",\"operations_per_frame\":" << operationCount
          << ",\"cold_total_ms\":" << cold.totalMs;
     appendDistribution(json, "record", record);
+    appendDistribution(json, "end_frame_cpu", endFrameCpu);
+    appendDistribution(json, "gpu_wait", gpuWait);
     appendDistribution(json, "submit", submit);
     appendDistribution(json, "total", total);
     appendSamples(json, "record_samples_ms", recordSamples);
+    appendSamples(json, "end_frame_cpu_samples_ms", endFrameCpuSamples);
+    appendSamples(json, "gpu_wait_samples_ms", gpuWaitSamples);
     appendSamples(json, "submit_samples_ms", submitSamples);
     appendSamples(json, "total_samples_ms", totalSamples);
     json << ",\"fps\":" << fps
@@ -2294,12 +2311,48 @@ bool runScene(
          << stats.compiledVertexBytes
          << ",\"compiled_index_bytes\":"
          << stats.compiledIndexBytes
+         << ",\"command_object_count\":"
+         << stats.commandObjectCount
+         << ",\"command_allocation_count\":"
+         << stats.commandAllocationCount
+         << ",\"command_pool_reuse_count\":"
+         << stats.commandPoolReuseCount
+         << ",\"command_clone_count\":"
+         << stats.commandCloneCount
+         << ",\"payload_copy_bytes\":"
+         << stats.payloadCopyBytes
+         << ",\"staging_capacity_bytes\":"
+         << stats.stagingCapacityBytes
+         << ",\"batch_break_command_type_count\":"
+         << stats.batchBreakCommandTypeCount
+         << ",\"batch_break_state_count\":"
+         << stats.batchBreakStateCount
+         << ",\"batch_break_texture_limit_count\":"
+         << stats.batchBreakTextureLimitCount
+         << ",\"batch_break_vertex_limit_count\":"
+         << stats.batchBreakVertexLimitCount
+         << ",\"image_batch_quad_count\":"
+         << stats.imageBatchQuadCount
+         << ",\"image_batch_instanced_quad_count\":"
+         << stats.imageBatchInstancedQuadCount
+         << ",\"image_batch_upload_bytes\":"
+         << stats.imageBatchUploadBytes
          << ",\"render_target_switches\":" << stats.renderTargetSwitches
          << ",\"filter_count\":" << stats.filterCount
          << ",\"filter_pass_count\":" << stats.filterPassCount
          << ",\"filter_pixel_pass_count\":"
          << stats.filterPixelPassCount
          << ",\"path_vertex_count\":" << stats.pathVertexCount
+         << ",\"path_input_vertex_count\":"
+         << stats.pathInputVertexCount
+         << ",\"path_tessellated_vertex_count\":"
+         << stats.pathTessellatedVertexCount
+         << ",\"path_aa_expanded_vertex_count\":"
+         << stats.pathAaExpandedVertexCount
+         << ",\"path_merged_vertex_count\":"
+         << stats.pathMergedVertexCount
+         << ",\"path_uploaded_vertex_count\":"
+         << stats.pathUploadedVertexCount
          << ",\"path_index_count\":" << stats.pathIndexCount
          << ",\"path_index_bytes\":" << stats.pathIndexBytes
          << ",\"path_upload_count\":" << stats.pathUploadCount
@@ -2312,6 +2365,48 @@ bool runScene(
          << stats.pooledRenderTargetBytes
          << ",\"glyph_atlas_texture_bytes\":"
          << stats.glyphAtlasTextureBytes
+         << ",\"text_normalization_count\":"
+         << stats.textNormalizationCount
+         << ",\"text_shape_cache_hits\":"
+         << stats.textShapeCacheHits
+         << ",\"text_shape_cache_misses\":"
+         << stats.textShapeCacheMisses
+         << ",\"text_layout_cache_hits\":"
+         << stats.textLayoutCacheHits
+         << ",\"text_layout_cache_misses\":"
+         << stats.textLayoutCacheMisses
+         << ",\"text_layout_view_hits\":"
+         << stats.textLayoutViewHits
+         << ",\"glyph_atlas_hits\":" << stats.glyphAtlasHits
+         << ",\"glyph_atlas_misses\":" << stats.glyphAtlasMisses
+         << ",\"glyph_rasterization_count\":"
+         << stats.glyphRasterizationCount
+         << ",\"zero_area_glyph_hits\":"
+         << stats.zeroAreaGlyphHits
+         << ",\"generated_glyph_quad_count\":"
+         << stats.generatedGlyphQuadCount
+         << ",\"glyph_atlas_dirty_bytes\":"
+         << stats.glyphAtlasDirtyBytes
+         << ",\"text_normalization_cpu_ns\":"
+         << stats.textNormalizationCpuTimeNs
+         << ",\"text_layout_cache_cpu_ns\":"
+         << stats.textLayoutCacheCpuTimeNs
+         << ",\"text_shaping_cpu_ns\":"
+         << stats.textShapingCpuTimeNs
+         << ",\"glyph_cache_lookup_cpu_ns\":"
+         << stats.glyphCacheLookupCpuTimeNs
+         << ",\"glyph_raster_cpu_ns\":"
+         << stats.glyphRasterCpuTimeNs
+         << ",\"glyph_atlas_upload_cpu_ns\":"
+         << stats.glyphAtlasUploadCpuTimeNs
+         << ",\"text_bidi_cpu_ns\":"
+         << stats.textBidiCpuTimeNs
+         << ",\"text_font_fallback_cpu_ns\":"
+         << stats.textFontFallbackCpuTimeNs
+         << ",\"text_font_data_cpu_ns\":"
+         << stats.textFontDataCpuTimeNs
+         << ",\"text_shape_engine_cpu_ns\":"
+         << stats.textShapeEngineCpuTimeNs
          << ",\"tessellation_cache_hits\":"
          << stats.tessellationCacheHits
          << ",\"tessellation_cache_misses\":"

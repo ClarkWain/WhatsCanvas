@@ -20,6 +20,8 @@ public:
 
     virtual void initializeBackend() = 0;
     virtual void finalizeBackend() = 0;
+    /// Invalidate resources without calling the lost graphics context/device.
+    virtual void abandonBackend() { finalizeBackend(); }
     virtual bool readPixelsRGBA(int width, int height, std::vector<unsigned char> &pixels) const = 0;
     virtual std::unique_ptr<IRenderTarget> createRenderTarget(int width, int height) const = 0;
     virtual SharedClipMaskResource createClipMaskResource(const ClipMaskPath &maskPath) const = 0;
@@ -105,8 +107,8 @@ public:
     virtual std::unique_ptr<ISwapchain> createSwapchain(const NativeSurface & /*surface*/,
                                                         const SwapchainConfig & /*config*/) { return nullptr; }
 
-    /// Draw subsequent frames into a host-owned backend render target
-    /// (Skia-style wrap-external). Returns false when unsupported (the default).
+    /// Draw subsequent frames into a host-owned backend render target.
+    /// Returns false when external-target wrapping is unsupported (the default).
     virtual bool wrapBackendRenderTarget(const BackendRenderTarget & /*target*/) { return false; }
 
     /// Raw native handle accessor for advanced interop. Meaning of `which` is

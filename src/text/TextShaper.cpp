@@ -140,7 +140,9 @@ std::optional<bool> firstStrongDirectionInIsolate(const std::vector<Utf8Codepoin
             --isolateDepth;
             continue;
         }
-        if (isBidiControlCodepoint(codepoint.value) || isZeroWidthBreakCodepoint(codepoint.value)) {
+        if (isBidiControlCodepoint(codepoint.value)
+            || isZeroWidthBreakCodepoint(codepoint.value)
+            || isVariationSelectorCodepoint(codepoint.value)) {
             continue;
         }
         if (const std::optional<bool> direction = strongDirectionForCodepoint(codepoint.value)) {
@@ -224,7 +226,9 @@ std::optional<ShapedTextRun> shapeTextSimple(const std::string &normalizedText,
         if (codepoint.value < 32) {
             continue;
         }
-        if (isBidiControlCodepoint(codepoint.value) || isZeroWidthBreakCodepoint(codepoint.value)) {
+        if (isBidiControlCodepoint(codepoint.value)
+            || isZeroWidthBreakCodepoint(codepoint.value)
+            || isVariationSelectorCodepoint(codepoint.value)) {
             continue;
         }
 

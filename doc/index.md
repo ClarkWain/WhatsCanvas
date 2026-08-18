@@ -9,11 +9,12 @@ complete than the latter. It exposes a familiar `Canvas` / `Paint` / `Path` /
 OpenGL, OpenGL ES, a pure-CPU software rasterizer (no GPU at all), an
 optional Vulkan backend, and a Metal backend on Apple platforms.
 
-!!! success "WhatsCanvas 0.2.0 is available"
-    This release adds the native Metal backend on Apple platforms, cached
-    system-font discovery across desktop platforms, and expanded cross-backend
-    validation. Download the
-    [Windows, Linux, or macOS package](https://github.com/ClarkWain/WhatsCanvas/releases/tag/v0.2.0).
+!!! success "WhatsCanvas 0.4.0 is available"
+    This release adds retained Pictures and bounded raster caching, production
+    Android font discovery and color-emoji compatibility, context-loss-safe
+    GPU resources, lower steady-state render overhead, and an installable
+    Android Profile demo. Download a
+    [desktop package or Android demo](https://github.com/ClarkWain/WhatsCanvas/releases/tag/v0.4.0).
 
 ![WhatsCanvas quality showcase — analytic AA, gradients, Gaussian shadows, AA path clipping](images/aa/quality_showcase.png)
 
@@ -138,10 +139,14 @@ device layer is backend-specific.
 - [Get Started](GETTING_STARTED_AS_LIBRARY.md) — integrate WhatsCanvas.
 - [Android Integration](ANDROID_INTEGRATION.md) — embed the OpenGL ES backend
   with `GLSurfaceView`, JNI, and correct context lifecycle handling.
+- [Web / Async Font Integration](WEB_FONT_INTEGRATION.md) — connect browser or
+  host downloads to the nonblocking remote-font provider.
 - [API Reference](API_REFERENCE.md) · [API Stability](API_STABILITY.md).
 - [Performance Benchmarks](PERFORMANCE_BENCHMARKS.md) ·
   [NanoVG 性能优化实战](NANOVG_PERFORMANCE_OPTIMIZATION.md) ·
   [Memory Management](MEMORY_MANAGEMENT.md).
 - [Image Filters](IMAGE_FILTERS.md) · [Text & Fonts](TEXT_FEATURE_MATRIX.md) ·
+  [Web / Async Fonts](WEB_FONT_INTEGRATION.md) ·
+  [Font Discovery: WhatsCanvas vs Flutter](WHATS_CANVAS_VS_FLUTTER_FONT_DISCOVERY.md) ·
   [Shadows](SHADOW_MODEL.md) · [Blend Modes](BLEND_MODE_AUDIT.md).
 - [Vulkan Status](vulkan-backend-status.md) · [Shader Portability](SHADER_PORTABILITY.md) · [iOS Build Notes](IOS_BUILD_NOTES.md).

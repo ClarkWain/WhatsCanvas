@@ -38,24 +38,30 @@ public:
     ~ClipCoverageProgram();
 
     void initialize();
-    void release();
+    void release(bool abandon = false);
 
     /// Ensures the accumulator and temp R8 targets exist at the requested size.
-    bool ensureTargets(int width, int height);
+    bool ensureTargets(int width, int height, bool needsTemporaryLayer = true);
 
     /// Binds the accumulator and clears it to full coverage (white) so the first
     /// multiplied layer becomes the accumulator's value.
     void beginAccumulator(int width, int height);
+
+    /// Fast path for one clip: rasterise coverage straight into the accumulator
+    /// instead of allocating a temp target and issuing a full-screen multiply.
+    void beginSingleClipLayer(int width, int height);
 
     /// Binds the temp layer, clears it to zero coverage and configures GL_MAX
     /// blending so coverage triangles accumulate their maximum value.
     void beginClipLayer(int width, int height);
 
     /// Rasterises one clip path's coverage triangles into the currently bound
-    /// (temp) layer. `points` is interleaved x,y in path-local space, `coverage`
-    /// is one value per vertex, `transform` maps local to device space.
-    void drawCoverage(const std::vector<float> &points, const std::vector<float> &coverage,
-                      const glm::mat4 &transform, int width, int height);
+    /// layer. `points` is interleaved x,y in path-local space, `coverage` is
+    /// one value per vertex, and `transform` maps local to device space.
+    void drawCoverage(
+        const std::vector<float> &points,
+        const std::vector<float> &coverage,
+        const glm::mat4 &transform, int width, int height);
 
     /// Multiplies the temp layer into the accumulator (accumulator *= temp).
     void multiplyLayerIntoAccumulator(int width, int height);
@@ -65,8 +71,9 @@ public:
 private:
     ClipCoverageProgram() = default;
 
-    void destroyTargets();
+    void destroyTargets(bool abandon = false);
     void ensureCoverageBuffer(std::size_t floatCount);
+    void ensureMultiplyProgram();
 
     static ClipCoverageProgram *instance_;
 

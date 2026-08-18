@@ -1,7 +1,9 @@
 #include <algorithm>
+#include <chrono>
 #include <string>
 #include <iostream>
 #include <fstream>
+#include <iterator>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -13,12 +15,15 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <list>
 #include <memory>
+#include <mutex>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
 #include "../../include/wsc/Canvas.h"
 #include "../../include/wsc/Font.h"
+#include "../../include/wsc/FontResolver.h"
+#include "../../include/wsc/Picture.h"
 #include "Image.h"
 #include "Matrix.h"
 #include "Paint.h"
@@ -52,7 +57,84 @@
 #include "stb_easy_font.h"
 
 namespace wsc {
+
+struct Picture::Impl
+{
+    using Operation = std::function<void(Canvas &)>;
+    struct CompiledEntry
+    {
+        const Canvas *canvas = nullptr;
+        std::uint64_t contextGeneration = 0;
+        std::uint64_t contentGeneration = 0;
+        std::uint64_t stateFingerprint = 0;
+        std::vector<std::unique_ptr<Command>> commands;
+        SharedImageResource rasterImage;
+        std::size_t rasterBytes = 0;
+        std::uint64_t rasterLastUseEpoch = 0;
+        int rasterLeft = 0;
+        int rasterTop = 0;
+        int rasterWidth = 0;
+        int rasterHeight = 0;
+    };
+
+    std::vector<Operation> operations;
+    const Canvas *recordingCanvas = nullptr;
+    mutable std::mutex compiledMutex;
+    mutable std::vector<CompiledEntry> compiledEntries;
+};
+
+Picture::Picture(std::unique_ptr<Impl> impl)
+    : impl_(std::move(impl))
+{
+}
+
+Picture::~Picture() = default;
+
+std::size_t Picture::operationCount() const
+{
+    return impl_ ? impl_->operations.size() : 0u;
+}
+
 namespace {
+class ScopedCpuAccumulator
+{
+public:
+    explicit ScopedCpuAccumulator(std::uint64_t *destination)
+        : destination_(destination)
+    {
+        if (destination_ != nullptr) start_ = std::chrono::steady_clock::now();
+    }
+
+    ~ScopedCpuAccumulator()
+    {
+        if (destination_ != nullptr) {
+            *destination_ += static_cast<std::uint64_t>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    std::chrono::steady_clock::now() - start_).count());
+        }
+    }
+
+private:
+    std::uint64_t *destination_ = nullptr;
+    std::chrono::steady_clock::time_point start_{};
+};
+
+class ScopedBooleanFlag
+{
+public:
+    explicit ScopedBooleanFlag(bool &flag)
+        : flag_(flag), previous_(flag)
+    {
+        flag_ = true;
+    }
+
+    ~ScopedBooleanFlag() { flag_ = previous_; }
+
+private:
+    bool &flag_;
+    bool previous_ = false;
+};
+
 void applyGammaFramebufferState()
 {
 #ifndef WHATSCANVAS_SOFTWARE_ONLY
@@ -94,6 +176,152 @@ constexpr float kPointEpsilon = 0.0001f;
 constexpr std::uint64_t kFnvOffsetBasis = 1469598103934665603ull;
 constexpr std::uint64_t kFnvPrime = 1099511628211ull;
 constexpr std::size_t kMaxClipMaskPathCount = 255u;
+
+struct PictureRasterBounds
+{
+    int left = 0;
+    int top = 0;
+    int right = 0;
+    int bottom = 0;
+};
+
+bool computePictureRasterBounds(
+    const std::vector<std::unique_ptr<Command>> &commands,
+    int canvasWidth, int canvasHeight, PictureRasterBounds &output)
+{
+    float left = std::numeric_limits<float>::infinity();
+    float top = std::numeric_limits<float>::infinity();
+    float right = -std::numeric_limits<float>::infinity();
+    float bottom = -std::numeric_limits<float>::infinity();
+    bool hasPoint = false;
+
+    const auto includeRawPoint = [&](const glm::mat4 &transform, float x,
+                                     float y) -> bool {
+        const glm::vec4 transformed =
+            transform * glm::vec4(x, y, 0.0f, 1.0f);
+        if (!std::isfinite(transformed.x) || !std::isfinite(transformed.y)
+            || !std::isfinite(transformed.w)
+            || std::abs(transformed.w) <= kPointEpsilon) {
+            return false;
+        }
+        const float px = transformed.x / transformed.w;
+        const float py = transformed.y / transformed.w;
+        if (!std::isfinite(px) || !std::isfinite(py)) {
+            return false;
+        }
+        left = std::min(left, px);
+        top = std::min(top, py);
+        right = std::max(right, px);
+        bottom = std::max(bottom, py);
+        hasPoint = true;
+        return true;
+    };
+    const auto includePoint = [&](const glm::mat4 &transform, float x, float y,
+                                  float outset) -> bool {
+        // Expand in local space before mapping. Expanding only after mapping
+        // underestimates scaled/rotated strokes and can crop their AA fringe.
+        return includeRawPoint(transform, x - outset, y - outset)
+            && includeRawPoint(transform, x + outset, y - outset)
+            && includeRawPoint(transform, x + outset, y + outset)
+            && includeRawPoint(transform, x - outset, y + outset);
+    };
+    const auto includePairs = [&](const glm::mat4 &transform,
+                                  const std::vector<float> &points,
+                                  float outset) -> bool {
+        if ((points.size() & 1u) != 0u) {
+            return false;
+        }
+        for (std::size_t i = 0; i < points.size(); i += 2u) {
+            if (!includePoint(transform, points[i], points[i + 1u], outset)) {
+                return false;
+            }
+        }
+        return true;
+    };
+    const auto includeRect = [&](const glm::mat4 &transform, float x, float y,
+                                 float width, float height) -> bool {
+        return includePoint(transform, x, y, 1.0f)
+            && includePoint(transform, x + width, y, 1.0f)
+            && includePoint(transform, x + width, y + height, 1.0f)
+            && includePoint(transform, x, y + height, 1.0f);
+    };
+
+    for (const auto &command : commands) {
+        if (!command) {
+            continue;
+        }
+        switch (command->type()) {
+        case Command::Type::Points: {
+            const auto &data = static_cast<const DrawPointsCommand *>(
+                                   command.get())->data();
+            if (!includePairs(data.transform, data.points,
+                              std::max(1.0f, data.size * 0.5f + 1.0f))) {
+                return false;
+            }
+            break;
+        }
+        case Command::Type::Lines: {
+            const auto &data = static_cast<const DrawLinesCommand *>(
+                                   command.get())->data();
+            if (!includePairs(data.transform, data.points,
+                              std::max(1.0f, data.width * 0.5f + 1.0f))) {
+                return false;
+            }
+            break;
+        }
+        case Command::Type::Path: {
+            const auto &data = static_cast<const DrawPathCommand *>(
+                                   command.get())->data();
+            if (data.hasDrawParameters()
+                || !includePairs(data.transform, data.pointData(), 1.0f)) {
+                return false;
+            }
+            break;
+        }
+        case Command::Type::Image: {
+            const auto &data = static_cast<const DrawImageCommand *>(
+                                   command.get())->data();
+            if (!includeRect(data.transform, data.x, data.y,
+                             data.width, data.height)) {
+                return false;
+            }
+            break;
+        }
+        case Command::Type::ImageBatch: {
+            const auto &data = static_cast<const DrawImageBatchCommand *>(
+                                   command.get())->data();
+            for (const DrawImageBatchQuad &quad : data.quads) {
+                if (!includeRect(data.transform, quad.x, quad.y,
+                                 quad.width, quad.height)) {
+                    return false;
+                }
+            }
+            break;
+        }
+        case Command::Type::Text: {
+            const auto &data = static_cast<const DrawTextCommand *>(
+                                   command.get())->data();
+            if (!includePairs(data.transform, data.vertices, 1.0f)) {
+                return false;
+            }
+            break;
+        }
+        case Command::Type::Shadow:
+            // Shadow bounds include blur/filter outsets and are intentionally
+            // left on the conservative full-canvas path for now.
+            return false;
+        }
+    }
+
+    if (!hasPoint || canvasWidth <= 0 || canvasHeight <= 0) {
+        return false;
+    }
+    output.left = std::max(0, static_cast<int>(std::floor(left)));
+    output.top = std::max(0, static_cast<int>(std::floor(top)));
+    output.right = std::min(canvasWidth, static_cast<int>(std::ceil(right)));
+    output.bottom = std::min(canvasHeight, static_cast<int>(std::ceil(bottom)));
+    return output.right > output.left && output.bottom > output.top;
+}
 
 Matrix4 toPublicMatrix(const glm::mat4 &matrix)
 {
@@ -766,6 +994,105 @@ void hashFloat(std::uint64_t &hash, float value)
     hashUint64(hash, bits);
 }
 
+std::unique_ptr<Command> cloneCommand(const Command &command)
+{
+    switch (command.type()) {
+    case Command::Type::Points:
+        return std::make_unique<DrawPointsCommand>(
+            static_cast<const DrawPointsCommand &>(command).data());
+    case Command::Type::Lines:
+        return std::make_unique<DrawLinesCommand>(
+            static_cast<const DrawLinesCommand &>(command).data());
+    case Command::Type::Path:
+        return std::make_unique<DrawPathCommand>(
+            static_cast<const DrawPathCommand &>(command).data());
+    case Command::Type::Image:
+        return std::make_unique<DrawImageCommand>(
+            static_cast<const DrawImageCommand &>(command).data());
+    case Command::Type::ImageBatch:
+        return std::make_unique<DrawImageBatchCommand>(
+            static_cast<const DrawImageBatchCommand &>(command).data());
+    case Command::Type::Text:
+        return std::make_unique<DrawTextCommand>(
+            static_cast<const DrawTextCommand &>(command).data());
+    case Command::Type::Shadow:
+        return std::make_unique<DrawShadowCommand>(
+            static_cast<const DrawShadowCommand &>(command).data());
+    }
+    return {};
+}
+
+std::size_t ownedPathPayloadBytes(
+    const DrawPathData &data)
+{
+    return data.points.size() * sizeof(float)
+        + data.colors.size() * sizeof(float)
+        + data.packedColors.size() * sizeof(std::uint8_t)
+        + data.coverage.size() * sizeof(float)
+        + data.packedCoverage.size() * sizeof(std::uint8_t)
+        + data.indices.size() * sizeof(std::uint32_t)
+        + data.shortIndices.size() * sizeof(std::uint16_t)
+        + data.drawIds.size() * sizeof(std::uint16_t)
+        + data.drawParameters.size() * sizeof(float);
+}
+
+std::size_t commandPayloadBytes(const Command &command)
+{
+    switch (command.type()) {
+    case Command::Type::Points:
+        return static_cast<const DrawPointsCommand &>(command)
+            .data().points.size() * sizeof(float);
+    case Command::Type::Lines:
+        return static_cast<const DrawLinesCommand &>(command)
+            .data().points.size() * sizeof(float);
+    case Command::Type::Path:
+        return ownedPathPayloadBytes(
+            static_cast<const DrawPathCommand &>(command).data());
+    case Command::Type::Image:
+        return 0u;
+    case Command::Type::ImageBatch:
+        return static_cast<const DrawImageBatchCommand &>(command)
+            .data().quads.size() * sizeof(DrawImageBatchQuad);
+    case Command::Type::Text:
+        return static_cast<const DrawTextCommand &>(command)
+            .data().vertices.size() * sizeof(float);
+    case Command::Type::Shadow: {
+        const DrawShadowData &data =
+            static_cast<const DrawShadowCommand &>(command).data();
+        return ownedPathPayloadBytes(data.silhouette)
+            + data.imageSilhouette.size() * sizeof(DrawImageData);
+    }
+    }
+    return 0u;
+}
+
+bool cloneCommands(
+    const std::vector<std::unique_ptr<Command>> &source,
+    std::vector<std::unique_ptr<Command>> &destination,
+    IRenderer *renderer)
+{
+    destination.clear();
+    destination.reserve(source.size());
+    for (const auto &command : source) {
+        if (!command) {
+            destination.clear();
+            return false;
+        }
+        auto copy = cloneCommand(*command);
+        if (!copy) {
+            destination.clear();
+            return false;
+        }
+        if (renderer != nullptr) {
+            renderer->recordCommandClone(
+                commandPayloadBytes(*command),
+                command->type() == Command::Type::Path);
+        }
+        destination.push_back(std::move(copy));
+    }
+    return true;
+}
+
 /// Content hash of the inputs to fill tessellation. Two draws that produce the
 /// same triangulation (same contour geometry, winding, and fill rule) share a
 /// key, so the cached triangle mesh can be reused across frames and transforms
@@ -930,6 +1257,46 @@ void addArc(Path &path, const RectF &bounds, float startRadians, float sweepRadi
     }
 }
 
+std::vector<detail::Vec2> makeOpenArcPolyline(
+    const RectF &bounds, float startRadians,
+    float sweepRadians)
+{
+    std::vector<detail::Vec2> points;
+    const float width = bounds.getWidth();
+    const float height = bounds.getHeight();
+    if (width <= 0.0f || height <= 0.0f
+        || !std::isfinite(startRadians)
+        || !std::isfinite(sweepRadians)
+        || std::abs(sweepRadians) <= kPointEpsilon) {
+        return points;
+    }
+
+    constexpr float kPi = 3.14159265358979323846f;
+    const float clampedSweep = std::clamp(
+        sweepRadians, -2.0f * kPi, 2.0f * kPi);
+    const float centerX = bounds.getX() + width * 0.5f;
+    const float centerY = bounds.getY() + height * 0.5f;
+    const float radiusX = width * 0.5f;
+    const float radiusY = height * 0.5f;
+    const float radius = std::max(radiusX, radiusY);
+    const int segments = std::clamp(
+        static_cast<int>(std::ceil(
+            std::abs(clampedSweep) * radius * 0.25f)),
+        2, 128);
+    points.reserve(static_cast<std::size_t>(segments) + 1u);
+    for (int segment = 0; segment <= segments; ++segment) {
+        const float progress = static_cast<float>(segment)
+            / static_cast<float>(segments);
+        const float angle = startRadians
+            + clampedSweep * progress;
+        appendSafePoint(
+            points,
+            centerX + std::cos(angle) * radiusX,
+            centerY + std::sin(angle) * radiusY);
+    }
+    return points;
+}
+
 ScissorState makeScissorForRect(const RectF &rect, int canvasWidth, int canvasHeight)
 {
     ScissorState scissor;
@@ -977,6 +1344,16 @@ std::vector<float> flattenPoints(const std::vector<detail::Vec2> &points)
     return flattened;
 }
 
+std::size_t contourPointCount(
+    const std::vector<PathContour> &contours)
+{
+    std::size_t count = 0;
+    for (const PathContour &contour : contours) {
+        count += contour.points.size();
+    }
+    return count;
+}
+
 enum class SimpleFillPrimitiveKind : std::uint8_t {
     Rectangle,
     RoundRect,
@@ -991,6 +1368,27 @@ struct SimpleFillPrimitive {
     std::array<int, 4> cornerSegments{};
     int ellipseSegments = 0;
 };
+
+std::size_t simpleFillPrimitivePointCount(
+    const SimpleFillPrimitive &primitive)
+{
+    switch (primitive.kind) {
+    case SimpleFillPrimitiveKind::Rectangle:
+        return 4u;
+    case SimpleFillPrimitiveKind::RoundRect: {
+        std::size_t count = 4u;
+        for (int segments : primitive.cornerSegments) {
+            count += static_cast<std::size_t>(
+                std::max(0, segments));
+        }
+        return count;
+    }
+    case SimpleFillPrimitiveKind::Ellipse:
+        return static_cast<std::size_t>(
+            std::max(0, primitive.ellipseSegments));
+    }
+    return 0u;
+}
 
 std::uint64_t hashSimpleFillPrimitive(const SimpleFillPrimitive &primitive)
 {
@@ -1130,9 +1528,13 @@ struct SharedAAExpandedMesh {
     }
 };
 
-SharedAAExpandedMesh shareAAExpandedMesh(AAExpandedMesh mesh)
+SharedAAExpandedMesh shareAAExpandedMesh(
+    AAExpandedMesh mesh,
+    std::size_t tessellatedVertexCount)
 {
     auto geometry = std::make_shared<DrawPathGeometry>();
+    geometry->tessellatedVertexCount =
+        tessellatedVertexCount;
     geometry->points.reserve(mesh.vertices.size() * 2u);
     for (const detail::Vec2 &vertex : mesh.vertices) {
         geometry->points.push_back(vertex.x);
@@ -1266,7 +1668,23 @@ float averageDeviceScale(const glm::mat4 &transform)
 /// so the anti-aliasing band stays one pixel wide regardless of zoom.
 float computeLocalFringe(const glm::mat4 &transform)
 {
-    return AntiAlias::featherWidthPixels() / averageDeviceScale(transform);
+    const float fringe =
+        AntiAlias::featherWidthPixels()
+        / averageDeviceScale(transform);
+    if (!(fringe > 0.0f) || !std::isfinite(fringe)) {
+        return fringe;
+    }
+
+    // Cacheable geometry must not receive a new key for every microscopic
+    // floating-point scale change in an animation. Quantize logarithmically so
+    // the maximum relative fringe error stays close to one percent at any zoom
+    // level, rather than using a fixed local-space step that becomes visible at
+    // high scale. This turns smoothly pulsing transforms into a small set of AA
+    // meshes while keeping the device-space feather effectively one pixel.
+    constexpr float kFringeBinsPerOctave = 32.0f;
+    return std::exp2(
+        std::round(std::log2(fringe) * kFringeBinsPerOctave)
+        / kFringeBinsPerOctave);
 }
 
 /// Expand a filled/stroked triangle soup with an analytic AA fringe.
@@ -1357,9 +1775,13 @@ AAExpandedMesh expandTrianglesWithAA(
     }
 
     // Accumulate outward normals per boundary vertex for seamless mitres.
-    std::unordered_map<std::uint32_t, glm::vec2> outwardAccum;
+    // Vertex ids are dense, so contiguous arrays avoid hash-node allocation
+    // and pointer chasing in this per-frame AA hot path.
+    std::vector<glm::vec2> outwardAccum(
+        uniqueVerts.size(), glm::vec2(0.0f));
+    std::vector<std::uint8_t> boundaryVertex(
+        uniqueVerts.size(), 0u);
     std::vector<std::pair<std::uint32_t, std::uint32_t>> boundary;
-    outwardAccum.reserve(edges.size());
     boundary.reserve(edges.size());
 
     for (const auto &kv : edges) {
@@ -1379,6 +1801,8 @@ AAExpandedMesh expandTrianglesWithAA(
         const glm::vec2 outward(dir.y, -dir.x); // right of a CCW edge points outward
         outwardAccum[f] += outward;
         outwardAccum[to] += outward;
+        boundaryVertex[f] = 1u;
+        boundaryVertex[to] = 1u;
         boundary.emplace_back(f, to);
     }
 
@@ -1387,20 +1811,23 @@ AAExpandedMesh expandTrianglesWithAA(
     // at coverage 0.0) so the perceived 50%-coverage edge stays on the real
     // silhouette and the shape keeps its nominal size instead of dilating.
     struct EdgeOffset { detail::Vec2 inner; detail::Vec2 outer; };
-    std::unordered_map<std::uint32_t, EdgeOffset> offsets;
-    offsets.reserve(outwardAccum.size());
-    for (const auto &kv : outwardAccum) {
-        const detail::Vec2 &base = uniqueVerts[kv.first];
-        const float l = glm::length(kv.second);
-        if (l < 1e-4f) {
-            offsets.emplace(kv.first, EdgeOffset{base, base});
+    std::vector<EdgeOffset> offsets(uniqueVerts.size());
+    for (std::size_t vertex = 0;
+         vertex < uniqueVerts.size(); ++vertex) {
+        if (boundaryVertex[vertex] == 0u) {
             continue;
         }
-        const glm::vec2 dir = kv.second / l;
+        const detail::Vec2 &base = uniqueVerts[vertex];
+        const float l = glm::length(outwardAccum[vertex]);
+        if (l < 1e-4f) {
+            offsets[vertex] = EdgeOffset{base, base};
+            continue;
+        }
+        const glm::vec2 dir = outwardAccum[vertex] / l;
         const float mag = fringe / std::max(l, 0.5f); // half-feather each side; limit sharp mitres
-        offsets.emplace(kv.first, EdgeOffset{
+        offsets[vertex] = EdgeOffset{
             detail::Vec2(base.x - dir.x * mag, base.y - dir.y * mag),
-            detail::Vec2(base.x + dir.x * mag, base.y + dir.y * mag)});
+            detail::Vec2(base.x + dir.x * mag, base.y + dir.y * mag)};
     }
 
     // Interior triangles first (fully covered), then the feathered fringe band.
@@ -1413,8 +1840,9 @@ AAExpandedMesh expandTrianglesWithAA(
     mesh.vertices.reserve(triVertCount + boundary.size() * 6);
     mesh.coverage.reserve(triVertCount + boundary.size() * 6);
     for (std::size_t index = 0; index < triVertCount; ++index) {
-        const auto offset = offsets.find(triIndices[index]);
-        mesh.vertices.push_back(offset != offsets.end() ? offset->second.inner : triangles[index]);
+        const std::uint32_t vertex = triIndices[index];
+        mesh.vertices.push_back(boundaryVertex[vertex] != 0u
+            ? offsets[vertex].inner : triangles[index]);
         mesh.coverage.push_back(1.0f);
     }
 
@@ -1424,15 +1852,10 @@ AAExpandedMesh expandTrianglesWithAA(
     };
 
     for (const auto &e : boundary) {
-        auto ita = offsets.find(e.first);
-        auto itb = offsets.find(e.second);
-        if (ita == offsets.end() || itb == offsets.end()) {
-            continue;
-        }
-        const detail::Vec2 innerA = ita->second.inner;
-        const detail::Vec2 innerB = itb->second.inner;
-        const detail::Vec2 outerA = ita->second.outer;
-        const detail::Vec2 outerB = itb->second.outer;
+        const detail::Vec2 innerA = offsets[e.first].inner;
+        const detail::Vec2 innerB = offsets[e.second].inner;
+        const detail::Vec2 outerA = offsets[e.first].outer;
+        const detail::Vec2 outerB = offsets[e.second].outer;
         pushVert(innerA, 1.0f); pushVert(outerA, 0.0f); pushVert(outerB, 0.0f);
         pushVert(innerA, 1.0f); pushVert(outerB, 0.0f); pushVert(innerB, 1.0f);
     }
@@ -1594,23 +2017,6 @@ bool pixelSnappableTransform(const glm::mat4 &m, float &tx, float &ty, float &sc
     return true;
 }
 
-void snapGlyphQuadsToPixelGrid(std::vector<wsc::text::TextRenderResult::GlyphAtlasQuad> &quads,
-                               const glm::mat4 &matrix)
-{
-    float tx = 0.0f;
-    float ty = 0.0f;
-    float scale = 1.0f;
-    if (!pixelSnappableTransform(matrix, tx, ty, scale)) {
-        return;
-    }
-    for (wsc::text::TextRenderResult::GlyphAtlasQuad &quad : quads) {
-        // Snap the DEVICE-space origin (quad * DPI + translation) to whole
-        // pixels, then map back into local space for the shader transform.
-        quad.x = (std::round(quad.x * scale + tx) - tx) / scale;
-        quad.y = (std::round(quad.y * scale + ty) - ty) / scale;
-    }
-}
-
 // Effective device-space scale of a transform: the larger of the two axis
 // magnitudes. Rotation-invariant (basis vector lengths are preserved). Used to
 // rasterize glyphs at device resolution so scaled / zoomed / rotated / HiDPI
@@ -1637,6 +2043,9 @@ void scaleTextResultGeometryDown(wsc::text::TextRenderResult &result, float scal
     result.drawY *= inv;
     result.width *= inv;
     result.height *= inv;
+    for (float &coordinate : result.vertices) {
+        coordinate *= inv;
+    }
     for (wsc::text::TextRenderResult::GlyphAtlasQuad &quad : result.glyphAtlasQuads) {
         quad.x *= inv;
         quad.y *= inv;
@@ -2331,18 +2740,9 @@ std::uint64_t hashStrokeMesh(const std::vector<detail::Vec2> &points, bool close
 void submitStrokeMesh(IRenderer &renderer, const std::vector<detail::Vec2> &points,
                       bool closed, const Paint &paint, const glm::mat4 &transform,
                       const ScissorState &scissor, const ClipMaskState &clipMask = {},
-                      wsc::render::LruCache<std::vector<detail::Vec2>> *strokeCache = nullptr)
+                      wsc::render::LruCache<std::vector<detail::Vec2>> *strokeCache = nullptr,
+                      wsc::render::LruCache<SharedAAExpandedMesh> *strokeAaCache = nullptr)
 {
-    if (paint.hasDashPathEffect()) {
-        Paint dashPaint = paint;
-        dashPaint.clearDashPathEffect();
-        const auto dashes = buildDashedPolylines(points, closed, paint.getDashIntervals(), paint.getDashPhase());
-        for (const auto &dash : dashes) {
-            submitStrokeMesh(renderer, dash, false, dashPaint, transform, scissor, clipMask);
-        }
-        return;
-    }
-
     // Hairline handling: when the stroke is thinner than one device pixel the
     // two analytic-AA fringes would overlap and over-cover. Instead keep the
     // geometry at a one-pixel device width and fade the alpha by the sub-pixel
@@ -2360,16 +2760,83 @@ void submitStrokeMesh(IRenderer &renderer, const std::vector<detail::Vec2> &poin
     }
 
     // Retain the transform-independent stroke mesh so repeated/static strokes
-    // are not re-meshed every frame. Dashed strokes recurse above and are never
-    // cached (their segmentation is phase dependent).
+    // are not re-meshed every frame. A phase-changing dashed stroke cannot use
+    // that cache, but all of its dash pieces still belong to one draw. Build a
+    // single triangle soup before AA expansion instead of recursively expanding
+    // and submitting every dash. Besides reducing draw calls, this lets the AA
+    // edge pass allocate/hash once for the complete dashed stroke.
     std::vector<detail::Vec2> strokeMeshStorage;
     const std::vector<detail::Vec2> *strokeMeshPtr = nullptr;
-    if (strokeCache != nullptr) {
-        const std::uint64_t key = hashStrokeMesh(points, closed, strokePaint);
-        if (const auto *cached = strokeCache->find(key)) {
+    std::uint64_t strokeKey = 0;
+    bool strokeMeshCacheHit = false;
+    if (paint.hasDashPathEffect()) {
+        Paint dashPaint = strokePaint;
+        dashPaint.clearDashPathEffect();
+        const std::vector<float> &intervals =
+            paint.getDashIntervals();
+        float patternLength = 0.0f;
+        for (float interval : intervals) {
+            patternLength += interval;
+        }
+        float normalizedPhase = paint.getDashPhase();
+        if (patternLength > kPointEpsilon) {
+            normalizedPhase = std::fmod(
+                normalizedPhase, patternLength);
+            if (normalizedPhase < 0.0f) {
+                normalizedPhase += patternLength;
+            }
+            // A bounded phase key allows animated path effects to reuse their
+            // periodic geometry. At 440 dpi this quarter-DIP step introduces
+            // at most ~0.34 physical-pixel displacement, below the AA fringe.
+            constexpr float kDashPhaseQuantum = 0.25f;
+            normalizedPhase = std::round(
+                normalizedPhase / kDashPhaseQuantum)
+                * kDashPhaseQuantum;
+            if (normalizedPhase >= patternLength) {
+                normalizedPhase = 0.0f;
+            }
+        }
+        strokeKey = hashStrokeMesh(
+            points, closed, dashPaint);
+        hashUint64(strokeKey, intervals.size());
+        for (float interval : intervals) {
+            hashFloat(strokeKey, interval);
+        }
+        hashFloat(strokeKey, normalizedPhase);
+        if (strokeCache != nullptr) {
+            if (const auto *cached = strokeCache->find(strokeKey)) {
+                strokeMeshPtr = cached;
+                strokeMeshCacheHit = true;
+            }
+        }
+        if (strokeMeshPtr == nullptr) {
+            const auto dashes = buildDashedPolylines(
+                points, closed, intervals, normalizedPhase);
+            for (const auto &dash : dashes) {
+                std::vector<detail::Vec2> dashMesh =
+                    buildStrokeMesh(dash, false, dashPaint);
+                strokeMeshStorage.insert(
+                    strokeMeshStorage.end(),
+                    std::make_move_iterator(dashMesh.begin()),
+                    std::make_move_iterator(dashMesh.end()));
+            }
+            if (strokeCache != nullptr) {
+                strokeMeshPtr = &strokeCache->insert(
+                    strokeKey, std::move(strokeMeshStorage));
+            } else {
+                strokeMeshPtr = &strokeMeshStorage;
+            }
+        }
+        strokePaint.clearDashPathEffect();
+    } else if (strokeCache != nullptr) {
+        strokeKey = hashStrokeMesh(points, closed, strokePaint);
+        if (const auto *cached = strokeCache->find(strokeKey)) {
             strokeMeshPtr = cached;
+            strokeMeshCacheHit = true;
         } else {
-            strokeMeshPtr = &strokeCache->insert(key, buildStrokeMesh(points, closed, strokePaint));
+            strokeMeshPtr = &strokeCache->insert(
+                strokeKey,
+                buildStrokeMesh(points, closed, strokePaint));
         }
     } else {
         strokeMeshStorage = buildStrokeMesh(points, closed, strokePaint);
@@ -2383,11 +2850,31 @@ void submitStrokeMesh(IRenderer &renderer, const std::vector<detail::Vec2> &poin
     std::vector<float> strokePoints;
     std::vector<float> strokeCoverage;
     std::vector<std::uint32_t> strokeIndices;
+    std::shared_ptr<const DrawPathGeometry> sharedGeometry;
     if (antiAlias) {
-        AAExpandedMesh aa = expandTrianglesWithAA(strokeMesh, computeLocalFringe(transform));
-        strokePoints = flattenPoints(aa.vertices);
-        strokeCoverage = std::move(aa.coverage);
-        strokeIndices = std::move(aa.indices);
+        const float fringe = computeLocalFringe(transform);
+        // Only admit final AA geometry after the base stroke has demonstrated
+        // reuse. Continuously changing arcs and animations otherwise create a
+        // new AA entry every frame and evict genuinely static UI geometry.
+        if (strokeAaCache != nullptr && strokeMeshCacheHit) {
+            std::uint64_t aaKey = strokeKey;
+            hashFloat(aaKey, fringe);
+            const SharedAAExpandedMesh *aa = strokeAaCache->find(aaKey);
+            if (aa == nullptr) {
+                aa = &strokeAaCache->insert(
+                    aaKey,
+                    shareAAExpandedMesh(
+                        expandTrianglesWithAA(strokeMesh, fringe),
+                        strokeMesh.size()));
+            }
+            sharedGeometry = aa->geometry;
+        } else {
+            AAExpandedMesh aa = expandTrianglesWithAA(
+                strokeMesh, fringe);
+            strokePoints = flattenPoints(aa.vertices);
+            strokeCoverage = std::move(aa.coverage);
+            strokeIndices = std::move(aa.indices);
+        }
     } else {
         strokePoints = flattenPoints(strokeMesh);
     }
@@ -2397,6 +2884,11 @@ void submitStrokeMesh(IRenderer &renderer, const std::vector<detail::Vec2> &poin
                                                transform, scissor, toDrawBlendMode(paint.getBlendMode()), clipMask);
     strokeData.coverage = std::move(strokeCoverage);
     strokeData.indices = std::move(strokeIndices);
+    strokeData.sharedGeometry = std::move(sharedGeometry);
+    strokeData.sourceVertexCount = points.size();
+    strokeData.tessellatedVertexCount = strokeMesh.size();
+    strokeData.aaExpandedVertexCount =
+        antiAlias ? strokeData.getPointCount() : 0u;
     renderer.submit(std::make_unique<DrawPathCommand>(std::move(strokeData)));
 }
 
@@ -2579,6 +3071,7 @@ struct Canvas::Impl
     bool ensureRendererInitialized();
     void releaseResources();
     void finalizeRenderer();
+    void abandonRenderer();
     GraphicsState &currentState();
     const GraphicsState &currentState() const;
     Paint applyStateToPaint(const Paint &paint) const;
@@ -2608,6 +3101,35 @@ struct Canvas::Impl
     AsyncReadback asyncReadback;
 #endif
     std::vector<LayerState> layerStack;
+    // Backend-neutral retained recording. Operations capture value types only;
+    // no RenderDevice/ImageResource may enter this stream.
+    bool recordingPicture = false;
+    bool pictureRecordingFailed = false;
+    std::vector<Picture::Impl::Operation> pictureOperations;
+    std::uint64_t contextGeneration = 0;
+    std::uint64_t retainedContentGeneration = 1;
+    std::size_t retainedPictureCacheHits = 0;
+    std::size_t retainedPictureCacheMisses = 0;
+    std::size_t retainedPictureRasterCacheHits = 0;
+    std::size_t retainedPictureRasterCacheMisses = 0;
+    std::size_t retainedPictureRasterCacheEvictions = 0;
+    std::uint64_t retainedPictureRasterPrepareCpuTimeNs = 0;
+    std::uint64_t retainedPictureRasterBoundsCpuTimeNs = 0;
+    std::uint64_t retainedPictureRasterRenderCpuTimeNs = 0;
+    std::uint64_t retainedPictureRasterPathCpuTimeNs = 0;
+    std::uint64_t retainedPictureRasterTextCpuTimeNs = 0;
+    std::uint64_t retainedPictureRasterTextBackendCpuTimeNs = 0;
+    std::uint64_t retainedPictureRasterTextAtlasCpuTimeNs = 0;
+    bool measuringRetainedPictureRasterPrepare = false;
+    std::uint64_t retainedPictureRasterUseEpoch = 0;
+    std::size_t retainedPictureRasterBudgetBytes = 32u * 1024u * 1024u;
+    std::vector<std::weak_ptr<const Picture>> retainedPictures;
+    void purgeRetainedPictures(const Canvas *canvas, bool detachOwner);
+    void purgeRetainedPictureRasters(const Canvas *canvas);
+    void trimRetainedPictureRasterCache(const Canvas *canvas);
+    std::pair<std::size_t, std::size_t>
+        retainedPictureRasterCacheMetrics(const Canvas *canvas) const;
+    std::uint64_t retainedStateFingerprint() const;
     // Retains transform-independent fill triangulations so repeated/static
     // shapes are not re-triangulated every frame.
     wsc::render::LruCache<std::vector<detail::Vec2>> fillTessellationCache{
@@ -2619,6 +3141,11 @@ struct Canvas::Impl
         256, 8u * 1024u * 1024u};
     // Retains transform-independent stroke meshes for the same reason.
     wsc::render::LruCache<std::vector<detail::Vec2>> strokeTessellationCache{
+        256, 8u * 1024u * 1024u};
+    // Final stroke+AA geometry is substantially more expensive to build than
+    // the base stroke mesh. Admission requires a base-cache hit so transient
+    // animation geometry cannot immediately pollute this cache.
+    wsc::render::LruCache<SharedAAExpandedMesh> strokeAaCache{
         256, 8u * 1024u * 1024u};
     bool rendererInitialized = false;
     SharedImageResource glyphAtlasImageResource;
@@ -2643,6 +3170,10 @@ struct Canvas::Impl
     static constexpr std::size_t kBitmapTextCacheMax = 256;
     static constexpr std::size_t kBitmapTextCacheMaxBytes = 32u * 1024u * 1024u;
     std::size_t bitmapTextCacheBytes = 0;
+    // Reused by compatible atlas-text draws after the first command has taken
+    // ownership of its quad vector. This avoids one temporary vector
+    // allocation for every label in dense text frames.
+    std::vector<DrawImageBatchQuad> textBatchScratch;
 
     void eraseBitmapTextCacheEntry(
         std::unordered_map<std::uint64_t, BitmapTextCacheSlot>::iterator it)
@@ -2722,6 +3253,179 @@ struct Canvas::Impl
     // Backend this canvas was created with (for Canvas::backend()).
     Canvas::Backend backend = Canvas::Backend::OpenGL;
 };
+
+void Canvas::Impl::purgeRetainedPictures(const Canvas *canvas, bool detachOwner)
+{
+    auto output = retainedPictures.begin();
+    for (auto it = retainedPictures.begin(); it != retainedPictures.end(); ++it) {
+        auto picture = it->lock();
+        if (!picture) {
+            continue;
+        }
+        {
+            std::lock_guard<std::mutex> lock(picture->impl_->compiledMutex);
+            auto &entries = picture->impl_->compiledEntries;
+            entries.erase(
+                std::remove_if(entries.begin(), entries.end(),
+                               [canvas](const Picture::Impl::CompiledEntry &entry) {
+                                   return entry.canvas == canvas;
+                               }),
+                entries.end());
+            if (detachOwner && picture->impl_->recordingCanvas == canvas) {
+                picture->impl_->recordingCanvas = nullptr;
+            }
+        }
+        *output++ = *it;
+    }
+    retainedPictures.erase(output, retainedPictures.end());
+}
+
+void Canvas::Impl::purgeRetainedPictureRasters(const Canvas *canvas)
+{
+    for (const auto &weakPicture : retainedPictures) {
+        auto picture = weakPicture.lock();
+        if (!picture) {
+            continue;
+        }
+        std::lock_guard<std::mutex> lock(picture->impl_->compiledMutex);
+        for (auto &entry : picture->impl_->compiledEntries) {
+            if (entry.canvas != canvas) {
+                continue;
+            }
+            entry.rasterImage.reset();
+            entry.rasterBytes = 0;
+            entry.rasterLastUseEpoch = 0;
+            entry.rasterLeft = 0;
+            entry.rasterTop = 0;
+            entry.rasterWidth = 0;
+            entry.rasterHeight = 0;
+        }
+    }
+}
+
+std::pair<std::size_t, std::size_t>
+Canvas::Impl::retainedPictureRasterCacheMetrics(const Canvas *canvas) const
+{
+    std::size_t count = 0;
+    std::size_t bytes = 0;
+    for (const auto &weakPicture : retainedPictures) {
+        auto picture = weakPicture.lock();
+        if (!picture) {
+            continue;
+        }
+        std::lock_guard<std::mutex> lock(picture->impl_->compiledMutex);
+        for (const auto &entry : picture->impl_->compiledEntries) {
+            if (entry.canvas == canvas && entry.rasterImage
+                && entry.rasterImage->isValid()) {
+                ++count;
+                bytes += entry.rasterBytes;
+            }
+        }
+    }
+    return {count, bytes};
+}
+
+void Canvas::Impl::trimRetainedPictureRasterCache(const Canvas *canvas)
+{
+    struct Candidate
+    {
+        std::shared_ptr<const Picture> picture;
+        std::uint64_t contextGeneration = 0;
+        std::uint64_t contentGeneration = 0;
+        std::uint64_t stateFingerprint = 0;
+        std::uint64_t lastUseEpoch = 0;
+    };
+
+    for (;;) {
+        std::size_t totalBytes = 0;
+        std::size_t totalCount = 0;
+        Candidate oldest;
+        bool found = false;
+        for (const auto &weakPicture : retainedPictures) {
+            auto picture = weakPicture.lock();
+            if (!picture) {
+                continue;
+            }
+            std::lock_guard<std::mutex> lock(picture->impl_->compiledMutex);
+            for (const auto &entry : picture->impl_->compiledEntries) {
+                if (entry.canvas != canvas || !entry.rasterImage
+                    || !entry.rasterImage->isValid()) {
+                    continue;
+                }
+                ++totalCount;
+                totalBytes += entry.rasterBytes;
+                if (!found || entry.rasterLastUseEpoch < oldest.lastUseEpoch) {
+                    found = true;
+                    oldest.picture = picture;
+                    oldest.contextGeneration = entry.contextGeneration;
+                    oldest.contentGeneration = entry.contentGeneration;
+                    oldest.stateFingerprint = entry.stateFingerprint;
+                    oldest.lastUseEpoch = entry.rasterLastUseEpoch;
+                }
+            }
+        }
+        // Keep the most-recent single layer even when a very large display
+        // makes it exceed the soft budget; otherwise every frame would
+        // re-rasterize it and perform worse while using the same peak memory.
+        if (totalBytes <= retainedPictureRasterBudgetBytes
+            || totalCount <= 1 || !found) {
+            return;
+        }
+
+        std::lock_guard<std::mutex> lock(oldest.picture->impl_->compiledMutex);
+        for (auto &entry : oldest.picture->impl_->compiledEntries) {
+            if (entry.canvas == canvas
+                && entry.contextGeneration == oldest.contextGeneration
+                && entry.contentGeneration == oldest.contentGeneration
+                && entry.stateFingerprint == oldest.stateFingerprint
+                && entry.rasterLastUseEpoch == oldest.lastUseEpoch
+                && entry.rasterImage) {
+                entry.rasterImage.reset();
+                entry.rasterBytes = 0;
+                entry.rasterLastUseEpoch = 0;
+                ++retainedPictureRasterCacheEvictions;
+                break;
+            }
+        }
+    }
+}
+
+std::uint64_t Canvas::Impl::retainedStateFingerprint() const
+{
+    std::uint64_t fingerprint = kFnvOffsetBasis;
+    const GraphicsState &state = currentState();
+    for (int column = 0; column < 4; ++column) {
+        for (int row = 0; row < 4; ++row) {
+            hashFloat(fingerprint, state.matrix[column][row]);
+        }
+    }
+    hashFloat(fingerprint, state.devicePixelRatio);
+    hashUint64(fingerprint, static_cast<std::uint64_t>(state.blendMode));
+    for (float channel : state.color) {
+        hashFloat(fingerprint, channel);
+    }
+    hashUint64(fingerprint, state.clip.enabled ? 1u : 0u);
+    hashFloat(fingerprint, state.clip.rect.getX());
+    hashFloat(fingerprint, state.clip.rect.getY());
+    hashFloat(fingerprint, state.clip.rect.getWidth());
+    hashFloat(fingerprint, state.clip.rect.getHeight());
+    hashUint64(fingerprint, state.clip.paths.size());
+    for (const ClipPathState &clipPath : state.clip.paths) {
+        hashUint64(fingerprint, clipPath.mask.points.size());
+        for (float point : clipPath.mask.points) {
+            hashFloat(fingerprint, point);
+        }
+        for (int column = 0; column < 4; ++column) {
+            for (int row = 0; row < 4; ++row) {
+                hashFloat(fingerprint, clipPath.transform[column][row]);
+            }
+        }
+    }
+    hashUint64(fingerprint, static_cast<std::uint64_t>(width));
+    hashUint64(fingerprint, static_cast<std::uint64_t>(height));
+    hashUint64(fingerprint, outputTargetOpaque ? 1u : 0u);
+    return fingerprint;
+}
 
 Canvas::Canvas(std::unique_ptr<IRenderer> renderer)
     : impl_(std::make_unique<Impl>(std::move(renderer), wsc::text::createBasicTextBackend()))
@@ -2845,6 +3549,7 @@ Canvas::Backend Canvas::backend() const
 
 Canvas::~Canvas()
 {
+    impl_->purgeRetainedPictures(this, true);
     impl_->finalizeRenderer();
     unregisterCanvasInstance(this);
 }
@@ -2877,7 +3582,47 @@ bool Canvas::loadOpenGL(OpenGLProcAddress loadProcAddress)
         return false;
     }
 
-    return gladLoadGLLoader(reinterpret_cast<GLADloadproc>(loadProcAddress)) != 0;
+    const bool loaded =
+        gladLoadGLLoader(reinterpret_cast<GLADloadproc>(loadProcAddress)) != 0;
+#if defined(WHATSCANVAS_OPENGL_ES)
+    if (!loaded) {
+        return false;
+    }
+
+    // The bundled GLAD table was generated for desktop OpenGL, where these
+    // entry points are classified as GL 3.1/3.3. They are core in GLES 3.0,
+    // so a valid ES 3.0 context otherwise leaves the pointers null (Mesa EGL
+    // exposed this when SpriteBatch first used its instanced path). Resolve
+    // the GLES core names explicitly, with common extension aliases for older
+    // drivers, and fail loading instead of allowing a later null call.
+    const auto loadFirst = [loadProcAddress](
+        const char *coreName, const char *extName,
+        const char *angleName) -> void * {
+        if (void *entry = loadProcAddress(coreName)) {
+            return entry;
+        }
+        if (void *entry = loadProcAddress(extName)) {
+            return entry;
+        }
+        return loadProcAddress(angleName);
+    };
+    if (glad_glDrawArraysInstanced == nullptr) {
+        glad_glDrawArraysInstanced =
+            reinterpret_cast<PFNGLDRAWARRAYSINSTANCEDPROC>(loadFirst(
+                "glDrawArraysInstanced", "glDrawArraysInstancedEXT",
+                "glDrawArraysInstancedANGLE"));
+    }
+    if (glad_glVertexAttribDivisor == nullptr) {
+        glad_glVertexAttribDivisor =
+            reinterpret_cast<PFNGLVERTEXATTRIBDIVISORPROC>(loadFirst(
+                "glVertexAttribDivisor", "glVertexAttribDivisorEXT",
+                "glVertexAttribDivisorANGLE"));
+    }
+    return glad_glDrawArraysInstanced != nullptr
+        && glad_glVertexAttribDivisor != nullptr;
+#else
+    return loaded;
+#endif
 #endif
 }
 
@@ -2965,6 +3710,7 @@ bool Canvas::Impl::submitSimpleFill(
         if (aa == nullptr) {
             const std::vector<detail::Vec2> *fillTriangles =
                 fillTessellationCache.find(fillKey);
+            const bool baseMeshWasStable = fillTriangles != nullptr;
             if (fillTriangles == nullptr) {
                 fillTriangles = &fillTessellationCache.insert(
                     fillKey,
@@ -2974,13 +3720,21 @@ bool Canvas::Impl::submitSimpleFill(
             if (fillTriangles->empty()) {
                 return true;
             }
-            aa = &fillAaCache.insert(
-                aaKey,
-                shareAAExpandedMesh(
-                    expandTrianglesWithAA(
-                        *fillTriangles, fringe)));
+            SharedAAExpandedMesh expanded = shareAAExpandedMesh(
+                expandTrianglesWithAA(*fillTriangles, fringe),
+                fillTriangles->size());
+            if (baseMeshWasStable) {
+                aa = &fillAaCache.insert(aaKey, std::move(expanded));
+            } else {
+                // A single observation is usually animated/transient geometry
+                // (for example a progress bar whose width changes every
+                // frame). Render it, but do not let it evict stable AA meshes.
+                data.sharedGeometry = std::move(expanded.geometry);
+            }
         }
-        data.sharedGeometry = aa->geometry;
+        if (aa != nullptr) {
+            data.sharedGeometry = aa->geometry;
+        }
     } else {
         const std::vector<detail::Vec2> *fillTriangles =
             fillTessellationCache.find(fillKey);
@@ -3012,6 +3766,12 @@ bool Canvas::Impl::submitSimpleFill(
             ? state.blendMode
             : toDrawBlendMode(paint.getBlendMode());
     data.clipMask = makeCurrentClipMaskState();
+    data.sourceVertexCount = contourPointCount(contours);
+    data.tessellatedVertexCount = data.sharedGeometry
+        ? data.sharedGeometry->tessellatedVertexCount
+        : data.getPointCount();
+    data.aaExpandedVertexCount = paint.isAntiAlias()
+        ? data.getPointCount() : 0u;
     renderer->submit(
         std::make_unique<DrawPathCommand>(
             std::move(data)));
@@ -3065,17 +3825,36 @@ bool Canvas::Impl::submitSimpleFillPrimitive(
             fillAaCache.find(aaKey);
         if (aa == nullptr) {
             const std::vector<detail::Vec2> *fillTriangles =
-                findOrBuildTriangles();
+                fillTessellationCache.find(fillKey);
+            const bool baseMeshWasStable = fillTriangles != nullptr;
+            if (fillTriangles == nullptr) {
+                PathContour contour;
+                contour.points =
+                    buildSimpleFillPrimitivePoints(primitive);
+                contour.closed = true;
+                std::vector<PathContour> contours;
+                contours.reserve(1);
+                contours.push_back(std::move(contour));
+                fillTriangles = &fillTessellationCache.insert(
+                    fillKey,
+                    triangulateContours(
+                        contours, Path::FillType::WINDING));
+            }
             if (fillTriangles->empty()) {
                 return true;
             }
-            aa = &fillAaCache.insert(
-                aaKey,
-                shareAAExpandedMesh(
-                    expandTrianglesWithAA(
-                        *fillTriangles, fringe)));
+            SharedAAExpandedMesh expanded = shareAAExpandedMesh(
+                expandTrianglesWithAA(*fillTriangles, fringe),
+                fillTriangles->size());
+            if (baseMeshWasStable) {
+                aa = &fillAaCache.insert(aaKey, std::move(expanded));
+            } else {
+                data.sharedGeometry = std::move(expanded.geometry);
+            }
         }
-        data.sharedGeometry = aa->geometry;
+        if (aa != nullptr) {
+            data.sharedGeometry = aa->geometry;
+        }
     } else {
         const std::vector<detail::Vec2> *fillTriangles =
             findOrBuildTriangles();
@@ -3104,6 +3883,13 @@ bool Canvas::Impl::submitSimpleFillPrimitive(
             ? state.blendMode
             : toDrawBlendMode(paint.getBlendMode());
     data.clipMask = makeCurrentClipMaskState();
+    data.sourceVertexCount =
+        simpleFillPrimitivePointCount(primitive);
+    data.tessellatedVertexCount = data.sharedGeometry
+        ? data.sharedGeometry->tessellatedVertexCount
+        : data.getPointCount();
+    data.aaExpandedVertexCount = paint.isAntiAlias()
+        ? data.getPointCount() : 0u;
     renderer->submit(
         std::make_unique<DrawPathCommand>(
             std::move(data)));
@@ -3119,6 +3905,7 @@ bool Canvas::Impl::ensureRendererInitialized()
     if (!rendererInitialized) {
         renderer->initializeBackend();
         rendererInitialized = true;
+        ++contextGeneration;
         if (width > 0 && height > 0) {
             renderer->setViewport(width, height);
         }
@@ -3133,6 +3920,7 @@ void Canvas::Impl::releaseResources()
     fillTessellationCache.clear();
     fillAaCache.clear();
     strokeTessellationCache.clear();
+    strokeAaCache.clear();
     glyphAtlasImageResource.reset();
     glyphAtlasWidth = 0;
     glyphAtlasHeight = 0;
@@ -3300,6 +4088,19 @@ void Canvas::Impl::finalizeRenderer()
     rendererInitialized = false;
 }
 
+void Canvas::Impl::abandonRenderer()
+{
+    if (renderer == nullptr || !rendererInitialized) {
+        swapchain.reset();
+        return;
+    }
+
+    renderer->abandonBackend();
+    rendererInitialized = false;
+    swapchain.reset();
+    releaseResources();
+}
+
 bool Canvas::initializeContext()
 {
     return impl_->ensureRendererInitialized();
@@ -3307,7 +4108,15 @@ bool Canvas::initializeContext()
 
 void Canvas::finalizeContext()
 {
+    impl_->purgeRetainedPictures(this, false);
     impl_->finalizeRenderer();
+}
+
+void Canvas::abandonContext()
+{
+    impl_->purgeRetainedPictures(this, false);
+    ++impl_->retainedContentGeneration;
+    impl_->abandonRenderer();
 }
 
 bool Canvas::isContextInitialized() const
@@ -3317,6 +4126,8 @@ bool Canvas::isContextInitialized() const
 
 void Canvas::releaseResources()
 {
+    impl_->purgeRetainedPictures(this, false);
+    ++impl_->retainedContentGeneration;
     impl_->releaseResources();
 }
 
@@ -3326,6 +4137,7 @@ void Canvas::setSize(int width, int height)
     impl_->width = width;
     impl_->height = height;
     if (sizeChanged) {
+        ++impl_->retainedContentGeneration;
         impl_->releaseSizeDependentResources();
     }
     if (impl_->renderer != nullptr && impl_->rendererInitialized) {
@@ -3348,6 +4160,10 @@ int Canvas::getHeight() const
 
 void Canvas::setColor(Color color)
 {
+    if (impl_->recordingPicture) {
+        impl_->pictureOperations.emplace_back(
+            [color](Canvas &canvas) { canvas.setColor(color); });
+    }
     impl_->color = color;
     color.getNormalized(impl_->currentState().color);
 }
@@ -3365,6 +4181,10 @@ Color Canvas::getColor() const
 
 void Canvas::setBlendMode(Paint::BlendMode blendMode)
 {
+    if (impl_->recordingPicture) {
+        impl_->pictureOperations.emplace_back(
+            [blendMode](Canvas &canvas) { canvas.setBlendMode(blendMode); });
+    }
     impl_->currentState().blendMode = toDrawBlendMode(blendMode);
 }
 
@@ -3408,6 +4228,31 @@ Canvas::RenderStats Canvas::getRenderStats() const
     stats.compiledPacketCount = frameStats.compiledPacketCount;
     stats.compiledVertexBytes = frameStats.compiledVertexBytes;
     stats.compiledIndexBytes = frameStats.compiledIndexBytes;
+    stats.commandObjectCount = frameStats.commandObjectCount;
+    stats.commandAllocationCount =
+        frameStats.commandAllocationCount;
+    stats.commandPoolReuseCount =
+        frameStats.commandPoolReuseCount;
+    stats.commandCloneCount = frameStats.commandCloneCount;
+    stats.payloadCopyBytes = frameStats.payloadCopyBytes;
+    stats.stagingCapacityBytes =
+        frameStats.stagingCapacityBytes
+        + impl_->textBatchScratch.capacity()
+            * sizeof(DrawImageBatchQuad);
+    stats.batchBreakCommandTypeCount =
+        frameStats.batchBreakCommandTypeCount;
+    stats.batchBreakStateCount =
+        frameStats.batchBreakStateCount;
+    stats.batchBreakTextureLimitCount =
+        frameStats.batchBreakTextureLimitCount;
+    stats.batchBreakVertexLimitCount =
+        frameStats.batchBreakVertexLimitCount;
+    stats.imageBatchQuadCount =
+        frameStats.imageBatchQuadCount;
+    stats.imageBatchInstancedQuadCount =
+        frameStats.imageBatchInstancedQuadCount;
+    stats.imageBatchUploadBytes =
+        frameStats.imageBatchUploadBytes;
     stats.renderTargetSwitches = frameStats.renderTargetSwitches;
     stats.filterCount = frameStats.filterCount;
     stats.filterPassCount = frameStats.filterPassCount;
@@ -3415,6 +4260,16 @@ Canvas::RenderStats Canvas::getRenderStats() const
     stats.filterInputPixelCount = frameStats.filterInputPixelCount;
     stats.filterPixelPassCount = frameStats.filterPixelPassCount;
     stats.pathVertexCount = frameStats.pathVertexCount;
+    stats.pathInputVertexCount =
+        frameStats.pathInputVertexCount;
+    stats.pathTessellatedVertexCount =
+        frameStats.pathTessellatedVertexCount;
+    stats.pathAaExpandedVertexCount =
+        frameStats.pathAaExpandedVertexCount;
+    stats.pathMergedVertexCount =
+        frameStats.pathVertexCount;
+    stats.pathUploadedVertexCount =
+        frameStats.pathUploadedVertexCount;
     stats.pathIndexCount = frameStats.pathIndexCount;
     stats.pathIndexBytes = frameStats.pathIndexBytes;
     stats.pathUploadCount = frameStats.pathUploadCount;
@@ -3430,6 +4285,14 @@ Canvas::RenderStats Canvas::getRenderStats() const
     stats.renderTargetPoolReuseCount = resourceStats.renderTargetPoolReuseCount;
     stats.renderTargetPoolAllocationCount = resourceStats.renderTargetPoolAllocationCount;
     stats.renderTargetPoolEvictionCount = resourceStats.renderTargetPoolEvictionCount;
+    stats.shaderProgramLinkCount =
+        resourceStats.shaderProgramLinkCount;
+    stats.shaderStageCompileCount =
+        resourceStats.shaderStageCompileCount;
+    stats.shaderCompileCpuTimeNs =
+        resourceStats.shaderCompileCpuTimeNs;
+    stats.shaderLinkCpuTimeNs =
+        resourceStats.shaderLinkCpuTimeNs;
     stats.glyphAtlasTextureCount =
         impl_->glyphAtlasImageResource && impl_->glyphAtlasImageResource->isValid() ? 1u : 0u;
     stats.glyphAtlasTextureBytes =
@@ -3437,6 +4300,32 @@ Canvas::RenderStats Canvas::getRenderStats() const
         : static_cast<std::size_t>(std::max(0, impl_->glyphAtlasWidth))
             * static_cast<std::size_t>(std::max(0, impl_->glyphAtlasHeight))
             * (impl_->glyphAtlasUsesAlpha8 ? 1u : 4u);
+    if (impl_->textBackend != nullptr) {
+        const wsc::text::TextRenderStats textStats =
+            impl_->textBackend->renderStats();
+        stats.textNormalizationCount = textStats.normalizationCount;
+        stats.textShapeCacheHits = textStats.shapeCacheHits;
+        stats.textShapeCacheMisses = textStats.shapeCacheMisses;
+        stats.textLayoutCacheHits = textStats.layoutCacheHits;
+        stats.textLayoutCacheMisses = textStats.layoutCacheMisses;
+        stats.textLayoutViewHits = textStats.layoutViewHits;
+        stats.glyphAtlasHits = textStats.atlasHits;
+        stats.glyphAtlasMisses = textStats.atlasMisses;
+        stats.glyphRasterizationCount = textStats.rasterizationCount;
+        stats.zeroAreaGlyphHits = textStats.zeroAreaGlyphHits;
+        stats.generatedGlyphQuadCount = textStats.generatedQuadCount;
+        stats.glyphAtlasDirtyBytes = textStats.atlasDirtyBytes;
+        stats.textNormalizationCpuTimeNs = textStats.normalizationCpuTimeNs;
+        stats.textLayoutCacheCpuTimeNs = textStats.layoutCacheCpuTimeNs;
+        stats.textShapingCpuTimeNs = textStats.shapingCpuTimeNs;
+        stats.glyphCacheLookupCpuTimeNs = textStats.glyphCacheLookupCpuTimeNs;
+        stats.glyphRasterCpuTimeNs = textStats.glyphRasterCpuTimeNs;
+        stats.glyphAtlasUploadCpuTimeNs = textStats.atlasUploadCpuTimeNs;
+        stats.textBidiCpuTimeNs = textStats.bidiCpuTimeNs;
+        stats.textFontFallbackCpuTimeNs = textStats.fontFallbackCpuTimeNs;
+        stats.textFontDataCpuTimeNs = textStats.fontDataCpuTimeNs;
+        stats.textShapeEngineCpuTimeNs = textStats.shapeEngineCpuTimeNs;
+    }
     stats.tessellationCacheHits = impl_->fillTessellationCache.hitCount();
     stats.tessellationCacheMisses = impl_->fillTessellationCache.missCount();
     stats.tessellationCacheSize = impl_->fillTessellationCache.size();
@@ -3451,14 +4340,46 @@ Canvas::RenderStats Canvas::getRenderStats() const
     stats.strokeCacheMisses = impl_->strokeTessellationCache.missCount();
     stats.strokeCacheSize = impl_->strokeTessellationCache.size();
     stats.strokeCacheBytes = impl_->strokeTessellationCache.residentBytes();
+    stats.strokeAaCacheHits = impl_->strokeAaCache.hitCount();
+    stats.strokeAaCacheMisses = impl_->strokeAaCache.missCount();
+    stats.strokeAaCacheSize = impl_->strokeAaCache.size();
+    stats.strokeAaCacheBytes = impl_->strokeAaCache.residentBytes();
     stats.bitmapTextCacheSize = impl_->bitmapTextCache.size();
     stats.bitmapTextCacheBytes = impl_->bitmapTextCacheBytes;
+    stats.retainedPictureCacheHits = impl_->retainedPictureCacheHits;
+    stats.retainedPictureCacheMisses = impl_->retainedPictureCacheMisses;
+    stats.retainedPictureRasterCacheHits =
+        impl_->retainedPictureRasterCacheHits;
+    stats.retainedPictureRasterCacheMisses =
+        impl_->retainedPictureRasterCacheMisses;
+    const auto rasterCacheMetrics =
+        impl_->retainedPictureRasterCacheMetrics(this);
+    stats.retainedPictureRasterCacheSize = rasterCacheMetrics.first;
+    stats.retainedPictureRasterCacheBytes = rasterCacheMetrics.second;
+    stats.retainedPictureRasterCacheEvictions =
+        impl_->retainedPictureRasterCacheEvictions;
+    stats.retainedPictureRasterPrepareCpuTimeNs =
+        impl_->retainedPictureRasterPrepareCpuTimeNs;
+    stats.retainedPictureRasterBoundsCpuTimeNs =
+        impl_->retainedPictureRasterBoundsCpuTimeNs;
+    stats.retainedPictureRasterRenderCpuTimeNs =
+        impl_->retainedPictureRasterRenderCpuTimeNs;
+    stats.retainedPictureRasterPathCpuTimeNs =
+        impl_->retainedPictureRasterPathCpuTimeNs;
+    stats.retainedPictureRasterTextCpuTimeNs =
+        impl_->retainedPictureRasterTextCpuTimeNs;
+    stats.retainedPictureRasterTextBackendCpuTimeNs =
+        impl_->retainedPictureRasterTextBackendCpuTimeNs;
+    stats.retainedPictureRasterTextAtlasCpuTimeNs =
+        impl_->retainedPictureRasterTextAtlasCpuTimeNs;
     stats.trackedResourceBytes =
         stats.glyphAtlasTextureBytes
         + stats.pooledRenderTargetBytes
         + stats.tessellationCacheBytes
         + stats.strokeCacheBytes
-        + stats.bitmapTextCacheBytes;
+        + stats.strokeAaCacheBytes
+        + stats.bitmapTextCacheBytes
+        + stats.retainedPictureRasterCacheBytes;
     return stats;
 }
 
@@ -3493,6 +4414,11 @@ void Canvas::drawColor(float r, float g, float b, float a)
 
 void Canvas::drawPaint(const Paint &paint)
 {
+    if (impl_->recordingPicture) {
+        impl_->pictureOperations.emplace_back(
+            [paint](Canvas &canvas) { canvas.drawPaint(paint); });
+        return;
+    }
     if (impl_->width <= 0 || impl_->height <= 0) {
         return;
     }
@@ -3513,6 +4439,11 @@ void Canvas::drawPoint(int x, int y, const Paint &paint)
 
 void Canvas::drawPoint(float x, float y, const Paint &paint)
 {
+    if (impl_->recordingPicture) {
+        impl_->pictureOperations.emplace_back(
+            [x, y, paint](Canvas &canvas) { canvas.drawPoint(x, y, paint); });
+        return;
+    }
     if (!isFinitePoint(x, y)) {
         return;
     }
@@ -3542,6 +4473,11 @@ void Canvas::drawPoint(const PointF &point, const Paint &paint)
 }
 
 void Canvas::drawPoints(const std::vector<Point> &points, const Paint &paint) {
+    if (impl_->recordingPicture) {
+        impl_->pictureOperations.emplace_back(
+            [points, paint](Canvas &canvas) { canvas.drawPoints(points, paint); });
+        return;
+    }
     Color color = applyPaintAlpha(paint, paint.getStrokeColor());
     std::vector<float> pts;
     pts.reserve(points.size() * 2);
@@ -3562,6 +4498,11 @@ void Canvas::drawPoints(const std::vector<Point> &points, const Paint &paint) {
 }
 
 void Canvas::drawPoints(const std::vector<PointF> &points, const Paint &paint) {
+    if (impl_->recordingPicture) {
+        impl_->pictureOperations.emplace_back(
+            [points, paint](Canvas &canvas) { canvas.drawPoints(points, paint); });
+        return;
+    }
     Color color = applyPaintAlpha(paint, paint.getStrokeColor());
     std::vector<float> pts;
     pts.reserve(points.size() * 2);
@@ -3596,12 +4537,20 @@ void Canvas::drawLine(int x1, int y1, int x2, int y2, const Paint &paint)
 
 void Canvas::drawLine(float x1, float y1, float x2, float y2, const Paint &paint)
 {
+    if (impl_->recordingPicture) {
+        impl_->pictureOperations.emplace_back(
+            [x1, y1, x2, y2, paint](Canvas &canvas) {
+                canvas.drawLine(x1, y1, x2, y2, paint);
+            });
+        return;
+    }
     std::vector<detail::Vec2> points;
     points.reserve(2);
     appendSafePoint(points, x1, y1);
     appendSafePoint(points, x2, y2);
     submitStrokeMesh(*impl_->renderer, points, false, paint, impl_->currentState().matrix,
-                     impl_->makeCurrentScissorState(), impl_->makeCurrentClipMaskState());
+                     impl_->makeCurrentScissorState(), impl_->makeCurrentClipMaskState(),
+                     &impl_->strokeTessellationCache, &impl_->strokeAaCache);
 }
 
 void Canvas::drawLine(const Point &start, const Point &end, const Paint &paint)
@@ -3616,6 +4565,11 @@ void Canvas::drawLine(const PointF &start, const PointF &end, const Paint &paint
 
 void Canvas::drawLines(const std::vector<Point> &points, const Paint &paint)
 {
+    if (impl_->recordingPicture) {
+        impl_->pictureOperations.emplace_back(
+            [points, paint](Canvas &canvas) { canvas.drawLines(points, paint); });
+        return;
+    }
     const ScissorState scissor = impl_->makeCurrentScissorState();
     const ClipMaskState clipMask = impl_->makeCurrentClipMaskState();
     for (size_t i = 0; i + 1 < points.size(); i += 2) {
@@ -3623,12 +4577,19 @@ void Canvas::drawLines(const std::vector<Point> &points, const Paint &paint)
         linePoints.reserve(2);
         appendSafePoint(linePoints, static_cast<float>(points[i].getX()), static_cast<float>(points[i].getY()));
         appendSafePoint(linePoints, static_cast<float>(points[i + 1].getX()), static_cast<float>(points[i + 1].getY()));
-        submitStrokeMesh(*impl_->renderer, linePoints, false, paint, impl_->currentState().matrix, scissor, clipMask);
+        submitStrokeMesh(*impl_->renderer, linePoints, false, paint,
+                         impl_->currentState().matrix, scissor, clipMask,
+                         &impl_->strokeTessellationCache, &impl_->strokeAaCache);
     }
 }
 
 void Canvas::drawLines(const std::vector<PointF> &points, const Paint &paint)
 {
+    if (impl_->recordingPicture) {
+        impl_->pictureOperations.emplace_back(
+            [points, paint](Canvas &canvas) { canvas.drawLines(points, paint); });
+        return;
+    }
     const ScissorState scissor = impl_->makeCurrentScissorState();
     const ClipMaskState clipMask = impl_->makeCurrentClipMaskState();
     for (size_t i = 0; i + 1 < points.size(); i += 2) {
@@ -3636,7 +4597,9 @@ void Canvas::drawLines(const std::vector<PointF> &points, const Paint &paint)
         linePoints.reserve(2);
         appendSafePoint(linePoints, points[i].getX(), points[i].getY());
         appendSafePoint(linePoints, points[i + 1].getX(), points[i + 1].getY());
-        submitStrokeMesh(*impl_->renderer, linePoints, false, paint, impl_->currentState().matrix, scissor, clipMask);
+        submitStrokeMesh(*impl_->renderer, linePoints, false, paint,
+                         impl_->currentState().matrix, scissor, clipMask,
+                         &impl_->strokeTessellationCache, &impl_->strokeAaCache);
     }
 }
 
@@ -3696,6 +4659,11 @@ void Canvas::drawPolygon(const std::vector<PointF> &points, const Paint &paint)
 
 void Canvas::drawRect(const RectF &rect, const Paint &paint)
 {
+    if (impl_->recordingPicture) {
+        impl_->pictureOperations.emplace_back(
+            [rect, paint](Canvas &canvas) { canvas.drawRect(rect, paint); });
+        return;
+    }
     RectF normalized = normalizeRect(rect);
     if (normalized.getWidth() <= 0.0f || normalized.getHeight() <= 0.0f) {
         return;
@@ -3742,6 +4710,15 @@ void Canvas::drawRoundRect(const Rect &rect, float radius, const Paint &paint)
 void Canvas::drawRoundRect(const RectF &rect, float topLeftRadius, float topRightRadius,
                            float bottomRightRadius, float bottomLeftRadius, const Paint &paint)
 {
+    if (impl_->recordingPicture) {
+        impl_->pictureOperations.emplace_back(
+            [rect, topLeftRadius, topRightRadius, bottomRightRadius,
+             bottomLeftRadius, paint](Canvas &canvas) {
+                canvas.drawRoundRect(rect, topLeftRadius, topRightRadius,
+                                     bottomRightRadius, bottomLeftRadius, paint);
+            });
+        return;
+    }
     RectF normalized = normalizeRect(rect);
     const float width = normalized.getWidth();
     const float height = normalized.getHeight();
@@ -3890,6 +4867,13 @@ void Canvas::drawBoxShadow(const RectF &rect, float topLeftRadius, float topRigh
 
 void Canvas::drawCircle(float centerX, float centerY, float radius, const Paint &paint)
 {
+    if (impl_->recordingPicture) {
+        impl_->pictureOperations.emplace_back(
+            [centerX, centerY, radius, paint](Canvas &canvas) {
+                canvas.drawCircle(centerX, centerY, radius, paint);
+            });
+        return;
+    }
     if (radius <= 0.0f || !isFinitePoint(centerX, centerY)) {
         return;
     }
@@ -3932,6 +4916,11 @@ void Canvas::drawCircle(const Point &center, float radius, const Paint &paint)
 
 void Canvas::drawOval(const RectF &bounds, const Paint &paint)
 {
+    if (impl_->recordingPicture) {
+        impl_->pictureOperations.emplace_back(
+            [bounds, paint](Canvas &canvas) { canvas.drawOval(bounds, paint); });
+        return;
+    }
     RectF normalized = normalizeRect(bounds);
     const float width = normalized.getWidth();
     const float height = normalized.getHeight();
@@ -4009,6 +4998,36 @@ void Canvas::drawArc(const Rect &bounds, float startRadians, float sweepRadians,
 
 void Canvas::drawArc(const RectF &bounds, float startRadians, float sweepRadians, ArcMode mode, const Paint &paint)
 {
+    // An open stroke is already a semantic polyline. Sending it through Path
+    // first creates a verb array and then immediately extracts the same points
+    // into a contour before stroke tessellation. Preserve the generic path for
+    // Picture recording, fills/chords/pies, shadows and corner effects, while
+    // letting the common animated progress-arc case submit the exact same
+    // sampled points directly.
+    if (!impl_->recordingPicture
+        && mode == ArcMode::OPEN
+        && paint.getStyle() == Paint::Style::STROKE
+        && !paint.hasShadowLayer()
+        && !paint.hasCornerPathEffect()) {
+        const RectF normalized = normalizeRect(bounds);
+        std::vector<detail::Vec2> points =
+            makeOpenArcPolyline(
+                normalized, startRadians, sweepRadians);
+        if (!points.empty()) {
+            const Paint effectivePaint =
+                impl_->applyStateToPaint(paint);
+            submitStrokeMesh(
+                *impl_->renderer, points, false,
+                effectivePaint,
+                impl_->currentState().matrix,
+                impl_->makeCurrentScissorState(),
+                impl_->makeCurrentClipMaskState(),
+                &impl_->strokeTessellationCache,
+                &impl_->strokeAaCache);
+        }
+        return;
+    }
+
     switch (mode) {
     case ArcMode::OPEN:
         drawArcPath(*this, bounds, startRadians, sweepRadians, false,
@@ -4033,6 +5052,14 @@ void Canvas::drawArc(const Rect &bounds, float startRadians, float sweepRadians,
 
 void Canvas::drawPath(const Path &path, const Paint &paint)
 {
+    ScopedCpuAccumulator pictureRasterTimer(
+        impl_->measuringRetainedPictureRasterPrepare
+            ? &impl_->retainedPictureRasterPathCpuTimeNs : nullptr);
+    if (impl_->recordingPicture) {
+        impl_->pictureOperations.emplace_back(
+            [path, paint](Canvas &canvas) { canvas.drawPath(path, paint); });
+        return;
+    }
     if (path.isEmpty()) {
         return;
     }
@@ -4147,6 +5174,10 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
                                                                shadowPass.color, PathDrawMode::Fill,
                                                                shadowPass.transform, scissor,
                                                                toDrawBlendMode(effectivePaint.getBlendMode()), clipMask);
+                shadowFillData.sourceVertexCount =
+                    contourPointCount(contours);
+                shadowFillData.tessellatedVertexCount =
+                    fillTriangles->size();
                 impl_->renderer->submit(
                     std::make_unique<DrawPathCommand>(std::move(shadowFillData)));
             }
@@ -4159,7 +5190,9 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
                 shadowPaint.setAlpha(255);
                 for (const auto &contour : contours) {
                     submitStrokeMesh(*impl_->renderer, contour.points, contour.closed, shadowPaint,
-                                     shadowPass.transform, scissor, clipMask);
+                                     shadowPass.transform, scissor, clipMask,
+                                     &impl_->strokeTessellationCache,
+                                     &impl_->strokeAaCache);
                 }
             }
         }
@@ -4180,7 +5213,8 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
                     aaKey,
                     shareAAExpandedMesh(
                         expandTrianglesWithAA(
-                            *fillTriangles, fringe)));
+                            *fillTriangles, fringe),
+                        fillTriangles->size()));
             }
             sharedGeometry = aa->geometry;
         } else {
@@ -4191,6 +5225,13 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
                                                  fillTransform, scissor,
                                                  toDrawBlendMode(effectivePaint.getBlendMode()), clipMask);
         fillData.sharedGeometry = std::move(sharedGeometry);
+        fillData.sourceVertexCount =
+            contourPointCount(contours);
+        fillData.tessellatedVertexCount =
+            fillTriangles->size();
+        fillData.aaExpandedVertexCount =
+            effectivePaint.isAntiAlias()
+                ? fillData.getPointCount() : 0u;
         applyPathGradient(effectivePaint, fillData);
         impl_->renderer->submit(
             std::make_unique<DrawPathCommand>(std::move(fillData)));
@@ -4199,7 +5240,9 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
     if (drawStroke) {
         for (const auto &contour : contours) {
             submitStrokeMesh(*impl_->renderer, contour.points, contour.closed, effectivePaint,
-                             impl_->currentState().matrix, scissor, clipMask, &impl_->strokeTessellationCache);
+                             impl_->currentState().matrix, scissor, clipMask,
+                             &impl_->strokeTessellationCache,
+                             &impl_->strokeAaCache);
         }
     }
 }
@@ -4281,6 +5324,18 @@ void Canvas::drawImage(const Image &image, const RectF &dst, const Paint &paint)
 
 void Canvas::drawImage(const Image &image, const RectF &src, const RectF &dst, const Paint &paint)
 {
+    if (impl_->recordingPicture) {
+        const auto pixels = image.getCpuPixelsRGBA();
+        if (!pixels || image.getWidth() <= 0 || image.getHeight() <= 0) {
+            // External/native textures have no portable CPU snapshot.
+            impl_->pictureRecordingFailed = true;
+            return;
+        }
+        drawImageSnapshot(
+            pixels, image.getWidth(), image.getHeight(), image.hasMipmaps(),
+            src, dst, paint);
+        return;
+    }
     const SharedImageResource imageResource = image.getImageResource();
     if (!imageResource || !imageResource->isValid() || image.getWidth() <= 0 || image.getHeight() <= 0) {
         return;
@@ -4327,6 +5382,86 @@ void Canvas::drawImage(const Image &image, const RectF &src, const RectF &dst, c
     impl_->renderer->submit(std::make_unique<DrawImageCommand>(data));
 }
 
+void Canvas::drawImageSnapshot(
+    std::shared_ptr<const std::vector<unsigned char>> pixels,
+    int imageWidth, int imageHeight, bool mipmapsReady,
+    const RectF &src, const RectF &dst, const Paint &paint)
+{
+    const bool dimensionsOverflow = imageWidth > 0 && imageHeight > 0
+        && (static_cast<std::size_t>(imageWidth)
+                > std::numeric_limits<std::size_t>::max()
+                    / static_cast<std::size_t>(imageHeight)
+            || static_cast<std::size_t>(imageWidth)
+                    * static_cast<std::size_t>(imageHeight)
+                > std::numeric_limits<std::size_t>::max() / 4u);
+    const std::size_t requiredBytes =
+        imageWidth > 0 && imageHeight > 0 && !dimensionsOverflow
+        ? static_cast<std::size_t>(imageWidth)
+            * static_cast<std::size_t>(imageHeight) * 4u
+        : 0u;
+    if (!pixels || requiredBytes == 0u || pixels->size() < requiredBytes) {
+        if (impl_->recordingPicture) {
+            impl_->pictureRecordingFailed = true;
+        }
+        return;
+    }
+    if (impl_->recordingPicture) {
+        impl_->pictureOperations.emplace_back(
+            [pixels = std::move(pixels), imageWidth, imageHeight,
+             mipmapsReady, src, dst, paint](Canvas &canvas) {
+                canvas.drawImageSnapshot(
+                    pixels, imageWidth, imageHeight, mipmapsReady,
+                    src, dst, paint);
+            });
+        return;
+    }
+    if (!impl_->ensureRendererInitialized()) {
+        return;
+    }
+
+    SharedImageResource imageResource =
+        impl_->renderer->createImageResourceFromImageData(
+            imageWidth, imageHeight, 4, pixels->data(), mipmapsReady);
+    if (!imageResource || !imageResource->isValid()) {
+        return;
+    }
+    const RectF normalizedDst = normalizeRect(dst);
+    const RectF clampedSrc = clampSourceRect(src, imageWidth, imageHeight);
+    if (normalizedDst.getWidth() <= 0.0f || normalizedDst.getHeight() <= 0.0f
+        || clampedSrc.getWidth() <= 0.0f || clampedSrc.getHeight() <= 0.0f) {
+        return;
+    }
+
+    DrawImageData data;
+    data.imageResource = std::move(imageResource);
+    data.x = normalizedDst.getX();
+    data.y = normalizedDst.getY();
+    data.width = normalizedDst.getWidth();
+    data.height = normalizedDst.getHeight();
+    const float invWidth = 1.0f / static_cast<float>(imageWidth);
+    const float invHeight = 1.0f / static_cast<float>(imageHeight);
+    data.u0 = clampedSrc.getX() * invWidth;
+    data.v0 = clampedSrc.getY() * invHeight;
+    data.u1 = (clampedSrc.getX() + clampedSrc.getWidth()) * invWidth;
+    data.v1 = (clampedSrc.getY() + clampedSrc.getHeight()) * invHeight;
+    const Color tintColor = paint.getColor();
+    data.tintColor[0] = tintColor.r();
+    data.tintColor[1] = tintColor.g();
+    data.tintColor[2] = tintColor.b();
+    data.tintColor[3] = 1.0f;
+    data.alpha = std::clamp(
+        paint.getColor().a() * paint.getAlphaF(), 0.0f, 1.0f);
+    data.sampling = toDrawImageSampling(paint.getImageSampling());
+    data.tileMode = toDrawImageTileMode(paint.getImageTileMode());
+    data.mipmapsReady = mipmapsReady;
+    data.transform = impl_->currentState().matrix;
+    data.scissor = impl_->makeCurrentScissorState();
+    data.blendMode = toDrawBlendMode(paint.getBlendMode());
+    data.clipMask = impl_->makeCurrentClipMaskState();
+    applyImageColorMatrix(paint, data);
+    impl_->renderer->submit(std::make_unique<DrawImageCommand>(data));
+}
+
 void Canvas::drawImage(const ITextureSource &source, float x, float y, const Paint &paint)
 {
     const RectF dst(x, y, static_cast<float>(source.getTextureWidth()),
@@ -4336,6 +5471,10 @@ void Canvas::drawImage(const ITextureSource &source, float x, float y, const Pai
 
 void Canvas::drawImage(const ITextureSource &source, const RectF &dst, const Paint &paint)
 {
+    if (impl_->recordingPicture) {
+        impl_->pictureRecordingFailed = true;
+        return;
+    }
     void *handleOpaque = source.getTextureHandleOpaque();
     if (!handleOpaque) {
         return;
@@ -4401,8 +5540,9 @@ void Canvas::drawImageFit(const Image &image, const RectF &dst, ImageFit fit, Im
 
 void Canvas::drawImageFit(const Image &image, const RectF &dst, ImageFit fit, float alignX, float alignY, const Paint &paint)
 {
-    if (const SharedImageResource imageResource = image.getImageResource();
-        !imageResource || !imageResource->isValid() || image.getWidth() <= 0 || image.getHeight() <= 0) {
+    if (image.getWidth() <= 0 || image.getHeight() <= 0
+        || (!impl_->recordingPicture
+            && (!image.getImageResource() || !image.getImageResource()->isValid()))) {
         return;
     }
 
@@ -4454,8 +5594,9 @@ void Canvas::drawImageFit(const Image &image, const RectF &dst, ImageFit fit, fl
 
 void Canvas::drawImageNinePatch(const Image &image, const RectF &centerSrc, const RectF &dst, const Paint &paint)
 {
-    if (const SharedImageResource imageResource = image.getImageResource();
-        !imageResource || !imageResource->isValid() || image.getWidth() <= 0 || image.getHeight() <= 0) {
+    if (image.getWidth() <= 0 || image.getHeight() <= 0
+        || (!impl_->recordingPicture
+            && (!image.getImageResource() || !image.getImageResource()->isValid()))) {
         return;
     }
 
@@ -4526,6 +5667,17 @@ void Canvas::drawImageRounded(const Image &image, const RectF &dst, float topLef
 {
     if (topLeftRadius <= 0.0f && topRightRadius <= 0.0f && bottomRightRadius <= 0.0f && bottomLeftRadius <= 0.0f) {
         drawImage(image, dst, paint);
+        return;
+    }
+
+    if (impl_->recordingPicture) {
+        Path clip;
+        clip.addRoundRect(dst, topLeftRadius, topRightRadius,
+                          bottomRightRadius, bottomLeftRadius);
+        save();
+        clipPath(clip);
+        drawImage(image, dst, paint);
+        restore();
         return;
     }
 
@@ -4604,6 +5756,10 @@ void Canvas::drawImageTiled(const Image &image, const RectF &dst, const Paint &p
 
 void Canvas::drawImageTiled(const Image &image, const RectF &dst, float tileWidth, float tileHeight, const Paint &paint)
 {
+    if (impl_->recordingPicture) {
+        impl_->pictureRecordingFailed = true;
+        return;
+    }
     const SharedImageResource imageResource = image.getImageResource();
     if (!imageResource || !imageResource->isValid() || image.getWidth() <= 0 || image.getHeight() <= 0) {
         return;
@@ -4748,11 +5904,22 @@ bool Canvas::wrapExternalMetalTexture(Image &image, void *texture, int width, in
 
 void Canvas::drawText(const std::string &text, float x, float y, const Paint &paint)
 {
+    ScopedCpuAccumulator pictureRasterTimer(
+        impl_->measuringRetainedPictureRasterPrepare
+            ? &impl_->retainedPictureRasterTextCpuTimeNs : nullptr);
+    if (impl_->recordingPicture) {
+        impl_->pictureOperations.emplace_back(
+            [text, x, y, paint](Canvas &canvas) {
+                canvas.drawText(text, x, y, paint);
+            });
+        return;
+    }
     if (!impl_->textBackend) {
         return;
     }
+    const auto textBackendStart = std::chrono::steady_clock::now();
     float textRasterScale = 1.0f;
-    const auto renderedText = [&]() -> wsc::text::TextRenderResult {
+    auto renderedText = [&]() -> wsc::text::TextRenderResult {
         // Rasterize glyphs at the transform's effective device-space scale so
         // zoomed / scaled / HiDPI text stays crisp instead of being a magnified
         // low-resolution bitmap. Quantize the requested font height to a whole
@@ -4781,8 +5948,13 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
                 return scaled;
             }
         }
-        return impl_->textBackend->renderText(text, x, y, paint);
+        return impl_->textBackend->renderTextView(text, x, y, paint);
     }();
+    if (impl_->measuringRetainedPictureRasterPrepare) {
+        impl_->retainedPictureRasterTextBackendCpuTimeNs +=
+            static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now() - textBackendStart).count());
+    }
     if (renderedText.kind == wsc::text::TextRenderKind::None) {
         return;
     }
@@ -4792,27 +5964,60 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
     const Color fillColor = applyPaintAlpha(paint, paint.getColor());
     const auto strokePasses = buildTextStrokePasses(paint, impl_->currentState().matrix);
     if (renderedText.kind == wsc::text::TextRenderKind::GlyphAtlas) {
+        const auto *atlasQuadSource = renderedText.glyphAtlasQuadsView != nullptr
+            ? renderedText.glyphAtlasQuadsView : &renderedText.glyphAtlasQuads;
+        const float atlasQuadOffsetX = renderedText.glyphAtlasQuadsView != nullptr
+            ? renderedText.glyphAtlasQuadOffsetX : 0.0f;
+        const float atlasQuadOffsetY = renderedText.glyphAtlasQuadsView != nullptr
+            ? renderedText.glyphAtlasQuadOffsetY : 0.0f;
         const std::size_t expectedAtlasSize = static_cast<std::size_t>(std::max(0, renderedText.atlasWidth))
             * static_cast<std::size_t>(std::max(0, renderedText.atlasHeight));
         if (renderedText.atlasWidth <= 0 || renderedText.atlasHeight <= 0
             || glyphAtlasAlphaPixels(renderedText).size() < expectedAtlasSize
-            || renderedText.glyphAtlasQuads.empty()) {
+            || atlasQuadSource->empty()) {
             return;
         }
 
+        const auto atlasStart = std::chrono::steady_clock::now();
         const SharedImageResource imageResource = impl_->getOrUpdateGlyphAtlasResource(renderedText);
+        if (impl_->measuringRetainedPictureRasterPrepare) {
+            impl_->retainedPictureRasterTextAtlasCpuTimeNs +=
+                static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    std::chrono::steady_clock::now() - atlasStart).count());
+        }
         if (!imageResource || !imageResource->isValid()) {
             return;
         }
 
-        // Align glyph quads to the device pixel grid for crisp (non-blurry) text.
-        std::vector<wsc::text::TextRenderResult::GlyphAtlasQuad> atlasQuads =
-            renderedText.glyphAtlasQuads;
-        snapGlyphQuadsToPixelGrid(atlasQuads, impl_->currentState().matrix);
+        // Resolve the cached layout's draw-position offset and pixel snapping
+        // while consuming each quad. A hot layout-cache hit therefore never
+        // copies the complete glyph vector just to translate it for this draw.
+        float snapTx = 0.0f;
+        float snapTy = 0.0f;
+        float snapScale = 1.0f;
+        const bool snapAtlasQuads = pixelSnappableTransform(
+            impl_->currentState().matrix, snapTx, snapTy, snapScale);
+        const auto forEachAtlasQuad = [&](auto &&consumer) {
+            for (const auto &sourceQuad : *atlasQuadSource) {
+                auto quad = sourceQuad;
+                quad.x += atlasQuadOffsetX;
+                quad.y += atlasQuadOffsetY;
+                if (snapAtlasQuads) {
+                    quad.x = (std::round(quad.x * snapScale + snapTx) - snapTx)
+                        / snapScale;
+                    quad.y = (std::round(quad.y * snapScale + snapTy) - snapTy)
+                        / snapScale;
+                }
+                consumer(quad);
+            }
+        };
 
         const ScissorState scissor = impl_->makeCurrentScissorState();
         const ClipMaskState clipMask = impl_->makeCurrentClipMaskState();
-        const auto submitAtlasText = [&](const Color &textColor, const glm::mat4 &transform, bool useFillShader = false) {
+        const auto submitAtlasText = [&](const Color &textColor,
+                                         const glm::mat4 &transform,
+                                         bool useFillShader = false,
+                                         bool preserveColorGlyphs = false) {
             const bool simpleBatch =
                 !scissor.enabled && !clipMask.hasPaths()
                 && (!useFillShader
@@ -4821,22 +6026,18 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
             if (simpleBatch) {
                 DrawImageBatchData batch;
                 batch.imageResource = imageResource;
-                batch.quads.reserve(atlasQuads.size());
                 batch.transform = transform;
                 batch.blendMode =
                     toDrawBlendMode(paint.getBlendMode());
-                const std::uint32_t packedTint =
-                    static_cast<std::uint32_t>(textColor.getR())
-                    | (static_cast<std::uint32_t>(
-                           textColor.getG())
-                       << 8u)
-                    | (static_cast<std::uint32_t>(
-                           textColor.getB())
-                       << 16u)
-                    | (static_cast<std::uint32_t>(
-                           textColor.getA())
-                       << 24u);
-                for (const auto &quad : atlasQuads) {
+                const auto appendQuads = [&](auto &destination) {
+                    forEachAtlasQuad([&](const auto &quad) {
+                    const Color quadTint = preserveColorGlyphs && quad.isColorGlyph
+                        ? Color(255, 255, 255, textColor.getA()) : textColor;
+                    const std::uint32_t packedTint =
+                        static_cast<std::uint32_t>(quadTint.getR())
+                        | (static_cast<std::uint32_t>(quadTint.getG()) << 8u)
+                        | (static_cast<std::uint32_t>(quadTint.getB()) << 16u)
+                        | (static_cast<std::uint32_t>(quadTint.getA()) << 24u);
                     DrawImageBatchQuad imageQuad;
                     imageQuad.x = quad.x;
                     imageQuad.y = quad.y;
@@ -4847,9 +6048,25 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
                     imageQuad.u1 = quad.u1;
                     imageQuad.v1 = quad.v1;
                     imageQuad.packedTint = packedTint;
-                    batch.quads.push_back(imageQuad);
+                    destination.push_back(imageQuad);
+                    });
+                };
+                if (auto *appendTarget =
+                        impl_->renderer->tryGetImageBatchAppendTarget(
+                            batch, atlasQuadSource->size())) {
+                    appendQuads(*appendTarget);
+                    return;
                 }
-                if (!impl_->renderer->tryAppendImageBatch(batch)) {
+
+                batch.quads.swap(
+                    impl_->textBatchScratch);
+                batch.quads.clear();
+                batch.quads.reserve(atlasQuadSource->size());
+                appendQuads(batch.quads);
+                if (impl_->renderer->tryAppendImageBatch(batch)) {
+                    impl_->textBatchScratch.swap(
+                        batch.quads);
+                } else {
                     impl_->renderer->submit(
                         std::make_unique<DrawImageBatchCommand>(
                             std::move(batch)));
@@ -4857,7 +6074,9 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
                 return;
             }
 
-            for (const auto &quad : atlasQuads) {
+            forEachAtlasQuad([&](const auto &quad) {
+                const Color quadTint = preserveColorGlyphs && quad.isColorGlyph
+                    ? Color(255, 255, 255, textColor.getA()) : textColor;
                 DrawImageData data;
                 data.imageResource = imageResource;
                 data.x = quad.x;
@@ -4868,32 +6087,32 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
                 data.u1 = quad.u1;
                 data.v0 = quad.v0;
                 data.v1 = quad.v1;
-                data.tintColor[0] = textColor.r();
-                data.tintColor[1] = textColor.g();
-                data.tintColor[2] = textColor.b();
+                data.tintColor[0] = quadTint.r();
+                data.tintColor[1] = quadTint.g();
+                data.tintColor[2] = quadTint.b();
                 data.tintColor[3] = 1.0f;
-                data.alpha = textColor.a();
+                data.alpha = quadTint.a();
                 data.sampling = DrawImageSampling::Linear;
                 data.tileMode = DrawImageTileMode::Clamp;
                 data.transform = transform;
                 data.scissor = scissor;
                 data.blendMode = toDrawBlendMode(paint.getBlendMode());
                 data.clipMask = clipMask;
-                if (useFillShader) {
+                if (useFillShader && !(preserveColorGlyphs && quad.isColorGlyph)) {
                     applyImageGradient(paint, data);
                 }
                 impl_->renderer->submit(std::make_unique<DrawImageCommand>(data));
-            }
+            });
         };
 
         bool blurredAtlasShadow = false;
         if (paint.hasShadowLayer() && std::max(0.0f, paint.getShadowRadius()) > 0.0f
-            && impl_->width > 0 && impl_->height > 0 && !atlasQuads.empty()) {
+            && impl_->width > 0 && impl_->height > 0 && !atlasQuadSource->empty()) {
             const glm::mat4 offset = makeOffsetTransform(impl_->currentState().matrix,
                                                          paint.getShadowDx(), paint.getShadowDy());
             std::vector<DrawImageData> silhouette;
-            silhouette.reserve(atlasQuads.size());
-            for (const auto &quad : atlasQuads) {
+            silhouette.reserve(atlasQuadSource->size());
+            forEachAtlasQuad([&](const auto &quad) {
                 DrawImageData d;
                 d.imageResource = imageResource;
                 d.x = quad.x;
@@ -4914,7 +6133,7 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
                 d.transform = offset;
                 d.blendMode = DrawBlendMode::SrcOver;
                 silhouette.push_back(std::move(d));
-            }
+            });
             impl_->renderer->submit(std::make_unique<DrawShadowCommand>(
                 makeGaussianImageShadowData(std::move(silhouette), paint, impl_->width,
                                             impl_->height, scissor)));
@@ -4930,11 +6149,7 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
             submitAtlasText(strokePass.color, strokePass.transform);
         }
         if (drawFill) {
-            const Color atlasFillColor =
-                renderedText.atlasPixelFormat == wsc::text::GlyphAtlasPixelFormat::RGBA
-                    ? Color(255, 255, 255, fillColor.getA())
-                    : fillColor;
-            submitAtlasText(atlasFillColor, impl_->currentState().matrix, true);
+            submitAtlasText(fillColor, impl_->currentState().matrix, true, true);
         }
 
         // Underline / strikethrough decorations for the portable glyph-atlas path.
@@ -5461,17 +6676,42 @@ Canvas::TextMetrics Canvas::measureTextMetrics(const std::string &text, const Pa
 
 bool Canvas::registerFontFace(const FontFace &face)
 {
-    return impl_->textBackend != nullptr && impl_->textBackend->registerFontFace(face);
+    const bool registered = impl_->textBackend != nullptr
+        && impl_->textBackend->registerFontFace(face);
+    if (registered) {
+        ++impl_->retainedContentGeneration;
+    }
+    return registered;
+}
+
+bool Canvas::addFontProvider(std::shared_ptr<FontProvider> provider)
+{
+    const bool added = impl_->textBackend != nullptr
+        && impl_->textBackend->addFontProvider(std::move(provider));
+    if (added) {
+        ++impl_->retainedContentGeneration;
+    }
+    return added;
 }
 
 bool Canvas::refreshSystemFonts()
 {
-    return impl_->textBackend != nullptr && impl_->textBackend->refreshSystemFonts();
+    const bool refreshed = impl_->textBackend != nullptr
+        && impl_->textBackend->refreshSystemFonts();
+    if (refreshed) {
+        ++impl_->retainedContentGeneration;
+    }
+    return refreshed;
 }
 
 bool Canvas::setFontFallbackChain(const FontFallbackChain &chain)
 {
-    return impl_->textBackend != nullptr && impl_->textBackend->setFontFallbackChain(chain);
+    const bool changed = impl_->textBackend != nullptr
+        && impl_->textBackend->setFontFallbackChain(chain);
+    if (changed) {
+        ++impl_->retainedContentGeneration;
+    }
+    return changed;
 }
 
 bool Canvas::setTextBackend(TextBackend backend, TextRenderMode renderMode)
@@ -5504,6 +6744,7 @@ bool Canvas::setTextBackend(TextBackend backend, TextRenderMode renderMode)
 
     impl_->activeTextBackend =
         directWriteActive ? TextBackend::DirectWrite : TextBackend::Portable;
+    ++impl_->retainedContentGeneration;
     return impl_->activeTextBackend == backend
            || (backend == TextBackend::Auto || backend == TextBackend::Portable);
 }
@@ -5515,6 +6756,10 @@ Canvas::TextBackend Canvas::textBackend() const
 
 int Canvas::save()
 {
+    if (impl_->recordingPicture) {
+        impl_->pictureOperations.emplace_back(
+            [](Canvas &canvas) { canvas.save(); });
+    }
     const int savedCount = getSaveCount();
     impl_->graphicsStates->save();
     return savedCount;
@@ -5527,6 +6772,12 @@ int Canvas::saveLayer(const RectF &bounds, const Paint &paint)
 
 int Canvas::saveLayer(const RectF &bounds, const Paint &paint, const LayerOptions &options)
 {
+    if (impl_->recordingPicture) {
+        // Layer recording needs a retained sub-display-list and is intentionally
+        // not lowered into a context-owned offscreen image.
+        impl_->pictureRecordingFailed = true;
+        return getSaveCount();
+    }
     const RectF normalized = normalizeRect(bounds);
     const int savedCount = save();
     Impl::LayerState layer;
@@ -5556,6 +6807,11 @@ void Canvas::restore()
 {
     if (!impl_->graphicsStates->canRestore()) {
         return;
+    }
+
+    if (impl_->recordingPicture) {
+        impl_->pictureOperations.emplace_back(
+            [](Canvas &canvas) { canvas.restore(); });
     }
 
     if (!impl_->layerStack.empty() && impl_->layerStack.back().saveCount == getSaveCount()) {
@@ -5761,6 +7017,17 @@ bool Canvas::quickReject(const Path &path, const Paint &paint) const
 
 void Canvas::restoreToCount(int saveCount)
 {
+    if (impl_->recordingPicture) {
+        // Retain the number of pops rather than the caller's absolute stack
+        // depth. The Picture can then replay inside any destination save stack.
+        const int popCount = std::max(0, getSaveCount() - std::max(1, saveCount));
+        impl_->pictureOperations.emplace_back(
+            [popCount](Canvas &canvas) {
+                for (int i = 0; i < popCount; ++i) {
+                    canvas.restore();
+                }
+            });
+    }
     const int targetCount = std::max(1, saveCount);
     impl_->graphicsStates->restoreToCount(targetCount);
 }
@@ -5939,6 +7206,10 @@ void Canvas::Impl::restoreLayer(const LayerState &layer)
 
 void Canvas::clipPath(const Path &path)
 {
+    if (impl_->recordingPicture) {
+        impl_->pictureOperations.emplace_back(
+            [path](Canvas &canvas) { canvas.clipPath(path); });
+    }
     impl_->currentState().clip.enabled = true;
 
     if (impl_->width <= 0 || impl_->height <= 0 || path.isEmpty()) {
@@ -5995,6 +7266,10 @@ void Canvas::clipPath(const Path &path)
 
 void Canvas::clipRect(const RectF &rect)
 {
+    if (impl_->recordingPicture) {
+        impl_->pictureOperations.emplace_back(
+            [rect](Canvas &canvas) { canvas.clipRect(rect); });
+    }
     RectF deviceBounds;
     if (!transformRectBounds(rect, impl_->currentState().matrix, deviceBounds)) {
         deviceBounds = RectF();
@@ -6019,6 +7294,10 @@ void Canvas::clipRect(const Rect &rect)
 
 void Canvas::setMatrix(const Matrix4 &matrix)
 {
+    if (impl_->recordingPicture) {
+        impl_->pictureOperations.emplace_back(
+            [matrix](Canvas &canvas) { canvas.setMatrix(matrix); });
+    }
     // `matrix` is a LOGICAL transform. Compose it onto the device pixel ratio
     // base so the ratio is preserved even for absolute setMatrix calls (it lives
     // in device space, not in the logical matrix the caller manages).
@@ -6029,6 +7308,10 @@ void Canvas::setMatrix(const Matrix4 &matrix)
 
 void Canvas::resetMatrix()
 {
+    if (impl_->recordingPicture) {
+        impl_->pictureOperations.emplace_back(
+            [](Canvas &canvas) { canvas.resetMatrix(); });
+    }
     const float dpr = impl_->currentState().devicePixelRatio;
     impl_->currentState().matrix =
         glm::scale(glm::mat4(1.0f), glm::vec3(dpr, dpr, 1.0f));
@@ -6036,6 +7319,11 @@ void Canvas::resetMatrix()
 
 void Canvas::setDevicePixelRatio(float ratio)
 {
+    if (impl_->recordingPicture) {
+        // DPR belongs to the destination Canvas, not to retained content.
+        impl_->pictureRecordingFailed = true;
+        return;
+    }
     // A HiDPI / content scale folded into the root transform: drawing in logical
     // coordinates then renders at `ratio`x physical resolution. Because it lives
     // in the transform, text automatically rasterizes at device resolution (see
@@ -6046,8 +7334,12 @@ void Canvas::setDevicePixelRatio(float ratio)
     // scalar) so it is saved/restored together with the matrix; resetMatrix()
     // then rebases the current transform onto this dpr-scaled base (side effect
     // M2). A restore() that crosses this call restores the matching prior ratio.
-    impl_->currentState().devicePixelRatio =
+    const float nextRatio =
         (ratio > 0.0f && std::isfinite(ratio)) ? ratio : 1.0f;
+    if (impl_->currentState().devicePixelRatio != nextRatio) {
+        ++impl_->retainedContentGeneration;
+    }
+    impl_->currentState().devicePixelRatio = nextRatio;
     resetMatrix();
 }
 
@@ -6058,22 +7350,412 @@ float Canvas::devicePixelRatio() const
 
 void Canvas::concat(const Matrix4 &matrix)
 {
+    if (impl_->recordingPicture) {
+        impl_->pictureOperations.emplace_back(
+            [matrix](Canvas &canvas) { canvas.concat(matrix); });
+    }
     impl_->currentState().matrix *= toGlmMatrix(matrix);
 }
 
 void Canvas::translate(float dx, float dy)
 {
+    if (impl_->recordingPicture) {
+        impl_->pictureOperations.emplace_back(
+            [dx, dy](Canvas &canvas) { canvas.translate(dx, dy); });
+    }
     impl_->currentState().matrix = glm::translate(impl_->currentState().matrix, glm::vec3(dx, dy, 0.0f));
 }
 
 void Canvas::scale(float sx, float sy)
 {
+    if (impl_->recordingPicture) {
+        impl_->pictureOperations.emplace_back(
+            [sx, sy](Canvas &canvas) { canvas.scale(sx, sy); });
+    }
     impl_->currentState().matrix = glm::scale(impl_->currentState().matrix, glm::vec3(sx, sy, 1.0f));
 }
 
 void Canvas::rotate(float radians)
 {
+    if (impl_->recordingPicture) {
+        impl_->pictureOperations.emplace_back(
+            [radians](Canvas &canvas) { canvas.rotate(radians); });
+    }
     impl_->currentState().matrix = glm::rotate(impl_->currentState().matrix, radians, glm::vec3(0.0f, 0.0f, 1.0f));
+}
+
+std::shared_ptr<const Picture> Canvas::recordPicture(
+    const std::function<void(Canvas &)> &recorder)
+{
+    if (!recorder || impl_->recordingPicture) {
+        return {};
+    }
+
+    const GraphicsStateStack savedStates = *impl_->graphicsStates;
+    const std::vector<Impl::LayerState> savedLayers = impl_->layerStack;
+    const Color savedColor = impl_->color;
+    impl_->pictureOperations.clear();
+    impl_->pictureRecordingFailed = false;
+    impl_->recordingPicture = true;
+
+    try {
+        recorder(*this);
+    } catch (...) {
+        impl_->recordingPicture = false;
+        impl_->pictureOperations.clear();
+        *impl_->graphicsStates = savedStates;
+        impl_->layerStack = savedLayers;
+        impl_->color = savedColor;
+        throw;
+    }
+
+    impl_->recordingPicture = false;
+    *impl_->graphicsStates = savedStates;
+    impl_->layerStack = savedLayers;
+    impl_->color = savedColor;
+    if (impl_->pictureRecordingFailed) {
+        impl_->pictureOperations.clear();
+        return {};
+    }
+
+    auto pictureImpl = std::make_unique<Picture::Impl>();
+    pictureImpl->operations = std::move(impl_->pictureOperations);
+    pictureImpl->recordingCanvas = this;
+    std::shared_ptr<const Picture> picture(
+        new Picture(std::move(pictureImpl)));
+    impl_->retainedPictures.push_back(picture);
+    return picture;
+}
+
+void Canvas::drawPicture(const Picture &picture)
+{
+    if (!picture.impl_ || picture.impl_->operations.empty()) {
+        return;
+    }
+
+    const auto replayOperations = [&]() {
+        // Picture playback never leaks save/clip/transform state to its caller,
+        // including for a malformed or deliberately unbalanced operation stream.
+        const GraphicsStateStack savedStates = *impl_->graphicsStates;
+        const std::vector<Impl::LayerState> savedLayers = impl_->layerStack;
+        const Color savedColor = impl_->color;
+        for (const auto &operation : picture.impl_->operations) {
+            operation(*this);
+        }
+        *impl_->graphicsStates = savedStates;
+        impl_->layerStack = savedLayers;
+        impl_->color = savedColor;
+    };
+
+    // Flatten nested Pictures into the outer backend-neutral recording. No
+    // context-derived cache is consulted while recording.
+    if (impl_->recordingPicture) {
+        replayOperations();
+        return;
+    }
+
+    // A Picture remains portable CPU data. Compiled commands are merely a
+    // context-generation-keyed derivative owned by the Canvas that recorded
+    // it, and are purged before that Canvas releases its backend resources.
+    const bool canUseCompiledCache =
+        picture.impl_->recordingCanvas == this
+        && impl_->renderer != nullptr && impl_->rendererInitialized;
+    if (!canUseCompiledCache) {
+        replayOperations();
+        return;
+    }
+
+    const std::uint64_t stateFingerprint =
+        impl_->retainedStateFingerprint();
+
+    std::vector<std::unique_ptr<Command>> cachedCommands;
+    {
+        std::lock_guard<std::mutex> lock(picture.impl_->compiledMutex);
+        for (const auto &entry : picture.impl_->compiledEntries) {
+            if (entry.canvas == this
+                && entry.contextGeneration == impl_->contextGeneration
+                && entry.contentGeneration == impl_->retainedContentGeneration
+                && entry.stateFingerprint == stateFingerprint
+                && !entry.commands.empty()
+                && cloneCommands(
+                    entry.commands, cachedCommands,
+                    impl_->renderer.get())) {
+                break;
+            }
+        }
+    }
+    if (!cachedCommands.empty()) {
+        ++impl_->retainedPictureCacheHits;
+        impl_->renderer->appendCommands(std::move(cachedCommands));
+        return;
+    }
+
+    ++impl_->retainedPictureCacheMisses;
+    const std::size_t commandStart = impl_->renderer->commandCount();
+
+    // Compile from a warm front end. The first traversal admits stable path AA
+    // geometry, completes glyph-atlas growth, and populates text caches. Its
+    // commands are intentionally discarded; the second traversal then refers
+    // to shared geometry and the final atlas resource instead of freezing a
+    // cold stream that would copy transient vertices and retain retired atlas
+    // textures on every frame.
+    replayOperations();
+    std::vector<std::unique_ptr<Command>> warmupCommands =
+        impl_->renderer->takeCommandsFrom(commandStart);
+    warmupCommands.clear();
+    replayOperations();
+    std::vector<std::unique_ptr<Command>> generated =
+        impl_->renderer->takeCommandsFrom(commandStart);
+    if (generated.empty()) {
+        return;
+    }
+
+    Picture::Impl::CompiledEntry compiled;
+    compiled.canvas = this;
+    compiled.contextGeneration = impl_->contextGeneration;
+    compiled.contentGeneration = impl_->retainedContentGeneration;
+    compiled.stateFingerprint = stateFingerprint;
+    if (cloneCommands(
+            generated, compiled.commands,
+            impl_->renderer.get())) {
+        std::lock_guard<std::mutex> lock(picture.impl_->compiledMutex);
+        auto &entries = picture.impl_->compiledEntries;
+        entries.erase(
+            std::remove_if(entries.begin(), entries.end(),
+                           [&](const Picture::Impl::CompiledEntry &entry) {
+                               return entry.canvas == this
+                                   && (entry.contextGeneration != impl_->contextGeneration
+                                       || entry.contentGeneration != impl_->retainedContentGeneration);
+                           }),
+            entries.end());
+        bool stored = false;
+        for (auto &entry : entries) {
+            if (entry.canvas == this
+                && entry.contextGeneration == impl_->contextGeneration
+                && entry.contentGeneration == impl_->retainedContentGeneration
+                && entry.stateFingerprint == stateFingerprint) {
+                entry.commands = std::move(compiled.commands);
+                stored = true;
+                break;
+            }
+        }
+        if (!stored) {
+            if (entries.size() >= 4u) {
+                entries.erase(entries.begin());
+            }
+            entries.push_back(std::move(compiled));
+        }
+    }
+    impl_->renderer->appendCommands(std::move(generated));
+}
+
+void Canvas::drawPictureRasterized(const Picture &picture)
+{
+    if (!picture.impl_ || picture.impl_->operations.empty()) {
+        return;
+    }
+    if (impl_->recordingPicture) {
+        drawPicture(picture);
+        return;
+    }
+
+    const bool cacheEligible =
+        picture.impl_->recordingCanvas == this
+        && impl_->renderer != nullptr && impl_->rendererInitialized
+        && impl_->width > 0 && impl_->height > 0
+        && impl_->retainedPictureRasterBudgetBytes > 0u;
+    if (!cacheEligible) {
+        drawPicture(picture);
+        return;
+    }
+
+    const std::uint64_t stateFingerprint =
+        impl_->retainedStateFingerprint();
+    const std::uint64_t rasterUseEpoch =
+        ++impl_->retainedPictureRasterUseEpoch;
+    SharedImageResource rasterImage;
+    PictureRasterBounds rasterBounds{
+        0, 0, impl_->width, impl_->height};
+    {
+        std::lock_guard<std::mutex> lock(picture.impl_->compiledMutex);
+        for (auto &entry : picture.impl_->compiledEntries) {
+            if (entry.canvas == this
+                && entry.contextGeneration == impl_->contextGeneration
+                && entry.contentGeneration == impl_->retainedContentGeneration
+                && entry.stateFingerprint == stateFingerprint
+                && entry.rasterImage && entry.rasterImage->isValid()) {
+                rasterImage = entry.rasterImage;
+                entry.rasterLastUseEpoch = rasterUseEpoch;
+                rasterBounds.left = entry.rasterLeft;
+                rasterBounds.top = entry.rasterTop;
+                rasterBounds.right = entry.rasterLeft + entry.rasterWidth;
+                rasterBounds.bottom = entry.rasterTop + entry.rasterHeight;
+                break;
+            }
+        }
+    }
+
+    if (rasterImage) {
+        ++impl_->retainedPictureRasterCacheHits;
+    } else {
+        ++impl_->retainedPictureRasterCacheMisses;
+        const auto prepareStart = std::chrono::steady_clock::now();
+        std::vector<std::unique_ptr<Command>> commands;
+
+        // Prefer an already-compiled stream when callers previously used
+        // drawPicture(). A raster-only miss does not create that second cache:
+        // it needs the commands exactly once and can render a cold stream
+        // immediately before releasing it. This avoids the warm-up replay,
+        // second replay, and retained deep copy that are necessary for a
+        // repeatedly replayed compiled Picture but wasteful for rasterization.
+        {
+            std::lock_guard<std::mutex> lock(picture.impl_->compiledMutex);
+            for (const auto &entry : picture.impl_->compiledEntries) {
+                if (entry.canvas == this
+                    && entry.contextGeneration == impl_->contextGeneration
+                    && entry.contentGeneration == impl_->retainedContentGeneration
+                    && entry.stateFingerprint == stateFingerprint
+                    && !entry.commands.empty()
+                    && cloneCommands(entry.commands, commands, impl_->renderer.get())) {
+                    break;
+                }
+            }
+        }
+        if (!commands.empty()) {
+            ++impl_->retainedPictureCacheHits;
+        } else {
+            const GraphicsStateStack savedStates = *impl_->graphicsStates;
+            const std::vector<Impl::LayerState> savedLayers = impl_->layerStack;
+            const Color savedColor = impl_->color;
+            const std::size_t commandStart = impl_->renderer->commandCount();
+            ScopedBooleanFlag measurePictureRaster(
+                impl_->measuringRetainedPictureRasterPrepare);
+            for (const auto &operation : picture.impl_->operations) {
+                operation(*this);
+            }
+            *impl_->graphicsStates = savedStates;
+            impl_->layerStack = savedLayers;
+            impl_->color = savedColor;
+            commands = impl_->renderer->takeCommandsFrom(commandStart);
+        }
+        impl_->retainedPictureRasterPrepareCpuTimeNs +=
+            static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now() - prepareStart).count());
+        if (commands.empty()) {
+            return;
+        }
+
+        const auto boundsStart = std::chrono::steady_clock::now();
+        PictureRasterBounds measuredBounds;
+        if (computePictureRasterBounds(
+                commands, impl_->width, impl_->height, measuredBounds)) {
+            rasterBounds = measuredBounds;
+        }
+        impl_->retainedPictureRasterBoundsCpuTimeNs +=
+            static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now() - boundsStart).count());
+        const int rasterWidth = rasterBounds.right - rasterBounds.left;
+        const int rasterHeight = rasterBounds.bottom - rasterBounds.top;
+
+        OffscreenRenderRequest request;
+        request.canvasWidth = impl_->width;
+        request.canvasHeight = impl_->height;
+        request.targetWidth = rasterWidth;
+        request.targetHeight = rasterHeight;
+        request.viewportX = -rasterBounds.left;
+        request.viewportY = -(impl_->height - rasterBounds.bottom);
+        request.scissorOffsetX = request.viewportX;
+        request.scissorOffsetY = request.viewportY;
+        const auto renderStart = std::chrono::steady_clock::now();
+        rasterImage = impl_->renderer->renderCommandsToImageResource(commands, request);
+        impl_->retainedPictureRasterRenderCpuTimeNs +=
+            static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now() - renderStart).count());
+        if (!rasterImage || !rasterImage->isValid()) {
+            impl_->renderer->appendCommands(std::move(commands));
+            return;
+        }
+
+        std::lock_guard<std::mutex> lock(picture.impl_->compiledMutex);
+        bool stored = false;
+        for (auto &entry : picture.impl_->compiledEntries) {
+            if (entry.canvas == this
+                && entry.contextGeneration == impl_->contextGeneration
+                && entry.contentGeneration == impl_->retainedContentGeneration
+                && entry.stateFingerprint == stateFingerprint) {
+                entry.rasterImage = rasterImage;
+                entry.rasterBytes =
+                    static_cast<std::size_t>(rasterWidth)
+                    * static_cast<std::size_t>(rasterHeight) * 4u;
+                entry.rasterLastUseEpoch = rasterUseEpoch;
+                entry.rasterLeft = rasterBounds.left;
+                entry.rasterTop = rasterBounds.top;
+                entry.rasterWidth = rasterWidth;
+                entry.rasterHeight = rasterHeight;
+                stored = true;
+                break;
+            }
+        }
+        if (!stored) {
+            Picture::Impl::CompiledEntry entry;
+            entry.canvas = this;
+            entry.contextGeneration = impl_->contextGeneration;
+            entry.contentGeneration = impl_->retainedContentGeneration;
+            entry.stateFingerprint = stateFingerprint;
+            entry.rasterImage = rasterImage;
+            entry.rasterBytes =
+                static_cast<std::size_t>(rasterWidth)
+                * static_cast<std::size_t>(rasterHeight) * 4u;
+            entry.rasterLastUseEpoch = rasterUseEpoch;
+            entry.rasterLeft = rasterBounds.left;
+            entry.rasterTop = rasterBounds.top;
+            entry.rasterWidth = rasterWidth;
+            entry.rasterHeight = rasterHeight;
+            auto &entries = picture.impl_->compiledEntries;
+            if (entries.size() >= 4u) {
+                entries.erase(entries.begin());
+            }
+            entries.push_back(std::move(entry));
+        }
+        // The per-Canvas soft budget mirrors Flutter's bounded raster-cache
+        // policy: cache useful isolated layers, but never permit an unbounded
+        // collection of full-surface textures.
+    }
+    impl_->trimRetainedPictureRasterCache(this);
+
+    DrawImageData data;
+    data.imageResource = rasterImage;
+    data.x = static_cast<float>(rasterBounds.left);
+    data.y = static_cast<float>(rasterBounds.top);
+    data.width = static_cast<float>(rasterBounds.right - rasterBounds.left);
+    data.height = static_cast<float>(rasterBounds.bottom - rasterBounds.top);
+    data.u0 = 0.0f;
+    data.u1 = 1.0f;
+    const bool flipSource =
+        rasterImage->origin() == ImageOrigin::BottomLeft;
+    data.v0 = flipSource ? 1.0f : 0.0f;
+    data.v1 = flipSource ? 0.0f : 1.0f;
+    data.sampling = DrawImageSampling::Nearest;
+    data.tileMode = DrawImageTileMode::Clamp;
+    data.transform = glm::mat4(1.0f);
+    data.blendMode = DrawBlendMode::SrcOver;
+    impl_->renderer->submit(
+        std::make_unique<DrawImageCommand>(data));
+}
+
+void Canvas::setRetainedPictureRasterCacheBudgetBytes(std::size_t bytes)
+{
+    impl_->retainedPictureRasterBudgetBytes = bytes;
+    if (bytes == 0u) {
+        impl_->purgeRetainedPictureRasters(this);
+    } else {
+        impl_->trimRetainedPictureRasterCache(this);
+    }
+}
+
+std::size_t Canvas::retainedPictureRasterCacheBudgetBytes() const
+{
+    return impl_->retainedPictureRasterBudgetBytes;
 }
 
 bool Canvas::Impl::getClipBounds(RectF &bounds) const
@@ -6187,9 +7869,26 @@ void Canvas::beginFrame()
 
     impl_->renderer->resetRenderState();
     impl_->renderer->resetFrameStats();
+    if (impl_->textBackend != nullptr) {
+        impl_->textBackend->resetRenderStats();
+    }
+    impl_->retainedPictureCacheHits = 0;
+    impl_->retainedPictureCacheMisses = 0;
+    impl_->retainedPictureRasterCacheHits = 0;
+    impl_->retainedPictureRasterCacheMisses = 0;
+    impl_->retainedPictureRasterCacheEvictions = 0;
+    impl_->retainedPictureRasterPrepareCpuTimeNs = 0;
+    impl_->retainedPictureRasterBoundsCpuTimeNs = 0;
+    impl_->retainedPictureRasterRenderCpuTimeNs = 0;
+    impl_->retainedPictureRasterPathCpuTimeNs = 0;
+    impl_->retainedPictureRasterTextCpuTimeNs = 0;
+    impl_->retainedPictureRasterTextBackendCpuTimeNs = 0;
+    impl_->retainedPictureRasterTextAtlasCpuTimeNs = 0;
+    impl_->measuringRetainedPictureRasterPrepare = false;
     impl_->fillTessellationCache.beginEpoch();
     impl_->fillAaCache.beginEpoch();
     impl_->strokeTessellationCache.beginEpoch();
+    impl_->strokeAaCache.beginEpoch();
     impl_->layerStack.clear();
     impl_->renderer->clear();
 }
@@ -6233,6 +7932,7 @@ void Canvas::shutdown()
     if (impl_->renderer != nullptr) {
         impl_->renderer->clear();
     }
+    impl_->purgeRetainedPictures(this, false);
     impl_->finalizeRenderer();
 }
 
@@ -6271,6 +7971,7 @@ bool Canvas::setOutputTarget(const OutputTarget &target)
     impl_->renderTargetMode = false;
     impl_->renderTargetImageResource.reset();
     impl_->outputTargetOpaque = target.opaque;
+    ++impl_->retainedContentGeneration;
 
     switch (target.kind) {
     case OutputTarget::Kind::Offscreen:

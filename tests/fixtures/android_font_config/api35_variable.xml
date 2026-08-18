@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<familyset version="23">
+  <family name="variable-sans">
+    <font weight="400" style="oblique" index="3">VariableSans.ttc
+      <axis tag="wght" stylevalue="425"/>
+      <axis tag="opsz" stylevalue="14"/>
+    </font>
+  </family>
+</familyset>

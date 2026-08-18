@@ -48,3 +48,6 @@ build-package-consumer/
 /platforms/android/**/build/
 /platforms/android/**/.cxx/
 *.iml
+
+# Android profiler / simpleperf symbol cache
+/binary_cache/

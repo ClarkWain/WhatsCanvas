@@ -334,9 +334,34 @@ void GlyphAtlas::writeGlyphPixels(const GlyphAtlasEntry &entry, const GlyphBitma
         // deferred-frame resize, but it must not impose that cost on every
         // text-only Windows window.
         if (!hasColorPixels_) {
-            rgbaPixels_.assign(pixels_.size() * 4u, 255);
-            for (std::size_t index = 0; index < pixels_.size(); ++index) {
-                rgbaPixels_[index * 4u + 3u] = pixels_[index];
+            rgbaPixels_.assign(pixels_.size() * 4u, 0);
+            // Only materialize occupied glyph rectangles plus their filtering
+            // padding. The old whole-atlas conversion wrote four channels for
+            // every empty texel (16 MiB at 2048x2048) when the first colour
+            // emoji arrived, even though most UI atlases are sparse.
+            for (const GlyphAtlasEntry &existing : entries_) {
+                const int left = std::max(0, existing.x - padding_);
+                const int top = std::max(0, existing.y - padding_);
+                const int right = std::min(width_, existing.x + existing.width + padding_);
+                const int bottom = std::min(height_, existing.y + existing.height + padding_);
+                for (int row = top; row < bottom; ++row) {
+                    for (int column = left; column < right; ++column) {
+                        const std::size_t pixel = static_cast<std::size_t>(row)
+                            * static_cast<std::size_t>(width_)
+                            + static_cast<std::size_t>(column);
+                        const std::size_t rgba = pixel * 4u;
+                        rgbaPixels_[rgba + 0u] = 255;
+                        rgbaPixels_[rgba + 1u] = 255;
+                        rgbaPixels_[rgba + 2u] = 255;
+                        if (existing.key.format == GlyphBitmapFormat::Alpha
+                            && column >= existing.x
+                            && column < existing.x + existing.width
+                            && row >= existing.y
+                            && row < existing.y + existing.height) {
+                            rgbaPixels_[rgba + 3u] = pixels_[pixel];
+                        }
+                    }
+                }
             }
         }
         hasColorPixels_ = true;

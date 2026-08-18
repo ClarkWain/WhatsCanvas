@@ -22,7 +22,7 @@ public:
     ~DrawTextProgram();
 
     void initialize();
-    void release();
+    void release(bool abandon = false);
     void draw(const RenderContext &context, const DrawTextData &data);
 
 private:

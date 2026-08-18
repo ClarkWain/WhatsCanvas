@@ -76,6 +76,34 @@ bool testSolidFillRasterizes()
     const unsigned char *corner = pixelAt(2, 2);
     ok = expect(corner[3] == 0, "outside the rect should be transparent (cleared)") && ok;
 
+    const Canvas::RenderStats stats = canvas->getRenderStats();
+    ok = expect(stats.pathInputVertexCount == 4,
+                "software path stats should count rectangle inputs") && ok;
+    ok = expect(stats.pathTessellatedVertexCount == 6
+                    && stats.pathAaExpandedVertexCount == 0,
+                "software path stats should expose non-AA tessellation") && ok;
+    ok = expect(stats.pathMergedVertexCount == 6
+                    && stats.pathUploadedVertexCount == 6,
+                "software path stats should count rasterizer-bound vertices") && ok;
+    ok = expect(stats.commandObjectCount == 1
+                    && stats.commandAllocationCount
+                        + stats.commandPoolReuseCount == 1
+                    && stats.commandCloneCount == 0,
+                "software stats should count submitted command allocations") && ok;
+    ok = expect(stats.stagingCapacityBytes > 0,
+                "software stats should expose command staging capacity") && ok;
+
+    canvas->beginFrame();
+    canvas->drawRect(
+        RectF(16.0f, 16.0f, 32.0f, 32.0f), fill);
+    canvas->endFrame();
+    const Canvas::RenderStats reused =
+        canvas->getRenderStats();
+    ok = expect(reused.commandObjectCount == 1
+                    && reused.commandAllocationCount == 0
+                    && reused.commandPoolReuseCount == 1,
+                "warm-frame path commands should come from the reuse pool") && ok;
+
     return ok;
 }
 

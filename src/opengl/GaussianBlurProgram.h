@@ -2,6 +2,7 @@
 
 #include <glad/glad.h>
 #include <glm/glm.hpp>
+#include <string>
 
 #include "render/GaussianKernel.h"
 
@@ -37,7 +38,7 @@ public:
     ~GaussianBlurProgram();
 
     void initialize();
-    void release();
+    void release(bool abandon = false);
     bool isInitialized() const { return initialized_; }
 
     /// Ensures the two ping-pong targets exist at the requested size.
@@ -80,17 +81,21 @@ private:
     static constexpr int kMaxRadius = 64;
 
     void drawQuad();
+    void ensureImageProgram();
     void blurPassImpl(GLuint srcTexture, GLuint dstFramebuffer, int width, int height,
                       const glm::vec2 &direction, const wsc::render::GaussianKernel &kernel,
                       int mode, bool decal, float saturation, float brightness,
                       float contrast, float grain, bool sourcePremultiplied = false,
                       bool outputStraight = true,
                       bool resampleStraightAlpha = false);
-    void destroyTargets();
+    void destroyTargets(bool abandon = false);
 
     static GaussianBlurProgram *instance_;
 
     GLProgram *program_ = nullptr;
+    GLProgram *imageProgram_ = nullptr;
+    std::string vertexSource_;
+    std::string imageFragmentSource_;
     GLuint vao_ = 0;
     GLuint vbo_ = 0;
     GLuint fboA_ = 0;

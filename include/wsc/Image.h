@@ -80,6 +80,7 @@ private:
 	bool wrapExternalTexture(::IRenderer &renderer, std::uint64_t textureHandle, int width, int height,
 	                         bool mipmapsGenerated);
 	std::shared_ptr<::ImageResource> getImageResource() const;
+	std::shared_ptr<const std::vector<unsigned char>> getCpuPixelsRGBA() const;
 	void reset();
 
 	std::unique_ptr<Storage> storage_;

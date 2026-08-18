@@ -12,12 +12,14 @@ It is meant to stay close to the current C++ API; behavioral contracts remain do
 - `wsc/Canvas.h`
 - `wsc/Color.h`
 - `wsc/Font.h`
+- `wsc/FontResolver.h`
 - `wsc/Image.h`
 - `wsc/ImageFilter.h`
 - `wsc/Log.h`
 - `wsc/Matrix.h`
 - `wsc/Paint.h`
 - `wsc/Path.h`
+- `wsc/Picture.h`
 - `wsc/Surface.h`
 - `wsc/TextureSource.h`
 - `wsc/Version.h`
@@ -182,6 +184,7 @@ Public members:
 - `void setGpuTimingEnabled(bool enabled);`
 - `bool initializeContext();`
 - `void finalizeContext();`
+- `void abandonContext();`
 - `bool isContextInitialized() const;`
 - `void releaseResources();`
 - `void setSize(int width, int height);`
@@ -267,6 +270,7 @@ Public members:
 - `RectF measureTextBounds(const std::string &text, const Paint &paint) const;`
 - `TextMetrics measureTextMetrics(const std::string &text, const Paint &paint) const;`
 - `bool registerFontFace(const FontFace &face);`
+- `bool addFontProvider(std::shared_ptr<FontProvider> provider);`
 - `bool refreshSystemFonts();`
 - `bool setFontFallbackChain(const FontFallbackChain &chain);`
 - `bool setTextBackend(TextBackend backend, TextRenderMode renderMode = TextRenderMode::Grayscale);`
@@ -304,6 +308,11 @@ Public members:
 - `void translate(float dx, float dy);`
 - `void scale(float sx, float sy);`
 - `void rotate(float radians);`
+- `std::shared_ptr<const Picture> recordPicture(const std::function<void(Canvas &)> &recorder);`
+- `void drawPicture(const Picture &picture);`
+- `void drawPictureRasterized(const Picture &picture);`
+- `void setRetainedPictureRasterCacheBudgetBytes(std::size_t bytes);`
+- `std::size_t retainedPictureRasterCacheBudgetBytes() const;`
 - `void beginFrame();`
 - `void endFrame();`
 - `void shutdown();`
@@ -371,12 +380,17 @@ Public members:
 - `FontCodepointRange(std::uint32_t firstCodepoint, std::uint32_t lastCodepoint);`
 - `bool contains(std::uint32_t codepoint) const;`
 
+### `struct FontVariationCoordinate`
+
+_No public methods detected by the lightweight generator._
+
 ### `class FontFace`
 
 Public members:
 
 - `static FontFace fromFile(FontDescriptor descriptor, std::string path, int faceIndex = 0);`
 - `static FontFace fromMemory(FontDescriptor descriptor, std::vector<std::uint8_t> bytes, int faceIndex = 0);`
+- `static FontFace fromSharedMemory(FontDescriptor descriptor, std::shared_ptr<const std::vector<std::uint8_t>> bytes, int faceIndex = 0, std::string sourceId = std::string());`
 - `const FontDescriptor &descriptor() const;`
 - `const std::string &family() const;`
 - `int weight() const;`
@@ -385,6 +399,10 @@ Public members:
 - `int faceIndex() const;`
 - `const std::string &path() const;`
 - `const std::vector<std::uint8_t> *bytes() const;`
+- `const std::shared_ptr<const std::vector<std::uint8_t>> &sharedBytes() const;`
+- `const std::string &sourceId() const;`
+- `bool setVariationCoordinate(std::string tag, float value);`
+- `const std::vector<FontVariationCoordinate> &variationCoordinates() const;`
 - `void addCodepointRange(std::uint32_t firstCodepoint, std::uint32_t lastCodepoint);`
 - `const std::vector<FontCodepointRange> &codepointRanges() const;`
 - `bool hasCodepointRanges() const;`
@@ -409,6 +427,11 @@ Public members:
 
 Public members:
 
+- `FontManager() = default;`
+- `FontManager(const FontManager &other);`
+- `FontManager &operator=(const FontManager &other);`
+- `FontManager(FontManager &&) noexcept = default;`
+- `FontManager &operator=(FontManager &&) noexcept = default;`
 - `bool registerFontFile(const FontDescriptor &descriptor, const std::string &path, int faceIndex = 0);`
 - `bool registerFontMemory(const FontDescriptor &descriptor, std::vector<std::uint8_t> bytes, int faceIndex = 0);`
 - `bool registerFace(FontFace face);`
@@ -416,10 +439,12 @@ Public members:
 - `const FontFace *findFirstFace(const std::string &family) const;`
 - `std::vector<const FontFace *> findFaces(const std::string &family) const;`
 - `const FontFace *findBestFace(const std::string &family, int weight = 400, FontSlant slant = FontSlant::NORMAL) const;`
+- `std::vector<const FontFace *> findFacesInMatchOrder(const std::string &family, int weight = 400, FontSlant slant = FontSlant::NORMAL) const;`
 - `bool addFallbackFamily(const std::string &primaryFamily, const std::string &fallbackFamily);`
 - `const FontFallbackChain *fallbackChain(const std::string &family) const;`
 - `std::vector<std::string> resolveFamilies(const std::string &preferredFamily) const;`
 - `const std::vector<FontFace> &faces() const;`
+- `std::uint64_t generation() const;`
 - `void clear();`
 
 ### `class FontSystem`
@@ -435,6 +460,130 @@ Public members:
 - `static std::uint64_t installedFontGeneration();`
 - `static FontFallbackChain defaultFallbackChain(const std::string &primaryFamily = kDefaultPrimaryFamily);`
 - `static std::vector<FontFace> discoverInstalledFontFaces();`
+
+## `wsc/FontResolver.h`
+
+Enums:
+- `FontProviderKind`
+- `RemoteFontState`
+
+### `struct FontMatchRequest`
+
+_No public methods detected by the lightweight generator._
+
+### `struct FontMatchResult`
+
+Public members:
+
+- `explicit operator bool() const;`
+
+### `class FontProvider`
+
+Public members:
+
+- `virtual ~FontProvider() = default;`
+- `virtual FontProviderKind kind() const = 0;`
+- `virtual const std::string &name() const = 0;`
+- `virtual std::uint64_t generation() const = 0;`
+- `virtual std::uint64_t generationForFamily(const std::string &) const;`
+- `virtual void refresh();`
+- `virtual bool hasFamily(const std::string &family) const = 0;`
+- `virtual std::vector<std::string> families() const;`
+- `virtual std::string displayFamilyName(const std::string &family) const;`
+- `virtual std::vector<const FontFace *> match(const FontMatchRequest &request) const = 0;`
+
+### `class FontManagerProvider`
+
+Public members:
+
+- `FontManagerProvider(std::shared_ptr<FontManager> manager, FontProviderKind providerKind, std::string providerName);`
+- `FontProviderKind kind() const override;`
+- `const std::string &name() const override;`
+- `std::uint64_t generation() const override;`
+- `bool hasFamily(const std::string &family) const override;`
+- `std::string displayFamilyName(const std::string &family) const override;`
+- `std::vector<std::string> families() const override;`
+- `std::vector<const FontFace *> match(const FontMatchRequest &request) const override;`
+
+### `struct LazyFontSource`
+
+_No public methods detected by the lightweight generator._
+
+### `class LazyFontProvider`
+
+Public members:
+
+- `LazyFontProvider(FontProviderKind providerKind, std::string providerName, Loader loader);`
+- `~LazyFontProvider() override;`
+- `LazyFontProvider(const LazyFontProvider &) = delete;`
+- `LazyFontProvider &operator=(const LazyFontProvider &) = delete;`
+- `FontProviderKind kind() const override;`
+- `const std::string &name() const override;`
+- `std::uint64_t generation() const override;`
+- `std::uint64_t generationForFamily(const std::string &family) const override;`
+- `void refresh() override;`
+- `bool hasFamily(const std::string &family) const override;`
+- `std::vector<std::string> families() const override;`
+- `std::string displayFamilyName(const std::string &family) const override;`
+- `std::vector<const FontFace *> match(const FontMatchRequest &request) const override;`
+- `bool registerSource(LazyFontSource source);`
+- `bool invalidateFamily(const std::string &family);`
+- `bool removeFamily(const std::string &family);`
+- `std::size_t sourceCount() const;`
+- `std::size_t loadedFaceCount() const;`
+
+### `struct RemoteFontSource`
+
+_No public methods detected by the lightweight generator._
+
+### `struct RemoteFontRequest`
+
+_No public methods detected by the lightweight generator._
+
+### `struct RemoteFontProviderOptions`
+
+_No public methods detected by the lightweight generator._
+
+### `class RemoteFontProvider`
+
+Public members:
+
+- `RemoteFontProvider(FontProviderKind providerKind, std::string providerName, RemoteFontProviderOptions options = {});`
+- `~RemoteFontProvider() override;`
+- `RemoteFontProvider(const RemoteFontProvider &) = delete;`
+- `RemoteFontProvider &operator=(const RemoteFontProvider &) = delete;`
+- `FontProviderKind kind() const override;`
+- `const std::string &name() const override;`
+- `std::uint64_t generation() const override;`
+- `std::uint64_t generationForFamily(const std::string &family) const override;`
+- `void refresh() override;`
+- `bool hasFamily(const std::string &family) const override;`
+- `std::vector<std::string> families() const override;`
+- `std::string displayFamilyName(const std::string &family) const override;`
+- `std::vector<const FontFace *> match(const FontMatchRequest &request) const override;`
+- `bool registerSource(RemoteFontSource source);`
+- `bool removeFamily(const std::string &family);`
+- `bool invalidateFamily(const std::string &family);`
+- `std::vector<RemoteFontRequest> takeDownloadRequests();`
+- `std::vector<std::string> takeChangedFamilies();`
+- `bool completeDownload(const std::string &sourceId, std::uint64_t requestToken, std::vector<std::uint8_t> bytes);`
+- `bool failDownload(const std::string &sourceId, std::uint64_t requestToken, bool permanent, std::size_t consumedBytes = 0);`
+- `RemoteFontState state(const std::string &sourceId) const;`
+- `std::size_t queuedCount() const;`
+- `std::size_t downloadingCount() const;`
+- `std::size_t downloadedBytes() const;`
+
+### `class FontResolver`
+
+Public members:
+
+- `void addProvider(std::shared_ptr<FontProvider> provider);`
+- `bool hasFamily(const std::string &family) const;`
+- `void refreshProviders(FontProviderKind kind);`
+- `bool setFallbackChain(const FontFallbackChain &chain);`
+- `std::vector<std::string> resolveFamilies(const std::string &preferredFamily) const;`
+- `std::uint64_t generation() const;`
+- `std::uint64_t resolutionGeneration(const std::string &preferredFamily) const;`
 
 ## `wsc/Image.h`
 
@@ -637,6 +786,9 @@ Public members:
 - `int getFontWeight() const;`
 - `void setFontSlant(FontSlant slant);`
 - `FontSlant getFontSlant() const;`
+- `void setFontVariation(const std::string &tag, float value);`
+- `void clearFontVariations();`
+- `const std::vector<FontVariationCoordinate> &getFontVariations() const;`
 - `void setLetterSpacing(float spacing);`
 - `float getLetterSpacing() const;`
 - `void setTextAlign(TextAlign align);`
@@ -728,6 +880,20 @@ Public members:
 - `void addRoundRect(const RectF &rect, float radius);`
 - `void addRoundRect(const RectF &rect, float topLeftRadius, float topRightRadius, float bottomRightRadius, float bottomLeftRadius);`
 - `void addCircle(float x, float y, float radius);`
+
+## `wsc/Picture.h`
+
+### `class Picture`
+
+Public members:
+
+- `~Picture();`
+- `Picture(const Picture &) = delete;`
+- `Picture &operator=(const Picture &) = delete;`
+- `Picture(Picture &&) = delete;`
+- `Picture &operator=(Picture &&) = delete;`
+- `std::size_t operationCount() const;`
+- `bool empty() const;`
 
 ## `wsc/Surface.h`
 

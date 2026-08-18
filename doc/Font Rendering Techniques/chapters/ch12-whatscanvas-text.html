@@ -136,7 +136,7 @@
       <tr><td>glyph-index path</td><td>OpenType shaping 的结果是 glyph index，不是 Unicode codepoint；渲染器必须能直接栅格化 glyph index。</td></tr>
       <tr><td>UAX #9</td><td>阿拉伯语、希伯来语与拉丁数字混排时，视觉顺序和逻辑顺序不同，必须先解决方向再排字形。</td></tr>
       <tr><td>dirty rect atlas</td><td>新字形出现时只上传变化区域，避免每帧重传整张 atlas；长文本压力过大时再合并为一次大更新。</td></tr>
-      <tr><td>RGBA atlas</td><td>彩色字体与 alpha 字形可以共用渲染路径，后续扩展 CBDT/SBIX/SVG/COLR v1 时不需要推翻 atlas 设计。</td></tr>
+      <tr><td>RGBA atlas</td><td>彩色字体与 alpha 字形共用渲染路径；已支持常用 CBDT PNG，后续扩展其他 CBDT/SBIX/SVG/COLR v1 格式时不需要推翻 atlas 设计。</td></tr>
       <tr><td>diagnostics</td><td>字体注册失败、fallback 缺失、shaping/raster/atlas 失败都会进入诊断链路，方便定位文本为什么退回备用路径。</td></tr>
     </tbody>
   </table>

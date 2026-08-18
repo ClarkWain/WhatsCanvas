@@ -86,7 +86,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libgl1-mesa-dev libegl1-mesa-dev libgles2-mesa-dev \
-                                  libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev xvfb
+                                  libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev xvfb gdb
 
       - name: OpenGLES build smoke
         run: |
@@ -95,10 +95,116 @@ jobs:
 
       - name: OpenGLES filter pixel parity on Mesa EGL
         run: |
+          set +e
           xvfb-run -a env WHATSCANVAS_REQUIRE_GL_CONTEXT=1 \
             LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe \
             ctest --test-dir build-gles-check -C Debug \
               -R '^WhatsCanvasOpenGLESFilterPixelParityTests$' --output-on-failure
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ]; then
+            echo "OpenGLES parity failed; collecting a non-interactive backtrace"
+            xvfb-run -a env WHATSCANVAS_REQUIRE_GL_CONTEXT=1 \
+              LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe \
+              gdb --batch -ex run -ex 'thread apply all backtrace' --args \
+                ./build-gles-check/WhatsCanvasOpenGLESFilterPixelParityTests || true
+            exit "$status"
+          fi
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install pinned Android toolchain
+        run: sdkmanager 'platforms;android-33' 'build-tools;33.0.1' 'ndk;21.4.7075529' 'cmake;3.18.1'
+
+      # Current Android command-line tools require JDK 17 to install SDK
+      # packages, while the pinned AGP 7.2 / Gradle 7.4 build is validated on
+      # JDK 11. Install the SDK before switching the job's active Java runtime.
+      - name: Set up Java 11 for Gradle
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '11'
+          cache: gradle
+
+      - name: Build all packaged ABIs and run lint
+        working-directory: platforms/android
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon :app:assembleDebug :app:assembleRelease :app:lintDebug
+
+  sanitizers:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
+
+      - name: Configure ASan and UBSan
+        run: >-
+          cmake -S . -B build-sanitizers -DCMAKE_BUILD_TYPE=Debug
+          -DWHATSCANVAS_BUILD_DEMO=OFF -DWHATSCANVAS_ENABLE_SCRIPT_TESTS=OFF
+          -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer'
+          -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer'
+          -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined'
+          -DCMAKE_SHARED_LINKER_FLAGS='-fsanitize=address,undefined'
+
+      - name: Build sanitizer targets
+        run: cmake --build build-sanitizers --config Debug -j 2
+
+      - name: Run sanitizer unit tests
+        env:
+          ASAN_OPTIONS: detect_leaks=1:strict_string_checks=1:check_initialization_order=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: ctest --test-dir build-sanitizers -C Debug -L unit --output-on-failure
+
+  fuzzing:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Clang and build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
+
+      - name: Configure fuzz target
+        env:
+          CC: clang
+          CXX: clang++
+        run: >-
+          cmake -S . -B build-fuzz -DCMAKE_BUILD_TYPE=Debug
+          -DWHATSCANVAS_BUILD_FUZZERS=ON -DWHATSCANVAS_BUILD_DEMO=OFF
+          -DWHATSCANVAS_BUILD_BENCHMARKS=OFF -DWHATSCANVAS_ENABLE_SCRIPT_TESTS=OFF
+          -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer'
+          -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer'
+
+      - name: Build fuzz target
+        run: cmake --build build-fuzz --target WhatsCanvasTextAndFontConfigFuzzer -j 2
+
+      - name: Run bounded fuzz smoke
+        run: |
+          mkdir -p build-fuzz/corpus
+          cp tests/fuzz/corpus/text/* build-fuzz/corpus/
+          cp tests/fixtures/android_font_config/*.xml build-fuzz/corpus/
+          ./build-fuzz/WhatsCanvasTextAndFontConfigFuzzer build-fuzz/corpus -runs=20000 -max_len=1048576 -timeout=10
 
   opengl-filter-parity:
     runs-on: ubuntu-latest

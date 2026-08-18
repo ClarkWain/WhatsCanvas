@@ -125,7 +125,7 @@ void DrawTextProgram::initialize()
         }
     )";
 
-    program_ = new GLProgram(vertexSrc, fragmentSrc);
+    program_ = new GLProgram("draw_text", vertexSrc, fragmentSrc);
 
     glGenVertexArrays(1, &VAO_);
     vertexBuffer_.initialize(4096);
@@ -141,29 +141,31 @@ void DrawTextProgram::initialize()
     initialized_ = true;
 }
 
-void DrawTextProgram::release()
+void DrawTextProgram::release(bool abandon)
 {
     if (!initialized_) {
         return;
     }
 
     if (program_ != nullptr) {
+        if (abandon) program_->abandonVolatile();
         delete program_;
         program_ = nullptr;
     }
 
     if (VAO_ != static_cast<unsigned int>(-1)) {
-        glDeleteVertexArrays(1, &VAO_);
+        if (!abandon) glDeleteVertexArrays(1, &VAO_);
         VAO_ = static_cast<unsigned int>(-1);
     }
 
-    vertexBuffer_.release();
+    if (abandon) vertexBuffer_.abandon(); else vertexBuffer_.release();
 
     initialized_ = false;
 }
 
 void DrawTextProgram::draw(const RenderContext &context, const DrawTextData &data)
 {
+    initialize();
     if (!DrawValidation::validateProgram(initialized_, "DrawTextProgram::draw")) {
         return;
     }

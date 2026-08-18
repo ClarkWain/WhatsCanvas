@@ -21,11 +21,13 @@ class IRenderer;
 namespace wsc {
 class FontFace;
 class FontFallbackChain;
+class FontProvider;
 class Image;
 class CanvasLifecycleTestAccess;
 class Matrix4;
 class Paint;
 class Path;
+class Picture;
 
 /// Main drawing surface exposed by WhatsCanvas.
 class WSC_API Canvas : public ITextureSource
@@ -70,6 +72,19 @@ public:
 		std::size_t compiledPacketCount = 0;
 		std::size_t compiledVertexBytes = 0;
 		std::size_t compiledIndexBytes = 0;
+		std::size_t commandObjectCount = 0;
+		std::size_t commandAllocationCount = 0;
+		std::size_t commandPoolReuseCount = 0;
+		std::size_t commandCloneCount = 0;
+		std::size_t payloadCopyBytes = 0;
+		std::size_t stagingCapacityBytes = 0;
+		std::size_t batchBreakCommandTypeCount = 0;
+		std::size_t batchBreakStateCount = 0;
+		std::size_t batchBreakTextureLimitCount = 0;
+		std::size_t batchBreakVertexLimitCount = 0;
+		std::size_t imageBatchQuadCount = 0;
+		std::size_t imageBatchInstancedQuadCount = 0;
+		std::size_t imageBatchUploadBytes = 0;
 		std::size_t renderTargetSwitches = 0;
 		std::size_t filterCount = 0;
 		std::size_t filterPassCount = 0;
@@ -77,6 +92,11 @@ public:
 		std::size_t filterInputPixelCount = 0;
 		std::size_t filterPixelPassCount = 0;
 		std::size_t pathVertexCount = 0;
+		std::size_t pathInputVertexCount = 0;
+		std::size_t pathTessellatedVertexCount = 0;
+		std::size_t pathAaExpandedVertexCount = 0;
+		std::size_t pathMergedVertexCount = 0;
+		std::size_t pathUploadedVertexCount = 0;
 		std::size_t pathIndexCount = 0;
 		std::size_t pathIndexBytes = 0;
 		std::size_t pathUploadCount = 0;
@@ -86,12 +106,42 @@ public:
 		std::size_t imageTextureCount = 0;
 		std::size_t glyphAtlasTextureCount = 0;
 		std::size_t glyphAtlasTextureBytes = 0;
+		std::size_t textNormalizationCount = 0;
+		std::size_t textShapeCacheHits = 0;
+		std::size_t textShapeCacheMisses = 0;
+		std::size_t textLayoutCacheHits = 0;
+		std::size_t textLayoutCacheMisses = 0;
+		std::size_t textLayoutViewHits = 0;
+		std::size_t glyphAtlasHits = 0;
+		std::size_t glyphAtlasMisses = 0;
+		std::size_t glyphRasterizationCount = 0;
+		std::size_t zeroAreaGlyphHits = 0;
+		std::size_t generatedGlyphQuadCount = 0;
+		std::size_t glyphAtlasDirtyBytes = 0;
+		/// Per-frame portable text CPU diagnostics. Platform-native adapters may
+		/// report zero for stages hidden behind their native text API.
+		std::uint64_t textNormalizationCpuTimeNs = 0;
+		std::uint64_t textLayoutCacheCpuTimeNs = 0;
+		std::uint64_t textShapingCpuTimeNs = 0;
+		std::uint64_t glyphCacheLookupCpuTimeNs = 0;
+		std::uint64_t glyphRasterCpuTimeNs = 0;
+		std::uint64_t glyphAtlasUploadCpuTimeNs = 0;
+		std::uint64_t textBidiCpuTimeNs = 0;
+		std::uint64_t textFontFallbackCpuTimeNs = 0;
+		std::uint64_t textFontDataCpuTimeNs = 0;
+		std::uint64_t textShapeEngineCpuTimeNs = 0;
 		std::size_t renderTargetCount = 0;
 		std::size_t pooledRenderTargetCount = 0;
 		std::size_t pooledRenderTargetBytes = 0;
 		std::size_t renderTargetPoolReuseCount = 0;
 		std::size_t renderTargetPoolAllocationCount = 0;
 		std::size_t renderTargetPoolEvictionCount = 0;
+		/// Process-lifetime OpenGL program/shader compilation diagnostics.
+		/// Other backends report zero until they expose equivalent counters.
+		std::size_t shaderProgramLinkCount = 0;
+		std::size_t shaderStageCompileCount = 0;
+		std::uint64_t shaderCompileCpuTimeNs = 0;
+		std::uint64_t shaderLinkCpuTimeNs = 0;
 		std::size_t tessellationCacheHits = 0;
 		std::size_t tessellationCacheMisses = 0;
 		std::size_t tessellationCacheSize = 0;
@@ -104,8 +154,26 @@ public:
 		std::size_t strokeCacheMisses = 0;
 		std::size_t strokeCacheSize = 0;
 		std::size_t strokeCacheBytes = 0;
+		std::size_t strokeAaCacheHits = 0;
+		std::size_t strokeAaCacheMisses = 0;
+		std::size_t strokeAaCacheSize = 0;
+		std::size_t strokeAaCacheBytes = 0;
 		std::size_t bitmapTextCacheSize = 0;
 		std::size_t bitmapTextCacheBytes = 0;
+		std::size_t retainedPictureCacheHits = 0;
+		std::size_t retainedPictureCacheMisses = 0;
+		std::size_t retainedPictureRasterCacheHits = 0;
+		std::size_t retainedPictureRasterCacheMisses = 0;
+		std::size_t retainedPictureRasterCacheSize = 0;
+		std::size_t retainedPictureRasterCacheBytes = 0;
+		std::size_t retainedPictureRasterCacheEvictions = 0;
+		std::uint64_t retainedPictureRasterPrepareCpuTimeNs = 0;
+		std::uint64_t retainedPictureRasterBoundsCpuTimeNs = 0;
+		std::uint64_t retainedPictureRasterRenderCpuTimeNs = 0;
+		std::uint64_t retainedPictureRasterPathCpuTimeNs = 0;
+		std::uint64_t retainedPictureRasterTextCpuTimeNs = 0;
+		std::uint64_t retainedPictureRasterTextBackendCpuTimeNs = 0;
+		std::uint64_t retainedPictureRasterTextAtlasCpuTimeNs = 0;
 		std::size_t trackedResourceBytes = 0;
 	};
 
@@ -205,6 +273,11 @@ public:
 	void setGpuTimingEnabled(bool enabled);
 	bool initializeContext();
 	void finalizeContext();
+	/// Forget all GPU objects after an involuntary backend-context loss.
+	/// Unlike finalizeContext(), this never attempts to delete objects from the
+	/// lost context. The Canvas keeps its CPU-side state and can be initialized
+	/// again when a replacement context is current.
+	void abandonContext();
 	bool isContextInitialized() const;
 	void releaseResources();
 
@@ -334,6 +407,9 @@ public:
 	TextMetrics measureTextMetrics(const std::string &text, const Paint &paint) const;
 	/// Register a font face so its family can be selected via Paint::setFontFamily.
 	bool registerFontFace(const FontFace &face);
+	/// Add an application font provider. The Canvas retains shared ownership;
+	/// portable text supports lazy asset/dynamic providers.
+	bool addFontProvider(std::shared_ptr<FontProvider> provider);
 	/// Re-enumerate installed fonts and update this Canvas while preserving
 	/// explicitly registered fonts and fallback chains.
 	bool refreshSystemFonts();
@@ -424,6 +500,24 @@ public:
 	void scale(float sx, float sy);
 	void rotate(float radians);
 
+	// Retained drawing.
+	/// Record backend-neutral Canvas operations into an immutable Picture.
+	/// Recording does not submit GPU work and leaves this Canvas' state exactly
+	/// as it was before the callback. Nested recording is rejected.
+	std::shared_ptr<const Picture> recordPicture(
+		const std::function<void(Canvas &)> &recorder);
+	/// Replay a retained Picture inside an implicit save/restore boundary.
+	void drawPicture(const Picture &picture);
+	/// Replay an isolated static Picture through a context-keyed raster cache.
+	/// This is intended for RepaintBoundary-like content whose compositing as one
+	/// offscreen layer is semantically correct. GPU resources are derived data
+	/// and are purged before context teardown.
+	void drawPictureRasterized(const Picture &picture);
+	/// Set the soft memory budget shared by rasterized Pictures on this Canvas.
+	/// A zero budget disables raster caching and falls back to drawPicture().
+	void setRetainedPictureRasterCacheBudgetBytes(std::size_t bytes);
+	std::size_t retainedPictureRasterCacheBudgetBytes() const;
+
 	// Frame and pixel readback helpers.
 	/// Begin a frame of drawing. Initializes the backend lazily, resets per-frame
 	/// state/statistics, and discards any previously queued commands. It does not
@@ -486,6 +580,10 @@ public:
 private:
 	friend class CanvasLifecycleTestAccess;
 	explicit Canvas(std::unique_ptr<::IRenderer> renderer);
+	void drawImageSnapshot(
+		std::shared_ptr<const std::vector<unsigned char>> pixels,
+		int imageWidth, int imageHeight, bool mipmapsReady,
+		const RectF &src, const RectF &dst, const Paint &paint);
 
 	struct Impl;
 	std::unique_ptr<Impl> impl_;

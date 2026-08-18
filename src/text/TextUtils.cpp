@@ -106,6 +106,11 @@ bool isExtendedPictographic(std::uint32_t codepoint)
     return containsCodepoint(grapheme_data::kExtendedPictographicRanges, codepoint);
 }
 
+bool isEmojiPresentationCodepoint(std::uint32_t codepoint)
+{
+    return containsCodepoint(grapheme_data::kEmojiPresentationRanges, codepoint);
+}
+
 bool isInCbConsonant(std::uint32_t codepoint)
 {
     return containsCodepoint(grapheme_data::kInCbConsonantRanges, codepoint);
@@ -380,6 +385,29 @@ std::vector<FontFallbackCluster> buildFontFallbackClusters(const std::string &te
     return clusters;
 }
 
+std::vector<std::uint16_t> encodeCodepointsToUtf16(
+    const std::vector<std::uint32_t> &codepoints)
+{
+    std::vector<std::uint16_t> result;
+    result.reserve(codepoints.size());
+    for (std::uint32_t codepoint : codepoints) {
+        if (codepoint > 0x10FFFFu
+            || (codepoint >= 0xD800u && codepoint <= 0xDFFFu)) {
+            codepoint = 0xFFFDu;
+        }
+        if (codepoint <= 0xFFFFu) {
+            result.push_back(static_cast<std::uint16_t>(codepoint));
+            continue;
+        }
+        codepoint -= 0x10000u;
+        result.push_back(static_cast<std::uint16_t>(
+            0xD800u + (codepoint >> 10u)));
+        result.push_back(static_cast<std::uint16_t>(
+            0xDC00u + (codepoint & 0x3FFu)));
+    }
+    return result;
+}
+
 bool isValidUtf8(const std::string &text)
 {
     const auto codepoints = decodeUtf8(text);
@@ -391,6 +419,56 @@ bool isValidUtf8(const std::string &text)
 bool isZeroWidthBreakCodepoint(std::uint32_t codepoint)
 {
     return codepoint == 0x200B;
+}
+
+bool isVariationSelectorCodepoint(std::uint32_t codepoint)
+{
+    return (codepoint >= 0xFE00u && codepoint <= 0xFE0Fu)
+        || (codepoint >= 0xE0100u && codepoint <= 0xE01EFu);
+}
+
+EmojiPresentation classifyEmojiPresentation(
+    const std::vector<std::uint32_t> &codepoints)
+{
+    EmojiPresentation explicitPresentation = EmojiPresentation::Default;
+    bool hasDefaultEmoji = false;
+    bool hasExtendedPictographic = false;
+    bool hasZwj = false;
+    bool hasEmojiModifier = false;
+    bool hasKeycap = false;
+    bool hasTag = false;
+    std::size_t regionalIndicators = 0;
+
+    for (std::uint32_t codepoint : codepoints) {
+        if (codepoint == 0xFE0Eu) {
+            explicitPresentation = EmojiPresentation::Text;
+        } else if (codepoint == 0xFE0Fu) {
+            explicitPresentation = EmojiPresentation::Emoji;
+        }
+        hasDefaultEmoji = hasDefaultEmoji
+            || isEmojiPresentationCodepoint(codepoint);
+        hasExtendedPictographic = hasExtendedPictographic
+            || isExtendedPictographic(codepoint);
+        hasZwj = hasZwj || codepoint == 0x200Du;
+        hasEmojiModifier = hasEmojiModifier
+            || (codepoint >= 0x1F3FBu && codepoint <= 0x1F3FFu);
+        hasKeycap = hasKeycap || codepoint == 0x20E3u;
+        hasTag = hasTag
+            || (codepoint >= 0xE0020u && codepoint <= 0xE007Fu);
+        if (codepoint >= 0x1F1E6u && codepoint <= 0x1F1FFu) {
+            ++regionalIndicators;
+        }
+    }
+
+    if (explicitPresentation != EmojiPresentation::Default) {
+        return explicitPresentation;
+    }
+    if (hasDefaultEmoji || hasEmojiModifier || hasKeycap
+        || regionalIndicators >= 2u
+        || (hasExtendedPictographic && (hasZwj || hasTag))) {
+        return EmojiPresentation::Emoji;
+    }
+    return EmojiPresentation::Default;
 }
 
 std::string normalizeUtf8ForText(const std::string &text)

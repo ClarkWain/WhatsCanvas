@@ -1,7 +1,9 @@
+#include <algorithm>
 #include <iostream>
 #include <atomic>
 #include <cmath>
 #include <functional>
+#include <fstream>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -15,6 +17,7 @@
 #include "text/FontRasterizer.h"
 #include "text/ITextBackend.h"
 #include "wsc/Font.h"
+#include "wsc/FontResolver.h"
 
 namespace {
 
@@ -25,6 +28,45 @@ bool expect(bool condition, const std::string &message)
     }
 
     std::cerr << "EXPECTATION FAILED: " << message << std::endl;
+    return false;
+}
+
+std::uint16_t readU16Be(const std::vector<std::uint8_t> &bytes,
+                        std::size_t offset)
+{
+    return static_cast<std::uint16_t>(
+        (static_cast<std::uint16_t>(bytes[offset]) << 8u)
+        | static_cast<std::uint16_t>(bytes[offset + 1u]));
+}
+
+std::uint32_t readU32Be(const std::vector<std::uint8_t> &bytes,
+                        std::size_t offset)
+{
+    return (static_cast<std::uint32_t>(bytes[offset]) << 24u)
+        | (static_cast<std::uint32_t>(bytes[offset + 1u]) << 16u)
+        | (static_cast<std::uint32_t>(bytes[offset + 2u]) << 8u)
+        | static_cast<std::uint32_t>(bytes[offset + 3u]);
+}
+
+bool setSfntTableVersion(std::vector<std::uint8_t> &bytes,
+                         const char (&tag)[5], std::uint32_t version)
+{
+    if (bytes.size() < 12u) return false;
+    const std::size_t tableCount = readU16Be(bytes, 4u);
+    if (tableCount > (bytes.size() - 12u) / 16u) return false;
+    for (std::size_t index = 0; index < tableCount; ++index) {
+        const std::size_t record = 12u + index * 16u;
+        if (!std::equal(tag, tag + 4u, bytes.begin() + record)) continue;
+        const std::size_t tableOffset = readU32Be(bytes, record + 8u);
+        if (tableOffset > bytes.size() || bytes.size() - tableOffset < 4u) {
+            return false;
+        }
+        bytes[tableOffset] = static_cast<std::uint8_t>(version >> 24u);
+        bytes[tableOffset + 1u] = static_cast<std::uint8_t>(version >> 16u);
+        bytes[tableOffset + 2u] = static_cast<std::uint8_t>(version >> 8u);
+        bytes[tableOffset + 3u] = static_cast<std::uint8_t>(version);
+        return true;
+    }
     return false;
 }
 
@@ -58,9 +100,95 @@ bool testFontRegistrationAndFallback()
         && expect(resolved[1] == "Fallback", "fallback family should resolve second");
 }
 
+bool testLazyProviderReachesPortableBackend()
+{
+    std::ifstream input(WHATSCANVAS_TEST_VARIABLE_FONT, std::ios::binary);
+    std::vector<std::uint8_t> bytes(
+        (std::istreambuf_iterator<char>(input)),
+        std::istreambuf_iterator<char>());
+    int loadCount = 0;
+    auto provider = std::make_shared<wsc::LazyFontProvider>(
+        wsc::FontProviderKind::ASSET, "contract-assets",
+        [&](const std::string &sourceId)
+            -> std::optional<std::vector<std::uint8_t>> {
+            ++loadCount;
+            return sourceId == "variable" && !bytes.empty()
+                ? std::optional<std::vector<std::uint8_t>>(bytes)
+                : std::nullopt;
+        });
+    wsc::LazyFontSource source;
+    source.descriptor = wsc::FontDescriptor("Lazy Contract", 400);
+    source.sourceId = "variable";
+    bool ok = expect(provider->registerSource(source) && loadCount == 0,
+                     "lazy contract source should register without I/O");
+
+    std::unique_ptr<wsc::text::ITextBackend> backend =
+        wsc::text::createPortableTextBackend();
+    ok = expect(backend->addFontProvider(provider) && loadCount == 0,
+                "portable backend should retain a provider without loading it") && ok;
+    Paint paint;
+    paint.setFontFamily("Lazy Contract");
+    paint.setTextSize(32.0f);
+    const float firstWidth = backend->measureTextWidth("Lazy font", paint);
+    const float secondWidth = backend->measureTextWidth("Lazy font", paint);
+    ok = expect(firstWidth > 0.0f && secondWidth == firstWidth,
+                "lazy provider font should shape through the portable backend") && ok;
+    ok = expect(loadCount == 1 && provider->loadedFaceCount() == 1,
+                "portable backend should load a lazy source exactly once") && ok;
+    return ok;
+}
+
+bool testRemoteProviderReachesPortableBackendAfterHostCompletion()
+{
+    std::ifstream input(WHATSCANVAS_TEST_VARIABLE_FONT, std::ios::binary);
+    std::vector<std::uint8_t> bytes(
+        (std::istreambuf_iterator<char>(input)),
+        std::istreambuf_iterator<char>());
+    auto provider = std::make_shared<wsc::RemoteFontProvider>(
+        wsc::FontProviderKind::DYNAMIC, "contract-remote");
+    wsc::RemoteFontSource source;
+    source.font.descriptor = wsc::FontDescriptor("Remote Contract", 400);
+    source.font.sourceId = "https://fonts.example/variable.ttf";
+    source.font.codepointRanges.emplace_back(0x00C0, 0x024F);
+    source.expectedBytes = bytes.size();
+    bool ok = expect(!bytes.empty() && provider->registerSource(source),
+                     "remote contract source metadata should register");
+
+    std::unique_ptr<wsc::text::ITextBackend> backend =
+        wsc::text::createPortableTextBackend();
+    ok = expect(backend->addFontProvider(provider),
+                "portable backend should retain a remote provider") && ok;
+    Paint paint;
+    paint.setFontFamily("Remote Contract");
+    paint.setTextSize(32.0f);
+    ok = expect(!backend->hasGlyphForCodepoint(0x00E9, paint)
+                    && provider->state(source.font.sourceId)
+                        == wsc::RemoteFontState::QUEUED,
+                "first glyph lookup should enqueue host work without blocking") && ok;
+    const auto requests = provider->takeDownloadRequests();
+    ok = expect(requests.size() == 1
+                    && requests.front().sourceId == source.font.sourceId,
+                "portable lookup should expose the queued request to its host") && ok;
+    ok = expect(provider->completeDownload(source.font.sourceId,
+                                            requests.front().requestToken,
+                                            std::move(bytes)),
+                "host completion should publish downloaded font bytes") && ok;
+    ok = expect(backend->hasGlyphForCodepoint(0x00E9, paint)
+                    && backend->measureTextWidth("Async font \xC3\xA9", paint) > 0.0f,
+                "provider generation changes should bypass cached misses and shape the remote face") && ok;
+    return ok;
+}
+
 bool testFontRefreshPreservesExplicitRegistrations()
 {
     std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createPortableTextBackend();
+    wsc::text::FontRasterizer rasterizer;
+    rasterizer.clearCache();
+    wsc::FontFace cacheProbe = wsc::FontFace::fromMemory(
+        wsc::FontDescriptor("RefreshCacheProbe"),
+        std::vector<std::uint8_t>{1, 2, 3, 4});
+    (void)rasterizer.hasGlyph(cacheProbe, 'A');
+    const auto cacheBeforeRefresh = rasterizer.cacheStats();
     const bool primary = backend->registerFontFace(
         wsc::FontFace::fromFile(wsc::FontDescriptor("RefreshPrimary"), "refresh-primary.ttf"));
     const bool fallback = backend->registerFontFace(wsc::FontFace::fromMemory(
@@ -70,9 +198,14 @@ bool testFontRefreshPreservesExplicitRegistrations()
     const bool chainSet = backend->setFontFallbackChain(chain);
     const bool refreshed = backend->refreshSystemFonts();
     const auto resolved = backend->resolveFontFamilies("RefreshPrimary");
+    const auto cacheAfterRefresh = rasterizer.cacheStats();
 
-    return expect(primary && fallback && chainSet, "refresh fixtures should register")
+    return expect(cacheBeforeRefresh.faceCount == 1,
+                  "refresh test should prime the process loaded-face cache")
+        && expect(primary && fallback && chainSet, "refresh fixtures should register")
         && expect(refreshed, "portable backend should refresh system fonts")
+        && expect(cacheAfterRefresh.faceCount == 0,
+                  "system refresh should invalidate the process loaded-face cache")
         && expect(resolved.size() == 2
                       && resolved[0] == "RefreshPrimary"
                       && resolved[1] == "RefreshFallback",
@@ -319,6 +452,46 @@ bool testPortableBackendUsesGlyphAtlasForRegisteredFont()
     return ok;
 }
 
+bool testPaintVariableFontOverridesReachLayoutAndAtlas()
+{
+    std::unique_ptr<wsc::text::ITextBackend> backend =
+        wsc::text::createPortableTextBackend();
+    wsc::FontFace face = wsc::FontFace::fromFile(
+        wsc::FontDescriptor("VariablePaint"), WHATSCANVAS_TEST_VARIABLE_FONT);
+    (void)face.setVariationCoordinate("wdth", 100.0f);
+    bool ok = expect(backend->registerFontFace(face),
+                     "variable font fixture should register");
+
+    Paint narrow;
+    narrow.setTextSize(48.0f);
+    narrow.setFontFamily("VariablePaint");
+    narrow.setFontVariation("wdth", 50.0f);
+    const float narrowWidth = backend->measureTextWidth("Hamburgefontsiv", narrow);
+    const wsc::text::TextRenderResult narrowRender =
+        backend->renderText("Hamburgefontsiv", 0.0f, 0.0f, narrow);
+
+    Paint wide = narrow;
+    wide.setFontVariation("wdth", 150.0f);
+    const float wideWidth = backend->measureTextWidth("Hamburgefontsiv", wide);
+    const wsc::text::TextRenderResult wideRender =
+        backend->renderText("Hamburgefontsiv", 0.0f, 0.0f, wide);
+
+    ok = expect(narrowRender.kind == wsc::text::TextRenderKind::GlyphAtlas
+                    && wideRender.kind == wsc::text::TextRenderKind::GlyphAtlas,
+                "variable-font runs should use the portable glyph atlas") && ok;
+    ok = expect(std::isfinite(narrowWidth) && std::isfinite(wideWidth)
+                    && std::abs(wideWidth - narrowWidth) > 1.0f,
+                "Paint wdth overrides should replace the FontFace axis and change shaped run width") && ok;
+    ok = expect(!wideRender.atlasDirtyRects.empty(),
+                "a different axis instance should allocate distinct atlas glyphs") && ok;
+
+    const wsc::text::TextRenderResult wideCached =
+        backend->renderText("Hamburgefontsiv", 0.0f, 0.0f, wide);
+    ok = expect(wideCached.atlasDirtyRects.empty(),
+                "repeating the same axis instance should hit the atlas cache") && ok;
+    return ok;
+}
+
 bool testPortableGlyphLayoutCacheIsPositionIndependent()
 {
     const auto systemFont = findSystemFontFace();
@@ -353,6 +526,8 @@ bool testPortableGlyphLayoutCacheIsPositionIndependent()
         cachedBackend->renderText(text, 113.0f, 79.0f, paint);
     const auto fresh =
         freshBackend->renderText(text, 113.0f, 79.0f, paint);
+    const wsc::text::TextRenderStats renderStats =
+        cachedBackend->renderStats();
 
     bool ok = expect(cached.kind == wsc::text::TextRenderKind::GlyphAtlas
                          && fresh.kind == wsc::text::TextRenderKind::GlyphAtlas,
@@ -365,6 +540,42 @@ bool testPortableGlyphLayoutCacheIsPositionIndependent()
     ok = expect(cached.glyphAtlasQuads.size()
                     == fresh.glyphAtlasQuads.size(),
                 "cached layout should preserve the glyph count") && ok;
+    ok = expect(renderStats.normalizationCount == 2,
+                "portable render stats should count normalized draw calls") && ok;
+    ok = expect(renderStats.layoutCacheHits == 1
+                    && renderStats.layoutCacheMisses == 1,
+                "portable render stats should expose layout cache hits and misses") && ok;
+    ok = expect(renderStats.shapeCacheMisses >= 1,
+                "portable render stats should expose shaping work") && ok;
+    ok = expect(renderStats.atlasMisses > 0
+                    && renderStats.rasterizationCount > 0,
+                "portable render stats should expose cold glyph raster work") && ok;
+    ok = expect(renderStats.generatedQuadCount
+                    == cached.glyphAtlasQuads.size() * 2u,
+                "portable render stats should count emitted quads on cache hits") && ok;
+    ok = expect(renderStats.atlasDirtyBytes > 0,
+                "portable render stats should expose atlas dirty bytes") && ok;
+    ok = expect(renderStats.normalizationCpuTimeNs > 0
+                    && renderStats.layoutCacheCpuTimeNs > 0
+                    && renderStats.shapingCpuTimeNs > 0
+                    && renderStats.glyphCacheLookupCpuTimeNs > 0
+                    && renderStats.glyphRasterCpuTimeNs > 0
+                    && renderStats.atlasUploadCpuTimeNs > 0,
+                "portable render stats should time the primary text stages") && ok;
+    ok = expect(renderStats.bidiCpuTimeNs > 0
+                    && renderStats.fontFallbackCpuTimeNs > 0
+                    && renderStats.fontDataCpuTimeNs > 0
+                    && renderStats.shapeEngineCpuTimeNs > 0,
+                "portable render stats should split shaping stage CPU time") && ok;
+    cachedBackend->resetRenderStats();
+    const wsc::text::TextRenderStats resetStats =
+        cachedBackend->renderStats();
+    ok = expect(resetStats.normalizationCount == 0
+                    && resetStats.layoutCacheHits == 0
+                    && resetStats.atlasDirtyBytes == 0
+                    && resetStats.shapingCpuTimeNs == 0
+                    && resetStats.fontFallbackCpuTimeNs == 0,
+                "portable render stats should reset at a frame boundary") && ok;
     if (cached.glyphAtlasQuads.size() != fresh.glyphAtlasQuads.size()) {
         return false;
     }
@@ -381,6 +592,76 @@ bool testPortableGlyphLayoutCacheIsPositionIndependent()
                 && left.u1 == right.u1 && left.v1 == right.v1;
         ok = expect(same,
                     "cached glyph quad should match a fresh render") && ok;
+    }
+    return ok;
+}
+
+bool testPortableGlyphLayoutViewAvoidsOwningCopy()
+{
+    const auto systemFont = findSystemFontFace();
+    if (!systemFont) {
+        std::cout << "Skipping glyph layout view test; no system font found."
+                  << std::endl;
+        return true;
+    }
+
+    std::unique_ptr<wsc::text::ITextBackend> backend =
+        wsc::text::createPortableTextBackend();
+    if (!expect(backend->registerFontFace(
+                    testFace(*systemFont,
+                             wsc::FontDescriptor("LayoutView"))),
+                "layout view test font should register")) {
+        return false;
+    }
+
+    Paint paint;
+    paint.setTextSize(24.0f);
+    paint.setFontFamily("LayoutView");
+    const std::string text = "Immediate cached layout view";
+    (void)backend->renderText(text, 5.0f, 7.0f, paint);
+
+    const auto view = backend->renderTextView(
+        text, 109.0f, 73.0f, paint);
+    bool ok = expect(view.kind == wsc::text::TextRenderKind::GlyphAtlas,
+                     "layout view should retain the glyph-atlas result kind");
+    ok = expect(view.glyphAtlasQuads.empty()
+                    && view.glyphAtlasQuadsView != nullptr
+                    && !view.glyphAtlasQuadsView->empty(),
+                "layout cache hit should expose a view without an owning quad copy") && ok;
+    if (view.glyphAtlasQuadsView == nullptr) {
+        return false;
+    }
+
+    // Resolve the short-lived view before making another backend call, exactly
+    // as Canvas does while recording the draw.
+    std::vector<wsc::text::TextRenderResult::GlyphAtlasQuad> resolved =
+        *view.glyphAtlasQuadsView;
+    for (auto &quad : resolved) {
+        quad.x += view.glyphAtlasQuadOffsetX;
+        quad.y += view.glyphAtlasQuadOffsetY;
+    }
+    const wsc::text::TextRenderStats viewStats = backend->renderStats();
+    ok = expect(viewStats.layoutCacheHits == 1
+                    && viewStats.layoutCacheMisses == 1
+                    && viewStats.layoutViewHits == 1,
+                "layout view use should be observable in render statistics") && ok;
+
+    const auto owning = backend->renderText(text, 109.0f, 73.0f, paint);
+    ok = expect(resolved.size() == owning.glyphAtlasQuads.size(),
+                "resolved layout view should preserve the owning glyph count") && ok;
+    if (resolved.size() != owning.glyphAtlasQuads.size()) {
+        return false;
+    }
+    for (std::size_t index = 0; index < resolved.size(); ++index) {
+        const auto &left = resolved[index];
+        const auto &right = owning.glyphAtlasQuads[index];
+        ok = expect(left.x == right.x && left.y == right.y
+                        && left.width == right.width
+                        && left.height == right.height
+                        && left.u0 == right.u0 && left.v0 == right.v0
+                        && left.u1 == right.u1 && left.v1 == right.v1
+                        && left.isColorGlyph == right.isColorGlyph,
+                    "resolved layout view quad should match owning renderText") && ok;
     }
     return ok;
 }
@@ -475,7 +756,88 @@ bool testPortableBackendUsesRgbaAtlasForColorGlyphs()
                 "color glyph text should expose owned or viewed atlas RGBA pixels") && ok;
     ok = expect(!rendered.glyphAtlasQuads.empty(),
                 "color glyph text should emit atlas quads") && ok;
+    ok = expect(!rendered.glyphAtlasQuads.empty()
+                    && rendered.glyphAtlasQuads.front().isColorGlyph,
+                "color glyph quads should preserve intrinsic atlas colors") && ok;
+
+    const wsc::text::TextRenderResult cached = backend->renderText(
+        "\xF0\x9F\x98\x80", 4.0f, 0.0f, paint);
+    ok = expect(!cached.glyphAtlasQuads.empty()
+                    && cached.glyphAtlasQuads.front().isColorGlyph,
+                "cached color glyph lookup should retain its RGBA identity") && ok;
+
+    if (const auto plainSystemFont = findSystemFontFace()) {
+        ok = expect(backend->registerFontFace(testFace(
+                        *plainSystemFont, wsc::FontDescriptor("PlainAfterColor"))),
+                    "plain face should register after the color atlas is active") && ok;
+        paint.setFontFamily("PlainAfterColor");
+        paint.setColor(Color(12, 80, 190));
+        const wsc::text::TextRenderResult plain = backend->renderText(
+            "A", 0.0f, 0.0f, paint);
+        ok = expect(!plain.glyphAtlasQuads.empty()
+                        && !plain.glyphAtlasQuads.front().isColorGlyph,
+                    "alpha glyph quads should remain Paint-tinted in a mixed RGBA atlas") && ok;
+    }
     return ok;
+}
+
+bool testBundledCbdtPngGlyphRasterization()
+{
+    const wsc::FontFace face = wsc::FontFace::fromFile(
+        wsc::FontDescriptor("BundledCbdt"), WHATSCANVAS_TEST_CBDT_FONT);
+    wsc::text::FontRasterizer rasterizer;
+    const auto tables = rasterizer.colorFontTables(face);
+    bool ok = expect(tables && tables->cbdt && tables->cblc,
+                     "bundled CBDT fixture should expose CBDT/CBLC tables");
+    ok = expect(rasterizer.hasGlyph(face, 0x2049u),
+                "bundled CBDT fixture should map U+2049") && ok;
+    const auto glyph = rasterizer.rasterizeGlyph(face, 0x2049u, 72.0f);
+    ok = expect(glyph.has_value(),
+                "common CBDT PNG glyph should rasterize without FreeType libpng") && ok;
+    if (!glyph) return false;
+    const wsc::text::GlyphBitmap &bitmap = glyph->bitmap;
+    ok = expect(glyph->key.glyphIndex == 4,
+                "CBDT fixture should retain its cmap glyph ID") && ok;
+    ok = expect(bitmap.format == wsc::text::GlyphBitmapFormat::RGBA,
+                "CBDT PNG glyph should produce an RGBA bitmap") && ok;
+    ok = expect(bitmap.width == 90 && bitmap.height == 85,
+                "CBDT strike should scale from 109ppem to the requested 72px") && ok;
+    ok = expect(std::abs(bitmap.advanceX - 89.8348618f) < 0.001f,
+                "CBDT advance should scale with the selected strike") && ok;
+    std::size_t coloredPixels = 0;
+    for (std::size_t offset = 0; offset + 3u < bitmap.rgbaPixels.size(); offset += 4u) {
+        if (bitmap.rgbaPixels[offset + 3u] != 0
+            && (bitmap.rgbaPixels[offset] != bitmap.rgbaPixels[offset + 1u]
+                || bitmap.rgbaPixels[offset + 1u] != bitmap.rgbaPixels[offset + 2u])) {
+            ++coloredPixels;
+        }
+    }
+    return expect(coloredPixels > 2000u,
+                  "CBDT PNG glyph should retain substantial intrinsic color");
+}
+
+bool testBundledCbdtVersion2PngGlyphRasterization()
+{
+    std::ifstream input(WHATSCANVAS_TEST_CBDT_FONT, std::ios::binary);
+    std::vector<std::uint8_t> bytes(
+        (std::istreambuf_iterator<char>(input)),
+        std::istreambuf_iterator<char>());
+    bool ok = expect(!bytes.empty(),
+                     "CBDT fixture bytes should load for version-2 coverage");
+    ok = expect(setSfntTableVersion(bytes, "CBLC", 0x00020000u)
+                    && setSfntTableVersion(bytes, "CBDT", 0x00020000u),
+                "CBDT fixture should expose mutable CBLC/CBDT versions") && ok;
+    if (!ok) return false;
+
+    const wsc::FontFace face = wsc::FontFace::fromMemory(
+        wsc::FontDescriptor("BundledCbdtV2"), std::move(bytes));
+    wsc::text::FontRasterizer rasterizer;
+    const auto glyph = rasterizer.rasterizeGlyph(face, 0x2049u, 72.0f);
+    ok = expect(glyph.has_value(),
+                "Android-style CBDT/CBLC 2.0 PNG glyph should rasterize") && ok;
+    return expect(glyph && glyph->bitmap.format
+                            == wsc::text::GlyphBitmapFormat::RGBA,
+                  "CBDT/CBLC 2.0 PNG glyph should remain RGBA") && ok;
 }
 
 bool testFontRasterizerCachePolicy()
@@ -870,6 +1232,8 @@ bool testWindowsNativeTextPreservesClearTypeCoverage()
 int main()
 {
     const bool ok = testFontRegistrationAndFallback()
+        && testLazyProviderReachesPortableBackend()
+        && testRemoteProviderReachesPortableBackendAfterHostCompletion()
         && testFontRefreshPreservesExplicitRegistrations()
         && testLineBreakAndGlyphQuery()
         && testBasicBackendUsesSystemFontFallbackWhenAvailable()
@@ -881,9 +1245,13 @@ int main()
         && testPortableBackendUsesGeometryPath()
         && testPortableBackendSkipsZeroWidthBreak()
         && testPortableBackendUsesGlyphAtlasForRegisteredFont()
+        && testPaintVariableFontOverridesReachLayoutAndAtlas()
         && testPortableGlyphLayoutCacheIsPositionIndependent()
+        && testPortableGlyphLayoutViewAvoidsOwningCopy()
         && testPortableGlyphAtlasCacheKeepsFontFacesDistinct()
         && testPortableBackendUsesRgbaAtlasForColorGlyphs()
+        && testBundledCbdtPngGlyphRasterization()
+        && testBundledCbdtVersion2PngGlyphRasterization()
         && testFontRasterizerCachePolicy()
         && testFontRasterizerCacheThreadSafety()
         && testPortableBackendAppliesSimpleKerning()

@@ -1,6 +1,25 @@
 #include "GLProgram.h"
+#include <atomic>
+#include <chrono>
 #include <utility>
 #include "core/LogInternal.h"
+
+namespace {
+
+std::atomic<std::size_t> g_programLinkCount{0};
+std::atomic<std::size_t> g_shaderCompileCount{0};
+std::atomic<std::uint64_t> g_shaderCompileCpuTimeNs{0};
+std::atomic<std::uint64_t> g_programLinkCpuTimeNs{0};
+
+std::uint64_t elapsedNanoseconds(
+    const std::chrono::steady_clock::time_point start)
+{
+    return static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now() - start).count());
+}
+
+} // namespace
 
 // Move constructor
 GLProgram::GLProgram(GLProgram &&other) noexcept
@@ -8,6 +27,8 @@ GLProgram::GLProgram(GLProgram &&other) noexcept
       vertexSrc_(std::move(other.vertexSrc_)),
       fragmentSrc_(std::move(other.fragmentSrc_)),
       geometrySrc_(std::move(other.geometrySrc_)),
+      debugLabel_(std::move(other.debugLabel_)),
+      currentCompileCpuTimeNs_(other.currentCompileCpuTimeNs_),
       uniformLocations_(std::move(other.uniformLocations_))
 {
     other.program_ = 0;
@@ -26,6 +47,8 @@ GLProgram &GLProgram::operator=(GLProgram &&other) noexcept
         vertexSrc_ = std::move(other.vertexSrc_);
         fragmentSrc_ = std::move(other.fragmentSrc_);
         geometrySrc_ = std::move(other.geometrySrc_);
+        debugLabel_ = std::move(other.debugLabel_);
+        currentCompileCpuTimeNs_ = other.currentCompileCpuTimeNs_;
         uniformLocations_ = std::move(other.uniformLocations_);
         other.program_ = 0;
     }
@@ -33,7 +56,15 @@ GLProgram &GLProgram::operator=(GLProgram &&other) noexcept
 }
 
 GLProgram::GLProgram(const std::string &vertexSrc, const std::string &fragmentSrc)
+    : GLProgram("unnamed", vertexSrc, fragmentSrc)
+{
+}
+
+GLProgram::GLProgram(
+    const char *debugLabel, const std::string &vertexSrc,
+    const std::string &fragmentSrc)
     : vertexSrc_(vertexSrc), fragmentSrc_(fragmentSrc)
+      , debugLabel_(debugLabel != nullptr ? debugLabel : "unnamed")
 {
     GLuint vertexShader = compileShader(GL_VERTEX_SHADER, vertexSrc);
     GLuint fragmentShader = compileShader(GL_FRAGMENT_SHADER, fragmentSrc);
@@ -41,7 +72,8 @@ GLProgram::GLProgram(const std::string &vertexSrc, const std::string &fragmentSr
 }
 
 GLProgram::GLProgram(const std::string &vertexSrc, const std::string &geometrySrc, const std::string &fragmentSrc)
-    : vertexSrc_(vertexSrc), fragmentSrc_(fragmentSrc), geometrySrc_(geometrySrc)
+    : vertexSrc_(vertexSrc), fragmentSrc_(fragmentSrc), geometrySrc_(geometrySrc),
+      debugLabel_("unnamed_geometry")
 {
     GLuint vertexShader = compileShader(GL_VERTEX_SHADER, vertexSrc);
     GLuint geometryShader = compileShader(GL_GEOMETRY_SHADER, geometrySrc);
@@ -59,6 +91,7 @@ bool GLProgram::loadVolatile()
     }
 
     try {
+        currentCompileCpuTimeNs_ = 0;
         GLuint vertexShader = compileShader(GL_VERTEX_SHADER, vertexSrc_);
         GLuint fragmentShader = compileShader(GL_FRAGMENT_SHADER, fragmentSrc_);
         if (!geometrySrc_.empty()) {
@@ -82,6 +115,12 @@ void GLProgram::unloadVolatile()
     uniformLocations_.clear();
 }
 
+void GLProgram::abandonVolatile()
+{
+    program_ = 0;
+    uniformLocations_.clear();
+}
+
 GLProgram::~GLProgram()
 {
     glDeleteProgram(program_);
@@ -99,8 +138,18 @@ void GLProgram::linkProgram(GLuint vertexShader, GLuint fragmentShader, GLuint g
         glAttachShader(program_, geometryShader);
     }
 
+    const auto linkStart = std::chrono::steady_clock::now();
     glLinkProgram(program_);
     checkLinkErrors();
+    const std::uint64_t linkTimeNs = elapsedNanoseconds(linkStart);
+    g_programLinkCpuTimeNs.fetch_add(
+        linkTimeNs, std::memory_order_relaxed);
+    g_programLinkCount.fetch_add(1u, std::memory_order_relaxed);
+    WSC_LOG_INFO(
+        "GLProgram",
+        debugLabel_ << " stages=" << (geometryShader != 0 ? 3 : 2)
+                    << " compileUs=" << currentCompileCpuTimeNs_ / 1000u
+                    << " linkUs=" << linkTimeNs / 1000u);
 
     // Delete shader objects
     glDeleteShader(vertexShader);
@@ -148,15 +197,35 @@ GLuint GLProgram::getProgram() const
     return program_;
 }
 
+GLProgramCompilationStats GLProgram::compilationStats()
+{
+    GLProgramCompilationStats stats;
+    stats.programLinkCount =
+        g_programLinkCount.load(std::memory_order_relaxed);
+    stats.shaderCompileCount =
+        g_shaderCompileCount.load(std::memory_order_relaxed);
+    stats.shaderCompileCpuTimeNs =
+        g_shaderCompileCpuTimeNs.load(std::memory_order_relaxed);
+    stats.programLinkCpuTimeNs =
+        g_programLinkCpuTimeNs.load(std::memory_order_relaxed);
+    return stats;
+}
+
 GLuint GLProgram::compileShader(GLenum type, const std::string &source)
 {
     GLuint shader = glCreateShader(type);
     const char *src = source.c_str();
     glShaderSource(shader, 1, &src, NULL);
+    const auto compileStart = std::chrono::steady_clock::now();
     glCompileShader(shader);
 
     GLint success;
     glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
+    const std::uint64_t compileTimeNs = elapsedNanoseconds(compileStart);
+    currentCompileCpuTimeNs_ += compileTimeNs;
+    g_shaderCompileCpuTimeNs.fetch_add(
+        compileTimeNs, std::memory_order_relaxed);
+    g_shaderCompileCount.fetch_add(1u, std::memory_order_relaxed);
     if (!success)
     {
         char infoLog[512];

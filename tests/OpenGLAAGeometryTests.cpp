@@ -9,6 +9,7 @@
 #include <GLFW/glfw3.h>
 
 #include "wsc/Canvas.h"
+#include "wsc/Path.h"
 
 namespace {
 
@@ -94,6 +95,47 @@ int main()
                 "a translucent shape must never become more opaque than its source alpha") && ok;
     std::cout << "[OpenGLAAGeometryTests] max alpha " << static_cast<int>(maximumAlpha)
               << ", over-covered pixels " << overCoveredPixels << '\n';
+
+    // Direct open-arc submission must remain pixel-identical to the generic
+    // Path replay retained by Picture recording. This protects the semantic
+    // fast path's sampling, caps and analytic-AA fringe.
+    wsc::Paint arcPaint;
+    arcPaint.setStyle(wsc::Paint::Style::STROKE);
+    arcPaint.setStrokeColor(wsc::Color(72, 224, 198, 220));
+    arcPaint.setStrokeWidth(9.0f);
+    arcPaint.setStrokeCap(wsc::Paint::StrokeCap::ROUND);
+    arcPaint.setAntiAlias(true);
+    const wsc::RectF arcBounds(17.0f, 18.0f, 62.0f, 55.0f);
+    constexpr float arcStart = -2.35f;
+    constexpr float arcSweep = 4.25f;
+    const auto arcPicture = canvas->recordPicture(
+        [&](wsc::Canvas &recording) {
+            recording.drawArc(
+                arcBounds, arcStart, arcSweep,
+                wsc::Canvas::ArcMode::OPEN, arcPaint);
+        });
+    auto renderArc = [&](bool pictureReplay) {
+        canvas->beginFrame();
+        canvas->drawColor(wsc::Color(8, 12, 29, 255));
+        if (pictureReplay && arcPicture) {
+            canvas->drawPicture(*arcPicture);
+        } else {
+            canvas->drawArc(
+                arcBounds, arcStart, arcSweep,
+                wsc::Canvas::ArcMode::OPEN, arcPaint);
+        }
+        canvas->endFrame();
+        std::vector<unsigned char> frame;
+        ok = expect(
+            canvas->readPixelsRGBA(frame),
+            "open-arc comparison frame must be readable") && ok;
+        return frame;
+    };
+    const std::vector<unsigned char> directArc = renderArc(false);
+    const std::vector<unsigned char> pictureArc = renderArc(true);
+    ok = expect(
+        arcPicture && directArc == pictureArc,
+        "direct open-arc stroke must match generic Picture path replay") && ok;
 
     canvas->setDevicePixelRatio(1.0f);
     paint.setColor(wsc::Color::WHITE);
@@ -309,6 +351,77 @@ int main()
             && modalFrame.size()
                 == static_cast<std::size_t>(kWidth * kHeight * 4),
         "modal shadow followed by indexed paths must render without corrupting GL bindings") && ok;
+
+    // Initialize every lazy context-bound program that participates in the
+    // Android demo's clipped shadows. The same effect is rendered again after
+    // replacing the native GL context below.
+    auto renderContextBoundEffects = [&]() {
+        canvas->beginFrame();
+        canvas->drawColor(wsc::Color::BLACK);
+        wsc::Path circleClip;
+        circleClip.addCircle(48.0f, 48.0f, 30.0f);
+        canvas->save();
+        canvas->clipPath(circleClip);
+        paint.setBlendMode(wsc::Paint::BlendMode::SRC_OVER);
+        paint.setAntiAlias(true);
+        paint.setColor(wsc::Color(48, 210, 184, 255));
+        paint.setShadowLayer(14.0f, 5.0f, 4.0f,
+                             wsc::Color(255, 92, 72, 180));
+        canvas->drawRoundRect(
+            wsc::RectF(24.0f, 30.0f, 48.0f, 36.0f), 9.0f, paint);
+        paint.clearShadowLayer();
+        canvas->restore();
+        canvas->endFrame();
+
+        std::vector<unsigned char> frame;
+        const bool complete = canvas->readPixelsRGBA(frame)
+            && frame.size() == static_cast<std::size_t>(kWidth * kHeight * 4);
+        ok = expect(complete,
+                    "clipped shadow frame must be readable") && ok;
+        if (complete) {
+            const std::size_t center =
+                (static_cast<std::size_t>(48) * kWidth + 48u) * 4u;
+            ok = expect(frame[center + 1u] > 180 && frame[center + 2u] > 140,
+                        "clipped shadow frame must preserve its center fill") && ok;
+        }
+        return frame;
+    };
+
+    const std::vector<unsigned char> effectsBeforeContextLoss =
+        renderContextBoundEffects();
+
+    // Reproduce Android's orderly pause/resume contract: finalize while the old
+    // context is current, destroy that context, then construct a Canvas in a
+    // fresh context. Lazy GL singletons must participate in finalization so the
+    // new Canvas recreates its FBOs, textures, VAOs and programs.
+    canvas->finalizeContext();
+    canvas.reset();
+    glfwDestroyWindow(window);
+    window = glfwCreateWindow(kWidth, kHeight,
+                              "OpenGLAAGeometryTests-recreated", nullptr, nullptr);
+    if (window == nullptr) {
+        glfwTerminate();
+        return expect(false, "unable to recreate the OpenGL context") ? 0 : 1;
+    }
+    glfwMakeContextCurrent(window);
+
+    canvas = wsc::Canvas::create(wsc::Canvas::Backend::OpenGL, kWidth, kHeight);
+    ok = expect(canvas && canvas->initializeContext(),
+                "Canvas must initialize after native GL context replacement") && ok;
+    if (canvas) {
+        canvas->setSize(kWidth, kHeight);
+        canvas->setDevicePixelRatio(1.0f);
+        ok = expect(
+            canvas->setOutputTarget(
+                wsc::OutputTarget::GLFramebuffer(0, kWidth, kHeight, true)),
+            "recreated Canvas must bind the new default framebuffer") && ok;
+        const std::vector<unsigned char> effectsAfterContextLoss =
+            renderContextBoundEffects();
+        ok = expect(effectsAfterContextLoss == effectsBeforeContextLoss,
+                    "context replacement must recreate clipped-shadow resources exactly") && ok;
+        ok = expect(glGetError() == GL_NO_ERROR,
+                    "context replacement must not leave an OpenGL error") && ok;
+    }
 
     canvas.reset();
     glfwDestroyWindow(window);

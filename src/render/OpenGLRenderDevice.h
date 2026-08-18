@@ -6,6 +6,8 @@
 #include "IRenderDevice.h"
 #include "RenderTargetPool.h"
 
+struct OpenGLContextState;
+
 class OpenGLRenderDevice : public IRenderDevice
 {
 public:
@@ -14,6 +16,7 @@ public:
 
     void initializeBackend() override;
     void finalizeBackend() override;
+    void abandonBackend() override;
     bool readPixelsRGBA(int width, int height, std::vector<unsigned char> &pixels) const override;
     std::unique_ptr<IRenderTarget> createRenderTarget(int width, int height) const override;
     SharedClipMaskResource createClipMaskResource(const ClipMaskPath &maskPath) const override;
@@ -70,7 +73,7 @@ public:
     std::unique_ptr<ISwapchain> createSwapchain(const NativeSurface &surface,
                                                 const SwapchainConfig &config) override;
 
-    // Skia-style wrap-external: render into a host-provided GL framebuffer.
+    // Render into a host-provided GL framebuffer.
     bool wrapBackendRenderTarget(const BackendRenderTarget &target) override;
 
 private:
@@ -92,4 +95,5 @@ private:
     mutable std::size_t lastCompiledIndexBytes_ = 0;
     mutable std::uint64_t lastFrameCompileCpuTimeNs_ = 0;
     mutable std::unique_ptr<RenderTargetPool> renderTargetPool_;
+    std::shared_ptr<OpenGLContextState> contextState_;
 };

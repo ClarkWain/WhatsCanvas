@@ -234,7 +234,15 @@ int main()
 
     const bool statsPassed = rendered && referenceRendered
         && stats.filterCount == 3 && stats.filterPassCount == 7
-        && referenceStats.filterCount == 3 && referenceStats.filterPassCount == 9;
+        && stats.shaderProgramLinkCount > 0
+        && stats.shaderStageCompileCount
+            >= stats.shaderProgramLinkCount * 2u
+        && stats.shaderCompileCpuTimeNs > 0
+        && stats.shaderLinkCpuTimeNs > 0
+        && referenceStats.filterCount == 3
+        && referenceStats.filterPassCount == 9
+        && referenceStats.shaderProgramLinkCount == 0
+        && referenceStats.shaderStageCompileCount == 0;
     bool passed = rendered && referenceRendered && statsPassed;
     if (rendered && referenceRendered) {
         const auto diff = whatscanvas::test::comparePremultipliedRGBA(

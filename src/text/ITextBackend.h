@@ -1,6 +1,8 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -10,6 +12,7 @@ namespace wsc {
 class Paint;
 class FontFace;
 class FontFallbackChain;
+class FontProvider;
 }
 
 namespace wsc::text {
@@ -45,6 +48,9 @@ struct TextRenderResult
         float v0 = 0.0f;
         float u1 = 0.0f;
         float v1 = 0.0f;
+        // True when the atlas texels contain intrinsic glyph colors rather
+        // than a white coverage mask that should be tinted by Paint.
+        bool isColorGlyph = false;
     };
 
     struct GlyphAtlasDirtyRect
@@ -90,6 +96,13 @@ struct TextRenderResult
     std::vector<unsigned char> atlasRgbaPixels;
     std::vector<GlyphAtlasDirtyRect> atlasDirtyRects;
     std::vector<GlyphAtlasQuad> glyphAtlasQuads;
+    // Optional short-lived view used by Canvas on a hot layout-cache hit. The
+    // pointed-to quads are backend-local coordinates; apply the two offsets
+    // before drawing. The view remains valid only until the next backend call
+    // that may mutate text caches and must be consumed immediately.
+    const std::vector<GlyphAtlasQuad> *glyphAtlasQuadsView = nullptr;
+    float glyphAtlasQuadOffsetX = 0.0f;
+    float glyphAtlasQuadOffsetY = 0.0f;
     std::vector<MissingGlyph> missingGlyphs;
 };
 
@@ -128,12 +141,41 @@ struct TextBackendDiagnostic
     std::string fontFamily;
 };
 
+/// Per-frame portable text-pipeline diagnostics. Platform-native backends may
+/// leave fields at zero when the corresponding cache/raster stage is opaque.
+struct TextRenderStats
+{
+    std::size_t normalizationCount = 0;
+    std::size_t shapeCacheHits = 0;
+    std::size_t shapeCacheMisses = 0;
+    std::size_t layoutCacheHits = 0;
+    std::size_t layoutCacheMisses = 0;
+    std::size_t layoutViewHits = 0;
+    std::size_t atlasHits = 0;
+    std::size_t atlasMisses = 0;
+    std::size_t rasterizationCount = 0;
+    std::size_t zeroAreaGlyphHits = 0;
+    std::size_t generatedQuadCount = 0;
+    std::size_t atlasDirtyBytes = 0;
+    std::uint64_t normalizationCpuTimeNs = 0;
+    std::uint64_t layoutCacheCpuTimeNs = 0;
+    std::uint64_t shapingCpuTimeNs = 0;
+    std::uint64_t glyphCacheLookupCpuTimeNs = 0;
+    std::uint64_t glyphRasterCpuTimeNs = 0;
+    std::uint64_t atlasUploadCpuTimeNs = 0;
+    std::uint64_t bidiCpuTimeNs = 0;
+    std::uint64_t fontFallbackCpuTimeNs = 0;
+    std::uint64_t fontDataCpuTimeNs = 0;
+    std::uint64_t shapeEngineCpuTimeNs = 0;
+};
+
 class ITextBackend
 {
 public:
     virtual ~ITextBackend() = default;
 
     virtual bool registerFontFace(const FontFace &face) = 0;
+    virtual bool addFontProvider(std::shared_ptr<FontProvider> provider) = 0;
     virtual bool refreshSystemFonts() = 0;
     virtual bool setFontFallbackChain(const FontFallbackChain &chain) = 0;
     virtual std::vector<std::string> resolveFontFamilies(const std::string &preferredFamily) const = 0;
@@ -144,6 +186,16 @@ public:
     virtual RectF measureTextBounds(const std::string &text, const Paint &paint) const = 0;
     virtual TextMetrics measureTextMetrics(const std::string &text, const Paint &paint) const = 0;
     virtual TextRenderResult renderText(const std::string &text, float x, float y, const Paint &paint) const = 0;
+    // Immediate-consumption rendering hook. Backends may return a short-lived
+    // glyphAtlasQuadsView to avoid copying cached layout data. The default
+    // preserves the owning renderText() contract for existing adapters.
+    virtual TextRenderResult renderTextView(const std::string &text, float x, float y,
+                                            const Paint &paint) const
+    {
+        return renderText(text, x, y, paint);
+    }
+    virtual TextRenderStats renderStats() const { return {}; }
+    virtual void resetRenderStats() {}
 };
 
 } // namespace wsc::text

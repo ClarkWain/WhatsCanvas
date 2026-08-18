@@ -8,6 +8,7 @@ namespace wsc::detail {
 struct DrawPathCommandPool {
     void *freeList = nullptr;
     std::size_t retainedCount = 0;
+    bool lastAllocationReused = false;
 
     ~DrawPathCommandPool()
     {
@@ -24,13 +25,20 @@ inline thread_local DrawPathCommandPool drawPathCommandPool;
 inline void *allocateDrawPathCommand(std::size_t size)
 {
     if (drawPathCommandPool.freeList == nullptr) {
+        drawPathCommandPool.lastAllocationReused = false;
         return ::operator new(size);
     }
     void *memory = drawPathCommandPool.freeList;
     drawPathCommandPool.freeList =
         *static_cast<void **>(memory);
     --drawPathCommandPool.retainedCount;
+    drawPathCommandPool.lastAllocationReused = true;
     return memory;
+}
+
+inline bool lastDrawPathCommandAllocationReused()
+{
+    return drawPathCommandPool.lastAllocationReused;
 }
 
 inline void releaseDrawPathCommand(void *memory) noexcept
