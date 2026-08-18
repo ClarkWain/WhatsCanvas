@@ -25,10 +25,10 @@ WhatsCanvas 的定位介于 NanoVG 这类基础绘制库和 Skia 这类大型图
 | **适用场景** | 原生应用自定义 UI、工具与数据界面、HUD、2D 游戏渲染层、服务端或测试环境中的离屏图片生成。 |
 | **API 与语言** | C++17；公开 API 位于 `include/wsc/`，入口是 `#include <wsc/wsc.h>`。 |
 | **渲染后端** | OpenGL、纯 CPU Software；可选 OpenGL ES、Vulkan 以及 Metal（macOS/iOS）。WebGPU 尚未实现。 |
-| **平台状态** | Windows、Linux、macOS 持续执行构建和单元测试；发布包覆盖 Windows x64、Linux x64 和 macOS universal。Android 已有 CI 构建的三 ABI GLES 示例和可安装的 Profile 演示包，真机检查目前覆盖 Pixel 3、Redmi K30，尚不是广泛设备矩阵。Metal 已在 macOS 验证。 |
-| **文本能力** | 字体发现和 fallback、CJK/RTL、UAX #9、换行与省略号、glyph atlas、COLR/CPAL v0；OpenGL/OpenGL ES 默认启用 FreeType 与 HarfBuzz shaping。 |
+| **平台状态** | Windows、Linux、macOS 持续执行构建和单元测试；Android 有三 ABI GLES 示例和真机检查。iOS 已有仓库内 Metal/CoreText 宿主并在 iOS 26.5 模拟器验证，发布前仍需真机验证。 |
+| **文本能力** | 字体发现和 fallback、CJK/RTL、UAX #9、换行与省略号、glyph atlas、COLR/CPAL v0；便携路径使用 FreeType/HarfBuzz，Windows 可选 DirectWrite，Apple 平台可选 CoreText。 |
 | **接入方式** | vcpkg overlay port、CMake `find_package`、`add_subdirectory`，或从源码生成可搬运的安装目录。 |
-| **体量** | 非 header-only。支持按后端仅链接 `WhatsCanvas::Software`、`::OpenGL`（也承载可选 Vulkan 与 Apple Metal）或 `::OpenGLES`；参考体量见[体量与依赖](#体量与依赖)。 |
+| **体量** | 非 header-only。支持按后端仅链接 `WhatsCanvas::Software`、`::OpenGL`、`::OpenGLES` 或 Apple 平台的 `::Metal`；参考体量见[体量与依赖](#体量与依赖)。 |
 | **成熟度** | 当前版本 `0.5.0`，尚未达到 1.0。仓库已经建立公开 API 边界、跨平台 CI、像素回归、package consumer 集成测试与可审计的性能基线；升级前仍需评估下文列出的平台和兼容性风险。 |
 | **许可证** | MIT；`third_party/` 组件遵循各自许可证。 |
 
@@ -244,9 +244,9 @@ cmake -S . -B build \
 | **OpenGL 3.3 Core** | `WhatsCanvas::OpenGL` | 开启，主要跨平台 GL 路径 | 应用创建 GL 上下文并保持为当前上下文，提供 proc address | 桌面应用的主要 GL 渲染路径。 |
 | **OpenGL ES 3.0** | `WhatsCanvas::OpenGLES` | 关闭 | 宿主 EGL/GLES context | 独立 target；Linux Mesa 执行构建和滤镜像素门禁，移动设备仍需宿主侧验证。 |
 | **Vulkan** | 编入 `WhatsCanvas::OpenGL` | 关闭 | 源码构建需 Vulkan SDK；运行需 loader、驱动和可用设备 | 默认离屏；Win32 支持 Canvas 窗口呈现，其他平台的窗口 surface 仍在完善。 |
-| **Metal** | Apple 平台编入 `WhatsCanvas::OpenGL` | Apple 平台默认开启 | 支持 Metal 的 macOS/iOS/tvOS 设备 | 支持离屏渲染、外部 `MTLTexture` 互操作和 `CAMetalLayer` 窗口呈现；iOS 真机/模拟器验证仍由宿主负责。 |
+| **Metal** | 独立 `WhatsCanvas::Metal`，也可编入 `WhatsCanvas::OpenGL` | 独立 target 可选开启 | 支持 Metal 的 macOS/iOS/tvOS 设备 | 支持离屏渲染、外部 `MTLTexture` 互操作和 `CAMetalLayer` 窗口呈现，无需链接 OpenGL ES。 |
 
-Vulkan 用 `-DWHATSCANVAS_ENABLE_VULKAN=ON` 启用。Metal 在 Apple 平台默认开启，可通过 `-DWHATSCANVAS_ENABLE_METAL=OFF` 关闭。两者目前都没有独立 package target：代码编入 `WhatsCanvas::OpenGL`，运行时分别用 `Backend::Vulkan` 或 `Backend::Metal` 选择设备。
+Vulkan 用 `-DWHATSCANVAS_ENABLE_VULKAN=ON` 启用。Metal 既可保留在 Apple OpenGL target 中，也可使用 `-DWHATSCANVAS_BUILD_METAL=ON -DWHATSCANVAS_BUILD_OPENGL=OFF` 独立构建为 `WhatsCanvas::Metal`。
 
 OpenGL / OpenGL ES 由应用拥有窗口和上下文；Software、Vulkan 和 Metal 不需要外部 GL 上下文。所有后端都通过 `Canvas::create(Backend, width, height)` 创建，失败时返回 `nullptr`，因此可显式提供 fallback：
 
@@ -268,7 +268,7 @@ if (!canvas) {
 | Windows x64 | MSVC 单元测试、包消费、OpenGL/Software；发布矩阵可启用 GLES、Vulkan、FreeType、HarfBuzz | DirectWrite 文本后端可选；Vulkan 窗口呈现支持 Win32。 |
 | Linux x64 | GCC 构建、单元测试、OpenGL/GLES 滤镜像素门禁、包消费 | 自动化 GL 场景使用 Mesa/Xvfb；GLX 窗口呈现源码仍缺少持续验证。 |
 | macOS x86_64/arm64 | 单元测试、Metal 像素/契约门禁与 universal 发布包 | Metal 默认开启，支持离屏渲染和 `CAMetalLayer` 呈现；系统 OpenGL 仍可用。 |
-| iOS / Android | OpenGL ES target、[Android GLSurfaceView/JNI 示例](platforms/android/README.md)、[Android 接入指南](doc/ANDROID_INTEGRATION.md)与 iOS 接入说明 | 平台宿主统一放在 `platforms/`；Android CI 构建 `armeabi-v7a`、`arm64-v8a` 和 `x86_64`，Pixel 3、Redmi K30 提供人工真机检查。尚无常态化真机 CI，集成前请在目标硬件验证。 |
+| iOS / Android | [iOS UIKit/Metal/CoreText 示例](platforms/ios/README.md)及生命周期 UI 测试、[Android GLSurfaceView/JNI 示例](platforms/android/README.md)与 Android 接入指南 | iOS 已在模拟器验证横竖屏、前后台与冷启动；Android 构建三个 ABI 并有 Pixel 3、Redmi K30 检查。发布前均需目标真机验证。 |
 | Web | 未支持 | WebAssembly / WebGL 2 桥接仍在规划。 |
 
 详细状态见 [Android 接入指南](doc/ANDROID_INTEGRATION.md)、[Cross-Platform Validation Matrix](doc/CROSS_PLATFORM_VALIDATION_MATRIX.md)、[iOS Build Notes](doc/IOS_BUILD_NOTES.md) 和 [Vulkan Backend Status](doc/vulkan-backend-status.md)。
@@ -294,7 +294,7 @@ if (!canvas) {
 
 - `WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=ON`（默认）：优先使用 FreeType 处理 glyph lookup、metrics、kerning 和栅格化；不可用时回退 `stb_truetype`。
 - `WHATSCANVAS_ENABLE_OPENTYPE_SHAPING=ON`（默认）：启用 HarfBuzz OpenType shaping；不可用或关闭时使用 simple shaping + kerning。
-- Windows 可选 DirectWrite adapter；CoreText adapter 尚未实现。
+- Windows 可选 DirectWrite adapter；Apple 平台提供原生 CoreText 测量、换行、fallback、字体特性/可变轴、装饰线和灰度 RGBA 位图缓存。
 - 已支持 COLR/CPAL v0、Android Noto Color Emoji 使用的常见 COLRv1 paint
   graph，以及 CBLC index format 1 + CBDT image format 17 PNG 字形；其他
   CBDT/CBLC 格式、SBIX、SVG 和高级 COLRv1 composite 仍是后续工作。
@@ -360,7 +360,7 @@ if (!canvas) {
 - 版本仍处于 pre-1.0（`0.4.x`），升级前应阅读 CHANGELOG 并执行 package consumer 测试。
 - README 的能力表不保证所有 backend × platform 组合都具备相同能力；滤镜、文字和输出目标应查对应的 feature matrix，并验证项目的实际组合。
 - Vulkan 不是默认后端，跨平台窗口呈现和更大场景的像素覆盖仍在扩展。
-- Android GLSurfaceView/JNI 宿主已能构建两个 Arm ABI 和 `x86_64`；CI 使用固定 SDK/NDK 工具链构建 Debug/Release、执行 lint，tag 发布还提供 debug 签名的 Profile 演示 APK。Pixel 3、Redmi K30 已覆盖渲染、字体、生命周期与帧率检查，但广泛真机覆盖、AAR 打包和 managed-emulator instrumentation 仍待补齐。Metal 已在 Apple 平台可用，但 iOS 模拟器/真机 CI 与仓库内 iOS 示例仍待补齐；WebGPU、WebAssembly 和 CoreText native text adapter 尚未实现。
+- Android GLSurfaceView/JNI 宿主已能构建两个 Arm ABI 和 `x86_64`，Pixel 3、Redmi K30 覆盖渲染、字体、生命周期与帧率检查；广泛真机覆盖和 AAR 打包仍待补齐。iOS Metal/CoreText 示例已通过模拟器测试，真机性能和分发仍由宿主验证；WebGPU、WebAssembly 尚未实现。
 - 跨 GPU 的实时渲染结果可能受驱动影响；确定性基线应优先使用 Software，GPU 回归使用容差比较。
 - `Canvas` 应在其渲染 / 上下文线程内使用；当前公开文档不承诺同一实例的并发访问，也未定义跨 Canvas 共享图片、字体或外部纹理的跨线程约定。
 

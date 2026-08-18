@@ -417,13 +417,14 @@ public:
 	bool setFontFallbackChain(const FontFallbackChain &chain);
 
 	/// Text backend selection. `Auto`/`Portable` use the portable FreeType/stb
-	/// glyph-atlas backend; `DirectWrite` uses the native Windows backend when
-	/// available (falls back to portable otherwise).
+	/// glyph-atlas backend; `DirectWrite` and `CoreText` use the native Windows
+	/// and Apple backends when available (falling back to portable otherwise).
 	enum class TextBackend
 	{
 		Auto,
 		Portable,
 		DirectWrite,
+		CoreText,
 	};
 	/// Anti-aliasing mode for the native text backend.
 	enum class TextRenderMode

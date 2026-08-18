@@ -9,6 +9,7 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 | UTF-8 input validation | Supported | Invalid byte sequences are normalized before measurement/render paths; multiline layout accepts LF and CRLF row separators. |
 | ASCII fallback geometry | Supported | Basic backend can render normalized text through ASCII fallback geometry. |
 | Native Windows text bitmap path | Supported | Used when a font family is supplied and native measurement/render succeeds. |
+| Native Apple CoreText bitmap path | Supported | Apple builds use CoreText for measurement, typesetter line breaking, system fallback, file/memory registration, OpenType features and variation axes, decoration, and bounded grayscale RGBA bitmap caching. |
 | Cross-platform font rasterization | Supported | Registered file-backed or memory-backed TrueType faces can be rasterized through the portable font rasterizer; immutable shared-memory sources let platform providers materialize fonts without retaining a stable path. FreeType is used when available and `stb_truetype` remains the dependency-free fallback. |
 | FreeType rasterizer | Default for GL-family targets | When FreeType is found and `WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=ON` (default), glyph lookup, metrics, kerning, and alpha glyph rasterization use FreeType. The Software-only target retains `stb_truetype`. |
 | Font rasterizer cache policy | Supported | Loaded font faces are bounded by a mutex-protected LRU cache with explicit capacity control, cache clearing, and hit/miss/eviction stats. |
@@ -63,7 +64,7 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 `Paint::setFontFeature(tag, value)` does not use a fixed feature whitelist. It
 accepts any case-sensitive OpenType tag of exactly four bytes and applies the
 override to the complete text run. Portable HarfBuzz shaping and native
-DirectWrite consume the setting; the dependency-free simple shaper ignores it.
+DirectWrite and CoreText consume the setting; the dependency-free simple shaper ignores it.
 The selected font must contain and use the feature for output to change.
 
 Use value `0` to explicitly disable a feature, `1` to enable its usual form,
