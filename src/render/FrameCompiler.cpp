@@ -15,23 +15,30 @@ std::size_t bytes(const std::vector<T> &values)
 FrameCompileStats FrameCompiler::measure(const wsc::DrawList &packets)
 {
     FrameCompileStats stats;
-    stats.packetCount = packets.size();
-    for (const wsc::DrawPrimitive &packet : packets) {
-        stats.vertexBytes += bytes(packet.positions)
-            + bytes(packet.compactVertices)
-            + bytes(packet.uvs)
-            + bytes(packet.texturedInstances)
-            + bytes(packet.localPositions)
-            + bytes(packet.colors)
-            + bytes(packet.packedColors)
-            + bytes(packet.packedTints)
-            + bytes(packet.coverage)
-            + bytes(packet.packedCoverage);
-        stats.indexBytes += bytes(packet.indices)
-            + bytes(packet.shortIndices);
-        stats.textureReferenceCount += packet.texture ? 1u : 0u;
-        stats.textureReferenceCount += packet.clipTexture ? 1u : 0u;
-    }
+    const auto measurePackets = [&stats](const auto &self,
+                                         const wsc::DrawList &items) -> void {
+        stats.packetCount += items.size();
+        for (const wsc::DrawPrimitive &packet : items) {
+            stats.vertexBytes += bytes(packet.positions)
+                + bytes(packet.compactVertices)
+                + bytes(packet.uvs)
+                + bytes(packet.texturedInstances)
+                + bytes(packet.localPositions)
+                + bytes(packet.colors)
+                + bytes(packet.packedColors)
+                + bytes(packet.packedTints)
+                + bytes(packet.coverage)
+                + bytes(packet.packedCoverage);
+            stats.indexBytes += bytes(packet.indices)
+                + bytes(packet.shortIndices);
+            stats.textureReferenceCount += packet.texture ? 1u : 0u;
+            stats.textureReferenceCount += packet.clipTexture ? 1u : 0u;
+            if (!packet.shadowSilhouette.empty()) {
+                self(self, packet.shadowSilhouette);
+            }
+        }
+    };
+    measurePackets(measurePackets, packets);
     return stats;
 }
 

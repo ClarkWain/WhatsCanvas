@@ -1622,6 +1622,9 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     add_executable(WhatsCanvasMetalShadowAndTextTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalShadowAndTextTests.cpp"
     )
+    target_include_directories(WhatsCanvasMetalShadowAndTextTests PRIVATE
+        "${SRC_DIR}"
+    )
     target_link_libraries(WhatsCanvasMetalShadowAndTextTests PRIVATE
         WhatsCanvasOpenGL
         WhatsCanvasGLM
@@ -1635,6 +1638,30 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
     )
     set_tests_properties(WhatsCanvasMetalShadowAndTextTests PROPERTIES LABELS "unit;metal;shadow;text" TIMEOUT 60)
+
+    if (APPLE AND WHATSCANVAS_METAL_BACKEND_ENABLED)
+        add_executable(WhatsCanvasIOSDemoPixelParityTests
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/IOSDemoPixelParityTests.cpp"
+            "${CMAKE_CURRENT_SOURCE_DIR}/platforms/ios/WhatsCanvasDemo/DemoScene.cpp"
+        )
+        target_include_directories(WhatsCanvasIOSDemoPixelParityTests PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}"
+        )
+        target_link_libraries(WhatsCanvasIOSDemoPixelParityTests PRIVATE
+            WhatsCanvasOpenGL
+            WhatsCanvasGLM
+        )
+        add_test(NAME WhatsCanvasIOSDemoPixelParityTests
+            COMMAND ${CMAKE_COMMAND}
+                -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+                -DWHATSCANVAS_TEST_TARGET=WhatsCanvasIOSDemoPixelParityTests
+                -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasIOSDemoPixelParityTests>
+                -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+        )
+        set_tests_properties(WhatsCanvasIOSDemoPixelParityTests PROPERTIES
+            LABELS "unit;ios;metal;parity" TIMEOUT 60)
+    endif()
 
     add_executable(WhatsCanvasMetalDeviceTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalDeviceTests.cpp"
