@@ -28,6 +28,15 @@ bool expect(bool condition, const std::string &message)
     return condition;
 }
 
+bool shouldRequireSystemFontDiscovery()
+{
+#ifdef WHATSCANVAS_EXPECT_SYSTEM_FONT_DISCOVERY
+    return true;
+#else
+    return std::getenv("WHATSCANVAS_REQUIRE_SYSTEM_FONT_DISCOVERY") != nullptr;
+#endif
+}
+
 } // namespace
 
 int main()
@@ -35,6 +44,12 @@ int main()
     std::vector<FontFace> faces = FontSystem::discoverInstalledFontFaces();
 
     if (faces.empty()) {
+        if (shouldRequireSystemFontDiscovery()) {
+            std::cerr << "[SystemFontDiscoveryTests] FAIL: system font discovery "
+                         "was required for this build but returned no faces."
+                      << std::endl;
+            return 1;
+        }
         std::cout << "[SystemFontDiscoveryTests] SKIP: no discovery backend "
                      "available in this build (expected on Linux without "
                      "fontconfig, unknown platforms). Exiting green."
@@ -83,6 +98,16 @@ int main()
     ok = expect(!families.empty(), "family set should be non-empty") && ok;
     std::cout << "[SystemFontDiscoveryTests] discovered " << faces.size()
               << " faces across " << families.size() << " families." << std::endl;
+
+    const std::vector<FontFace> defaultFaces = FontSystem::defaultSystemFontFaces();
+    bool sawDefaultPrimary = false;
+    for (const FontFace &face : defaultFaces) {
+        sawDefaultPrimary = sawDefaultPrimary || face.family() == FontSystem::kDefaultPrimaryFamily;
+    }
+    ok = expect(!defaultFaces.empty(),
+                "native discovery should resolve at least one default fallback alias") && ok;
+    ok = expect(sawDefaultPrimary,
+                "native discovery should resolve the default primary fallback alias") && ok;
 
     // Register everything and confirm the canvas accepts the batch. The
     // Software backend needs no GL context, so it is the ideal driver.
