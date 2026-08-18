@@ -33,7 +33,7 @@ bool testAsciiRegression()
     Paint paint = makeFallbackPaint();
     const std::string text = "Hello Canvas";
     const float width = backend->measureTextWidth(text, paint);
-    const RectF bounds = backend->measureTextBounds(text, paint);
+    const wsc::RectF bounds = backend->measureTextBounds(text, paint);
     const wsc::text::TextRenderResult render = backend->renderText(text, 12.0f, 24.0f, paint);
 
     return expect(width > 0.0f, "ASCII text should measure to a positive width")
@@ -50,7 +50,7 @@ bool testChineseFallbackRegression()
     Paint paint = makeFallbackPaint();
     const std::string text = u8"中文测试";
     const float width = backend->measureTextWidth(text, paint);
-    const RectF bounds = backend->measureTextBounds(text, paint);
+    const wsc::RectF bounds = backend->measureTextBounds(text, paint);
     const wsc::text::TextRenderResult render = backend->renderText(text, 0.0f, 0.0f, paint);
 
     return expect(width > 0.0f, "Chinese fallback text should measure to a positive width")

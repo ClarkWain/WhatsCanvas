@@ -51,12 +51,13 @@ The current implementation now exposes explicit backend slots and capability que
 - HarfBuzz shaping adapter: optional at build time.
 - DirectWrite adapter: shipped on Windows and selectable through the public
   `Canvas` API; requests fall back to the portable path when unavailable.
-- CoreText adapter: reserved backend slot with diagnostic fallback.
+- CoreText adapter: shipped on Apple platforms and selectable through the public
+  `Canvas` API; non-Apple requests fall back to the portable path.
 
 Current follow-up priorities:
 
 1. Expand cross-platform HarfBuzz + FreeType parity and validation.
-2. Implement the CoreText adapter behind the existing backend slot.
+2. Expand CoreText color-glyph and cross-version pixel validation.
 3. Evaluate a shared glyph atlas/cache strategy for distinct repeated native
    text draws.
 4. Keep a browser/WASM-compatible path as a longer-term extension.
@@ -85,6 +86,6 @@ Current follow-up priorities:
 ## Follow-up
 
 1. Continue cross-platform font-stack and pixel-validation coverage.
-2. Implement the CoreText adapter behind the existing backend slot.
+2. Expand CoreText simulator/device and color-glyph validation.
 3. Consider batching distinct DirectWrite strings through a shared glyph atlas
    if profiling shows the bitmap cache is insufficient.

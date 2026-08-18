@@ -8,11 +8,15 @@
 #include <limits>
 
 #include "command/DrawCommand.h"
+#if !defined(WHATSCANVAS_METAL_ONLY)
 #include "command/DrawPath.h"
+#endif
 #include "command/DrawPathCommandPool.h"
 #include "RenderDeviceFactory.h"
 #include "IRenderTarget.h"
+#if !defined(WHATSCANVAS_METAL_ONLY)
 #include "SpriteBatch.h"
+#endif
 
 #include <cmath>
 #include <iostream>
@@ -255,9 +259,11 @@ std::size_t Renderer::stagingCapacityBytes() const
             + cache.topology.capacity()
                 * sizeof(std::uint64_t);
     }
+#if !defined(WHATSCANVAS_METAL_ONLY)
     if (spriteBatch_) {
         bytes += spriteBatch_->stagingCapacityBytes();
     }
+#endif
     return bytes;
 }
 
@@ -292,7 +298,9 @@ void Renderer::finalizeBackend()
 
     // SpriteBatch owns GL programs and buffers. Release them while the caller's
     // graphics context is still current, before finalizing the render device.
+#if !defined(WHATSCANVAS_METAL_ONLY)
     spriteBatch_.reset();
+#endif
 
     // Release device-owned render targets before the backend (and its GPU
     // device) is torn down, so their handles are not destroyed against a dead
@@ -315,10 +323,12 @@ void Renderer::abandonBackend()
     // sprite batch can then drop their CPU owners without deleting names from
     // the context that has already disappeared.
     device_->abandonBackend();
+#if !defined(WHATSCANVAS_METAL_ONLY)
     if (spriteBatch_) {
         spriteBatch_->abandonGLResources();
         spriteBatch_.reset();
     }
+#endif
     mainTarget_.reset();
     mainTargetWidth_ = 0;
     mainTargetHeight_ = 0;
@@ -331,7 +341,11 @@ void Renderer::abandonBackend()
 
 void Renderer::setViewport(int width, int height)
 {
+    viewportWidth_ = width;
+    viewportHeight_ = height;
+#if !defined(WHATSCANVAS_METAL_ONLY)
     context_.setSize(width, height);
+#endif
 }
 
 void Renderer::submit(std::unique_ptr<Command> &&command)
@@ -482,7 +496,7 @@ bool Renderer::readPixelsRGBA(std::vector<unsigned char> &pixels) const
         return false;
     }
 
-    return device_->readPixelsRGBA(context_.getWidth(), context_.getHeight(), pixels);
+    return device_->readPixelsRGBA(viewportWidth_, viewportHeight_, pixels);
 }
 
 SharedClipMaskResource Renderer::createClipMaskResource(const ClipMaskPath &maskPath) const
@@ -640,7 +654,9 @@ void Renderer::resetRenderState()
     if (device_ != nullptr && device_->usesDeviceCommandExecution()) {
         return;
     }
+#if !defined(WHATSCANVAS_METAL_ONLY)
     context_.resetRenderState();
+#endif
 }
 
 void Renderer::clear()
@@ -726,6 +742,11 @@ void Renderer::flush()
         return;
     }
 
+#if defined(WHATSCANVAS_METAL_ONLY)
+    WSC_LOG_ERROR("Renderer", "Metal device command execution is unavailable; frame not rendered.");
+    finishTiming();
+    return;
+#else
     DrawPathProgram *pathProgram = DrawPathProgram::getInstance();
     pathProgram->beginFrame();
     if (spriteBatch_) {
@@ -1472,12 +1493,13 @@ void Renderer::flush()
         stagingCapacityBytes()
             + pathProgram->stagingCapacityBytes());
     finishTiming();
+#endif
 }
 
 bool Renderer::flushViaDeviceCommands()
 {
-    const int width = context_.getWidth();
-    const int height = context_.getHeight();
+    const int width = viewportWidth_;
+    const int height = viewportHeight_;
     if (device_ == nullptr || width <= 0 || height <= 0) {
         return false;
     }

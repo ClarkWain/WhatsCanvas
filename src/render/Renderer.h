@@ -6,7 +6,9 @@
 
 #include "IRenderDevice.h"
 #include "IRenderer.h"
+#if !defined(WHATSCANVAS_METAL_ONLY)
 #include "RenderContext.h"
+#endif
 #include "FrameStats.h"
 #include "command/DrawData.h"
 
@@ -96,10 +98,16 @@ private:
     // scope (for example, the parent of a saveLayer boundary).
     mutable std::size_t imageBatchAppendFloor_ = 0;
     std::unique_ptr<IRenderDevice> device_;
+#if !defined(WHATSCANVAS_METAL_ONLY)
     RenderContext context_;
+#endif
+    int viewportWidth_ = 0;
+    int viewportHeight_ = 0;
     bool backendInitialized_ = false;
     mutable FrameStats stats_;
+#if !defined(WHATSCANVAS_METAL_ONLY)
     std::unique_ptr<SpriteBatch> spriteBatch_;
+#endif
 
     struct PathBatchCache
     {

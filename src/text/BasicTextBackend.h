@@ -53,4 +53,8 @@ std::unique_ptr<ITextBackend> createTextBackend(TextBackendKind kind);
 /// compile-time isDirectWriteAvailable() probe.
 bool isNativeDirectWriteActive(const ITextBackend *backend);
 
+/// Returns true only when a BasicTextBackend constructed a live CoreText
+/// adapter rather than falling back to the portable backend.
+bool isNativeCoreTextActive(const ITextBackend *backend);
+
 } // namespace wsc::text

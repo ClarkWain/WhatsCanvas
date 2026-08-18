@@ -8,7 +8,7 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
-#ifndef WHATSCANVAS_SOFTWARE_ONLY
+#if !defined(WHATSCANVAS_SOFTWARE_ONLY) && !defined(WHATSCANVAS_METAL_ONLY)
 #include <glad/glad.h>
 #endif
 #include <glm/glm.hpp>
@@ -45,7 +45,7 @@
 #include "text/TextUtils.h"
 #include "command/DrawData.h"
 #include "command/DrawCommand.h"
-#ifndef WHATSCANVAS_SOFTWARE_ONLY
+#if !defined(WHATSCANVAS_SOFTWARE_ONLY) && !defined(WHATSCANVAS_METAL_ONLY)
 #include "opengl/AsyncReadback.h"
 #endif
 #include "render/AntiAlias.h"
@@ -137,7 +137,7 @@ private:
 
 void applyGammaFramebufferState()
 {
-#ifndef WHATSCANVAS_SOFTWARE_ONLY
+#if !defined(WHATSCANVAS_SOFTWARE_ONLY) && !defined(WHATSCANVAS_METAL_ONLY)
     if (glad_glEnable == nullptr || glad_glDisable == nullptr) {
         return;
     }
@@ -3097,7 +3097,7 @@ struct Canvas::Impl
     std::unique_ptr<wsc::text::ITextBackend> textBackend;
     Canvas::TextBackend activeTextBackend = Canvas::TextBackend::Portable;
     std::unique_ptr<GraphicsStateStack> graphicsStates;
-#ifndef WHATSCANVAS_SOFTWARE_ONLY
+#if !defined(WHATSCANVAS_SOFTWARE_ONLY) && !defined(WHATSCANVAS_METAL_ONLY)
     AsyncReadback asyncReadback;
 #endif
     std::vector<LayerState> layerStack;
@@ -3438,18 +3438,18 @@ bool Canvas::isBackendAvailable(Backend backend)
     switch (backend) {
     case Backend::Software:
         return true;
-#ifdef WHATSCANVAS_SOFTWARE_ONLY
+#if defined(WHATSCANVAS_SOFTWARE_ONLY)
     default:
         return false;
 #else
     case Backend::OpenGL:
-#if defined(WHATSCANVAS_OPENGL_ES)
+#if defined(WHATSCANVAS_OPENGL_ES) || defined(WHATSCANVAS_METAL_ONLY)
         return false;
 #else
         return true;
 #endif
     case Backend::OpenGLES:
-#if defined(WHATSCANVAS_OPENGL_ES)
+#if defined(WHATSCANVAS_OPENGL_ES) && !defined(WHATSCANVAS_METAL_ONLY)
         return true;
 #else
         return false;
@@ -3574,7 +3574,7 @@ void Canvas::finalize()
 
 bool Canvas::loadOpenGL(OpenGLProcAddress loadProcAddress)
 {
-#ifdef WHATSCANVAS_SOFTWARE_ONLY
+#if defined(WHATSCANVAS_SOFTWARE_ONLY) || defined(WHATSCANVAS_METAL_ONLY)
     (void)loadProcAddress;
     return false;
 #else
@@ -3628,7 +3628,7 @@ bool Canvas::loadOpenGL(OpenGLProcAddress loadProcAddress)
 
 std::string Canvas::getOpenGLVersionString()
 {
-#ifdef WHATSCANVAS_SOFTWARE_ONLY
+#if defined(WHATSCANVAS_SOFTWARE_ONLY) || defined(WHATSCANVAS_METAL_ONLY)
     return std::string();
 #else
     const auto *version = glGetString(GL_VERSION);
@@ -6727,6 +6727,9 @@ bool Canvas::setTextBackend(TextBackend backend, TextRenderMode renderMode)
     case TextBackend::DirectWrite:
         options.backendKind = wsc::text::TextBackendKind::DirectWrite;
         break;
+    case TextBackend::CoreText:
+        options.backendKind = wsc::text::TextBackendKind::CoreText;
+        break;
     }
     options.preferClearType = (renderMode == TextRenderMode::ClearType);
 
@@ -6740,10 +6743,12 @@ bool Canvas::setTextBackend(TextBackend backend, TextRenderMode renderMode)
     // runtime (COM/factory failure), and BasicTextBackend is the source of
     // truth for whether its native DirectWrite adapter is really live.
     const bool directWriteActive = wsc::text::isNativeDirectWriteActive(created.get());
+    const bool coreTextActive = wsc::text::isNativeCoreTextActive(created.get());
     impl_->textBackend = std::move(created);
 
     impl_->activeTextBackend =
-        directWriteActive ? TextBackend::DirectWrite : TextBackend::Portable;
+        directWriteActive ? TextBackend::DirectWrite
+        : coreTextActive ? TextBackend::CoreText : TextBackend::Portable;
     ++impl_->retainedContentGeneration;
     return impl_->activeTextBackend == backend
            || (backend == TextBackend::Auto || backend == TextBackend::Portable);
@@ -8060,7 +8065,7 @@ void *Canvas::metalLastRenderedTexture() const
 
 bool Canvas::readPixelsRGBAAsync(ReadPixelsCallback callback)
 {
-#ifdef WHATSCANVAS_SOFTWARE_ONLY
+#if defined(WHATSCANVAS_SOFTWARE_ONLY) || defined(WHATSCANVAS_METAL_ONLY)
     (void)callback;
     return false;
 #else
@@ -8073,7 +8078,7 @@ bool Canvas::readPixelsRGBAAsync(ReadPixelsCallback callback)
 
 bool Canvas::pollReadPixelsRGBAAsync()
 {
-#ifdef WHATSCANVAS_SOFTWARE_ONLY
+#if defined(WHATSCANVAS_SOFTWARE_ONLY) || defined(WHATSCANVAS_METAL_ONLY)
     return false;
 #else
     return impl_->asyncReadback.checkCompletion();
@@ -8082,7 +8087,7 @@ bool Canvas::pollReadPixelsRGBAAsync()
 
 bool Canvas::hasPendingReadPixelsRGBAAsync() const
 {
-#ifdef WHATSCANVAS_SOFTWARE_ONLY
+#if defined(WHATSCANVAS_SOFTWARE_ONLY) || defined(WHATSCANVAS_METAL_ONLY)
     return false;
 #else
     return impl_->asyncReadback.isPending();
