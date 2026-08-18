@@ -86,7 +86,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libgl1-mesa-dev libegl1-mesa-dev libgles2-mesa-dev \
-                                  libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev xvfb
+                                  libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev xvfb gdb
 
       - name: OpenGLES build smoke
         run: |
@@ -95,10 +95,21 @@ jobs:
 
       - name: OpenGLES filter pixel parity on Mesa EGL
         run: |
+          set +e
           xvfb-run -a env WHATSCANVAS_REQUIRE_GL_CONTEXT=1 \
             LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe \
             ctest --test-dir build-gles-check -C Debug \
               -R '^WhatsCanvasOpenGLESFilterPixelParityTests$' --output-on-failure
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ]; then
+            echo "OpenGLES parity failed; collecting a non-interactive backtrace"
+            xvfb-run -a env WHATSCANVAS_REQUIRE_GL_CONTEXT=1 \
+              LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe \
+              gdb --batch -ex run -ex 'thread apply all backtrace' --args \
+                ./build-gles-check/WhatsCanvasOpenGLESFilterPixelParityTests || true
+            exit "$status"
+          fi
 
   android:
     runs-on: ubuntu-latest
