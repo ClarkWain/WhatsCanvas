@@ -2121,6 +2121,12 @@ if (BUILD_TESTING AND TARGET WhatsCanvasSoftware)
         WhatsCanvasSoftware
         WhatsCanvasGLM
     )
+    get_target_property(WHATSCANVAS_SOFTWARE_FONTCONFIG_ENABLED
+        WhatsCanvasSoftware WHATSCANVAS_FONTCONFIG_ENABLED)
+    if (WHATSCANVAS_SOFTWARE_FONTCONFIG_ENABLED)
+        target_compile_definitions(WhatsCanvasSystemFontDiscoveryTests PRIVATE
+            WHATSCANVAS_EXPECT_SYSTEM_FONT_DISCOVERY)
+    endif()
     add_test(NAME WhatsCanvasSystemFontDiscoveryTests
         COMMAND ${CMAKE_COMMAND}
             -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}

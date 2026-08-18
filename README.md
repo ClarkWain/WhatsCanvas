@@ -204,6 +204,8 @@ The installation directory is located at `out/package/Release/`. For standard Wi
 
 If you have already cloned the repository, execute `git submodule update --init --recursive` to refresh submodule states. Build scripts also pull missing submodules automatically upon execution, so please ensure network connectivity on the first build; if a fully offline build is necessary, be sure to fetch all submodule codebases in advance. Common system dependencies needed in Ubuntu to compile the demos include `libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev`.
 
+Linux installed-font discovery uses Fontconfig when `pkg-config` can find the `fontconfig` development package. Install `pkg-config libfontconfig1-dev` plus at least one readable system font package such as `fonts-dejavu-core` when you want `FontSystem::discoverInstalledFontFaces()` and the default fallback aliases to be active. CI jobs that must fail instead of skipping when discovery is unavailable can run the font tests with `WHATSCANVAS_REQUIRE_SYSTEM_FONT_DISCOVERY=1`.
+
 Package-manager builds can set `WHATSCANVAS_USE_SYSTEM_DEPENDENCIES=ON` to use
 registry-provided GLAD, GLM, stb, FreeType, and HarfBuzz. On Linux,
 `WHATSCANVAS_X11` controls presentation support explicitly: `AUTO` preserves
