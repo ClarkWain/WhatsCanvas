@@ -49,6 +49,8 @@ For releases and downloadable artifacts, see the
   Picture playback.
 - Preserved visible content across Android pause/resume and context recreation,
   while avoiding stale GPU-object reuse and synchronous full-scene rebuilds.
+- Resolved GLES 3.0 instanced-draw entry points independently of desktop GLAD
+  version buckets, preventing a null function call on Mesa EGL.
 
 ## [0.3.0] - 2026-08-15
 

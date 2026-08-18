@@ -3582,7 +3582,47 @@ bool Canvas::loadOpenGL(OpenGLProcAddress loadProcAddress)
         return false;
     }
 
-    return gladLoadGLLoader(reinterpret_cast<GLADloadproc>(loadProcAddress)) != 0;
+    const bool loaded =
+        gladLoadGLLoader(reinterpret_cast<GLADloadproc>(loadProcAddress)) != 0;
+#if defined(WHATSCANVAS_OPENGL_ES)
+    if (!loaded) {
+        return false;
+    }
+
+    // The bundled GLAD table was generated for desktop OpenGL, where these
+    // entry points are classified as GL 3.1/3.3. They are core in GLES 3.0,
+    // so a valid ES 3.0 context otherwise leaves the pointers null (Mesa EGL
+    // exposed this when SpriteBatch first used its instanced path). Resolve
+    // the GLES core names explicitly, with common extension aliases for older
+    // drivers, and fail loading instead of allowing a later null call.
+    const auto loadFirst = [loadProcAddress](
+        const char *coreName, const char *extName,
+        const char *angleName) -> void * {
+        if (void *entry = loadProcAddress(coreName)) {
+            return entry;
+        }
+        if (void *entry = loadProcAddress(extName)) {
+            return entry;
+        }
+        return loadProcAddress(angleName);
+    };
+    if (glad_glDrawArraysInstanced == nullptr) {
+        glad_glDrawArraysInstanced =
+            reinterpret_cast<PFNGLDRAWARRAYSINSTANCEDPROC>(loadFirst(
+                "glDrawArraysInstanced", "glDrawArraysInstancedEXT",
+                "glDrawArraysInstancedANGLE"));
+    }
+    if (glad_glVertexAttribDivisor == nullptr) {
+        glad_glVertexAttribDivisor =
+            reinterpret_cast<PFNGLVERTEXATTRIBDIVISORPROC>(loadFirst(
+                "glVertexAttribDivisor", "glVertexAttribDivisorEXT",
+                "glVertexAttribDivisorANGLE"));
+    }
+    return glad_glDrawArraysInstanced != nullptr
+        && glad_glVertexAttribDivisor != nullptr;
+#else
+    return loaded;
+#endif
 #endif
 }
 
