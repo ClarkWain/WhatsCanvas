@@ -186,8 +186,8 @@ void copyGradient(const DrawTextData &src, wsc::DrawPrimitive &dst)
 bool encodeImage(const DrawImageData &d, const CommandDrawListEncodeRequest &request,
                  wsc::DrawList &out, std::string *error)
 {
-    if (!d.imageResource || d.clipMask.hasPaths()) {
-        setError(error, "image command requires an image resource and currently cannot carry a clip mask");
+    if (!d.imageResource) {
+        setError(error, "image command requires an image resource");
         return false;
     }
     float nx[4], ny[4];
@@ -222,6 +222,20 @@ bool encodeImage(const DrawImageData &d, const CommandDrawListEncodeRequest &req
     prim.sampling = static_cast<int>(d.sampling);
     prim.tileMode = static_cast<int>(d.tileMode);
     prim.useCustomSampler = true;
+    if (d.clipMask.hasPaths()) {
+        if (!request.createClipMaskTexture) {
+            setError(error, "image clip mask creation is unavailable");
+            return false;
+        }
+        prim.clipTexture = request.createClipMaskTexture(
+            d.clipMask, request.canvasWidth, request.canvasHeight);
+        if (!prim.clipTexture) {
+            setError(error, "image clip mask texture creation failed");
+            return false;
+        }
+        prim.clipUvScale[0] = 1.0f / static_cast<float>(request.canvasWidth);
+        prim.clipUvScale[1] = 1.0f / static_cast<float>(request.canvasHeight);
+    }
     prim.positions.reserve(12);
     prim.uvs.reserve(12);
     for (int k : idx) {
@@ -239,10 +253,9 @@ bool encodeImageBatch(
     const CommandDrawListEncodeRequest &request,
     wsc::DrawList &out, std::string *error)
 {
-    if (!d.imageResource || d.clipMask.hasPaths()) {
+    if (!d.imageResource) {
         setError(
-            error,
-            "image batch requires an image resource and cannot carry a clip mask");
+            error, "image batch requires an image resource");
         return false;
     }
     if (d.quads.empty()) {
@@ -262,6 +275,20 @@ bool encodeImageBatch(
     prim.sampling = static_cast<int>(DrawImageSampling::Linear);
     prim.tileMode = static_cast<int>(DrawImageTileMode::Clamp);
     prim.useCustomSampler = true;
+    if (d.clipMask.hasPaths()) {
+        if (!request.createClipMaskTexture) {
+            setError(error, "image batch clip mask creation is unavailable");
+            return false;
+        }
+        prim.clipTexture = request.createClipMaskTexture(
+            d.clipMask, request.canvasWidth, request.canvasHeight);
+        if (!prim.clipTexture) {
+            setError(error, "image batch clip mask texture creation failed");
+            return false;
+        }
+        prim.clipUvScale[0] = 1.0f / static_cast<float>(request.canvasWidth);
+        prim.clipUvScale[1] = 1.0f / static_cast<float>(request.canvasHeight);
+    }
     prim.positions.reserve(d.quads.size() * 12u);
     prim.uvs.reserve(d.quads.size() * 12u);
     prim.packedTints.reserve(d.quads.size() * 6u);
@@ -313,29 +340,18 @@ bool encodeCommandsToDrawList(const std::vector<std::unique_ptr<Command>> &comma
         if (cmd->type() == Command::Type::Path) {
             const auto *pathCmd = static_cast<const DrawPathCommand *>(cmd.get());
             const DrawPathData &d = pathCmd->data();
+            SharedImageResource pathClipTexture;
             if (d.clipMask.hasPaths()) {
-                if (!request.createClipMaskTexture || d.hasShaderGradient()
-                    || d.hasVertexColors() || d.hasCoverage() || !pathCoversCanvas(d, request)) {
-                    setError(error, "unsupported clipped path command");
+                if (!request.createClipMaskTexture) {
+                    setError(error, "path clip mask creation is unavailable");
                     return false;
                 }
-                SharedImageResource maskTexture =
-                    request.createClipMaskTexture(d.clipMask, request.canvasWidth, request.canvasHeight);
-                if (!maskTexture || !maskTexture->isValid()) {
-                    setError(error, "clip mask texture creation failed");
+                pathClipTexture = request.createClipMaskTexture(
+                    d.clipMask, request.canvasWidth, request.canvasHeight);
+                if (!pathClipTexture || !pathClipTexture->isValid()) {
+                    setError(error, "path clip mask texture creation failed");
                     return false;
                 }
-                wsc::DrawPrimitive prim;
-                prim.kind = wsc::DrawPrimitiveKind::ClipFill;
-                prim.blendMode = mapBlend(d.blendMode);
-                applyScissor(prim, d.scissor, request);
-                prim.color[0] = d.color[0];
-                prim.color[1] = d.color[1];
-                prim.color[2] = d.color[2];
-                prim.color[3] = d.color[3];
-                prim.texture = std::move(maskTexture);
-                out.push_back(std::move(prim));
-                continue;
             }
             const std::size_t sourceVertexCount = d.getPointCount();
             const std::size_t vertexCount = d.getElementCount();
@@ -385,6 +401,11 @@ bool encodeCommandsToDrawList(const std::vector<std::unique_ptr<Command>> &comma
             }
             if (d.hasShaderGradient()) {
                 prim.kind = wsc::DrawPrimitiveKind::GradientFill;
+                prim.clipTexture = std::move(pathClipTexture);
+                if (prim.clipTexture) {
+                    prim.clipUvScale[0] = 1.0f / static_cast<float>(request.canvasWidth);
+                    prim.clipUvScale[1] = 1.0f / static_cast<float>(request.canvasHeight);
+                }
                 prim.localPositions.reserve(emittedVertexCount * 2);
                 for (std::size_t i = 0;
                      i < emittedVertexCount; ++i) {
@@ -402,6 +423,11 @@ bool encodeCommandsToDrawList(const std::vector<std::unique_ptr<Command>> &comma
                 copyGradient(d, prim);
             } else {
                 prim.kind = wsc::DrawPrimitiveKind::SolidTriangles;
+                prim.clipTexture = std::move(pathClipTexture);
+                if (prim.clipTexture) {
+                    prim.clipUvScale[0] = 1.0f / static_cast<float>(request.canvasWidth);
+                    prim.clipUvScale[1] = 1.0f / static_cast<float>(request.canvasHeight);
+                }
                 if (retainIndices) {
                     prim.indices.reserve(vertexCount);
                     for (std::size_t element = 0;
@@ -518,9 +544,18 @@ bool encodeCommandsToDrawList(const std::vector<std::unique_ptr<Command>> &comma
         } else if (cmd->type() == Command::Type::Text) {
             const auto *textCmd = static_cast<const DrawTextCommand *>(cmd.get());
             const DrawTextData &d = textCmd->data();
+            SharedImageResource textClipTexture;
             if (d.clipMask.hasPaths()) {
-                setError(error, "unsupported clipped vector text command");
-                return false;
+                if (!request.createClipMaskTexture) {
+                    setError(error, "text clip mask creation is unavailable");
+                    return false;
+                }
+                textClipTexture = request.createClipMaskTexture(
+                    d.clipMask, request.canvasWidth, request.canvasHeight);
+                if (!textClipTexture) {
+                    setError(error, "text clip mask texture creation failed");
+                    return false;
+                }
             }
             const std::size_t vertexCount = d.getVertexCount();
             if (vertexCount < 3 || (vertexCount % 3) != 0) {
@@ -538,17 +573,76 @@ bool encodeCommandsToDrawList(const std::vector<std::unique_ptr<Command>> &comma
             }
             if (d.hasShaderGradient()) {
                 prim.kind = wsc::DrawPrimitiveKind::GradientFill;
+                prim.clipTexture = std::move(textClipTexture);
+                if (prim.clipTexture) {
+                    prim.clipUvScale[0] = 1.0f / static_cast<float>(request.canvasWidth);
+                    prim.clipUvScale[1] = 1.0f / static_cast<float>(request.canvasHeight);
+                }
                 prim.localPositions.assign(d.vertices.begin(),
                                            d.vertices.begin() + static_cast<std::ptrdiff_t>(vertexCount * 2));
                 copyGradient(d, prim);
             } else {
                 prim.kind = wsc::DrawPrimitiveKind::SolidTriangles;
+                prim.clipTexture = std::move(textClipTexture);
+                if (prim.clipTexture) {
+                    prim.clipUvScale[0] = 1.0f / static_cast<float>(request.canvasWidth);
+                    prim.clipUvScale[1] = 1.0f / static_cast<float>(request.canvasHeight);
+                }
                 prim.color[0] = d.color[0];
                 prim.color[1] = d.color[1];
                 prim.color[2] = d.color[2];
                 prim.color[3] = d.color[3];
             }
             out.push_back(std::move(prim));
+        } else if (cmd->type() == Command::Type::Shadow) {
+            // Device-command backends keep shadows in the same ordered stream.
+            // Emit the already-offset silhouette here; Metal can subsequently
+            // upgrade this coverage pass to a separable blur without dropping
+            // the entire frame while the filter is unavailable.
+            const auto *shadowCmd = static_cast<const DrawShadowCommand *>(cmd.get());
+            const DrawShadowData &shadow = shadowCmd->data();
+            const DrawPathData &d = shadow.silhouette;
+            const std::size_t sourceVertexCount = d.getPointCount();
+            const std::size_t vertexCount = d.getElementCount();
+            if (sourceVertexCount >= 3 && vertexCount >= 3
+                && (vertexCount % 3) == 0) {
+                wsc::DrawPrimitive prim;
+                prim.kind = wsc::DrawPrimitiveKind::SolidTriangles;
+                prim.blendMode = mapBlend(shadow.blendMode);
+                applyScissor(prim, shadow.scissor, request);
+                prim.positions.reserve(vertexCount * 2);
+                const std::vector<float> &points = d.pointData();
+                for (std::size_t element = 0; element < vertexCount; ++element) {
+                    const std::size_t source = d.hasIndices()
+                        ? static_cast<std::size_t>(d.getIndex(element))
+                        : element;
+                    if (source >= sourceVertexCount) {
+                        setError(error, "shadow command contains an invalid index");
+                        return false;
+                    }
+                    float nx = 0.0f;
+                    float ny = 0.0f;
+                    toNdc(request, d.transform, points[source * 2],
+                          points[source * 2 + 1], nx, ny);
+                    prim.positions.push_back(nx);
+                    prim.positions.push_back(ny);
+                }
+                for (std::size_t channel = 0; channel < 4; ++channel) {
+                    prim.color[channel] = shadow.color[channel];
+                }
+                out.push_back(std::move(prim));
+            }
+            for (const DrawImageData &silhouette : shadow.imageSilhouette) {
+                DrawImageData tinted = silhouette;
+                for (std::size_t channel = 0; channel < 4; ++channel) {
+                    tinted.tintColor[channel] = shadow.color[channel];
+                }
+                tinted.scissor = shadow.scissor;
+                tinted.blendMode = shadow.blendMode;
+                if (!encodeImage(tinted, request, out, error)) {
+                    return false;
+                }
+            }
         } else {
             setError(error, "unsupported command type");
             return false;

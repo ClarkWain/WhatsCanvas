@@ -21,6 +21,7 @@ option(WHATSCANVAS_INSTALL "Enable install and package export rules." ON)
 option(WHATSCANVAS_INSTALL_TEXT_DEPENDENCIES "Install bundled FreeType/HarfBuzz when an exported renderer links them." ON)
 option(WHATSCANVAS_BUILD_OPENGL "Build the desktop OpenGL renderer library target." ON)
 option(WHATSCANVAS_BUILD_OPENGLES "Build the OpenGL ES renderer library target." OFF)
+option(WHATSCANVAS_BUILD_METAL "Build the standalone Metal renderer library target." OFF)
 option(WHATSCANVAS_BUILD_SOFTWARE "Build the dependency-free CPU (software) renderer library target." ON)
 option(WHATSCANVAS_BUILD_BENCHMARKS "Build lightweight benchmark executables." ON)
 option(WHATSCANVAS_BUILD_FUZZERS "Build Clang libFuzzer targets." OFF)
@@ -145,6 +146,38 @@ if (WHATSCANVAS_BUILD_OPENGLES)
     add_library(WhatsCanvas::OpenGLES ALIAS WhatsCanvasOpenGLES)
 endif()
 
+if (WHATSCANVAS_BUILD_METAL)
+    if (NOT APPLE)
+        message(FATAL_ERROR "WHATSCANVAS_BUILD_METAL requires an Apple platform.")
+    endif()
+    whatscanvas_add_metal_library(WhatsCanvasMetal ${CMAKE_CURRENT_LIST_DIR})
+    add_library(WhatsCanvas::Metal ALIAS WhatsCanvasMetal)
+endif()
+
+if (BUILD_TESTING AND APPLE AND TARGET WhatsCanvasMetal)
+    add_executable(WhatsCanvasCoreTextBackendTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/CoreTextBackendTests.cpp"
+    )
+    target_include_directories(WhatsCanvasCoreTextBackendTests PRIVATE
+        "${SRC_DIR}"
+        "${SRC_DIR}/canvas"
+    )
+    target_compile_definitions(WhatsCanvasCoreTextBackendTests PRIVATE
+        WHATSCANVAS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+    target_link_libraries(WhatsCanvasCoreTextBackendTests PRIVATE
+        WhatsCanvasMetal
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasCoreTextBackendTests
+        COMMAND WhatsCanvasCoreTextBackendTests
+    )
+    set_tests_properties(WhatsCanvasCoreTextBackendTests PROPERTIES
+        LABELS "unit;coretext;text"
+        TIMEOUT 60
+    )
+endif()
+
 if (WHATSCANVAS_BUILD_SOFTWARE)
     whatscanvas_add_software_library(WhatsCanvasSoftware ${CMAKE_CURRENT_LIST_DIR})
     add_library(WhatsCanvas::Software ALIAS WhatsCanvasSoftware)
@@ -175,12 +208,13 @@ if (WHATSCANVAS_BUILD_FUZZERS)
     )
 endif()
 
-if (NOT TARGET WhatsCanvasOpenGL AND NOT TARGET WhatsCanvasOpenGLES AND NOT TARGET WhatsCanvasSoftware)
-    message(FATAL_ERROR "At least one renderer target must be enabled: WHATSCANVAS_BUILD_OPENGL, WHATSCANVAS_BUILD_OPENGLES or WHATSCANVAS_BUILD_SOFTWARE.")
+if (NOT TARGET WhatsCanvasOpenGL AND NOT TARGET WhatsCanvasOpenGLES
+        AND NOT TARGET WhatsCanvasMetal AND NOT TARGET WhatsCanvasSoftware)
+    message(FATAL_ERROR "At least one renderer target must be enabled: WHATSCANVAS_BUILD_OPENGL, WHATSCANVAS_BUILD_OPENGLES, WHATSCANVAS_BUILD_METAL or WHATSCANVAS_BUILD_SOFTWARE.")
 endif()
 
 set(WHATSCANVAS_VULKAN_BACKEND_ENABLED OFF)
-if (TARGET WhatsCanvasOpenGL)
+if (TARGET WhatsCanvasOpenGL OR TARGET WhatsCanvasMetal)
     get_property(WHATSCANVAS_VULKAN_BACKEND_ENABLED
         GLOBAL PROPERTY WHATSCANVAS_VULKAN_BACKEND_ENABLED)
 endif()

@@ -164,6 +164,54 @@ bool testMetalIntersectingClips()
     return ok;
 }
 
+bool testMetalGradientClip()
+{
+    if (!Canvas::isBackendAvailable(Canvas::Backend::Metal)) return true;
+    constexpr int w = 64;
+    constexpr int h = 64;
+    auto canvas = Canvas::create(Canvas::Backend::Metal, w, h);
+    if (!expect(canvas != nullptr, "create(Metal) should succeed for gradient clip")) {
+        return false;
+    }
+    canvas->initializeContext();
+    Path triangle;
+    triangle.moveTo(32.0f, 8.0f);
+    triangle.lineTo(54.0f, 52.0f);
+    triangle.lineTo(10.0f, 52.0f);
+    triangle.close();
+    canvas->beginFrame();
+    canvas->save();
+    canvas->clipPath(triangle);
+    Paint fill;
+    fill.setStyle(Paint::Style::FILL);
+    fill.setLinearGradient(0.0f, 0.0f, 64.0f, 64.0f,
+                           Color(255, 0, 0), Color(0, 0, 255));
+    canvas->drawRect(RectF(0.0f, 0.0f, 64.0f, 64.0f), fill);
+    canvas->restore();
+    canvas->endFrame();
+    std::vector<unsigned char> pixels;
+    if (!expect(canvas->readPixelsRGBA(pixels), "gradient clip readback should succeed")) {
+        return false;
+    }
+    auto alphaAt = [&](int x, int y) {
+        return pixels[(static_cast<std::size_t>(y) * w + x) * 4u + 3u];
+    };
+    auto rgbEnergyAt = [&](int x, int y) {
+        const std::size_t offset =
+            (static_cast<std::size_t>(y) * w + x) * 4u;
+        return static_cast<int>(pixels[offset])
+            + static_cast<int>(pixels[offset + 1u])
+            + static_cast<int>(pixels[offset + 2u]);
+    };
+    bool ok = expect(alphaAt(32, 30) > 200,
+                     "gradient should remain opaque inside its clip");
+    ok = expect(alphaAt(2, 2) < 20 && alphaAt(60, 60) < 20,
+                "gradient pixels outside the clip should remain transparent") && ok;
+    ok = expect(rgbEnergyAt(2, 2) < 20 && rgbEnergyAt(60, 60) < 20,
+                "transparent clipped pixels should not leak unpremultiplied RGB") && ok;
+    return ok;
+}
+
 } // namespace
 
 int main()
@@ -171,5 +219,6 @@ int main()
     bool ok = true;
     ok = testMetalCircleClip() && ok;
     ok = testMetalIntersectingClips() && ok;
+    ok = testMetalGradientClip() && ok;
     return ok ? 0 : 1;
 }

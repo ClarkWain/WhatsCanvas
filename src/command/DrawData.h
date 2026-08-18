@@ -125,7 +125,7 @@ struct DrawPathData {
         if (!gradientStops) {
             gradientStops =
                 std::make_shared<DrawPathGradientStops>();
-        } else if (!gradientStops.unique()) {
+        } else if (gradientStops.use_count() != 1) {
             gradientStops =
                 std::make_shared<DrawPathGradientStops>(
                     *gradientStops);
