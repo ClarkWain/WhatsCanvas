@@ -108,15 +108,18 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Set up Java 11
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      # Current Android command-line tools require JDK 17 to install SDK
+      # packages, while the pinned AGP 7.2 / Gradle 7.4 build is validated on
+      # JDK 11. Install the SDK before switching the job's active Java runtime.
+      - name: Set up Java 11 for Gradle
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '11'
           cache: gradle
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
 
       - name: Install pinned Android toolchain
         run: sdkmanager 'platforms;android-33' 'build-tools;33.0.1' 'ndk;21.4.7075529' 'cmake;3.18.1'
