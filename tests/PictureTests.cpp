@@ -120,6 +120,9 @@ int main()
                      "first owner replay should compile the Picture");
         ok &= expect(secondStats.retainedPictureCacheHits == 1u,
                      "second owner replay should reuse compiled commands");
+        ok &= expect(firstStats.commandCloneCount > 0u
+                         && secondStats.commandCloneCount > 0u,
+                     "Picture compilation and cache replay should report command clones");
 
         const auto rasterFirst = renderRasterizedPicture(*recorder, *picture);
         const auto rasterFirstStats = recorder->getRenderStats();

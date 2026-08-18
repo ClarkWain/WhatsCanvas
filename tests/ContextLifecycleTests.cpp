@@ -479,6 +479,57 @@ bool testGeometryTextGaussianShadowQueuesShadowCommand()
     return ok;
 }
 
+bool testGeometryTextFallbackKeepsLogicalCoordinatesAtHighDpi()
+{
+    auto renderer = std::make_unique<FakeRenderer>();
+    FakeRenderer *rawRenderer = renderer.get();
+    std::unique_ptr<wsc::Canvas> canvas =
+        wsc::CanvasLifecycleTestAccess::create(std::move(renderer));
+
+    bool ok = expect(canvas->initializeContext(), "initializeContext should succeed");
+    canvas->setSize(200, 100);
+    ok = expect(canvas->setTextBackend(wsc::Canvas::TextBackend::Portable),
+                "portable text backend should be available") && ok;
+
+    wsc::Paint textPaint;
+    textPaint.setTextSize(16.0f);
+    textPaint.setColor(wsc::Color::WHITE);
+    // U+10FFFF is a valid Unicode scalar value but intentionally has no glyph.
+    // It therefore reaches the dependency-free '?' geometry fallback on every
+    // platform, independent of the fonts installed on the test machine.
+    constexpr const char *missingGlyph = "\xF4\x8F\xBF\xBF";
+    canvas->drawText(missingGlyph, 20.0f, 24.0f, textPaint);
+    const auto *logicalCommand = rawRenderer->commands.empty()
+        ? nullptr
+        : dynamic_cast<const DrawTextCommand *>(rawRenderer->commands.back().get());
+    ok = expect(logicalCommand != nullptr,
+                "missing glyph should use geometry text fallback") && ok;
+    const std::vector<float> logicalVertices = logicalCommand == nullptr
+        ? std::vector<float>() : logicalCommand->data().vertices;
+
+    rawRenderer->clear();
+    canvas->scale(2.0f, 2.0f);
+    canvas->drawText(missingGlyph, 20.0f, 24.0f, textPaint);
+    const auto *scaledCommand = rawRenderer->commands.empty()
+        ? nullptr
+        : dynamic_cast<const DrawTextCommand *>(rawRenderer->commands.back().get());
+    ok = expect(scaledCommand != nullptr,
+                "high-DPI missing glyph should remain geometry text") && ok;
+    if (scaledCommand != nullptr) {
+        const std::vector<float> &scaledVertices = scaledCommand->data().vertices;
+        ok = expect(scaledVertices.size() == logicalVertices.size(),
+                    "high-DPI fallback should preserve geometry topology") && ok;
+        if (scaledVertices.size() == logicalVertices.size()) {
+            for (std::size_t i = 0; i < scaledVertices.size(); ++i) {
+                ok = expect(near(scaledVertices[i], logicalVertices[i]),
+                            "high-DPI fallback vertices should stay in logical coordinates") && ok;
+            }
+        }
+    }
+
+    return ok;
+}
+
 bool testClipPathBuildsAntiAliasedCoverageMask()
 {
     auto renderer = std::make_unique<FakeRenderer>();
@@ -773,8 +824,14 @@ bool testPictureRasterCacheUsesContentBoundsAndBudget()
     canvas->drawPictureRasterized(*picture);
     ok = expect(rawRenderer->renderTargetRequests == 1,
                 "zero budget should bypass raster target creation") && ok;
+    ok = expect(canvas->getRenderStats().retainedPictureCacheMisses == 1u,
+                "raster-only playback should build the compiled cache only when fallback needs it") && ok;
+    canvas->beginFrame();
+    canvas->drawPictureRasterized(*picture);
     ok = expect(canvas->getRenderStats().retainedPictureCacheHits == 1u,
-                "zero budget should preserve the compiled Picture cache") && ok;
+                "zero-budget fallback should reuse the compiled Picture cache after its first draw") && ok;
+    ok = expect(rawRenderer->renderTargetRequests == 1,
+                "zero-budget compiled replay should not recreate a raster target") && ok;
     return ok;
 }
 
@@ -829,6 +886,7 @@ int main()
     ok = testFillGaussianShadowQueuesShadowCommand() && ok;
     ok = testStrokeGaussianShadowQueuesShadowCommand() && ok;
     ok = testGeometryTextGaussianShadowQueuesShadowCommand() && ok;
+    ok = testGeometryTextFallbackKeepsLogicalCoordinatesAtHighDpi() && ok;
     ok = testClipPathBuildsAntiAliasedCoverageMask() && ok;
     ok = testGradientQueuesShaderDescriptor() && ok;
     ok = testUniformRoundedImageUsesNativeCoverage() && ok;

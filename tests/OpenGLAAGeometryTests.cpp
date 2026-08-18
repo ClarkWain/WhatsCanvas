@@ -96,6 +96,47 @@ int main()
     std::cout << "[OpenGLAAGeometryTests] max alpha " << static_cast<int>(maximumAlpha)
               << ", over-covered pixels " << overCoveredPixels << '\n';
 
+    // Direct open-arc submission must remain pixel-identical to the generic
+    // Path replay retained by Picture recording. This protects the semantic
+    // fast path's sampling, caps and analytic-AA fringe.
+    wsc::Paint arcPaint;
+    arcPaint.setStyle(wsc::Paint::Style::STROKE);
+    arcPaint.setStrokeColor(wsc::Color(72, 224, 198, 220));
+    arcPaint.setStrokeWidth(9.0f);
+    arcPaint.setStrokeCap(wsc::Paint::StrokeCap::ROUND);
+    arcPaint.setAntiAlias(true);
+    const wsc::RectF arcBounds(17.0f, 18.0f, 62.0f, 55.0f);
+    constexpr float arcStart = -2.35f;
+    constexpr float arcSweep = 4.25f;
+    const auto arcPicture = canvas->recordPicture(
+        [&](wsc::Canvas &recording) {
+            recording.drawArc(
+                arcBounds, arcStart, arcSweep,
+                wsc::Canvas::ArcMode::OPEN, arcPaint);
+        });
+    auto renderArc = [&](bool pictureReplay) {
+        canvas->beginFrame();
+        canvas->drawColor(wsc::Color(8, 12, 29, 255));
+        if (pictureReplay && arcPicture) {
+            canvas->drawPicture(*arcPicture);
+        } else {
+            canvas->drawArc(
+                arcBounds, arcStart, arcSweep,
+                wsc::Canvas::ArcMode::OPEN, arcPaint);
+        }
+        canvas->endFrame();
+        std::vector<unsigned char> frame;
+        ok = expect(
+            canvas->readPixelsRGBA(frame),
+            "open-arc comparison frame must be readable") && ok;
+        return frame;
+    };
+    const std::vector<unsigned char> directArc = renderArc(false);
+    const std::vector<unsigned char> pictureArc = renderArc(true);
+    ok = expect(
+        arcPicture && directArc == pictureArc,
+        "direct open-arc stroke must match generic Picture path replay") && ok;
+
     canvas->setDevicePixelRatio(1.0f);
     paint.setColor(wsc::Color::WHITE);
     auto renderTopologyPair = [&](bool reversed) {

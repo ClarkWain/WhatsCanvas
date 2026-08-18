@@ -91,6 +91,14 @@ public:
         return vertexData_.empty() && instanceData_.empty();
     }
 
+    std::size_t stagingCapacityBytes() const
+    {
+        return vertexData_.capacity() * sizeof(float)
+            + instanceData_.capacity() * sizeof(float)
+            + textures_.capacity()
+                * sizeof(std::shared_ptr<ImageResource>);
+    }
+
 private:
     std::shared_ptr<ImageResource> texture_;
     std::vector<std::shared_ptr<ImageResource>> textures_;
@@ -114,7 +122,7 @@ private:
     bool samplerUniformsInitialized_ = false;
     bool instanceSamplerInitialized_ = false;
 
-    void ensureGLInitialized();
+    void ensureGLInitialized(bool instanced);
     void ensureIndexCapacity(std::size_t spriteCount);
     void releaseGLResources(bool abandon = false);
 };

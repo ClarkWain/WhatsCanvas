@@ -26,7 +26,9 @@ def main() -> int:
     cmake = read("CMakeLists.txt")
     version_h = read("include/wsc/Version.h")
     readme = read("README.md")
+    readme_zh = read("README_zh.md")
     getting_started = read("doc/GETTING_STARTED_AS_LIBRARY.md")
+    android_gradle = read("platforms/android/app/build.gradle")
     package_workflow = read(".github/workflows/package-release.yml")
 
     project_version = require(r"project\s*\(\s*WhatsCanvas\s+VERSION\s+([0-9]+\.[0-9]+\.[0-9]+)", cmake, "CMake project version")
@@ -38,7 +40,9 @@ def main() -> int:
         "WSC_VERSION_PATCH": require(r"#define\s+WSC_VERSION_PATCH\s+([0-9]+)", version_h, "WSC_VERSION_PATCH"),
         "WSC_VERSION_STRING": require(r'#define\s+WSC_VERSION_STRING\s+"([^"]+)"', version_h, "WSC_VERSION_STRING"),
         "README find_package": require(r"find_package\s*\(\s*WhatsCanvas\s+([0-9]+\.[0-9]+\.[0-9]+)\s+CONFIG\s+REQUIRED\s*\)", readme, "README find_package version"),
+        "README_zh find_package": require(r"find_package\s*\(\s*WhatsCanvas\s+([0-9]+\.[0-9]+\.[0-9]+)\s+CONFIG\s+REQUIRED\s*\)", readme_zh, "README_zh find_package version"),
         "getting-started find_package": require(r"find_package\s*\(\s*WhatsCanvas\s+([0-9]+\.[0-9]+\.[0-9]+)\s+CONFIG\s+REQUIRED\s*\)", getting_started, "getting-started find_package version"),
+        "Android versionName": require(r"versionName\s+['\"]([0-9]+\.[0-9]+\.[0-9]+)['\"]", android_gradle, "Android versionName"),
     }
 
     expected = {
@@ -47,7 +51,9 @@ def main() -> int:
         "WSC_VERSION_PATCH": patch,
         "WSC_VERSION_STRING": project_version,
         "README find_package": project_version,
+        "README_zh find_package": project_version,
         "getting-started find_package": project_version,
+        "Android versionName": project_version,
     }
 
     errors: list[str] = []

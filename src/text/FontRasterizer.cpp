@@ -328,6 +328,14 @@ bool setFreeTypePixelSize(FT_Face face, float pixelSize)
         return false;
     }
     const auto roundedSize = static_cast<FT_UInt>(std::max(1.0f, std::round(pixelSize)));
+    // Shaping, metrics, kerning and rasterization repeatedly touch every glyph
+    // in a run. FT_Set_Pixel_Sizes rebuilds size-dependent face state even
+    // when the requested size is unchanged, so avoid paying that cost for
+    // every glyph in a same-size label.
+    if (face->size != nullptr
+        && face->size->metrics.y_ppem == roundedSize) {
+        return true;
+    }
     if (FT_Set_Pixel_Sizes(face, 0, roundedSize) == 0) return true;
     if (face->num_fixed_sizes <= 0 || face->available_sizes == nullptr) return false;
 
@@ -955,17 +963,22 @@ std::vector<unsigned char> resizeRgbaBitmap(
     return result;
 }
 
-// CBDT v3 image format 17 stores small glyph metrics followed by PNG data.
-// This covers the common Android bitmap-emoji path when FreeType lacks PNG support.
+// CBDT image format 17 stores small glyph metrics followed by PNG data.
+// Android devices ship both 2.0 (for example Pixel 3 / Android 12) and 3.0
+// table versions with the same index-format-1/image-format-17 layout. Accept
+// both so the fallback decoder still works when FreeType lacks PNG support.
 std::optional<wsc::text::GlyphBitmap> rasterizeCbdtPngGlyph(
     const std::vector<unsigned char> &fontBytes, std::size_t fontOffset,
     int glyphIndex, float pixelSize)
 {
     const auto cblc = findSfntTable(fontBytes, fontOffset, "CBLC");
     const auto cbdt = findSfntTable(fontBytes, fontOffset, "CBDT");
+    const auto supportedBitmapVersion = [](std::uint32_t version) {
+        return version == 0x00020000u || version == 0x00030000u;
+    };
     if (!cblc || !cbdt || cblc->size < 8u || cbdt->size < 4u
-        || readU32BE(cblc->data) != 0x00030000u
-        || readU32BE(cbdt->data) != 0x00030000u || glyphIndex <= 0
+        || !supportedBitmapVersion(readU32BE(cblc->data))
+        || !supportedBitmapVersion(readU32BE(cbdt->data)) || glyphIndex <= 0
         || pixelSize <= 0.0f) {
         return std::nullopt;
     }

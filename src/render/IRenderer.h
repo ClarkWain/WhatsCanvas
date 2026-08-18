@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -11,6 +12,7 @@
 
 class Command;
 struct DrawImageBatchData;
+struct DrawImageBatchQuad;
 
 struct OffscreenRenderRequest
 {
@@ -38,10 +40,23 @@ public:
     virtual void abandonBackend() { finalizeBackend(); }
     virtual void setViewport(int width, int height) = 0;
     virtual void submit(std::unique_ptr<Command> &&command) = 0;
+    virtual void recordCommandClone(
+        std::size_t /*payloadBytes*/,
+        bool /*pathCommand*/) {}
     virtual bool tryAppendImageBatch(
-        const DrawImageBatchData & /*batch*/)
+        DrawImageBatchData & /*batch*/)
     {
         return false;
+    }
+    // Returns the existing compatible batch's quad storage after reserving
+    // room for an immediate append. This lets hot producers write directly
+    // into renderer-owned staging instead of building and copying a temporary
+    // vector. The pointer must not be retained across another renderer call.
+    virtual std::vector<DrawImageBatchQuad> *tryGetImageBatchAppendTarget(
+        const DrawImageBatchData & /*batch*/,
+        std::size_t /*additionalQuadCount*/)
+    {
+        return nullptr;
     }
     virtual size_t commandCount() const = 0;
     virtual std::vector<std::unique_ptr<Command>> takeCommandsFrom(size_t index) = 0;

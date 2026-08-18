@@ -8,6 +8,11 @@ and lifecycle contract that a production host should follow.
 WhatsCanvas does not currently publish an Android AAR. Integrate it from source
 or use the checked-in Android application as the starting module.
 
+Tagged releases publish a debug-signed, three-ABI Profile demo APK named
+`whatscanvas-android-demo-profile-<version>.apk`. It is intended for evaluating
+the reference scene and collecting representative device traces; it is not a
+production-signed app and is not a substitute for an AAR or source integration.
+
 ## Integration Architecture
 
 The Android host owns the window, EGL context, render thread, and presentation:
@@ -253,14 +258,20 @@ perform its own `eglSwapBuffers` inside the renderer callback.
 An application with continuous animation should declare that intent at both
 the Window and Surface levels. The reference host sets
 `WindowManager.LayoutParams.preferredRefreshRate` and, on API 30+, calls
-`Surface.setFrameRate(60, FRAME_RATE_COMPATIBILITY_FIXED_SOURCE)` after the
-Surface is created. On API 23+ the demo also selects the supported display mode
-nearest 60 Hz through `preferredDisplayModeId`. These are preferences, not
-guarantees: OEM display policies may
+`Surface.setFrameRate(60, FRAME_RATE_COMPATIBILITY_DEFAULT)` after the Surface
+is created. `DEFAULT` is appropriate for animation that can follow the active
+display cadence; `FIXED_SOURCE` is intended for video-like content with an
+intrinsic frame rate. On API 31+ the demo permits an always/non-seamless mode
+change, and on API 23+ it also selects the supported display mode nearest 60 Hz
+through `preferredDisplayModeId`. These are preferences, not guarantees: OEM
+display policies may
 still select 30/50 Hz for power management. Consequently, report both the
 renderer callback rate and SurfaceFlinger/display mode when diagnosing FPS;
-an exact 30 FPS result on a 30 Hz active mode is correct pacing, not a dropped
-frame signal.
+an exact 30 or 50 FPS result on the matching active mode is correct pacing,
+not a dropped-frame signal. The Redmi K30 validation device, for example,
+reported a 60 Hz desired mode but retained its OEM-selected 50 Hz active mode;
+WhatsCanvas recorded about 1 ms and submitted in about 0.7-2.2 ms while the
+callback rate correctly remained 50 FPS.
 
 The sample logs a five-second `renderedFps` window and bounded RenderStats
 cache/upload counters. Production applications should route equivalent data to
@@ -454,8 +465,14 @@ does not need to discover or pre-register Android system font files itself.
   paint graph used by Android's Noto Color Emoji (layers, solid/linear/radial
   fills, affine transforms, and visible composite fallback) and uploads RGBA
   glyphs. COLR/CPAL v0 and CBLC index-format 1 + CBDT image-format 17 PNG
-  glyphs are also supported. Other CBDT/CBLC formats, sbix, SVG-in-OpenType,
-  and exact advanced COLRv1 blend modes are still separate capability work.
+  glyphs are also supported with both 2.0 and 3.0 CBDT/CBLC table versions.
+  Android 12 on Pixel 3 ships the 2.0 form, while newer AOSP fixtures commonly
+  use 3.0. Other CBDT/CBLC formats, sbix, SVG-in-OpenType, and exact advanced
+  COLRv1 blend modes are still separate capability work.
+- If rasterization still has to use the ASCII geometry fallback, its triangle
+  vertices are normalized back to logical coordinates together with bitmap and
+  atlas placement. This prevents HiDPI/Picture playback from scaling fallback
+  question marks twice and scattering them outside the original text line.
 
 System font files, configuration, and family contents can vary by Android
 version and OEM. For
@@ -503,6 +520,8 @@ From `platforms/android/` on Windows:
 ```bat
 gradlew.bat :app:assembleDebug
 gradlew.bat :app:lintDebug
+gradlew.bat :app:assembleProfile
+gradlew.bat :app:lintProfile
 gradlew.bat :app:assembleRelease
 ```
 
@@ -513,6 +532,22 @@ adb install -r app\build\outputs\apk\debug\app-debug.apk
 adb shell am start -W -n com.whatscanvas.demo/.MainActivity
 adb logcat -s WhatsCanvas:V AndroidRuntime:E libc:F
 ```
+
+Do not use the Debug APK as a performance baseline: AGP/NDK compile its native
+targets with `-O0`. The sample's Profile variant remains installable with the
+debug key and keeps symbols plus `run-as`/`simpleperf` access, but appends
+`-O2 -DNDEBUG` after the NDK Debug defaults. Build and install it with:
+
+```bat
+gradlew.bat :app:assembleProfile
+adb install -r app\build\outputs\apk\profile\app-profile.apk
+```
+
+Always inspect the generated `build.ninja` when changing this configuration:
+an earlier attempt placed `-O2` before AGP's trailing `-O0`, producing a package
+named Profile that still had Debug performance. The last optimization flag is
+the effective one. Use Release for shipping/package validation; Profile exists
+only for representative, symbolized measurements.
 
 Validate at least:
 
@@ -562,12 +597,28 @@ with another emulator GPU backend. On the reference Windows machine,
 - No published AAR or Prefab package.
 - Android Gradle debug/release builds and lint run in CI, but there is no managed
   emulator or instrumentation gate yet.
-- No checked-in touch/input abstraction.
+- The sample has local density-aware touch handling, but the core renderer does
+  not define a cross-platform input abstraction.
 - Encoded image decoding is available in the library but is not demonstrated by
   the current Android scene.
 - Vulkan Android presentation is not wired into this host.
 - Device lifecycle validation is currently manual rather than an instrumentation
   test; core orderly-finalize and no-delete-abandon paths have unit coverage.
+
+## Validated Android Checkpoints
+
+The `0.4.0` close-out was exercised on two physical devices in addition to the
+three-ABI build/lint gate:
+
+| Device | OS / GPU | Checks | Result |
+| --- | --- | --- | --- |
+| Google Pixel 3 | Android 12 / Adreno 630 | cold start, CJK/emoji, CBDT 2.0, HiDPI fallback, Picture playback, pause/resume, 60 Hz pacing | passed; steady-state callback rate about 60.7-60.8 FPS |
+| Redmi K30 | Android 11 / MIUI 12.5 / Adreno | full feature scene, retained/raster cache, pause/resume, OEM 50/60 Hz modes | passed; follows the active 49.7-59.6 Hz display mode |
+
+These are engineering checkpoints, not a promise of identical behavior across
+all Android releases, vendors, refresh-rate policies, or GPU drivers. Validate
+the actual product font set, effects, ABI set, and lifecycle on every shipping
+device class.
 
 ## Relationship to iOS
 

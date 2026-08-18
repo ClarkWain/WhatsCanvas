@@ -9,6 +9,7 @@
 
 #include "command/DrawCommand.h"
 #include "command/DrawPath.h"
+#include "command/DrawPathCommandPool.h"
 #include "RenderDeviceFactory.h"
 #include "IRenderTarget.h"
 #include "SpriteBatch.h"
@@ -208,6 +209,20 @@ bool isSpriteBatchCompatible(
         && !data.clipMask.hasPaths()
         && data.blendMode == blendMode;
 }
+
+std::size_t pathPacketCapacityBytes(
+    const DrawPathData &data)
+{
+    return data.points.capacity() * sizeof(float)
+        + data.colors.capacity() * sizeof(float)
+        + data.packedColors.capacity() * sizeof(std::uint8_t)
+        + data.coverage.capacity() * sizeof(float)
+        + data.packedCoverage.capacity() * sizeof(std::uint8_t)
+        + data.indices.capacity() * sizeof(std::uint32_t)
+        + data.shortIndices.capacity() * sizeof(std::uint16_t)
+        + data.drawIds.capacity() * sizeof(std::uint16_t)
+        + data.drawParameters.capacity() * sizeof(float);
+}
 } // namespace
 
 Renderer::Renderer()
@@ -218,6 +233,32 @@ Renderer::Renderer()
 Renderer::Renderer(std::unique_ptr<IRenderDevice> device)
     : device_(std::move(device))
 {
+}
+
+std::size_t Renderer::stagingCapacityBytes() const
+{
+    std::size_t bytes = commands_.capacity()
+        * sizeof(std::unique_ptr<Command>);
+    for (const auto &command : commands_) {
+        if (command != nullptr
+            && command->type() == Command::Type::ImageBatch) {
+            bytes += static_cast<const DrawImageBatchCommand *>(
+                         command.get())
+                         ->data().quads.capacity()
+                * sizeof(DrawImageBatchQuad);
+        }
+    }
+    bytes += pathBatchCaches_.capacity()
+        * sizeof(PathBatchCache);
+    for (const PathBatchCache &cache : pathBatchCaches_) {
+        bytes += pathPacketCapacityBytes(cache.packet)
+            + cache.topology.capacity()
+                * sizeof(std::uint64_t);
+    }
+    if (spriteBatch_) {
+        bytes += spriteBatch_->stagingCapacityBytes();
+    }
+    return bytes;
 }
 
 void Renderer::initialize()
@@ -295,11 +336,35 @@ void Renderer::setViewport(int width, int height)
 
 void Renderer::submit(std::unique_ptr<Command> &&command)
 {
+    if (command != nullptr) {
+        ++stats_.commandObjectCount;
+        if (command->type() == Command::Type::Path
+            && wsc::detail::lastDrawPathCommandAllocationReused()) {
+            ++stats_.commandPoolReuseCount;
+        } else {
+            ++stats_.commandAllocationCount;
+        }
+    }
     commands_.push_back(std::move(command));
 }
 
+void Renderer::recordCommandClone(
+    std::size_t payloadBytes,
+    bool pathCommand)
+{
+    ++stats_.commandObjectCount;
+    if (pathCommand
+        && wsc::detail::lastDrawPathCommandAllocationReused()) {
+        ++stats_.commandPoolReuseCount;
+    } else {
+        ++stats_.commandAllocationCount;
+    }
+    ++stats_.commandCloneCount;
+    stats_.payloadCopyBytes += payloadBytes;
+}
+
 bool Renderer::tryAppendImageBatch(
-    const DrawImageBatchData &batch)
+    DrawImageBatchData &batch)
 {
     if (commands_.size() <= imageBatchAppendFloor_
         || batch.quads.empty()
@@ -329,7 +394,53 @@ bool Renderer::tryAppendImageBatch(
     }
     previous.quads.insert(
         previous.quads.end(), batch.quads.begin(), batch.quads.end());
+    stats_.payloadCopyBytes +=
+        batch.quads.size() * sizeof(DrawImageBatchQuad);
     return true;
+}
+
+std::vector<DrawImageBatchQuad> *Renderer::tryGetImageBatchAppendTarget(
+    const DrawImageBatchData &batch,
+    std::size_t additionalQuadCount)
+{
+    if (commands_.size() <= imageBatchAppendFloor_
+        || additionalQuadCount == 0
+        || batch.scissor.enabled || batch.clipMask.hasPaths()
+        || batch.tintColor[0] != 1.0f
+        || batch.tintColor[1] != 1.0f
+        || batch.tintColor[2] != 1.0f
+        || batch.tintColor[3] != 1.0f
+        || batch.alpha != 1.0f
+        || commands_.back()->type() != Command::Type::ImageBatch) {
+        return nullptr;
+    }
+    auto &previous = static_cast<DrawImageBatchCommand *>(
+                         commands_.back().get())
+                         ->data();
+    if (previous.imageResource != batch.imageResource
+        || previous.scissor.enabled
+        || previous.clipMask.hasPaths()
+        || previous.blendMode != batch.blendMode
+        || previous.transform != batch.transform
+        || previous.tintColor[0] != 1.0f
+        || previous.tintColor[1] != 1.0f
+        || previous.tintColor[2] != 1.0f
+        || previous.tintColor[3] != 1.0f
+        || previous.alpha != 1.0f) {
+        return nullptr;
+    }
+
+    const std::size_t required =
+        previous.quads.size() + additionalQuadCount;
+    if (required > previous.quads.capacity()) {
+        const std::size_t geometricCapacity =
+            previous.quads.capacity() > 0
+            ? previous.quads.capacity() * 2u
+            : additionalQuadCount;
+        previous.quads.reserve(
+            std::max(required, geometricCapacity));
+    }
+    return &previous.quads;
 }
 
 size_t Renderer::commandCount() const
@@ -568,6 +679,26 @@ void Renderer::flush()
         }
     };
     stats_.commandCount += commands_.size();
+    std::size_t queuedPathVertexCount = 0;
+    std::size_t queuedPathIndexCount = 0;
+    for (const auto &command : commands_) {
+        if (command == nullptr
+            || command->type() != Command::Type::Path) {
+            continue;
+        }
+        const DrawPathData &path =
+            static_cast<const DrawPathCommand *>(
+                command.get())->data();
+        stats_.pathInputVertexCount +=
+            path.sourceVertexCount;
+        stats_.pathTessellatedVertexCount +=
+            path.tessellatedVertexCount;
+        stats_.pathAaExpandedVertexCount +=
+            path.aaExpandedVertexCount;
+        queuedPathVertexCount += path.getPointCount();
+        queuedPathIndexCount += path.hasIndices()
+            ? path.getElementCount() : 0u;
+    }
 
     // Devices such as Vulkan render the recorded command stream into a device
     // render target rather than executing each command against a GL context.
@@ -576,11 +707,21 @@ void Renderer::flush()
         const auto deviceStart = std::chrono::steady_clock::now();
         if (!flushViaDeviceCommands()) {
             WSC_LOG_ERROR("Renderer", "Device command execution failed; frame not rendered.");
+        } else {
+            stats_.pathVertexCount +=
+                queuedPathVertexCount;
+            stats_.pathIndexCount +=
+                queuedPathIndexCount;
+            stats_.pathUploadedVertexCount +=
+                queuedPathVertexCount;
         }
         const auto deviceEnd = std::chrono::steady_clock::now();
         stats_.deviceExecutionCpuTimeNs += static_cast<std::uint64_t>(
             std::chrono::duration_cast<std::chrono::nanoseconds>(
                 deviceEnd - deviceStart).count());
+        stats_.stagingCapacityBytes = std::max(
+            stats_.stagingCapacityBytes,
+            stagingCapacityBytes());
         finishTiming();
         return;
     }
@@ -633,14 +774,13 @@ void Renderer::flush()
                 }
                 spriteBatch_->clear();
                 spriteBatch_->setTexture(first.imageResource);
+                // GLES 3 and desktop GL can both reconstruct a plain image
+                // quad from one instance. Rotated/sheared transforms retain
+                // the expanded path because two bounds corners cannot encode
+                // the other transformed corners.
                 const bool compactGlyphBatch =
-#if defined(WHATSCANVAS_OPENGL_ES)
-                    false;
-#else
-                    first.imageResource->isAlphaOnly()
-                    && first.transform[0][1] == 0.0f
+                    first.transform[0][1] == 0.0f
                     && first.transform[1][0] == 0.0f;
-#endif
 
                 std::size_t j = i;
                 while (j < commands_.size()
@@ -708,12 +848,31 @@ void Renderer::flush()
                                 batch.transform);
                         }
                     }
+                    stats_.payloadCopyBytes +=
+                        batch.quads.size()
+                        * (compactGlyphBatch ? 12u : 56u)
+                        * sizeof(float);
                     ++j;
+                }
+                if (j < commands_.size()) {
+                    if (commands_[j]->type()
+                        != Command::Type::ImageBatch) {
+                        ++stats_.batchBreakCommandTypeCount;
+                    } else {
+                        ++stats_.batchBreakStateCount;
+                    }
                 }
 
                 if (!spriteBatch_->empty()) {
                     const std::size_t spriteCount =
                         spriteBatch_->spriteCount();
+                    stats_.imageBatchQuadCount += spriteCount;
+                    if (compactGlyphBatch) {
+                        stats_.imageBatchInstancedQuadCount += spriteCount;
+                    }
+                    stats_.imageBatchUploadBytes += spriteCount
+                        * (compactGlyphBatch ? 12u : 56u)
+                        * sizeof(float);
                     spriteBatch_->flush(context_, first.blendMode);
                     ++stats_.drawCallCount;
                     if (spriteCount > 1) {
@@ -737,6 +896,8 @@ void Renderer::flush()
                 spriteBatch_->clear();
 
                 std::size_t j = i;
+                bool imageStateBreak = false;
+                bool imageTextureBreak = false;
                 while (j < commands_.size()
                        && commands_[j]->type()
                            == Command::Type::Image) {
@@ -745,12 +906,14 @@ void Renderer::flush()
                             commands_[j].get())->data();
                     if (!isSpriteBatchCompatible(
                             data, first.blendMode)) {
+                        imageStateBreak = true;
                         break;
                     }
                     const int textureSlot =
                         spriteBatch_->addTexture(
                             data.imageResource);
                     if (textureSlot < 0) {
+                        imageTextureBreak = true;
                         break;
                     }
                     float tintColor[4] = {
@@ -769,7 +932,18 @@ void Renderer::flush()
                         tintColor[2], tintColor[3],
                         data.transform, data.roundedRadius,
                         textureSlot);
+                    stats_.payloadCopyBytes +=
+                        56u * sizeof(float);
                     ++j;
+                }
+                if (j < commands_.size()
+                    && commands_[j]->type()
+                        != Command::Type::Image) {
+                    ++stats_.batchBreakCommandTypeCount;
+                } else if (imageTextureBreak) {
+                    ++stats_.batchBreakTextureLimitCount;
+                } else if (imageStateBreak) {
+                    ++stats_.batchBreakStateCount;
                 }
 
                 if (j > i) {
@@ -798,17 +972,20 @@ void Renderer::flush()
         std::size_t batchVertexCount = first.getPointCount();
         while (j < commands_.size()) {
             if (commands_[j]->type() != Command::Type::Path) {
+                ++stats_.batchBreakCommandTypeCount;
                 break;
             }
 
             auto *nextPathCmd = static_cast<DrawPathCommand *>(commands_[j].get());
             const auto &next = nextPathCmd->data();
             if (!wsc::render::canBatchPathData(first, next)) {
+                ++stats_.batchBreakStateCount;
                 break;
             }
             const std::size_t nextVertexCount = next.getPointCount();
             if (batchVertexCount + nextVertexCount
                     > kMaxPathBatchVertices) {
+                ++stats_.batchBreakVertexLimitCount;
                 break;
             }
             batchVertexCount += nextVertexCount;
@@ -947,6 +1124,30 @@ void Renderer::flush()
                     merged.indices.reserve(totalElements);
                 }
             }
+
+            std::size_t materializedBytes =
+                totalVertices * 2u * sizeof(float);
+            if (useDrawParameters) {
+                materializedBytes +=
+                    totalVertices * sizeof(std::uint16_t)
+                    + (j - i) * 10u * sizeof(float);
+            } else if (needsVertexColors) {
+                materializedBytes += totalVertices * 4u
+                    * (usePackedColors
+                        ? sizeof(std::uint8_t)
+                        : sizeof(float));
+            }
+            if (needsCoverage && !reuseSharedTopology) {
+                materializedBytes +=
+                    totalVertices * sizeof(std::uint8_t);
+            }
+            if (needsIndices && !reuseSharedTopology) {
+                materializedBytes += totalElements
+                    * (useShortIndices
+                        ? sizeof(std::uint16_t)
+                        : sizeof(std::uint32_t));
+            }
+            stats_.payloadCopyBytes += materializedBytes;
 
             for (std::size_t m = i; m < j; ++m) {
                 const auto &next =
@@ -1255,13 +1456,21 @@ void Renderer::flush()
     }
     stats_.pathUploadCount += pathProgram->frameUploadCount();
     stats_.pathUploadBytes += pathProgram->frameUploadBytes();
+    stats_.payloadCopyBytes +=
+        pathProgram->frameUploadBytes();
     stats_.pathIndexBytes += pathProgram->frameIndexBytes();
+    stats_.pathUploadedVertexCount +=
+        pathProgram->frameUploadedVertexCount();
     stats_.compiledPacketCount +=
         stats_.drawCallCount - drawCallsBeforeFlush;
     stats_.compiledVertexBytes += pathProgram->frameUploadBytes()
         - std::min(pathProgram->frameUploadBytes(),
                    pathProgram->frameIndexBytes());
     stats_.compiledIndexBytes += pathProgram->frameIndexBytes();
+    stats_.stagingCapacityBytes = std::max(
+        stats_.stagingCapacityBytes,
+        stagingCapacityBytes()
+            + pathProgram->stagingCapacityBytes());
     finishTiming();
 }
 
@@ -1304,6 +1513,9 @@ bool Renderer::flushViaDeviceCommands()
             device_->lastCompiledVertexBytes();
         stats_.compiledIndexBytes +=
             device_->lastCompiledIndexBytes();
+        stats_.payloadCopyBytes +=
+            device_->lastCompiledVertexBytes()
+            + device_->lastCompiledIndexBytes();
         stats_.frameCompileCpuTimeNs +=
             device_->lastFrameCompileCpuTimeNs();
     }

@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <chrono>
 #include <string>
 #include <iostream>
 #include <fstream>
@@ -95,6 +96,45 @@ std::size_t Picture::operationCount() const
 }
 
 namespace {
+class ScopedCpuAccumulator
+{
+public:
+    explicit ScopedCpuAccumulator(std::uint64_t *destination)
+        : destination_(destination)
+    {
+        if (destination_ != nullptr) start_ = std::chrono::steady_clock::now();
+    }
+
+    ~ScopedCpuAccumulator()
+    {
+        if (destination_ != nullptr) {
+            *destination_ += static_cast<std::uint64_t>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    std::chrono::steady_clock::now() - start_).count());
+        }
+    }
+
+private:
+    std::uint64_t *destination_ = nullptr;
+    std::chrono::steady_clock::time_point start_{};
+};
+
+class ScopedBooleanFlag
+{
+public:
+    explicit ScopedBooleanFlag(bool &flag)
+        : flag_(flag), previous_(flag)
+    {
+        flag_ = true;
+    }
+
+    ~ScopedBooleanFlag() { flag_ = previous_; }
+
+private:
+    bool &flag_;
+    bool previous_ = false;
+};
+
 void applyGammaFramebufferState()
 {
 #ifndef WHATSCANVAS_SOFTWARE_ONLY
@@ -982,9 +1022,54 @@ std::unique_ptr<Command> cloneCommand(const Command &command)
     return {};
 }
 
+std::size_t ownedPathPayloadBytes(
+    const DrawPathData &data)
+{
+    return data.points.size() * sizeof(float)
+        + data.colors.size() * sizeof(float)
+        + data.packedColors.size() * sizeof(std::uint8_t)
+        + data.coverage.size() * sizeof(float)
+        + data.packedCoverage.size() * sizeof(std::uint8_t)
+        + data.indices.size() * sizeof(std::uint32_t)
+        + data.shortIndices.size() * sizeof(std::uint16_t)
+        + data.drawIds.size() * sizeof(std::uint16_t)
+        + data.drawParameters.size() * sizeof(float);
+}
+
+std::size_t commandPayloadBytes(const Command &command)
+{
+    switch (command.type()) {
+    case Command::Type::Points:
+        return static_cast<const DrawPointsCommand &>(command)
+            .data().points.size() * sizeof(float);
+    case Command::Type::Lines:
+        return static_cast<const DrawLinesCommand &>(command)
+            .data().points.size() * sizeof(float);
+    case Command::Type::Path:
+        return ownedPathPayloadBytes(
+            static_cast<const DrawPathCommand &>(command).data());
+    case Command::Type::Image:
+        return 0u;
+    case Command::Type::ImageBatch:
+        return static_cast<const DrawImageBatchCommand &>(command)
+            .data().quads.size() * sizeof(DrawImageBatchQuad);
+    case Command::Type::Text:
+        return static_cast<const DrawTextCommand &>(command)
+            .data().vertices.size() * sizeof(float);
+    case Command::Type::Shadow: {
+        const DrawShadowData &data =
+            static_cast<const DrawShadowCommand &>(command).data();
+        return ownedPathPayloadBytes(data.silhouette)
+            + data.imageSilhouette.size() * sizeof(DrawImageData);
+    }
+    }
+    return 0u;
+}
+
 bool cloneCommands(
     const std::vector<std::unique_ptr<Command>> &source,
-    std::vector<std::unique_ptr<Command>> &destination)
+    std::vector<std::unique_ptr<Command>> &destination,
+    IRenderer *renderer)
 {
     destination.clear();
     destination.reserve(source.size());
@@ -997,6 +1082,11 @@ bool cloneCommands(
         if (!copy) {
             destination.clear();
             return false;
+        }
+        if (renderer != nullptr) {
+            renderer->recordCommandClone(
+                commandPayloadBytes(*command),
+                command->type() == Command::Type::Path);
         }
         destination.push_back(std::move(copy));
     }
@@ -1167,6 +1257,46 @@ void addArc(Path &path, const RectF &bounds, float startRadians, float sweepRadi
     }
 }
 
+std::vector<detail::Vec2> makeOpenArcPolyline(
+    const RectF &bounds, float startRadians,
+    float sweepRadians)
+{
+    std::vector<detail::Vec2> points;
+    const float width = bounds.getWidth();
+    const float height = bounds.getHeight();
+    if (width <= 0.0f || height <= 0.0f
+        || !std::isfinite(startRadians)
+        || !std::isfinite(sweepRadians)
+        || std::abs(sweepRadians) <= kPointEpsilon) {
+        return points;
+    }
+
+    constexpr float kPi = 3.14159265358979323846f;
+    const float clampedSweep = std::clamp(
+        sweepRadians, -2.0f * kPi, 2.0f * kPi);
+    const float centerX = bounds.getX() + width * 0.5f;
+    const float centerY = bounds.getY() + height * 0.5f;
+    const float radiusX = width * 0.5f;
+    const float radiusY = height * 0.5f;
+    const float radius = std::max(radiusX, radiusY);
+    const int segments = std::clamp(
+        static_cast<int>(std::ceil(
+            std::abs(clampedSweep) * radius * 0.25f)),
+        2, 128);
+    points.reserve(static_cast<std::size_t>(segments) + 1u);
+    for (int segment = 0; segment <= segments; ++segment) {
+        const float progress = static_cast<float>(segment)
+            / static_cast<float>(segments);
+        const float angle = startRadians
+            + clampedSweep * progress;
+        appendSafePoint(
+            points,
+            centerX + std::cos(angle) * radiusX,
+            centerY + std::sin(angle) * radiusY);
+    }
+    return points;
+}
+
 ScissorState makeScissorForRect(const RectF &rect, int canvasWidth, int canvasHeight)
 {
     ScissorState scissor;
@@ -1214,6 +1344,16 @@ std::vector<float> flattenPoints(const std::vector<detail::Vec2> &points)
     return flattened;
 }
 
+std::size_t contourPointCount(
+    const std::vector<PathContour> &contours)
+{
+    std::size_t count = 0;
+    for (const PathContour &contour : contours) {
+        count += contour.points.size();
+    }
+    return count;
+}
+
 enum class SimpleFillPrimitiveKind : std::uint8_t {
     Rectangle,
     RoundRect,
@@ -1228,6 +1368,27 @@ struct SimpleFillPrimitive {
     std::array<int, 4> cornerSegments{};
     int ellipseSegments = 0;
 };
+
+std::size_t simpleFillPrimitivePointCount(
+    const SimpleFillPrimitive &primitive)
+{
+    switch (primitive.kind) {
+    case SimpleFillPrimitiveKind::Rectangle:
+        return 4u;
+    case SimpleFillPrimitiveKind::RoundRect: {
+        std::size_t count = 4u;
+        for (int segments : primitive.cornerSegments) {
+            count += static_cast<std::size_t>(
+                std::max(0, segments));
+        }
+        return count;
+    }
+    case SimpleFillPrimitiveKind::Ellipse:
+        return static_cast<std::size_t>(
+            std::max(0, primitive.ellipseSegments));
+    }
+    return 0u;
+}
 
 std::uint64_t hashSimpleFillPrimitive(const SimpleFillPrimitive &primitive)
 {
@@ -1367,9 +1528,13 @@ struct SharedAAExpandedMesh {
     }
 };
 
-SharedAAExpandedMesh shareAAExpandedMesh(AAExpandedMesh mesh)
+SharedAAExpandedMesh shareAAExpandedMesh(
+    AAExpandedMesh mesh,
+    std::size_t tessellatedVertexCount)
 {
     auto geometry = std::make_shared<DrawPathGeometry>();
+    geometry->tessellatedVertexCount =
+        tessellatedVertexCount;
     geometry->points.reserve(mesh.vertices.size() * 2u);
     for (const detail::Vec2 &vertex : mesh.vertices) {
         geometry->points.push_back(vertex.x);
@@ -1610,9 +1775,13 @@ AAExpandedMesh expandTrianglesWithAA(
     }
 
     // Accumulate outward normals per boundary vertex for seamless mitres.
-    std::unordered_map<std::uint32_t, glm::vec2> outwardAccum;
+    // Vertex ids are dense, so contiguous arrays avoid hash-node allocation
+    // and pointer chasing in this per-frame AA hot path.
+    std::vector<glm::vec2> outwardAccum(
+        uniqueVerts.size(), glm::vec2(0.0f));
+    std::vector<std::uint8_t> boundaryVertex(
+        uniqueVerts.size(), 0u);
     std::vector<std::pair<std::uint32_t, std::uint32_t>> boundary;
-    outwardAccum.reserve(edges.size());
     boundary.reserve(edges.size());
 
     for (const auto &kv : edges) {
@@ -1632,6 +1801,8 @@ AAExpandedMesh expandTrianglesWithAA(
         const glm::vec2 outward(dir.y, -dir.x); // right of a CCW edge points outward
         outwardAccum[f] += outward;
         outwardAccum[to] += outward;
+        boundaryVertex[f] = 1u;
+        boundaryVertex[to] = 1u;
         boundary.emplace_back(f, to);
     }
 
@@ -1640,20 +1811,23 @@ AAExpandedMesh expandTrianglesWithAA(
     // at coverage 0.0) so the perceived 50%-coverage edge stays on the real
     // silhouette and the shape keeps its nominal size instead of dilating.
     struct EdgeOffset { detail::Vec2 inner; detail::Vec2 outer; };
-    std::unordered_map<std::uint32_t, EdgeOffset> offsets;
-    offsets.reserve(outwardAccum.size());
-    for (const auto &kv : outwardAccum) {
-        const detail::Vec2 &base = uniqueVerts[kv.first];
-        const float l = glm::length(kv.second);
-        if (l < 1e-4f) {
-            offsets.emplace(kv.first, EdgeOffset{base, base});
+    std::vector<EdgeOffset> offsets(uniqueVerts.size());
+    for (std::size_t vertex = 0;
+         vertex < uniqueVerts.size(); ++vertex) {
+        if (boundaryVertex[vertex] == 0u) {
             continue;
         }
-        const glm::vec2 dir = kv.second / l;
+        const detail::Vec2 &base = uniqueVerts[vertex];
+        const float l = glm::length(outwardAccum[vertex]);
+        if (l < 1e-4f) {
+            offsets[vertex] = EdgeOffset{base, base};
+            continue;
+        }
+        const glm::vec2 dir = outwardAccum[vertex] / l;
         const float mag = fringe / std::max(l, 0.5f); // half-feather each side; limit sharp mitres
-        offsets.emplace(kv.first, EdgeOffset{
+        offsets[vertex] = EdgeOffset{
             detail::Vec2(base.x - dir.x * mag, base.y - dir.y * mag),
-            detail::Vec2(base.x + dir.x * mag, base.y + dir.y * mag)});
+            detail::Vec2(base.x + dir.x * mag, base.y + dir.y * mag)};
     }
 
     // Interior triangles first (fully covered), then the feathered fringe band.
@@ -1666,8 +1840,9 @@ AAExpandedMesh expandTrianglesWithAA(
     mesh.vertices.reserve(triVertCount + boundary.size() * 6);
     mesh.coverage.reserve(triVertCount + boundary.size() * 6);
     for (std::size_t index = 0; index < triVertCount; ++index) {
-        const auto offset = offsets.find(triIndices[index]);
-        mesh.vertices.push_back(offset != offsets.end() ? offset->second.inner : triangles[index]);
+        const std::uint32_t vertex = triIndices[index];
+        mesh.vertices.push_back(boundaryVertex[vertex] != 0u
+            ? offsets[vertex].inner : triangles[index]);
         mesh.coverage.push_back(1.0f);
     }
 
@@ -1677,15 +1852,10 @@ AAExpandedMesh expandTrianglesWithAA(
     };
 
     for (const auto &e : boundary) {
-        auto ita = offsets.find(e.first);
-        auto itb = offsets.find(e.second);
-        if (ita == offsets.end() || itb == offsets.end()) {
-            continue;
-        }
-        const detail::Vec2 innerA = ita->second.inner;
-        const detail::Vec2 innerB = itb->second.inner;
-        const detail::Vec2 outerA = ita->second.outer;
-        const detail::Vec2 outerB = itb->second.outer;
+        const detail::Vec2 innerA = offsets[e.first].inner;
+        const detail::Vec2 innerB = offsets[e.second].inner;
+        const detail::Vec2 outerA = offsets[e.first].outer;
+        const detail::Vec2 outerB = offsets[e.second].outer;
         pushVert(innerA, 1.0f); pushVert(outerA, 0.0f); pushVert(outerB, 0.0f);
         pushVert(innerA, 1.0f); pushVert(outerB, 0.0f); pushVert(innerB, 1.0f);
     }
@@ -1847,23 +2017,6 @@ bool pixelSnappableTransform(const glm::mat4 &m, float &tx, float &ty, float &sc
     return true;
 }
 
-void snapGlyphQuadsToPixelGrid(std::vector<wsc::text::TextRenderResult::GlyphAtlasQuad> &quads,
-                               const glm::mat4 &matrix)
-{
-    float tx = 0.0f;
-    float ty = 0.0f;
-    float scale = 1.0f;
-    if (!pixelSnappableTransform(matrix, tx, ty, scale)) {
-        return;
-    }
-    for (wsc::text::TextRenderResult::GlyphAtlasQuad &quad : quads) {
-        // Snap the DEVICE-space origin (quad * DPI + translation) to whole
-        // pixels, then map back into local space for the shader transform.
-        quad.x = (std::round(quad.x * scale + tx) - tx) / scale;
-        quad.y = (std::round(quad.y * scale + ty) - ty) / scale;
-    }
-}
-
 // Effective device-space scale of a transform: the larger of the two axis
 // magnitudes. Rotation-invariant (basis vector lengths are preserved). Used to
 // rasterize glyphs at device resolution so scaled / zoomed / rotated / HiDPI
@@ -1890,6 +2043,9 @@ void scaleTextResultGeometryDown(wsc::text::TextRenderResult &result, float scal
     result.drawY *= inv;
     result.width *= inv;
     result.height *= inv;
+    for (float &coordinate : result.vertices) {
+        coordinate *= inv;
+    }
     for (wsc::text::TextRenderResult::GlyphAtlasQuad &quad : result.glyphAtlasQuads) {
         quad.x *= inv;
         quad.y *= inv;
@@ -2708,7 +2864,8 @@ void submitStrokeMesh(IRenderer &renderer, const std::vector<detail::Vec2> &poin
                 aa = &strokeAaCache->insert(
                     aaKey,
                     shareAAExpandedMesh(
-                        expandTrianglesWithAA(strokeMesh, fringe)));
+                        expandTrianglesWithAA(strokeMesh, fringe),
+                        strokeMesh.size()));
             }
             sharedGeometry = aa->geometry;
         } else {
@@ -2728,6 +2885,10 @@ void submitStrokeMesh(IRenderer &renderer, const std::vector<detail::Vec2> &poin
     strokeData.coverage = std::move(strokeCoverage);
     strokeData.indices = std::move(strokeIndices);
     strokeData.sharedGeometry = std::move(sharedGeometry);
+    strokeData.sourceVertexCount = points.size();
+    strokeData.tessellatedVertexCount = strokeMesh.size();
+    strokeData.aaExpandedVertexCount =
+        antiAlias ? strokeData.getPointCount() : 0u;
     renderer.submit(std::make_unique<DrawPathCommand>(std::move(strokeData)));
 }
 
@@ -2952,6 +3113,14 @@ struct Canvas::Impl
     std::size_t retainedPictureRasterCacheHits = 0;
     std::size_t retainedPictureRasterCacheMisses = 0;
     std::size_t retainedPictureRasterCacheEvictions = 0;
+    std::uint64_t retainedPictureRasterPrepareCpuTimeNs = 0;
+    std::uint64_t retainedPictureRasterBoundsCpuTimeNs = 0;
+    std::uint64_t retainedPictureRasterRenderCpuTimeNs = 0;
+    std::uint64_t retainedPictureRasterPathCpuTimeNs = 0;
+    std::uint64_t retainedPictureRasterTextCpuTimeNs = 0;
+    std::uint64_t retainedPictureRasterTextBackendCpuTimeNs = 0;
+    std::uint64_t retainedPictureRasterTextAtlasCpuTimeNs = 0;
+    bool measuringRetainedPictureRasterPrepare = false;
     std::uint64_t retainedPictureRasterUseEpoch = 0;
     std::size_t retainedPictureRasterBudgetBytes = 32u * 1024u * 1024u;
     std::vector<std::weak_ptr<const Picture>> retainedPictures;
@@ -3001,6 +3170,10 @@ struct Canvas::Impl
     static constexpr std::size_t kBitmapTextCacheMax = 256;
     static constexpr std::size_t kBitmapTextCacheMaxBytes = 32u * 1024u * 1024u;
     std::size_t bitmapTextCacheBytes = 0;
+    // Reused by compatible atlas-text draws after the first command has taken
+    // ownership of its quad vector. This avoids one temporary vector
+    // allocation for every label in dense text frames.
+    std::vector<DrawImageBatchQuad> textBatchScratch;
 
     void eraseBitmapTextCacheEntry(
         std::unordered_map<std::uint64_t, BitmapTextCacheSlot>::iterator it)
@@ -3508,7 +3681,8 @@ bool Canvas::Impl::submitSimpleFill(
                 return true;
             }
             SharedAAExpandedMesh expanded = shareAAExpandedMesh(
-                expandTrianglesWithAA(*fillTriangles, fringe));
+                expandTrianglesWithAA(*fillTriangles, fringe),
+                fillTriangles->size());
             if (baseMeshWasStable) {
                 aa = &fillAaCache.insert(aaKey, std::move(expanded));
             } else {
@@ -3552,6 +3726,12 @@ bool Canvas::Impl::submitSimpleFill(
             ? state.blendMode
             : toDrawBlendMode(paint.getBlendMode());
     data.clipMask = makeCurrentClipMaskState();
+    data.sourceVertexCount = contourPointCount(contours);
+    data.tessellatedVertexCount = data.sharedGeometry
+        ? data.sharedGeometry->tessellatedVertexCount
+        : data.getPointCount();
+    data.aaExpandedVertexCount = paint.isAntiAlias()
+        ? data.getPointCount() : 0u;
     renderer->submit(
         std::make_unique<DrawPathCommand>(
             std::move(data)));
@@ -3624,7 +3804,8 @@ bool Canvas::Impl::submitSimpleFillPrimitive(
                 return true;
             }
             SharedAAExpandedMesh expanded = shareAAExpandedMesh(
-                expandTrianglesWithAA(*fillTriangles, fringe));
+                expandTrianglesWithAA(*fillTriangles, fringe),
+                fillTriangles->size());
             if (baseMeshWasStable) {
                 aa = &fillAaCache.insert(aaKey, std::move(expanded));
             } else {
@@ -3662,6 +3843,13 @@ bool Canvas::Impl::submitSimpleFillPrimitive(
             ? state.blendMode
             : toDrawBlendMode(paint.getBlendMode());
     data.clipMask = makeCurrentClipMaskState();
+    data.sourceVertexCount =
+        simpleFillPrimitivePointCount(primitive);
+    data.tessellatedVertexCount = data.sharedGeometry
+        ? data.sharedGeometry->tessellatedVertexCount
+        : data.getPointCount();
+    data.aaExpandedVertexCount = paint.isAntiAlias()
+        ? data.getPointCount() : 0u;
     renderer->submit(
         std::make_unique<DrawPathCommand>(
             std::move(data)));
@@ -4000,6 +4188,31 @@ Canvas::RenderStats Canvas::getRenderStats() const
     stats.compiledPacketCount = frameStats.compiledPacketCount;
     stats.compiledVertexBytes = frameStats.compiledVertexBytes;
     stats.compiledIndexBytes = frameStats.compiledIndexBytes;
+    stats.commandObjectCount = frameStats.commandObjectCount;
+    stats.commandAllocationCount =
+        frameStats.commandAllocationCount;
+    stats.commandPoolReuseCount =
+        frameStats.commandPoolReuseCount;
+    stats.commandCloneCount = frameStats.commandCloneCount;
+    stats.payloadCopyBytes = frameStats.payloadCopyBytes;
+    stats.stagingCapacityBytes =
+        frameStats.stagingCapacityBytes
+        + impl_->textBatchScratch.capacity()
+            * sizeof(DrawImageBatchQuad);
+    stats.batchBreakCommandTypeCount =
+        frameStats.batchBreakCommandTypeCount;
+    stats.batchBreakStateCount =
+        frameStats.batchBreakStateCount;
+    stats.batchBreakTextureLimitCount =
+        frameStats.batchBreakTextureLimitCount;
+    stats.batchBreakVertexLimitCount =
+        frameStats.batchBreakVertexLimitCount;
+    stats.imageBatchQuadCount =
+        frameStats.imageBatchQuadCount;
+    stats.imageBatchInstancedQuadCount =
+        frameStats.imageBatchInstancedQuadCount;
+    stats.imageBatchUploadBytes =
+        frameStats.imageBatchUploadBytes;
     stats.renderTargetSwitches = frameStats.renderTargetSwitches;
     stats.filterCount = frameStats.filterCount;
     stats.filterPassCount = frameStats.filterPassCount;
@@ -4007,6 +4220,16 @@ Canvas::RenderStats Canvas::getRenderStats() const
     stats.filterInputPixelCount = frameStats.filterInputPixelCount;
     stats.filterPixelPassCount = frameStats.filterPixelPassCount;
     stats.pathVertexCount = frameStats.pathVertexCount;
+    stats.pathInputVertexCount =
+        frameStats.pathInputVertexCount;
+    stats.pathTessellatedVertexCount =
+        frameStats.pathTessellatedVertexCount;
+    stats.pathAaExpandedVertexCount =
+        frameStats.pathAaExpandedVertexCount;
+    stats.pathMergedVertexCount =
+        frameStats.pathVertexCount;
+    stats.pathUploadedVertexCount =
+        frameStats.pathUploadedVertexCount;
     stats.pathIndexCount = frameStats.pathIndexCount;
     stats.pathIndexBytes = frameStats.pathIndexBytes;
     stats.pathUploadCount = frameStats.pathUploadCount;
@@ -4022,6 +4245,14 @@ Canvas::RenderStats Canvas::getRenderStats() const
     stats.renderTargetPoolReuseCount = resourceStats.renderTargetPoolReuseCount;
     stats.renderTargetPoolAllocationCount = resourceStats.renderTargetPoolAllocationCount;
     stats.renderTargetPoolEvictionCount = resourceStats.renderTargetPoolEvictionCount;
+    stats.shaderProgramLinkCount =
+        resourceStats.shaderProgramLinkCount;
+    stats.shaderStageCompileCount =
+        resourceStats.shaderStageCompileCount;
+    stats.shaderCompileCpuTimeNs =
+        resourceStats.shaderCompileCpuTimeNs;
+    stats.shaderLinkCpuTimeNs =
+        resourceStats.shaderLinkCpuTimeNs;
     stats.glyphAtlasTextureCount =
         impl_->glyphAtlasImageResource && impl_->glyphAtlasImageResource->isValid() ? 1u : 0u;
     stats.glyphAtlasTextureBytes =
@@ -4029,6 +4260,32 @@ Canvas::RenderStats Canvas::getRenderStats() const
         : static_cast<std::size_t>(std::max(0, impl_->glyphAtlasWidth))
             * static_cast<std::size_t>(std::max(0, impl_->glyphAtlasHeight))
             * (impl_->glyphAtlasUsesAlpha8 ? 1u : 4u);
+    if (impl_->textBackend != nullptr) {
+        const wsc::text::TextRenderStats textStats =
+            impl_->textBackend->renderStats();
+        stats.textNormalizationCount = textStats.normalizationCount;
+        stats.textShapeCacheHits = textStats.shapeCacheHits;
+        stats.textShapeCacheMisses = textStats.shapeCacheMisses;
+        stats.textLayoutCacheHits = textStats.layoutCacheHits;
+        stats.textLayoutCacheMisses = textStats.layoutCacheMisses;
+        stats.textLayoutViewHits = textStats.layoutViewHits;
+        stats.glyphAtlasHits = textStats.atlasHits;
+        stats.glyphAtlasMisses = textStats.atlasMisses;
+        stats.glyphRasterizationCount = textStats.rasterizationCount;
+        stats.zeroAreaGlyphHits = textStats.zeroAreaGlyphHits;
+        stats.generatedGlyphQuadCount = textStats.generatedQuadCount;
+        stats.glyphAtlasDirtyBytes = textStats.atlasDirtyBytes;
+        stats.textNormalizationCpuTimeNs = textStats.normalizationCpuTimeNs;
+        stats.textLayoutCacheCpuTimeNs = textStats.layoutCacheCpuTimeNs;
+        stats.textShapingCpuTimeNs = textStats.shapingCpuTimeNs;
+        stats.glyphCacheLookupCpuTimeNs = textStats.glyphCacheLookupCpuTimeNs;
+        stats.glyphRasterCpuTimeNs = textStats.glyphRasterCpuTimeNs;
+        stats.glyphAtlasUploadCpuTimeNs = textStats.atlasUploadCpuTimeNs;
+        stats.textBidiCpuTimeNs = textStats.bidiCpuTimeNs;
+        stats.textFontFallbackCpuTimeNs = textStats.fontFallbackCpuTimeNs;
+        stats.textFontDataCpuTimeNs = textStats.fontDataCpuTimeNs;
+        stats.textShapeEngineCpuTimeNs = textStats.shapeEngineCpuTimeNs;
+    }
     stats.tessellationCacheHits = impl_->fillTessellationCache.hitCount();
     stats.tessellationCacheMisses = impl_->fillTessellationCache.missCount();
     stats.tessellationCacheSize = impl_->fillTessellationCache.size();
@@ -4061,6 +4318,20 @@ Canvas::RenderStats Canvas::getRenderStats() const
     stats.retainedPictureRasterCacheBytes = rasterCacheMetrics.second;
     stats.retainedPictureRasterCacheEvictions =
         impl_->retainedPictureRasterCacheEvictions;
+    stats.retainedPictureRasterPrepareCpuTimeNs =
+        impl_->retainedPictureRasterPrepareCpuTimeNs;
+    stats.retainedPictureRasterBoundsCpuTimeNs =
+        impl_->retainedPictureRasterBoundsCpuTimeNs;
+    stats.retainedPictureRasterRenderCpuTimeNs =
+        impl_->retainedPictureRasterRenderCpuTimeNs;
+    stats.retainedPictureRasterPathCpuTimeNs =
+        impl_->retainedPictureRasterPathCpuTimeNs;
+    stats.retainedPictureRasterTextCpuTimeNs =
+        impl_->retainedPictureRasterTextCpuTimeNs;
+    stats.retainedPictureRasterTextBackendCpuTimeNs =
+        impl_->retainedPictureRasterTextBackendCpuTimeNs;
+    stats.retainedPictureRasterTextAtlasCpuTimeNs =
+        impl_->retainedPictureRasterTextAtlasCpuTimeNs;
     stats.trackedResourceBytes =
         stats.glyphAtlasTextureBytes
         + stats.pooledRenderTargetBytes
@@ -4687,6 +4958,36 @@ void Canvas::drawArc(const Rect &bounds, float startRadians, float sweepRadians,
 
 void Canvas::drawArc(const RectF &bounds, float startRadians, float sweepRadians, ArcMode mode, const Paint &paint)
 {
+    // An open stroke is already a semantic polyline. Sending it through Path
+    // first creates a verb array and then immediately extracts the same points
+    // into a contour before stroke tessellation. Preserve the generic path for
+    // Picture recording, fills/chords/pies, shadows and corner effects, while
+    // letting the common animated progress-arc case submit the exact same
+    // sampled points directly.
+    if (!impl_->recordingPicture
+        && mode == ArcMode::OPEN
+        && paint.getStyle() == Paint::Style::STROKE
+        && !paint.hasShadowLayer()
+        && !paint.hasCornerPathEffect()) {
+        const RectF normalized = normalizeRect(bounds);
+        std::vector<detail::Vec2> points =
+            makeOpenArcPolyline(
+                normalized, startRadians, sweepRadians);
+        if (!points.empty()) {
+            const Paint effectivePaint =
+                impl_->applyStateToPaint(paint);
+            submitStrokeMesh(
+                *impl_->renderer, points, false,
+                effectivePaint,
+                impl_->currentState().matrix,
+                impl_->makeCurrentScissorState(),
+                impl_->makeCurrentClipMaskState(),
+                &impl_->strokeTessellationCache,
+                &impl_->strokeAaCache);
+        }
+        return;
+    }
+
     switch (mode) {
     case ArcMode::OPEN:
         drawArcPath(*this, bounds, startRadians, sweepRadians, false,
@@ -4711,6 +5012,9 @@ void Canvas::drawArc(const Rect &bounds, float startRadians, float sweepRadians,
 
 void Canvas::drawPath(const Path &path, const Paint &paint)
 {
+    ScopedCpuAccumulator pictureRasterTimer(
+        impl_->measuringRetainedPictureRasterPrepare
+            ? &impl_->retainedPictureRasterPathCpuTimeNs : nullptr);
     if (impl_->recordingPicture) {
         impl_->pictureOperations.emplace_back(
             [path, paint](Canvas &canvas) { canvas.drawPath(path, paint); });
@@ -4830,6 +5134,10 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
                                                                shadowPass.color, PathDrawMode::Fill,
                                                                shadowPass.transform, scissor,
                                                                toDrawBlendMode(effectivePaint.getBlendMode()), clipMask);
+                shadowFillData.sourceVertexCount =
+                    contourPointCount(contours);
+                shadowFillData.tessellatedVertexCount =
+                    fillTriangles->size();
                 impl_->renderer->submit(
                     std::make_unique<DrawPathCommand>(std::move(shadowFillData)));
             }
@@ -4865,7 +5173,8 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
                     aaKey,
                     shareAAExpandedMesh(
                         expandTrianglesWithAA(
-                            *fillTriangles, fringe)));
+                            *fillTriangles, fringe),
+                        fillTriangles->size()));
             }
             sharedGeometry = aa->geometry;
         } else {
@@ -4876,6 +5185,13 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
                                                  fillTransform, scissor,
                                                  toDrawBlendMode(effectivePaint.getBlendMode()), clipMask);
         fillData.sharedGeometry = std::move(sharedGeometry);
+        fillData.sourceVertexCount =
+            contourPointCount(contours);
+        fillData.tessellatedVertexCount =
+            fillTriangles->size();
+        fillData.aaExpandedVertexCount =
+            effectivePaint.isAntiAlias()
+                ? fillData.getPointCount() : 0u;
         applyPathGradient(effectivePaint, fillData);
         impl_->renderer->submit(
             std::make_unique<DrawPathCommand>(std::move(fillData)));
@@ -5548,6 +5864,9 @@ bool Canvas::wrapExternalMetalTexture(Image &image, void *texture, int width, in
 
 void Canvas::drawText(const std::string &text, float x, float y, const Paint &paint)
 {
+    ScopedCpuAccumulator pictureRasterTimer(
+        impl_->measuringRetainedPictureRasterPrepare
+            ? &impl_->retainedPictureRasterTextCpuTimeNs : nullptr);
     if (impl_->recordingPicture) {
         impl_->pictureOperations.emplace_back(
             [text, x, y, paint](Canvas &canvas) {
@@ -5558,8 +5877,9 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
     if (!impl_->textBackend) {
         return;
     }
+    const auto textBackendStart = std::chrono::steady_clock::now();
     float textRasterScale = 1.0f;
-    const auto renderedText = [&]() -> wsc::text::TextRenderResult {
+    auto renderedText = [&]() -> wsc::text::TextRenderResult {
         // Rasterize glyphs at the transform's effective device-space scale so
         // zoomed / scaled / HiDPI text stays crisp instead of being a magnified
         // low-resolution bitmap. Quantize the requested font height to a whole
@@ -5588,8 +5908,13 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
                 return scaled;
             }
         }
-        return impl_->textBackend->renderText(text, x, y, paint);
+        return impl_->textBackend->renderTextView(text, x, y, paint);
     }();
+    if (impl_->measuringRetainedPictureRasterPrepare) {
+        impl_->retainedPictureRasterTextBackendCpuTimeNs +=
+            static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now() - textBackendStart).count());
+    }
     if (renderedText.kind == wsc::text::TextRenderKind::None) {
         return;
     }
@@ -5599,23 +5924,53 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
     const Color fillColor = applyPaintAlpha(paint, paint.getColor());
     const auto strokePasses = buildTextStrokePasses(paint, impl_->currentState().matrix);
     if (renderedText.kind == wsc::text::TextRenderKind::GlyphAtlas) {
+        const auto *atlasQuadSource = renderedText.glyphAtlasQuadsView != nullptr
+            ? renderedText.glyphAtlasQuadsView : &renderedText.glyphAtlasQuads;
+        const float atlasQuadOffsetX = renderedText.glyphAtlasQuadsView != nullptr
+            ? renderedText.glyphAtlasQuadOffsetX : 0.0f;
+        const float atlasQuadOffsetY = renderedText.glyphAtlasQuadsView != nullptr
+            ? renderedText.glyphAtlasQuadOffsetY : 0.0f;
         const std::size_t expectedAtlasSize = static_cast<std::size_t>(std::max(0, renderedText.atlasWidth))
             * static_cast<std::size_t>(std::max(0, renderedText.atlasHeight));
         if (renderedText.atlasWidth <= 0 || renderedText.atlasHeight <= 0
             || glyphAtlasAlphaPixels(renderedText).size() < expectedAtlasSize
-            || renderedText.glyphAtlasQuads.empty()) {
+            || atlasQuadSource->empty()) {
             return;
         }
 
+        const auto atlasStart = std::chrono::steady_clock::now();
         const SharedImageResource imageResource = impl_->getOrUpdateGlyphAtlasResource(renderedText);
+        if (impl_->measuringRetainedPictureRasterPrepare) {
+            impl_->retainedPictureRasterTextAtlasCpuTimeNs +=
+                static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    std::chrono::steady_clock::now() - atlasStart).count());
+        }
         if (!imageResource || !imageResource->isValid()) {
             return;
         }
 
-        // Align glyph quads to the device pixel grid for crisp (non-blurry) text.
-        std::vector<wsc::text::TextRenderResult::GlyphAtlasQuad> atlasQuads =
-            renderedText.glyphAtlasQuads;
-        snapGlyphQuadsToPixelGrid(atlasQuads, impl_->currentState().matrix);
+        // Resolve the cached layout's draw-position offset and pixel snapping
+        // while consuming each quad. A hot layout-cache hit therefore never
+        // copies the complete glyph vector just to translate it for this draw.
+        float snapTx = 0.0f;
+        float snapTy = 0.0f;
+        float snapScale = 1.0f;
+        const bool snapAtlasQuads = pixelSnappableTransform(
+            impl_->currentState().matrix, snapTx, snapTy, snapScale);
+        const auto forEachAtlasQuad = [&](auto &&consumer) {
+            for (const auto &sourceQuad : *atlasQuadSource) {
+                auto quad = sourceQuad;
+                quad.x += atlasQuadOffsetX;
+                quad.y += atlasQuadOffsetY;
+                if (snapAtlasQuads) {
+                    quad.x = (std::round(quad.x * snapScale + snapTx) - snapTx)
+                        / snapScale;
+                    quad.y = (std::round(quad.y * snapScale + snapTy) - snapTy)
+                        / snapScale;
+                }
+                consumer(quad);
+            }
+        };
 
         const ScissorState scissor = impl_->makeCurrentScissorState();
         const ClipMaskState clipMask = impl_->makeCurrentClipMaskState();
@@ -5631,11 +5986,11 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
             if (simpleBatch) {
                 DrawImageBatchData batch;
                 batch.imageResource = imageResource;
-                batch.quads.reserve(atlasQuads.size());
                 batch.transform = transform;
                 batch.blendMode =
                     toDrawBlendMode(paint.getBlendMode());
-                for (const auto &quad : atlasQuads) {
+                const auto appendQuads = [&](auto &destination) {
+                    forEachAtlasQuad([&](const auto &quad) {
                     const Color quadTint = preserveColorGlyphs && quad.isColorGlyph
                         ? Color(255, 255, 255, textColor.getA()) : textColor;
                     const std::uint32_t packedTint =
@@ -5653,9 +6008,25 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
                     imageQuad.u1 = quad.u1;
                     imageQuad.v1 = quad.v1;
                     imageQuad.packedTint = packedTint;
-                    batch.quads.push_back(imageQuad);
+                    destination.push_back(imageQuad);
+                    });
+                };
+                if (auto *appendTarget =
+                        impl_->renderer->tryGetImageBatchAppendTarget(
+                            batch, atlasQuadSource->size())) {
+                    appendQuads(*appendTarget);
+                    return;
                 }
-                if (!impl_->renderer->tryAppendImageBatch(batch)) {
+
+                batch.quads.swap(
+                    impl_->textBatchScratch);
+                batch.quads.clear();
+                batch.quads.reserve(atlasQuadSource->size());
+                appendQuads(batch.quads);
+                if (impl_->renderer->tryAppendImageBatch(batch)) {
+                    impl_->textBatchScratch.swap(
+                        batch.quads);
+                } else {
                     impl_->renderer->submit(
                         std::make_unique<DrawImageBatchCommand>(
                             std::move(batch)));
@@ -5663,7 +6034,7 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
                 return;
             }
 
-            for (const auto &quad : atlasQuads) {
+            forEachAtlasQuad([&](const auto &quad) {
                 const Color quadTint = preserveColorGlyphs && quad.isColorGlyph
                     ? Color(255, 255, 255, textColor.getA()) : textColor;
                 DrawImageData data;
@@ -5691,17 +6062,17 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
                     applyImageGradient(paint, data);
                 }
                 impl_->renderer->submit(std::make_unique<DrawImageCommand>(data));
-            }
+            });
         };
 
         bool blurredAtlasShadow = false;
         if (paint.hasShadowLayer() && std::max(0.0f, paint.getShadowRadius()) > 0.0f
-            && impl_->width > 0 && impl_->height > 0 && !atlasQuads.empty()) {
+            && impl_->width > 0 && impl_->height > 0 && !atlasQuadSource->empty()) {
             const glm::mat4 offset = makeOffsetTransform(impl_->currentState().matrix,
                                                          paint.getShadowDx(), paint.getShadowDy());
             std::vector<DrawImageData> silhouette;
-            silhouette.reserve(atlasQuads.size());
-            for (const auto &quad : atlasQuads) {
+            silhouette.reserve(atlasQuadSource->size());
+            forEachAtlasQuad([&](const auto &quad) {
                 DrawImageData d;
                 d.imageResource = imageResource;
                 d.x = quad.x;
@@ -5722,7 +6093,7 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
                 d.transform = offset;
                 d.blendMode = DrawBlendMode::SrcOver;
                 silhouette.push_back(std::move(d));
-            }
+            });
             impl_->renderer->submit(std::make_unique<DrawShadowCommand>(
                 makeGaussianImageShadowData(std::move(silhouette), paint, impl_->width,
                                             impl_->height, scissor)));
@@ -7065,7 +7436,10 @@ void Canvas::drawPicture(const Picture &picture)
                 && entry.contextGeneration == impl_->contextGeneration
                 && entry.contentGeneration == impl_->retainedContentGeneration
                 && entry.stateFingerprint == stateFingerprint
-                && cloneCommands(entry.commands, cachedCommands)) {
+                && !entry.commands.empty()
+                && cloneCommands(
+                    entry.commands, cachedCommands,
+                    impl_->renderer.get())) {
                 break;
             }
         }
@@ -7101,7 +7475,9 @@ void Canvas::drawPicture(const Picture &picture)
     compiled.contextGeneration = impl_->contextGeneration;
     compiled.contentGeneration = impl_->retainedContentGeneration;
     compiled.stateFingerprint = stateFingerprint;
-    if (cloneCommands(generated, compiled.commands)) {
+    if (cloneCommands(
+            generated, compiled.commands,
+            impl_->renderer.get())) {
         std::lock_guard<std::mutex> lock(picture.impl_->compiledMutex);
         auto &entries = picture.impl_->compiledEntries;
         entries.erase(
@@ -7112,10 +7488,23 @@ void Canvas::drawPicture(const Picture &picture)
                                        || entry.contentGeneration != impl_->retainedContentGeneration);
                            }),
             entries.end());
-        if (entries.size() >= 4u) {
-            entries.erase(entries.begin());
+        bool stored = false;
+        for (auto &entry : entries) {
+            if (entry.canvas == this
+                && entry.contextGeneration == impl_->contextGeneration
+                && entry.contentGeneration == impl_->retainedContentGeneration
+                && entry.stateFingerprint == stateFingerprint) {
+                entry.commands = std::move(compiled.commands);
+                stored = true;
+                break;
+            }
         }
-        entries.push_back(std::move(compiled));
+        if (!stored) {
+            if (entries.size() >= 4u) {
+                entries.erase(entries.begin());
+            }
+            entries.push_back(std::move(compiled));
+        }
     }
     impl_->renderer->appendCommands(std::move(generated));
 }
@@ -7170,19 +7559,61 @@ void Canvas::drawPictureRasterized(const Picture &picture)
         ++impl_->retainedPictureRasterCacheHits;
     } else {
         ++impl_->retainedPictureRasterCacheMisses;
-        const std::size_t commandStart = impl_->renderer->commandCount();
-        drawPicture(picture);
-        std::vector<std::unique_ptr<Command>> commands =
-            impl_->renderer->takeCommandsFrom(commandStart);
+        const auto prepareStart = std::chrono::steady_clock::now();
+        std::vector<std::unique_ptr<Command>> commands;
+
+        // Prefer an already-compiled stream when callers previously used
+        // drawPicture(). A raster-only miss does not create that second cache:
+        // it needs the commands exactly once and can render a cold stream
+        // immediately before releasing it. This avoids the warm-up replay,
+        // second replay, and retained deep copy that are necessary for a
+        // repeatedly replayed compiled Picture but wasteful for rasterization.
+        {
+            std::lock_guard<std::mutex> lock(picture.impl_->compiledMutex);
+            for (const auto &entry : picture.impl_->compiledEntries) {
+                if (entry.canvas == this
+                    && entry.contextGeneration == impl_->contextGeneration
+                    && entry.contentGeneration == impl_->retainedContentGeneration
+                    && entry.stateFingerprint == stateFingerprint
+                    && !entry.commands.empty()
+                    && cloneCommands(entry.commands, commands, impl_->renderer.get())) {
+                    break;
+                }
+            }
+        }
+        if (!commands.empty()) {
+            ++impl_->retainedPictureCacheHits;
+        } else {
+            const GraphicsStateStack savedStates = *impl_->graphicsStates;
+            const std::vector<Impl::LayerState> savedLayers = impl_->layerStack;
+            const Color savedColor = impl_->color;
+            const std::size_t commandStart = impl_->renderer->commandCount();
+            ScopedBooleanFlag measurePictureRaster(
+                impl_->measuringRetainedPictureRasterPrepare);
+            for (const auto &operation : picture.impl_->operations) {
+                operation(*this);
+            }
+            *impl_->graphicsStates = savedStates;
+            impl_->layerStack = savedLayers;
+            impl_->color = savedColor;
+            commands = impl_->renderer->takeCommandsFrom(commandStart);
+        }
+        impl_->retainedPictureRasterPrepareCpuTimeNs +=
+            static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now() - prepareStart).count());
         if (commands.empty()) {
             return;
         }
 
+        const auto boundsStart = std::chrono::steady_clock::now();
         PictureRasterBounds measuredBounds;
         if (computePictureRasterBounds(
                 commands, impl_->width, impl_->height, measuredBounds)) {
             rasterBounds = measuredBounds;
         }
+        impl_->retainedPictureRasterBoundsCpuTimeNs +=
+            static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now() - boundsStart).count());
         const int rasterWidth = rasterBounds.right - rasterBounds.left;
         const int rasterHeight = rasterBounds.bottom - rasterBounds.top;
 
@@ -7195,8 +7626,11 @@ void Canvas::drawPictureRasterized(const Picture &picture)
         request.viewportY = -(impl_->height - rasterBounds.bottom);
         request.scissorOffsetX = request.viewportX;
         request.scissorOffsetY = request.viewportY;
-        rasterImage = impl_->renderer->renderCommandsToImageResource(
-            commands, request);
+        const auto renderStart = std::chrono::steady_clock::now();
+        rasterImage = impl_->renderer->renderCommandsToImageResource(commands, request);
+        impl_->retainedPictureRasterRenderCpuTimeNs +=
+            static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now() - renderStart).count());
         if (!rasterImage || !rasterImage->isValid()) {
             impl_->renderer->appendCommands(std::move(commands));
             return;
@@ -7395,11 +7829,22 @@ void Canvas::beginFrame()
 
     impl_->renderer->resetRenderState();
     impl_->renderer->resetFrameStats();
+    if (impl_->textBackend != nullptr) {
+        impl_->textBackend->resetRenderStats();
+    }
     impl_->retainedPictureCacheHits = 0;
     impl_->retainedPictureCacheMisses = 0;
     impl_->retainedPictureRasterCacheHits = 0;
     impl_->retainedPictureRasterCacheMisses = 0;
     impl_->retainedPictureRasterCacheEvictions = 0;
+    impl_->retainedPictureRasterPrepareCpuTimeNs = 0;
+    impl_->retainedPictureRasterBoundsCpuTimeNs = 0;
+    impl_->retainedPictureRasterRenderCpuTimeNs = 0;
+    impl_->retainedPictureRasterPathCpuTimeNs = 0;
+    impl_->retainedPictureRasterTextCpuTimeNs = 0;
+    impl_->retainedPictureRasterTextBackendCpuTimeNs = 0;
+    impl_->retainedPictureRasterTextAtlasCpuTimeNs = 0;
+    impl_->measuringRetainedPictureRasterPrepare = false;
     impl_->fillTessellationCache.beginEpoch();
     impl_->fillAaCache.beginEpoch();
     impl_->strokeTessellationCache.beginEpoch();

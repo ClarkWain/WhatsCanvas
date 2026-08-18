@@ -59,7 +59,7 @@ void DrawLinesProgram::initialize()
         }
     )";
 
-    program_ = new GLProgram(vertexSrc, fragmentSrc);
+    program_ = new GLProgram("draw_lines", vertexSrc, fragmentSrc);
 
     glGenVertexArrays(1, &VAO_);
     vertexBuffer_.initialize(7200);
@@ -104,6 +104,7 @@ void DrawLinesProgram::release(bool abandon)
 
 void DrawLinesProgram::draw(const RenderContext &context, const DrawLinesData &data)
 {
+    initialize();
     if (!DrawValidation::validateProgram(initialized_, "DrawLinesProgram::draw")) {
         return;
     }

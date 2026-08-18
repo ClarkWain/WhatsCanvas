@@ -11,6 +11,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include "command/DrawCommand.h"
+#include "command/DrawPathCommandPool.h"
 #include "render/GammaCorrect.h"
 #include "render/GaussianKernel.h"
 #include "render/software/SoftwarePresent.h"
@@ -1686,6 +1687,31 @@ void executeCommandList(std::uint8_t *framebuffer, int width, int height, int ca
     }
 }
 
+void accumulatePathPipelineStats(
+    const std::vector<std::unique_ptr<Command>> &commands,
+    FrameStats &stats)
+{
+    for (const auto &command : commands) {
+        if (command == nullptr
+            || command->type() != Command::Type::Path) {
+            continue;
+        }
+        const DrawPathData &path =
+            static_cast<const DrawPathCommand &>(*command).data();
+        stats.pathInputVertexCount +=
+            path.sourceVertexCount;
+        stats.pathTessellatedVertexCount +=
+            path.tessellatedVertexCount;
+        stats.pathAaExpandedVertexCount +=
+            path.aaExpandedVertexCount;
+        stats.pathVertexCount += path.getPointCount();
+        stats.pathUploadedVertexCount +=
+            path.getPointCount();
+        stats.pathIndexCount += path.hasIndices()
+            ? path.getElementCount() : 0u;
+    }
+}
+
 } // namespace
 
 SoftwareRenderer::SoftwareRenderer(int width, int height)
@@ -1720,11 +1746,80 @@ void SoftwareRenderer::clearFramebuffer()
 
 void SoftwareRenderer::submit(std::unique_ptr<Command> &&command)
 {
+    if (command != nullptr) {
+        ++stats_.commandObjectCount;
+        if (command->type() == Command::Type::Path
+            && wsc::detail::lastDrawPathCommandAllocationReused()) {
+            ++stats_.commandPoolReuseCount;
+        } else {
+            ++stats_.commandAllocationCount;
+        }
+    }
     commands_.push_back(std::move(command));
+}
+
+void SoftwareRenderer::recordCommandClone(
+    std::size_t payloadBytes,
+    bool pathCommand)
+{
+    ++stats_.commandObjectCount;
+    if (pathCommand
+        && wsc::detail::lastDrawPathCommandAllocationReused()) {
+        ++stats_.commandPoolReuseCount;
+    } else {
+        ++stats_.commandAllocationCount;
+    }
+    ++stats_.commandCloneCount;
+    stats_.payloadCopyBytes += payloadBytes;
+}
+
+std::vector<DrawImageBatchQuad> *SoftwareRenderer::tryGetImageBatchAppendTarget(
+    const DrawImageBatchData &batch,
+    std::size_t additionalQuadCount)
+{
+    if (commands_.size() <= imageBatchAppendFloor_
+        || additionalQuadCount == 0
+        || batch.scissor.enabled || batch.clipMask.hasPaths()
+        || batch.tintColor[0] != 1.0f
+        || batch.tintColor[1] != 1.0f
+        || batch.tintColor[2] != 1.0f
+        || batch.tintColor[3] != 1.0f
+        || batch.alpha != 1.0f
+        || commands_.back()->type() != Command::Type::ImageBatch) {
+        return nullptr;
+    }
+    auto &previous = static_cast<DrawImageBatchCommand *>(
+                         commands_.back().get())
+                         ->data();
+    if (previous.imageResource != batch.imageResource
+        || previous.scissor.enabled
+        || previous.clipMask.hasPaths()
+        || previous.blendMode != batch.blendMode
+        || previous.transform != batch.transform
+        || previous.tintColor[0] != 1.0f
+        || previous.tintColor[1] != 1.0f
+        || previous.tintColor[2] != 1.0f
+        || previous.tintColor[3] != 1.0f
+        || previous.alpha != 1.0f) {
+        return nullptr;
+    }
+
+    const std::size_t required =
+        previous.quads.size() + additionalQuadCount;
+    if (required > previous.quads.capacity()) {
+        const std::size_t geometricCapacity =
+            previous.quads.capacity() > 0
+            ? previous.quads.capacity() * 2u
+            : additionalQuadCount;
+        previous.quads.reserve(
+            std::max(required, geometricCapacity));
+    }
+    return &previous.quads;
 }
 
 size_t SoftwareRenderer::commandCount() const
 {
+    imageBatchAppendFloor_ = commands_.size();
     return commands_.size();
 }
 
@@ -1739,6 +1834,7 @@ std::vector<std::unique_ptr<Command>> SoftwareRenderer::takeCommandsFrom(size_t 
         taken.push_back(std::move(commands_[i]));
     }
     commands_.erase(commands_.begin() + static_cast<std::ptrdiff_t>(index), commands_.end());
+    imageBatchAppendFloor_ = commands_.size();
     return taken;
 }
 
@@ -1747,6 +1843,7 @@ void SoftwareRenderer::appendCommands(std::vector<std::unique_ptr<Command>> &&co
     for (auto &command : commands) {
         commands_.push_back(std::move(command));
     }
+    imageBatchAppendFloor_ = commands_.size();
 }
 
 bool SoftwareRenderer::readPixelsRGBA(std::vector<unsigned char> &pixels) const
@@ -1931,6 +2028,7 @@ void SoftwareRenderer::resetRenderState() {}
 void SoftwareRenderer::clear()
 {
     commands_.clear();
+    imageBatchAppendFloor_ = 0;
 }
 
 void SoftwareRenderer::flush()
@@ -1943,6 +2041,7 @@ void SoftwareRenderer::flush()
     clearFramebuffer();
     stats_.commandCount += commands_.size();
     stats_.drawCallCount += commands_.size();
+    accumulatePathPipelineStats(commands_, stats_);
     ClipCache cache;
     executeCommandList(framebuffer_.data(), width_, height_, height_, glm::mat4(1.0f), commands_, &cache);
     const auto end = std::chrono::steady_clock::now();
@@ -1952,6 +2051,20 @@ void SoftwareRenderer::flush()
     stats_.flushCpuTimeNs += elapsedNs;
     stats_.deviceExecutionCpuTimeNs += elapsedNs;
     stats_.compiledPacketCount += commands_.size();
+    std::size_t commandStagingBytes = commands_.capacity()
+        * sizeof(std::unique_ptr<Command>);
+    for (const auto &command : commands_) {
+        if (command != nullptr
+            && command->type() == Command::Type::ImageBatch) {
+            commandStagingBytes +=
+                static_cast<const DrawImageBatchCommand *>(
+                    command.get())->data().quads.capacity()
+                * sizeof(DrawImageBatchQuad);
+        }
+    }
+    stats_.stagingCapacityBytes = std::max(
+        stats_.stagingCapacityBytes,
+        commandStagingBytes);
 }
 
 bool SoftwareRenderer::supportsPresentation() const

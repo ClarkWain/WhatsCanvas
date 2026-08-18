@@ -13,6 +13,7 @@
 #include "command/DrawText.h"
 #include "opengl/GlobalIndexBuffers.h"
 #include "opengl/GaussianBlurProgram.h"
+#include "opengl/GLProgram.h"
 #include "opengl/GLTextureUtils.h"
 #include "opengl/PixelFormatCaps.h"
 #include "opengl/ClipCoverageProgram.h"
@@ -320,11 +321,9 @@ void initializeSharedRenderBackend()
     PixelFormatCaps::initialize();
     GlobalIndexBuffers::initialize();
 
-    DrawPointsProgram::getInstance()->initialize();
-    DrawLinesProgram::getInstance()->initialize();
-    DrawPathProgram::getInstance()->initialize();
-    DrawImageProgram::getInstance()->initialize();
-    DrawTextProgram::getInstance()->initialize();
+    // Draw programs create their context-bound resources on first use. This
+    // avoids compiling legacy or uncommon shader paths during startup while
+    // preserving the shared singleton lifetime and context-loss teardown.
 }
 
 void finalizeSharedRenderBackend()
@@ -716,6 +715,12 @@ RenderResourceStats OpenGLRenderDevice::resourceStats() const
     RenderResourceStats stats;
     stats.imageTextureCount = g_activeImageTextureResourceCount;
     stats.renderTargetCount = g_activeRenderTargetResourceCount;
+    const GLProgramCompilationStats shaderStats =
+        GLProgram::compilationStats();
+    stats.shaderProgramLinkCount = shaderStats.programLinkCount;
+    stats.shaderStageCompileCount = shaderStats.shaderCompileCount;
+    stats.shaderCompileCpuTimeNs = shaderStats.shaderCompileCpuTimeNs;
+    stats.shaderLinkCpuTimeNs = shaderStats.programLinkCpuTimeNs;
     if (renderTargetPool_) {
         stats.pooledRenderTargetCount = renderTargetPool_->pooledCount();
         stats.pooledRenderTargetBytes = renderTargetPool_->pooledBytes();

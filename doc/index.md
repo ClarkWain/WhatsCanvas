@@ -9,11 +9,12 @@ complete than the latter. It exposes a familiar `Canvas` / `Paint` / `Path` /
 OpenGL, OpenGL ES, a pure-CPU software rasterizer (no GPU at all), an
 optional Vulkan backend, and a Metal backend on Apple platforms.
 
-!!! success "WhatsCanvas 0.2.0 is available"
-    This release adds the native Metal backend on Apple platforms, cached
-    system-font discovery across desktop platforms, and expanded cross-backend
-    validation. Download the
-    [Windows, Linux, or macOS package](https://github.com/ClarkWain/WhatsCanvas/releases/tag/v0.2.0).
+!!! success "WhatsCanvas 0.4.0 is available"
+    This release adds retained Pictures and bounded raster caching, production
+    Android font discovery and color-emoji compatibility, context-loss-safe
+    GPU resources, lower steady-state render overhead, and an installable
+    Android Profile demo. Download a
+    [desktop package or Android demo](https://github.com/ClarkWain/WhatsCanvas/releases/tag/v0.4.0).
 
 ![WhatsCanvas quality showcase — analytic AA, gradients, Gaussian shadows, AA path clipping](images/aa/quality_showcase.png)
 

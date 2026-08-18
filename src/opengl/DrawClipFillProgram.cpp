@@ -56,7 +56,7 @@ void DrawClipFillProgram::initialize()
         }
     )";
 
-    program_ = new GLProgram(vertexSrc, fragmentSrc);
+    program_ = new GLProgram("clip_fill", vertexSrc, fragmentSrc);
 
     glGenVertexArrays(1, &VAO_);
     vertexBuffer_.initialize(64);

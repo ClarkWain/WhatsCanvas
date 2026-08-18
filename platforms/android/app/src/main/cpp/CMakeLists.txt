@@ -5,6 +5,17 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+option(WHATSCANVAS_ANDROID_PROFILE
+    "Build an installable, symbolized Android profiling variant" OFF)
+if(WHATSCANVAS_ANDROID_PROFILE)
+    # AGP selects CMake's Debug configuration whenever a build type is
+    # debuggable, and the NDK's Debug flags end in -O0. Append the profiling
+    # flags to the configuration variables themselves so -O2 is the final
+    # optimization option while run-as/simpleperf and symbols remain usable.
+    string(APPEND CMAKE_C_FLAGS_DEBUG " -O2 -g -DNDEBUG")
+    string(APPEND CMAKE_CXX_FLAGS_DEBUG " -O2 -g -DNDEBUG")
+endif()
+
 get_filename_component(WHATSCANVAS_ROOT
     "${CMAKE_CURRENT_LIST_DIR}/../../../../../../"
     ABSOLUTE)

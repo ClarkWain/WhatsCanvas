@@ -128,12 +128,7 @@ void SpriteBatch::addInstance(
 
 void SpriteBatch::flush(RenderContext &context, DrawBlendMode blendMode)
 {
-    const bool instanced =
-#if defined(WHATSCANVAS_OPENGL_ES)
-        false;
-#else
-        !instanceData_.empty();
-#endif
+    const bool instanced = !instanceData_.empty();
     if (empty()
         || (instanced
             ? (!texture_ || !texture_->isValid())
@@ -141,7 +136,7 @@ void SpriteBatch::flush(RenderContext &context, DrawBlendMode blendMode)
         return;
     }
 
-    ensureGLInitialized();
+    ensureGLInitialized(instanced);
 
     GLProgram *activeProgram =
         instanced ? instanceProgram_ : program_;
@@ -247,12 +242,15 @@ void SpriteBatch::clear()
     instanceData_.clear();
 }
 
-void SpriteBatch::ensureGLInitialized()
+void SpriteBatch::ensureGLInitialized(bool instanced)
 {
-    if (glInitialized_) {
+    if (glInitialized_
+        && (instanced ? instanceProgram_ != nullptr
+                      : program_ != nullptr)) {
         return;
     }
 
+    if (!instanced && program_ == nullptr) {
     const std::string vertexSrc = std::string(wsc::opengl::shaderVersionDirective()) + R"(
         layout (location = 0) in vec2 aPos;
         layout (location = 1) in vec2 aUv;
@@ -335,7 +333,11 @@ void SpriteBatch::ensureGLInitialized()
         }
     )";
 
-    program_ = new GLProgram(vertexSrc, fragmentSrc);
+    program_ = new GLProgram(
+        "sprite_batch", vertexSrc, fragmentSrc);
+    }
+
+    if (instanced && instanceProgram_ == nullptr) {
     const std::string instanceVertexSrc =
         std::string(wsc::opengl::shaderVersionDirective()) + R"(
         layout (location = 0) in vec4 aBounds;
@@ -382,10 +384,14 @@ void SpriteBatch::ensureGLInitialized()
             FragColor = texture(uTexture, vUv) * vColor;
         }
     )";
-#if !defined(WHATSCANVAS_OPENGL_ES)
-    instanceProgram_ =
-        new GLProgram(instanceVertexSrc, instanceFragmentSrc);
-#endif
+    instanceProgram_ = new GLProgram(
+        "sprite_batch_instanced",
+        instanceVertexSrc, instanceFragmentSrc);
+    }
+
+    if (glInitialized_) {
+        return;
+    }
 
     glGenVertexArrays(1, &VAO_);
     glGenBuffers(1, &VBO_);
@@ -401,10 +407,8 @@ void SpriteBatch::ensureGLInitialized()
     glSamplerParameteri(
         sampler_, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 #endif
-#if !defined(WHATSCANVAS_OPENGL_ES)
     glGenVertexArrays(1, &instanceVAO_);
     glGenBuffers(1, &instanceVBO_);
-#endif
 
     glBindVertexArray(VAO_);
     glBindBuffer(GL_ARRAY_BUFFER, VBO_);
@@ -437,7 +441,6 @@ void SpriteBatch::ensureGLInitialized()
         (void *)(13 * sizeof(float)));
     glEnableVertexAttribArray(5);
 
-#if !defined(WHATSCANVAS_OPENGL_ES)
     glBindVertexArray(instanceVAO_);
     glBindBuffer(GL_ARRAY_BUFFER, instanceVBO_);
     constexpr GLsizei instanceStride = 12 * sizeof(float);
@@ -451,7 +454,6 @@ void SpriteBatch::ensureGLInitialized()
         glEnableVertexAttribArray(attribute);
         glVertexAttribDivisor(attribute, 1);
     }
-#endif
 
     glBindVertexArray(0);
     glInitialized_ = true;

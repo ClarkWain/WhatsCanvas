@@ -62,7 +62,7 @@ void DrawPointsProgram::initialize()
         }
     )";
 
-    program_ = new GLProgram(vertexSrc, fragmentSrc);
+    program_ = new GLProgram("draw_points", vertexSrc, fragmentSrc);
 
     glGenVertexArrays(1, &VAO_);
     vertexBuffer_.initialize(1200);
@@ -109,6 +109,7 @@ void DrawPointsProgram::release(bool abandon)
 
 void DrawPointsProgram::draw(const RenderContext &context, const DrawPointsData &data)
 {
+    initialize();
     if (!DrawValidation::validateProgram(initialized_, "DrawPointsProgram::draw")) {
         return;
     }

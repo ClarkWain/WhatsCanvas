@@ -50,9 +50,22 @@ From this directory on Windows:
 
 ```bat
 gradlew.bat :app:assembleDebug
+gradlew.bat :app:assembleProfile
 ```
 
-The APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
+Use Debug for correctness/debugger work and Profile for representative device
+performance. Debug intentionally compiles native code with `-O0`; Profile keeps
+the package debuggable and symbolized but makes `-O2 -DNDEBUG` the final native
+flags. The APKs are written to
+`app/build/outputs/apk/debug/app-debug.apk` and
+`app/build/outputs/apk/profile/app-profile.apk` respectively. Release remains
+the shipping configuration and is not signed with the sample debug key.
+
+Tagged GitHub releases also attach
+`whatscanvas-android-demo-profile-<version>.apk`. It contains all three sample
+ABIs and uses the Android debug key so it can be installed for feature and
+performance evaluation. It is not a production-signed application or an AAR;
+shipping applications must build/sign their own host from source.
 
 ## Current scope
 
@@ -70,8 +83,12 @@ The APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
   public `Paint::setFontVariation()` can override an axis for an application run.
 - Text/emoji presentation selectors, default emoji presentation, skin-tone ZWJ
   sequences, regional-indicator flags, and keycaps rendered through HarfBuzz,
-  bundled FreeType, and the RGBA glyph atlas. The sample scene and startup probe
-  exercise these paths on the active device image.
+  bundled FreeType, and the RGBA glyph atlas. CBDT/CBLC 2.0 and 3.0 PNG emoji
+  are both accepted for older and newer Android system fonts. The sample scene
+  and startup probe exercise these paths on the active device image.
 
-Touch input, encoded image decoding, lifecycle stress automation, Android CI,
-AAR packaging, and Vulkan presentation remain follow-up work.
+The sample includes density-aware touch interaction, lifecycle/context-loss
+handling, CI builds and lint, retained-scene diagnostics, and device checkpoints
+on Pixel 3 (Android 12) and Redmi K30 (Android 11/MIUI 12.5). Encoded-image use
+in this demo, managed-emulator instrumentation, AAR/Prefab packaging, broad OEM
+device coverage, and Vulkan presentation remain follow-up work.

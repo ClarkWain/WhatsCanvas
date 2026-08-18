@@ -93,6 +93,70 @@ class ResultError(RuntimeError):
     pass
 
 
+def validate_optional_timing_split(
+    result: dict[str, Any], source: Path
+) -> None:
+    """Validate additive endFrame/GPU-wait fields without rejecting old runs."""
+    fields = {
+        "end_frame_cpu_median_ms",
+        "gpu_wait_median_ms",
+        "end_frame_cpu_samples_ms",
+        "gpu_wait_samples_ms",
+        "submit_samples_ms",
+    }
+    present = fields & result.keys()
+    if not present:
+        return
+    missing = sorted(fields - result.keys())
+    if missing:
+        raise ResultError(
+            f"{source}: incomplete endFrame/GPU-wait timing split; "
+            f"missing fields: {', '.join(missing)}"
+        )
+
+    frame_count = result.get("frames")
+    sample_names = (
+        "end_frame_cpu_samples_ms",
+        "gpu_wait_samples_ms",
+        "submit_samples_ms",
+    )
+    samples: dict[str, list[Any]] = {}
+    for name in sample_names:
+        values = result[name]
+        if not isinstance(values, list):
+            raise ResultError(f"{source}: {name} must be an array")
+        if len(values) != frame_count:
+            raise ResultError(
+                f"{source}: {name} has {len(values)} samples; "
+                f"expected {frame_count}"
+            )
+        for value in values:
+            if (
+                not isinstance(value, (int, float))
+                or not math.isfinite(value)
+                or value < 0
+            ):
+                raise ResultError(
+                    f"{source}: {name} must contain finite non-negative values"
+                )
+        samples[name] = values
+
+    for index, (end_frame, gpu_wait, submit) in enumerate(
+        zip(
+            samples["end_frame_cpu_samples_ms"],
+            samples["gpu_wait_samples_ms"],
+            samples["submit_samples_ms"],
+        )
+    ):
+        expected = end_frame + gpu_wait
+        tolerance = max(1e-6, abs(submit) * 1e-5)
+        if abs(expected - submit) > tolerance:
+            raise ResultError(
+                f"{source}: submit sample {index} ({submit}) does not equal "
+                f"endFrame CPU + GPU wait ({expected})"
+            )
+
+
 def result_files(paths: Iterable[str]) -> list[Path]:
     files: list[Path] = []
     for raw in paths:
@@ -177,6 +241,7 @@ def load_run(path: Path) -> Run:
                 raise ResultError(f"{path}: {field} must be finite")
             if value < 0:
                 raise ResultError(f"{path}: {field} must not be negative")
+        validate_optional_timing_split(result, path)
     return Run(path, metadata, results)
 
 
