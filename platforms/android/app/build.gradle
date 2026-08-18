@@ -11,8 +11,8 @@ android {
         applicationId 'com.whatscanvas.demo'
         minSdkVersion "${min_sdk_version}" as Integer
         targetSdkVersion "${target_sdk_version}" as Integer
-        versionCode 3
-        versionName '0.3.0'
+        versionCode 4
+        versionName '0.4.0'
 
         externalNativeBuild {
             cmake {
@@ -29,6 +29,21 @@ android {
     buildTypes {
         debug {
             debuggable true
+        }
+        profile {
+            // Installable profiling build: keep symbols/run-as access while
+            // overriding Debug's -O0 native default. This mirrors the split
+            // used by mature UI engines: Debug for correctness, Profile for
+            // representative on-device performance, Release for shipping.
+            initWith release
+            debuggable true
+            signingConfig signingConfigs.debug
+            matchingFallbacks = ['release']
+            externalNativeBuild {
+                cmake {
+                    arguments '-DWHATSCANVAS_ANDROID_PROFILE=ON'
+                }
+            }
         }
         release {
             minifyEnabled false

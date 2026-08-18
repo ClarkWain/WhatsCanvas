@@ -62,6 +62,7 @@ void GaussianBlurProgram::initialize()
         uniform vec4 uInnerShadowColor;
         out vec4 FragColor;
 
+        #ifndef WHATSCANVAS_SIMPLE_BLUR
         vec4 fetchStraightPremultiplied(ivec2 coord)
         {
             ivec2 size = textureSize(uTexture, 0);
@@ -126,6 +127,7 @@ void GaussianBlurProgram::initialize()
             return mix(mix(samples[0], samples[1], fraction.x),
                        mix(samples[2], samples[3], fraction.x), fraction.y);
         }
+        #endif
 
         void main()
         {
@@ -140,7 +142,9 @@ void GaussianBlurProgram::initialize()
                     a += texture(uTexture, vUv - offset).a * uWeights[i];
                 }
                 FragColor = vec4(1.0, 1.0, 1.0, a);
-            } else if (uMode == 2) {
+            }
+            #ifndef WHATSCANVAS_SIMPLE_BLUR
+            else if (uMode == 2) {
                 vec4 sum = samplePremultiplied(vUv) * uWeights[0];
                 for (int i = 1; i <= 64; ++i) {
                     if (i > uRadius) {
@@ -189,14 +193,24 @@ void GaussianBlurProgram::initialize()
                 FragColor = vec4(
                     mix(original.rgb, uInnerShadowColor.rgb, coverage),
                     original.a);
-            } else {
+            }
+            #endif
+            else {
                 float a = texture(uTexture, vUv).a;
                 FragColor = vec4(uTint.rgb, a * uTint.a);
             }
         }
     )";
 
-    program_ = new GLProgram(vertexSrc, fragmentSrc);
+    vertexSource_ = vertexSrc;
+    imageFragmentSource_ = fragmentSrc;
+    std::string simpleFragmentSrc = fragmentSrc;
+    const std::size_t versionEnd = simpleFragmentSrc.find('\n');
+    simpleFragmentSrc.insert(
+        versionEnd == std::string::npos ? 0u : versionEnd + 1u,
+        "#define WHATSCANVAS_SIMPLE_BLUR 1\n");
+    program_ = new GLProgram(
+        "gaussian_blur_simple", vertexSrc, simpleFragmentSrc);
 
     // Full-screen quad in normalized device coordinates with matching UVs.
     const float quad[] = {
@@ -255,6 +269,11 @@ void GaussianBlurProgram::release(bool abandon)
         if (abandon) program_->abandonVolatile();
         delete program_;
         program_ = nullptr;
+    }
+    if (imageProgram_ != nullptr) {
+        if (abandon) imageProgram_->abandonVolatile();
+        delete imageProgram_;
+        imageProgram_ = nullptr;
     }
     if (vbo_ != 0) {
         if (!abandon) glDeleteBuffers(1, &vbo_);
@@ -331,6 +350,16 @@ void GaussianBlurProgram::drawQuad()
     glBindVertexArray(0);
 }
 
+void GaussianBlurProgram::ensureImageProgram()
+{
+    initialize();
+    if (imageProgram_ == nullptr) {
+        imageProgram_ = new GLProgram(
+            "gaussian_blur_image",
+            vertexSource_, imageFragmentSource_);
+    }
+}
+
 void GaussianBlurProgram::blurPass(GLuint srcTexture, GLuint dstFramebuffer, int width, int height,
                                    const glm::vec2 &direction, const wsc::render::GaussianKernel &kernel)
 {
@@ -361,31 +390,39 @@ void GaussianBlurProgram::blurPassImpl(GLuint srcTexture, GLuint dstFramebuffer,
     if (!initialized_) {
         return;
     }
+    GLProgram *activeProgram = program_;
+    if (mode == 2) {
+        ensureImageProgram();
+        activeProgram = imageProgram_;
+    }
+    if (activeProgram == nullptr) {
+        return;
+    }
 
     glBindFramebuffer(GL_FRAMEBUFFER, dstFramebuffer);
     glViewport(0, 0, width, height);
     glDisable(GL_BLEND);
     glDisable(GL_SCISSOR_TEST);
 
-    program_->use();
-    program_->setInt("uMode", mode);
-    program_->setInt("uTexture", 0);
-    program_->setInt("uDecal", decal ? 1 : 0);
+    activeProgram->use();
+    activeProgram->setInt("uMode", mode);
+    activeProgram->setInt("uTexture", 0);
+    activeProgram->setInt("uDecal", decal ? 1 : 0);
     const bool colorAdjust = std::abs(saturation - 1.0f) > 1e-6f
         || std::abs(brightness - 1.0f) > 1e-6f
         || std::abs(contrast - 1.0f) > 1e-6f;
-    program_->setInt("uColorAdjust", colorAdjust ? 1 : 0);
-    program_->setInt("uSourcePremultiplied", sourcePremultiplied ? 1 : 0);
-    program_->setInt("uOutputStraight", outputStraight ? 1 : 0);
-    program_->setInt("uResampleStraightAlpha", resampleStraightAlpha ? 1 : 0);
-    program_->setVec3("uColorAdjustment", glm::vec3(saturation, brightness, contrast));
-    program_->setFloat("uGrain", grain);
-    program_->setVec2("uDirection", direction);
+    activeProgram->setInt("uColorAdjust", colorAdjust ? 1 : 0);
+    activeProgram->setInt("uSourcePremultiplied", sourcePremultiplied ? 1 : 0);
+    activeProgram->setInt("uOutputStraight", outputStraight ? 1 : 0);
+    activeProgram->setInt("uResampleStraightAlpha", resampleStraightAlpha ? 1 : 0);
+    activeProgram->setVec3("uColorAdjustment", glm::vec3(saturation, brightness, contrast));
+    activeProgram->setFloat("uGrain", grain);
+    activeProgram->setVec2("uDirection", direction);
 
     const int radius = std::min(kernel.radius(), kMaxRadius);
-    program_->setInt("uRadius", radius);
+    activeProgram->setInt("uRadius", radius);
     for (int i = 0; i <= radius; ++i) {
-        program_->setFloat("uWeights[" + std::to_string(i) + "]", kernel.weights[static_cast<std::size_t>(i)]);
+        activeProgram->setFloat("uWeights[" + std::to_string(i) + "]", kernel.weights[static_cast<std::size_t>(i)]);
     }
 
     glActiveTexture(GL_TEXTURE0);
@@ -420,19 +457,23 @@ void GaussianBlurProgram::innerShadowPass(
     if (!initialized_) {
         return;
     }
+    ensureImageProgram();
+    if (imageProgram_ == nullptr) {
+        return;
+    }
 
     glBindFramebuffer(GL_FRAMEBUFFER, dstFramebuffer);
     glViewport(0, 0, width, height);
     glDisable(GL_BLEND);
     glDisable(GL_SCISSOR_TEST);
 
-    program_->use();
-    program_->setInt("uMode", 3);
-    program_->setInt("uTexture", 0);
-    program_->setInt("uOriginalTexture", 1);
-    program_->setInt("uSourcePremultiplied", sourcePremultiplied ? 1 : 0);
-    program_->setVec2("uInnerShadowOffset", offsetUv);
-    program_->setVec4("uInnerShadowColor", color);
+    imageProgram_->use();
+    imageProgram_->setInt("uMode", 3);
+    imageProgram_->setInt("uTexture", 0);
+    imageProgram_->setInt("uOriginalTexture", 1);
+    imageProgram_->setInt("uSourcePremultiplied", sourcePremultiplied ? 1 : 0);
+    imageProgram_->setVec2("uInnerShadowOffset", offsetUv);
+    imageProgram_->setVec4("uInnerShadowColor", color);
 
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, blurredTexture);

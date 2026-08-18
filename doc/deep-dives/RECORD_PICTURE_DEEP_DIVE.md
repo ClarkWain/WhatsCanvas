@@ -215,6 +215,15 @@ log("picture raster cache: hit=%zu miss=%zu layers=%zu bytes=%zu evictions=%zu",
     stats.retainedPictureRasterCacheSize,
     stats.retainedPictureRasterCacheBytes,
     stats.retainedPictureRasterCacheEvictions);
+
+log("cold raster cpu(ns): prepare=%llu bounds=%llu render=%llu path=%llu text=%llu backend=%llu atlas=%llu",
+    static_cast<unsigned long long>(stats.retainedPictureRasterPrepareCpuTimeNs),
+    static_cast<unsigned long long>(stats.retainedPictureRasterBoundsCpuTimeNs),
+    static_cast<unsigned long long>(stats.retainedPictureRasterRenderCpuTimeNs),
+    static_cast<unsigned long long>(stats.retainedPictureRasterPathCpuTimeNs),
+    static_cast<unsigned long long>(stats.retainedPictureRasterTextCpuTimeNs),
+    static_cast<unsigned long long>(stats.retainedPictureRasterTextBackendCpuTimeNs),
+    static_cast<unsigned long long>(stats.retainedPictureRasterTextAtlasCpuTimeNs));
 ```
 
 稳定场景进入预热后，预期结果是 raster hit 持续出现，miss 和 eviction 很少。如果每帧都 miss，通常不是“缓存不够快”，而是调用点的矩阵、clip、DPR、尺寸或内容 generation 一直在变化。
@@ -254,7 +263,7 @@ Context 初始化会推进 `contextGeneration`。尺寸、DPR、字体集合、�
 
 ### 栅格缓存有显存预算
 
-`drawPictureRasterized()` 首次执行时，会计算操作流的保守局部 bounds，把编译后的命令以 viewport/scissor 偏移渲染到匹配该区域的离屏图像，再在原位置合成。后续帧只提交一个纹理矩形。当前实现处理 render target 的上下原点差异，并使用 nearest sampling，避免一比一回放时因为半像素采样引入模糊或边缘缝隙。
+`drawPictureRasterized()` 首次执行时，会计算操作流的保守局部 bounds，把一次性生成的命令以 viewport/scissor 偏移渲染到匹配该区域的离屏图像，再在原位置合成。后续帧只提交一个纹理矩形。Raster-only miss 不会额外建立 compiled-command cache：这些命令马上就会被栅格化和释放，因此无需普通 `drawPicture()` 为长期反复回放准备的预热、第二次回放和深拷贝。如果调用方之前已经建立了 compiled cache，栅格路径仍会直接复用它。当前实现处理 render target 的上下原点差异，并使用 nearest sampling，避免一比一回放时因为半像素采样引入模糊或边缘缝隙。
 
 栅格缓存由 Canvas 管理，默认使用 32 MB 软预算和 LRU 驱逐。应用可以通过 `setRetainedPictureRasterCacheBudgetBytes()` 调整；设为 0 会完全绕过纹理缓存并回退到普通 Picture 回放。单个大于非零预算的最新层仍会保留；否则它会在每一帧被驱逐、重新生成，内存没有下降，性能反而更差。
 
@@ -286,7 +295,7 @@ Android demo 曾经在每次 `Activity.onPause()` 时销毁 NativeRenderer。恢
 
 当前示例为 `GLSurfaceView` 设置 `preserveEGLContextOnPause = true`。普通后台切换只停止 VSYNC 调度，Activity 真正结束或配置重建时才在 GL 线程释放资源。恢复前后的静态区域截图 MD5 一致，并且恢复后直接命中原 raster layer。
 
-非自愿 EGL Context 丢失仍需要独立的 abandon-context 语义：旧 Context 已经消失时，不能在新 Context 中删除旧名称。这项核心 API 仍在后续计划中，不能用普通 pause/resume 测试替代。
+非自愿 EGL Context 丢失使用独立的 `Canvas::abandonContext()` 语义：旧 Context 已经消失时，只遗忘旧 GPU 名称，不能在新 Context 中调用删除 API。核心路径和单元测试已经具备；剩余工作是 managed-emulator/instrumentation 强制丢失门禁，普通 pause/resume 测试不能替代它。
 
 ### FPS 必须结合显示模式解释
 

@@ -347,8 +347,13 @@ changing the next scene's result.
 ## Metrics
 
 - `record_*_ms`: `beginFrame` plus public Canvas draw calls.
-- `submit_*_ms`: `endFrame` plus backend completion. OpenGL uses `glFinish`;
-  Vulkan waits for its queue, so reported GPU time is not deferred work.
+- `end_frame_cpu_*_ms`: CPU wall time spent inside `Canvas::endFrame()` before
+  the benchmark's explicit backend completion wait.
+- `gpu_wait_*_ms`: time spent in the benchmark's completion barrier. OpenGL
+  uses `glFinish`; Vulkan waits for its queue. This is a blocking benchmark
+  diagnostic, not the normal presentation path.
+- `submit_*_ms`: backward-compatible sum of `end_frame_cpu_*_ms` and
+  `gpu_wait_*_ms`.
 - `total_*_ms`: complete synchronized frame time.
 - `median`, `p90`, `p95`, `p99`, `mean`, `min`, `max`, `stddev`, `cv`:
   distribution statistics over measured frames.
@@ -362,6 +367,10 @@ changing the next scene's result.
   deliberately not presented as identical private-memory semantics everywhere.
 - `command_count`, `draw_call_count`, cache bytes, filter/pass/pixel counts,
   and render-target statistics: public `Canvas::RenderStats` diagnostics.
+- `image_batch_quad_count`, `image_batch_instanced_quad_count`, and
+  `image_batch_upload_bytes`: SpriteBatch input quads, the subset represented
+  by one 12-float GPU instance rather than four 14-float vertices, and the
+  resulting per-frame vertex/instance upload traffic.
 - `flush_cpu_ns`: Renderer flush wall time. `frame_compile_cpu_ns` isolates
   command-to-packet lowering where a `FrameCompiler` path is active, while
   `device_execution_cpu_ns` isolates device-command execution.
@@ -372,6 +381,41 @@ changing the next scene's result.
   timer-query overhead.
 - `compiled_packet_count`, `compiled_vertex_bytes`, and
   `compiled_index_bytes`: the submitted compact-packet footprint.
+- `text_normalization_count`, shape/layout cache hits and misses,
+  `text_layout_view_hits` (cache hits consumed without copying the cached quad
+  vector),
+  `glyph_atlas_hits/misses`, `glyph_rasterization_count`,
+  `zero_area_glyph_hits`, `generated_glyph_quad_count`, and
+  `glyph_atlas_dirty_bytes`: per-frame portable text-pipeline work. Native text
+  backends may report zero for stages hidden behind the platform API.
+- `text_normalization_cpu_ns`, `text_layout_cache_cpu_ns`,
+  `text_shaping_cpu_ns`, `glyph_cache_lookup_cpu_ns`, `glyph_raster_cpu_ns`,
+  and `glyph_atlas_upload_cpu_ns`: CPU-time split for the main portable text
+  stages. `text_bidi_cpu_ns`, `text_font_fallback_cpu_ns`,
+  `text_font_data_cpu_ns`, and `text_shape_engine_cpu_ns` subdivide shaping so
+  provider matching is not mistaken for HarfBuzz/simple-shaper execution.
+- `path_input_vertex_count`, `path_tessellated_vertex_count`,
+  `path_aa_expanded_vertex_count`, `path_merged_vertex_count`, and
+  `path_uploaded_vertex_count`: the per-frame path geometry funnel. The AA
+  value is the unique vertex count after indexing, so it can be lower than the
+  pre-index triangle soup. Merged is also retained under the historical
+  `path_vertex_count` name. Uploaded counts position records transferred to the
+  active backend; use the byte counters to analyze total attribute bandwidth.
+- `command_object_count`, `command_allocation_count`, and
+  `command_pool_reuse_count`: distinguish logical command construction from
+  actual system-heap traffic. A high object count with zero allocations means
+  the command pool is working and is not evidence for another allocation
+  optimization.
+- `command_clone_count`, `payload_copy_bytes`, and `staging_capacity_bytes`:
+  retained-Picture cloning, known CPU payload materialization/copy traffic, and
+  retained reusable staging capacity. Copy bytes are a diagnostic lower bound,
+  not total process memory bandwidth. Staging includes queued image-batch quad
+  capacity as well as renderer/device staging. It is not an arena metric;
+  WhatsCanvas does not yet use a unified frame arena.
+- `batch_break_command_type_count`, `batch_break_state_count`,
+  `batch_break_texture_limit_count`, and `batch_break_vertex_limit_count`:
+  reasons an otherwise consecutive OpenGL path/sprite sequence stopped
+  batching. Natural end-of-frame termination is not counted as a break.
 - `tracked_resource_bytes`: the sum of glyph-atlas, pooled render-target,
   tessellation, stroke, and bitmap-text cache bytes owned by WhatsCanvas.
 

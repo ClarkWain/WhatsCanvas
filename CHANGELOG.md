@@ -9,6 +9,47 @@ For releases and downloadable artifacts, see the
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-18
+
+### Added
+- Added backend-neutral retained `Picture` recording with per-Context compiled
+  command caches, explicitly requested bounded raster caches, LRU accounting,
+  and lifecycle-safe invalidation. New diagnostics expose cache hits, misses,
+  memory, preparation stages, command allocation/reuse, uploads, and shader
+  compilation costs.
+- Added production-oriented font-provider resolution, lazy byte-backed fonts,
+  Android API 29+ matcher snapshots that do not require stable file paths, and
+  API 21-28 AOSP/OEM XML discovery. The regression corpus now includes complete
+  AVD and Redmi configurations plus focused color-font fixtures.
+- Added Unicode/fuzzing/sanitizer CI gates, Android Debug/Profile/Release
+  validation, performance schema checks, shader warm-up statistics, and a
+  debug-signed Android Profile demo APK on tagged releases.
+- Added Chinese performance documentation and a deep-dive guide explaining why,
+  how, and when to use retained Pictures.
+
+### Changed
+- Reworked the Android feature demo around a static retained/rasterized layer,
+  dynamic overlays, VSYNC-driven `WHEN_DIRTY` rendering, refresh-rate hints,
+  and Profile-native `-O2 -DNDEBUG` builds. On the validated Pixel 3 workload,
+  steady-state rendering sustains the active 60 Hz display rate.
+- Reduced steady-state CPU/GPU overhead through lazy common/full shader
+  programs, smaller common variants, cached uniforms, image/path batching,
+  pooled commands and staging buffers, path-cache admission control, and fast
+  primary-face text lookup. Software rendering gained matching fast paths and
+  additional regression coverage.
+- Hardened orderly teardown and unexpected context-loss handling so compiled
+  Picture commands, raster layers, atlases, programs, buffers, and temporary
+  targets are recreated only for the owning replacement Context.
+
+### Fixed
+- Accepted the CBDT/CBLC 2.0 PNG color-emoji tables shipped by Android 12 on
+  Pixel 3 in addition to 3.0 tables used by newer Android fonts.
+- Normalized geometry-text fallback vertices after high-DPI raster scaling,
+  preventing fallback question marks from being transformed twice during
+  Picture playback.
+- Preserved visible content across Android pause/resume and context recreation,
+  while avoiding stale GPU-object reuse and synchronous full-scene rebuilds.
+
 ## [0.3.0] - 2026-08-15
 
 ### Added
@@ -402,7 +443,8 @@ For releases and downloadable artifacts, see the
 For changes prior to 0.1.11, see the
 [GitHub Releases](https://github.com/ClarkWain/WhatsCanvas/releases) history.
 
-[Unreleased]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.20...v0.2.0
 [0.1.20]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.19...v0.1.20

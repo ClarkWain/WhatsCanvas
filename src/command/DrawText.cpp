@@ -125,7 +125,7 @@ void DrawTextProgram::initialize()
         }
     )";
 
-    program_ = new GLProgram(vertexSrc, fragmentSrc);
+    program_ = new GLProgram("draw_text", vertexSrc, fragmentSrc);
 
     glGenVertexArrays(1, &VAO_);
     vertexBuffer_.initialize(4096);
@@ -165,6 +165,7 @@ void DrawTextProgram::release(bool abandon)
 
 void DrawTextProgram::draw(const RenderContext &context, const DrawTextData &data)
 {
+    initialize();
     if (!DrawValidation::validateProgram(initialized_, "DrawTextProgram::draw")) {
         return;
     }

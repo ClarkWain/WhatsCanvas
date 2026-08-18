@@ -207,30 +207,58 @@ Canvas layer, then copied, transformed, widened, and merged again during
 
 ## Required instrumentation
 
-- [ ] Separate `endFrame` CPU work from GPU completion wait.
-- [ ] Count input, tessellated, AA-expanded, merged, and uploaded vertices.
+- [x] Separate `endFrame` CPU work from GPU completion wait. The performance
+      suite preserves aggregate `submit_*_ms` while publishing independent
+      `end_frame_cpu_*_ms` and `gpu_wait_*_ms` distributions and samples.
+- [x] Count input, tessellated, indexed-AA-expanded, merged, and uploaded path
+      vertices. `RenderStats` and the performance JSON expose the complete
+      per-frame funnel; the AA count is the unique vertex count after indexing.
 - [x] Count path upload calls and bytes.
 - [x] Report fill and AA cache hits and misses separately.
-- [ ] Count text normalization, shape cache hits, atlas hits, raster calls,
-      zero-area glyph hits, generated quads, and atlas dirty bytes.
-- [ ] Count command allocations, payload copy bytes, arena high-water marks,
-      and batch-break reasons.
-- [ ] Add delayed OpenGL timer queries for GPU execution time.
+- [x] Count text normalization, shape/layout cache hits and misses, atlas hits
+      and misses, raster calls, zero-area glyph hits, generated quads, and
+      atlas dirty bytes through per-frame public `RenderStats`.
+- [x] Count command objects, actual system allocations, pool reuse, retained
+      Picture clones, known payload-copy bytes, reusable staging capacity, and
+      batch breaks by command type/state/texture/vertex limit.
+- [ ] Introduce a frame arena before reporting a true arena high-water mark;
+      the current implementation has reusable vectors/pools rather than one
+      arena, so `staging_capacity_bytes` reports their retained capacity.
+- [x] Add delayed OpenGL timer queries for GPU execution time. Public
+      `RenderStats` exposes availability plus the latest completed result;
+      the performance suite enables it explicitly with `--gpu-timing`.
 
 ## P0: remove proven repeated work
 
 - [x] Cache valid zero-area glyphs without allocating atlas texture space.
 - [x] Cache resolved glyph layouts, keyed by text and immutable font state.
-- [ ] Return stable shape/layout views instead of copying glyph vectors.
+- [x] Return a short-lived stable layout view to Canvas on hot cache hits,
+      avoiding a full glyph-quad vector copy while preserving the owning
+      `renderText()` contract.
+- [x] Borrow stable shaping-cache entries internally instead of copying
+      `ShapedTextRun` and its glyph vector on cache hits.
 - [ ] Use O(1) LRU maintenance and interned face identifiers.
 - [x] Add move construction for owning draw command payloads.
 - [x] Reuse frame-level path merge staging storage.
-- [ ] Reuse frame-level text staging storage.
+- [x] Reuse frame-level atlas-text batch staging storage. Compatible labels now
+      write directly into renderer-owned batch storage on GPU and software
+      renderers; fallback renderers recycle one temporary quad vector.
 - [x] Append OpenGL path streams by offset; orphan once per frame or use a
       fenced ring buffer instead of overwriting offset zero per batch.
-- [ ] Emit compact text vertices or instanced glyph quads. Pass 1 changed
-      sprite quads from six duplicated vertices to four indexed vertices;
-      splitting the 13-float generic vertex remains.
+- [x] Emit compact instanced glyph/image-batch quads on desktop OpenGL and
+      OpenGL ES 3. Each axis-aligned quad uploads one 12-float instance instead
+      of four 14-float generic vertices; rotated/sheared batches retain the
+      expanded fallback.
+- [x] Keep the coalesced OpenGL path-packet scratch prefix at its high-water
+      mark. Alternating packet sizes no longer shrink and then repeatedly
+      zero-initialize bytes that are immediately overwritten.
+- [x] Store dense AA boundary accumulators and offsets in arrays indexed by
+      vertex id instead of per-frame hash maps.
+- [x] Submit open stroke arcs from their semantic sampled polyline instead of
+      allocating a temporary `Path` and immediately extracting the same
+      contour. Picture recording and fill/chord/pie/shadow/effect cases retain
+      the generic fallback; a pixel-equivalence regression covers round caps
+      and analytic AA.
 
 Acceptance target: eliminate warm-frame FreeType calls for spaces, reduce text
 record time by at least 40%, and reduce geometry submit time by at least 25%
@@ -238,6 +266,121 @@ without changing the captured pixel hash or quality thresholds.
 
 Pass 1 status: met. Text record time fell by 82.8%, geometry submit time fell
 by 46.8%, and captured hashes remained unchanged.
+
+The Android dynamic-path follow-up was driven by a ten-second `simpleperf`
+capture on a Redmi K30/Adreno OpenGL ES 3.2 device. Retaining the path-packet
+scratch high-water mark removed `vector<uint8_t>::resize/__append` from the hot
+list: `DrawPathProgram::draw` fell from 23.3% to 9.8% of sampled children and
+`Renderer::flush` from 27.1% to 14.2%. Replacing dense vertex-id hash maps then
+reduced the desktop `path_churn` five-run mean record time to 3.30 ms and total
+time to 3.77 ms, with the same `1121b0400b500cb0` pixel hash. Percentages from
+separate sampling windows are directional rather than a statistically paired
+claim; the paired desktop hash and timing gate remains the acceptance result.
+
+Android performance acceptance uses the installable `profile` variant, not
+the `-O0` Debug APK. The Profile build keeps symbols and `run-as`/`simpleperf`
+access while making `-O2 -DNDEBUG` the final native flags after AGP's Debug
+defaults. On the same Redmi K30 scene, warm Profile windows recorded dynamic
+content in roughly 0.36-2.22 ms, flushed in 0.34-2.06 ms, and kept pace with
+the active display mode (60 Hz in that run; later OEM policy selected 50 Hz);
+the Debug build's 4.5-9 ms common record range was diagnostic overhead rather
+than a shipping-performance ceiling. The first static Picture raster is
+tracked separately from steady frames. It was initially about 205 ms. A
+raster-only miss now replays the portable operations once and renders that
+disposable command stream directly, instead of paying the compiled Picture
+cache's warm-up replay, second replay, and deep copy. Public `RenderStats`
+split prepare, bounds, offscreen render, path, text, text-backend, and atlas
+CPU time so this cold work cannot be mistaken for `endFrame()` cost.
+
+On the same Redmi K30, the first split showed about 94 ms preparing commands,
+0.25 ms measuring bounds, and 119 ms in the first offscreen render. Path work
+was only about 2 ms; text accounted for 82-87 ms. Starting the growable glyph
+atlas at 1024 instead of 2048 avoids a 4 MiB alpha plus 16 MiB RGBA cold
+allocation for a small UI, while retaining power-of-two growth to 4096.
+Single-codepoint/cluster face caching, sparse alpha-to-RGBA atlas promotion,
+and redundant FreeType size-change suppression then reduced raster prepare to
+about 56-61 ms. After the Android EGL shader blob cache has persisted, the
+offscreen step is about 27 ms and total `pictureCpu` about 83 ms. Immediately
+after installing a new APK, driver shader compilation still raises the
+offscreen step to roughly 106-123 ms and total `pictureCpu` to 165-180 ms;
+offline/persisted shader pipeline work remains a separate follow-up rather
+than being hidden by moving compilation into initialization.
+
+OpenGL shader cold-start work is now observable rather than inferred solely
+from the first offscreen draw: public `RenderStats` reports cumulative linked
+programs, compiled stages, compile CPU time, and link CPU time. Base draw
+programs initialize on first use instead of compiling all five during context
+creation. The anti-aliased single-clip path rasterizes directly into its R8
+accumulator, avoiding the multiply shader, its full-screen pass, and the
+temporary R8 target; multiple intersecting clips retain the original multiply
+path. SpriteBatch likewise creates only the expanded or instanced shader
+variant actually requested. Android Profile logs publish these counters beside
+the retained-Picture timing split so a source compile/link hit can be separated
+from deferred driver pipeline and FBO costs.
+
+The first per-program Redmi K30 cold trace identified the unified Gaussian
+filter shader as the largest single compiler input: about 21.7 ms compiling
+and 54.8 ms linking, even though the scene needed only alpha blur plus tint
+composition. The lightweight shadow variant now excludes RGBA resampling,
+color adjustment, grain, and inner-shadow branches at preprocessing time;
+the full image-filter variant remains lazy and is covered by OpenGL backdrop
+and pixel-parity tests. Under the same clear-app-data cold procedure, aggregate
+shader compile plus link time fell from 155.3 ms to 89.8 ms (-42%), first
+offscreen render from 169.6 ms to 103.2 ms (-39%), and `pictureCpu` from
+228.0 ms to 161.1 ms (-29%). After the EGL blob cache persisted, the same
+build reported 4.3 ms compile plus link, 18.4 ms offscreen render, and 74.9 ms
+`pictureCpu`. A trial that reused the path program for clip coverage was
+rejected after the device screenshot exposed an empty coverage mask; the
+dedicated, small coverage program remains because correctness takes priority
+over its roughly 8-9 ms genuine-cold cost on this driver.
+
+The same trace initially attributed roughly 47 ms to the portable text backend.
+New per-stage counters showed that HarfBuzz itself used only about 0.84 ms;
+37.7 ms was spent repeatedly asking Android's provider stack to resolve every
+previously unseen character. The backend now resolves the requested family's
+primary face once per family/style/locale/generation and checks its loaded cmap
+before invoking full fallback. Missing glyphs, grapheme clusters, CJK, and
+emoji still take the complete resolver path. On the Redmi K30 cold run, font
+fallback fell from 37.7 ms to 0.60 ms, total shaping from 39.2 ms to 3.88 ms,
+text-backend time from 46.7 ms to 10.9 ms, and `pictureCpu` from 164.7 ms to
+123.9 ms. A separate trial splitting DrawImage into simple and complex GLES
+programs was rejected: this gallery needs both variants, so it increased the
+program count from four to five and regressed `pictureCpu` to 163.1 ms.
+The retained split therefore follows the actual feature boundary instead:
+the common GLES image program keeps gradients, rounded clipping,
+Repeat/Mirror sampling, and clip masks, but excludes color-matrix and Decal
+branches. Those two advanced modes lazily select the complete program. The
+gallery remains at four linked programs, while DrawImage compile plus link
+fell from about 33.2 ms to 29.5 ms (-11%) in the device A/B; aggregate shader
+time fell by roughly 2.2 ms and the full path remains covered by desktop
+OpenGL filter/backdrop parity tests. A narrower follow-up that removed all
+gradient code from the common image shader was also rejected: gradient text
+uses the same texture-composition path, so the gallery immediately needed both
+image variants and returned to five linked programs.
+
+Image submission also avoids inactive uniform traffic without changing shader
+variants. A non-gradient image now writes only the gradient-type disable flag
+instead of coordinates, tiling state, eight stop positions, and eight stop
+colors; a real gradient uploads only its declared stops and the coordinates for
+its selected linear or radial form. Non-rounded draws skip rounded-size/radius,
+GLES skips desktop-only ClearType controls, and Decal-only full draws skip an
+inactive color matrix. This removes 22 GL uniform calls plus 16 temporary
+uniform-name constructions from each ordinary image draw while preserving the
+explicit enable/disable writes needed when adjacent draws use different state.
+
+DrawPath now uses the same bounded two-tier policy on GLES. The common program
+keeps solid and vertex colors, linear Clamp gradients, coverage AA, and clip
+masks, while radial gradients and Repeat/Mirror/Decal tiling lazily select the
+complete program. Both variants share one VAO and stream buffer; switching a
+variant or starting a new path batch explicitly restores the active program
+and invalidates its uniform cache. Redmi K30 genuine-cold runs reduced the
+common DrawPath compile plus link time from about 29.5 ms to 20.6-22.6 ms
+(-23% to -30%). The ordinary gallery still links only four programs. A
+device-only radial
+gradient probe exercised common-to-full-to-common switching in one frame and
+preserved the radial fill, subsequent strokes, clipping, and linear gradients;
+the probe was removed after validation so the shipping gallery continues to
+measure the common path.
 
 ## P1: preserve semantic primitives
 
@@ -285,7 +428,7 @@ only the 1,024/4,096-operation dynamic-structure cells remain behind.
 - [x] Retain compiled topology for every stable batch after the 65,536-vertex
       split instead of letting one `pathBatchTopology_` slot overwrite another.
 - [x] Expose topology hit/miss counters in the public performance result.
-- [ ] Add timer-query and frame-compile timing before changing the AA format.
+- [x] Add timer-query and frame-compile timing before changing the AA format.
 - [x] Compact the per-frame command stream for many short blend runs without
       changing blend order or weakening AA.
 

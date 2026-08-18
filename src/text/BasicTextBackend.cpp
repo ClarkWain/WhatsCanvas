@@ -1,6 +1,7 @@
 #include "text/BasicTextBackend.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <memory>
 #include <optional>
@@ -30,17 +31,26 @@ namespace {
 using wsc::text::TextRenderKind;
 using wsc::text::TextRenderResult;
 
+using CpuClock = std::chrono::steady_clock;
+
+std::uint64_t elapsedCpuTimeNs(CpuClock::time_point start)
+{
+    return static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            CpuClock::now() - start).count());
+}
+
 constexpr size_t kMaxNativeTextCacheEntries = 128;
 // Dynamic UI text commonly combines a few hundred strings with multiple
 // sizes and weights. Keep that working set hot while retaining a firm bound.
 constexpr size_t kMaxRasterShapeCacheEntries = 2048;
 constexpr size_t kMaxRasterLayoutCacheEntries = 2048;
-// Windows application UI commonly combines several text sizes, weights and
-// structural branches in one deferred Software frame.  Starting at 1024 can
-// force an atlas resize while that frame still owns commands referencing the
-// first texture.  A 2048 atlas keeps a normal desktop scene stable and avoids
-// replacing the shared resource during command recording.
-constexpr int kDefaultGlyphAtlasSize = 2048;
+// Start modestly and grow on demand. A 2048x2048 atlas made the first colour
+// emoji upgrade allocate and upload a 16 MiB RGBA texture even for a handful
+// of labels. The atlas already has deterministic power-of-two growth and
+// rebuild bookkeeping, so 1024 avoids that cold-start cliff while retaining
+// the same 4096 maximum for dense text workloads.
+constexpr int kDefaultGlyphAtlasSize = 1024;
 
 const char *backendName(wsc::text::TextBackendKind kind)
 {
@@ -128,6 +138,20 @@ public:
     bool hasNativeDirectWriteBackend() const
     {
         return directWriteBackend_ != nullptr;
+    }
+
+    wsc::text::TextRenderStats renderStats() const override
+    {
+        return directWriteBackend_ != nullptr
+            ? directWriteBackend_->renderStats() : renderStats_;
+    }
+
+    void resetRenderStats() override
+    {
+        renderStats_ = {};
+        if (directWriteBackend_ != nullptr) {
+            directWriteBackend_->resetRenderStats();
+        }
     }
 
     bool registerFontFace(const wsc::FontFace &face) override
@@ -491,16 +515,34 @@ public:
 
     TextRenderResult renderText(const std::string &text, float x, float y, const Paint &paint) const override
     {
+        return renderTextImpl(text, x, y, paint, false);
+    }
+
+    TextRenderResult renderTextView(const std::string &text, float x, float y,
+                                    const Paint &paint) const override
+    {
+        return renderTextImpl(text, x, y, paint, true);
+    }
+
+private:
+    TextRenderResult renderTextImpl(const std::string &text, float x, float y,
+                                    const Paint &paint, bool allowLayoutView) const
+    {
         if (directWriteBackend_ != nullptr) {
-            return directWriteBackend_->renderText(text, x, y, paint);
+            return directWriteBackend_->renderTextView(text, x, y, paint);
         }
         TextRenderResult result;
+        ++renderStats_.normalizationCount;
+        const auto normalizationStart = CpuClock::now();
         const std::string normalizedText = wsc::text::normalizeUtf8ForText(text);
+        renderStats_.normalizationCpuTimeNs +=
+            elapsedCpuTimeNs(normalizationStart);
         if (normalizedText.empty() || paint.getTextSize() <= 0.0f) {
             return result;
         }
 
-        if (auto atlasResult = renderRasterizedText(normalizedText, x, y, paint)) {
+        if (auto atlasResult = renderRasterizedText(normalizedText, x, y, paint,
+                                                    allowLayoutView)) {
             return *atlasResult;
         }
 
@@ -573,7 +615,6 @@ public:
         return result;
     }
 
-private:
     void registerSystemFontFallbacks()
     {
         // These aliases are resolved from the native system-font enumeration;
@@ -626,6 +667,15 @@ private:
         if (const auto cached = rasterFaceCache_.find(cacheKey); cached != rasterFaceCache_.end()) {
             return cached->second;
         }
+        // Resolve the requested family's primary face once per style. Most UI
+        // strings stay on that face, so checking its already-loaded cmap is
+        // far cheaper than asking every platform provider to rematch each new
+        // codepoint. Full fallback still runs whenever the primary lacks it.
+        if (const wsc::FontFace *primary = findPrimaryRasterFace(paint);
+            primary != nullptr && rasterizer_.hasGlyph(*primary, codepoint)) {
+            rasterFaceCache_.emplace(cacheKey, primary);
+            return primary;
+        }
         if (const wsc::FontFace *face = resolveRasterFace({codepoint}, paint)) {
             rasterFaceCache_.emplace(cacheKey, face);
             return face;
@@ -651,14 +701,64 @@ private:
             return nullptr;
         }
 
+        // The common cluster is one ordinary codepoint. Route it through the
+        // existing face cache instead of invoking the platform matcher for
+        // every occurrence in every label. Keep variation-selector/ZWJ
+        // clusters intact because Android may choose a different emoji face.
+        if (codepoints.size() == 1u && required.size() == 1u) {
+            return findRasterFaceForCodepoint(required.front(), paint);
+        }
+
+        const std::string clusterCacheKey =
+            rasterClusterFaceCacheKey(codepoints, paint);
+        if (const auto cached = rasterFaceCache_.find(clusterCacheKey);
+            cached != rasterFaceCache_.end()) {
+            return cached->second;
+        }
+
+        if (const wsc::FontFace *primary = findPrimaryRasterFace(paint);
+            primary != nullptr
+            && std::all_of(required.begin(), required.end(),
+                           [&](std::uint32_t codepoint) {
+                               return rasterizer_.hasGlyph(*primary, codepoint);
+                           })) {
+            rasterFaceCache_.emplace(clusterCacheKey, primary);
+            return primary;
+        }
+
         if (const wsc::FontFace *face = resolveRasterFace(
-                codepoints, paint, false, &required)) return face;
+                codepoints, paint, false, &required)) {
+            rasterFaceCache_.emplace(clusterCacheKey, face);
+            return face;
+        }
 
         // Keep an indivisible grapheme on one face even when no installed face
         // covers every mark. This is preferable to splitting a combining/ZWJ
         // sequence across unrelated fonts; the shaper can then emit .notdef in
         // a deterministic way for the missing part.
         return findRasterFaceForCodepoint(required.front(), paint);
+    }
+
+    const wsc::FontFace *findPrimaryRasterFace(const Paint &paint) const
+    {
+        const std::string cacheKey =
+            "primary\x1f" + rasterFaceCacheKey(0u, paint);
+        if (const auto cached = rasterFaceCache_.find(cacheKey);
+            cached != rasterFaceCache_.end()) {
+            return cached->second;
+        }
+
+        wsc::FontMatchRequest request;
+        request.family = paint.hasFontFamily()
+            ? paint.getFontFamily()
+            : wsc::FontSystem::kDefaultPrimaryFamily;
+        request.weight = paint.getFontWeight();
+        request.slant = paint.getFontSlant();
+        request.locale = paint.getTextLocale();
+        request.allowFallback = false;
+        const wsc::FontMatchResult match = fontResolver_.resolve(request);
+        rasterFaceCache_.emplace(cacheKey, match.face);
+        return match.face;
     }
 
     struct RasterTextSegment
@@ -746,8 +846,10 @@ private:
     }
 
     std::optional<TextRenderResult> renderRasterizedText(const std::string &normalizedText, float x, float y,
-                                                         const Paint &paint) const
+                                                         const Paint &paint,
+                                                         bool allowLayoutView) const
     {
+        const auto layoutCacheStart = CpuClock::now();
         const std::string layoutCacheKey =
             rasterLayoutCacheKey(normalizedText, paint);
         const std::uint64_t atlasGeneration =
@@ -755,23 +857,41 @@ private:
         if (const auto *cached = rasterLayoutCache_.find(layoutCacheKey);
             cached != nullptr
             && cached->atlasGeneration == atlasGeneration) {
+            ++renderStats_.layoutCacheHits;
             TextRenderResult result;
             result.kind = TextRenderKind::GlyphAtlas;
             result.drawX = x + cached->drawXOffset;
             result.drawY = y + cached->drawYOffset;
             result.width = cached->width;
             result.height = cached->height;
-            result.glyphAtlasQuads = cached->quads;
-            for (TextRenderResult::GlyphAtlasQuad &quad :
-                 result.glyphAtlasQuads) {
-                quad.x += x;
-                quad.y += y;
+            if (allowLayoutView) {
+                result.glyphAtlasQuadsView = &cached->quads;
+                result.glyphAtlasQuadOffsetX = x;
+                result.glyphAtlasQuadOffsetY = y;
+                ++renderStats_.layoutViewHits;
+            } else {
+                result.glyphAtlasQuads = cached->quads;
+                for (TextRenderResult::GlyphAtlasQuad &quad :
+                     result.glyphAtlasQuads) {
+                    quad.x += x;
+                    quad.y += y;
+                }
             }
+            renderStats_.generatedQuadCount +=
+                cached->quads.size();
             populateAtlasResult(result);
+            renderStats_.layoutCacheCpuTimeNs +=
+                elapsedCpuTimeNs(layoutCacheStart);
             return result;
         }
+        renderStats_.layoutCacheCpuTimeNs +=
+            elapsedCpuTimeNs(layoutCacheStart);
+        ++renderStats_.layoutCacheMisses;
 
+        const auto shapingStart = CpuClock::now();
         const auto shapedRun = shapeRasterizedText(normalizedText, paint);
+        renderStats_.shapingCpuTimeNs +=
+            elapsedCpuTimeNs(shapingStart);
         if (!shapedRun) {
             addDiagnosticOnce(wsc::text::TextBackendDiagnostic::Severity::Warning,
                               "raster-shape#" + diagnosticFontFamily(paint),
@@ -809,6 +929,7 @@ private:
         std::vector<PendingGlyphDraw> pendingGlyphs;
         pendingGlyphs.reserve(shapedRun->glyphs.size());
         for (const wsc::text::ShapedGlyph &glyph : shapedRun->glyphs) {
+            const auto glyphLookupStart = CpuClock::now();
             const wsc::FontFace *face = glyph.fontFace != nullptr
                 ? glyph.fontFace
                 : findRasterFaceForCodepoint(glyph.codepoint, paint);
@@ -843,14 +964,28 @@ private:
                 cached = glyphAtlas_.find(cachedKey);
             }
             if (cached != nullptr) {
+                renderStats_.glyphCacheLookupCpuTimeNs +=
+                    elapsedCpuTimeNs(glyphLookupStart);
+                ++renderStats_.atlasHits;
+                if (cached->width == 0 && cached->height == 0) {
+                    ++renderStats_.zeroAreaGlyphHits;
+                }
                 pendingGlyphs.push_back(
                     {glyph, cached->key, std::nullopt, *cached});
                 continue;
             }
+            renderStats_.glyphCacheLookupCpuTimeNs +=
+                elapsedCpuTimeNs(glyphLookupStart);
 
+            ++renderStats_.atlasMisses;
+            ++renderStats_.rasterizationCount;
+
+            const auto rasterStart = CpuClock::now();
             auto rasterized = glyph.glyphIndex > 0
                 ? rasterizer_.rasterizeGlyphIndex(effectiveFace, glyph.glyphIndex, glyph.codepoint, paint.getTextSize())
                 : rasterizer_.rasterizeGlyph(effectiveFace, glyph.codepoint, paint.getTextSize());
+            renderStats_.glyphRasterCpuTimeNs +=
+                elapsedCpuTimeNs(rasterStart);
             if (!rasterized) {
                 addDiagnosticOnce(wsc::text::TextBackendDiagnostic::Severity::Warning,
                                   "raster-glyph#" + face->family() + "#" + std::to_string(glyph.codepoint)
@@ -884,7 +1019,14 @@ private:
                     const std::uint64_t generationBeforeUpload = glyphAtlas_.stats().generation;
                     const auto entry = pending.cachedEntry
                         ? pending.cachedEntry
-                        : glyphAtlas_.uploadGlyph(pending.key, *pending.bitmap);
+                        : [&]() {
+                            const auto uploadStart = CpuClock::now();
+                            auto uploaded = glyphAtlas_.uploadGlyph(
+                                pending.key, *pending.bitmap);
+                            renderStats_.atlasUploadCpuTimeNs +=
+                                elapsedCpuTimeNs(uploadStart);
+                            return uploaded;
+                        }();
                     if (!entry) {
                         addDiagnosticOnce(wsc::text::TextBackendDiagnostic::Severity::Warning,
                                           "atlas-upload#" + std::to_string(pending.glyph.codepoint),
@@ -954,6 +1096,8 @@ private:
         }
         rasterLayoutCache_.insert(
             layoutCacheKey, std::move(cachedLayout));
+        renderStats_.generatedQuadCount +=
+            result.glyphAtlasQuads.size();
         populateAtlasResult(result);
         return result;
     }
@@ -974,8 +1118,14 @@ private:
         result.atlasRevision = stats.uploadCount;
         const std::vector<wsc::text::GlyphAtlasDirtyRect> dirtyRects =
             glyphAtlas_.consumeDirtyRects();
+        const std::size_t bytesPerPixel =
+            glyphAtlas_.hasColorPixels() ? 4u : 1u;
         result.atlasDirtyRects.reserve(dirtyRects.size());
         for (const wsc::text::GlyphAtlasDirtyRect &dirtyRect : dirtyRects) {
+            renderStats_.atlasDirtyBytes +=
+                static_cast<std::size_t>(std::max(0, dirtyRect.width))
+                * static_cast<std::size_t>(std::max(0, dirtyRect.height))
+                * bytesPerPixel;
             TextRenderResult::GlyphAtlasDirtyRect resultRect;
             resultRect.x = dirtyRect.x;
             resultRect.y = dirtyRect.y;
@@ -985,28 +1135,33 @@ private:
         }
     }
 
-    std::optional<wsc::text::ShapedTextRun> shapeRasterizedText(const std::string &normalizedText,
-                                                                const Paint &paint) const
+    const wsc::text::ShapedTextRun *shapeRasterizedText(
+        const std::string &normalizedText,
+        const Paint &paint) const
     {
         if (!paint.hasFontFamily()) {
             if (!fontResolver_.hasFamily(wsc::FontSystem::kDefaultPrimaryFamily)) {
-                return std::nullopt;
+                return nullptr;
             }
         }
 
         if (!shaper_) {
-            return std::nullopt;
+            return nullptr;
         }
 
         const std::string cacheKey = rasterShapeCacheKey(normalizedText, paint);
         if (const auto *cached = rasterShapeCache_.find(cacheKey);
             cached != nullptr) {
-            return *cached;
+            ++renderStats_.shapeCacheHits;
+            return cached;
         }
+        ++renderStats_.shapeCacheMisses;
 
+        const auto bidiStart = CpuClock::now();
         std::vector<wsc::text::BidiRun> bidiRuns = wsc::text::segmentBidiRuns(normalizedText);
+        renderStats_.bidiCpuTimeNs += elapsedCpuTimeNs(bidiStart);
         if (bidiRuns.empty()) {
-            return std::nullopt;
+            return nullptr;
         }
 
         wsc::text::ShapedTextRun combined;
@@ -1014,15 +1169,18 @@ private:
         const float spacing = std::isfinite(paint.getLetterSpacing()) ? paint.getLetterSpacing() : 0.0f;
 
         for (const wsc::text::BidiRun &bidiRun : bidiRuns) {
+            const auto fallbackStart = CpuClock::now();
             const auto segments = buildRasterTextSegments(normalizedText, paint, bidiRun.sourceStart, bidiRun.sourceEnd);
+            renderStats_.fontFallbackCpuTimeNs +=
+                elapsedCpuTimeNs(fallbackStart);
             if (!segments) {
-                return std::nullopt;
+                return nullptr;
             }
 
             for (const RasterTextSegment &segment : *segments) {
                 if (segment.face == nullptr || segment.sourceEnd <= segment.sourceStart
                     || segment.sourceEnd > normalizedText.size()) {
-                    return std::nullopt;
+                    return nullptr;
                 }
 
                 const std::string segmentText = normalizedText.substr(segment.sourceStart,
@@ -1042,7 +1200,10 @@ private:
                     input.openTypeFeatures.push_back({feature.tag, feature.value});
                 }
                 input.variationCoordinates = effectiveFace.variationCoordinates();
+                const auto fontDataStart = CpuClock::now();
                 input.fontData = rasterizer_.fontData(effectiveFace);
+                renderStats_.fontDataCpuTimeNs +=
+                    elapsedCpuTimeNs(fontDataStart);
 
                 const auto segmentCodepoints =
                     wsc::text::decodeUtf8(segmentText);
@@ -1054,7 +1215,7 @@ private:
                         "raster-font-data#" + wsc::text::fontFaceIdentity(effectiveFace),
                         "Resolved font bytes could not be loaded for shaping.",
                         diagnosticCodepoint, effectiveFace.family());
-                    return std::nullopt;
+                    return nullptr;
                 }
 
                 const auto resolver = [&](std::uint32_t codepoint) -> std::optional<wsc::text::ResolvedGlyph> {
@@ -1065,7 +1226,10 @@ private:
                     return wsc::text::ResolvedGlyph{metrics->glyphIndex, metrics->advanceX};
                 };
 
+                const auto shapeEngineStart = CpuClock::now();
                 auto shaped = shaper_->shape(input, resolver);
+                renderStats_.shapeEngineCpuTimeNs +=
+                    elapsedCpuTimeNs(shapeEngineStart);
                 if (!shaped && shaper_->supportsOpenTypeFeatures()) {
                     shaped = wsc::text::shapeTextSimple(segmentText, paint.getLetterSpacing(), resolver);
                 }
@@ -1079,7 +1243,7 @@ private:
                             + effectiveFace.path() + " faceIndex="
                             + std::to_string(effectiveFace.faceIndex()),
                         diagnosticCodepoint, effectiveFace.family());
-                    return std::nullopt;
+                    return nullptr;
                 }
 
                 if (!shaper_->supportsOpenTypeFeatures()) {
@@ -1112,11 +1276,11 @@ private:
         }
 
         if (!hasGlyph) {
-            return std::nullopt;
+            return nullptr;
         }
         combined.width = std::max(0.0f, combined.width);
-        rasterShapeCache_.insert(cacheKey, combined);
-        return combined;
+        return &rasterShapeCache_.insert(
+            cacheKey, std::move(combined));
     }
 
     std::string diagnosticFontFamily(const Paint &paint) const
@@ -1206,6 +1370,18 @@ private:
                    resolutionFamily));
     }
 
+    std::string rasterClusterFaceCacheKey(
+        const std::vector<std::uint32_t> &codepoints,
+        const Paint &paint) const
+    {
+        std::string key = "cluster";
+        for (std::uint32_t codepoint : codepoints) {
+            key += '\x1e' + std::to_string(codepoint);
+        }
+        key += '\x1f' + rasterFaceCacheKey(0u, paint);
+        return key;
+    }
+
     void clearRasterCaches()
     {
         rasterShapeCache_.clear();
@@ -1284,6 +1460,7 @@ private:
     mutable std::vector<wsc::text::TextBackendDiagnostic> diagnostics_;
     mutable std::unordered_set<std::string> diagnosticKeys_;
     mutable std::unordered_set<std::string> missingGlyphDiagnosticKeys_;
+    mutable wsc::text::TextRenderStats renderStats_;
 };
 
 } // namespace

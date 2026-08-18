@@ -49,10 +49,22 @@ class WhatsCanvasSurfaceView(context: Context) : GLSurfaceView(context) {
     override fun surfaceCreated(holder: SurfaceHolder) {
         super.surfaceCreated(holder)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            holder.surface.setFrameRate(
-                ANIMATION_REFRESH_RATE_HZ,
-                Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE
-            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                // Some OEM display managers keep the previous physical mode
+                // when only a seamless switch is allowed (for example 50 Hz
+                // even though this continuously animated surface asks for
+                // 60 Hz). Permit the platform to perform a mode switch.
+                holder.surface.setFrameRate(
+                    ANIMATION_REFRESH_RATE_HZ,
+                    Surface.FRAME_RATE_COMPATIBILITY_DEFAULT,
+                    Surface.CHANGE_FRAME_RATE_ALWAYS
+                )
+            } else {
+                holder.surface.setFrameRate(
+                    ANIMATION_REFRESH_RATE_HZ,
+                    Surface.FRAME_RATE_COMPATIBILITY_DEFAULT
+                )
+            }
         }
     }
 

@@ -31,8 +31,14 @@ public:
 
     void setViewport(int width, int height) override;
     void submit(std::unique_ptr<Command> &&command) override;
+    void recordCommandClone(
+        std::size_t payloadBytes,
+        bool pathCommand) override;
     bool tryAppendImageBatch(
-        const DrawImageBatchData &batch) override;
+        DrawImageBatchData &batch) override;
+    std::vector<DrawImageBatchQuad> *tryGetImageBatchAppendTarget(
+        const DrawImageBatchData &batch,
+        std::size_t additionalQuadCount) override;
     size_t commandCount() const override;
     std::vector<std::unique_ptr<Command>> takeCommandsFrom(size_t index) override;
     void appendCommands(std::vector<std::unique_ptr<Command>> &&commands) override;
@@ -76,6 +82,7 @@ public:
     std::uintptr_t nativeHandle(int which) const override;
 
 private:
+    std::size_t stagingCapacityBytes() const;
     void recordGenericFilterPass(
         int width, int height) const override;
 

@@ -34,6 +34,24 @@ void logError(const char* message)
     __android_log_print(ANDROID_LOG_ERROR, kLogTag, "%s", message);
 }
 
+int androidLogPriority(wsc::LogLevel level)
+{
+    switch (level) {
+    case wsc::LogLevel::Trace:
+    case wsc::LogLevel::Debug:
+        return ANDROID_LOG_DEBUG;
+    case wsc::LogLevel::Info:
+        return ANDROID_LOG_INFO;
+    case wsc::LogLevel::Warning:
+        return ANDROID_LOG_WARN;
+    case wsc::LogLevel::Error:
+        return ANDROID_LOG_ERROR;
+    case wsc::LogLevel::Off:
+        return ANDROID_LOG_SILENT;
+    }
+    return ANDROID_LOG_DEFAULT;
+}
+
 void* loadOpenGlesProcedure(const char* name)
 {
     const auto procedure = eglGetProcAddress(name);
@@ -711,13 +729,22 @@ public:
             __android_log_print(
                 ANDROID_LOG_INFO, kLogTag,
                 "Frame stats: commands=%zu draws=%zu paths=%zu uploads=%zu/%zuKB "
+                "sprites=%zu/%zu/%zuKB "
                 "fillAA=%zu/%zu/%zuKB strokeAA=%zu/%zu/%zuKB "
                 "glyphTextures=%zu images=%zu filters=%zu pictureCache=%zu/%zu "
+                "textCache=%zu/%zu/%zu/%zu glyphs=%zu/%zu/%zu dirty=%zuKB "
+                "textStages=%llu/%llu/%llu/%llu/%llu/%lluus "
+                "shapeStages=%llu/%llu/%llu/%lluus "
                 "rasterCache=%zu/%zu/%zu/%zuKB/%zuevict "
+                "rasterCpu=%llu/%llu/%llu path=%llu text=%llu(%llu+%llu)us "
+                "shaders=%zu/%zu/%llu+%lluus "
                 "recordCpu=%lluus pictureCpu=%lluus dynamicCpu=%lluus flushCpu=%lluus",
                 stats.commandCount, stats.drawCallCount,
                 stats.pathVertexCount, stats.pathUploadCount,
                 stats.pathUploadBytes / 1024u,
+                stats.imageBatchQuadCount,
+                stats.imageBatchInstancedQuadCount,
+                stats.imageBatchUploadBytes / 1024u,
                 stats.aaCacheHits, stats.aaCacheMisses,
                 stats.aaCacheBytes / 1024u,
                 stats.strokeAaCacheHits, stats.strokeAaCacheMisses,
@@ -727,11 +754,40 @@ public:
                 stats.filterCount,
                 stats.retainedPictureCacheHits,
                 stats.retainedPictureCacheMisses,
+                stats.textShapeCacheHits,
+                stats.textShapeCacheMisses,
+                stats.textLayoutCacheHits,
+                stats.textLayoutCacheMisses,
+                stats.glyphAtlasHits,
+                stats.glyphAtlasMisses,
+                stats.glyphRasterizationCount,
+                stats.glyphAtlasDirtyBytes / 1024u,
+                static_cast<unsigned long long>(stats.textNormalizationCpuTimeNs / 1000u),
+                static_cast<unsigned long long>(stats.textLayoutCacheCpuTimeNs / 1000u),
+                static_cast<unsigned long long>(stats.textShapingCpuTimeNs / 1000u),
+                static_cast<unsigned long long>(stats.glyphCacheLookupCpuTimeNs / 1000u),
+                static_cast<unsigned long long>(stats.glyphRasterCpuTimeNs / 1000u),
+                static_cast<unsigned long long>(stats.glyphAtlasUploadCpuTimeNs / 1000u),
+                static_cast<unsigned long long>(stats.textBidiCpuTimeNs / 1000u),
+                static_cast<unsigned long long>(stats.textFontFallbackCpuTimeNs / 1000u),
+                static_cast<unsigned long long>(stats.textFontDataCpuTimeNs / 1000u),
+                static_cast<unsigned long long>(stats.textShapeEngineCpuTimeNs / 1000u),
                 stats.retainedPictureRasterCacheHits,
                 stats.retainedPictureRasterCacheMisses,
                 stats.retainedPictureRasterCacheSize,
                 stats.retainedPictureRasterCacheBytes / 1024u,
                 stats.retainedPictureRasterCacheEvictions,
+                static_cast<unsigned long long>(stats.retainedPictureRasterPrepareCpuTimeNs / 1000u),
+                static_cast<unsigned long long>(stats.retainedPictureRasterBoundsCpuTimeNs / 1000u),
+                static_cast<unsigned long long>(stats.retainedPictureRasterRenderCpuTimeNs / 1000u),
+                static_cast<unsigned long long>(stats.retainedPictureRasterPathCpuTimeNs / 1000u),
+                static_cast<unsigned long long>(stats.retainedPictureRasterTextCpuTimeNs / 1000u),
+                static_cast<unsigned long long>(stats.retainedPictureRasterTextBackendCpuTimeNs / 1000u),
+                static_cast<unsigned long long>(stats.retainedPictureRasterTextAtlasCpuTimeNs / 1000u),
+                stats.shaderProgramLinkCount,
+                stats.shaderStageCompileCount,
+                static_cast<unsigned long long>(stats.shaderCompileCpuTimeNs / 1000u),
+                static_cast<unsigned long long>(stats.shaderLinkCpuTimeNs / 1000u),
                 static_cast<unsigned long long>(lastRecordCpuTimeUs_),
                 static_cast<unsigned long long>(lastPictureCpuTimeUs_),
                 static_cast<unsigned long long>(lastDynamicCpuTimeUs_),
@@ -802,6 +858,12 @@ extern "C" JNIEXPORT jlong JNICALL
 Java_com_whatscanvas_demo_WhatsCanvasRenderer_nativeCreate(
     JNIEnv*, jobject)
 {
+    wsc::Log::setLevel(wsc::LogLevel::Info);
+    wsc::Log::setHandler([](const wsc::LogMessage &message) {
+        __android_log_print(
+            androidLogPriority(message.level), kLogTag,
+            "%s: %s", message.category, message.message.c_str());
+    });
     return static_cast<jlong>(reinterpret_cast<std::uintptr_t>(
         new NativeRenderer()));
 }

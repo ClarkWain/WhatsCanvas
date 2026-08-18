@@ -98,6 +98,22 @@ bool testDefaultStatsAreReadable()
         && expect(!stats.gpuTimeAvailable, "default GPU time should be unavailable")
         && expect(stats.drawCallCount == 0, "default draw call count should be zero")
         && expect(stats.mergedBatchCount == 0, "default merged batch count should be zero")
+        && expect(stats.commandObjectCount == 0
+                      && stats.commandAllocationCount == 0
+                      && stats.commandPoolReuseCount == 0
+                      && stats.commandCloneCount == 0
+                      && stats.payloadCopyBytes == 0
+                      && stats.stagingCapacityBytes == 0,
+                  "default command pipeline counters should be zero")
+        && expect(stats.batchBreakCommandTypeCount == 0
+                      && stats.batchBreakStateCount == 0
+                      && stats.batchBreakTextureLimitCount == 0
+                      && stats.batchBreakVertexLimitCount == 0,
+                  "default batch-break counters should be zero")
+        && expect(stats.imageBatchQuadCount == 0
+                      && stats.imageBatchInstancedQuadCount == 0
+                      && stats.imageBatchUploadBytes == 0,
+                  "default image-batch upload counters should be zero")
         && expect(stats.pathTopologyCacheHits == 0,
                   "default path topology cache hit count should be zero")
         && expect(stats.pathTopologyCacheMisses == 0,
@@ -114,6 +130,40 @@ bool testDefaultStatsAreReadable()
         && expect(stats.imageTextureCount == 0, "default image texture count should be zero")
         && expect(stats.glyphAtlasTextureCount == 0, "default glyph atlas count should be zero")
         && expect(stats.glyphAtlasTextureBytes == 0, "default glyph atlas bytes should be zero")
+        && expect(stats.pathInputVertexCount == 0
+                      && stats.pathTessellatedVertexCount == 0
+                      && stats.pathAaExpandedVertexCount == 0
+                      && stats.pathMergedVertexCount == 0
+                      && stats.pathUploadedVertexCount == 0,
+                  "default path pipeline counters should be zero")
+        && expect(stats.textNormalizationCount == 0,
+                  "default text normalization count should be zero")
+        && expect(stats.textShapeCacheHits == 0
+                      && stats.textShapeCacheMisses == 0,
+                  "default text shape cache counters should be zero")
+        && expect(stats.textLayoutCacheHits == 0
+                      && stats.textLayoutCacheMisses == 0
+                      && stats.textLayoutViewHits == 0,
+                  "default text layout cache counters should be zero")
+        && expect(stats.glyphAtlasHits == 0
+                      && stats.glyphAtlasMisses == 0,
+                  "default glyph atlas cache counters should be zero")
+        && expect(stats.glyphRasterizationCount == 0
+                      && stats.zeroAreaGlyphHits == 0
+                      && stats.generatedGlyphQuadCount == 0
+                      && stats.glyphAtlasDirtyBytes == 0,
+                  "default glyph pipeline counters should be zero")
+        && expect(stats.textNormalizationCpuTimeNs == 0
+                      && stats.textLayoutCacheCpuTimeNs == 0
+                      && stats.textShapingCpuTimeNs == 0
+                      && stats.glyphCacheLookupCpuTimeNs == 0
+                      && stats.glyphRasterCpuTimeNs == 0
+                      && stats.glyphAtlasUploadCpuTimeNs == 0
+                      && stats.textBidiCpuTimeNs == 0
+                      && stats.textFontFallbackCpuTimeNs == 0
+                      && stats.textFontDataCpuTimeNs == 0
+                      && stats.textShapeEngineCpuTimeNs == 0,
+                  "default text stage CPU timings should be zero")
         && expect(stats.renderTargetCount == 0, "default render target count should be zero")
         && expect(stats.pooledRenderTargetCount == 0, "default pooled target count should be zero")
         && expect(stats.pooledRenderTargetBytes == 0, "default pooled target bytes should be zero")
@@ -122,7 +172,15 @@ bool testDefaultStatsAreReadable()
         && expect(stats.strokeAaCacheBytes == 0,
                   "default stroke AA cache bytes should be zero")
         && expect(stats.bitmapTextCacheSize == 0, "default bitmap text cache should be empty")
-        && expect(stats.bitmapTextCacheBytes == 0, "default bitmap text bytes should be zero");
+        && expect(stats.bitmapTextCacheBytes == 0, "default bitmap text bytes should be zero")
+        && expect(stats.retainedPictureRasterPrepareCpuTimeNs == 0
+                      && stats.retainedPictureRasterBoundsCpuTimeNs == 0
+                      && stats.retainedPictureRasterRenderCpuTimeNs == 0
+                      && stats.retainedPictureRasterPathCpuTimeNs == 0
+                      && stats.retainedPictureRasterTextCpuTimeNs == 0
+                      && stats.retainedPictureRasterTextBackendCpuTimeNs == 0
+                      && stats.retainedPictureRasterTextAtlasCpuTimeNs == 0,
+                  "default Picture raster CPU timings should be zero");
 }
 
 bool testFlushTimingIsReportedAndReset()

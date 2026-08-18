@@ -175,6 +175,33 @@ class PerformanceMatrixTests(unittest.TestCase):
             COMPARE_MODULE.run_key(run, changed),
         )
 
+    def test_optional_timing_split_accepts_additive_frame_samples(self):
+        result = {
+            "frames": 2,
+            "end_frame_cpu_median_ms": 1.0,
+            "gpu_wait_median_ms": 0.25,
+            "end_frame_cpu_samples_ms": [0.8, 1.2],
+            "gpu_wait_samples_ms": [0.3, 0.2],
+            "submit_samples_ms": [1.1, 1.4],
+        }
+        COMPARE_MODULE.validate_optional_timing_split(
+            result, Path("timing.jsonl")
+        )
+
+    def test_optional_timing_split_rejects_non_additive_samples(self):
+        result = {
+            "frames": 1,
+            "end_frame_cpu_median_ms": 1.0,
+            "gpu_wait_median_ms": 0.25,
+            "end_frame_cpu_samples_ms": [1.0],
+            "gpu_wait_samples_ms": [0.25],
+            "submit_samples_ms": [1.5],
+        }
+        with self.assertRaises(COMPARE_MODULE.ResultError):
+            COMPARE_MODULE.validate_optional_timing_split(
+                result, Path("timing.jsonl")
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

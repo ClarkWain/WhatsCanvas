@@ -136,7 +136,19 @@ void RenderContext::applyClipState(const ScissorState &scissor, const ClipMaskSt
 
     auto *program = wsc::opengl::ClipCoverageProgram::getInstance();
     program->initialize();
-    if (width <= 0 || height <= 0 || !program->ensureTargets(width, height)) {
+    std::size_t validClipCount = 0;
+    const SharedClipMaskResource *singleClip = nullptr;
+    for (const auto &clipResource : clipMask.resources) {
+        if (clipResource && clipResource->isValid()) {
+            ++validClipCount;
+            singleClip = &clipResource;
+        }
+    }
+    const bool singleClipFastPath = validClipCount == 1u;
+    if (width <= 0 || height <= 0
+        || validClipCount == 0u
+        || !program->ensureTargets(
+            width, height, !singleClipFastPath)) {
         clipMaskActive_ = false;
         clearClipMask();
         applyScissorState(scissor);
@@ -150,14 +162,19 @@ void RenderContext::applyClipState(const ScissorState &scissor, const ClipMaskSt
     GLint previousViewport[4] = {0, 0, 0, 0};
     glGetIntegerv(GL_VIEWPORT, previousViewport);
 
-    program->beginAccumulator(width, height);
-    for (const auto &clipResource : clipMask.resources) {
-        if (!clipResource || !clipResource->isValid()) {
-            continue;
+    if (singleClipFastPath) {
+        program->beginSingleClipLayer(width, height);
+        (*singleClip)->apply(*this, scissor, 0);
+    } else {
+        program->beginAccumulator(width, height);
+        for (const auto &clipResource : clipMask.resources) {
+            if (!clipResource || !clipResource->isValid()) {
+                continue;
+            }
+            program->beginClipLayer(width, height);
+            clipResource->apply(*this, scissor, 0);
+            program->multiplyLayerIntoAccumulator(width, height);
         }
-        program->beginClipLayer(width, height);
-        clipResource->apply(*this, scissor, 0);
-        program->multiplyLayerIntoAccumulator(width, height);
     }
 
     glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(previousFramebuffer));

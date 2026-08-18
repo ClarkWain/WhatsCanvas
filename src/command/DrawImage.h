@@ -21,7 +21,7 @@ public:
 
     ~DrawImageProgram();
 
-    void initialize();
+    void initialize(bool commonProgram);
     void release(bool abandon = false);
     void draw(const RenderContext &context, const DrawImageData &data);
 
@@ -31,6 +31,7 @@ private:
     static DrawImageProgram *instance_;
 
     GLProgram *program_ = nullptr;
+    GLProgram *commonProgram_ = nullptr;
     unsigned int VAO_ = static_cast<unsigned int>(-1);
     StreamBuffer vertexBuffer_;
     bool initialized_ = false;

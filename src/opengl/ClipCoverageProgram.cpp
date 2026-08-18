@@ -46,6 +46,34 @@ void ClipCoverageProgram::initialize()
         }
     )";
 
+    coverageProgram_ = new GLProgram(
+        "clip_coverage", coverageVert, coverageFrag);
+
+    glGenVertexArrays(1, &coverageVao_);
+    glGenBuffers(1, &coverageVbo_);
+    glBindVertexArray(coverageVao_);
+    glBindBuffer(GL_ARRAY_BUFFER, coverageVbo_);
+    glVertexAttribPointer(
+        0, 2, GL_FLOAT, GL_FALSE,
+        3 * sizeof(float), (void *)0);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(
+        1, 1, GL_FLOAT, GL_FALSE,
+        3 * sizeof(float),
+        (void *)(2 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+    glBindVertexArray(0);
+
+    initialized_ = true;
+}
+
+void ClipCoverageProgram::ensureMultiplyProgram()
+{
+    initialize();
+    if (multiplyProgram_ != nullptr) {
+        return;
+    }
+
     const std::string multiplyVert = std::string(shaderVersionDirective()) + R"(
         layout (location = 0) in vec2 aPos;
         layout (location = 1) in vec2 aUv;
@@ -67,19 +95,8 @@ void ClipCoverageProgram::initialize()
             FragColor = vec4(r, r, r, r);
         }
     )";
-
-    coverageProgram_ = new GLProgram(coverageVert, coverageFrag);
-    multiplyProgram_ = new GLProgram(multiplyVert, multiplyFrag);
-
-    glGenVertexArrays(1, &coverageVao_);
-    glGenBuffers(1, &coverageVbo_);
-    glBindVertexArray(coverageVao_);
-    glBindBuffer(GL_ARRAY_BUFFER, coverageVbo_);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void *)0);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void *)(2 * sizeof(float)));
-    glEnableVertexAttribArray(1);
-    glBindVertexArray(0);
+    multiplyProgram_ = new GLProgram(
+        "clip_multiply", multiplyVert, multiplyFrag);
 
     const float quad[] = {
         -1.0f, -1.0f, 0.0f, 0.0f,
@@ -99,8 +116,6 @@ void ClipCoverageProgram::initialize()
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *)(2 * sizeof(float)));
     glEnableVertexAttribArray(1);
     glBindVertexArray(0);
-
-    initialized_ = true;
 }
 
 void ClipCoverageProgram::destroyTargets(bool abandon)
@@ -192,24 +207,48 @@ GLuint createR8Target(int width, int height, GLuint &framebuffer)
 
 } // namespace
 
-bool ClipCoverageProgram::ensureTargets(int width, int height)
+bool ClipCoverageProgram::ensureTargets(
+    int width, int height, bool needsTemporaryLayer)
 {
     if (width <= 0 || height <= 0) {
         return false;
     }
-    if (accumulatorFbo_ != 0 && tempFbo_ != 0 && targetWidth_ == width && targetHeight_ == height) {
+    const bool sameSize = targetWidth_ == width && targetHeight_ == height;
+    if (accumulatorFbo_ != 0 && sameSize
+        && (!needsTemporaryLayer || tempFbo_ != 0)) {
         return true;
     }
-    destroyTargets();
-    accumulatorTexture_ = createR8Target(width, height, accumulatorFbo_);
-    tempTexture_ = createR8Target(width, height, tempFbo_);
-    if (accumulatorTexture_ == 0 || tempTexture_ == 0) {
+
+    if (!sameSize) {
+        destroyTargets();
+    }
+    if (accumulatorFbo_ == 0) {
+        accumulatorTexture_ =
+            createR8Target(width, height, accumulatorFbo_);
+    }
+    if (needsTemporaryLayer && tempFbo_ == 0) {
+        tempTexture_ = createR8Target(width, height, tempFbo_);
+    }
+    if (accumulatorTexture_ == 0
+        || (needsTemporaryLayer && tempTexture_ == 0)) {
         destroyTargets();
         return false;
     }
     targetWidth_ = width;
     targetHeight_ = height;
     return true;
+}
+
+void ClipCoverageProgram::beginSingleClipLayer(int width, int height)
+{
+    glBindFramebuffer(GL_FRAMEBUFFER, accumulatorFbo_);
+    glViewport(0, 0, width, height);
+    glDisable(GL_SCISSOR_TEST);
+    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glEnable(GL_BLEND);
+    glBlendEquation(GL_MAX);
+    glBlendFunc(GL_ONE, GL_ONE);
 }
 
 void ClipCoverageProgram::beginAccumulator(int width, int height)
@@ -240,13 +279,17 @@ void ClipCoverageProgram::ensureCoverageBuffer(std::size_t floatCount)
     const std::size_t bytes = floatCount * sizeof(float);
     glBindBuffer(GL_ARRAY_BUFFER, coverageVbo_);
     if (bytes > coverageVboCapacity_) {
-        glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(bytes), nullptr, GL_DYNAMIC_DRAW);
+        glBufferData(
+            GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(bytes),
+            nullptr, GL_DYNAMIC_DRAW);
         coverageVboCapacity_ = bytes;
     }
 }
 
-void ClipCoverageProgram::drawCoverage(const std::vector<float> &points, const std::vector<float> &coverage,
-                                       const glm::mat4 &transform, int width, int height)
+void ClipCoverageProgram::drawCoverage(
+    const std::vector<float> &points,
+    const std::vector<float> &coverage,
+    const glm::mat4 &transform, int width, int height)
 {
     const std::size_t vertexCount = points.size() / 2;
     if (vertexCount < 3 || coverage.size() < vertexCount) {
@@ -262,21 +305,29 @@ void ClipCoverageProgram::drawCoverage(const std::vector<float> &points, const s
     }
 
     coverageProgram_->use();
-    const glm::mat4 projection = glm::ortho(0.0f, static_cast<float>(width),
-                                            static_cast<float>(height), 0.0f);
+    const glm::mat4 projection = glm::ortho(
+        0.0f, static_cast<float>(width),
+        static_cast<float>(height), 0.0f);
     coverageProgram_->setMat4("uProjection", projection);
     coverageProgram_->setMat4("uTransform", transform);
 
     glBindVertexArray(coverageVao_);
     ensureCoverageBuffer(interleaved.size());
-    glBufferSubData(GL_ARRAY_BUFFER, 0, static_cast<GLsizeiptr>(interleaved.size() * sizeof(float)),
-                    interleaved.data());
-    glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(vertexCount));
+    glBufferSubData(
+        GL_ARRAY_BUFFER, 0,
+        static_cast<GLsizeiptr>(interleaved.size() * sizeof(float)),
+        interleaved.data());
+    glDrawArrays(
+        GL_TRIANGLES, 0, static_cast<GLsizei>(vertexCount));
     glBindVertexArray(0);
 }
 
 void ClipCoverageProgram::multiplyLayerIntoAccumulator(int width, int height)
 {
+    ensureMultiplyProgram();
+    if (multiplyProgram_ == nullptr) {
+        return;
+    }
     glBindFramebuffer(GL_FRAMEBUFFER, accumulatorFbo_);
     glViewport(0, 0, width, height);
     glDisable(GL_SCISSOR_TEST);
