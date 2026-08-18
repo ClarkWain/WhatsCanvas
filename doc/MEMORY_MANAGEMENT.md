@@ -14,7 +14,7 @@ backend resources directly.
 | Stroke tessellation cache | 8 MiB, 256 entries | LRU by retained vector capacity |
 | GPU bitmap-text cache | 32 MiB, 256 entries | LRU by uploaded RGBA byte count |
 | Render-target pool | 32 MiB, 12 targets | Oldest idle target is evicted first |
-| Portable glyph atlas | 2048 x 2048 initially, up to 4096 x 4096 | Grows on demand and rebuilds retained glyphs |
+| Portable glyph atlas | 1024 x 1024 initially, up to 4096 x 4096 | Grows by powers of two on demand and rebuilds retained glyphs |
 
 An oversized tessellation can remain as the cache's sole entry because the
 current draw needs a stable reference. A bitmap-text texture or render target

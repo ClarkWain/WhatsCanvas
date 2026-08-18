@@ -6,7 +6,8 @@ This checklist keeps releases aligned with the project's current goal: a lightwe
 
 1. Update the version in `CMakeLists.txt`.
 2. Update `include/wsc/Version.h`.
-3. Update versioned `find_package` snippets in README and `doc/GETTING_STARTED_AS_LIBRARY.md`.
+3. Update Android `versionCode` / `versionName`, CHANGELOG, and versioned
+   `find_package` snippets in both READMEs and `doc/GETTING_STARTED_AS_LIBRARY.md`.
 4. Run the fast metadata checks:
 
 ```bat
@@ -67,6 +68,7 @@ After pushing, verify these workflows:
 - `Package WhatsCanvas`
   - package job on Windows / Linux / macOS
   - per-platform package consumer smoke before archive upload
+  - Android Profile demo build, `lintProfile`, and APK upload
 
 ## Artifact Sanity Check
 
@@ -86,6 +88,12 @@ cmake -S tests/package_consumer -B build-package-consumer \
   -DCMAKE_BUILD_TYPE=Release
 cmake --build build-package-consumer --config Release
 ```
+
+Install the Android release asset on a representative device and verify that
+its package version is correct, the feature scene renders CJK/color emoji, the
+frame callback follows the active display mode, and pause/resume recreates GPU
+resources without changing completed content. The APK is intentionally
+debug-signed for evaluation; do not treat it as a production signing artifact.
 
 ## Release Notes
 

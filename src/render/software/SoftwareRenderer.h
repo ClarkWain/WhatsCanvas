@@ -32,6 +32,12 @@ public:
     void finalizeBackend() override;
     void setViewport(int width, int height) override;
     void submit(std::unique_ptr<Command> &&command) override;
+    void recordCommandClone(
+        std::size_t payloadBytes,
+        bool pathCommand) override;
+    std::vector<DrawImageBatchQuad> *tryGetImageBatchAppendTarget(
+        const DrawImageBatchData &batch,
+        std::size_t additionalQuadCount) override;
     size_t commandCount() const override;
     std::vector<std::unique_ptr<Command>> takeCommandsFrom(size_t index) override;
     void appendCommands(std::vector<std::unique_ptr<Command>> &&commands) override;
@@ -78,6 +84,7 @@ private:
     int height_ = 0;
     std::vector<std::uint8_t> framebuffer_; // RGBA8, row 0 = top (canvas y = 0)
     std::vector<std::unique_ptr<Command>> commands_;
+    mutable std::size_t imageBatchAppendFloor_ = 0;
     mutable FrameStats stats_;
 };
 

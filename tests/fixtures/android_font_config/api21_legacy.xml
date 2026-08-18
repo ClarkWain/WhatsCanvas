@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<familyset>
+  <family>
+    <nameset>
+      <name>Droid Sans</name>
+      <name>sans-serif</name>
+    </nameset>
+    <fileset>
+      <file>DroidSans.ttf</file>
+      <file index="1" lang="ja" variant="compact">DroidSansJapanese.ttc</file>
+    </fileset>
+  </family>
+  <family>
+    <fileset><file lang="ar">DroidNaskh-Regular.ttf</file></fileset>
+  </family>
+</familyset>

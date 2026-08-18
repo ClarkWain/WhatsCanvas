@@ -202,10 +202,16 @@ Tagged releases publish per-platform prebuilt packages on the repository's
 
 ```
 whatscanvas-<os>-release-<version>.zip
-# e.g. whatscanvas-win64-release-0.3.0.zip
-#      whatscanvas-linux-x64-release-0.3.0.zip
-#      whatscanvas-macos-universal-release-0.3.0.zip
+# e.g. whatscanvas-win64-release-0.4.0.zip
+#      whatscanvas-linux-x64-release-0.4.0.zip
+#      whatscanvas-macos-universal-release-0.4.0.zip
 ```
+
+Tagged releases also contain an installable, debug-signed Android evaluation
+asset named `whatscanvas-android-demo-profile-<version>.apk`. It is the
+three-ABI reference application, not a production AAR or a substitute for the
+host application's signing process. Android library users should follow the
+[Android Integration Guide](ANDROID_INTEGRATION.md) and build from source.
 
 1. Download the archive for your OS from **Releases** and unzip it. You get:
    - `include/wsc/` — public headers
@@ -220,7 +226,7 @@ project(MyApp LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(WhatsCanvas 0.3.0 CONFIG REQUIRED)
+find_package(WhatsCanvas 0.4.0 CONFIG REQUIRED)
 
 add_executable(MyApp main.cpp)
 target_link_libraries(MyApp PRIVATE WhatsCanvas::OpenGL)   # or ::Software / ::OpenGLES

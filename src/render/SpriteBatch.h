@@ -73,6 +73,10 @@ public:
     /// Clear the accumulated vertex data without drawing.
     void clear();
 
+    /// Forget all GL names after involuntary context loss without deleting
+    /// objects from the lost context.
+    void abandonGLResources();
+
     /// Get the number of sprites in the current batch.
     std::size_t spriteCount() const
     {
@@ -85,6 +89,14 @@ public:
     bool empty() const
     {
         return vertexData_.empty() && instanceData_.empty();
+    }
+
+    std::size_t stagingCapacityBytes() const
+    {
+        return vertexData_.capacity() * sizeof(float)
+            + instanceData_.capacity() * sizeof(float)
+            + textures_.capacity()
+                * sizeof(std::shared_ptr<ImageResource>);
     }
 
 private:
@@ -110,7 +122,7 @@ private:
     bool samplerUniformsInitialized_ = false;
     bool instanceSamplerInitialized_ = false;
 
-    void ensureGLInitialized();
+    void ensureGLInitialized(bool instanced);
     void ensureIndexCapacity(std::size_t spriteCount);
-    void releaseGLResources();
+    void releaseGLResources(bool abandon = false);
 };

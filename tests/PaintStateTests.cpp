@@ -194,6 +194,20 @@ bool testTextAndStrokeState()
     paint.clearFontFeatures();
     ok = expect(paint.getFontFeatures().empty(), "font features should clear") && ok;
 
+    paint.setFontVariation("wght", 425.0f);
+    paint.setFontVariation("wdth", 92.5f);
+    paint.setFontVariation("bad", 12.0f);
+    paint.setFontVariation("opsz", std::numeric_limits<float>::infinity());
+    paint.setFontVariation("wght", 500.0f);
+    ok = expect(paint.getFontVariations().size() == 2
+                    && paint.getFontVariations()[0].tag == "wght"
+                    && near(paint.getFontVariations()[0].value, 500.0f)
+                    && paint.getFontVariations()[1].tag == "wdth",
+                "font variations should validate tags and update duplicates") && ok;
+    paint.clearFontVariations();
+    ok = expect(paint.getFontVariations().empty(),
+                "font variations should clear") && ok;
+
     paint.setLetterSpacing(std::numeric_limits<float>::infinity());
     ok = expect(near(paint.getLetterSpacing(), 0.0f), "non-finite letter spacing should reset to zero") && ok;
     paint.setLetterSpacing(1.25f);

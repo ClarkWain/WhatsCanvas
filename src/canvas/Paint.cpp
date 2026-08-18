@@ -244,6 +244,25 @@ void Paint::setFontWeight(int weight) { fontWeight_ = std::clamp(weight, 1, 1000
 int Paint::getFontWeight() const { return fontWeight_; }
 void Paint::setFontSlant(FontSlant slant) { fontSlant_ = slant; }
 FontSlant Paint::getFontSlant() const { return fontSlant_; }
+void Paint::setFontVariation(const std::string &tag, float value)
+{
+    if (tag.size() != 4 || !std::isfinite(value)) return;
+    const auto existing = std::find_if(
+        fontVariations_.begin(), fontVariations_.end(),
+        [&](const FontVariationCoordinate &coordinate) {
+            return coordinate.tag == tag;
+        });
+    if (existing != fontVariations_.end()) {
+        existing->value = value;
+    } else {
+        fontVariations_.push_back({tag, value});
+    }
+}
+void Paint::clearFontVariations() { fontVariations_.clear(); }
+const std::vector<FontVariationCoordinate> &Paint::getFontVariations() const
+{
+    return fontVariations_;
+}
 
 void Paint::setLetterSpacing(float spacing)
 {

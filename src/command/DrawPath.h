@@ -27,8 +27,8 @@ public:
 
     ~DrawPathProgram();
 
-    void initialize();
-    void release();
+    void initialize(bool commonProgram);
+    void release(bool abandon = false);
     void beginFrame();
     void beginBatch();
     void endBatch();
@@ -38,13 +38,19 @@ public:
     std::size_t frameUploadCount() const { return frameUploadCount_; }
     std::size_t frameUploadBytes() const { return frameUploadBytes_; }
     std::size_t frameIndexBytes() const { return frameIndexBytes_; }
-
+    std::size_t frameUploadedVertexCount() const { return frameUploadedVertexCount_; }
+    std::size_t stagingCapacityBytes() const
+    {
+        return packetScratch_.capacity() * sizeof(std::uint8_t);
+    }
 private:
     DrawPathProgram();
 
     static DrawPathProgram* instance_;
 
     GLProgram* program_ = nullptr;
+    GLProgram* commonProgram_ = nullptr;
+    GLProgram* activeProgram_ = nullptr;
     unsigned int VAO_ = -1;
 
     bool initialized_ = false;
@@ -55,10 +61,12 @@ private:
     std::size_t frameUploadCount_ = 0;
     std::size_t frameUploadBytes_ = 0;
     std::size_t frameIndexBytes_ = 0;
+    std::size_t frameUploadedVertexCount_ = 0;
     std::vector<std::uint8_t> packetScratch_;
     int projectionWidth_ = -1;
     int projectionHeight_ = -1;
     bool batchActive_ = false;
+    bool batchVaoBound_ = false;
     bool hasTransform_ = false;
     glm::mat4 transform_ = glm::mat4(1.0f);
     bool hasUniformColor_ = false;
@@ -74,4 +82,6 @@ private:
     bool coverageAttributeEnabled_ = true;
     bool drawIdAttributeEnabled_ = false;
     bool drawParameterTextureBound_ = false;
+
+    void invalidateUniformState();
 };

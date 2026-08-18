@@ -113,6 +113,12 @@ void PixelFormatCaps::initialize()
     initialized_ = true;
 }
 
+void PixelFormatCaps::reset()
+{
+    initialized_ = false;
+    std::memset(caps_, 0, sizeof(caps_));
+}
+
 bool PixelFormatCaps::isSupported(Format format, int usageFlags)
 {
     if (!initialized_) {

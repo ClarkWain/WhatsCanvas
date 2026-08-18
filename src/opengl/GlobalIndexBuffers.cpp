@@ -71,3 +71,11 @@ void GlobalIndexBuffers::finalize()
     maxQuads_ = 0;
     maxFanTriangles_ = 0;
 }
+
+void GlobalIndexBuffers::abandon()
+{
+    quadBuffer_ = 0;
+    fanBuffer_ = 0;
+    maxQuads_ = 0;
+    maxFanTriangles_ = 0;
+}

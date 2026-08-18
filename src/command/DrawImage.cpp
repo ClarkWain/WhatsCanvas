@@ -23,9 +23,11 @@ DrawImageProgram::~DrawImageProgram()
     release();
 }
 
-void DrawImageProgram::initialize()
+void DrawImageProgram::initialize(bool commonProgram)
 {
-    if (initialized_) {
+    GLProgram *&requestedProgram = commonProgram
+        ? commonProgram_ : program_;
+    if (requestedProgram != nullptr) {
         return;
     }
 
@@ -58,6 +60,7 @@ void DrawImageProgram::initialize()
 #endif
 
     const std::string fragmentSrc = std::string(wsc::opengl::shaderVersionDirective())
+        + (commonProgram ? "#define WHATSCANVAS_COMMON_IMAGE 1\n" : "")
         + wsc::opengl::clipMaskFragmentUniforms() + R"(
         in vec2 vUv;
         in vec2 vLocalPos;
@@ -65,13 +68,17 @@ void DrawImageProgram::initialize()
         uniform sampler2D uTexture;
         uniform vec4 uTintColor;
         uniform float uAlpha;
+        #if !defined(WHATSCANVAS_OPENGL_ES)
         uniform bool uClearTypeMask;
         uniform bool uRgbCoverageFallback;
+        #endif
         uniform bool uSourcePremultiplied;
+        #if !defined(WHATSCANVAS_COMMON_IMAGE)
         uniform bool uUseColorMatrix;
         uniform mat4 uColorMatrix;
         uniform vec4 uColorMatrixOffset;
         uniform int uTileMode;
+        #endif
         uniform int uGradientType;
         uniform int uGradientTileMode;
         uniform vec2 uLinearStart;
@@ -148,6 +155,7 @@ void DrawImageProgram::initialize()
 
         void main()
         {
+            #if !defined(WHATSCANVAS_COMMON_IMAGE)
             if (uTileMode == 3 && (vUv.x < 0.0 || vUv.x > 1.0 || vUv.y < 0.0 || vUv.y > 1.0)) {
                 FragColor = vec4(0.0);
 #if !defined(WHATSCANVAS_OPENGL_ES)
@@ -155,6 +163,7 @@ void DrawImageProgram::initialize()
 #endif
                 return;
             }
+            #endif
 
             vec4 texColor = texture(uTexture, vUv);
             float roundedCoverage = roundedRectCoverage();
@@ -171,6 +180,7 @@ void DrawImageProgram::initialize()
                 float t = length(vLocalPos - uRadialCenter) / max(uRadialRadius, 0.0001);
                 paintColor = sampleGradient(t);
             }
+            #if !defined(WHATSCANVAS_OPENGL_ES)
             if (uClearTypeMask) {
                 // `texColor.rgb` is DirectWrite's independent R/G/B LCD
                 // coverage. Keep it separate from the ordinary alpha path;
@@ -196,9 +206,11 @@ void DrawImageProgram::initialize()
                 vec4 color = vec4(
                     paintColor.rgb,
                     texColor.a * paintColor.a * uAlpha * roundedCoverage);
+                #if !defined(WHATSCANVAS_COMMON_IMAGE)
                 if (uUseColorMatrix) {
                     color = clamp(uColorMatrix * color + uColorMatrixOffset, 0.0, 1.0);
                 }
+                #endif
                 if (uClipEnabled != 0) {
                     color.a *= texture(uClipMask, gl_FragCoord.xy / uClipViewport).r;
                 }
@@ -208,12 +220,15 @@ void DrawImageProgram::initialize()
 #endif
                 return;
             }
+            #endif
             vec4 color = vec4(
                 texColor.rgb * paintColor.rgb,
                 texColor.a * paintColor.a * uAlpha * roundedCoverage);
+            #if !defined(WHATSCANVAS_COMMON_IMAGE)
             if (uUseColorMatrix) {
                 color = clamp(uColorMatrix * color + uColorMatrixOffset, 0.0, 1.0);
             }
+            #endif
             if (uClipEnabled != 0) {
                 color.a *= texture(uClipMask, gl_FragCoord.xy / uClipViewport).r;
             }
@@ -225,48 +240,69 @@ void DrawImageProgram::initialize()
     std::string resolvedFragmentSrc = fragmentSrc;
     resolvedFragmentSrc.insert(resolvedFragmentSrc.find("        float applyGradientTile"), clearTypeOutputs);
 
-    program_ = new GLProgram(vertexSrc, resolvedFragmentSrc);
+    requestedProgram = new GLProgram(
+        commonProgram ? "draw_image_common" : "draw_image",
+        vertexSrc, resolvedFragmentSrc);
 
-    glGenVertexArrays(1, &VAO_);
-    vertexBuffer_.initialize(16);
+    if (!initialized_) {
+        glGenVertexArrays(1, &VAO_);
+        vertexBuffer_.initialize(16);
 
-    glBindVertexArray(VAO_);
-    glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer_.handle());
+        glBindVertexArray(VAO_);
+        glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer_.handle());
 
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *)0);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *)(2 * sizeof(float)));
-    glEnableVertexAttribArray(1);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *)0);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *)(2 * sizeof(float)));
+        glEnableVertexAttribArray(1);
 
-    glBindVertexArray(0);
+        glBindVertexArray(0);
 
-    initialized_ = true;
+        initialized_ = true;
+    }
 }
 
-void DrawImageProgram::release()
+void DrawImageProgram::release(bool abandon)
 {
     if (!initialized_) {
         return;
     }
 
     if (program_ != nullptr) {
+        if (abandon) program_->abandonVolatile();
         delete program_;
         program_ = nullptr;
     }
+    if (commonProgram_ != nullptr) {
+        if (abandon) commonProgram_->abandonVolatile();
+        delete commonProgram_;
+        commonProgram_ = nullptr;
+    }
 
     if (VAO_ != static_cast<unsigned int>(-1)) {
-        glDeleteVertexArrays(1, &VAO_);
+        if (!abandon) glDeleteVertexArrays(1, &VAO_);
         VAO_ = static_cast<unsigned int>(-1);
     }
 
-    vertexBuffer_.release();
+    if (abandon) vertexBuffer_.abandon(); else vertexBuffer_.release();
 
     initialized_ = false;
 }
 
 void DrawImageProgram::draw(const RenderContext &context, const DrawImageData &data)
 {
-    if (!DrawValidation::validateProgram(initialized_, "DrawImageProgram::draw")) {
+    const bool useCommonProgram =
+#if defined(WHATSCANVAS_OPENGL_ES)
+        !data.hasColorMatrix && data.tileMode != DrawImageTileMode::Decal;
+#else
+        false;
+#endif
+    initialize(useCommonProgram);
+    GLProgram *activeProgram = useCommonProgram
+        ? commonProgram_ : program_;
+    if (!DrawValidation::validateProgram(
+            initialized_ && activeProgram != nullptr,
+            "DrawImageProgram::draw")) {
         return;
     }
 
@@ -290,64 +326,96 @@ void DrawImageProgram::draw(const RenderContext &context, const DrawImageData &d
         left,  bottom, data.u0, data.v1
     };
 
-    program_->use();
+    activeProgram->use();
     const glm::mat4 projection = glm::ortho(0.0f, static_cast<float>(context.getWidth()),
                                             static_cast<float>(context.getHeight()), 0.0f);
-    program_->setMat4("uProjection", projection);
-    program_->setMat4("uTransform", data.transform);
+    activeProgram->setMat4("uProjection", projection);
+    activeProgram->setMat4("uTransform", data.transform);
     float tintColor[4] = {data.tintColor[0], data.tintColor[1], data.tintColor[2], data.tintColor[3]};
     GammaCorrect::srgbToLinear4(tintColor);
-    program_->setVec4("uTintColor", glm::vec4(tintColor[0], tintColor[1], tintColor[2], tintColor[3]));
-    program_->setFloat("uAlpha", data.alpha);
-    program_->setInt("uRoundedClip", data.hasRoundedCorners() ? 1 : 0);
-    program_->setVec2(
-        "uRoundedSize", glm::vec2(data.width, data.height));
-    program_->setFloat("uRoundedRadius", data.roundedRadius);
-    program_->setInt("uClearTypeMask",
+    activeProgram->setVec4("uTintColor", glm::vec4(tintColor[0], tintColor[1], tintColor[2], tintColor[3]));
+    activeProgram->setFloat("uAlpha", data.alpha);
+    const bool roundedClip = data.hasRoundedCorners();
+    activeProgram->setInt("uRoundedClip", roundedClip ? 1 : 0);
+    if (roundedClip) {
+        activeProgram->setVec2(
+            "uRoundedSize", glm::vec2(data.width, data.height));
+        activeProgram->setFloat("uRoundedRadius", data.roundedRadius);
+    }
+#if !defined(WHATSCANVAS_OPENGL_ES)
+    activeProgram->setInt("uClearTypeMask",
                      data.clearTypeMask && context.isClearTypeBlendModeActive() ? 1 : 0);
-    program_->setInt("uRgbCoverageFallback",
+    activeProgram->setInt("uRgbCoverageFallback",
                      data.rgbCoverageMask && !context.isClearTypeBlendModeActive() ? 1 : 0);
-    program_->setInt(
+#endif
+    activeProgram->setInt(
         "uSourcePremultiplied",
         data.imageResource->alphaType() == ImageAlphaType::Premultiplied ? 1 : 0);
-    const glm::mat4 colorMatrix(
-        data.colorMatrix[0], data.colorMatrix[1], data.colorMatrix[2], data.colorMatrix[3],
-        data.colorMatrix[4], data.colorMatrix[5], data.colorMatrix[6], data.colorMatrix[7],
-        data.colorMatrix[8], data.colorMatrix[9], data.colorMatrix[10], data.colorMatrix[11],
-        data.colorMatrix[12], data.colorMatrix[13], data.colorMatrix[14], data.colorMatrix[15]);
-    program_->setInt("uUseColorMatrix", data.hasColorMatrix ? 1 : 0);
-    program_->setMat4("uColorMatrix", colorMatrix);
-    program_->setVec4("uColorMatrixOffset", glm::vec4(data.colorMatrixOffset[0], data.colorMatrixOffset[1],
-                                                       data.colorMatrixOffset[2], data.colorMatrixOffset[3]));
-    int tileMode = 0;
-    if (data.tileMode == DrawImageTileMode::Repeat) {
-        tileMode = 1;
-    } else if (data.tileMode == DrawImageTileMode::Mirror) {
-        tileMode = 2;
-    } else if (data.tileMode == DrawImageTileMode::Decal) {
-        tileMode = 3;
+    if (!useCommonProgram) {
+        activeProgram->setInt("uUseColorMatrix", data.hasColorMatrix ? 1 : 0);
+        if (data.hasColorMatrix) {
+            const glm::mat4 colorMatrix(
+                data.colorMatrix[0], data.colorMatrix[1], data.colorMatrix[2], data.colorMatrix[3],
+                data.colorMatrix[4], data.colorMatrix[5], data.colorMatrix[6], data.colorMatrix[7],
+                data.colorMatrix[8], data.colorMatrix[9], data.colorMatrix[10], data.colorMatrix[11],
+                data.colorMatrix[12], data.colorMatrix[13], data.colorMatrix[14], data.colorMatrix[15]);
+            activeProgram->setMat4("uColorMatrix", colorMatrix);
+            activeProgram->setVec4("uColorMatrixOffset", glm::vec4(
+                data.colorMatrixOffset[0], data.colorMatrixOffset[1],
+                data.colorMatrixOffset[2], data.colorMatrixOffset[3]));
+        }
+        int tileMode = 0;
+        if (data.tileMode == DrawImageTileMode::Repeat) {
+            tileMode = 1;
+        } else if (data.tileMode == DrawImageTileMode::Mirror) {
+            tileMode = 2;
+        } else if (data.tileMode == DrawImageTileMode::Decal) {
+            tileMode = 3;
+        }
+        activeProgram->setInt("uTileMode", tileMode);
     }
-    program_->setInt("uTileMode", tileMode);
-    program_->setInt("uGradientType", static_cast<int>(data.gradientType));
-    program_->setInt("uGradientTileMode", static_cast<int>(data.gradientTileMode));
-    program_->setVec2("uLinearStart", glm::vec2(data.gradientStart[0], data.gradientStart[1]));
-    program_->setVec2("uLinearEnd", glm::vec2(data.gradientEnd[0], data.gradientEnd[1]));
-    program_->setVec2("uRadialCenter", glm::vec2(data.radialCenter[0], data.radialCenter[1]));
-    program_->setFloat("uRadialRadius", data.radialRadius);
-    program_->setInt("uGradientStopCount", data.gradientStopCount);
-    for (std::size_t i = 0; i < DrawImageData::kMaxGradientStops; ++i) {
-        program_->setFloat("uGradientStopPositions[" + std::to_string(i) + "]", data.gradientStopPositions[i]);
-        float stopColor[4] = {
-            data.gradientStopColors[i * 4 + 0],
-            data.gradientStopColors[i * 4 + 1],
-            data.gradientStopColors[i * 4 + 2],
-            data.gradientStopColors[i * 4 + 3]
-        };
-        GammaCorrect::srgbToLinear4(stopColor);
-        program_->setVec4("uGradientStopColors[" + std::to_string(i) + "]", glm::vec4(stopColor[0], stopColor[1], stopColor[2], stopColor[3]));
+    activeProgram->setInt(
+        "uGradientType", static_cast<int>(data.gradientType));
+    if (data.gradientType != DrawGradientType::None) {
+        activeProgram->setInt(
+            "uGradientTileMode", static_cast<int>(data.gradientTileMode));
+        if (data.gradientType == DrawGradientType::Linear) {
+            activeProgram->setVec2(
+                "uLinearStart",
+                glm::vec2(data.gradientStart[0], data.gradientStart[1]));
+            activeProgram->setVec2(
+                "uLinearEnd",
+                glm::vec2(data.gradientEnd[0], data.gradientEnd[1]));
+        } else {
+            activeProgram->setVec2(
+                "uRadialCenter",
+                glm::vec2(data.radialCenter[0], data.radialCenter[1]));
+            activeProgram->setFloat("uRadialRadius", data.radialRadius);
+        }
+        activeProgram->setInt(
+            "uGradientStopCount", data.gradientStopCount);
+        for (std::size_t i = 0;
+             i < DrawImageData::kMaxGradientStops
+             && static_cast<int>(i) < data.gradientStopCount; ++i) {
+            activeProgram->setFloat(
+                "uGradientStopPositions[" + std::to_string(i) + "]",
+                data.gradientStopPositions[i]);
+            float stopColor[4] = {
+                data.gradientStopColors[i * 4 + 0],
+                data.gradientStopColors[i * 4 + 1],
+                data.gradientStopColors[i * 4 + 2],
+                data.gradientStopColors[i * 4 + 3]
+            };
+            GammaCorrect::srgbToLinear4(stopColor);
+            activeProgram->setVec4(
+                "uGradientStopColors[" + std::to_string(i) + "]",
+                glm::vec4(
+                    stopColor[0], stopColor[1],
+                    stopColor[2], stopColor[3]));
+        }
     }
-    program_->setInt("uTexture", 0);
-    wsc::opengl::applyClipMaskUniforms(program_, context);
+    activeProgram->setInt("uTexture", 0);
+    wsc::opengl::applyClipMaskUniforms(activeProgram, context);
 
     context.bindImageResource(data.imageResource, data.sampling, data.tileMode, data.mipmapsReady);
 

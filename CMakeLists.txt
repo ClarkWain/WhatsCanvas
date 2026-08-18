@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(WhatsCanvas VERSION 0.3.0 LANGUAGES C CXX)
+project(WhatsCanvas VERSION 0.4.0 LANGUAGES C CXX)
 
 include(CTest)
 include(GNUInstallDirs)
@@ -12,6 +12,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(WHATSCANVAS_ENABLE_SCRIPT_TESTS "Register existing smoke/example script gates with CTest." ON)
+option(WHATSCANVAS_ENABLE_EXTERNAL_FONT_ORACLES
+    "Register optional external reference-engine font tests." OFF)
 option(WHATSCANVAS_ENABLE_LOCAL_REGRESSION_TEST "Register the strict local pixel-hash regression gate with CTest." OFF)
 option(WHATSCANVAS_BUILD_DEMO "Build the root WhatsCanvas demo executable." ON)
 option(WHATSCANVAS_INSTALL "Enable install and package export rules." ON)
@@ -20,6 +22,7 @@ option(WHATSCANVAS_BUILD_OPENGL "Build the desktop OpenGL renderer library targe
 option(WHATSCANVAS_BUILD_OPENGLES "Build the OpenGL ES renderer library target." OFF)
 option(WHATSCANVAS_BUILD_SOFTWARE "Build the dependency-free CPU (software) renderer library target." ON)
 option(WHATSCANVAS_BUILD_BENCHMARKS "Build lightweight benchmark executables." ON)
+option(WHATSCANVAS_BUILD_FUZZERS "Build Clang libFuzzer targets." OFF)
 option(WHATSCANVAS_BUILD_NANOVG_BENCHMARK_ADAPTER "Build the optional NanoVG cross-library benchmark adapter." OFF)
 set(WHATSCANVAS_NANOVG_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.nanovg"
     CACHE PATH "Path to a NanoVG source checkout used only by its benchmark adapter.")
@@ -144,6 +147,31 @@ endif()
 if (WHATSCANVAS_BUILD_SOFTWARE)
     whatscanvas_add_software_library(WhatsCanvasSoftware ${CMAKE_CURRENT_LIST_DIR})
     add_library(WhatsCanvas::Software ALIAS WhatsCanvasSoftware)
+endif()
+
+if (WHATSCANVAS_BUILD_FUZZERS)
+    if (NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        message(FATAL_ERROR "WHATSCANVAS_BUILD_FUZZERS requires Clang/libFuzzer.")
+    endif()
+    if (NOT TARGET WhatsCanvasSoftware)
+        message(FATAL_ERROR "WhatsCanvas fuzzers require WHATSCANVAS_BUILD_SOFTWARE=ON.")
+    endif()
+    add_executable(WhatsCanvasTextAndFontConfigFuzzer
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/fuzz/TextAndFontConfigFuzzer.cpp"
+    )
+    target_include_directories(WhatsCanvasTextAndFontConfigFuzzer PRIVATE
+        "${SRC_DIR}"
+        "${SRC_DIR}/canvas"
+    )
+    target_link_libraries(WhatsCanvasTextAndFontConfigFuzzer PRIVATE
+        WhatsCanvasSoftware
+    )
+    target_compile_options(WhatsCanvasTextAndFontConfigFuzzer PRIVATE
+        -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer
+    )
+    target_link_options(WhatsCanvasTextAndFontConfigFuzzer PRIVATE
+        -fsanitize=fuzzer,address,undefined
+    )
 endif()
 
 if (NOT TARGET WhatsCanvasOpenGL AND NOT TARGET WhatsCanvasOpenGLES AND NOT TARGET WhatsCanvasSoftware)
@@ -680,6 +708,7 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     )
     target_compile_definitions(WhatsCanvasDirectWriteBackendTests PRIVATE
         WHATSCANVAS_TEST_OPENTYPE_FONT="${CMAKE_CURRENT_SOURCE_DIR}/third_party/harfbuzz/perf/fonts/Roboto-Regular.ttf"
+        WHATSCANVAS_TEST_VARIABLE_FONT="${CMAKE_CURRENT_SOURCE_DIR}/third_party/harfbuzz/test/subset/data/fonts/SourceSerifVariable-Roman.ttf"
     )
     add_test(NAME WhatsCanvasDirectWriteBackendTests
         COMMAND ${CMAKE_COMMAND}
@@ -742,8 +771,14 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     add_executable(WhatsCanvasFontManagerTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/FontManagerTests.cpp"
     )
+    target_include_directories(WhatsCanvasFontManagerTests PRIVATE
+        "${SRC_DIR}"
+    )
     target_link_libraries(WhatsCanvasFontManagerTests PRIVATE
         WhatsCanvasOpenGL
+    )
+    target_compile_definitions(WhatsCanvasFontManagerTests PRIVATE
+        WHATSCANVAS_TEST_SHARED_SOURCE_FONT="${CMAKE_CURRENT_SOURCE_DIR}/third_party/harfbuzz/test/subset/data/fonts/RobotoFlex-Variable.ttf"
     )
     add_test(NAME WhatsCanvasFontManagerTests
         COMMAND ${CMAKE_COMMAND}
@@ -755,6 +790,125 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     )
     set_tests_properties(WhatsCanvasFontManagerTests PROPERTIES LABELS "unit;text;font")
 
+    add_executable(WhatsCanvasAndroidFontConfigTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/AndroidFontConfigTests.cpp"
+    )
+    target_include_directories(WhatsCanvasAndroidFontConfigTests PRIVATE
+        "${SRC_DIR}"
+    )
+    target_link_libraries(WhatsCanvasAndroidFontConfigTests PRIVATE
+        WhatsCanvasOpenGL
+    )
+    target_compile_definitions(WhatsCanvasAndroidFontConfigTests PRIVATE
+        WHATSCANVAS_ANDROID_FONT_CONFIG_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/android_font_config"
+    )
+    add_test(NAME WhatsCanvasAndroidFontConfigTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasAndroidFontConfigTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasAndroidFontConfigTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasAndroidFontConfigTests PROPERTIES
+        LABELS "unit;text;font;android")
+
+    add_executable(WhatsCanvasAndroidFontOracleProbe
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/font_oracle/AndroidFontOracleProbe.cpp"
+    )
+    target_include_directories(WhatsCanvasAndroidFontOracleProbe PRIVATE
+        "${SRC_DIR}"
+    )
+    target_link_libraries(WhatsCanvasAndroidFontOracleProbe PRIVATE
+        WhatsCanvasOpenGL
+    )
+    add_executable(WhatsCanvasFontRasterProbe
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/font_oracle/WhatsCanvasFontRasterProbe.cpp"
+    )
+    target_include_directories(WhatsCanvasFontRasterProbe PRIVATE
+        "${SRC_DIR}"
+    )
+    target_link_libraries(WhatsCanvasFontRasterProbe PRIVATE
+        WhatsCanvasOpenGL
+    )
+    add_executable(WhatsCanvasFontClusterProbe
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/font_oracle/WhatsCanvasFontClusterProbe.cpp"
+    )
+    target_include_directories(WhatsCanvasFontClusterProbe PRIVATE
+        "${SRC_DIR}"
+    )
+    target_link_libraries(WhatsCanvasFontClusterProbe PRIVATE
+        WhatsCanvasOpenGL
+    )
+    add_test(NAME WhatsCanvasAndroidFlagEmojiContract
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasFontClusterProbe
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasFontClusterProbe>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -DWHATSCANVAS_TEST_FONT=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/android_font_oracle/NotoColorEmojiFlags.cn.subset.ttf
+            -DWHATSCANVAS_TEST_CODEPOINTS=1F1E8,1F1F3
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/tools/font_oracle/cmake/VerifyFontCluster.cmake)
+    set_tests_properties(WhatsCanvasAndroidFlagEmojiContract PROPERTIES
+        LABELS "unit;text;font;android;emoji;color-font;harfbuzz;freetype")
+    if (Python3_Interpreter_FOUND)
+        add_test(NAME WhatsCanvasAndroidFontOracleGolden
+            COMMAND ${CMAKE_COMMAND}
+                -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+                -DWHATSCANVAS_TEST_TARGET=WhatsCanvasAndroidFontOracleProbe
+                -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasAndroidFontOracleProbe>
+                -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+                -DWHATSCANVAS_PYTHON_EXECUTABLE=${Python3_EXECUTABLE}
+                -DWHATSCANVAS_ORACLE_RUNNER=${CMAKE_CURRENT_SOURCE_DIR}/tools/font_oracle/run_android_font_oracle.py
+                -DWHATSCANVAS_ORACLE_FIXTURE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/android_font_oracle/semantic_v1.xml
+                -DWHATSCANVAS_ORACLE_GOLDEN=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/android_font_oracle/semantic_v1.expected.json
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/tools/font_oracle/cmake/VerifyAndroidFontOracle.cmake
+        )
+        set_tests_properties(WhatsCanvasAndroidFontOracleGolden PROPERTIES
+            LABELS "unit;text;font;android;oracle")
+
+        add_test(NAME WhatsCanvasCoreDependencyBoundary
+            COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_core_dependency_boundary.py
+                --root ${CMAKE_CURRENT_SOURCE_DIR})
+        set_tests_properties(WhatsCanvasCoreDependencyBoundary PROPERTIES
+            LABELS "unit;architecture;dependency-boundary")
+
+        add_test(NAME WhatsCanvasAndroidBuildContract
+            COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_android_build_contract.py
+                --root ${CMAKE_CURRENT_SOURCE_DIR})
+        set_tests_properties(WhatsCanvasAndroidBuildContract PROPERTIES
+            LABELS "unit;architecture;android;text")
+
+        add_test(NAME WhatsCanvasFontRasterGolden
+            COMMAND ${CMAKE_COMMAND}
+                -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+                -DWHATSCANVAS_TEST_TARGET=WhatsCanvasFontRasterProbe
+                -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasFontRasterProbe>
+                -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+                -DWHATSCANVAS_PYTHON_EXECUTABLE=${Python3_EXECUTABLE}
+                -DWHATSCANVAS_RASTER_RUNNER=${CMAKE_CURRENT_SOURCE_DIR}/tools/font_oracle/run_whatscanvas_font_raster_golden.py
+                -DWHATSCANVAS_LATIN_FONT=${CMAKE_CURRENT_SOURCE_DIR}/third_party/harfbuzz/test/subset/data/fonts/RobotoFlex-Variable.ttf
+                -DWHATSCANVAS_CJK_FONT=${CMAKE_CURRENT_SOURCE_DIR}/third_party/harfbuzz/test/api/fonts/SourceHanSans-Regular.41,4C2E.otf
+                -DWHATSCANVAS_COLR_EMOJI_FONT=${CMAKE_CURRENT_SOURCE_DIR}/third_party/harfbuzz/test/api/fonts/TwemojiMozilla.subset.ttf
+                -DWHATSCANVAS_BITMAP_EMOJI_FONT=${CMAKE_CURRENT_SOURCE_DIR}/third_party/harfbuzz/test/api/fonts/NotoColorEmoji.subset.ttf
+                -DWHATSCANVAS_RASTER_GOLDEN=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/android_font_oracle/real_fonts.whatscanvas-raster.expected.json
+                -DWHATSCANVAS_RASTER_OUTPUT=${CMAKE_CURRENT_BINARY_DIR}/android-font-oracle/real_fonts.whatscanvas-raster.json
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/tools/font_oracle/cmake/VerifyWhatsCanvasFontRaster.cmake)
+        set_tests_properties(WhatsCanvasFontRasterGolden PROPERTIES
+            LABELS "unit;text;font;golden;freetype;raster;color-font")
+
+        if (WHATSCANVAS_ENABLE_EXTERNAL_FONT_ORACLES)
+            include(${CMAKE_CURRENT_SOURCE_DIR}/tools/font_oracle/cmake/WhatsCanvasFontOracleTests.cmake)
+            whatscanvas_register_external_font_oracle_tests(
+                ${CMAKE_CURRENT_SOURCE_DIR}
+                ${CMAKE_CURRENT_BINARY_DIR}
+                ${Python3_EXECUTABLE}
+                WhatsCanvasAndroidFontOracleProbe)
+        endif()
+    endif()
+
     add_executable(WhatsCanvasTextBackendContractTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/TextBackendContractTests.cpp"
     )
@@ -765,6 +919,10 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     target_link_libraries(WhatsCanvasTextBackendContractTests PRIVATE
         WhatsCanvasOpenGL
         WhatsCanvasGLM
+    )
+    target_compile_definitions(WhatsCanvasTextBackendContractTests PRIVATE
+        WHATSCANVAS_TEST_VARIABLE_FONT="${CMAKE_CURRENT_SOURCE_DIR}/third_party/harfbuzz/test/subset/data/fonts/RobotoFlex-Variable.ttf"
+        WHATSCANVAS_TEST_CBDT_FONT="${CMAKE_CURRENT_SOURCE_DIR}/third_party/harfbuzz/test/api/fonts/NotoColorEmoji.subset.ttf"
     )
     add_test(NAME WhatsCanvasTextBackendContractTests
         COMMAND ${CMAKE_COMMAND}
@@ -1099,6 +1257,30 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
     )
     set_tests_properties(WhatsCanvasSoftwareGoldenTests PROPERTIES LABELS "unit;diagnostics")
+
+    add_executable(WhatsCanvasVariableFontGoldenTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/VariableFontGoldenTests.cpp"
+    )
+    target_include_directories(WhatsCanvasVariableFontGoldenTests PRIVATE
+        "${SRC_DIR}"
+    )
+    target_compile_definitions(WhatsCanvasVariableFontGoldenTests PRIVATE
+        WHATSCANVAS_TEST_VARIABLE_FONT="${CMAKE_CURRENT_SOURCE_DIR}/third_party/harfbuzz/test/subset/data/fonts/RobotoFlex-Variable.ttf"
+    )
+    target_link_libraries(WhatsCanvasVariableFontGoldenTests PRIVATE
+        WhatsCanvasOpenGL
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasVariableFontGoldenTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasVariableFontGoldenTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasVariableFontGoldenTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasVariableFontGoldenTests PROPERTIES
+        LABELS "unit;text;font;golden;software")
 
     add_executable(WhatsCanvasSoftwarePresentTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/SoftwarePresentTests.cpp"
@@ -1780,6 +1962,23 @@ endif()
 # available in a truly GPU-free configuration (WHATSCANVAS_BUILD_OPENGL=OFF,
 # WHATSCANVAS_BUILD_SOFTWARE=ON) as well as the default build.
 if (BUILD_TESTING AND TARGET WhatsCanvasSoftware)
+    add_executable(WhatsCanvasPictureTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/PictureTests.cpp"
+    )
+    target_link_libraries(WhatsCanvasPictureTests PRIVATE
+        WhatsCanvasSoftware
+    )
+    add_test(NAME WhatsCanvasPictureTests
+        COMMAND ${CMAKE_COMMAND}
+            -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+            -DWHATSCANVAS_TEST_TARGET=WhatsCanvasPictureTests
+            -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasPictureTests>
+            -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+    )
+    set_tests_properties(WhatsCanvasPictureTests PROPERTIES
+        LABELS "unit;picture;display-list;context")
+
     add_executable(WhatsCanvasSystemFontDiscoveryTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/SystemFontDiscoveryTests.cpp"
     )

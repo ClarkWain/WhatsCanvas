@@ -29,6 +29,8 @@ public:
 
     /// Release GPU resources.
     void release();
+    /// Forget GPU names after context loss while retaining CPU source data.
+    void abandon();
 
     bool loadVolatile() override;
     void unloadVolatile() override;

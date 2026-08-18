@@ -1,0 +1,57 @@
+{
+  "schema": "whatscanvas.skia-android-font-manager.v1",
+  "engine": "skia-android-freetype",
+  "familyCount": 1,
+  "configuredFamily": "oracle-variable",
+  "styleMatch": {
+    "found": true,
+    "family": "oracle-variable",
+    "weight": 400,
+    "width": 5,
+    "slant": "normal",
+    "glyph": 36
+  },
+  "latinCharacterMatch": {
+    "found": true,
+    "family": "oracle-variable",
+    "weight": 400,
+    "width": 5,
+    "slant": "normal",
+    "glyph": 36
+  },
+  "simplifiedCjkMatch": {
+    "found": true,
+    "family": "01##fallback",
+    "weight": 400,
+    "width": 5,
+    "slant": "normal",
+    "glyph": 2
+  },
+  "japaneseCjkMatch": {
+    "found": true,
+    "family": "02##fallback",
+    "weight": 400,
+    "width": 5,
+    "slant": "normal",
+    "glyph": 3
+  },
+  "colrEmojiPresentationMatch": {
+    "found": true,
+    "family": "03##fallback",
+    "weight": 400,
+    "width": 5,
+    "slant": "normal",
+    "glyph": 2
+  },
+  "bitmapEmojiPresentationMatch": {
+    "found": true,
+    "family": "04##fallback",
+    "weight": 400,
+    "width": 5,
+    "slant": "normal",
+    "glyph": 4
+  },
+  "missingCharacterMatch": {
+    "found": false
+  }
+}

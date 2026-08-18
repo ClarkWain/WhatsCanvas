@@ -239,6 +239,14 @@ public:
     int getFontWeight() const;
     void setFontSlant(FontSlant slant);
     FontSlant getFontSlant() const;
+    /// Set or replace a whole-run OpenType variable-font axis override.
+    /// Tags must contain exactly four bytes (for example `wght`, `wdth`, or
+    /// `opsz`) and values must be finite. Paint overrides take precedence over
+    /// coordinates carried by the resolved FontFace.
+    void setFontVariation(const std::string &tag, float value);
+    /// Remove all Paint-level variable-font overrides.
+    void clearFontVariations();
+    const std::vector<FontVariationCoordinate> &getFontVariations() const;
     void setLetterSpacing(float spacing);
     float getLetterSpacing() const;
     void setTextAlign(TextAlign align);
@@ -327,6 +335,7 @@ private:
     std::string fontFamily_;
     int fontWeight_ = 400;
     FontSlant fontSlant_ = FontSlant::NORMAL;
+    std::vector<FontVariationCoordinate> fontVariations_;
     float letterSpacing_ = 0.0f;
     TextAlign textAlign_ = TextAlign::LEFT;
     TextBaseline textBaseline_ = TextBaseline::TOP;

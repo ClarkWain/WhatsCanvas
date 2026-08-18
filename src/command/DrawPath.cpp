@@ -22,9 +22,11 @@ DrawPathProgram::~DrawPathProgram()
     release();
 }
 
-void DrawPathProgram::initialize()
+void DrawPathProgram::initialize(bool commonProgram)
 {
-    if (initialized_)
+    GLProgram *&requestedProgram = commonProgram
+        ? commonProgram_ : program_;
+    if (requestedProgram != nullptr)
         return;
 
     // Create the shader program
@@ -95,6 +97,9 @@ void DrawPathProgram::initialize()
 #endif
 
     std::string fragmentSrc = std::string(wsc::opengl::shaderVersionDirective()) +
+#if defined(WHATSCANVAS_OPENGL_ES)
+        (commonProgram ? "#define WHATSCANVAS_COMMON_PATH 1\n" : "") +
+#endif
         wsc::opengl::clipMaskFragmentUniforms() +
 #if defined(WHATSCANVAS_OPENGL_ES)
     R"(
@@ -102,11 +107,15 @@ void DrawPathProgram::initialize()
         uniform vec4 uColor;
         uniform int uUseVertexColor;
         uniform int uGradientType;
+        #if !defined(WHATSCANVAS_COMMON_PATH)
         uniform int uGradientTileMode;
+        #endif
         uniform vec2 uLinearStart;
         uniform vec2 uLinearEnd;
+        #if !defined(WHATSCANVAS_COMMON_PATH)
         uniform vec2 uRadialCenter;
         uniform float uRadialRadius;
+        #endif
         uniform int uGradientStopCount;
         uniform float uGradientStopPositions[8];
         uniform vec4 uGradientStopColors[8];
@@ -118,6 +127,9 @@ void DrawPathProgram::initialize()
         float applyGradientTile(float t, out float visibility)
         {
             visibility = 1.0;
+            #if defined(WHATSCANVAS_COMMON_PATH)
+            return clamp(t, 0.0, 1.0);
+            #else
             if (uGradientTileMode == 1) {
                 return fract(t);
             }
@@ -134,6 +146,7 @@ void DrawPathProgram::initialize()
                 return clamp(t, 0.0, 1.0);
             }
             return clamp(t, 0.0, 1.0);
+            #endif
         }
 
         vec4 sampleGradient(float t)
@@ -169,10 +182,14 @@ void DrawPathProgram::initialize()
                 float lengthSq = max(dot(direction, direction), 0.0001);
                 float t = dot(vLocalPos - uLinearStart, direction) / lengthSq;
                 outColor = sampleGradient(t);
-            } else if (uGradientType == 2) {
+            }
+            #if !defined(WHATSCANVAS_COMMON_PATH)
+            else if (uGradientType == 2) {
                 float t = length(vLocalPos - uRadialCenter) / max(uRadialRadius, 0.0001);
                 outColor = sampleGradient(t);
-            } else {
+            }
+            #endif
+            else {
                 outColor = uUseVertexColor != 0 ? vColor : uColor;
             }
             if (uUseCoverage != 0) {
@@ -296,65 +313,86 @@ void DrawPathProgram::initialize()
     )";
 #endif
 
-    program_ = new GLProgram(vertexSrc, fragmentSrc);
-    program_->use();
+    requestedProgram = new GLProgram(
+        commonProgram ? "draw_path_common" : "draw_path",
+        vertexSrc, fragmentSrc);
+    requestedProgram->use();
 #if !defined(WHATSCANVAS_OPENGL_ES)
     // Samplers of different types must never alias the same texture unit,
     // even when the branch that samples them is disabled. Mesa validates
     // this at draw time, so reserve stable units up front.
-    program_->setInt("uGradientStops", 1);
-    program_->setInt("uDrawParameters", 2);
+    requestedProgram->setInt("uGradientStops", 1);
+    requestedProgram->setInt("uDrawParameters", 2);
 #endif
 
-    // Create the VAO
-    glGenVertexArrays(1, &VAO_);
+    if (!initialized_) {
+        // Create the VAO
+        glGenVertexArrays(1, &VAO_);
 
     // Positions, colors, coverage and indices share one frame stream. This
     // avoids orphaning four separate GL buffers at every frame boundary.
-    geometryBuffer_.initialize(16384);
+        geometryBuffer_.initialize(16384);
 
     // Bind the VAO and configure vertex attributes
-    glBindVertexArray(VAO_);
+        glBindVertexArray(VAO_);
 
-    glBindBuffer(GL_ARRAY_BUFFER, geometryBuffer_.handle());
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
+        glBindBuffer(GL_ARRAY_BUFFER, geometryBuffer_.handle());
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+        glEnableVertexAttribArray(0);
 
-    glBindBuffer(GL_ARRAY_BUFFER, geometryBuffer_.handle());
-    glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(1);
+        glBindBuffer(GL_ARRAY_BUFFER, geometryBuffer_.handle());
+        glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+        glEnableVertexAttribArray(1);
 
-    glBindBuffer(GL_ARRAY_BUFFER, geometryBuffer_.handle());
-    glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, sizeof(float), (void*)0);
-    glEnableVertexAttribArray(2);
+        glBindBuffer(GL_ARRAY_BUFFER, geometryBuffer_.handle());
+        glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, sizeof(float), (void*)0);
+        glEnableVertexAttribArray(2);
 #if !defined(WHATSCANVAS_OPENGL_ES)
-    glDisableVertexAttribArray(3);
-    glVertexAttribI1ui(3, 0u);
+        glDisableVertexAttribArray(3);
+        glVertexAttribI1ui(3, 0u);
 #endif
 
     // Unbind
-    glBindVertexArray(0);
+        glBindVertexArray(0);
 
-    initialized_ = true;
+        initialized_ = true;
+    }
 }
 
-void DrawPathProgram::release()
+void DrawPathProgram::release(bool abandon)
 {
     if (!initialized_)
         return;
 
-    if (program_ != nullptr)
+    if (program_ != nullptr) {
+        if (abandon) program_->abandonVolatile();
         delete program_;
+        program_ = nullptr;
+    }
+    if (commonProgram_ != nullptr) {
+        if (abandon) commonProgram_->abandonVolatile();
+        delete commonProgram_;
+        commonProgram_ = nullptr;
+    }
+    activeProgram_ = nullptr;
 
-    if (VAO_ != -1)
+    if (!abandon && VAO_ != -1)
         glDeleteVertexArrays(1, &VAO_);
+    VAO_ = static_cast<unsigned int>(-1);
 
-    geometryBuffer_.release();
-    gradientStopBuffer_.release();
-    drawParameterBuffer_.release();
+    if (abandon) {
+        geometryBuffer_.abandon();
+        gradientStopBuffer_.abandon();
+        drawParameterBuffer_.abandon();
+    } else {
+        geometryBuffer_.release();
+        gradientStopBuffer_.release();
+        drawParameterBuffer_.release();
+    }
     projectionWidth_ = -1;
     projectionHeight_ = -1;
     batchActive_ = false;
+    batchVaoBound_ = false;
     hasTransform_ = false;
     hasUniformColor_ = false;
     useVertexColor_ = -1;
@@ -371,22 +409,42 @@ void DrawPathProgram::release()
     initialized_ = false;
 }
 
+void DrawPathProgram::invalidateUniformState()
+{
+    projectionWidth_ = -1;
+    projectionHeight_ = -1;
+    hasTransform_ = false;
+    hasUniformColor_ = false;
+    useVertexColor_ = -1;
+    useCoverage_ = -1;
+    gradientType_ = -1;
+    useDrawParameters_ = -1;
+    clipEnabled_ = -1;
+    clipMaskUnit_ = -1;
+    clipViewportWidth_ = -1;
+    clipViewportHeight_ = -1;
+}
+
 void DrawPathProgram::beginFrame()
 {
     frameUploadCount_ = 0;
     frameUploadBytes_ = 0;
     frameIndexBytes_ = 0;
+    frameUploadedVertexCount_ = 0;
     geometryBuffer_.beginFrame();
 }
 
 void DrawPathProgram::beginBatch()
 {
-    if (!initialized_ || batchActive_) {
+    if (batchActive_) {
         return;
     }
-    program_->use();
-    glBindVertexArray(VAO_);
     batchActive_ = true;
+    batchVaoBound_ = false;
+    // Other command programs may have been used since the previous path
+    // batch. Force the first path draw to restore its GL program and cached
+    // uniforms even when it selects the same variant as the previous batch.
+    activeProgram_ = nullptr;
 }
 
 void DrawPathProgram::endBatch()
@@ -402,13 +460,28 @@ void DrawPathProgram::endBatch()
         drawParameterTextureBound_ = false;
     }
 #endif
-    glBindVertexArray(0);
+    if (batchVaoBound_) {
+        glBindVertexArray(0);
+    }
     batchActive_ = false;
+    batchVaoBound_ = false;
 }
 
 void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &data)
 {
-    if (!DrawValidation::validateProgram(initialized_, "DrawPathProgram::draw")) {
+    const bool useCommonProgram =
+#if defined(WHATSCANVAS_OPENGL_ES)
+        data.gradientType != DrawGradientType::Radial
+        && data.gradientTileMode == DrawGradientTileMode::Clamp;
+#else
+        false;
+#endif
+    initialize(useCommonProgram);
+    GLProgram *drawProgram = useCommonProgram
+        ? commonProgram_ : program_;
+    if (!DrawValidation::validateProgram(
+            initialized_ && drawProgram != nullptr,
+            "DrawPathProgram::draw")) {
         return;
     }
 
@@ -440,6 +513,7 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
             return;
         }
     }
+    frameUploadedVertexCount_ += data.getPointCount();
     std::vector<float> linearColors;
     const void *colorSource = nullptr;
     std::size_t colorBytes = 0;
@@ -532,7 +606,14 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
     constexpr std::size_t kCoalescedUploadLimit =
         64u * 1024u;
     if (packetBytes <= kCoalescedUploadLimit) {
-        packetScratch_.resize(packetBytes);
+        // Keep the initialized prefix at its high-water mark. A frame often
+        // alternates between small and large path packets; shrinking here and
+        // growing on the next draw makes vector::resize() zero-initialize the
+        // same bytes again even though every packet section is overwritten
+        // immediately below.
+        if (packetScratch_.size() < packetBytes) {
+            packetScratch_.resize(packetBytes);
+        }
         const auto copySection =
             [&](std::size_t offset, const void *source,
                 std::size_t bytes) {
@@ -553,7 +634,7 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
         geometryBuffer_.reserveAdditionalBytes(packetBytes);
         const StreamBuffer::UploadRange packet =
             geometryBuffer_.uploadBytes(
-                packetScratch_.data(), packetScratch_.size());
+                packetScratch_.data(), packetBytes);
         ++frameUploadCount_;
         frameUploadBytes_ += packetBytes;
         positions = {
@@ -606,23 +687,34 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
     }
     frameIndexBytes_ += indexBytes;
 
-    // Set the projection matrix
+    // A retained batch may contain both common and advanced gradients. Each
+    // program owns independent uniform state, so force all cached uniforms to
+    // be restored after a switch.
     const bool transientBinding = !batchActive_;
+    if (transientBinding || activeProgram_ != drawProgram) {
+        drawProgram->use();
+        activeProgram_ = drawProgram;
+        invalidateUniformState();
+    }
+
+    // Set the projection matrix
     if (transientBinding) {
-        program_->use();
         glBindVertexArray(VAO_);
+    } else if (!batchVaoBound_) {
+        glBindVertexArray(VAO_);
+        batchVaoBound_ = true;
     }
     if (projectionWidth_ != context.getWidth()
         || projectionHeight_ != context.getHeight()) {
         const glm::mat4 projection = glm::ortho(
             0.0f, static_cast<float>(context.getWidth()),
             static_cast<float>(context.getHeight()), 0.0f);
-        program_->setMat4("uProjection", projection);
+        drawProgram->setMat4("uProjection", projection);
         projectionWidth_ = context.getWidth();
         projectionHeight_ = context.getHeight();
     }
     if (!hasTransform_ || transform_ != data.transform) {
-        program_->setMat4("uTransform", data.transform);
+        drawProgram->setMat4("uTransform", data.transform);
         transform_ = data.transform;
         hasTransform_ = true;
     }
@@ -640,7 +732,7 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
                 drawParameterBuffer_.textureHandle());
             glActiveTexture(GL_TEXTURE0);
             drawParameterTextureBound_ = true;
-            program_->setInt("uDrawParameters", 2);
+            drawProgram->setInt("uDrawParameters", 2);
             ++frameUploadCount_;
             frameUploadBytes_ +=
                 data.drawParameters.size() * sizeof(float);
@@ -649,7 +741,7 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
     const int useDrawParameters =
         usingDrawParameters ? 1 : 0;
     if (useDrawParameters_ != useDrawParameters) {
-        program_->setInt(
+            drawProgram->setInt(
             "uUseDrawParameters", useDrawParameters);
         useDrawParameters_ = useDrawParameters;
     }
@@ -657,7 +749,7 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
     const int useVertexColor =
         (data.hasVertexColors() || usingDrawParameters) ? 1 : 0;
     if (useVertexColor_ != useVertexColor) {
-        program_->setInt("uUseVertexColor", useVertexColor);
+        drawProgram->setInt("uUseVertexColor", useVertexColor);
         useVertexColor_ = useVertexColor;
     }
     if (useVertexColor == 0) {
@@ -668,31 +760,31 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
         GammaCorrect::srgbToLinear4(color);
         const glm::vec4 uniformColor = glm::make_vec4(color);
         if (!hasUniformColor_ || uniformColor_ != uniformColor) {
-            program_->setVec4("uColor", uniformColor);
+            drawProgram->setVec4("uColor", uniformColor);
             uniformColor_ = uniformColor;
             hasUniformColor_ = true;
         }
     }
     const int useCoverage = data.hasCoverage() ? 1 : 0;
     if (useCoverage_ != useCoverage) {
-        program_->setInt("uUseCoverage", useCoverage);
+        drawProgram->setInt("uUseCoverage", useCoverage);
         useCoverage_ = useCoverage;
     }
     const int clipEnabled =
         context.isClipMaskActive() ? 1 : 0;
     if (clipEnabled_ != clipEnabled) {
-        program_->setInt("uClipEnabled", clipEnabled);
+        drawProgram->setInt("uClipEnabled", clipEnabled);
         clipEnabled_ = clipEnabled;
     }
     if (clipEnabled != 0) {
         const int clipMaskUnit = context.clipMaskTextureUnit();
         if (clipMaskUnit_ != clipMaskUnit) {
-            program_->setInt("uClipMask", clipMaskUnit);
+            drawProgram->setInt("uClipMask", clipMaskUnit);
             clipMaskUnit_ = clipMaskUnit;
         }
         if (clipViewportWidth_ != context.getWidth()
             || clipViewportHeight_ != context.getHeight()) {
-            program_->setVec2(
+            drawProgram->setVec2(
                 "uClipViewport",
                 glm::vec2(
                     static_cast<float>(context.getWidth()),
@@ -703,7 +795,7 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
     }
     const int gradientType = static_cast<int>(data.gradientType);
     if (gradientType_ != gradientType) {
-        program_->setInt("uGradientType", gradientType);
+        drawProgram->setInt("uGradientType", gradientType);
         gradientType_ = gradientType;
     }
     const bool hasGradient =
@@ -712,20 +804,24 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
     const DrawPathGradientStops *gradientStopData =
         data.gradientStopData();
     if (hasGradient) {
-        program_->setInt(
-            "uGradientTileMode",
-            static_cast<int>(data.gradientTileMode));
-        program_->setVec2(
+        if (!useCommonProgram) {
+            drawProgram->setInt(
+                "uGradientTileMode",
+                static_cast<int>(data.gradientTileMode));
+        }
+        drawProgram->setVec2(
             "uLinearStart",
             glm::vec2(data.gradientStart[0], data.gradientStart[1]));
-        program_->setVec2(
+        drawProgram->setVec2(
             "uLinearEnd",
             glm::vec2(data.gradientEnd[0], data.gradientEnd[1]));
-        program_->setVec2(
-            "uRadialCenter",
-            glm::vec2(data.radialCenter[0], data.radialCenter[1]));
-        program_->setFloat("uRadialRadius", data.radialRadius);
-        program_->setInt(
+        if (!useCommonProgram) {
+            drawProgram->setVec2(
+                "uRadialCenter",
+                glm::vec2(data.radialCenter[0], data.radialCenter[1]));
+            drawProgram->setFloat("uRadialRadius", data.radialRadius);
+        }
+        drawProgram->setInt(
             "uGradientStopCount", data.gradientStopCount);
     }
 #if !defined(WHATSCANVAS_OPENGL_ES)
@@ -753,11 +849,11 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
         if (usingGradientTexelBuffer) {
             glActiveTexture(GL_TEXTURE1);
             glBindTexture(GL_TEXTURE_BUFFER, gradientStopBuffer_.textureHandle());
-            program_->setInt("uGradientStops", 1);
+            drawProgram->setInt("uGradientStops", 1);
         }
     }
     if (hasGradient) {
-        program_->setInt(
+        drawProgram->setInt(
             "uUseGradientTexelBuffer",
             usingGradientTexelBuffer ? 1 : 0);
         uploadGradientUniforms = !usingGradientTexelBuffer;
@@ -769,7 +865,7 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
         DrawPathData::kMaxGradientStops);
     for (std::size_t i = 0;
          uploadGradientUniforms && i < gradientUniformCount; ++i) {
-        program_->setFloat(
+        drawProgram->setFloat(
             "uGradientStopPositions[" + std::to_string(i) + "]",
             gradientStopData->positions[i]);
         float stopColor[4] = {
@@ -779,7 +875,7 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
             gradientStopData->colors[i * 4 + 3]
         };
         GammaCorrect::srgbToLinear4(stopColor);
-        program_->setVec4("uGradientStopColors[" + std::to_string(i) + "]", glm::make_vec4(stopColor));
+        drawProgram->setVec4("uGradientStopColors[" + std::to_string(i) + "]", glm::make_vec4(stopColor));
     }
 
     // Attribute and element-buffer bindings are VAO state. DrawPath can be

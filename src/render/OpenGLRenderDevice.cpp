@@ -13,6 +13,7 @@
 #include "command/DrawText.h"
 #include "opengl/GlobalIndexBuffers.h"
 #include "opengl/GaussianBlurProgram.h"
+#include "opengl/GLProgram.h"
 #include "opengl/GLTextureUtils.h"
 #include "opengl/PixelFormatCaps.h"
 #include "opengl/ClipCoverageProgram.h"
@@ -25,6 +26,11 @@
 #include "render/RenderTargetPool.h"
 #include "render/GLPresent.h"
 
+struct OpenGLContextState
+{
+    bool abandoned = false;
+};
+
 namespace {
 
 int g_renderDeviceBackendRefCount = 0;
@@ -36,12 +42,14 @@ class OpenGLImageResource final : public ImageResource
 public:
     explicit OpenGLImageResource(ImageResourceHandle handle, bool ownsHandle,
                                   ImageOrigin origin, ImageAlphaType alphaType,
-                                  bool alphaOnly)
+                                  bool alphaOnly,
+                                  std::shared_ptr<OpenGLContextState> contextState)
         : handle_(handle),
           ownsHandle_(ownsHandle),
           origin_(origin),
           alphaType_(alphaType),
-          alphaOnly_(alphaOnly)
+          alphaOnly_(alphaOnly),
+          contextState_(std::move(contextState))
     {
         if (handle_.isValid()) {
             ++g_activeImageTextureResourceCount;
@@ -53,14 +61,15 @@ public:
         if (handle_.isValid() && g_activeImageTextureResourceCount > 0) {
             --g_activeImageTextureResourceCount;
         }
-        if (ownsHandle_ && handle_.isValid()) {
+        if (ownsHandle_ && handle_.isValid()
+            && contextState_ && !contextState_->abandoned) {
             wsc::opengl::destroyTexture(handle_);
         }
     }
 
     bool isValid() const override
     {
-        return handle_.isValid();
+        return handle_.isValid() && contextState_ && !contextState_->abandoned;
     }
 
     ImageOrigin origin() const override { return origin_; }
@@ -98,6 +107,7 @@ private:
     ImageOrigin origin_ = ImageOrigin::TopLeft;
     ImageAlphaType alphaType_ = ImageAlphaType::Straight;
     bool alphaOnly_ = false;
+    std::shared_ptr<OpenGLContextState> contextState_;
 };
 
 class OpenGLClipMaskResource final : public ClipMaskResource
@@ -138,12 +148,14 @@ class OpenGLRenderTarget final : public IRenderTarget
 {
 public:
     OpenGLRenderTarget(int width, int height, SharedImageResource imageResource,
-                       GLuint framebuffer, GLuint stencilRenderbuffer)
+                       GLuint framebuffer, GLuint stencilRenderbuffer,
+                       std::shared_ptr<OpenGLContextState> contextState)
         : width_(width),
           height_(height),
           imageResource_(std::move(imageResource)),
           framebuffer_(framebuffer),
-          stencilRenderbuffer_(stencilRenderbuffer)
+          stencilRenderbuffer_(stencilRenderbuffer),
+          contextState_(std::move(contextState))
     {
         if (framebuffer_ != 0) {
             ++g_activeRenderTargetResourceCount;
@@ -155,17 +167,20 @@ public:
         if (framebuffer_ != 0 && g_activeRenderTargetResourceCount > 0) {
             --g_activeRenderTargetResourceCount;
         }
-        if (stencilRenderbuffer_ != 0) {
+        if (stencilRenderbuffer_ != 0 && contextState_
+            && !contextState_->abandoned) {
             glDeleteRenderbuffers(1, &stencilRenderbuffer_);
         }
-        if (framebuffer_ != 0) {
+        if (framebuffer_ != 0 && contextState_
+            && !contextState_->abandoned) {
             glDeleteFramebuffers(1, &framebuffer_);
         }
     }
 
     bool isValid() const override
     {
-        return width_ > 0 && height_ > 0 && framebuffer_ != 0 && stencilRenderbuffer_ != 0
+        return contextState_ && !contextState_->abandoned
+            && width_ > 0 && height_ > 0 && framebuffer_ != 0 && stencilRenderbuffer_ != 0
             && imageResource_ && imageResource_->isValid();
     }
 
@@ -263,6 +278,7 @@ private:
     SharedImageResource imageResource_;
     GLuint framebuffer_ = 0;
     GLuint stencilRenderbuffer_ = 0;
+    std::shared_ptr<OpenGLContextState> contextState_;
 
     // Lazy activation state.
     bool begun_ = false;
@@ -277,6 +293,7 @@ private:
 };
 
 SharedImageResource createSharedOpenGLImageResource(
+    const std::shared_ptr<OpenGLContextState> &contextState,
     ImageResourceHandle handle, bool ownsHandle = true,
     ImageOrigin origin = ImageOrigin::TopLeft,
     ImageAlphaType alphaType = ImageAlphaType::Straight,
@@ -287,7 +304,7 @@ SharedImageResource createSharedOpenGLImageResource(
     }
 
     return std::make_shared<OpenGLImageResource>(
-        handle, ownsHandle, origin, alphaType, alphaOnly);
+        handle, ownsHandle, origin, alphaType, alphaOnly, contextState);
 }
 
 void initializeSharedRenderBackend()
@@ -304,21 +321,44 @@ void initializeSharedRenderBackend()
     PixelFormatCaps::initialize();
     GlobalIndexBuffers::initialize();
 
-    DrawPointsProgram::getInstance()->initialize();
-    DrawLinesProgram::getInstance()->initialize();
-    DrawPathProgram::getInstance()->initialize();
-    DrawImageProgram::getInstance()->initialize();
-    DrawTextProgram::getInstance()->initialize();
+    // Draw programs create their context-bound resources on first use. This
+    // avoids compiling legacy or uncommon shader paths during startup while
+    // preserving the shared singleton lifetime and context-loss teardown.
 }
 
 void finalizeSharedRenderBackend()
 {
+    // These programs are initialized lazily, but still own context-bound GL
+    // objects (FBOs, textures, VAOs and VBOs).  They must be released together
+    // with the eagerly initialized programs before an EGL context is replaced.
+    // Otherwise a recreated Android surface can reuse stale object names from
+    // the previous context and render into incomplete framebuffers.
+    wsc::opengl::GaussianBlurProgram::getInstance()->release();
+    wsc::opengl::ClipCoverageProgram::getInstance()->release();
+    wsc::opengl::DrawClipFillProgram::getInstance()->release();
+
     DrawPointsProgram::getInstance()->release();
     DrawLinesProgram::getInstance()->release();
     DrawPathProgram::getInstance()->release();
     DrawImageProgram::getInstance()->release();
     DrawTextProgram::getInstance()->release();
     GlobalIndexBuffers::finalize();
+    PixelFormatCaps::reset();
+}
+
+void abandonSharedRenderBackend()
+{
+    wsc::opengl::GaussianBlurProgram::getInstance()->release(true);
+    wsc::opengl::ClipCoverageProgram::getInstance()->release(true);
+    wsc::opengl::DrawClipFillProgram::getInstance()->release(true);
+
+    DrawPointsProgram::getInstance()->release(true);
+    DrawLinesProgram::getInstance()->release(true);
+    DrawPathProgram::getInstance()->release(true);
+    DrawImageProgram::getInstance()->release(true);
+    DrawTextProgram::getInstance()->release(true);
+    GlobalIndexBuffers::abandon();
+    PixelFormatCaps::reset();
 }
 
 float fromNdcX(float x, int width)
@@ -378,6 +418,7 @@ void OpenGLRenderDevice::initializeBackend()
         return;
     }
 
+    contextState_ = std::make_shared<OpenGLContextState>();
     if (g_renderDeviceBackendRefCount == 0) {
         initializeSharedRenderBackend();
     }
@@ -391,6 +432,40 @@ void OpenGLRenderDevice::initializeBackend()
         glGenQueries(3, gpuTimerQueries_);
     }
 #endif
+}
+
+void OpenGLRenderDevice::abandonBackend()
+{
+    if (!backendInitialized_) {
+        return;
+    }
+
+    if (contextState_) {
+        contextState_->abandoned = true;
+    }
+    if (renderTargetPool_) {
+        renderTargetPool_->clear();
+    }
+
+    std::fill(std::begin(gpuTimerQueries_), std::end(gpuTimerQueries_), 0u);
+    std::fill(std::begin(gpuTimerPending_), std::end(gpuTimerPending_), false);
+    std::fill(std::begin(gpuTimerSequences_), std::end(gpuTimerSequences_), 0u);
+    activeGpuTimerQuery_ = -1;
+    nextGpuTimerQuery_ = 0;
+    nextGpuTimerSequence_ = 1;
+    lastGpuTimeNs_ = 0;
+    lastGpuTimeSequence_ = 0;
+    lastGpuTimeAvailable_ = false;
+
+    if (g_renderDeviceBackendRefCount > 0) {
+        --g_renderDeviceBackendRefCount;
+        if (g_renderDeviceBackendRefCount == 0) {
+            abandonSharedRenderBackend();
+        }
+    }
+    hasWrappedFramebuffer_ = false;
+    wrappedFramebuffer_ = 0;
+    backendInitialized_ = false;
 }
 
 void OpenGLRenderDevice::finalizeBackend()
@@ -425,6 +500,12 @@ void OpenGLRenderDevice::finalizeBackend()
         }
     }
 
+    if (contextState_) {
+        // Any externally retained Image now belongs to a context that is no
+        // longer usable. Its destructor must not delete the old object name
+        // after a replacement context becomes current.
+        contextState_->abandoned = true;
+    }
     backendInitialized_ = false;
 }
 
@@ -565,9 +646,9 @@ std::unique_ptr<IRenderTarget> OpenGLRenderDevice::createRenderTarget(int width,
     return std::make_unique<OpenGLRenderTarget>(
         width, height,
         createSharedOpenGLImageResource(
-            texture, true, ImageOrigin::BottomLeft,
+            contextState_, texture, true, ImageOrigin::BottomLeft,
             ImageAlphaType::Premultiplied),
-        framebuffer, stencilRenderbuffer);
+        framebuffer, stencilRenderbuffer, contextState_);
 }
 
 SharedClipMaskResource OpenGLRenderDevice::createClipMaskResource(const ClipMaskPath &maskPath) const
@@ -582,7 +663,8 @@ SharedClipMaskResource OpenGLRenderDevice::createClipMaskResource(const ClipMask
 SharedImageResource OpenGLRenderDevice::createImageResourceRGBA(int width, int height,
                                                                 const std::vector<unsigned char> &pixels) const
 {
-    return createSharedOpenGLImageResource(wsc::opengl::createTextureRGBA(width, height, pixels));
+    return createSharedOpenGLImageResource(
+        contextState_, wsc::opengl::createTextureRGBA(width, height, pixels));
 }
 
 SharedImageResource OpenGLRenderDevice::createImageResourceAlpha8(
@@ -590,7 +672,7 @@ SharedImageResource OpenGLRenderDevice::createImageResourceAlpha8(
     const std::vector<unsigned char> &pixels) const
 {
     return createSharedOpenGLImageResource(
-        wsc::opengl::createTextureAlpha8(width, height, pixels),
+        contextState_, wsc::opengl::createTextureAlpha8(width, height, pixels),
         true, ImageOrigin::TopLeft, ImageAlphaType::Straight, true);
 }
 
@@ -599,7 +681,8 @@ SharedImageResource OpenGLRenderDevice::createImageResourceFromImageData(int wid
                                                                          bool generateMipmaps) const
 {
     return createSharedOpenGLImageResource(
-        wsc::opengl::createTextureFromImageData(width, height, channels, pixels, generateMipmaps));
+        contextState_, wsc::opengl::createTextureFromImageData(
+            width, height, channels, pixels, generateMipmaps));
 }
 
 bool OpenGLRenderDevice::updateImageResourceRGBA(const SharedImageResource &imageResource, int x, int y,
@@ -624,7 +707,7 @@ bool OpenGLRenderDevice::updateImageResourceAlpha8(
 
 SharedImageResource OpenGLRenderDevice::wrapExternalImageResource(ImageResourceHandle handle) const
 {
-    return createSharedOpenGLImageResource(handle, false);
+    return createSharedOpenGLImageResource(contextState_, handle, false);
 }
 
 RenderResourceStats OpenGLRenderDevice::resourceStats() const
@@ -632,6 +715,12 @@ RenderResourceStats OpenGLRenderDevice::resourceStats() const
     RenderResourceStats stats;
     stats.imageTextureCount = g_activeImageTextureResourceCount;
     stats.renderTargetCount = g_activeRenderTargetResourceCount;
+    const GLProgramCompilationStats shaderStats =
+        GLProgram::compilationStats();
+    stats.shaderProgramLinkCount = shaderStats.programLinkCount;
+    stats.shaderStageCompileCount = shaderStats.shaderCompileCount;
+    stats.shaderCompileCpuTimeNs = shaderStats.shaderCompileCpuTimeNs;
+    stats.shaderLinkCpuTimeNs = shaderStats.programLinkCpuTimeNs;
     if (renderTargetPool_) {
         stats.pooledRenderTargetCount = renderTargetPool_->pooledCount();
         stats.pooledRenderTargetBytes = renderTargetPool_->pooledBytes();

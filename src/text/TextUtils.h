@@ -31,7 +31,16 @@ struct FontFallbackCluster
     std::vector<std::uint32_t> codepoints;
 };
 
+enum class EmojiPresentation
+{
+    Default,
+    Text,
+    Emoji,
+};
+
 std::vector<Utf8Codepoint> decodeUtf8(const std::string &text);
+std::vector<std::uint16_t> encodeCodepointsToUtf16(
+    const std::vector<std::uint32_t> &codepoints);
 std::vector<FontFallbackCluster> buildFontFallbackClusters(const std::string &text,
                                                            std::size_t sourceStart,
                                                            std::size_t sourceEnd);
@@ -40,6 +49,9 @@ std::string normalizeUtf8ForText(const std::string &text);
 std::string makeAsciiFallbackText(const std::string &text, char replacement = '?');
 std::size_t countUtf8Codepoints(const std::string &text);
 bool isZeroWidthBreakCodepoint(std::uint32_t codepoint);
+bool isVariationSelectorCodepoint(std::uint32_t codepoint);
+EmojiPresentation classifyEmojiPresentation(
+    const std::vector<std::uint32_t> &codepoints);
 std::vector<TextBreakToken> buildTextBreakTokens(const std::string &text, std::size_t sourceStart,
                                                  std::size_t sourceEnd);
 std::string sanitizeTextToAscii(const std::string &text);

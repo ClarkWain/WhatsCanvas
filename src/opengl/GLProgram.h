@@ -1,11 +1,20 @@
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
 #include <glad/glad.h>
 #include <string>
 #include <stdexcept>
 #include <unordered_map>
 #include <glm/glm.hpp>
 #include "render/IVolatile.h"
+
+struct GLProgramCompilationStats {
+    std::size_t programLinkCount = 0;
+    std::size_t shaderCompileCount = 0;
+    std::uint64_t shaderCompileCpuTimeNs = 0;
+    std::uint64_t programLinkCpuTimeNs = 0;
+};
 
 // Custom exception type
 class GLProgramException : public std::runtime_error {
@@ -16,6 +25,8 @@ public:
 class GLProgram : public IVolatile {
 public:
     GLProgram(const std::string& vertexSrc, const std::string& fragmentSrc);
+    GLProgram(const char *debugLabel, const std::string& vertexSrc,
+              const std::string& fragmentSrc);
     GLProgram(const std::string& vertexSrc, const std::string& geometrySrc, const std::string& fragmentSrc);
     // Disable copy operations
     GLProgram(const GLProgram&) = delete;
@@ -28,9 +39,16 @@ public:
     void use();
     GLuint getProgram() const;
 
+    /// Process-lifetime OpenGL shader compilation diagnostics. The counters
+    /// include programs rebuilt after context loss and intentionally remain
+    /// cumulative so cold-start and recovery work is visible after a frame.
+    static GLProgramCompilationStats compilationStats();
+
     // IVolatile interface
     bool loadVolatile() override;
     void unloadVolatile() override;
+    /// Forget the program name after context loss without calling glDeleteProgram.
+    void abandonVolatile();
 
     // Uniform setter helpers
     void setFloat(const std::string& name, float value);
@@ -45,6 +63,8 @@ private:
     std::string vertexSrc_;
     std::string fragmentSrc_;
     std::string geometrySrc_;
+    std::string debugLabel_;
+    std::uint64_t currentCompileCpuTimeNs_ = 0;
     std::unordered_map<std::string, GLint> uniformLocations_;
     GLuint compileShader(GLenum type, const std::string& source);
     GLint uniformLocation(const std::string& name);

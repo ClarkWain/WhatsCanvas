@@ -17,6 +17,7 @@ GCB_PROPERTIES = (
 )
 EXTRA_PROPERTIES = (
     ("ExtendedPictographic", "Extended_Pictographic"),
+    ("EmojiPresentation", "Emoji_Presentation"),
     ("InCbConsonant", "InCB=Consonant"),
     ("InCbExtend", "InCB=Extend"),
     ("InCbLinker", "InCB=Linker"),

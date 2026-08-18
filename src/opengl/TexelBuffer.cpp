@@ -77,6 +77,14 @@ void TexelBuffer::release()
     count_ = 0;
 }
 
+void TexelBuffer::abandon()
+{
+    buffer_ = 0;
+    texture_ = 0;
+    count_ = 0;
+    capacity_ = 0;
+}
+
 bool TexelBuffer::loadVolatile()
 {
     if (cachedData_.empty()) {

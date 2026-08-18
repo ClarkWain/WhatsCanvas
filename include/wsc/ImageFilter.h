@@ -56,8 +56,8 @@ public:
         return blur(radius, radius, tileMode);
     }
 
-    /// Create a Gaussian blur using standard deviation, matching the parameter
-    /// convention used by APIs such as Skia. The sampled reach is three sigma.
+    /// Create a Gaussian blur using the standard-deviation convention common
+    /// to graphics APIs. The sampled reach is three sigma.
     static ImageFilter blurSigma(float sigmaX, float sigmaY,
                                  TileMode tileMode = TileMode::Clamp)
     {

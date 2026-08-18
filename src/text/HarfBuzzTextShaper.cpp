@@ -6,6 +6,10 @@
 #include <memory>
 #include <vector>
 
+#if defined(__ANDROID__)
+#include <android/log.h>
+#endif
+
 #if __has_include(<hb.h>)
 #include <hb.h>
 #include <hb-ot.h>
@@ -21,6 +25,21 @@
 namespace wsc::text {
 
 namespace {
+
+#if defined(__ANDROID__)
+void logHarfBuzzFailure(const char *stage, unsigned int first = 0,
+                        unsigned int second = 0)
+{
+    __android_log_print(ANDROID_LOG_WARN, "WhatsCanvas",
+                        "HarfBuzz shaping failure: stage=%s first=%u second=%u",
+                        stage, first, second);
+}
+#else
+void logHarfBuzzFailure(const char *, unsigned int = 0,
+                        unsigned int = 0)
+{
+}
+#endif
 
 struct HbBlobDeleter
 {
@@ -99,6 +118,10 @@ public:
     {
         if (!glyphResolver || input.normalizedText.empty() || input.pixelSize <= 0.0f
             || !input.fontData || input.fontData->data == nullptr || input.fontData->size == 0) {
+            logHarfBuzzFailure(
+                "invalid-input",
+                input.fontData ? static_cast<unsigned int>(input.fontData->size) : 0u,
+                input.fontData && input.fontData->data != nullptr ? 1u : 0u);
             return std::nullopt;
         }
 
@@ -113,28 +136,46 @@ public:
                                       nullptr,
                                       nullptr));
         if (!blob) {
+            logHarfBuzzFailure("blob");
             return std::nullopt;
         }
 
         const unsigned int faceIndex = static_cast<unsigned int>(std::max(0, input.fontData->faceIndex));
-        if (faceIndex >= hb_face_count(blob.get())) {
+        const unsigned int faceCount = hb_face_count(blob.get());
+        if (faceIndex >= faceCount) {
+            logHarfBuzzFailure("face-index", faceIndex, faceCount);
             return std::nullopt;
         }
         HbFacePtr face(hb_face_create(blob.get(), faceIndex));
         if (!face) {
+            logHarfBuzzFailure("face", faceIndex, faceCount);
             return std::nullopt;
         }
 
         HbFontPtr font(hb_font_create(face.get()));
         if (!font) {
+            logHarfBuzzFailure("font");
             return std::nullopt;
         }
         hb_ot_font_set_funcs(font.get());
         const int scale = std::max(1, static_cast<int>(std::round(input.pixelSize * 64.0f)));
         hb_font_set_scale(font.get(), scale, scale);
+        std::vector<hb_variation_t> variations;
+        variations.reserve(input.variationCoordinates.size());
+        for (const wsc::FontVariationCoordinate &coordinate :
+             input.variationCoordinates) {
+            if (coordinate.tag.size() != 4 || !std::isfinite(coordinate.value)) continue;
+            variations.push_back({
+                hb_tag_from_string(coordinate.tag.c_str(), 4), coordinate.value});
+        }
+        if (!variations.empty()) {
+            hb_font_set_variations(font.get(), variations.data(),
+                                   static_cast<unsigned int>(variations.size()));
+        }
 
         HbBufferPtr buffer(hb_buffer_create());
         if (!buffer) {
+            logHarfBuzzFailure("buffer");
             return std::nullopt;
         }
         if (!input.language.empty()) {
@@ -171,6 +212,7 @@ public:
         hb_glyph_info_t *glyphInfos = hb_buffer_get_glyph_infos(buffer.get(), &glyphCount);
         hb_glyph_position_t *glyphPositions = hb_buffer_get_glyph_positions(buffer.get(), &glyphCount);
         if (glyphInfos == nullptr || glyphPositions == nullptr || glyphCount == 0) {
+            logHarfBuzzFailure("empty-buffer", glyphCount);
             return std::nullopt;
         }
 
@@ -213,6 +255,8 @@ public:
         }
 
         if (!hasVisibleGlyph || run.glyphs.empty()) {
+            logHarfBuzzFailure("no-visible-glyph", glyphCount,
+                               glyphCount == 0 ? 0 : glyphInfos[0].codepoint);
             return std::nullopt;
         }
 

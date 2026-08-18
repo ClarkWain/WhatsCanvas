@@ -66,6 +66,8 @@ struct DrawPathGeometry {
     // Content identity for topology-only reuse. Positions are intentionally
     // excluded so dynamic transforms/data can retain indices and AA coverage.
     std::uint64_t topologyFingerprint = 0;
+    // Triangle-soup size before indexed analytic-AA expansion.
+    std::size_t tessellatedVertexCount = 0;
 
     std::size_t residentBytes() const
     {
@@ -94,6 +96,11 @@ struct DrawPathData {
     std::vector<std::uint16_t> drawIds; // Optional per-vertex shape parameter index
     std::vector<float> drawParameters; // 2D affine matrix + RGBA per shape
     std::shared_ptr<const DrawPathGeometry> sharedGeometry;
+    // Logical geometry counts carried into the renderer for per-frame
+    // pipeline diagnostics. They do not affect batching or raster output.
+    std::size_t sourceVertexCount = 0;
+    std::size_t tessellatedVertexCount = 0;
+    std::size_t aaExpandedVertexCount = 0;
     float width = 1.0f;           // Stroke width
     float color[4];               // RGBA color
     PathDrawMode drawMode;        // Draw mode

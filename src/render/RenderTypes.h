@@ -63,6 +63,10 @@ struct RenderResourceStats {
     std::size_t renderTargetPoolReuseCount = 0;
     std::size_t renderTargetPoolAllocationCount = 0;
     std::size_t renderTargetPoolEvictionCount = 0;
+    std::size_t shaderProgramLinkCount = 0;
+    std::size_t shaderStageCompileCount = 0;
+    std::uint64_t shaderCompileCpuTimeNs = 0;
+    std::uint64_t shaderLinkCpuTimeNs = 0;
 };
 
 struct FilterExecutionStats {

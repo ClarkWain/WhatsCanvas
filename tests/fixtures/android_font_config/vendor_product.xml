@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<fonts-modification version="1">
+  <family customizationType="new-named-family" name="vendor-sans">
+    <font weight="550">VendorSans-Medium.ttf</font>
+    <font/>
+  </family>
+  <family lang="ko"><font>VendorKoreanFallback.otf</font></family>
+  <alias name="vendor-medium" to="vendor-sans" weight="550"/>
+  <alias name="missing-target" to="family-not-installed" weight="500"/>
+  <alias name="missing-to"/>
+</fonts-modification>
