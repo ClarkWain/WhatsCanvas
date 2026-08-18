@@ -17,6 +17,7 @@ enum class DrawPrimitiveKind
     TexturedQuad,   ///< Full-target quad sampling an image resource.
     ClipFill,       ///< Full-target solid fill, clipped by a coverage mask (red channel).
     GradientFill,   ///< Triangle list filled with a fragment-evaluated gradient.
+    GaussianShadow, ///< Offscreen silhouette, separable blur, then tinted composite.
 };
 
 /// Compact axis-aligned textured quad consumed by instanced backends.
@@ -185,6 +186,17 @@ struct DrawPrimitive
     /// clip coordinates.
     float clipUvScale[2] = {1.0f, 1.0f};
     float clipUvOffset[2] = {0.0f, 0.0f};
+
+    /// GaussianShadow: coverage primitives rendered into a transparent
+    /// offscreen target before the two blur passes. Geometry carries white AA
+    /// coverage; textured glyphs contribute their source alpha. Keeping these
+    /// children in the ordered draw list preserves the shadow operation for
+    /// device backends instead of prematurely lowering it to a hard silhouette.
+    std::vector<DrawPrimitive> shadowSilhouette;
+
+    /// GaussianShadow: three-sigma blur reach in device pixels. The shadow
+    /// tint reuses `tint`, while blend/scissor are taken from the parent.
+    float shadowBlurRadius = 0.0f;
 };
 
 using DrawList = std::vector<DrawPrimitive>;

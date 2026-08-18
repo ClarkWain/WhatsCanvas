@@ -372,6 +372,21 @@ fragment float4 clip_fs(ClipVSOut in [[stage_in]],
     return c;
 }
 
+// Drop-shadow composition samples alpha rather than red. Alpha8 glyph atlases
+// expand coverage uniformly, but RGBA color glyphs (including emoji) may have
+// little or no red in otherwise opaque pixels.
+fragment float4 shadow_compose_fs(ClipVSOut in [[stage_in]],
+                                  texture2d<float> mask [[texture(0)]],
+                                  sampler samp [[sampler(0)]],
+                                  constant ClipUniforms &u [[buffer(0)]])
+{
+    float coverage = mask.sample(samp, in.uv).a;
+    float4 c = u.color;
+    c.a *= coverage;
+    c.rgb *= c.a;
+    return c;
+}
+
 // ---- Gaussian blur pipeline (separable) ----
 // A full-target quad drives a fragment shader that walks a 1D kernel along
 // `direction`. filterImageResource() runs two passes: first horizontal into
@@ -876,6 +891,7 @@ enum class MetalPipelineKind
     MaskMultiply = 6,
     InvertAlpha = 7,
     InnerShadowCompose = 8,
+    ShadowCompose = 9,
 };
 
 struct MetalPipelineKey
@@ -1129,6 +1145,7 @@ void MetalRenderDevice::initializeBackend()
         obtainPipeline(*context_, MetalPipelineKind::MaskMultiply,       kSrc);
         obtainPipeline(*context_, MetalPipelineKind::InvertAlpha,        kSrc);
         obtainPipeline(*context_, MetalPipelineKind::InnerShadowCompose, kSrc);
+        obtainPipeline(*context_, MetalPipelineKind::ShadowCompose,      kSrcOver);
         // Pre-warm the default linear/clamp sampler too so per-draw obtainSampler
         // never allocates on the hot path in the common case.
         obtainSampler(*context_, /*sampling=*/0, /*tileMode=*/0);
@@ -1242,6 +1259,11 @@ id<MTLRenderPipelineState> obtainPipeline(MetalRenderDevice::MetalContext &ctx,
         vsName = @"blur_vs";
         fsName = @"inner_shadow_compose_fs";
         vd = ctx.blurVertexDesc;
+        break;
+    case MetalPipelineKind::ShadowCompose:
+        vsName = @"clip_vs";
+        fsName = @"shadow_compose_fs";
+        vd = ctx.clipVertexDesc;
         break;
     }
     id<MTLFunction> vs = [ctx.library newFunctionWithName:vsName];
@@ -2284,6 +2306,16 @@ void encodeClipFill(id<MTLRenderCommandEncoder> encoder, MetalRenderDevice::Meta
     stats.drawCallCount += 1;
 }
 
+// Gaussian shadows interrupt the main render pass, render their coverage into
+// an offscreen texture, blur it, and composite it back into the same ordered
+// command buffer. Defined below beside the shared blur implementation.
+bool encodeGaussianShadow(id<MTLCommandBuffer> cb,
+                          MetalRenderDevice::MetalContext &ctx,
+                          const wsc::DrawPrimitive &prim,
+                          id<MTLTexture> target,
+                          int width, int height,
+                          MetalExecutionStats &stats);
+
 } // namespace
 
 bool MetalRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &target,
@@ -2322,6 +2354,28 @@ bool MetalRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &ta
         [enc setViewport:makeViewport(rt->width(), rt->height())];
 
         for (const wsc::DrawPrimitive &prim : drawList) {
+            if (prim.kind == wsc::DrawPrimitiveKind::GaussianShadow) {
+                [enc endEncoding];
+                enc = nil;
+                if (!encodeGaussianShadow(cb, *context_, prim,
+                                          rt->metalTexture(), rt->width(),
+                                          rt->height(), stats)) {
+                    WSC_LOG_ERROR("MetalRenderDevice",
+                                  "Failed to encode Gaussian shadow.");
+                    return false;
+                }
+
+                // Resume the ordered stream without clearing the color already
+                // produced before the shadow operation.
+                MTLRenderPassDescriptor *resumePass =
+                    [MTLRenderPassDescriptor renderPassDescriptor];
+                resumePass.colorAttachments[0].texture = rt->metalTexture();
+                resumePass.colorAttachments[0].loadAction = MTLLoadActionLoad;
+                resumePass.colorAttachments[0].storeAction = MTLStoreActionStore;
+                enc = [cb renderCommandEncoderWithDescriptor:resumePass];
+                [enc setViewport:makeViewport(rt->width(), rt->height())];
+                continue;
+            }
             switch (prim.kind) {
             case wsc::DrawPrimitiveKind::SolidTriangles:
                 encodeSolid(enc, *context_, prim, rt->width(), rt->height(), stats);
@@ -2334,6 +2388,8 @@ bool MetalRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &ta
                 break;
             case wsc::DrawPrimitiveKind::ClipFill:
                 encodeClipFill(enc, *context_, prim, rt->width(), rt->height(), stats);
+                break;
+            case wsc::DrawPrimitiveKind::GaussianShadow:
                 break;
             }
         }
@@ -2536,6 +2592,125 @@ void encodeBlurPass(id<MTLCommandBuffer> cb,
     [enc setFragmentSamplerState:ctx.clipSampler atIndex:0];
     [enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6];
     [enc endEncoding];
+}
+
+bool encodeGaussianShadow(id<MTLCommandBuffer> cb,
+                          MetalRenderDevice::MetalContext &ctx,
+                          const wsc::DrawPrimitive &prim,
+                          id<MTLTexture> target,
+                          int width, int height,
+                          MetalExecutionStats &stats)
+{
+    if (cb == nil || target == nil || width <= 0 || height <= 0
+        || prim.shadowSilhouette.empty()) {
+        return false;
+    }
+
+    const MTLTextureUsage usage =
+        MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+    id<MTLTexture> coverage = makeFilterTexture(ctx.device, width, height, usage);
+    id<MTLTexture> blurHorizontal = makeFilterTexture(ctx.device, width, height, usage);
+    id<MTLTexture> blurVertical = makeFilterTexture(ctx.device, width, height, usage);
+    if (coverage == nil || blurHorizontal == nil || blurVertical == nil) {
+        return false;
+    }
+
+    // Pass 1: render the untinted silhouette. Geometry writes premultiplied
+    // white while glyph/image textures retain their source alpha; both become
+    // the coverage that the blur operates on.
+    MTLRenderPassDescriptor *coveragePass =
+        [MTLRenderPassDescriptor renderPassDescriptor];
+    coveragePass.colorAttachments[0].texture = coverage;
+    coveragePass.colorAttachments[0].loadAction = MTLLoadActionClear;
+    coveragePass.colorAttachments[0].storeAction = MTLStoreActionStore;
+    coveragePass.colorAttachments[0].clearColor =
+        MTLClearColorMake(0.0, 0.0, 0.0, 0.0);
+    id<MTLRenderCommandEncoder> coverageEncoder =
+        [cb renderCommandEncoderWithDescriptor:coveragePass];
+    if (coverageEncoder == nil) {
+        return false;
+    }
+    [coverageEncoder setViewport:makeViewport(width, height)];
+    for (const wsc::DrawPrimitive &silhouette : prim.shadowSilhouette) {
+        switch (silhouette.kind) {
+        case wsc::DrawPrimitiveKind::SolidTriangles:
+            encodeSolid(coverageEncoder, ctx, silhouette, width, height, stats);
+            break;
+        case wsc::DrawPrimitiveKind::TexturedQuad:
+            encodeTextured(coverageEncoder, ctx, silhouette, width, height, stats);
+            break;
+        default:
+            [coverageEncoder endEncoding];
+            return false;
+        }
+    }
+    [coverageEncoder endEncoding];
+
+    // Paint::setShadowLayer uses radius as the three-sigma visual reach, which
+    // is the same convention used by ImageFilter::blur throughout the project.
+    const float sigma = std::max(0.0f, prim.shadowBlurRadius) / 3.0f;
+    MetalBlurUniforms horizontal{};
+    MetalBlurUniforms vertical{};
+    computeGaussianWeights(sigma, horizontal);
+    computeGaussianWeights(sigma, vertical);
+    horizontal.direction[0] = 1.0f / static_cast<float>(width);
+    horizontal.direction[1] = 0.0f;
+    vertical.direction[0] = 0.0f;
+    vertical.direction[1] = 1.0f / static_cast<float>(height);
+    // Decal sampling prevents edge texels from being extended back into the
+    // canvas when a shadow silhouette touches a target boundary.
+    horizontal.tileMode = 1;
+    vertical.tileMode = 1;
+    encodeBlurPass(cb, ctx, coverage, blurHorizontal, horizontal, width, height);
+    encodeBlurPass(cb, ctx, blurHorizontal, blurVertical, vertical, width, height);
+    stats.drawCallCount += 2;
+
+    // Pass 4: tint the blurred coverage and composite it at the exact point in
+    // the ordered stream where DrawShadowCommand appeared.
+    MTLRenderPassDescriptor *compositePass =
+        [MTLRenderPassDescriptor renderPassDescriptor];
+    compositePass.colorAttachments[0].texture = target;
+    compositePass.colorAttachments[0].loadAction = MTLLoadActionLoad;
+    compositePass.colorAttachments[0].storeAction = MTLStoreActionStore;
+    id<MTLRenderCommandEncoder> compositeEncoder =
+        [cb renderCommandEncoderWithDescriptor:compositePass];
+    if (compositeEncoder == nil) {
+        return false;
+    }
+    [compositeEncoder setViewport:makeViewport(width, height)];
+
+    id<MTLRenderPipelineState> compositePipeline = obtainPipeline(
+        ctx, MetalPipelineKind::ShadowCompose, prim.blendMode);
+    if (compositePipeline == nil) {
+        [compositeEncoder endEncoding];
+        return false;
+    }
+    [compositeEncoder setRenderPipelineState:compositePipeline];
+    applyScissor(compositeEncoder, prim, width, height);
+    const float fullTargetVertices[] = {
+        -1.0f, -1.0f,  1.0f, -1.0f,  1.0f,  1.0f,
+        -1.0f, -1.0f,  1.0f,  1.0f, -1.0f,  1.0f,
+    };
+    [compositeEncoder setVertexBytes:fullTargetVertices
+                              length:sizeof(fullTargetVertices)
+                             atIndex:0];
+    MetalClipUniforms uniforms{};
+    for (std::size_t channel = 0; channel < 4; ++channel) {
+        uniforms.color[channel] = prim.tint[channel];
+    }
+    uniforms.uvScaleOffset[0] = 1.0f;
+    uniforms.uvScaleOffset[1] = 1.0f;
+    [compositeEncoder setFragmentBytes:&uniforms
+                                 length:sizeof(uniforms)
+                                atIndex:0];
+    [compositeEncoder setFragmentTexture:blurVertical atIndex:0];
+    [compositeEncoder setFragmentSamplerState:ctx.clipSampler atIndex:0];
+    [compositeEncoder drawPrimitives:MTLPrimitiveTypeTriangle
+                          vertexStart:0 vertexCount:6];
+    stats.vertexBytes += sizeof(fullTargetVertices);
+    stats.drawCallCount += 1;
+    [compositeEncoder endEncoding];
+    return true;
 }
 
 } // namespace

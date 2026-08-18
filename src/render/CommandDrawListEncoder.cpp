@@ -595,22 +595,29 @@ bool encodeCommandsToDrawList(const std::vector<std::unique_ptr<Command>> &comma
             }
             out.push_back(std::move(prim));
         } else if (cmd->type() == Command::Type::Shadow) {
-            // Device-command backends keep shadows in the same ordered stream.
-            // Emit the already-offset silhouette here; Metal can subsequently
-            // upgrade this coverage pass to a separable blur without dropping
-            // the entire frame while the filter is unavailable.
             const auto *shadowCmd = static_cast<const DrawShadowCommand *>(cmd.get());
             const DrawShadowData &shadow = shadowCmd->data();
             const DrawPathData &d = shadow.silhouette;
+            wsc::DrawPrimitive shadowPrim;
+            shadowPrim.kind = wsc::DrawPrimitiveKind::GaussianShadow;
+            shadowPrim.blendMode = mapBlend(shadow.blendMode);
+            applyScissor(shadowPrim, shadow.scissor, request);
+            shadowPrim.shadowBlurRadius = std::max(0.0f, shadow.blurRadius);
+            for (std::size_t channel = 0; channel < 4; ++channel) {
+                shadowPrim.tint[channel] = shadow.color[channel];
+            }
+
             const std::size_t sourceVertexCount = d.getPointCount();
             const std::size_t vertexCount = d.getElementCount();
             if (sourceVertexCount >= 3 && vertexCount >= 3
                 && (vertexCount % 3) == 0) {
                 wsc::DrawPrimitive prim;
                 prim.kind = wsc::DrawPrimitiveKind::SolidTriangles;
-                prim.blendMode = mapBlend(shadow.blendMode);
-                applyScissor(prim, shadow.scissor, request);
+                prim.blendMode = mapBlend(DrawBlendMode::SrcOver);
                 prim.positions.reserve(vertexCount * 2);
+                if (d.hasCoverage()) {
+                    prim.coverage.reserve(vertexCount);
+                }
                 const std::vector<float> &points = d.pointData();
                 for (std::size_t element = 0; element < vertexCount; ++element) {
                     const std::size_t source = d.hasIndices()
@@ -626,22 +633,29 @@ bool encodeCommandsToDrawList(const std::vector<std::unique_ptr<Command>> &comma
                           points[source * 2 + 1], nx, ny);
                     prim.positions.push_back(nx);
                     prim.positions.push_back(ny);
+                    if (d.hasCoverage()) {
+                        prim.coverage.push_back(d.coverageAt(source));
+                    }
                 }
                 for (std::size_t channel = 0; channel < 4; ++channel) {
-                    prim.color[channel] = shadow.color[channel];
+                    prim.color[channel] = 1.0f;
                 }
-                out.push_back(std::move(prim));
+                shadowPrim.shadowSilhouette.push_back(std::move(prim));
             }
             for (const DrawImageData &silhouette : shadow.imageSilhouette) {
-                DrawImageData tinted = silhouette;
+                DrawImageData coverageImage = silhouette;
                 for (std::size_t channel = 0; channel < 4; ++channel) {
-                    tinted.tintColor[channel] = shadow.color[channel];
+                    coverageImage.tintColor[channel] = 1.0f;
                 }
-                tinted.scissor = shadow.scissor;
-                tinted.blendMode = shadow.blendMode;
-                if (!encodeImage(tinted, request, out, error)) {
+                coverageImage.scissor = {};
+                coverageImage.blendMode = DrawBlendMode::SrcOver;
+                if (!encodeImage(coverageImage, request,
+                                 shadowPrim.shadowSilhouette, error)) {
                     return false;
                 }
+            }
+            if (!shadowPrim.shadowSilhouette.empty()) {
+                out.push_back(std::move(shadowPrim));
             }
         } else {
             setError(error, "unsupported command type");

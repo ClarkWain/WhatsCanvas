@@ -948,7 +948,8 @@ SharedImageResource OpenGLRenderDevice::renderCommandsToImageResource(const std:
         if (compiler.compile(commands, compileRequest, frame)) {
             bool portable = true;
             for (const wsc::DrawPrimitive &packet : frame.packets) {
-                if (packet.kind == wsc::DrawPrimitiveKind::ClipFill
+                if (packet.kind == wsc::DrawPrimitiveKind::GaussianShadow
+                    || packet.kind == wsc::DrawPrimitiveKind::ClipFill
                     || (packet.kind == wsc::DrawPrimitiveKind::TexturedQuad
                         && (packet.positions.size() != 12u
                             || !packet.packedTints.empty()

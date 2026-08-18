@@ -36,6 +36,10 @@
     self = [super initWithFrame:frame];
     if (self != nil) {
         self.opaque = YES;
+        self.isAccessibilityElement = YES;
+        self.accessibilityIdentifier = @"whatscanvas.canvas";
+        self.accessibilityLabel = @"WhatsCanvas Metal canvas";
+        self.accessibilityValue = @"initializing";
         self.contentScaleFactor = UIScreen.mainScreen.scale;
         CAMetalLayer *layer = (CAMetalLayer *)self.layer;
         layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
@@ -117,6 +121,7 @@
 
 - (void)rebuildRenderer
 {
+    self.accessibilityValue = @"initializing";
     [self releaseRenderer];
     if (self.window == nil || _drawableSize.width < 1.0 || _drawableSize.height < 1.0) return;
 
@@ -166,12 +171,14 @@
     _startTime = CACurrentMediaTime();
     _fpsWindowStart = _startTime;
     _fpsFrameCount = 0;
+    self.accessibilityValue = @"ready";
     NSLog(@"WhatsCanvas: Metal + CoreText ready at %dx%d (%.2fx)",
           pixelWidth, pixelHeight, scale);
 }
 
 - (void)releaseRenderer
 {
+    self.accessibilityValue = @"released";
     _staticPicture.reset();
     _checkerImage.reset();
     if (_canvas != nullptr) {
