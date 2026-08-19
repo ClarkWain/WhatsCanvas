@@ -8593,20 +8593,20 @@ bool VulkanRenderDevice::executeCommandsWithCopy(
             }
             if (d.hasShaderGradient()) {
                 prim.kind = wsc::DrawPrimitiveKind::GradientFill;
-                // Local (canvas-space) positions matching the transformed geometry.
+                // Keep localPositions in canvas-logical space so they match
+                // the untransformed linearStart/linearEnd/radialCenter emitted
+                // below. Baking d.transform in here would scale localPositions
+                // by DPR while the gradient endpoints stay in logical space,
+                // collapsing the gradient to a single color at DPR > 1.
                 prim.localPositions.reserve(emittedVertexCount * 2);
                 for (std::size_t i = 0;
                      i < emittedVertexCount; ++i) {
                     const std::size_t source =
                         emittedSourceIndex(i);
-                    const glm::vec4 p =
-                        d.transform
-                        * glm::vec4(
-                            points[source * 2 + 0],
-                            points[source * 2 + 1],
-                            0.0f, 1.0f);
-                    prim.localPositions.push_back(p.x);
-                    prim.localPositions.push_back(p.y);
+                    prim.localPositions.push_back(
+                        points[source * 2 + 0]);
+                    prim.localPositions.push_back(
+                        points[source * 2 + 1]);
                 }
                 prim.gradientType = static_cast<int>(d.gradientType);
                 prim.gradientTileMode = static_cast<int>(d.gradientTileMode);
