@@ -138,6 +138,12 @@ struct DrawPrimitive
     float roundedWidth = 0.0f;
     float roundedHeight = 0.0f;
 
+    /// TexturedQuad: canvas-space top-left of the source rectangle used when a
+    /// gradient is sampled across the textured quad. `roundedWidth` /
+    /// `roundedHeight` provide the corresponding size; together they let a
+    /// fragment shader recover the per-pixel logical position from `uv`.
+    float imageOrigin[2] = {0.0f, 0.0f};
+
     /// TexturedQuad: RGBA tint multiplied into the sampled texture.
     float tint[4] = {1.0f, 1.0f, 1.0f, 1.0f};
 
