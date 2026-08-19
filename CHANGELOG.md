@@ -9,25 +9,44 @@ For releases and downloadable artifacts, see the
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-19
+
 ### Added
-- Added `platforms/desktop/`, a GLFW-based desktop host built as
-  `WhatsCanvasDesktopHost`. It exposes a portable `IScene` contract and a
-  `SceneCatalog` registry, mirrors the Android host's eight-card
-  `feature_showcase` scene, and supports interactive, headless PPM dump, and
-  headless benchmark modes (`--dump-png`, `--benchmark`, `--list-scenes`).
-  Enabled via the `WHATSCANVAS_BUILD_DESKTOP_PLATFORM` CMake option (ON by
-  default when `WhatsCanvas::OpenGL` is available). The scene interface is
-  designed to be shared by the Android, iOS and Web hosts through a future
-  `platforms/shared/scenes/` extraction.
+- Added `platforms/desktop/`, a portable desktop platform host built as
+  `WhatsCanvasDesktopHost`. It exposes an `IScene` contract and a
+  `SceneCatalog` registry designed to back the Android, iOS and Web hosts
+  through a future `platforms/shared/scenes/` extraction, ships an OpenGL 3.3
+  core-profile GLFW host and a dependency-free CPU `SoftwareRuntime`, and
+  supports three run modes:
+  `--scene=<name>` for interactive rendering (default GLFW window),
+  `--dump-png=<path> --frames=N` for headless PPM dump, and
+  `--benchmark --warmup=N --measured=M` for CPU/GPU frame-time percentiles and
+  aggregated `Canvas::getRenderStats`. Bundled `feature_showcase` scene
+  mirrors the Android host card-for-card (TEXT, PATH, CLIP, ARCS, TRANSFORM,
+  SHADOW, IMAGE, MOTION) and reuses the retained-`Picture` + dynamic overlay
+  split. Enabled by `WHATSCANVAS_BUILD_DESKTOP_PLATFORM` (ON by default when
+  `WhatsCanvas::OpenGL` is available).
+- Added `WhatsCanvasDesktopHostSmoke` CTest gate (label
+  `smoke;desktop;platforms`) hooked into `cross-platform-validation.yml`, run
+  through the Software backend so Windows, Linux, and macOS CI runners
+  exercise the desktop host end-to-end without needing a display server or a
+  GLFW window.
 
 ### Fixed
 - Fixed a GLES linear/radial gradient regression on shapes drawn at large
-  logical y-coordinates. The `DrawPath`, `DrawImage`, and `DrawText` GLES
-  shaders relied on the default `mediump` precision inherited from
-  `GLShaderSource.h`, which was insufficient for the world-space
-  `vLocalPos` / `uLinearStart` / `uLinearEnd` subtraction and caused
-  catastrophic precision loss, collapsing gradients to their first color stop.
-  The affected varying and uniforms are now explicitly `highp`.
+  logical y-coordinates. `DrawPath`, `DrawImage`, and `DrawText` GLES shaders
+  inherited `precision mediump float` from `GLShaderSource.h`, which cannot
+  represent large canvas coordinates precisely enough for
+  `dot(vLocalPos - uLinearStart, direction) / dot(direction, direction)`
+  without catastrophic cancellation. Multi-stop and 2-color gradients on
+  shapes placed near the bottom of a portrait Android layout collapsed to
+  their first color stop on real Adreno hardware (verified regression on
+  Redmi K30, Android 11, GLES 3). Each affected GLES shader now declares
+  `precision highp float; precision highp int;` at the top of both vertex and
+  fragment stages (mirroring the `GaussianBlurProgram` pattern) so the
+  gradient math preserves precision on both real GLES devices and the CI
+  llvmpipe runner while desktop `#version 330 core` output stays
+  byte-identical.
 
 ## [0.4.0] - 2026-08-18
 
@@ -465,7 +484,8 @@ For releases and downloadable artifacts, see the
 For changes prior to 0.1.11, see the
 [GitHub Releases](https://github.com/ClarkWain/WhatsCanvas/releases) history.
 
-[Unreleased]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.1.20...v0.2.0
