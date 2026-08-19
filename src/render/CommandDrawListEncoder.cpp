@@ -406,19 +406,20 @@ bool encodeCommandsToDrawList(const std::vector<std::unique_ptr<Command>> &comma
                     prim.clipUvScale[0] = 1.0f / static_cast<float>(request.canvasWidth);
                     prim.clipUvScale[1] = 1.0f / static_cast<float>(request.canvasHeight);
                 }
+                // Local positions live in the same canvas-logical space as the
+                // gradient endpoints emitted by copyGradient(), matching the
+                // OpenGL/Software backends. Baking `d.transform` in here would
+                // scale localPositions by DPR while linearStart/End remain in
+                // logical space, collapsing the gradient to a single color.
                 prim.localPositions.reserve(emittedVertexCount * 2);
                 for (std::size_t i = 0;
                      i < emittedVertexCount; ++i) {
                     const std::size_t source =
                         emittedSourceIndex(i);
-                    const glm::vec4 p =
-                        d.transform
-                        * glm::vec4(
-                            points[source * 2 + 0],
-                            points[source * 2 + 1],
-                            0.0f, 1.0f);
-                    prim.localPositions.push_back(p.x);
-                    prim.localPositions.push_back(p.y);
+                    prim.localPositions.push_back(
+                        points[source * 2 + 0]);
+                    prim.localPositions.push_back(
+                        points[source * 2 + 1]);
                 }
                 copyGradient(d, prim);
             } else {
