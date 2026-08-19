@@ -1,0 +1,66 @@
+# WhatsCanvas Desktop
+
+This directory contains the desktop host for WhatsCanvas. It builds a single
+executable, `WhatsCanvasDesktopHost`, that opens a GLFW window, creates a
+WhatsCanvas OpenGL 3.3 core-profile context, and runs any registered
+[`IScene`](src/IScene.h) through the public `wsc::Canvas` API. The same Scene
+interface will be shared by the Android, iOS and Web hosts, so all four
+platforms display and can regression-test the same visual content.
+
+## Scope
+
+- OpenGL 3.3 core-profile rendering through `WhatsCanvas::OpenGL`.
+- One GLFW-based host implementation (`hosts/glfw/GlfwHost`) that handles
+  window/context creation, high-DPI content-scale, resize, VSYNC and orderly
+  teardown.
+- A scene registry (`SceneCatalog`) that dispatches by name.
+- One bundled scene: `feature_showcase` — the same 8-card feature matrix that
+  the Android host draws (text, path, clip, arcs, transform, shadow, image,
+  motion), including the retained-`Picture` + dynamic-overlay split.
+- Optional headless dump mode that renders N frames to an off-screen framebuffer
+  and writes a PPM, suitable for pixel-regression golden comparison.
+
+Additional hosts (Cocoa+Metal, Win32 native), scenes, and CI hookup are
+planned as follow-up work.
+
+## Build
+
+The host is built together with the top-level tree via CMake when
+`WhatsCanvas::OpenGL` is available:
+
+```powershell
+cmake -S . -B build
+cmake --build build --target WhatsCanvasDesktopHost --config Release
+```
+
+To skip it, configure with `-DWHATSCANVAS_BUILD_DESKTOP_PLATFORM=OFF`.
+
+The executable is written under `build/<Config>/WhatsCanvasDesktopHost.exe`
+(Windows) or `build/<Config>/WhatsCanvasDesktopHost` (Linux/macOS).
+
+## Run
+
+```powershell
+# Interactive window with the default 8-card scene:
+WhatsCanvasDesktopHost
+
+# Explicit scene / size:
+WhatsCanvasDesktopHost --scene=feature_showcase --w=1600 --h=900
+
+# Enumerate registered scenes:
+WhatsCanvasDesktopHost --list-scenes
+
+# Headless: render one frame, write PPM (useful for CI diff):
+WhatsCanvasDesktopHost --scene=feature_showcase --w=1280 --h=720 `
+    --dump-png=out.ppm --frames=1
+```
+
+## Adding a new scene
+
+1. Create `src/scenes/YourScene.h/.cpp` implementing `IScene`.
+2. Register it in [`src/SceneCatalog.cpp`](src/SceneCatalog.cpp).
+3. Add the source to `CMakeLists.txt`.
+
+The Scene interface (`onCanvasReady`, `onLayout`, `onFrame`, `onCanvasReleasing`)
+is deliberately platform-agnostic; the same file is intended to be linked into
+the Android/iOS/Web hosts once a `platforms/shared/scenes/` extraction lands.
