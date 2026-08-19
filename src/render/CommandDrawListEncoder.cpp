@@ -218,6 +218,11 @@ bool encodeImage(const DrawImageData &d, const CommandDrawListEncodeRequest &req
     }
     if (d.hasShaderGradient()) {
         copyGradient(d, prim);
+        // Textured-quad backends recover the per-pixel canvas-logical position
+        // from `uv` and this origin/size so a bitmap tint (e.g. glyph atlas) can
+        // be modulated by the same gradient shader path shapes use.
+        prim.imageOrigin[0] = d.x;
+        prim.imageOrigin[1] = d.y;
     }
     prim.sampling = static_cast<int>(d.sampling);
     prim.tileMode = static_cast<int>(d.tileMode);

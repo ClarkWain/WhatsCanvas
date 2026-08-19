@@ -537,12 +537,26 @@ struct Vertex
 
 void compositeImagePixel(std::uint8_t *framebuffer, int width, int px, int py,
                          const float tex[4], const DrawImageData &data,
-                         const RasterClip &clip, float shapeCoverage = 1.0f)
+                         const RasterClip &clip, float shapeCoverage = 1.0f,
+                         const GradientDesc *grad = nullptr,
+                         float localX = 0.0f, float localY = 0.0f)
 {
-    float r = tex[0] * data.tintColor[0];
-    float g = tex[1] * data.tintColor[1];
-    float b = tex[2] * data.tintColor[2];
-    float a = tex[3] * data.tintColor[3] * data.alpha;
+    float tintR = data.tintColor[0];
+    float tintG = data.tintColor[1];
+    float tintB = data.tintColor[2];
+    float tintA = data.tintColor[3];
+    if (grad != nullptr && grad->type != 0) {
+        float gc[4];
+        sampleGradient(*grad, localX, localY, gc);
+        tintR = gc[0];
+        tintG = gc[1];
+        tintB = gc[2];
+        tintA = gc[3];
+    }
+    float r = tex[0] * tintR;
+    float g = tex[1] * tintG;
+    float b = tex[2] * tintB;
+    float a = tex[3] * tintA * data.alpha;
     if (data.hasColorMatrix) {
         const float *m = data.colorMatrix;
         const float nr =
@@ -786,6 +800,32 @@ GradientDesc makeGradientDesc(const DrawPathData &data)
     return grad;
 }
 
+// Image-command variant. Copies the same gradient fields into GradientDesc so
+// the textured raster paths can sample it at each pixel's canvas-logical
+// position.
+GradientDesc makeGradientDesc(const DrawImageData &data)
+{
+    GradientDesc grad;
+    grad.type = static_cast<int>(data.gradientType);
+    if (grad.type == 0) return grad;
+    grad.tileMode = static_cast<int>(data.gradientTileMode);
+    grad.linearStart[0] = data.gradientStart[0];
+    grad.linearStart[1] = data.gradientStart[1];
+    grad.linearEnd[0] = data.gradientEnd[0];
+    grad.linearEnd[1] = data.gradientEnd[1];
+    grad.radialCenter[0] = data.radialCenter[0];
+    grad.radialCenter[1] = data.radialCenter[1];
+    grad.radialRadius = data.radialRadius;
+    grad.stopCount = std::min(data.gradientStopCount, 8);
+    for (int i = 0; i < grad.stopCount; ++i) {
+        grad.stopPositions[i] = data.gradientStopPositions[i];
+        for (int c = 0; c < 4; ++c) {
+            grad.stopColors[i * 4 + c] =
+                data.gradientStopColors[i * 4 + c];
+        }
+    }
+    return grad;
+}
 /// Expand a solid line list into quads (matching DrawLinesProgram) and raster.
 void rasterizeLines(std::uint8_t *framebuffer, int width, int height, const DrawLinesData &data,
                     const RasterClip &clip)
@@ -851,6 +891,13 @@ void rasterizeImage(std::uint8_t *framebuffer, int width, int height, const Draw
         return;
     }
 
+    // Gradient tint mirrors the GradientFill pipeline so a bitmap fill (e.g. a
+    // CoreText/DirectWrite glyph atlas) can be modulated by the same Paint
+    // linear/radial gradient shapes use, instead of collapsing to the uniform
+    // `tintColor`.
+    const GradientDesc gradient = makeGradientDesc(data);
+    const GradientDesc *gradientPtr = gradient.type != 0 ? &gradient : nullptr;
+
     struct IV
     {
         float x;
@@ -901,12 +948,12 @@ void rasterizeImage(std::uint8_t *framebuffer, int width, int height, const Draw
             for (int px = beginX; px < endX; ++px) {
                 float tex[4];
                 image->samplePixel(px - left, sourceY, tex);
+                const float localX = static_cast<float>(px - left) + data.x + 0.5f;
+                const float localY = static_cast<float>(py - top) + data.y + 0.5f;
                 compositeImagePixel(
                     framebuffer, width, px, py, tex, data, clip,
-                    roundedImageCoverage(
-                        data,
-                        static_cast<float>(px - left) + data.x + 0.5f,
-                        static_cast<float>(py - top) + data.y + 0.5f));
+                    roundedImageCoverage(data, localX, localY),
+                    gradientPtr, localX, localY);
             }
         }
         return;
@@ -942,10 +989,11 @@ void rasterizeImage(std::uint8_t *framebuffer, int width, int height, const Draw
                     data.u0 + (data.u1 - data.u0) * tx;
                 float tex[4];
                 image->sample(u, v, samplingMode, tileMode, tex);
+                const float localX = data.x + data.width * tx;
                 compositeImagePixel(
                     framebuffer, width, px, py, tex, data, clip,
-                    roundedImageCoverage(
-                        data, data.x + data.width * tx, localY));
+                    roundedImageCoverage(data, localX, localY),
+                    gradientPtr, localX, localY);
             }
         }
         return;
@@ -999,7 +1047,8 @@ void rasterizeImage(std::uint8_t *framebuffer, int width, int height, const Draw
                 image->sample(u, v, samplingMode, tileMode, tex);
                 compositeImagePixel(
                     framebuffer, width, px, py, tex, data, clip,
-                    roundedImageCoverage(data, localX, localY));
+                    roundedImageCoverage(data, localX, localY),
+                    gradientPtr, localX, localY);
             }
         }
     }
