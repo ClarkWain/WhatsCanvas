@@ -88,6 +88,12 @@ function(whatscanvas_add_common_dependencies project_root)
         set(HB_HAVE_ICU OFF CACHE BOOL "" FORCE)
         set(HB_HAVE_GOBJECT OFF CACHE BOOL "" FORCE)
         set(HB_HAVE_INTROSPECTION OFF CACHE BOOL "" FORCE)
+        # HarfBuzz's bundled hb-coretext shaper includes ApplicationServices,
+        # which trips HarfBuzz's own -Werror=cast-align pragma on recent
+        # Command Line Tools SDK headers. We do not use HarfBuzz's CoreText
+        # shaper (SystemFontEnumerator queries CoreText directly), so keep
+        # the default backend and disable this optional path.
+        set(HB_HAVE_CORETEXT OFF CACHE BOOL "" FORCE)
         set(HB_BUILD_UTILS OFF CACHE BOOL "" FORCE)
         set(HB_BUILD_SUBSET OFF CACHE BOOL "" FORCE)
         set(HB_BUILD_RASTER OFF CACHE BOOL "" FORCE)
