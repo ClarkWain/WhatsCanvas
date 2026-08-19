@@ -32,7 +32,14 @@ void DrawPathProgram::initialize(bool commonProgram)
     // Create the shader program
     std::string vertexSrc = std::string(wsc::opengl::shaderVersionDirective()) +
 #if defined(WHATSCANVAS_OPENGL_ES)
+    // File-wide highp on GLES: mimic GaussianBlurProgram so shader compilers
+    // (including llvmpipe on CI) apply high precision uniformly rather than
+    // relying on per-declaration `highp` qualifiers on varyings and uniforms.
+    // Required so vLocalPos survives fragment-shader subtraction with
+    // uLinearStart when a shape is drawn at large logical y-coordinates.
     R"(
+        precision highp float;
+        precision highp int;
         layout (location = 0) in vec2 aPos;
         layout (location = 1) in vec4 aColor;
         layout (location = 2) in float aCoverage;
@@ -103,6 +110,8 @@ void DrawPathProgram::initialize(bool commonProgram)
         wsc::opengl::clipMaskFragmentUniforms() +
 #if defined(WHATSCANVAS_OPENGL_ES)
     R"(
+        precision highp float;
+        precision highp int;
         out vec4 FragColor;
         uniform vec4 uColor;
         uniform int uUseVertexColor;

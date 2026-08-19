@@ -9,6 +9,26 @@ For releases and downloadable artifacts, see the
 
 ## [Unreleased]
 
+### Added
+- Added `platforms/desktop/`, a GLFW-based desktop host built as
+  `WhatsCanvasDesktopHost`. It exposes a portable `IScene` contract and a
+  `SceneCatalog` registry, mirrors the Android host's eight-card
+  `feature_showcase` scene, and supports interactive, headless PPM dump, and
+  headless benchmark modes (`--dump-png`, `--benchmark`, `--list-scenes`).
+  Enabled via the `WHATSCANVAS_BUILD_DESKTOP_PLATFORM` CMake option (ON by
+  default when `WhatsCanvas::OpenGL` is available). The scene interface is
+  designed to be shared by the Android, iOS and Web hosts through a future
+  `platforms/shared/scenes/` extraction.
+
+### Fixed
+- Fixed a GLES linear/radial gradient regression on shapes drawn at large
+  logical y-coordinates. The `DrawPath`, `DrawImage`, and `DrawText` GLES
+  shaders relied on the default `mediump` precision inherited from
+  `GLShaderSource.h`, which was insufficient for the world-space
+  `vLocalPos` / `uLinearStart` / `uLinearEnd` subtraction and caused
+  catastrophic precision loss, collapsing gradients to their first color stop.
+  The affected varying and uniforms are now explicitly `highp`.
+
 ## [0.4.0] - 2026-08-18
 
 ### Added

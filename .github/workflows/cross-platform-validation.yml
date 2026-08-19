@@ -50,7 +50,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
+          sudo apt-get install -y libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev xvfb
 
       - name: Set up MSVC developer command prompt
         if: runner.os == 'Windows'
@@ -66,6 +66,14 @@ jobs:
 
       - name: Unit tests
         run: ctest --test-dir ${{ matrix.build_dir }} -C Debug -L unit --output-on-failure
+
+      # Desktop platform host: builds WhatsCanvasDesktopHost and renders one
+      # feature_showcase frame to PPM through the dependency-free Software
+      # backend. Guards against regressions in platforms/desktop/, the shared
+      # scene contract, and the retained Picture + dynamic overlay pipeline
+      # without requiring a display server or GLFW window on any runner.
+      - name: Desktop platform host smoke
+        run: ctest --test-dir ${{ matrix.build_dir }} -C Debug -L desktop --output-on-failure
 
       # Keep Metal visible as a first-class blocking gate. These tests are also
       # part of the unit label, but the explicit Apple-only run prevents a

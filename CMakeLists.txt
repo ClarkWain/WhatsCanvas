@@ -16,6 +16,7 @@ option(WHATSCANVAS_ENABLE_EXTERNAL_FONT_ORACLES
     "Register optional external reference-engine font tests." OFF)
 option(WHATSCANVAS_ENABLE_LOCAL_REGRESSION_TEST "Register the strict local pixel-hash regression gate with CTest." OFF)
 option(WHATSCANVAS_BUILD_DEMO "Build the root WhatsCanvas demo executable." ON)
+option(WHATSCANVAS_BUILD_DESKTOP_PLATFORM "Build the platforms/desktop host (WhatsCanvasDesktopHost)." ON)
 option(WHATSCANVAS_INSTALL "Enable install and package export rules." ON)
 option(WHATSCANVAS_INSTALL_TEXT_DEPENDENCIES "Install bundled FreeType/HarfBuzz when an exported renderer links them." ON)
 option(WHATSCANVAS_BUILD_OPENGL "Build the desktop OpenGL renderer library target." ON)
@@ -209,6 +210,10 @@ endif()
 
 if (WHATSCANVAS_BUILD_DEMO AND TARGET WhatsCanvasSoftware)
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/hello_world")
+endif()
+
+if (WHATSCANVAS_BUILD_DESKTOP_PLATFORM AND TARGET WhatsCanvasOpenGL)
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/platforms/desktop")
 endif()
 
 if (TARGET WhatsCanvasOpenGL)
@@ -2224,6 +2229,25 @@ if (BUILD_TESTING AND TARGET WhatsCanvasAAShowcase)
         COMMAND WhatsCanvasAAShowcase "${CMAKE_CURRENT_BINARY_DIR}/aa_showcase_smoke.png"
     )
     set_tests_properties(WhatsCanvasAAShowcaseSmoke PROPERTIES LABELS "smoke;aa;examples" TIMEOUT 120)
+endif()
+
+if (BUILD_TESTING AND TARGET WhatsCanvasDesktopHost)
+    # Headlessly render the eight-card feature_showcase and dump a PPM. This
+    # confirms platforms/desktop links and can complete a full retained-Picture
+    # + dynamic-overlay frame end to end. Uses the Software backend so it needs
+    # neither a display nor even a hidden GLFW window; hosted Windows/macOS CI
+    # runners cannot create a GLFW window in the CI-only session.
+    add_test(NAME WhatsCanvasDesktopHostSmoke
+        COMMAND WhatsCanvasDesktopHost
+            --scene=feature_showcase
+            --backend=software
+            --w=1280 --h=720
+            --dump-png=${CMAKE_CURRENT_BINARY_DIR}/desktop_host_smoke.ppm
+            --frames=1
+    )
+    set_tests_properties(WhatsCanvasDesktopHostSmoke PROPERTIES
+        LABELS "smoke;desktop;platforms"
+        TIMEOUT 60)
 endif()
 
 if (BUILD_TESTING AND WHATSCANVAS_ENABLE_SCRIPT_TESTS)
