@@ -50,7 +50,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
+          sudo apt-get install -y libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev xvfb
 
       - name: Set up MSVC developer command prompt
         if: runner.os == 'Windows'
@@ -66,6 +66,21 @@ jobs:
 
       - name: Unit tests
         run: ctest --test-dir ${{ matrix.build_dir }} -C Debug -L unit --output-on-failure
+
+      # Desktop platform host: builds WhatsCanvasDesktopHost (GLFW + OpenGL 3.3)
+      # and renders one feature_showcase frame to PPM. Guards against regressions
+      # in platforms/desktop/, the shared scene contract, and the retained
+      # Picture + dynamic overlay pipeline. Linux CI runs it under Xvfb with
+      # llvmpipe so no real display is required.
+      - name: Desktop platform host smoke (Windows/macOS)
+        if: runner.os != 'Linux'
+        run: ctest --test-dir ${{ matrix.build_dir }} -C Debug -L desktop --output-on-failure
+
+      - name: Desktop platform host smoke (Linux with Xvfb)
+        if: runner.os == 'Linux'
+        run: |
+          xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe \
+            ctest --test-dir ${{ matrix.build_dir }} -C Debug -L desktop --output-on-failure
 
       # Keep Metal visible as a first-class blocking gate. These tests are also
       # part of the unit label, but the explicit Apple-only run prevents a

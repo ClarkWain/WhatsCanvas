@@ -2231,6 +2231,23 @@ if (BUILD_TESTING AND TARGET WhatsCanvasAAShowcase)
     set_tests_properties(WhatsCanvasAAShowcaseSmoke PROPERTIES LABELS "smoke;aa;examples" TIMEOUT 120)
 endif()
 
+if (BUILD_TESTING AND TARGET WhatsCanvasDesktopHost)
+    # Headlessly render the eight-card feature_showcase and dump a PPM. This
+    # confirms platforms/desktop links, opens a GLFW OpenGL 3.3 core context,
+    # and can complete a full retained-Picture + dynamic-overlay frame end to
+    # end. On Linux CI, wrap with `xvfb-run` + `LIBGL_ALWAYS_SOFTWARE=1`.
+    add_test(NAME WhatsCanvasDesktopHostSmoke
+        COMMAND WhatsCanvasDesktopHost
+            --scene=feature_showcase
+            --w=1280 --h=720
+            --dump-png=${CMAKE_CURRENT_BINARY_DIR}/desktop_host_smoke.ppm
+            --frames=1
+    )
+    set_tests_properties(WhatsCanvasDesktopHostSmoke PROPERTIES
+        LABELS "smoke;desktop;platforms"
+        TIMEOUT 60)
+endif()
+
 if (BUILD_TESTING AND WHATSCANVAS_ENABLE_SCRIPT_TESTS)
     set(WHATSCANVAS_TEST_WRAPPER "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunScriptGate.cmake")
     if (WIN32)
