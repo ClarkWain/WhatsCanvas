@@ -262,6 +262,8 @@ Platform Validation Status:
 
 **Testing conventions**: "Unit tests" in the table mainly cover headless logic and contract checks; "Pixel gate" actually starts the corresponding graphics backend and compares pixels against the reference output; "Release package" only means the build, packaging, and package-consumer integration flow succeeded—it does not imply full real-device or window-rendering validation on target hardware.
 
+**Desktop host**: [`platforms/desktop/`](platforms/desktop/README.md) builds `WhatsCanvasDesktopHost`, a shared GLFW + OpenGL 3.3 host that drives portable `IScene` implementations. It ships with a `feature_showcase` scene that mirrors the Android host card-for-card and supports interactive, headless PPM dump, and benchmark modes; the same `IScene` contract is intended to back the Android, iOS and Web hosts through a future `platforms/shared/scenes/` extraction.
+
 | Platform | Automated coverage | Notes |
 | --- | --- | --- |
 | Windows x64 | MSVC unit tests, package consumption, OpenGL/Software; release matrix can enable GLES, Vulkan, FreeType, HarfBuzz | DirectWrite text backend optional; Vulkan window presentation supports Win32. |

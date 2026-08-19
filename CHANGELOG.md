@@ -9,6 +9,17 @@ For releases and downloadable artifacts, see the
 
 ## [Unreleased]
 
+### Added
+- Added `platforms/desktop/`, a GLFW-based desktop host built as
+  `WhatsCanvasDesktopHost`. It exposes a portable `IScene` contract and a
+  `SceneCatalog` registry, mirrors the Android host's eight-card
+  `feature_showcase` scene, and supports interactive, headless PPM dump, and
+  headless benchmark modes (`--dump-png`, `--benchmark`, `--list-scenes`).
+  Enabled via the `WHATSCANVAS_BUILD_DESKTOP_PLATFORM` CMake option (ON by
+  default when `WhatsCanvas::OpenGL` is available). The scene interface is
+  designed to be shared by the Android, iOS and Web hosts through a future
+  `platforms/shared/scenes/` extraction.
+
 ## [0.4.0] - 2026-08-18
 
 ### Added
