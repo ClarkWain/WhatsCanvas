@@ -1,0 +1,35 @@
+#pragma once
+
+#include <memory>
+
+#include "../IScene.h"
+
+namespace wsc { class Image; class Picture; }
+
+namespace whatscanvas::desktop {
+
+// Eight-card feature matrix that mirrors the Android host card-for-card. The
+// static card chrome, labels and paths are recorded once into a retained
+// Picture and drawn each frame through drawPictureRasterized(); only the
+// genuinely animated overlays are re-recorded per frame.
+class FeatureShowcaseScene final : public IScene
+{
+public:
+    FeatureShowcaseScene();
+    ~FeatureShowcaseScene() override;
+
+    const char* name() const override { return "feature_showcase"; }
+
+    void onCanvasReady(wsc::Canvas& canvas) override;
+    void onLayout(wsc::Canvas& canvas, float logicalWidth, float logicalHeight) override;
+    void onFrame(wsc::Canvas& canvas, const FrameInfo& info) override;
+    void onCanvasReleasing() override;
+
+private:
+    std::unique_ptr<wsc::Image> checkerImage_;
+    std::shared_ptr<const wsc::Picture> staticPicture_;
+    float logicalWidth_ = 0.0f;
+    float logicalHeight_ = 0.0f;
+};
+
+} // namespace whatscanvas::desktop

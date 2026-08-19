@@ -29,6 +29,10 @@ void DrawTextProgram::initialize()
     }
 
     const std::string vertexSrc = std::string(wsc::opengl::shaderVersionDirective()) + R"(
+        #ifdef WHATSCANVAS_OPENGL_ES
+        precision highp float;
+        precision highp int;
+        #endif
         layout (location = 0) in vec2 aPos;
 
         uniform mat4 uProjection;
@@ -45,6 +49,10 @@ void DrawTextProgram::initialize()
 
     const std::string fragmentSrc = std::string(wsc::opengl::shaderVersionDirective())
         + wsc::opengl::clipMaskFragmentUniforms() + R"(
+        #ifdef WHATSCANVAS_OPENGL_ES
+        precision highp float;
+        precision highp int;
+        #endif
         in vec2 vLocalPos;
 
         uniform vec4 uColor;

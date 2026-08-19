@@ -9,6 +9,7 @@ headers remain in `include/`.
 | Directory | Responsibility | Status |
 | --- | --- | --- |
 | `android/` | Gradle application, `GLSurfaceView`, JNI, Android fonts, and OpenGL ES presentation | Runnable sample |
+| `desktop/` | GLFW-based host (`WhatsCanvasDesktopHost`), OpenGL 3.3 core, scene registry, interactive / dump / benchmark modes | Runnable sample |
 | `ios/` | UIKit host and Metal/OpenGL ES presentation | Planned; current constraints are in `doc/IOS_BUILD_NOTES.md` |
 | `web/` | Emscripten/WebGL host and JavaScript bridge | Planned |
 

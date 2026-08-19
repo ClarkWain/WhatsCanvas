@@ -18,6 +18,28 @@ tint.setColor(wsc::Color::WHITE);   // original image, no tint
 canvas->drawImage(image, x, y, tint);
 ```
 
+### My linear/radial gradient renders as a solid first color on Android/GLES
+
+Symptom: a shape that shows a full multi-stop gradient on the desktop OpenGL
+backend collapses to a uniform first-stop color on Android GLES. Typically
+affects shapes drawn at large logical y-coordinates (e.g. cards or overlays
+near the bottom of a portrait screen); shapes drawn near the origin, or drawn
+inside a `save()/translate()` block that puts them in a local coordinate
+frame, render correctly.
+
+Root cause: the GLES fragment shader default is `precision mediump float`,
+which cannot represent large canvas coordinates precisely enough for the
+gradient formula
+`t = dot(vLocalPos - uLinearStart, direction) / dot(direction, direction)`.
+Subtracting two similarly-large mediump values collapses to noise, `t` is
+clamped to 0, and every fragment samples `uGradientStopColors[0]`.
+
+Fix (already applied in-tree): `vLocalPos`, `uLinearStart`, `uLinearEnd`, and
+`uRadialCenter` are declared `highp` in `DrawPath`, `DrawImage`, and
+`DrawText`. If you are patching a fork of an older version, apply the same
+qualifiers under the `WHATSCANVAS_OPENGL_ES` shader branch. See
+[Shader Portability](SHADER_PORTABILITY.md#current-rules).
+
 ### Nothing renders (or a crash) with the OpenGL backend
 
 The OpenGL backend never creates a window or GL context — your app (or

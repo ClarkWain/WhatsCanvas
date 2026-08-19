@@ -32,6 +32,10 @@ void DrawImageProgram::initialize(bool commonProgram)
     }
 
     const std::string vertexSrc = std::string(wsc::opengl::shaderVersionDirective()) + R"(
+        #ifdef WHATSCANVAS_OPENGL_ES
+        precision highp float;
+        precision highp int;
+        #endif
         layout (location = 0) in vec2 aPos;
         layout (location = 1) in vec2 aUv;
 
@@ -62,6 +66,10 @@ void DrawImageProgram::initialize(bool commonProgram)
     const std::string fragmentSrc = std::string(wsc::opengl::shaderVersionDirective())
         + (commonProgram ? "#define WHATSCANVAS_COMMON_IMAGE 1\n" : "")
         + wsc::opengl::clipMaskFragmentUniforms() + R"(
+        #ifdef WHATSCANVAS_OPENGL_ES
+        precision highp float;
+        precision highp int;
+        #endif
         in vec2 vUv;
         in vec2 vLocalPos;
 
