@@ -29,14 +29,16 @@ void DrawTextProgram::initialize()
     }
 
     const std::string vertexSrc = std::string(wsc::opengl::shaderVersionDirective()) + R"(
+        #ifdef WHATSCANVAS_OPENGL_ES
+        precision highp float;
+        precision highp int;
+        #endif
         layout (location = 0) in vec2 aPos;
 
         uniform mat4 uProjection;
         uniform mat4 uTransform;
 
-        // highp so subtraction against uLinearStart in the fragment shader
-        // survives large logical/world coordinates on GLES mediump defaults.
-        out highp vec2 vLocalPos;
+        out vec2 vLocalPos;
 
         void main()
         {
@@ -47,14 +49,18 @@ void DrawTextProgram::initialize()
 
     const std::string fragmentSrc = std::string(wsc::opengl::shaderVersionDirective())
         + wsc::opengl::clipMaskFragmentUniforms() + R"(
-        in highp vec2 vLocalPos;
+        #ifdef WHATSCANVAS_OPENGL_ES
+        precision highp float;
+        precision highp int;
+        #endif
+        in vec2 vLocalPos;
 
         uniform vec4 uColor;
         uniform int uGradientType;
         uniform int uGradientTileMode;
-        uniform highp vec2 uLinearStart;
-        uniform highp vec2 uLinearEnd;
-        uniform highp vec2 uRadialCenter;
+        uniform vec2 uLinearStart;
+        uniform vec2 uLinearEnd;
+        uniform vec2 uRadialCenter;
         uniform float uRadialRadius;
         uniform int uGradientStopCount;
         uniform float uGradientStopPositions[8];

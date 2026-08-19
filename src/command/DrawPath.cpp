@@ -32,18 +32,21 @@ void DrawPathProgram::initialize(bool commonProgram)
     // Create the shader program
     std::string vertexSrc = std::string(wsc::opengl::shaderVersionDirective()) +
 #if defined(WHATSCANVAS_OPENGL_ES)
+    // File-wide highp on GLES: mimic GaussianBlurProgram so shader compilers
+    // (including llvmpipe on CI) apply high precision uniformly rather than
+    // relying on per-declaration `highp` qualifiers on varyings and uniforms.
+    // Required so vLocalPos survives fragment-shader subtraction with
+    // uLinearStart when a shape is drawn at large logical y-coordinates.
     R"(
+        precision highp float;
+        precision highp int;
         layout (location = 0) in vec2 aPos;
         layout (location = 1) in vec4 aColor;
         layout (location = 2) in float aCoverage;
         uniform mat4 uProjection;
         uniform mat4 uTransform;
         out vec4 vColor;
-        // vLocalPos carries logical/world-space coordinates that may exceed the
-        // ~65k mediump range and must survive fragment-shader subtraction with
-        // uLinearStart without catastrophic precision loss (visible as vanished
-        // linear gradients for tall/wide layouts).
-        out highp vec2 vLocalPos;
+        out vec2 vLocalPos;
         out float vCoverage;
         void main()
         {
@@ -107,6 +110,8 @@ void DrawPathProgram::initialize(bool commonProgram)
         wsc::opengl::clipMaskFragmentUniforms() +
 #if defined(WHATSCANVAS_OPENGL_ES)
     R"(
+        precision highp float;
+        precision highp int;
         out vec4 FragColor;
         uniform vec4 uColor;
         uniform int uUseVertexColor;
@@ -114,13 +119,10 @@ void DrawPathProgram::initialize(bool commonProgram)
         #if !defined(WHATSCANVAS_COMMON_PATH)
         uniform int uGradientTileMode;
         #endif
-        // Gradient endpoints share the coordinate space of vLocalPos (logical
-        // canvas coords). They must be highp so the fragment-shader
-        // subtraction preserves precision for cards drawn far from origin.
-        uniform highp vec2 uLinearStart;
-        uniform highp vec2 uLinearEnd;
+        uniform vec2 uLinearStart;
+        uniform vec2 uLinearEnd;
         #if !defined(WHATSCANVAS_COMMON_PATH)
-        uniform highp vec2 uRadialCenter;
+        uniform vec2 uRadialCenter;
         uniform float uRadialRadius;
         #endif
         uniform int uGradientStopCount;
@@ -128,7 +130,7 @@ void DrawPathProgram::initialize(bool commonProgram)
         uniform vec4 uGradientStopColors[8];
         uniform int uUseCoverage;
         in vec4 vColor;
-        in highp vec2 vLocalPos;
+        in vec2 vLocalPos;
         in float vCoverage;
 
         float applyGradientTile(float t, out float visibility)

@@ -32,6 +32,10 @@ void DrawImageProgram::initialize(bool commonProgram)
     }
 
     const std::string vertexSrc = std::string(wsc::opengl::shaderVersionDirective()) + R"(
+        #ifdef WHATSCANVAS_OPENGL_ES
+        precision highp float;
+        precision highp int;
+        #endif
         layout (location = 0) in vec2 aPos;
         layout (location = 1) in vec2 aUv;
 
@@ -39,9 +43,7 @@ void DrawImageProgram::initialize(bool commonProgram)
         uniform mat4 uTransform;
 
         out vec2 vUv;
-        // highp so subtraction against uLinearStart in the fragment shader
-        // survives large logical/world coordinates on GLES mediump defaults.
-        out highp vec2 vLocalPos;
+        out vec2 vLocalPos;
 
         void main()
         {
@@ -64,8 +66,12 @@ void DrawImageProgram::initialize(bool commonProgram)
     const std::string fragmentSrc = std::string(wsc::opengl::shaderVersionDirective())
         + (commonProgram ? "#define WHATSCANVAS_COMMON_IMAGE 1\n" : "")
         + wsc::opengl::clipMaskFragmentUniforms() + R"(
+        #ifdef WHATSCANVAS_OPENGL_ES
+        precision highp float;
+        precision highp int;
+        #endif
         in vec2 vUv;
-        in highp vec2 vLocalPos;
+        in vec2 vLocalPos;
 
         uniform sampler2D uTexture;
         uniform vec4 uTintColor;
@@ -83,9 +89,9 @@ void DrawImageProgram::initialize(bool commonProgram)
         #endif
         uniform int uGradientType;
         uniform int uGradientTileMode;
-        uniform highp vec2 uLinearStart;
-        uniform highp vec2 uLinearEnd;
-        uniform highp vec2 uRadialCenter;
+        uniform vec2 uLinearStart;
+        uniform vec2 uLinearEnd;
+        uniform vec2 uRadialCenter;
         uniform float uRadialRadius;
         uniform int uGradientStopCount;
         uniform float uGradientStopPositions[8];
