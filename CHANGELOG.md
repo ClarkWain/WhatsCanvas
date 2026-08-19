@@ -20,6 +20,15 @@ For releases and downloadable artifacts, see the
   designed to be shared by the Android, iOS and Web hosts through a future
   `platforms/shared/scenes/` extraction.
 
+### Fixed
+- Fixed a GLES linear/radial gradient regression on shapes drawn at large
+  logical y-coordinates. The `DrawPath`, `DrawImage`, and `DrawText` GLES
+  shaders relied on the default `mediump` precision inherited from
+  `GLShaderSource.h`, which was insufficient for the world-space
+  `vLocalPos` / `uLinearStart` / `uLinearEnd` subtraction and caused
+  catastrophic precision loss, collapsing gradients to their first color stop.
+  The affected varying and uniforms are now explicitly `highp`.
+
 ## [0.4.0] - 2026-08-18
 
 ### Added

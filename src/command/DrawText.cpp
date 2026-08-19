@@ -34,7 +34,9 @@ void DrawTextProgram::initialize()
         uniform mat4 uProjection;
         uniform mat4 uTransform;
 
-        out vec2 vLocalPos;
+        // highp so subtraction against uLinearStart in the fragment shader
+        // survives large logical/world coordinates on GLES mediump defaults.
+        out highp vec2 vLocalPos;
 
         void main()
         {
@@ -45,14 +47,14 @@ void DrawTextProgram::initialize()
 
     const std::string fragmentSrc = std::string(wsc::opengl::shaderVersionDirective())
         + wsc::opengl::clipMaskFragmentUniforms() + R"(
-        in vec2 vLocalPos;
+        in highp vec2 vLocalPos;
 
         uniform vec4 uColor;
         uniform int uGradientType;
         uniform int uGradientTileMode;
-        uniform vec2 uLinearStart;
-        uniform vec2 uLinearEnd;
-        uniform vec2 uRadialCenter;
+        uniform highp vec2 uLinearStart;
+        uniform highp vec2 uLinearEnd;
+        uniform highp vec2 uRadialCenter;
         uniform float uRadialRadius;
         uniform int uGradientStopCount;
         uniform float uGradientStopPositions[8];

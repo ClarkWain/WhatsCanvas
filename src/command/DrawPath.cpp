@@ -39,7 +39,11 @@ void DrawPathProgram::initialize(bool commonProgram)
         uniform mat4 uProjection;
         uniform mat4 uTransform;
         out vec4 vColor;
-        out vec2 vLocalPos;
+        // vLocalPos carries logical/world-space coordinates that may exceed the
+        // ~65k mediump range and must survive fragment-shader subtraction with
+        // uLinearStart without catastrophic precision loss (visible as vanished
+        // linear gradients for tall/wide layouts).
+        out highp vec2 vLocalPos;
         out float vCoverage;
         void main()
         {
@@ -110,10 +114,13 @@ void DrawPathProgram::initialize(bool commonProgram)
         #if !defined(WHATSCANVAS_COMMON_PATH)
         uniform int uGradientTileMode;
         #endif
-        uniform vec2 uLinearStart;
-        uniform vec2 uLinearEnd;
+        // Gradient endpoints share the coordinate space of vLocalPos (logical
+        // canvas coords). They must be highp so the fragment-shader
+        // subtraction preserves precision for cards drawn far from origin.
+        uniform highp vec2 uLinearStart;
+        uniform highp vec2 uLinearEnd;
         #if !defined(WHATSCANVAS_COMMON_PATH)
-        uniform vec2 uRadialCenter;
+        uniform highp vec2 uRadialCenter;
         uniform float uRadialRadius;
         #endif
         uniform int uGradientStopCount;
@@ -121,7 +128,7 @@ void DrawPathProgram::initialize(bool commonProgram)
         uniform vec4 uGradientStopColors[8];
         uniform int uUseCoverage;
         in vec4 vColor;
-        in vec2 vLocalPos;
+        in highp vec2 vLocalPos;
         in float vCoverage;
 
         float applyGradientTile(float t, out float visibility)
