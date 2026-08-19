@@ -21,6 +21,7 @@ add_executable(WhatsCanvasDesktopHost
     "${_desktop_src_dir}/SceneCatalog.cpp"
     "${_desktop_src_dir}/scenes/FeatureShowcaseScene.cpp"
     "${_desktop_src_dir}/hosts/glfw/GlfwHost.cpp"
+    "${_desktop_src_dir}/hosts/software/SoftwareRuntime.cpp"
 )
 
 target_include_directories(WhatsCanvasDesktopHost
@@ -32,6 +33,9 @@ target_link_libraries(WhatsCanvasDesktopHost
     PRIVATE
         WhatsCanvas::OpenGL
 )
+if (TARGET WhatsCanvas::Software)
+    target_link_libraries(WhatsCanvasDesktopHost PRIVATE WhatsCanvas::Software)
+endif()
 
 foreach(config Debug Release RelWithDebInfo MinSizeRel)
     string(TOUPPER ${config} config_upper)

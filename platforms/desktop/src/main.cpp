@@ -6,12 +6,16 @@
 
 #include "SceneCatalog.h"
 #include "hosts/glfw/GlfwHost.h"
+#include "hosts/software/SoftwareRuntime.h"
 
 namespace {
+
+enum class BackendChoice { OpenGL, Software };
 
 struct Args
 {
     std::string scene = whatscanvas::desktop::SceneCatalog::defaultName();
+    BackendChoice backend = BackendChoice::OpenGL;
     int width = 1280;
     int height = 720;
     bool disableMsaa = false;
@@ -55,6 +59,9 @@ void printUsage()
         "\n"
         "Options:\n"
         "  --scene=<name>     Scene to run (default: %s).\n"
+        "  --backend=<name>   'gl' (default) uses GLFW + OpenGL 3.3;\n"
+        "                     'software' uses the dependency-free CPU backend\n"
+        "                     (headless, no display, dump-png only).\n"
         "  --w=<px>           Window / dump width in pixels (default: 1280).\n"
         "  --h=<px>           Window / dump height in pixels (default: 720).\n"
         "  --no-msaa          Disable MSAA context hint.\n"
@@ -78,6 +85,16 @@ bool parseArgs(int argc, char** argv, Args& args)
         else if (a == "--no-msaa") { args.disableMsaa = true; }
         else if (a == "--no-vsync") { args.noVsync = true; }
         else if (startsWith(a, "--scene=")) { args.scene = std::string(a.substr(8)); }
+        else if (startsWith(a, "--backend=")) {
+            std::string_view name = a.substr(10);
+            if (name == "gl" || name == "opengl") { args.backend = BackendChoice::OpenGL; }
+            else if (name == "software" || name == "sw") { args.backend = BackendChoice::Software; }
+            else {
+                std::fprintf(stderr, "Unknown backend: %.*s (expected 'gl' or 'software')\n",
+                             static_cast<int>(name.size()), name.data());
+                return false;
+            }
+        }
         else if (startsWith(a, "--w=")) {
             if (!parseInt(a.substr(4), args.width)) return false;
         }
@@ -135,12 +152,26 @@ int main(int argc, char** argv)
     }
 
     if (!args.dumpPath.empty()) {
+        if (args.backend == BackendChoice::Software) {
+            whatscanvas::desktop::SoftwareDumpConfig dump;
+            dump.outputPath = args.dumpPath;
+            dump.width = args.width;
+            dump.height = args.height;
+            dump.frames = args.dumpFrames;
+            return whatscanvas::desktop::SoftwareRuntime::runDump(*scene, dump);
+        }
         whatscanvas::desktop::GlfwDumpConfig dump;
         dump.outputPath = args.dumpPath;
         dump.width = args.width;
         dump.height = args.height;
         dump.frames = args.dumpFrames;
         return whatscanvas::desktop::GlfwHost::runDump(*scene, dump);
+    }
+
+    if (args.backend == BackendChoice::Software) {
+        std::fprintf(stderr,
+            "Software backend only supports --dump-png=<path>. Provide it or use --backend=gl.\n");
+        return 3;
     }
 
     if (args.benchmark) {
