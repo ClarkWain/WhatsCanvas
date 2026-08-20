@@ -183,6 +183,34 @@ void copyGradient(const DrawTextData &src, wsc::DrawPrimitive &dst)
     }
 }
 
+std::uint32_t packLinearGradientVertexTint(const DrawImageData &src,
+                                           float x, float y)
+{
+    const float dx = src.gradientEnd[0] - src.gradientStart[0];
+    const float dy = src.gradientEnd[1] - src.gradientStart[1];
+    const float denominator = dx * dx + dy * dy;
+    float t = denominator > 1.0e-8f
+        ? ((x - src.gradientStart[0]) * dx
+           + (y - src.gradientStart[1]) * dy) / denominator
+        : 0.0f;
+    t = std::clamp(t, 0.0f, 1.0f);
+
+    const float start = src.gradientStopPositions[0];
+    const float end = src.gradientStopPositions[1];
+    const float localT = end > start + 1.0e-8f
+        ? std::clamp((t - start) / (end - start), 0.0f, 1.0f)
+        : 0.0f;
+    std::uint32_t packed = 0;
+    for (int channel = 0; channel < 4; ++channel) {
+        const float a = src.gradientStopColors[channel];
+        const float b = src.gradientStopColors[4 + channel];
+        const float value = std::clamp(a + (b - a) * localT, 0.0f, 1.0f);
+        packed |= static_cast<std::uint32_t>(std::lround(value * 255.0f))
+            << static_cast<unsigned int>(channel * 8);
+    }
+    return packed;
+}
+
 bool encodeImage(const DrawImageData &d, const CommandDrawListEncodeRequest &request,
                  wsc::DrawList &out, std::string *error)
 {
@@ -223,6 +251,29 @@ bool encodeImage(const DrawImageData &d, const CommandDrawListEncodeRequest &req
         // be modulated by the same gradient shader path shapes use.
         prim.imageOrigin[0] = d.x;
         prim.imageOrigin[1] = d.y;
+        // Keep the Metal textured fragment shader compact on iOS GPUs. A
+        // two-stop clamped linear gradient is affine, so evaluating it at the
+        // four quad corners and interpolating the existing vertex-tint stream
+        // is exact and avoids the large dynamically-indexed uniform block that
+        // faults on A14. More complex gradients retain their DrawPrimitive
+        // metadata for backends that implement per-fragment sampling.
+        if (d.gradientType == DrawGradientType::Linear
+            && d.gradientTileMode == DrawGradientTileMode::Clamp
+            && d.gradientStopCount == 2
+            && d.gradientStopPositions[0] <= 1.0e-6f
+            && d.gradientStopPositions[1] >= 1.0f - 1.0e-6f) {
+            prim.tint[0] = 1.0f;
+            prim.tint[1] = 1.0f;
+            prim.tint[2] = 1.0f;
+            prim.tint[3] = 1.0f;
+            const float localX[4] = {d.x, d.x + d.width, d.x + d.width, d.x};
+            const float localY[4] = {d.y, d.y, d.y + d.height, d.y + d.height};
+            prim.packedTints.reserve(6);
+            for (int k : idx) {
+                prim.packedTints.push_back(
+                    packLinearGradientVertexTint(d, localX[k], localY[k]));
+            }
+        }
     }
     prim.sampling = static_cast<int>(d.sampling);
     prim.tileMode = static_cast<int>(d.tileMode);

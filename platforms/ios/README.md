@@ -20,6 +20,10 @@ The sample targets 60 fps using `CADisplayLink`, supports portrait and
 landscape layouts, tears down GPU resources on backgrounding, and reconstructs
 Metal/CoreText state when returning to the foreground.
 
+Physical-device rendering failures, Metal resource-binding checks, and the
+simulator/device regression checklist are documented in
+[`DEVICE_RENDERING_TROUBLESHOOTING.md`](DEVICE_RENDERING_TROUBLESHOOTING.md).
+
 To build from the command line:
 
 ```sh

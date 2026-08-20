@@ -172,9 +172,9 @@ fragment float4 textured_fs(TexturedVSOut in [[stage_in]],
         s = m + u.colorMatrixOffset;
     }
     float4 tint = u.tint;
-    // DIAG-D: temporarily disable Paint-gradient sampling in the textured
-    // path to test whether the added gradient code triggers the iOS 26 page
-    // fault. Text-with-gradient shows solid tint instead until proven safe.
+    // Linear image/text gradients are encoded through the existing per-vertex
+    // tint stream. Keeping gradient evaluation out of this shader avoids large
+    // dynamically-indexed fragment uniform blocks on older Apple GPUs.
     float4 c = s * tint * in.vertexTint;
     c.a *= u.params.x;
     if (u.params.y > 0.5) {
@@ -198,8 +198,8 @@ fragment float4 textured_alpha_fs(TexturedVSOut in [[stage_in]],
 {
     float coverage = tex.sample(samp, in.uv).r;
     float4 tint = u.tint;
-    // DIAG-D: Paint-gradient sampling is currently disabled (see textured_fs);
-    // alpha-mask textured quads also fall back to the uniform tint.
+    // CoreText alpha masks use the same per-vertex tint stream as color
+    // textures, including supported linear gradients.
     float4 c = tint * in.vertexTint;
     c.a *= coverage * u.params.x;
     if (u.clipParams.x > 0.5) {
@@ -1571,6 +1571,10 @@ SharedImageResource MetalRenderDevice::createImageResourceFromImageData(int widt
         [blit endEncoding];
         [cb commit];
         [cb waitUntilCompleted];
+        if (cb.status == MTLCommandBufferStatusError) {
+            NSLog(@"WhatsCanvas Metal mipmap-generation command buffer failed: %@", cb.error);
+            return {};
+        }
     }
     context_->imageTextureCount += 1;
     return std::make_shared<MetalTextureResource>(texture, width, height, /*alpha=*/false, /*owned=*/true);
@@ -1595,6 +1599,10 @@ bool MetalRenderDevice::updateImageResourceRGBA(const SharedImageResource &image
             [blit endEncoding];
             [cb commit];
             [cb waitUntilCompleted];
+            if (cb.status == MTLCommandBufferStatusError) {
+                NSLog(@"WhatsCanvas Metal mipmap-update command buffer failed: %@", cb.error);
+                return false;
+            }
         }
     }
     return true;
@@ -1711,6 +1719,13 @@ void rasterizeSingleClipIntoTarget(id<MTLCommandBuffer> cb,
         return;
     }
     [enc setRenderPipelineState:pso];
+    // solid_fs always reads buffer(0), even though this mask-generation pass
+    // never samples a nested clip. Leaving the constant buffer unbound is
+    // tolerated by the simulator but causes a GPU address fault on A14.
+    const float noClipUniforms[8] = {};
+    [enc setFragmentBytes:noClipUniforms
+                   length:sizeof(noClipUniforms)
+                  atIndex:0];
     MTLScissorRect rect;
     rect.x = 0; rect.y = 0;
     rect.width = static_cast<NSUInteger>(canvasWidth);
@@ -1861,6 +1876,11 @@ SharedImageResource MetalRenderDevice::rasterizeClipMask(const ClipMaskState &st
 
         [cb commit];
         [cb waitUntilCompleted];
+
+        if (cb.status == MTLCommandBufferStatusError) {
+            NSLog(@"WhatsCanvas Metal clip-mask command buffer failed: %@", cb.error);
+            return {};
+        }
 
         finalTex = haveAccum ? accum : nil;
     }
@@ -2413,6 +2433,10 @@ bool MetalRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &ta
 #endif
         [cb commit];
         [cb waitUntilCompleted];
+        if (cb.status == MTLCommandBufferStatusError) {
+            NSLog(@"WhatsCanvas Metal command buffer failed: %@", cb.error);
+            return false;
+        }
         if (context_->gpuTimingActive) {
             const CFTimeInterval start = cb.GPUStartTime;
             const CFTimeInterval end = cb.GPUEndTime;
@@ -2785,6 +2809,10 @@ SharedImageResource MetalRenderDevice::filterImageResource(const SharedImageReso
             encodeBlurPass(cb, *context_, tempTex, finalTex, uY, width, height);
             [cb commit];
             [cb waitUntilCompleted];
+            if (cb.status == MTLCommandBufferStatusError) {
+                NSLog(@"WhatsCanvas Metal blur command buffer failed: %@", cb.error);
+                return {};
+            }
         }
 
         if (finalTex == nil) {
@@ -2890,6 +2918,10 @@ SharedImageResource MetalRenderDevice::filterImageResource(const SharedImageReso
 
             [cb commit];
             [cb waitUntilCompleted];
+            if (cb.status == MTLCommandBufferStatusError) {
+                NSLog(@"WhatsCanvas Metal inner-shadow command buffer failed: %@", cb.error);
+                return {};
+            }
         }
 
         if (finalTex == nil) {
@@ -3149,8 +3181,22 @@ fragment float4 presentFragment(PresentVertex input [[stage_in]],
             [encoder setFragmentTexture:src atIndex:0];
             [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
             [encoder endEncoding];
-            [cb presentDrawable:drawable];
-            [cb commit];
+            if (layer_.presentsWithTransaction) {
+                // On physical iOS devices the drawable must be handed to Core
+                // Animation explicitly after its command buffer is scheduled.
+                // Calling presentDrawable: on the command buffer can leave the
+                // CAMetalLayer showing its clear/background content indefinitely.
+                [cb commit];
+                [cb waitUntilScheduled];
+                if (cb.status == MTLCommandBufferStatusError) {
+                    NSLog(@"WhatsCanvas Metal presentation command buffer failed: %@", cb.error);
+                    return false;
+                }
+                [drawable present];
+            } else {
+                [cb presentDrawable:drawable];
+                [cb commit];
+            }
         }
         return true;
     }
