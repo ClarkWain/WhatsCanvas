@@ -11,6 +11,7 @@ set -eu
 
 BUNDLE_ID="con.whatscanvas.demo"
 REMOTE_NAME="screenshot.png"
+REMOTE_METADATA="screenshot.json"
 LOCAL_DIR="${TMPDIR:-/tmp}/whatscanvas-ios-screenshots"
 DEVICE=""
 WATCH=0
@@ -75,6 +76,19 @@ pull_one() {
         mv "${dest}/${REMOTE_NAME}" "${dest}.tmp"
         rmdir "${dest}"
         mv "${dest}.tmp" "${dest}"
+    fi
+    local metadata_dest="${dest%.png}.json"
+    xcrun devicectl device copy from \
+        --device "${DEVICE}" \
+        --domain-type appDataContainer \
+        --domain-identifier "${BUNDLE_ID}" \
+        --source "Documents/${REMOTE_METADATA}" \
+        --destination "${metadata_dest}" \
+        >/dev/null 2>&1 || true
+    if [ -d "${metadata_dest}" ]; then
+        mv "${metadata_dest}/${REMOTE_METADATA}" "${metadata_dest}.tmp"
+        rmdir "${metadata_dest}"
+        mv "${metadata_dest}.tmp" "${metadata_dest}"
     fi
     echo "${dest}"
 }

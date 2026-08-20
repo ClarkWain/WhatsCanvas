@@ -17,6 +17,8 @@
 
 #include <wsc/wsc.h>
 
+#include "platforms/shared/scenes/CanonicalViewport.h"
+
 namespace {
 
 constexpr const char* kLogTag = "WhatsCanvas";
@@ -406,6 +408,7 @@ void drawScene(wsc::Canvas& canvas, const wsc::Image* checkerImage,
         Paint imagePaint;
         imagePaint.setColor(Color::WHITE);
         imagePaint.setImageSampling(Paint::ImageSampling::NEAREST);
+        imagePaint.setImageTileMode(Paint::ImageTileMode::REPEAT);
         canvas.drawImageTiled(*checkerImage,
                               RectF(imageCard.getX() + 13.0f, imageCard.getY() + 40.0f,
                                     cardWidth - 26.0f, cardHeight - 54.0f),
@@ -554,6 +557,7 @@ void drawDynamicScene(wsc::Canvas& canvas, const wsc::Image* checkerImage,
         Paint imagePaint;
         imagePaint.setColor(Color::WHITE);
         imagePaint.setImageSampling(Paint::ImageSampling::NEAREST);
+        imagePaint.setImageTileMode(Paint::ImageTileMode::REPEAT);
         canvas.drawImageTiled(*checkerImage,
                               RectF(imageCard.getX() + 13.0f, imageCard.getY() + 40.0f,
                                     cardWidth - 26.0f, cardHeight - 54.0f),
@@ -635,6 +639,13 @@ public:
         density_ = safeDensity;
         logicalWidth_ = static_cast<float>(width) / safeDensity;
         logicalHeight_ = static_cast<float>(height) / safeDensity;
+        const auto viewport = whatscanvas::scenes::makeCanonicalViewport(
+            logicalWidth_, logicalHeight_);
+        sceneWidth_ = viewport.width;
+        sceneHeight_ = viewport.height;
+        sceneScale_ = viewport.scale;
+        sceneOffsetX_ = viewport.offsetX;
+        sceneOffsetY_ = viewport.offsetY;
 
         canvas_ = wsc::Canvas::create(
             wsc::Canvas::Backend::OpenGLES, width, height);
@@ -652,8 +663,13 @@ public:
         createCheckerImage(*canvas_, checkerImage_);
         staticPicture_ = canvas_->recordPicture(
             [&](wsc::Canvas& recordingCanvas) {
-                drawScene(recordingCanvas, nullptr, logicalWidth_, logicalHeight_,
+                recordingCanvas.drawColor(wsc::Color(8, 12, 29));
+                recordingCanvas.save();
+                recordingCanvas.translate(sceneOffsetX_, sceneOffsetY_);
+                recordingCanvas.scale(sceneScale_, sceneScale_);
+                drawScene(recordingCanvas, nullptr, sceneWidth_, sceneHeight_,
                           std::numeric_limits<float>::quiet_NaN());
+                recordingCanvas.restore();
             });
         if (!staticPicture_) {
             logError("Static Picture recording failed");
@@ -708,8 +724,12 @@ public:
         // steady state submits one textured quad instead of ~100 static draws.
         canvas_->drawPictureRasterized(*staticPicture_);
         const auto pictureEnd = std::chrono::steady_clock::now();
-        drawDynamicScene(*canvas_, checkerImage_.get(), logicalWidth_, logicalHeight_,
+        canvas_->save();
+        canvas_->translate(sceneOffsetX_, sceneOffsetY_);
+        canvas_->scale(sceneScale_, sceneScale_);
+        drawDynamicScene(*canvas_, checkerImage_.get(), sceneWidth_, sceneHeight_,
                          elapsedSeconds);
+        canvas_->restore();
         const auto recordEnd = std::chrono::steady_clock::now();
         canvas_->endFrame();
         lastRecordCpuTimeUs_ = static_cast<std::uint64_t>(
@@ -840,6 +860,11 @@ private:
     float density_ = 1.0f;
     float logicalWidth_ = 1.0f;
     float logicalHeight_ = 1.0f;
+    float sceneWidth_ = 1.0f;
+    float sceneHeight_ = 1.0f;
+    float sceneScale_ = 1.0f;
+    float sceneOffsetX_ = 0.0f;
+    float sceneOffsetY_ = 0.0f;
     int lastStatsSecond_ = -1;
     std::uint64_t lastRecordCpuTimeUs_ = 0;
     std::uint64_t lastPictureCpuTimeUs_ = 0;

@@ -1,3 +1,4 @@
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -25,6 +26,8 @@ struct Args
     // Dump mode
     std::string dumpPath;
     int dumpFrames = 1;
+    float dumpTimeSeconds = -1.0f;
+    float dumpDevicePixelRatio = 1.0f;
     // Benchmark mode
     bool benchmark = false;
     int benchmarkWarmup = 30;
@@ -46,6 +49,19 @@ bool parseInt(std::string_view text, int& out)
     return true;
 }
 
+bool parseFloat(std::string_view text, float& out)
+{
+    if (text.empty()) return false;
+    const std::string valueText(text);
+    char* end = nullptr;
+    const float value = std::strtof(valueText.c_str(), &end);
+    if (end == nullptr || *end != '\0' || !std::isfinite(value) || value < 0.0f) {
+        return false;
+    }
+    out = value;
+    return true;
+}
+
 void printUsage()
 {
     std::fprintf(stdout,
@@ -54,7 +70,7 @@ void printUsage()
         "Usage:\n"
         "  WhatsCanvasDesktopHost [--scene=<name>] [--w=<px>] [--h=<px>]\n"
         "                        [--no-msaa] [--no-vsync]\n"
-        "                        [--dump-png=<path.ppm>] [--frames=<n>]\n"
+        "                        [--dump-png=<path.ppm>] [--frames=<n>] [--dpr=<scale>]\n"
         "                        [--list-scenes] [--help]\n"
         "\n"
         "Options:\n"
@@ -68,6 +84,8 @@ void printUsage()
         "  --no-vsync         Disable swap interval.\n"
         "  --dump-png=<path>  Headless run: render N frames and write PPM, then exit.\n"
         "  --frames=<n>       Number of frames to advance before dumping (default: 1).\n"
+        "  --time=<seconds>   Deterministic elapsed time used by every dump frame.\n"
+        "  --dpr=<scale>      Dump at this device-pixel ratio (default: 1).\n"
         "  --benchmark        Headless benchmark: measure frame time + render stats.\n"
         "  --warmup=<n>       Warm-up frames before measurement (default: 30).\n"
         "  --measured=<n>     Measured frames (default: 300).\n"
@@ -104,6 +122,13 @@ bool parseArgs(int argc, char** argv, Args& args)
         else if (startsWith(a, "--dump-png=")) { args.dumpPath = std::string(a.substr(11)); }
         else if (startsWith(a, "--frames=")) {
             if (!parseInt(a.substr(9), args.dumpFrames)) return false;
+        }
+        else if (startsWith(a, "--time=")) {
+            if (!parseFloat(a.substr(7), args.dumpTimeSeconds)) return false;
+        }
+        else if (startsWith(a, "--dpr=")) {
+            if (!parseFloat(a.substr(6), args.dumpDevicePixelRatio)
+                || args.dumpDevicePixelRatio <= 0.0f) return false;
         }
         else if (a == "--benchmark") { args.benchmark = true; }
         else if (startsWith(a, "--warmup=")) {
@@ -158,6 +183,8 @@ int main(int argc, char** argv)
             dump.width = args.width;
             dump.height = args.height;
             dump.frames = args.dumpFrames;
+            dump.captureTimeSeconds = args.dumpTimeSeconds;
+            dump.devicePixelRatio = args.dumpDevicePixelRatio;
             return whatscanvas::desktop::SoftwareRuntime::runDump(*scene, dump);
         }
         whatscanvas::desktop::GlfwDumpConfig dump;
@@ -165,6 +192,8 @@ int main(int argc, char** argv)
         dump.width = args.width;
         dump.height = args.height;
         dump.frames = args.dumpFrames;
+        dump.captureTimeSeconds = args.dumpTimeSeconds;
+        dump.devicePixelRatio = args.dumpDevicePixelRatio;
         return whatscanvas::desktop::GlfwHost::runDump(*scene, dump);
     }
 

@@ -46,3 +46,19 @@ endforeach()
 
 # Pull in GLFW + system OpenGL loader flags, mirroring what examples use.
 whatscanvas_link_gl_app(WhatsCanvasDesktopHost "${CMAKE_CURRENT_LIST_DIR}/../..")
+
+if (BUILD_TESTING)
+    add_executable(WhatsCanvasDesktopSceneViewportTests
+        "${CMAKE_CURRENT_LIST_DIR}/../../tests/DesktopSceneViewportTests.cpp"
+    )
+    target_include_directories(WhatsCanvasDesktopSceneViewportTests PRIVATE
+        "${CMAKE_CURRENT_LIST_DIR}/../.."
+    )
+    add_test(NAME WhatsCanvasDesktopSceneViewportTests
+        COMMAND WhatsCanvasDesktopSceneViewportTests
+    )
+    set_tests_properties(WhatsCanvasDesktopSceneViewportTests PROPERTIES
+        LABELS "unit;desktop;platforms"
+        TIMEOUT 30
+    )
+endif()

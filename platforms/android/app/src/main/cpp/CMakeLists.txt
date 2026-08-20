@@ -50,6 +50,9 @@ add_subdirectory(
 add_library(whatscanvas_android SHARED
     whatscanvas_jni.cpp)
 
+target_include_directories(whatscanvas_android PRIVATE
+    "${WHATSCANVAS_ROOT}")
+
 target_compile_options(whatscanvas_android PRIVATE
     -Wall
     -Wextra

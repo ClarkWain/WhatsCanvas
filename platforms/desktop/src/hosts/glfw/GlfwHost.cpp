@@ -27,7 +27,7 @@ bool initializeGlfwOnce()
     return initialized;
 }
 
-void applyGlHints(bool disableMsaa)
+void applyGlHints(bool disableMsaa, bool retinaFramebuffer)
 {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
@@ -36,6 +36,31 @@ void applyGlHints(bool disableMsaa)
     glfwWindowHint(GLFW_STENCIL_BITS, 8);
 #ifdef __APPLE__
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+    glfwWindowHint(GLFW_COCOA_RETINA_FRAMEBUFFER,
+                   retinaFramebuffer ? GLFW_TRUE : GLFW_FALSE);
+#else
+    (void)retinaFramebuffer;
+#endif
+}
+
+void prepareDefaultFramebuffer(int width, int height)
+{
+    glViewport(0, 0, width, height);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_SCISSOR_TEST);
+    glClearColor(0.03f, 0.04f, 0.09f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+}
+
+bool selectNativeTextBackend(wsc::Canvas& canvas)
+{
+#if defined(__APPLE__)
+    return canvas.setTextBackend(wsc::Canvas::TextBackend::CoreText);
+#elif defined(_WIN32)
+    return canvas.setTextBackend(wsc::Canvas::TextBackend::DirectWrite);
+#else
+    (void)canvas;
+    return true;
 #endif
 }
 
@@ -74,7 +99,7 @@ int GlfwHost::runInteractive(IScene& scene, const GlfwHostConfig& config)
     if (!initializeGlfwOnce()) {
         return 1;
     }
-    applyGlHints(config.disableMsaa);
+    applyGlHints(config.disableMsaa, true);
 
     GLFWwindow* window = glfwCreateWindow(
         config.width, config.height, config.title.c_str(), nullptr, nullptr);
@@ -105,6 +130,13 @@ int GlfwHost::runInteractive(IScene& scene, const GlfwHostConfig& config)
         return 5;
     }
 
+    if (!selectNativeTextBackend(*canvas)) {
+        std::fprintf(stderr, "[GlfwHost] native text backend initialization failed\n");
+        canvas->finalizeContext();
+        glfwDestroyWindow(window);
+        return 6;
+    }
+
     scene.onCanvasReady(*canvas);
 
     FramebufferSize lastFramebuffer{};
@@ -123,6 +155,7 @@ int GlfwHost::runInteractive(IScene& scene, const GlfwHostConfig& config)
         const float dpr = fb.contentScaleX;
         if (fb.width != lastFramebuffer.width || fb.height != lastFramebuffer.height ||
             std::abs(dpr - lastDpr) > 0.001f) {
+            glViewport(0, 0, fb.width, fb.height);
             canvas->setSize(fb.width, fb.height);
             canvas->setDevicePixelRatio(dpr);
             const float logicalWidth = static_cast<float>(fb.width) / dpr;
@@ -137,6 +170,7 @@ int GlfwHost::runInteractive(IScene& scene, const GlfwHostConfig& config)
         const float logicalWidth = static_cast<float>(fb.width) / dpr;
         const float logicalHeight = static_cast<float>(fb.height) / dpr;
 
+        prepareDefaultFramebuffer(fb.width, fb.height);
         canvas->beginFrame();
         scene.onFrame(*canvas, FrameInfo{logicalWidth, logicalHeight,
                                           elapsedSeconds, frameIndex});
@@ -162,11 +196,19 @@ int GlfwHost::runDump(IScene& scene, const GlfwDumpConfig& config)
     if (!initializeGlfwOnce()) {
         return 1;
     }
-    applyGlHints(true);
+    // Dump dimensions are logical pixels; the explicit DPR below determines
+    // the physical framebuffer size. Disable GLFW's implicit Retina scaling so
+    // the host applies that scale exactly once on macOS.
+    applyGlHints(true, false);
     glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
 
+    const float devicePixelRatio = std::max(0.01f, config.devicePixelRatio);
+    const int physicalWidth = std::max(
+        1, static_cast<int>(std::lround(config.width * devicePixelRatio)));
+    const int physicalHeight = std::max(
+        1, static_cast<int>(std::lround(config.height * devicePixelRatio)));
     GLFWwindow* window = glfwCreateWindow(
-        std::max(1, config.width), std::max(1, config.height),
+        physicalWidth, physicalHeight,
         "WhatsCanvas Desktop (dump)", nullptr, nullptr);
     if (!window) {
         std::fprintf(stderr, "[GlfwHost] hidden glfwCreateWindow failed\n");
@@ -182,17 +224,26 @@ int GlfwHost::runDump(IScene& scene, const GlfwDumpConfig& config)
         return 3;
     }
 
-    auto canvas = wsc::Canvas::create(wsc::Canvas::Backend::OpenGL, config.width, config.height);
+    auto canvas = wsc::Canvas::create(
+        wsc::Canvas::Backend::OpenGL, physicalWidth, physicalHeight);
     if (!canvas) {
         std::fprintf(stderr, "[GlfwHost] Canvas::create(OpenGL) failed\n");
         glfwDestroyWindow(window);
         return 4;
     }
 
+    canvas->setDevicePixelRatio(devicePixelRatio);
     if (!canvas->initializeContext()) {
         std::fprintf(stderr, "[GlfwHost] Canvas::initializeContext failed\n");
         glfwDestroyWindow(window);
         return 5;
+    }
+
+    if (!selectNativeTextBackend(*canvas)) {
+        std::fprintf(stderr, "[GlfwHost] native text backend initialization failed\n");
+        canvas->finalizeContext();
+        glfwDestroyWindow(window);
+        return 6;
     }
 
     scene.onCanvasReady(*canvas);
@@ -202,8 +253,11 @@ int GlfwHost::runDump(IScene& scene, const GlfwDumpConfig& config)
 
     const int frameCount = std::max(1, config.frames);
     for (int i = 0; i < frameCount; ++i) {
+        prepareDefaultFramebuffer(physicalWidth, physicalHeight);
         canvas->beginFrame();
-        const float elapsed = static_cast<float>(i) * config.frameDeltaSeconds;
+        const float elapsed = config.captureTimeSeconds >= 0.0f
+            ? config.captureTimeSeconds
+            : static_cast<float>(i) * config.frameDeltaSeconds;
         scene.onFrame(*canvas, FrameInfo{logicalWidth, logicalHeight, elapsed, i});
         canvas->endFrame();
     }
@@ -213,8 +267,10 @@ int GlfwHost::runDump(IScene& scene, const GlfwDumpConfig& config)
         std::fprintf(stderr, "[GlfwHost] savePixelsPPM(%s) failed\n",
                      config.outputPath.c_str());
     } else {
-        std::fprintf(stdout, "[GlfwHost] wrote %s (%dx%d, %d frame(s))\n",
-                     config.outputPath.c_str(), config.width, config.height, frameCount);
+        std::fprintf(stdout,
+                     "[GlfwHost] wrote %s (%dx%d, %.2fx, %d frame(s))\n",
+                     config.outputPath.c_str(), physicalWidth, physicalHeight,
+                     devicePixelRatio, frameCount);
     }
 
     scene.onCanvasReleasing();
@@ -229,7 +285,8 @@ int GlfwHost::runBenchmark(IScene& scene, const GlfwBenchmarkConfig& config)
     if (!initializeGlfwOnce()) {
         return 1;
     }
-    applyGlHints(true);
+    // Benchmark dimensions are physical pixels for cross-machine comparison.
+    applyGlHints(true, false);
     glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
 
     GLFWwindow* window = glfwCreateWindow(
@@ -255,6 +312,12 @@ int GlfwHost::runBenchmark(IScene& scene, const GlfwBenchmarkConfig& config)
         glfwDestroyWindow(window);
         return 4;
     }
+    if (!selectNativeTextBackend(*canvas)) {
+        std::fprintf(stderr, "[GlfwHost] native text backend initialization failed\n");
+        canvas->finalizeContext();
+        glfwDestroyWindow(window);
+        return 5;
+    }
     canvas->setGpuTimingEnabled(true);
 
     scene.onCanvasReady(*canvas);
@@ -268,6 +331,7 @@ int GlfwHost::runBenchmark(IScene& scene, const GlfwBenchmarkConfig& config)
     // Warm-up: shader compile, glyph atlas, picture rasterization all pay their
     // one-time costs here, so measured numbers reflect steady state.
     for (int i = 0; i < warmup; ++i) {
+        prepareDefaultFramebuffer(config.width, config.height);
         canvas->beginFrame();
         scene.onFrame(*canvas,
                       FrameInfo{logicalWidth, logicalHeight,
@@ -291,6 +355,7 @@ int GlfwHost::runBenchmark(IScene& scene, const GlfwBenchmarkConfig& config)
     for (int i = 0; i < measured; ++i) {
         const int frameIndex = warmup + i;
         const auto frameStart = std::chrono::steady_clock::now();
+        prepareDefaultFramebuffer(config.width, config.height);
         canvas->beginFrame();
         scene.onFrame(*canvas,
                       FrameInfo{logicalWidth, logicalHeight,

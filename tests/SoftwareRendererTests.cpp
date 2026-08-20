@@ -251,6 +251,58 @@ bool testDrawImage()
     return ok;
 }
 
+bool testDrawImageTiledRepeat()
+{
+    constexpr int w = 16;
+    constexpr int h = 8;
+    std::unique_ptr<Canvas> canvas = makeSoftwareCanvas(w, h);
+    if (!canvas) {
+        return expect(false, "createSoftware should return a canvas");
+    }
+
+    // Two horizontal texels make wrap failures obvious: CLAMP stretches the
+    // blue edge, while REPEAT alternates red/blue through the whole target.
+    const std::vector<unsigned char> src = {
+        255, 0, 0, 255, 0, 0, 255, 255,
+    };
+    Image image;
+    if (!expect(image.loadFromRGBA(*canvas, src, 2, 1, false),
+                "load tiled image from RGBA")) {
+        return false;
+    }
+
+    Paint paint;
+    paint.setColor(Color::WHITE);
+    paint.setImageSampling(Paint::ImageSampling::NEAREST);
+    paint.setImageTileMode(Paint::ImageTileMode::REPEAT);
+    canvas->beginFrame();
+    canvas->drawImageTiled(
+        image, RectF(0.0f, 0.0f, static_cast<float>(w),
+                     static_cast<float>(h)),
+        4.0f, 2.0f, paint);
+    canvas->endFrame();
+
+    std::vector<unsigned char> pixels;
+    if (!canvas->readPixelsRGBA(pixels)
+        || pixels.size() != static_cast<std::size_t>(w * h * 4)) {
+        return expect(false, "read tiled pixels");
+    }
+    const auto pixelAt = [&](int x, int y) {
+        return &pixels[(static_cast<std::size_t>(y) * w + x) * 4u];
+    };
+    const auto isRed = [&](int x) {
+        const unsigned char *pixel = pixelAt(x, 3);
+        return pixel[0] > 240 && pixel[2] < 15 && pixel[3] == 255;
+    };
+    const auto isBlue = [&](int x) {
+        const unsigned char *pixel = pixelAt(x, 3);
+        return pixel[0] < 15 && pixel[2] > 240 && pixel[3] == 255;
+    };
+    return expect(isRed(0) && isBlue(3) && isRed(4) && isBlue(7)
+                      && isRed(8) && isBlue(11),
+                  "REPEAT should preserve every tiled red/blue period");
+}
+
 bool testClipRect()
 {
     const int w = 32;
@@ -825,6 +877,7 @@ int main()
     ok = testLinearGradient() && ok;
     ok = testDrawLine() && ok;
     ok = testDrawImage() && ok;
+    ok = testDrawImageTiledRepeat() && ok;
     ok = testClipRect() && ok;
     ok = testClipPath() && ok;
     ok = testGaussianShadow() && ok;
