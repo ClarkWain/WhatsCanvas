@@ -1683,6 +1683,36 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     )
     set_tests_properties(WhatsCanvasMetalDeviceTests PROPERTIES LABELS "unit;metal;device" TIMEOUT 60)
 
+    if (APPLE AND WHATSCANVAS_METAL_BACKEND_ENABLED)
+        add_executable(WhatsCanvasMetalApiContractTests
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalApiContractTests.mm"
+        )
+        target_include_directories(WhatsCanvasMetalApiContractTests PRIVATE
+            "${SRC_DIR}"
+        )
+        target_compile_options(WhatsCanvasMetalApiContractTests PRIVATE
+            -fobjc-arc
+            -fmodules
+        )
+        target_link_libraries(WhatsCanvasMetalApiContractTests PRIVATE
+            WhatsCanvasOpenGL
+            WhatsCanvasGLM
+            "-framework Metal"
+            "-framework Foundation"
+            "-framework QuartzCore"
+        )
+        add_test(NAME WhatsCanvasMetalApiContractTests
+            COMMAND ${CMAKE_COMMAND}
+                -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+                -DWHATSCANVAS_TEST_TARGET=WhatsCanvasMetalApiContractTests
+                -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasMetalApiContractTests>
+                -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+        )
+        set_tests_properties(WhatsCanvasMetalApiContractTests PROPERTIES
+            LABELS "unit;metal;api-contract" TIMEOUT 60)
+    endif()
+
     add_executable(WhatsCanvasMetalPaintTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalPaintTests.cpp"
     )
@@ -1784,6 +1814,7 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
             WhatsCanvasMetalShadowAndTextTests
             WhatsCanvasIOSDemoPixelParityTests
             WhatsCanvasMetalDeviceTests
+            WhatsCanvasMetalApiContractTests
             WhatsCanvasMetalPaintTests
             WhatsCanvasMetalWrapExternalTests
             WhatsCanvasMetalFilterPixelParityTests

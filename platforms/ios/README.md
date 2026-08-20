@@ -23,6 +23,9 @@ Metal/CoreText state when returning to the foreground.
 Physical-device rendering failures, Metal resource-binding checks, and the
 simulator/device regression checklist are documented in
 [`DEVICE_RENDERING_TROUBLESHOOTING.md`](DEVICE_RENDERING_TROUBLESHOOTING.md).
+The public API coverage matrix, validation-layer defaults, and the remaining
+device-only test boundary are documented in
+[`METAL_API_VALIDATION.md`](METAL_API_VALIDATION.md).
 
 To build from the command line:
 
