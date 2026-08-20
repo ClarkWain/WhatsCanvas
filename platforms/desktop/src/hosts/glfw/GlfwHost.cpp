@@ -27,7 +27,7 @@ bool initializeGlfwOnce()
     return initialized;
 }
 
-void applyGlHints(bool disableMsaa)
+void applyGlHints(bool disableMsaa, bool retinaFramebuffer)
 {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
@@ -36,6 +36,31 @@ void applyGlHints(bool disableMsaa)
     glfwWindowHint(GLFW_STENCIL_BITS, 8);
 #ifdef __APPLE__
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+    glfwWindowHint(GLFW_COCOA_RETINA_FRAMEBUFFER,
+                   retinaFramebuffer ? GLFW_TRUE : GLFW_FALSE);
+#else
+    (void)retinaFramebuffer;
+#endif
+}
+
+void prepareDefaultFramebuffer(int width, int height)
+{
+    glViewport(0, 0, width, height);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_SCISSOR_TEST);
+    glClearColor(0.03f, 0.04f, 0.09f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+}
+
+bool selectNativeTextBackend(wsc::Canvas& canvas)
+{
+#if defined(__APPLE__)
+    return canvas.setTextBackend(wsc::Canvas::TextBackend::CoreText);
+#elif defined(_WIN32)
+    return canvas.setTextBackend(wsc::Canvas::TextBackend::DirectWrite);
+#else
+    (void)canvas;
+    return true;
 #endif
 }
 
@@ -74,7 +99,7 @@ int GlfwHost::runInteractive(IScene& scene, const GlfwHostConfig& config)
     if (!initializeGlfwOnce()) {
         return 1;
     }
-    applyGlHints(config.disableMsaa);
+    applyGlHints(config.disableMsaa, true);
 
     GLFWwindow* window = glfwCreateWindow(
         config.width, config.height, config.title.c_str(), nullptr, nullptr);
@@ -105,6 +130,13 @@ int GlfwHost::runInteractive(IScene& scene, const GlfwHostConfig& config)
         return 5;
     }
 
+    if (!selectNativeTextBackend(*canvas)) {
+        std::fprintf(stderr, "[GlfwHost] native text backend initialization failed\n");
+        canvas->finalizeContext();
+        glfwDestroyWindow(window);
+        return 6;
+    }
+
     scene.onCanvasReady(*canvas);
 
     FramebufferSize lastFramebuffer{};
@@ -123,6 +155,7 @@ int GlfwHost::runInteractive(IScene& scene, const GlfwHostConfig& config)
         const float dpr = fb.contentScaleX;
         if (fb.width != lastFramebuffer.width || fb.height != lastFramebuffer.height ||
             std::abs(dpr - lastDpr) > 0.001f) {
+            glViewport(0, 0, fb.width, fb.height);
             canvas->setSize(fb.width, fb.height);
             canvas->setDevicePixelRatio(dpr);
             const float logicalWidth = static_cast<float>(fb.width) / dpr;
@@ -137,6 +170,7 @@ int GlfwHost::runInteractive(IScene& scene, const GlfwHostConfig& config)
         const float logicalWidth = static_cast<float>(fb.width) / dpr;
         const float logicalHeight = static_cast<float>(fb.height) / dpr;
 
+        prepareDefaultFramebuffer(fb.width, fb.height);
         canvas->beginFrame();
         scene.onFrame(*canvas, FrameInfo{logicalWidth, logicalHeight,
                                           elapsedSeconds, frameIndex});
@@ -162,7 +196,9 @@ int GlfwHost::runDump(IScene& scene, const GlfwDumpConfig& config)
     if (!initializeGlfwOnce()) {
         return 1;
     }
-    applyGlHints(true);
+    // Dump dimensions are physical pixels. Disabling the Retina backing store
+    // keeps a requested 1280x720 capture at exactly 1280x720 on macOS.
+    applyGlHints(true, false);
     glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
 
     GLFWwindow* window = glfwCreateWindow(
@@ -195,6 +231,13 @@ int GlfwHost::runDump(IScene& scene, const GlfwDumpConfig& config)
         return 5;
     }
 
+    if (!selectNativeTextBackend(*canvas)) {
+        std::fprintf(stderr, "[GlfwHost] native text backend initialization failed\n");
+        canvas->finalizeContext();
+        glfwDestroyWindow(window);
+        return 6;
+    }
+
     scene.onCanvasReady(*canvas);
     const float logicalWidth = static_cast<float>(config.width);
     const float logicalHeight = static_cast<float>(config.height);
@@ -202,6 +245,7 @@ int GlfwHost::runDump(IScene& scene, const GlfwDumpConfig& config)
 
     const int frameCount = std::max(1, config.frames);
     for (int i = 0; i < frameCount; ++i) {
+        prepareDefaultFramebuffer(config.width, config.height);
         canvas->beginFrame();
         const float elapsed = static_cast<float>(i) * config.frameDeltaSeconds;
         scene.onFrame(*canvas, FrameInfo{logicalWidth, logicalHeight, elapsed, i});
@@ -229,7 +273,8 @@ int GlfwHost::runBenchmark(IScene& scene, const GlfwBenchmarkConfig& config)
     if (!initializeGlfwOnce()) {
         return 1;
     }
-    applyGlHints(true);
+    // Benchmark dimensions are physical pixels for cross-machine comparison.
+    applyGlHints(true, false);
     glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
 
     GLFWwindow* window = glfwCreateWindow(
@@ -255,6 +300,12 @@ int GlfwHost::runBenchmark(IScene& scene, const GlfwBenchmarkConfig& config)
         glfwDestroyWindow(window);
         return 4;
     }
+    if (!selectNativeTextBackend(*canvas)) {
+        std::fprintf(stderr, "[GlfwHost] native text backend initialization failed\n");
+        canvas->finalizeContext();
+        glfwDestroyWindow(window);
+        return 5;
+    }
     canvas->setGpuTimingEnabled(true);
 
     scene.onCanvasReady(*canvas);
@@ -268,6 +319,7 @@ int GlfwHost::runBenchmark(IScene& scene, const GlfwBenchmarkConfig& config)
     // Warm-up: shader compile, glyph atlas, picture rasterization all pay their
     // one-time costs here, so measured numbers reflect steady state.
     for (int i = 0; i < warmup; ++i) {
+        prepareDefaultFramebuffer(config.width, config.height);
         canvas->beginFrame();
         scene.onFrame(*canvas,
                       FrameInfo{logicalWidth, logicalHeight,
@@ -291,6 +343,7 @@ int GlfwHost::runBenchmark(IScene& scene, const GlfwBenchmarkConfig& config)
     for (int i = 0; i < measured; ++i) {
         const int frameIndex = warmup + i;
         const auto frameStart = std::chrono::steady_clock::now();
+        prepareDefaultFramebuffer(config.width, config.height);
         canvas->beginFrame();
         scene.onFrame(*canvas,
                       FrameInfo{logicalWidth, logicalHeight,
