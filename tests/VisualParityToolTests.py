@@ -76,6 +76,44 @@ class VisualParityToolTests(unittest.TestCase):
             )
             self.assertEqual(rgba, visual_parity.read_image(pam).rgba)
 
+    def test_truncated_ppm_reports_value_error(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / "truncated.ppm"
+            for payload in (b"P6", b"P6\n# unterminated", b"P6\n2 1\n"):
+                path.write_bytes(payload)
+                with self.subTest(payload=payload), self.assertRaises(ValueError):
+                    visual_parity.read_image(path)
+
+    def test_malformed_search_radius_returns_contract_error(self) -> None:
+        for search_radius in (None, "2", True):
+            contract = {
+                "schema_version": 1,
+                "profiles": {
+                    "graphics": {
+                        "search_radius": search_radius,
+                        "bad_channel_threshold": 0,
+                        "max_mean_delta": 0.0,
+                        "max_bad_pixel_ratio": 0.0,
+                    }
+                },
+                "scenes": [{
+                    "id": "sample",
+                    "required_platforms": ["android", "ios", "desktop"],
+                    "samples": [{"id": "t0000"}],
+                    "viewports": [{
+                        "id": "portrait",
+                        "width": 1,
+                        "height": 1,
+                        "regions": [{"id": "all", "profile": "graphics"}],
+                    }],
+                }],
+            }
+            with self.subTest(search_radius=search_radius):
+                errors = visual_parity.validate_contract(contract)
+                self.assertIn(
+                    "profile graphics search_radius must be between 0 and 4", errors
+                )
+
     def test_metadata_crop_and_resize_are_deterministic(self) -> None:
         rgba = bytes((
             255, 0, 0, 255, 0, 255, 0, 255,
