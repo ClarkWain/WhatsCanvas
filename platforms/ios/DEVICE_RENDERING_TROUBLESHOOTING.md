@@ -68,6 +68,12 @@ CoreText 始终作为 iOS Demo 的文字后端，真机不再回退到 portable 
 
 Metal 单元测试现默认开启 API Validation。以后新增 shader 参数但漏掉 encoder 绑定时，测试会直接失败，而不是等到某一代真机表现为黑屏。
 
+后续公开 API 覆盖审计发现，原有测试仍未执行 Alpha8 更新、RGB/单通道导入、全部 sampler 寻址模式、`DstAtop` 混合和 swapchain 的完整 acquire/resize/present 合约。现已增加专门的 API contract 测试并补齐枚举分支；详细矩阵见 `METAL_API_VALIDATION.md`。
+
+同一次审计还发现 backend finalize 后保留了旧的 last-readback texture。设备对象在后台恢复时重新初始化，旧 texture 可能被新 command queue 当作 presentation 输入。finalize 现重建空 Metal context，并通过“绘制 → finalize → initialize → last texture 必须为空”的回归测试锁定该行为。
+
+纹理更新入口还存在格式边界不严的问题：RGBA update 曾能接收 Alpha8 resource，Alpha8 update 也能接收 RGBA resource 和零尺寸 region。后者可能把错误的 `bytesPerRow` 交给 Metal。两个入口现校验 backend 状态、resource 格式和正尺寸，错误调用在进入 `replaceRegion` 前返回。
+
 ## 同类问题审计
 
 已按 Metal shader 的 `buffer`、`texture`、`sampler` 声明逐条核对 encoder：

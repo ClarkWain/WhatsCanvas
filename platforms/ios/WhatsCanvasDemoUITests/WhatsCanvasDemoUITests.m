@@ -19,6 +19,10 @@
 - (void)testPortraitLandscapeBackgroundAndColdLaunch
 {
     XCUIApplication *app = [[XCUIApplication alloc] init];
+    app.launchEnvironment = @{
+        @"MTL_DEBUG_LAYER": @"1",
+        @"MTL_DEBUG_ERROR_MODE": @"0",
+    };
     [app launch];
     XCTAssertTrue([app waitForState:XCUIApplicationStateRunningForeground
                             timeout:10.0]);
