@@ -343,6 +343,7 @@ void drawScene(wsc::Canvas& canvas, const wsc::Image* checkerImage,
         Paint imagePaint;
         imagePaint.setColor(Color::WHITE);
         imagePaint.setImageSampling(Paint::ImageSampling::NEAREST);
+        imagePaint.setImageTileMode(Paint::ImageTileMode::REPEAT);
         canvas.drawImageTiled(*checkerImage,
                               RectF(imageCard.getX() + 13.0f, imageCard.getY() + 40.0f,
                                     cardWidth - 26.0f, cardHeight - 54.0f),
@@ -490,6 +491,7 @@ void drawDynamicScene(wsc::Canvas& canvas, const wsc::Image* checkerImage,
         Paint imagePaint;
         imagePaint.setColor(Color::WHITE);
         imagePaint.setImageSampling(Paint::ImageSampling::NEAREST);
+        imagePaint.setImageTileMode(Paint::ImageTileMode::REPEAT);
         canvas.drawImageTiled(*checkerImage,
                               RectF(imageCard.getX() + 13.0f, imageCard.getY() + 40.0f,
                                     cardWidth - 26.0f, cardHeight - 54.0f),
