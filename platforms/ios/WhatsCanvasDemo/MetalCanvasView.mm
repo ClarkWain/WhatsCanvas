@@ -27,6 +27,7 @@
     CFTimeInterval _fpsWindowStart;
     NSUInteger _fpsFrameCount;
     NSUInteger _screenshotCounter;
+    BOOL _screenshotCaptureEnabled;
     BOOL _applicationActive;
 }
 
@@ -50,6 +51,11 @@
         layer.framebufferOnly = YES;
         layer.opaque = YES;
         layer.contentsScale = UIScreen.mainScreen.scale;
+        // Transaction-backed presentation is required on current physical
+        // iOS devices. Simulator presentation also supports this path.
+        layer.presentsWithTransaction = YES;
+        _screenshotCaptureEnabled =
+            [NSProcessInfo.processInfo.arguments containsObject:@"--capture-frames"];
         _applicationActive = YES;
         _startTime = CACurrentMediaTime();
         _fpsWindowStart = _startTime;
@@ -145,12 +151,8 @@
         _canvas.reset();
         return;
     }
-    wsc::Canvas::TextBackend textBackend = wsc::Canvas::TextBackend::CoreText;
-#if TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
-    textBackend = wsc::Canvas::TextBackend::Portable;
-#endif
-    if (!_canvas->setTextBackend(textBackend)) {
-        NSLog(@"WhatsCanvas: text backend initialization failed");
+    if (!_canvas->setTextBackend(wsc::Canvas::TextBackend::CoreText)) {
+        NSLog(@"WhatsCanvas: CoreText backend initialization failed");
         [self releaseRenderer];
         return;
     }
@@ -236,7 +238,7 @@
     // C/S screenshot: dump the frame's source texture (mainTarget, i.e. what
     // presentFragment samples to the drawable) as PNG so the Mac can pull it
     // via `xcrun devicectl device copy from --domain-type appDataContainer`.
-    if ((_screenshotCounter++ % 120u) == 0u) {
+    if (_screenshotCaptureEnabled && (_screenshotCounter++ % 120u) == 0u) {
         [self dumpScreenshotAsPNG:@"screenshot.png"];
     }
 }

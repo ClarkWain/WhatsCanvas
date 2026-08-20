@@ -23,6 +23,68 @@ bool expect(bool condition, const char *message)
     return false;
 }
 
+class FakeImageResource final : public ImageResource
+{
+public:
+    bool isValid() const override { return true; }
+    void bind(const RenderContext &) const override {}
+    bool updateRGBA(int, int, int, int, const unsigned char *, bool) override
+    {
+        return true;
+    }
+};
+
+bool testLinearImageGradientUsesVertexTints()
+{
+    DrawImageData image;
+    image.imageResource = std::make_shared<FakeImageResource>();
+    image.width = 32.0f;
+    image.height = 16.0f;
+    image.gradientType = DrawGradientType::Linear;
+    image.gradientTileMode = DrawGradientTileMode::Clamp;
+    image.gradientStart[0] = 0.0f;
+    image.gradientEnd[0] = 32.0f;
+    image.gradientStopCount = 2;
+    image.gradientStopPositions[0] = 0.0f;
+    image.gradientStopPositions[1] = 1.0f;
+    image.gradientStopColors[0] = 1.0f;
+    image.gradientStopColors[3] = 1.0f;
+    image.gradientStopColors[6] = 1.0f;
+    image.gradientStopColors[7] = 1.0f;
+
+    std::vector<std::unique_ptr<Command>> commands;
+    commands.push_back(std::make_unique<DrawImageCommand>(image));
+    CommandDrawListEncodeRequest request;
+    request.canvasWidth = 32;
+    request.canvasHeight = 16;
+    request.targetHeight = 16;
+    CompiledFrame frame;
+    std::string error;
+    FrameCompiler compiler;
+    if (!expect(compiler.compile(commands, request, frame, &error),
+                "linear-gradient image should encode")) {
+        std::cerr << error << std::endl;
+        return false;
+    }
+    if (!expect(frame.packets.size() == 1,
+                "linear-gradient image should emit one packet")) {
+        return false;
+    }
+
+    const wsc::DrawPrimitive &packet = frame.packets.front();
+    return expect(packet.packedTints.size() == 6,
+                  "linear-gradient image should carry six vertex tints")
+        && expect(packet.packedTints[0] == 0xff0000ffu,
+                  "left gradient vertices should be red")
+        && expect(packet.packedTints[1] == 0xffff0000u,
+                  "right gradient vertices should be blue")
+        && expect(near(packet.tint[0], 1.0f)
+                      && near(packet.tint[1], 1.0f)
+                      && near(packet.tint[2], 1.0f)
+                      && near(packet.tint[3], 1.0f),
+                  "uniform tint should stay white for vertex gradients");
+}
+
 bool testGaussianShadowSemanticPreserved()
 {
     DrawShadowData shadow;
@@ -154,6 +216,7 @@ int main()
             && expect(
                near(primitive.coverage[2], 0.0f),
                "encoder should preserve zero coverage")
+            && testLinearImageGradientUsesVertexTints()
             && testGaussianShadowSemanticPreserved()
         ? 0
         : 1;
