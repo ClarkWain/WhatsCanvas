@@ -74,6 +74,14 @@ Metal 单元测试现默认开启 API Validation。以后新增 shader 参数但
 
 纹理更新入口还存在格式边界不严的问题：RGBA update 曾能接收 Alpha8 resource，Alpha8 update 也能接收 RGBA resource 和零尺寸 region。后者可能把错误的 `bytesPerRow` 交给 Metal。两个入口现校验 backend 状态、resource 格式和正尺寸，错误调用在进入 `replaceRegion` 前返回。
 
+## 问题六：窗口适配正确，但局部混合仍与 Android 不一致
+
+最初各端直接按自身窗口重新排版。横屏宽高比变化时，卡片、文字、线宽和动画几何会分别变化，画面并不是 Android 的整体等比放大。现在三端统一使用逻辑内容窗口：横屏 `786 x 377`，竖屏 `393 x 759`。宿主先扣除 safe area，再把完整内容窗口等比缩放、水平居中并贴齐可用区域顶部；多余区域仅留作背景，不参与重排。
+
+统一布局后，分区像素比较又发现 `SCREEN` 卡片仍有稳定差异。根因是 Metal shader 输出预乘颜色，而 OpenGL/Software 的既有 `SCREEN` 合约使用直颜色；原测试只覆盖不透明前景，alpha 为 1 时两种路径结果相同，因此没有暴露问题。Metal Solid 管线现在仅在 `SCREEN` 模式下保留直 RGB，其余模式继续使用预乘输出。新增半透明 blend 回归后，Blend 分区的 Metal/Software 差异从 mean `3.10874`、divergent `10.354%` 降为 mean `0.00194`、divergent `0%`。
+
+跨设备截图中的 nearest-neighbor checkerboard 还会因 safe-area 后的非整数 viewport scale 和截图归一化出现边缘色差。Software 参考也必须显式使用 `DPR=3`，不能拿 1x dump 参与比较。该区域使用独立的 `image_sampling` profile：保持 mean delta 上限 `1.5`，只对物理像素相位造成的边缘颜色使用更高 channel threshold。这样不会放过纹理缺失、错误颜色、tile 尺寸或几何偏移。
+
 ## 同类问题审计
 
 已按 Metal shader 的 `buffer`、`texture`、`sampler` 声明逐条核对 encoder：

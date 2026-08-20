@@ -19,6 +19,8 @@ Metal library for the selected SDK and architecture.
 The sample targets 60 fps using `CADisplayLink`, supports portrait and
 landscape layouts, tears down GPU resources on backgrounding, and reconstructs
 Metal/CoreText state when returning to the foreground.
+After safe-area removal, both orientations use the same canonical content
+windows as Android and Desktop and scale the complete scene as one unit.
 
 Physical-device rendering failures, Metal resource-binding checks, and the
 simulator/device regression checklist are documented in
@@ -55,3 +57,8 @@ The same scene has been validated on an iPhone 12 (A14, iOS 18.7.8) with Metal
 API Validation enabled in Debug and at 59.2–59.9 fps in Release. Simulator
 coverage remains the repeatable lifecycle gate; representative older and
 current physical GPUs are still required before production distribution.
+
+Add `--capture-frames` and `--capture-time=1.25` to the Scheme launch arguments
+to produce a deterministic `Documents/screenshot.png`. The complete
+cross-platform capture contract is documented in
+[`../../docs/VISUAL_PARITY.md`](../../docs/VISUAL_PARITY.md).

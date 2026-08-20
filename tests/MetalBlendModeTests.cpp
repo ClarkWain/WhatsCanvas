@@ -30,11 +30,13 @@ bool nearBy(int actual, int expected, int tolerance)
     return std::abs(actual - expected) <= tolerance;
 }
 
-bool drawOverlap(Paint::BlendMode mode, unsigned char (&outCenter)[4])
+bool drawOverlapBackend(Canvas::Backend backend, Paint::BlendMode mode,
+                        Color background, Color foreground,
+                        unsigned char (&outCenter)[4])
 {
     const int w = 32;
     const int h = 32;
-    auto canvas = Canvas::create(Canvas::Backend::Metal, w, h);
+    auto canvas = Canvas::create(backend, w, h);
     if (!canvas) {
         return false;
     }
@@ -43,14 +45,14 @@ bool drawOverlap(Paint::BlendMode mode, unsigned char (&outCenter)[4])
     // Background: opaque red covers the whole canvas.
     Paint bg;
     bg.setStyle(Paint::Style::FILL);
-    bg.setColor(Color(255, 0, 0, 255));
+    bg.setColor(background);
     bg.setAntiAlias(false);
     canvas->drawRect(RectF(0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h)), bg);
     // Foreground: opaque blue, with the requested blend mode. Full-canvas
     // rect so every pixel receives the blend.
     Paint fg;
     fg.setStyle(Paint::Style::FILL);
-    fg.setColor(Color(0, 0, 255, 255));
+    fg.setColor(foreground);
     fg.setBlendMode(mode);
     fg.setAntiAlias(false);
     canvas->drawRect(RectF(0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h)), fg);
@@ -63,6 +65,13 @@ bool drawOverlap(Paint::BlendMode mode, unsigned char (&outCenter)[4])
     outCenter[2] = pixels[idx + 2];
     outCenter[3] = pixels[idx + 3];
     return true;
+}
+
+bool drawOverlap(Paint::BlendMode mode, unsigned char (&outCenter)[4])
+{
+    return drawOverlapBackend(Canvas::Backend::Metal, mode,
+                              Color(255, 0, 0, 255),
+                              Color(0, 0, 255, 255), outCenter);
 }
 
 bool testMetalBlendModes()
@@ -132,6 +141,47 @@ bool testMetalBlendModes()
     ok = expect(drawOverlap(Paint::BlendMode::CLEAR, center)
                 && center[0] < 20 && center[3] < 20,
                 "Clear must zero out both RGB and alpha") && ok;
+
+    // Opaque-only checks cannot detect straight/premultiplied-alpha mistakes.
+    // Compare alpha-sensitive blend modes whose Canvas output stays in the
+    // public straight-RGBA representation. The opaque checks above continue
+    // to exercise every Porter-Duff pipeline configuration.
+    const Paint::BlendMode parityModes[] = {
+        Paint::BlendMode::SRC_OVER,
+        Paint::BlendMode::SRC,
+        Paint::BlendMode::DST,
+        Paint::BlendMode::CLEAR,
+        Paint::BlendMode::SRC_IN,
+        Paint::BlendMode::SRC_OUT,
+        Paint::BlendMode::ADD,
+        Paint::BlendMode::MULTIPLY,
+        Paint::BlendMode::SCREEN
+    };
+    for (Paint::BlendMode mode : parityModes) {
+        unsigned char metal[4] = {};
+        unsigned char software[4] = {};
+        const bool rendered = drawOverlapBackend(
+            Canvas::Backend::Metal, mode, Color(41, 93, 157, 255),
+            Color(197, 73, 139, 163), metal)
+            && drawOverlapBackend(
+                Canvas::Backend::Software, mode, Color(41, 93, 157, 255),
+                Color(197, 73, 139, 163), software);
+        bool channelsMatch = rendered;
+        for (int channel = 0; channel < 4 && channelsMatch; ++channel) {
+            channelsMatch = nearBy(metal[channel], software[channel], 3);
+        }
+        ok = expect(channelsMatch,
+                    "semi-transparent Metal blend must match Software; mode="
+                        + std::to_string(static_cast<int>(mode))
+                        + " metal=" + std::to_string(metal[0]) + ","
+                        + std::to_string(metal[1]) + ","
+                        + std::to_string(metal[2]) + ","
+                        + std::to_string(metal[3])
+                        + " software=" + std::to_string(software[0]) + ","
+                        + std::to_string(software[1]) + ","
+                        + std::to_string(software[2]) + ","
+                        + std::to_string(software[3])) && ok;
+    }
     return ok;
 }
 

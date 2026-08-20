@@ -1,5 +1,7 @@
 #include "DemoScene.h"
 
+#include "../../shared/scenes/CanonicalViewport.h"
+
 #include <wsc/wsc.h>
 
 #include <algorithm>
@@ -467,10 +469,17 @@ std::shared_ptr<const wsc::Picture> recordStaticScene(wsc::Canvas &canvas,
                                                       float safeLeft,
                                                       float safeRight)
 {
-    const Layout grid(width, height, safeTop, safeBottom, safeLeft, safeRight);
-    return canvas.recordPicture([grid](wsc::Canvas &recording) {
+    const auto viewport = whatscanvas::scenes::makeCanonicalViewport(
+        width, height, {safeTop, safeBottom, safeLeft, safeRight});
+    const Layout grid(viewport.width, viewport.height, 0.0f, 0.0f, 0.0f, 0.0f);
+    return canvas.recordPicture([grid, viewport](wsc::Canvas &recording) {
+        recording.drawColor(wsc::Color(8, 12, 29));
+        recording.save();
+        recording.translate(viewport.offsetX, viewport.offsetY);
+        recording.scale(viewport.scale, viewport.scale);
         drawScene(recording, nullptr, grid,
                   std::numeric_limits<float>::quiet_NaN());
+        recording.restore();
     });
 }
 
@@ -485,8 +494,14 @@ void drawDynamicScene(wsc::Canvas &canvas, const wsc::Image *checkerImage,
     using wsc::PointF;
     using wsc::RectF;
 
-    const Layout grid(width, height, safeTop, safeBottom, safeLeft, safeRight);
+    const auto viewport = whatscanvas::scenes::makeCanonicalViewport(
+        width, height, {safeTop, safeBottom, safeLeft, safeRight});
+    const Layout grid(viewport.width, viewport.height, 0.0f, 0.0f, 0.0f, 0.0f);
     const float pulse = 0.5f + 0.5f * std::sin(elapsedSeconds * 2.2f);
+
+    canvas.save();
+    canvas.translate(viewport.offsetX, viewport.offsetY);
+    canvas.scale(viewport.scale, viewport.scale);
 
     // Card 1 (PATH + STROKE): animated dashed cubic curve.
     const RectF pathCard = grid.card(1);
@@ -595,6 +610,7 @@ void drawDynamicScene(wsc::Canvas &canvas, const wsc::Image *checkerImage,
     canvas.drawRoundRect(RectF(trackX, trackY,
                                trackWidth * (0.18f + pulse * 0.78f), 12.0f),
                          6.0f, progress);
+    canvas.restore();
 }
 
 } // namespace whatscanvas::demo
