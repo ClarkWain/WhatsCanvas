@@ -962,6 +962,10 @@ struct MetalRenderDevice::MetalContext
 
     // Reusable identity sampler for clip masks (linear + clamp).
     id<MTLSamplerState> clipSampler = nil;
+    // Metal validation requires every statically declared texture argument to
+    // be bound at draw time, even when a uniform disables the sampling branch.
+    // A white texel preserves coverage for draws without an active clip.
+    id<MTLTexture> clipFallbackTexture = nil;
 
     // Most recent render-target texture rendered into. `readPixelsRGBA`
     // consumes this because the IRenderDevice contract does not carry the
@@ -1132,9 +1136,31 @@ void MetalRenderDevice::initializeBackend()
         sampDesc.tAddressMode = MTLSamplerAddressModeClampToEdge;
         context_->clipSampler = [device newSamplerStateWithDescriptor:sampDesc];
 
+        MTLTextureDescriptor *fallbackDesc =
+            [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatR8Unorm
+                                                               width:1
+                                                              height:1
+                                                           mipmapped:NO];
+        fallbackDesc.usage = MTLTextureUsageShaderRead;
+        fallbackDesc.storageMode = preferredTextureStorageMode(device);
+        context_->clipFallbackTexture = [device newTextureWithDescriptor:fallbackDesc];
+        if (context_->clipSampler == nil || context_->clipFallbackTexture == nil) {
+            WSC_LOG_ERROR("MetalRenderDevice", "Failed to allocate fallback clip resources.");
+            context_->clipSampler = nil;
+            context_->clipFallbackTexture = nil;
+            context_->library = nil;
+            context_->commandQueue = nil;
+            context_->device = nil;
+            return;
+        }
+        const std::uint8_t whiteCoverage = 0xffu;
+        [context_->clipFallbackTexture replaceRegion:MTLRegionMake2D(0, 0, 1, 1)
+                                         mipmapLevel:0
+                                           withBytes:&whiteCoverage
+                                         bytesPerRow:1];
+
         NSString *name = [device name];
         context_->deviceName = name ? [name UTF8String] : "Metal Device";
-        context_->deviceReady = true;
 
         // Pipeline pre-warm. Compiling a Metal render-pipeline state hits the
         // driver's shader compiler and can take a few hundred milliseconds on
@@ -1143,19 +1169,42 @@ void MetalRenderDevice::initializeBackend()
         // first rendered frame skip the driver stall.
         const int kSrcOver = 0;
         const int kSrc = 1;
-        obtainPipeline(*context_, MetalPipelineKind::Solid,              kSrcOver);
-        obtainPipeline(*context_, MetalPipelineKind::Textured,           kSrcOver);
-        obtainPipeline(*context_, MetalPipelineKind::TexturedAlpha,      kSrcOver);
-        obtainPipeline(*context_, MetalPipelineKind::Gradient,           kSrcOver);
-        obtainPipeline(*context_, MetalPipelineKind::ClipFill,           kSrcOver);
-        obtainPipeline(*context_, MetalPipelineKind::Blur,               kSrc);
-        obtainPipeline(*context_, MetalPipelineKind::MaskMultiply,       kSrc);
-        obtainPipeline(*context_, MetalPipelineKind::InvertAlpha,        kSrc);
-        obtainPipeline(*context_, MetalPipelineKind::InnerShadowCompose, kSrc);
-        obtainPipeline(*context_, MetalPipelineKind::ShadowCompose,      kSrcOver);
+        const std::pair<MetalPipelineKind, int> requiredPipelines[] = {
+            {MetalPipelineKind::Solid,              kSrcOver},
+            {MetalPipelineKind::Textured,           kSrcOver},
+            {MetalPipelineKind::TexturedAlpha,      kSrcOver},
+            {MetalPipelineKind::Gradient,           kSrcOver},
+            {MetalPipelineKind::ClipFill,           kSrcOver},
+            {MetalPipelineKind::Blur,               kSrc},
+            {MetalPipelineKind::MaskMultiply,       kSrc},
+            {MetalPipelineKind::InvertAlpha,        kSrc},
+            {MetalPipelineKind::InnerShadowCompose, kSrc},
+            {MetalPipelineKind::ShadowCompose,      kSrcOver},
+        };
+        bool requiredResourcesReady = true;
+        for (const auto &[kind, blend] : requiredPipelines) {
+            if (obtainPipeline(*context_, kind, blend) == nil) {
+                requiredResourcesReady = false;
+            }
+        }
         // Pre-warm the default linear/clamp sampler too so per-draw obtainSampler
         // never allocates on the hot path in the common case.
-        obtainSampler(*context_, /*sampling=*/0, /*tileMode=*/0);
+        if (obtainSampler(*context_, /*sampling=*/0, /*tileMode=*/0) == nil) {
+            requiredResourcesReady = false;
+        }
+        if (!requiredResourcesReady) {
+            WSC_LOG_ERROR("MetalRenderDevice", "Required Metal pipeline or sampler initialization failed.");
+            context_->pipelines.clear();
+            context_->samplers.clear();
+            context_->clipSampler = nil;
+            context_->clipFallbackTexture = nil;
+            context_->library = nil;
+            context_->commandQueue = nil;
+            context_->device = nil;
+            context_->deviceName.clear();
+            return;
+        }
+        context_->deviceReady = true;
     }
     backendInitialized_ = true;
     WSC_LOG_INFO("MetalRenderDevice",
@@ -1170,6 +1219,7 @@ void MetalRenderDevice::finalizeBackend()
     context_->pipelines.clear();
     context_->samplers.clear();
     context_->clipSampler = nil;
+    context_->clipFallbackTexture = nil;
     context_->solidVertexDesc = nil;
     context_->texturedVertexDesc = nil;
     context_->gradientVertexDesc = nil;
@@ -1304,7 +1354,9 @@ id<MTLSamplerState> obtainSampler(MetalRenderDevice::MetalContext &ctx, int samp
         return it->second;
     }
     id<MTLSamplerState> s = makeSampler(ctx.device, sampling, tileMode);
-    ctx.samplers.emplace(key, s);
+    if (s != nil) {
+        ctx.samplers.emplace(key, s);
+    }
     return s;
 }
 
@@ -1726,6 +1778,8 @@ void rasterizeSingleClipIntoTarget(id<MTLCommandBuffer> cb,
     [enc setFragmentBytes:noClipUniforms
                    length:sizeof(noClipUniforms)
                   atIndex:0];
+    [enc setFragmentTexture:ctx.clipFallbackTexture atIndex:0];
+    [enc setFragmentSamplerState:ctx.clipSampler atIndex:0];
     MTLScissorRect rect;
     rect.x = 0; rect.y = 0;
     rect.width = static_cast<NSUInteger>(canvasWidth);
@@ -1955,10 +2009,8 @@ void encodeSolid(id<MTLRenderCommandEncoder> encoder, MetalRenderDevice::MetalCo
     uniforms.clipUv[2] = prim.clipUvOffset[0];
     uniforms.clipUv[3] = prim.clipUvOffset[1];
     [encoder setFragmentBytes:&uniforms length:sizeof(uniforms) atIndex:0];
-    if (clip != nil) {
-        [encoder setFragmentTexture:clip atIndex:0];
-        [encoder setFragmentSamplerState:ctx.clipSampler atIndex:0];
-    }
+    [encoder setFragmentTexture:clip != nil ? clip : ctx.clipFallbackTexture atIndex:0];
+    [encoder setFragmentSamplerState:ctx.clipSampler atIndex:0];
 
     const std::size_t vertexBytes = vertices.size() * sizeof(wsc::CompactSolidVertex);
     // setVertexBytes has a 4 KB limit; use a real buffer for larger uploads.
@@ -2124,10 +2176,11 @@ void encodeTextured(id<MTLRenderCommandEncoder> encoder, MetalRenderDevice::Meta
     [encoder setFragmentBytes:&u length:sizeof(u) atIndex:0];
 
     [encoder setFragmentTexture:tex atIndex:0];
-    if (clip != nil) {
-        [encoder setFragmentTexture:clip atIndex:1];
-    }
+    [encoder setFragmentTexture:clip != nil ? clip : ctx.clipFallbackTexture atIndex:1];
     id<MTLSamplerState> samp = obtainSampler(ctx, prim.sampling, prim.tileMode);
+    if (samp == nil) {
+        return;
+    }
     [encoder setFragmentSamplerState:samp atIndex:0];
 
     [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:vertices.size()];
@@ -2218,10 +2271,8 @@ void encodeGradient(id<MTLRenderCommandEncoder> encoder, MetalRenderDevice::Meta
     u.clipUv[2] = prim.clipUvOffset[0];
     u.clipUv[3] = prim.clipUvOffset[1];
     [encoder setFragmentBytes:&u length:sizeof(u) atIndex:0];
-    if (clip != nil) {
-        [encoder setFragmentTexture:clip atIndex:0];
-        [encoder setFragmentSamplerState:ctx.clipSampler atIndex:0];
-    }
+    [encoder setFragmentTexture:clip != nil ? clip : ctx.clipFallbackTexture atIndex:0];
+    [encoder setFragmentSamplerState:ctx.clipSampler atIndex:0];
 
     if (!prim.shortIndices.empty()) {
         const std::size_t byteCount = prim.shortIndices.size() * sizeof(std::uint16_t);
