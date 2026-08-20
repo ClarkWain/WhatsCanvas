@@ -2324,6 +2324,24 @@ if (WHATSCANVAS_BUILD_BENCHMARKS
 endif()
 
 if (BUILD_TESTING AND Python3_Interpreter_FOUND)
+    add_test(NAME WhatsCanvasVisualParityContractTests
+        COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/visual_parity/visual_parity.py"
+            validate
+            --contract "${CMAKE_CURRENT_SOURCE_DIR}/tests/visual_parity/scenes.json"
+    )
+    set_tests_properties(WhatsCanvasVisualParityContractTests PROPERTIES
+        LABELS "unit;visual-parity;platforms"
+        TIMEOUT 30
+    )
+    add_test(NAME WhatsCanvasVisualParityToolTests
+        COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/VisualParityToolTests.py"
+    )
+    set_tests_properties(WhatsCanvasVisualParityToolTests PROPERTIES
+        LABELS "unit;visual-parity;platforms"
+        TIMEOUT 30
+    )
     add_test(NAME WhatsCanvasCrossLibraryBenchmarkTests
         COMMAND ${Python3_EXECUTABLE}
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/CrossLibraryBenchmarkTests.py"
@@ -2373,6 +2391,19 @@ if (BUILD_TESTING AND TARGET WhatsCanvasDesktopHost)
     )
     set_tests_properties(WhatsCanvasDesktopHostSmoke PROPERTIES
         LABELS "smoke;desktop;platforms"
+        TIMEOUT 60)
+
+    add_test(NAME WhatsCanvasDesktopHighDprCaptureSmoke
+        COMMAND WhatsCanvasDesktopHost
+            --scene=feature_showcase
+            --backend=software
+            --w=393 --h=759 --dpr=3
+            --time=1.25
+            --dump-png=${CMAKE_CURRENT_BINARY_DIR}/desktop_high_dpr_smoke.ppm
+            --frames=1
+    )
+    set_tests_properties(WhatsCanvasDesktopHighDprCaptureSmoke PROPERTIES
+        LABELS "smoke;desktop;visual-parity;platforms"
         TIMEOUT 60)
 endif()
 

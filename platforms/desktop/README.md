@@ -57,6 +57,10 @@ WhatsCanvasDesktopHost --list-scenes
 # Headless: render one frame, write PPM (useful for CI diff):
 WhatsCanvasDesktopHost --scene=feature_showcase --w=1280 --h=720 `
     --dump-png=out.ppm --frames=1
+
+# Deterministic visual-parity frame:
+WhatsCanvasDesktopHost --scene=feature_showcase --w=786 --h=377 --dpr=3 `
+    --dump-png=feature_showcase.ppm --time=1.25
 ```
 
 On macOS, interactive windows use the Retina framebuffer and map Canvas
@@ -71,6 +75,8 @@ unit. Text, strokes, radii, spacing and card geometry therefore retain the
 same proportions instead of independently reflowing at desktop window sizes.
 See [RENDERING_PARITY.md](RENDERING_PARITY.md) for the diagnosis and validation
 record.
+The multi-platform contract and new-scene workflow are documented in
+[VISUAL_PARITY.md](../../docs/VISUAL_PARITY.md).
 
 ## Adding a new scene
 
