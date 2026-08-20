@@ -9,11 +9,11 @@ complete than the latter. It exposes a familiar `Canvas` / `Paint` / `Path` /
 OpenGL, OpenGL ES, a pure-CPU software rasterizer (no GPU at all), an
 optional Vulkan backend, and a Metal backend on Apple platforms.
 
-!!! success "WhatsCanvas 0.6.0 is available"
-    This release adds the UIKit Metal/CoreText host, Android-aligned iOS feature
-    scene, native CoreText text backend, lifecycle and pixel-parity tests, and
-    comprehensive Metal API Validation coverage. Download a
-    [desktop package or Android demo](https://github.com/ClarkWain/WhatsCanvas/releases/tag/v0.6.0).
+!!! success "WhatsCanvas 0.7.0 is available"
+    This release unifies Android, iOS and Desktop on canonical high-DPR visual
+    validation scenes, adds deterministic capture tooling and region-based
+    comparisons, and fixes semi-transparent Metal SCREEN blending. Download a
+    [desktop package or Android demo](https://github.com/ClarkWain/WhatsCanvas/releases/tag/v0.7.0).
 
 ![WhatsCanvas quality showcase — analytic AA, gradients, Gaussian shadows, AA path clipping](images/aa/quality_showcase.png)
 

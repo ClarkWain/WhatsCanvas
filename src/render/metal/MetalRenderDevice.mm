@@ -99,7 +99,12 @@ fragment float4 solid_fs(SolidVSOut in [[stage_in]],
         c.a *= clipMask.sample(
             clipSampler, in.position.xy * u.clipUv.xy + u.clipUv.zw).r;
     }
-    c.rgb *= c.a;
+    // The OpenGL/Software SCREEN contract blends the straight source color
+    // (including at fractional alpha). Other modes use premultiplied render
+    // targets, so only SCREEN bypasses source premultiplication here.
+    if (u.clipParams.y < 0.5) {
+        c.rgb *= c.a;
+    }
     return c;
 }
 
@@ -2011,6 +2016,8 @@ void encodeSolid(id<MTLRenderCommandEncoder> encoder, MetalRenderDevice::MetalCo
     MetalSolidUniforms uniforms{};
     id<MTLTexture> clip = clipMaskTexture(prim);
     uniforms.clipParams[0] = clip != nil ? 1.0f : 0.0f;
+    uniforms.clipParams[1] =
+        blendModeFromInt(prim.blendMode) == MetalBlendMode::Screen ? 1.0f : 0.0f;
     uniforms.clipUv[0] = prim.clipUvScale[0];
     uniforms.clipUv[1] = prim.clipUvScale[1];
     uniforms.clipUv[2] = prim.clipUvOffset[0];

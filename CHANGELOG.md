@@ -9,6 +9,32 @@ For releases and downloadable artifacts, see the
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-08-20
+
+### Added
+- Added a shared canonical viewport contract for Android, iOS and Desktop:
+  `393 x 759` portrait and `786 x 377` landscape, aspect-fitted as one unit
+  after platform safe-area handling.
+- Added deterministic animation-time capture inputs, DPR-aware Desktop dumps,
+  iOS capture metadata, and a standard-library visual parity tool with
+  per-scene, per-region profiles, heat maps and required-platform matrices.
+- Added high-DPR Desktop smoke coverage, regional iOS Metal/Software parity
+  checks, semi-transparent blend coverage and a documented workflow for adding
+  future validation scenes.
+
+### Changed
+- Android, iOS and Desktop feature-showcase hosts now render the same canonical
+  scene geometry instead of independently reflowing cards for each window.
+- Visual references now render the canonical logical window at explicit
+  `DPR=3`, preserving mobile-density text, texture, shadow and raster-cache
+  behavior before comparison normalization.
+
+### Fixed
+- Fixed macOS Retina viewport and capture sizing so framebuffer and logical
+  coordinates no longer diverge or crop the showcase.
+- Fixed Metal `SCREEN` blending for semi-transparent solid colors by matching
+  the straight-RGB contract used by the OpenGL and Software backends.
+
 ## [0.6.0] - 2026-08-20
 
 ### Added

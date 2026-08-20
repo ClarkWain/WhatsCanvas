@@ -72,8 +72,9 @@ shipping applications must build/sign their own host from source.
 - OpenGL ES 3 rendering through the existing WhatsCanvas GLES target.
 - Per-view native renderer ownership, resize, frame rendering, and deterministic
   GL-thread cleanup over JNI.
-- A responsive eight-card scene that uses 2x4 portrait and 4x2 landscape
-  layouts and exercises UTF-8 text, system font fallback, gradients, paths,
+- An eight-card scene that uses the shared 393 x 759 portrait and 786 x 377
+  landscape content windows, aspect-fitted as one unit on every device, and
+  exercises UTF-8 text, system font fallback, gradients, paths,
   clipping, arcs, strokes, alpha blending, transforms, raw RGBA images, texture
   sampling, and animation through the device-pixel ratio.
 - Android 10+ font discovery through the public system font matcher. API 21-28
@@ -86,6 +87,17 @@ shipping applications must build/sign their own host from source.
   bundled FreeType, and the RGBA glyph atlas. CBDT/CBLC 2.0 and 3.0 PNG emoji
   are both accepted for older and newer Android system fonts. The sample scene
   and startup probe exercise these paths on the active device image.
+
+For deterministic visual-parity capture, launch the Activity with a fixed
+animation time, for example:
+
+```sh
+adb shell am start -S -n con.whatscanvas.demo/.MainActivity \
+  --ef capture_time_seconds 1.25
+```
+
+The cross-platform capture layout, metadata and comparison workflow are in
+[`../../docs/VISUAL_PARITY.md`](../../docs/VISUAL_PARITY.md).
 
 The sample includes density-aware touch interaction, lifecycle/context-loss
 handling, CI builds and lint, retained-scene diagnostics, and device checkpoints

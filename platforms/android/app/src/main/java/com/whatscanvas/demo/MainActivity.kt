@@ -27,7 +27,11 @@ class MainActivity : Activity() {
             }
         }
         window.attributes = layoutParams
-        canvasView = WhatsCanvasSurfaceView(this)
+        val requestedCaptureTime = intent
+            ?.takeIf { it.hasExtra(CAPTURE_TIME_EXTRA) }
+            ?.getFloatExtra(CAPTURE_TIME_EXTRA, 0.0f)
+            ?.takeIf { it.isFinite() && it >= 0.0f }
+        canvasView = WhatsCanvasSurfaceView(this, requestedCaptureTime)
         setContentView(canvasView)
     }
 
@@ -53,5 +57,6 @@ class MainActivity : Activity() {
 
     private companion object {
         const val ANIMATION_REFRESH_RATE_HZ = 60.0f
+        const val CAPTURE_TIME_EXTRA = "capture_time_seconds"
     }
 }
