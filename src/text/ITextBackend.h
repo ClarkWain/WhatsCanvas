@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-#include "canvas/base.h"
+#include "wsc/base.h"
 
 namespace wsc {
 class Paint;
