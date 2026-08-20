@@ -46,24 +46,34 @@ def _tokens(data: bytes) -> Iterable[bytes]:
 
 def _read_ppm(path: pathlib.Path, data: bytes) -> Image:
     token_iter = iter(_tokens(data))
-    if next(token_iter, b"") != b"P6":
+    header = [next(token_iter, b"") for _ in range(4)]
+    if header[0] != b"P6":
         raise ValueError(f"{path}: unsupported PPM encoding")
-    width = int(next(token_iter))
-    height = int(next(token_iter))
-    maximum = int(next(token_iter))
+    if any(not token for token in header[1:]):
+        raise ValueError(f"{path}: truncated PPM header")
+    try:
+        width = int(header[1])
+        height = int(header[2])
+        maximum = int(header[3])
+    except ValueError as error:
+        raise ValueError(f"{path}: invalid PPM header") from error
     if width <= 0 or height <= 0 or maximum != 255:
         raise ValueError(f"{path}: invalid PPM header")
 
     header_tokens = 0
     index = 0
     while header_tokens < 4:
-        while data[index] in b" \t\r\n":
+        while index < len(data) and data[index] in b" \t\r\n":
             index += 1
+        if index >= len(data):
+            raise ValueError(f"{path}: truncated PPM header")
         if data[index] == ord("#"):
-            while data[index] not in b"\r\n":
+            while index < len(data) and data[index] not in b"\r\n":
                 index += 1
+            if index >= len(data):
+                raise ValueError(f"{path}: truncated PPM comment")
             continue
-        while index < len(data) and data[index] not in b" \t\r\n":
+        while index < len(data) and data[index] not in b" \t\r\n#":
             index += 1
         header_tokens += 1
     if index >= len(data) or data[index] not in b" \t\r\n":
@@ -262,7 +272,9 @@ def validate_contract(contract: dict[str, Any]) -> list[str]:
         if not isinstance(profile, dict):
             errors.append(f"profile {profile_id} must be an object")
             continue
-        if int(profile.get("search_radius", -1)) not in range(0, 5):
+        search_radius = profile.get("search_radius")
+        if (not isinstance(search_radius, int) or isinstance(search_radius, bool)
+                or search_radius not in range(0, 5)):
             errors.append(f"profile {profile_id} search_radius must be between 0 and 4")
         for key in ("bad_channel_threshold", "max_mean_delta", "max_bad_pixel_ratio"):
             if key not in profile:

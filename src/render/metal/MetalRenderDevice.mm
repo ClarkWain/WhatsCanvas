@@ -2016,7 +2016,8 @@ void encodeSolid(id<MTLRenderCommandEncoder> encoder, MetalRenderDevice::MetalCo
     MetalSolidUniforms uniforms{};
     id<MTLTexture> clip = clipMaskTexture(prim);
     uniforms.clipParams[0] = clip != nil ? 1.0f : 0.0f;
-    uniforms.clipParams[1] = prim.blendMode == 4 ? 1.0f : 0.0f;
+    uniforms.clipParams[1] =
+        blendModeFromInt(prim.blendMode) == MetalBlendMode::Screen ? 1.0f : 0.0f;
     uniforms.clipUv[0] = prim.clipUvScale[0];
     uniforms.clipUv[1] = prim.clipUvScale[1];
     uniforms.clipUv[2] = prim.clipUvOffset[0];
