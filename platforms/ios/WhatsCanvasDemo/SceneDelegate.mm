@@ -7,6 +7,14 @@
 
 @implementation CanvasViewController
 
+- (void)loadView
+{
+    MetalCanvasView *view = [[MetalCanvasView alloc] init];
+    view.autoresizingMask =
+        UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    self.view = view;
+}
+
 - (BOOL)prefersStatusBarHidden
 {
     return YES;
@@ -32,7 +40,6 @@
     UIWindowScene *windowScene = (UIWindowScene *)scene;
     self.window = [[UIWindow alloc] initWithWindowScene:windowScene];
     CanvasViewController *controller = [[CanvasViewController alloc] init];
-    controller.view = [[MetalCanvasView alloc] initWithFrame:self.window.bounds];
     self.window.rootViewController = controller;
     [self.window makeKeyAndVisible];
 }
