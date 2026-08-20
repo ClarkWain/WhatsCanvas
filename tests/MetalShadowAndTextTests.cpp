@@ -145,7 +145,7 @@ bool testMetalGaussianDropShadow()
         return false;
     }
 
-    auto at = [](const std::vector<unsigned char> &pixels, int x, int y) {
+    auto at = [width](const std::vector<unsigned char> &pixels, int x, int y) {
         return &pixels[(static_cast<std::size_t>(y) * width + x) * 4u];
     };
     // The offset hard silhouette ends at x=40. Coverage at x=42 can therefore
