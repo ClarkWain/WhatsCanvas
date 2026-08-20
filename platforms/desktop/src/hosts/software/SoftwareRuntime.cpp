@@ -22,6 +22,20 @@ int SoftwareRuntime::runDump(IScene& scene, const SoftwareDumpConfig& config)
         return 4;
     }
 
+#if defined(__APPLE__)
+    if (!canvas->setTextBackend(wsc::Canvas::TextBackend::CoreText)) {
+        std::fprintf(stderr, "[SoftwareRuntime] CoreText backend initialization failed\n");
+        canvas->finalizeContext();
+        return 5;
+    }
+#elif defined(_WIN32)
+    if (!canvas->setTextBackend(wsc::Canvas::TextBackend::DirectWrite)) {
+        std::fprintf(stderr, "[SoftwareRuntime] DirectWrite backend initialization failed\n");
+        canvas->finalizeContext();
+        return 5;
+    }
+#endif
+
     scene.onCanvasReady(*canvas);
     const float logicalWidth = static_cast<float>(width);
     const float logicalHeight = static_cast<float>(height);

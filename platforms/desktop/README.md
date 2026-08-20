@@ -19,9 +19,13 @@ platforms display and can regression-test the same visual content.
   motion), including the retained-`Picture` + dynamic-overlay split.
 - Optional headless dump mode that renders N frames to an off-screen framebuffer
   and writes a PPM, suitable for pixel-regression golden comparison.
+- Native text selection on supported desktop systems: CoreText on macOS and
+  DirectWrite on Windows, with the portable text backend on other hosts.
 
-Additional hosts (Cocoa+Metal, Win32 native), scenes, and CI hookup are
-planned as follow-up work.
+The top-level CTest suite includes a Software-backed desktop smoke test. Native
+OpenGL window and driver validation still require a machine with a display.
+Additional hosts (Cocoa+Metal, Win32 native) and scenes are planned as
+follow-up work.
 
 ## Build
 
@@ -54,6 +58,11 @@ WhatsCanvasDesktopHost --list-scenes
 WhatsCanvasDesktopHost --scene=feature_showcase --w=1280 --h=720 `
     --dump-png=out.ppm --frames=1
 ```
+
+On macOS, interactive windows use the Retina framebuffer and map Canvas
+coordinates through the display scale. Dump and benchmark dimensions are
+physical pixels, so `--w=1280 --h=720` always produces and measures a
+1280 x 720 framebuffer rather than a 2x backing store.
 
 ## Adding a new scene
 
