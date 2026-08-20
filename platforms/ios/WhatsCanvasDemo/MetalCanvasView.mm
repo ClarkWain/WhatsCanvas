@@ -6,6 +6,7 @@
 #import <MobileCoreServices/MobileCoreServices.h>
 
 #include "DemoScene.h"
+#include "../../shared/scenes/CanonicalViewport.h"
 
 #include <wsc/wsc.h>
 
@@ -28,6 +29,8 @@
     NSUInteger _fpsFrameCount;
     NSUInteger _screenshotCounter;
     BOOL _screenshotCaptureEnabled;
+    BOOL _fixedCaptureTimeEnabled;
+    float _fixedCaptureTimeSeconds;
     BOOL _applicationActive;
 }
 
@@ -56,6 +59,16 @@
         layer.presentsWithTransaction = YES;
         _screenshotCaptureEnabled =
             [NSProcessInfo.processInfo.arguments containsObject:@"--capture-frames"];
+        for (NSString *argument in NSProcessInfo.processInfo.arguments) {
+            static NSString *const prefix = @"--capture-time=";
+            if ([argument hasPrefix:prefix]) {
+                const double value = [[argument substringFromIndex:prefix.length] doubleValue];
+                if (std::isfinite(value) && value >= 0.0) {
+                    _fixedCaptureTimeEnabled = YES;
+                    _fixedCaptureTimeSeconds = static_cast<float>(value);
+                }
+            }
+        }
         _applicationActive = YES;
         _startTime = CACurrentMediaTime();
         _fpsWindowStart = _startTime;
@@ -208,7 +221,9 @@
     const float safeBottom = static_cast<float>(self.safeAreaInsets.bottom);
     const float safeLeft = static_cast<float>(self.safeAreaInsets.left);
     const float safeRight = static_cast<float>(self.safeAreaInsets.right);
-    const float elapsed = static_cast<float>(displayLink.timestamp - _startTime);
+    const float elapsed = _fixedCaptureTimeEnabled
+        ? _fixedCaptureTimeSeconds
+        : static_cast<float>(displayLink.timestamp - _startTime);
 
     _canvas->beginFrame();
     if (_staticPicture != nullptr) {
@@ -283,6 +298,50 @@
     if (provider) CGDataProviderRelease(provider);
     if (data) CFRelease(data);
     if (colorSpace) CGColorSpaceRelease(colorSpace);
+    if (ok) {
+        const float scale = static_cast<float>(self.contentScaleFactor);
+        const float logicalWidth = pixelWidth / scale;
+        const float logicalHeight = pixelHeight / scale;
+        const auto viewport = whatscanvas::scenes::makeCanonicalViewport(
+            logicalWidth, logicalHeight,
+            {static_cast<float>(self.safeAreaInsets.top),
+             static_cast<float>(self.safeAreaInsets.bottom),
+             static_cast<float>(self.safeAreaInsets.left),
+             static_cast<float>(self.safeAreaInsets.right)});
+        const NSArray<NSNumber *> *contentRect = @[
+            @(static_cast<int>(std::lround(viewport.offsetX * scale))),
+            @(static_cast<int>(std::lround(viewport.offsetY * scale))),
+            @(static_cast<int>(std::lround(viewport.width * viewport.scale * scale))),
+            @(static_cast<int>(std::lround(viewport.height * viewport.scale * scale)))
+        ];
+        const NSString *sampleID = _fixedCaptureTimeEnabled
+            ? [NSString stringWithFormat:@"t%04d",
+                static_cast<int>(std::lround(_fixedCaptureTimeSeconds * 1000.0f))]
+            : @"live";
+        const NSDictionary *metadata = @{
+            @"schema_version": @1,
+            @"scene_id": @"feature_showcase",
+            @"viewport_id": viewport.width > viewport.height
+                ? @"landscape" : @"portrait",
+            @"sample_id": sampleID,
+            @"platform": @"ios",
+            @"backend": @"metal",
+            @"elapsed_seconds": @(_fixedCaptureTimeEnabled
+                ? _fixedCaptureTimeSeconds : -1.0f),
+            @"content_rect_pixels": contentRect
+        };
+        NSError *metadataError = nil;
+        NSData *metadataData = [NSJSONSerialization dataWithJSONObject:metadata
+                                                               options:NSJSONWritingPrettyPrinted
+                                                                 error:&metadataError];
+        NSString *metadataPath = [[fullPath stringByDeletingPathExtension]
+            stringByAppendingPathExtension:@"json"];
+        if (metadataData == nil || ![metadataData writeToFile:metadataPath
+                                                      options:NSDataWritingAtomic
+                                                        error:&metadataError]) {
+            NSLog(@"WhatsCanvas: screenshot metadata failed: %@", metadataError);
+        }
+    }
     NSLog(@"WhatsCanvas: screenshot %s -> %@ (%dx%d)",
           ok ? "OK" : "FAILED", fullPath, pixelWidth, pixelHeight);
     return ok;

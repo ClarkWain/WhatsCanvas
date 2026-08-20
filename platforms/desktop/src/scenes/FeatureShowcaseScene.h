@@ -28,8 +28,11 @@ public:
 private:
     std::unique_ptr<wsc::Image> checkerImage_;
     std::shared_ptr<const wsc::Picture> staticPicture_;
-    float logicalWidth_ = 0.0f;
-    float logicalHeight_ = 0.0f;
+    float sceneWidth_ = 0.0f;
+    float sceneHeight_ = 0.0f;
+    float sceneScale_ = 1.0f;
+    float sceneOffsetX_ = 0.0f;
+    float sceneOffsetY_ = 0.0f;
 };
 
 } // namespace whatscanvas::desktop

@@ -19,6 +19,7 @@
 - (void)testPortraitLandscapeBackgroundAndColdLaunch
 {
     XCUIApplication *app = [[XCUIApplication alloc] init];
+    app.launchArguments = @[@"--capture-time=1.25"];
     app.launchEnvironment = @{
         @"MTL_DEBUG_LAYER": @"1",
         @"MTL_DEBUG_ERROR_MODE": @"0",
