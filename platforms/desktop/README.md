@@ -64,6 +64,14 @@ coordinates through the display scale. Dump and benchmark dimensions are
 physical pixels, so `--w=1280 --h=720` always produces and measures a
 1280 x 720 framebuffer rather than a 2x backing store.
 
+The feature showcase uses the Android demo's measured logical viewports
+(786 x 377 landscape and 393 x 759 portrait) as reference canvases. Each
+reference canvas is aspect-fitted, horizontally centered and scaled as one
+unit. Text, strokes, radii, spacing and card geometry therefore retain the
+same proportions instead of independently reflowing at desktop window sizes.
+See [RENDERING_PARITY.md](RENDERING_PARITY.md) for the diagnosis and validation
+record.
+
 ## Adding a new scene
 
 1. Create `src/scenes/YourScene.h/.cpp` implementing `IScene`.
