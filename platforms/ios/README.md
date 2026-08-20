@@ -50,3 +50,8 @@ xcodebuild test \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
   CODE_SIGNING_ALLOWED=NO
 ```
+
+The same scene has been validated on an iPhone 12 (A14, iOS 18.7.8) with Metal
+API Validation enabled in Debug and at 59.2–59.9 fps in Release. Simulator
+coverage remains the repeatable lifecycle gate; representative older and
+current physical GPUs are still required before production distribution.
