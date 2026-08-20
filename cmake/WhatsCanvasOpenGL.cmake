@@ -88,6 +88,12 @@ function(whatscanvas_add_common_dependencies project_root)
         set(HB_HAVE_ICU OFF CACHE BOOL "" FORCE)
         set(HB_HAVE_GOBJECT OFF CACHE BOOL "" FORCE)
         set(HB_HAVE_INTROSPECTION OFF CACHE BOOL "" FORCE)
+        # HarfBuzz's bundled hb-coretext shaper includes ApplicationServices,
+        # which trips HarfBuzz's own -Werror=cast-align pragma on recent
+        # Command Line Tools SDK headers. We do not use HarfBuzz's CoreText
+        # shaper (SystemFontEnumerator queries CoreText directly), so keep
+        # the default backend and disable this optional path.
+        set(HB_HAVE_CORETEXT OFF CACHE BOOL "" FORCE)
         set(HB_BUILD_UTILS OFF CACHE BOOL "" FORCE)
         set(HB_BUILD_SUBSET OFF CACHE BOOL "" FORCE)
         set(HB_BUILD_RASTER OFF CACHE BOOL "" FORCE)
@@ -162,12 +168,14 @@ endfunction()
 function(whatscanvas_add_gl_family_library target_name project_root)
     set(src_dir "${project_root}/src")
     set(glad_path "${project_root}/third_party/glad")
-    set(options OPENGLES)
+    set(options OPENGLES METAL_ONLY)
     cmake_parse_arguments(WSC_GL "${options}" "" "" ${ARGN})
 
     set(glad_sources)
     set(glad_include_directories)
-    if (WHATSCANVAS_USE_SYSTEM_DEPENDENCIES)
+    if (WSC_GL_METAL_ONLY)
+        set(glad_library)
+    elseif (WHATSCANVAS_USE_SYSTEM_DEPENDENCIES)
         set(glad_library glad::glad)
     else()
         list(APPEND glad_sources "${glad_path}/src/glad.c")
@@ -313,8 +321,50 @@ function(whatscanvas_add_gl_family_library target_name project_root)
         endif()
     endif()
 
+    set(gl_backend_sources)
+    if (NOT WSC_GL_METAL_ONLY)
+        list(APPEND gl_backend_sources
+            ${glad_sources}
+            "${src_dir}/opengl/GLTextureUtils.cpp"
+            "${src_dir}/opengl/GLProgram.cpp"
+            "${src_dir}/opengl/GLVertexArray.cpp"
+            "${src_dir}/opengl/StreamBuffer.cpp"
+            "${src_dir}/opengl/AsyncReadback.cpp"
+            "${src_dir}/opengl/GlobalIndexBuffers.cpp"
+            "${src_dir}/opengl/TexelBuffer.cpp"
+            "${src_dir}/opengl/PixelFormatCaps.cpp"
+            "${src_dir}/opengl/GaussianBlurProgram.cpp"
+            "${src_dir}/opengl/ClipCoverageProgram.cpp"
+            "${src_dir}/opengl/ClipMaskUniforms.cpp"
+            "${src_dir}/opengl/DrawClipFillProgram.cpp"
+            "${src_dir}/render/OpenGLRenderDevice.cpp"
+            "${src_dir}/render/GLPresent.cpp")
+    endif()
+
+    if (WSC_GL_METAL_ONLY)
+        set(command_sources "${src_dir}/command/SoftwareCommandStubs.cpp")
+        set(gl_renderer_support_sources)
+    else()
+        set(command_sources
+            "${src_dir}/command/DrawCommand.cpp"
+            "${src_dir}/command/DrawPoints.cpp"
+            "${src_dir}/command/DrawLines.cpp"
+            "${src_dir}/command/DrawPath.cpp"
+            "${src_dir}/command/DrawImage.cpp"
+            "${src_dir}/command/DrawText.cpp")
+        set(gl_renderer_support_sources
+            "${src_dir}/render/RenderContext.cpp"
+            "${src_dir}/render/SpriteBatch.cpp")
+    endif()
+
+    if (APPLE)
+        set(coretext_backend_source "${src_dir}/text/CoreTextTextBackend.mm")
+    else()
+        set(coretext_backend_source "${src_dir}/text/CoreTextTextBackend.cpp")
+    endif()
+
     add_library(${target_name}
-        ${glad_sources}
+        ${gl_backend_sources}
         "${src_dir}/core/Log.cpp"
         "${src_dir}/canvas/base.cpp"
         "${src_dir}/canvas/Canvas.cpp"
@@ -329,6 +379,7 @@ function(whatscanvas_add_gl_family_library target_name project_root)
         "${src_dir}/text/GlyphAtlas.cpp"
         "${src_dir}/text/NativeText.cpp"
         "${src_dir}/text/DirectWriteTextBackend.cpp"
+        "${coretext_backend_source}"
         "${src_dir}/text/SystemFontEnumerator.cpp"
         "${src_dir}/text/platform/AndroidFontConfig.cpp"
         "${src_dir}/text/platform/AndroidFontProvider.cpp"
@@ -336,33 +387,13 @@ function(whatscanvas_add_gl_family_library target_name project_root)
         "${src_dir}/text/TextUtils.cpp"
         "${src_dir}/text/UnicodeBidi.cpp"
         ${text_shaping_sources}
-        "${src_dir}/opengl/GLTextureUtils.cpp"
-        "${src_dir}/opengl/GLProgram.cpp"
-        "${src_dir}/opengl/GLVertexArray.cpp"
-        "${src_dir}/opengl/StreamBuffer.cpp"
-        "${src_dir}/opengl/AsyncReadback.cpp"
-        "${src_dir}/opengl/GlobalIndexBuffers.cpp"
-        "${src_dir}/opengl/TexelBuffer.cpp"
-        "${src_dir}/opengl/PixelFormatCaps.cpp"
-        "${src_dir}/opengl/GaussianBlurProgram.cpp"
-        "${src_dir}/opengl/ClipCoverageProgram.cpp"
-        "${src_dir}/opengl/ClipMaskUniforms.cpp"
-        "${src_dir}/opengl/DrawClipFillProgram.cpp"
-        "${src_dir}/command/DrawCommand.cpp"
-        "${src_dir}/command/DrawPoints.cpp"
-        "${src_dir}/command/DrawLines.cpp"
-        "${src_dir}/command/DrawPath.cpp"
-        "${src_dir}/command/DrawImage.cpp"
-        "${src_dir}/command/DrawText.cpp"
+        ${command_sources}
         "${src_dir}/render/CommandDrawListEncoder.cpp"
         "${src_dir}/render/FrameCompiler.cpp"
         "${src_dir}/render/FilterChain.cpp"
-        "${src_dir}/render/RenderContext.cpp"
-        "${src_dir}/render/OpenGLRenderDevice.cpp"
-        "${src_dir}/render/GLPresent.cpp"
+        ${gl_renderer_support_sources}
         "${src_dir}/render/RenderDeviceFactory.cpp"
         "${src_dir}/render/RenderTargetPool.cpp"
-        "${src_dir}/render/SpriteBatch.cpp"
         "${src_dir}/render/Renderer.cpp"
         "${src_dir}/render/software/SoftwareRenderer.cpp"
         "${src_dir}/render/software/SoftwarePresent.cpp"
@@ -372,6 +403,9 @@ function(whatscanvas_add_gl_family_library target_name project_root)
 
     if (WSC_GL_OPENGLES)
         target_compile_definitions(${target_name} PRIVATE WHATSCANVAS_OPENGL_ES)
+    endif()
+    if (WSC_GL_METAL_ONLY)
+        target_compile_definitions(${target_name} PRIVATE WHATSCANVAS_METAL_ONLY)
     endif()
 
     if (WHATSCANVAS_ENABLE_OPENTYPE_SHAPING)
@@ -403,6 +437,7 @@ function(whatscanvas_add_gl_family_library target_name project_root)
         # library (plain C++) is untouched.
         set_source_files_properties(
             "${src_dir}/render/metal/MetalRenderDevice.mm"
+            "${src_dir}/text/CoreTextTextBackend.mm"
             PROPERTIES
                 COMPILE_FLAGS "-fobjc-arc -fmodules")
     endif()
@@ -420,7 +455,9 @@ function(whatscanvas_add_gl_family_library target_name project_root)
             "$<BUILD_INTERFACE:${project_root}/include>"
             "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
     )
-    target_compile_definitions(${target_name} PRIVATE GLEW_STATIC)
+    if (NOT WSC_GL_METAL_ONLY)
+        target_compile_definitions(${target_name} PRIVATE GLEW_STATIC)
+    endif()
     target_link_libraries(${target_name}
         PRIVATE
             "$<BUILD_INTERFACE:WhatsCanvasGLM>"
@@ -431,7 +468,9 @@ function(whatscanvas_add_gl_family_library target_name project_root)
             ${text_rasterizer_libraries}
     )
 
-    if (NOT WSC_GL_OPENGLES)
+    if (WSC_GL_METAL_ONLY)
+        # Standalone Metal builds intentionally have no OpenGL/OpenGLES link.
+    elseif (NOT WSC_GL_OPENGLES)
         find_package(OpenGL REQUIRED)
         target_link_libraries(${target_name}
             PRIVATE
@@ -459,6 +498,14 @@ function(whatscanvas_add_gl_family_library target_name project_root)
         find_library(WHATSCANVAS_CORETEXT_FRAMEWORK CoreText)
         if (WHATSCANVAS_CORETEXT_FRAMEWORK)
             target_link_libraries(${target_name} PRIVATE "${WHATSCANVAS_CORETEXT_FRAMEWORK}")
+        endif()
+        if (NOT DEFINED WHATSCANVAS_CORE_GRAPHICS_FRAMEWORK
+                OR NOT WHATSCANVAS_CORE_GRAPHICS_FRAMEWORK)
+            find_library(WHATSCANVAS_CORE_GRAPHICS_FRAMEWORK CoreGraphics)
+        endif()
+        if (WHATSCANVAS_CORE_GRAPHICS_FRAMEWORK)
+            target_link_libraries(${target_name} PRIVATE
+                "${WHATSCANVAS_CORE_GRAPHICS_FRAMEWORK}")
         endif()
         if (NOT DEFINED WHATSCANVAS_FOUNDATION_FRAMEWORK OR NOT WHATSCANVAS_FOUNDATION_FRAMEWORK)
             find_library(WHATSCANVAS_FOUNDATION_FRAMEWORK Foundation)
@@ -490,6 +537,10 @@ function(whatscanvas_add_opengles_library target_name project_root)
     whatscanvas_add_gl_family_library(${target_name} "${project_root}" OPENGLES)
 endfunction()
 
+function(whatscanvas_add_metal_library target_name project_root)
+    whatscanvas_add_gl_family_library(${target_name} "${project_root}" METAL_ONLY)
+endfunction()
+
 # A dependency-free, CPU-only rendering library. It contains the same public
 # Canvas API but is built with WHATSCANVAS_SOFTWARE_ONLY so every OpenGL /
 # Vulkan / glad code path is compiled out. The draw commands are reduced to
@@ -498,6 +549,12 @@ endfunction()
 # fully head-less environments. Text uses the built-in stb_truetype rasterizer.
 function(whatscanvas_add_software_library target_name project_root)
     set(src_dir "${project_root}/src")
+
+    if (APPLE)
+        set(coretext_backend_source "${src_dir}/text/CoreTextTextBackend.mm")
+    else()
+        set(coretext_backend_source "${src_dir}/text/CoreTextTextBackend.cpp")
+    endif()
 
     add_library(${target_name}
         "${src_dir}/core/Log.cpp"
@@ -514,6 +571,7 @@ function(whatscanvas_add_software_library target_name project_root)
         "${src_dir}/text/GlyphAtlas.cpp"
         "${src_dir}/text/NativeText.cpp"
         "${src_dir}/text/DirectWriteTextBackend.cpp"
+        "${coretext_backend_source}"
         "${src_dir}/text/SystemFontEnumerator.cpp"
         "${src_dir}/text/platform/AndroidFontConfig.cpp"
         "${src_dir}/text/platform/AndroidFontProvider.cpp"
@@ -557,9 +615,20 @@ function(whatscanvas_add_software_library target_name project_root)
     endif()
 
     if (APPLE)
+        set_source_files_properties(
+            "${src_dir}/text/CoreTextTextBackend.mm"
+            PROPERTIES COMPILE_FLAGS "-fobjc-arc -fmodules")
         find_library(WHATSCANVAS_CORETEXT_FRAMEWORK CoreText)
         if (WHATSCANVAS_CORETEXT_FRAMEWORK)
             target_link_libraries(${target_name} PRIVATE "${WHATSCANVAS_CORETEXT_FRAMEWORK}")
+        endif()
+        if (NOT DEFINED WHATSCANVAS_CORE_GRAPHICS_FRAMEWORK
+                OR NOT WHATSCANVAS_CORE_GRAPHICS_FRAMEWORK)
+            find_library(WHATSCANVAS_CORE_GRAPHICS_FRAMEWORK CoreGraphics)
+        endif()
+        if (WHATSCANVAS_CORE_GRAPHICS_FRAMEWORK)
+            target_link_libraries(${target_name} PRIVATE
+                "${WHATSCANVAS_CORE_GRAPHICS_FRAMEWORK}")
         endif()
         if (NOT DEFINED WHATSCANVAS_FOUNDATION_FRAMEWORK OR NOT WHATSCANVAS_FOUNDATION_FRAMEWORK)
             find_library(WHATSCANVAS_FOUNDATION_FRAMEWORK Foundation)

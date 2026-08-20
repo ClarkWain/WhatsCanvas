@@ -4,7 +4,7 @@ English | [中文](README_zh.md)
 
 [![CI](https://github.com/ClarkWain/WhatsCanvas/actions/workflows/cross-platform-validation.yml/badge.svg)](https://github.com/ClarkWain/WhatsCanvas/actions/workflows/cross-platform-validation.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.5.0-informational.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.6.0-informational.svg)](CHANGELOG.md)
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C.svg)](CMakeLists.txt)
 [![Documentation](https://img.shields.io/badge/docs-online-success.svg)](https://clarkwain.github.io/WhatsCanvas/)
 
@@ -25,11 +25,11 @@ This project aims to bridge the gap between minimal drawing libraries (such as N
 | **Applicability** | Custom UIs in native apps, tool/data interfaces, HUDs, 2D game render layers, offscreen image generation on servers or in test environments. |
 | **API & Language** | C++17; the public API is located in `include/wsc/`, with the entry point being `#include <wsc/wsc.h>`. |
 | **Render Backends** | OpenGL, pure CPU Software; optional OpenGL ES, Vulkan, and Metal (macOS/iOS). WebGPU is not yet implemented. |
-| **Platform Status** | Windows, Linux, and macOS run continuous builds and unit tests; release packages cover Windows x64, Linux x64, and macOS universal. Android has a CI-built three-ABI GLES sample and an installable Profile demo asset; real-device checkpoints currently cover a Pixel 3 and Redmi K30, not a broad device matrix. Metal is validated on macOS. |
-| **Text Capabilities** | Font discovery and fallback, CJK/RTL, UAX #9, line breaking and ellipsis, glyph atlas, COLR/CPAL v0 and common COLRv1 paint graphs; FreeType and HarfBuzz shaping are enabled by default for OpenGL/OpenGL ES. |
+| **Platform Status** | Windows, Linux, and macOS run continuous builds and unit tests; release packages cover Windows x64, Linux x64, and macOS universal. Android has a three-ABI GLES sample and physical-device checkpoints. iOS has an in-repository Metal/CoreText host validated on the iOS 26.5 simulator and an iPhone 12 running iOS 18.7.8, including orientation, lifecycle, cold-start, API Validation, and 60 fps checkpoints. |
+| **Text Capabilities** | Font discovery and fallback, CJK/RTL, UAX #9, line breaking and ellipsis, glyph atlas, COLR/CPAL v0 and common COLRv1 paint graphs; FreeType/HarfBuzz serve the portable path, with selectable DirectWrite on Windows and CoreText on Apple platforms. |
 | **Integration** | vcpkg overlay port, CMake `find_package`, `add_subdirectory`, or portable installation directories generated from source. |
-| **Footprint** | Not header-only. Supports linking only against `WhatsCanvas::Software`, `::OpenGL` (also hosts optional Vulkan and Apple Metal), or `::OpenGLES` based on backend; see [Footprint and Dependencies](#footprint-and-dependencies) for reference. |
-| **Maturity** | Current version `0.5.0`, still pre-1.0. Public API boundaries, cross-platform CI, pixel regression, package-consumer integration tests, and auditable performance baselines are in place; upgrade and platform risks should still be evaluated against the boundaries described below. |
+| **Footprint** | Not header-only. Supports linking only against `WhatsCanvas::Software`, `::OpenGL`, `::OpenGLES`, or Apple-only `::Metal` based on backend; see [Footprint and Dependencies](#footprint-and-dependencies) for reference. |
+| **Maturity** | Current version `0.6.0`, still pre-1.0. Public API boundaries, cross-platform CI, pixel regression, package-consumer integration tests, and auditable performance baselines are in place; upgrade and platform risks should still be evaluated against the boundaries described below. |
 | **License** | MIT; components in `third_party/` follow their respective licenses. |
 
 **When to Choose WhatsCanvas?**
@@ -73,7 +73,7 @@ cmake_minimum_required(VERSION 3.16)
 project(MyApp LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
-find_package(WhatsCanvas 0.5.0 CONFIG REQUIRED)
+find_package(WhatsCanvas 0.6.0 CONFIG REQUIRED)
 
 add_executable(MyApp main.cpp)
 target_link_libraries(MyApp PRIVATE WhatsCanvas::Software)
@@ -101,7 +101,7 @@ For advanced features like in-window OpenGL, OpenGL ES, Vulkan, font registratio
 
 ### Using Precompiled Packages
 
-Tagged release assets are named `whatscanvas-<platform>-release-<version>.zip`, e.g., `whatscanvas-win64-release-0.5.0.zip`. The package layout is:
+Tagged release assets are named `whatscanvas-<platform>-release-<version>.zip`, e.g., `whatscanvas-win64-release-0.6.0.zip`. The package layout is:
 
 ```text
 include/wsc/                 Public headers
@@ -118,7 +118,7 @@ or application signing deliverable. See the [Android Integration Guide](doc/ANDR
 The targets provided by the precompiled packages may differ across platforms. In practice, verify the required targets exist via CMake:
 
 ```cmake
-find_package(WhatsCanvas 0.4.0 CONFIG REQUIRED)
+find_package(WhatsCanvas 0.6.0 CONFIG REQUIRED)
 if (NOT TARGET WhatsCanvas::Software)
     message(FATAL_ERROR "This package does not contain the Software backend")
 endif()
@@ -243,9 +243,9 @@ cmake -S . -B build \
 | **OpenGL 3.3 Core** | `WhatsCanvas::OpenGL` | Enabled, primary cross-platform GL path | App creates the GL context and keeps it current, provides the proc address | Main GL rendering path for desktop applications. |
 | **OpenGL ES 3.0** | `WhatsCanvas::OpenGLES` | Disabled | Host EGL/GLES context | Independent target; Linux Mesa executes build and filter pixel gates; mobile devices require host-side verification. |
 | **Vulkan** | Built into `WhatsCanvas::OpenGL` | Disabled | Vulkan SDK for source build; loader, driver, and device for running | Offscreen by default; Win32 supports Canvas window presentation; window surfaces for other platforms are still evolving. |
-| **Metal** | Built into `WhatsCanvas::OpenGL` on Apple platforms | Enabled on Apple platforms | Metal-capable macOS/iOS/tvOS device | Offscreen rendering, external `MTLTexture` interop, and `CAMetalLayer` window presentation; iOS device/simulator validation remains host-owned. |
+| **Metal** | `WhatsCanvas::Metal` (standalone) or built into `WhatsCanvas::OpenGL` | Standalone target opt-in; OpenGL host enables it on Apple | Metal-capable macOS/iOS/tvOS device | Offscreen rendering, external `MTLTexture` interop, and `CAMetalLayer` presentation without linking OpenGL ES. |
 
-Vulkan is enabled with `-DWHATSCANVAS_ENABLE_VULKAN=ON`. Metal is enabled by default on Apple platforms and can be disabled with `-DWHATSCANVAS_ENABLE_METAL=OFF`. Neither currently has an independent package target: each is compiled into `WhatsCanvas::OpenGL` and selected at runtime with `Backend::Vulkan` or `Backend::Metal`.
+Vulkan is enabled with `-DWHATSCANVAS_ENABLE_VULKAN=ON`. Metal remains available inside the Apple OpenGL target and can also be built independently with `-DWHATSCANVAS_BUILD_METAL=ON -DWHATSCANVAS_BUILD_OPENGL=OFF`, producing `WhatsCanvas::Metal` without a GL dependency.
 
 For OpenGL/OpenGL ES, the application inherently manages the window and context; Software, Vulkan, and Metal require no external GL context. All backends are initialized via `Canvas::create(Backend, width, height)`, which yields `nullptr` upon failure, naturally accommodating graceful fallbacks:
 
@@ -269,7 +269,7 @@ Platform Validation Status:
 | Windows x64 | MSVC unit tests, package consumption, OpenGL/Software; release matrix can enable GLES, Vulkan, FreeType, HarfBuzz | DirectWrite text backend optional; Vulkan window presentation supports Win32. |
 | Linux x64 | GCC build, unit tests, OpenGL/GLES filter pixel gates, package consumption | Automated GL scenarios use Mesa/Xvfb; GLX window presentation from source lacks continuous verification. |
 | macOS x86_64/arm64 | Unit tests, Metal pixel/contract gates, and universal release packages | Metal is enabled by default and supports offscreen rendering plus `CAMetalLayer` presentation; system OpenGL remains available. |
-| iOS / Android | OpenGL ES target, an [Android GLSurfaceView/JNI sample](platforms/android/README.md), an [Android integration guide](doc/ANDROID_INTEGRATION.md), and iOS integration notes | Platform hosts live under `platforms/`; Android CI builds `armeabi-v7a`, `arm64-v8a`, and `x86_64`, while Pixel 3 and Redmi K30 provide manual physical-device checkpoints. There is no regular real-device CI, so validate on the target hardware before integrating. |
+| iOS / Android | [iOS UIKit/Metal/CoreText sample](platforms/ios/README.md), iOS lifecycle UI test, [Android GLSurfaceView/JNI sample](platforms/android/README.md), and Android integration guide | The iOS host is simulator-validated in portrait/landscape, background/resume, and cold launch. Android builds three ABIs and has Pixel 3/Redmi K30 checkpoints. Both still require target-hardware validation before shipping. |
 | Web | Not supported | WebAssembly / WebGL 2 bridging is still planned. |
 
 See [Android Integration](doc/ANDROID_INTEGRATION.md), [Cross-Platform Validation Matrix](doc/CROSS_PLATFORM_VALIDATION_MATRIX.md), [iOS Build Notes](doc/IOS_BUILD_NOTES.md), and [Vulkan Backend Status](doc/vulkan-backend-status.md) for detailed statuses.
@@ -295,7 +295,7 @@ Note that bi-directional text processing is more than script-level shaping. Scri
 
 - `WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER=ON` (default): Prefers FreeType for glyph lookup, metrics, kerning, and rasterization; falls back to `stb_truetype` if unavailable.
 - `WHATSCANVAS_ENABLE_OPENTYPE_SHAPING=ON` (default): Enables HarfBuzz OpenType shaping for the public portable text path, including locale/direction input, global `Paint::setFontFeature` controls, and collection face selection; uses simple shaping + kerning if unavailable or disabled.
-- DirectWrite adapter is optional on Windows; CoreText adapter is not yet implemented.
+- DirectWrite is optional on Windows. Apple builds expose a native CoreText backend for measurement, line breaking, system fallback, features/variations, decoration, and cached grayscale RGBA rasterization.
 - COLR/CPAL v0, the common COLRv1 paint graph used by Android Noto Color Emoji,
   and CBLC index-format 1 + CBDT image-format 17 PNG glyphs are supported when
   FreeType is enabled. Other CBDT/CBLC formats, SBIX, SVG, and exact advanced
@@ -362,7 +362,7 @@ Risks to keep in mind:
 - The version is still pre-1.0 (`0.4.x`); read the CHANGELOG and run package-consumer tests before upgrading.
 - The capability tables in this README are not a parity guarantee for every backend × platform combination; consult the feature matrices for filters, text, and output targets, and validate the combination you actually use.
 - Vulkan is opt-in and not the default backend; cross-platform window presentation and broader pixel coverage are still being extended.
-- The Android GLSurfaceView/JNI host builds both Arm ABIs plus `x86_64`; CI builds Debug/Release, runs lint, and tagged releases publish a debug-signed Profile demo APK. Pixel 3 and Redmi K30 checkpoints cover rendering, fonts, lifecycle, and pacing, but broad device coverage, AAR packaging, and managed-emulator instrumentation remain open. Metal is available on Apple platforms, but iOS simulator/device CI and an in-repository iOS sample app also remain open; WebGPU, WebAssembly, and a native CoreText adapter are not yet available.
+- The Android GLSurfaceView/JNI host builds both Arm ABIs plus `x86_64`; Pixel 3 and Redmi K30 checkpoints cover rendering, fonts, lifecycle, and pacing, but broad device coverage and AAR packaging remain open. The iOS Metal/CoreText sample is simulator-tested, while physical-device performance and signing/distribution remain host-owned. WebGPU and WebAssembly are not yet available.
 - Real-time GPU rendering results may vary with drivers; use Software as the deterministic baseline and use tolerance-based comparison for GPU regressions.
 - `Canvas` should be used from within its rendering / context thread; current public documentation does not promise concurrent access to a single instance, and no cross-thread contract is defined for sharing images, fonts, or external textures across Canvas instances.
 

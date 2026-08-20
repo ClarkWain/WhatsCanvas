@@ -295,7 +295,7 @@ bool wsc::Image::updateRGBA(IRenderer &renderer, const unsigned char *pixels, in
 
     mipmapsGenerated_ = regenerateMipmaps || mipmapsGenerated_;
     if (storage_->cpuPixelsRGBA) {
-        if (!storage_->cpuPixelsRGBA.unique()) {
+        if (storage_->cpuPixelsRGBA.use_count() != 1) {
             storage_->cpuPixelsRGBA =
                 std::make_shared<std::vector<unsigned char>>(
                     *storage_->cpuPixelsRGBA);

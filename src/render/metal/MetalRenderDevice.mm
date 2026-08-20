@@ -73,6 +73,11 @@ struct SolidVSOut {
     float  coverage;
 };
 
+struct SolidUniforms {
+    float4 clipParams;
+    float4 clipUv;
+};
+
 vertex SolidVSOut solid_vs(SolidVSInput in [[stage_in]])
 {
     SolidVSOut out;
@@ -83,10 +88,18 @@ vertex SolidVSOut solid_vs(SolidVSInput in [[stage_in]])
     return out;
 }
 
-fragment float4 solid_fs(SolidVSOut in [[stage_in]])
+fragment float4 solid_fs(SolidVSOut in [[stage_in]],
+                         texture2d<float> clipMask [[texture(0)]],
+                         sampler clipSampler [[sampler(0)]],
+                         constant SolidUniforms &u [[buffer(0)]])
 {
     float4 c = in.color;
     c.a *= in.coverage;
+    if (u.clipParams.x > 0.5) {
+        c.a *= clipMask.sample(
+            clipSampler, in.position.xy * u.clipUv.xy + u.clipUv.zw).r;
+    }
+    c.rgb *= c.a;
     return c;
 }
 
@@ -116,6 +129,8 @@ struct TexturedUniforms {
     float4 colorMatrixRow2;
     float4 colorMatrixRow3;
     float4 colorMatrixOffset;
+    float4 clipParams;    // x = enabled, yz unused
+    float4 clipUv;        // xy = framebuffer-to-UV scale, zw = offset
 };
 
 vertex TexturedVSOut textured_vs(TexturedVSInput in [[stage_in]])
@@ -143,6 +158,7 @@ static float roundedRectCoverage(float2 localPx, float2 sizePx, float radius)
 
 fragment float4 textured_fs(TexturedVSOut in [[stage_in]],
                             texture2d<float> tex [[texture(0)]],
+                            texture2d<float> clipMask [[texture(1)]],
                             sampler samp [[sampler(0)]],
                             constant TexturedUniforms &u [[buffer(0)]])
 {
@@ -155,24 +171,42 @@ fragment float4 textured_fs(TexturedVSOut in [[stage_in]],
             dot(u.colorMatrixRow3, s));
         s = m + u.colorMatrixOffset;
     }
-    float4 c = s * u.tint * in.vertexTint;
+    float4 tint = u.tint;
+    // Linear image/text gradients are encoded through the existing per-vertex
+    // tint stream. Keeping gradient evaluation out of this shader avoids large
+    // dynamically-indexed fragment uniform blocks on older Apple GPUs.
+    float4 c = s * tint * in.vertexTint;
     c.a *= u.params.x;
     if (u.params.y > 0.5) {
         float2 sizePx = u.params.zw;
         float coverage = roundedRectCoverage(in.uv * sizePx, sizePx, u.params.y);
         c.a *= coverage;
     }
+    if (u.clipParams.x > 0.5) {
+        float coverage = clipMask.sample(samp, in.position.xy * u.clipUv.xy + u.clipUv.zw).r;
+        c.a *= coverage;
+    }
+    c.rgb *= c.a;
     return c;
 }
 
 fragment float4 textured_alpha_fs(TexturedVSOut in [[stage_in]],
                                   texture2d<float> tex [[texture(0)]],
+                                  texture2d<float> clipMask [[texture(1)]],
                                   sampler samp [[sampler(0)]],
                                   constant TexturedUniforms &u [[buffer(0)]])
 {
     float coverage = tex.sample(samp, in.uv).r;
-    float4 c = u.tint * in.vertexTint;
+    float4 tint = u.tint;
+    // CoreText alpha masks use the same per-vertex tint stream as color
+    // textures, including supported linear gradients.
+    float4 c = tint * in.vertexTint;
     c.a *= coverage * u.params.x;
+    if (u.clipParams.x > 0.5) {
+        float clipCoverage = clipMask.sample(samp, in.position.xy * u.clipUv.xy + u.clipUv.zw).r;
+        c.a *= clipCoverage;
+    }
+    c.rgb *= c.a;
     return c;
 }
 
@@ -200,6 +234,8 @@ struct GradientUniforms {
     float4 stops[8];     // r,g,b,a per stop
     float4 offsets;      // packed 4 offsets
     float4 offsetsHigh;  // packed offsets 4..7
+    float4 clipParams;   // x = enabled
+    float4 clipUv;       // xy = framebuffer-to-UV scale, zw = offset
 };
 
 vertex GradientVSOut gradient_vs(GradientVSInput in [[stage_in]])
@@ -227,6 +263,8 @@ static float applyTile(float t, int mode)
 }
 
 fragment float4 gradient_fs(GradientVSOut in [[stage_in]],
+                            texture2d<float> clipMask [[texture(0)]],
+                            sampler clipSampler [[sampler(0)]],
                             constant GradientUniforms &u [[buffer(0)]])
 {
     int type = int(u.params.x);
@@ -250,6 +288,10 @@ fragment float4 gradient_fs(GradientVSOut in [[stage_in]],
     if (tileMode == 3 && (t < 0.0 || t > 1.0)) {
         alpha = 0.0;
     }
+    if (u.clipParams.x > 0.5) {
+        alpha *= clipMask.sample(
+            clipSampler, in.position.xy * u.clipUv.xy + u.clipUv.zw).r;
+    }
     float tt = applyTile(t, tileMode);
 
     // Unpack 8 stop offsets from two float4s (up to 8 stops).
@@ -265,6 +307,7 @@ fragment float4 gradient_fs(GradientVSOut in [[stage_in]],
     if (stopCount == 1) {
         float4 c = u.stops[0];
         c.a *= alpha;
+        c.rgb *= c.a;
         return c;
     }
 
@@ -272,6 +315,7 @@ fragment float4 gradient_fs(GradientVSOut in [[stage_in]],
     if (tt <= offsets[0]) {
         float4 c = u.stops[0];
         c.a *= alpha;
+        c.rgb *= c.a;
         return c;
     }
     for (int i = 1; i < 8; ++i) {
@@ -281,11 +325,13 @@ fragment float4 gradient_fs(GradientVSOut in [[stage_in]],
             float f = (tt - offsets[i - 1]) / span;
             float4 c = mix(u.stops[i - 1], u.stops[i], f);
             c.a *= alpha;
+            c.rgb *= c.a;
             return c;
         }
     }
     float4 c = u.stops[stopCount - 1];
     c.a *= alpha;
+    c.rgb *= c.a;
     return c;
 }
 
@@ -329,6 +375,22 @@ fragment float4 clip_fs(ClipVSOut in [[stage_in]],
     float coverage = mask.sample(samp, in.uv).r;
     float4 c = u.color;
     c.a *= coverage;
+    c.rgb *= c.a;
+    return c;
+}
+
+// Drop-shadow composition samples alpha rather than red. Alpha8 glyph atlases
+// expand coverage uniformly, but RGBA color glyphs (including emoji) may have
+// little or no red in otherwise opaque pixels.
+fragment float4 shadow_compose_fs(ClipVSOut in [[stage_in]],
+                                  texture2d<float> mask [[texture(0)]],
+                                  sampler samp [[sampler(0)]],
+                                  constant ClipUniforms &u [[buffer(0)]])
+{
+    float coverage = mask.sample(samp, in.uv).a;
+    float4 c = u.color;
+    c.a *= coverage;
+    c.rgb *= c.a;
     return c;
 }
 
@@ -836,6 +898,7 @@ enum class MetalPipelineKind
     MaskMultiply = 6,
     InvertAlpha = 7,
     InnerShadowCompose = 8,
+    ShadowCompose = 9,
 };
 
 struct MetalPipelineKey
@@ -899,18 +962,10 @@ struct MetalRenderDevice::MetalContext
 
     // Reusable identity sampler for clip masks (linear + clamp).
     id<MTLSamplerState> clipSampler = nil;
-
-    // Reusable scratch buffers for large vertex / index uploads. When a
-    // draw's payload exceeds the setVertexBytes 4 KB inline limit the
-    // encoder normally allocates a fresh MTLBuffer per draw. Keeping one
-    // per pool avoids that allocation on steady-state frames — the buffer
-    // grows on demand and stays owned by the context. Storage is Shared so
-    // both CPU writes and GPU reads use the same memory on unified-memory
-    // hosts.
-    id<MTLBuffer> vertexScratchBuffer = nil;
-    id<MTLBuffer> indexScratchBuffer = nil;
-    std::size_t vertexScratchCapacity = 0;
-    std::size_t indexScratchCapacity = 0;
+    // Metal validation requires every statically declared texture argument to
+    // be bound at draw time, even when a uniform disables the sampling branch.
+    // A white texel preserves coverage for draws without an active clip.
+    id<MTLTexture> clipFallbackTexture = nil;
 
     // Most recent render-target texture rendered into. `readPixelsRGBA`
     // consumes this because the IRenderDevice contract does not carry the
@@ -1081,9 +1136,31 @@ void MetalRenderDevice::initializeBackend()
         sampDesc.tAddressMode = MTLSamplerAddressModeClampToEdge;
         context_->clipSampler = [device newSamplerStateWithDescriptor:sampDesc];
 
+        MTLTextureDescriptor *fallbackDesc =
+            [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatR8Unorm
+                                                               width:1
+                                                              height:1
+                                                           mipmapped:NO];
+        fallbackDesc.usage = MTLTextureUsageShaderRead;
+        fallbackDesc.storageMode = preferredTextureStorageMode(device);
+        context_->clipFallbackTexture = [device newTextureWithDescriptor:fallbackDesc];
+        if (context_->clipSampler == nil || context_->clipFallbackTexture == nil) {
+            WSC_LOG_ERROR("MetalRenderDevice", "Failed to allocate fallback clip resources.");
+            context_->clipSampler = nil;
+            context_->clipFallbackTexture = nil;
+            context_->library = nil;
+            context_->commandQueue = nil;
+            context_->device = nil;
+            return;
+        }
+        const std::uint8_t whiteCoverage = 0xffu;
+        [context_->clipFallbackTexture replaceRegion:MTLRegionMake2D(0, 0, 1, 1)
+                                         mipmapLevel:0
+                                           withBytes:&whiteCoverage
+                                         bytesPerRow:1];
+
         NSString *name = [device name];
         context_->deviceName = name ? [name UTF8String] : "Metal Device";
-        context_->deviceReady = true;
 
         // Pipeline pre-warm. Compiling a Metal render-pipeline state hits the
         // driver's shader compiler and can take a few hundred milliseconds on
@@ -1092,18 +1169,42 @@ void MetalRenderDevice::initializeBackend()
         // first rendered frame skip the driver stall.
         const int kSrcOver = 0;
         const int kSrc = 1;
-        obtainPipeline(*context_, MetalPipelineKind::Solid,              kSrcOver);
-        obtainPipeline(*context_, MetalPipelineKind::Textured,           kSrcOver);
-        obtainPipeline(*context_, MetalPipelineKind::TexturedAlpha,      kSrcOver);
-        obtainPipeline(*context_, MetalPipelineKind::Gradient,           kSrcOver);
-        obtainPipeline(*context_, MetalPipelineKind::ClipFill,           kSrcOver);
-        obtainPipeline(*context_, MetalPipelineKind::Blur,               kSrc);
-        obtainPipeline(*context_, MetalPipelineKind::MaskMultiply,       kSrc);
-        obtainPipeline(*context_, MetalPipelineKind::InvertAlpha,        kSrc);
-        obtainPipeline(*context_, MetalPipelineKind::InnerShadowCompose, kSrc);
+        const std::pair<MetalPipelineKind, int> requiredPipelines[] = {
+            {MetalPipelineKind::Solid,              kSrcOver},
+            {MetalPipelineKind::Textured,           kSrcOver},
+            {MetalPipelineKind::TexturedAlpha,      kSrcOver},
+            {MetalPipelineKind::Gradient,           kSrcOver},
+            {MetalPipelineKind::ClipFill,           kSrcOver},
+            {MetalPipelineKind::Blur,               kSrc},
+            {MetalPipelineKind::MaskMultiply,       kSrc},
+            {MetalPipelineKind::InvertAlpha,        kSrc},
+            {MetalPipelineKind::InnerShadowCompose, kSrc},
+            {MetalPipelineKind::ShadowCompose,      kSrcOver},
+        };
+        bool requiredResourcesReady = true;
+        for (const auto &[kind, blend] : requiredPipelines) {
+            if (obtainPipeline(*context_, kind, blend) == nil) {
+                requiredResourcesReady = false;
+            }
+        }
         // Pre-warm the default linear/clamp sampler too so per-draw obtainSampler
         // never allocates on the hot path in the common case.
-        obtainSampler(*context_, /*sampling=*/0, /*tileMode=*/0);
+        if (obtainSampler(*context_, /*sampling=*/0, /*tileMode=*/0) == nil) {
+            requiredResourcesReady = false;
+        }
+        if (!requiredResourcesReady) {
+            WSC_LOG_ERROR("MetalRenderDevice", "Required Metal pipeline or sampler initialization failed.");
+            context_->pipelines.clear();
+            context_->samplers.clear();
+            context_->clipSampler = nil;
+            context_->clipFallbackTexture = nil;
+            context_->library = nil;
+            context_->commandQueue = nil;
+            context_->device = nil;
+            context_->deviceName.clear();
+            return;
+        }
+        context_->deviceReady = true;
     }
     backendInitialized_ = true;
     WSC_LOG_INFO("MetalRenderDevice",
@@ -1117,11 +1218,8 @@ void MetalRenderDevice::finalizeBackend()
     }
     context_->pipelines.clear();
     context_->samplers.clear();
-    context_->vertexScratchBuffer = nil;
-    context_->indexScratchBuffer = nil;
-    context_->vertexScratchCapacity = 0;
-    context_->indexScratchCapacity = 0;
     context_->clipSampler = nil;
+    context_->clipFallbackTexture = nil;
     context_->solidVertexDesc = nil;
     context_->texturedVertexDesc = nil;
     context_->gradientVertexDesc = nil;
@@ -1130,7 +1228,12 @@ void MetalRenderDevice::finalizeBackend()
     context_->library = nil;
     context_->commandQueue = nil;
     context_->device = nil;
-    context_->deviceReady = false;
+    // Recreate the opaque context instead of retaining per-device state.
+    // In particular, lastReadbackTexture must never survive a background
+    // teardown and become presentation input for a newly-created device and
+    // command queue. This also clears timing results, dimensions, counters,
+    // and the selected-device name in one auditable lifecycle boundary.
+    context_ = std::make_unique<MetalContext>();
     backendInitialized_ = false;
 }
 
@@ -1219,6 +1322,11 @@ id<MTLRenderPipelineState> obtainPipeline(MetalRenderDevice::MetalContext &ctx,
         fsName = @"inner_shadow_compose_fs";
         vd = ctx.blurVertexDesc;
         break;
+    case MetalPipelineKind::ShadowCompose:
+        vsName = @"clip_vs";
+        fsName = @"shadow_compose_fs";
+        vd = ctx.clipVertexDesc;
+        break;
     }
     id<MTLFunction> vs = [ctx.library newFunctionWithName:vsName];
     id<MTLFunction> fs = [ctx.library newFunctionWithName:fsName];
@@ -1251,43 +1359,30 @@ id<MTLSamplerState> obtainSampler(MetalRenderDevice::MetalContext &ctx, int samp
         return it->second;
     }
     id<MTLSamplerState> s = makeSampler(ctx.device, sampling, tileMode);
-    ctx.samplers.emplace(key, s);
-    return s;
-}
-
-static std::size_t nextScratchCapacity(std::size_t current, std::size_t needed)
-{
-    std::size_t next = current > 0 ? current : 64 * 1024;
-    while (next < needed) {
-        next *= 2;
+    if (s != nil) {
+        ctx.samplers.emplace(key, s);
     }
-    return next;
+    return s;
 }
 
 id<MTLBuffer> uploadToVertexScratch(MetalRenderDevice::MetalContext &ctx,
                                     const void *bytes, std::size_t neededBytes)
 {
-    if (ctx.vertexScratchBuffer == nil || ctx.vertexScratchCapacity < neededBytes) {
-        const std::size_t capacity = nextScratchCapacity(ctx.vertexScratchCapacity, neededBytes);
-        ctx.vertexScratchBuffer = [ctx.device newBufferWithLength:capacity
-                                                          options:MTLResourceStorageModeShared];
-        ctx.vertexScratchCapacity = capacity;
-    }
-    std::memcpy([ctx.vertexScratchBuffer contents], bytes, neededBytes);
-    return ctx.vertexScratchBuffer;
+    // A command buffer can reference several uploads before it is committed.
+    // Rewriting one shared scratch buffer here corrupts all earlier draws in
+    // that command buffer. Metal retains referenced buffers until completion,
+    // so give each oversized packet immutable storage for its submission.
+    return [ctx.device newBufferWithBytes:bytes
+                                   length:neededBytes
+                                  options:MTLResourceStorageModeShared];
 }
 
 id<MTLBuffer> uploadToIndexScratch(MetalRenderDevice::MetalContext &ctx,
                                    const void *bytes, std::size_t neededBytes)
 {
-    if (ctx.indexScratchBuffer == nil || ctx.indexScratchCapacity < neededBytes) {
-        const std::size_t capacity = nextScratchCapacity(ctx.indexScratchCapacity, neededBytes);
-        ctx.indexScratchBuffer = [ctx.device newBufferWithLength:capacity
-                                                         options:MTLResourceStorageModeShared];
-        ctx.indexScratchCapacity = capacity;
-    }
-    std::memcpy([ctx.indexScratchBuffer contents], bytes, neededBytes);
-    return ctx.indexScratchBuffer;
+    return [ctx.device newBufferWithBytes:bytes
+                                   length:neededBytes
+                                  options:MTLResourceStorageModeShared];
 }
 
 MTLViewport makeViewport(int width, int height)
@@ -1533,6 +1628,10 @@ SharedImageResource MetalRenderDevice::createImageResourceFromImageData(int widt
         [blit endEncoding];
         [cb commit];
         [cb waitUntilCompleted];
+        if (cb.status == MTLCommandBufferStatusError) {
+            NSLog(@"WhatsCanvas Metal mipmap-generation command buffer failed: %@", cb.error);
+            return {};
+        }
     }
     context_->imageTextureCount += 1;
     return std::make_shared<MetalTextureResource>(texture, width, height, /*alpha=*/false, /*owned=*/true);
@@ -1543,7 +1642,8 @@ bool MetalRenderDevice::updateImageResourceRGBA(const SharedImageResource &image
                                                 bool regenerateMipmaps) const
 {
     auto *res = dynamic_cast<MetalTextureResource *>(imageResource.get());
-    if (res == nullptr || !res->isValid() || pixels == nullptr) {
+    if (!context_ || !context_->deviceReady || res == nullptr || !res->isValid()
+        || res->isAlphaOnly() || pixels == nullptr) {
         return false;
     }
     if (!res->updateRGBA(x, y, width, height, pixels, false)) {
@@ -1557,6 +1657,10 @@ bool MetalRenderDevice::updateImageResourceRGBA(const SharedImageResource &image
             [blit endEncoding];
             [cb commit];
             [cb waitUntilCompleted];
+            if (cb.status == MTLCommandBufferStatusError) {
+                NSLog(@"WhatsCanvas Metal mipmap-update command buffer failed: %@", cb.error);
+                return false;
+            }
         }
     }
     return true;
@@ -1566,7 +1670,8 @@ bool MetalRenderDevice::updateImageResourceAlpha8(const SharedImageResource &ima
                                                   int height, const unsigned char *pixels) const
 {
     auto *res = dynamic_cast<MetalTextureResource *>(imageResource.get());
-    if (res == nullptr || !res->isValid() || pixels == nullptr) {
+    if (!context_ || !context_->deviceReady || res == nullptr || !res->isValid()
+        || !res->isAlphaOnly() || pixels == nullptr || width <= 0 || height <= 0) {
         return false;
     }
     id<MTLTexture> texture = res->metalTexture();
@@ -1673,6 +1778,15 @@ void rasterizeSingleClipIntoTarget(id<MTLCommandBuffer> cb,
         return;
     }
     [enc setRenderPipelineState:pso];
+    // solid_fs always reads buffer(0), even though this mask-generation pass
+    // never samples a nested clip. Leaving the constant buffer unbound is
+    // tolerated by the simulator but causes a GPU address fault on A14.
+    const float noClipUniforms[8] = {};
+    [enc setFragmentBytes:noClipUniforms
+                   length:sizeof(noClipUniforms)
+                  atIndex:0];
+    [enc setFragmentTexture:ctx.clipFallbackTexture atIndex:0];
+    [enc setFragmentSamplerState:ctx.clipSampler atIndex:0];
     MTLScissorRect rect;
     rect.x = 0; rect.y = 0;
     rect.width = static_cast<NSUInteger>(canvasWidth);
@@ -1824,6 +1938,11 @@ SharedImageResource MetalRenderDevice::rasterizeClipMask(const ClipMaskState &st
         [cb commit];
         [cb waitUntilCompleted];
 
+        if (cb.status == MTLCommandBufferStatusError) {
+            NSLog(@"WhatsCanvas Metal clip-mask command buffer failed: %@", cb.error);
+            return {};
+        }
+
         finalTex = haveAccum ? accum : nil;
     }
 
@@ -1866,6 +1985,12 @@ id<MTLTexture> clipMaskTexture(const wsc::DrawPrimitive &prim)
     return res ? res->metalTexture() : nil;
 }
 
+struct MetalSolidUniforms
+{
+    float clipParams[4];
+    float clipUv[4];
+};
+
 // Encode a single solid primitive.
 void encodeSolid(id<MTLRenderCommandEncoder> encoder, MetalRenderDevice::MetalContext &ctx,
                  const wsc::DrawPrimitive &prim, int targetW, int targetH,
@@ -1882,6 +2007,17 @@ void encodeSolid(id<MTLRenderCommandEncoder> encoder, MetalRenderDevice::MetalCo
     }
     [encoder setRenderPipelineState:pso];
     applyScissor(encoder, prim, targetW, targetH);
+
+    MetalSolidUniforms uniforms{};
+    id<MTLTexture> clip = clipMaskTexture(prim);
+    uniforms.clipParams[0] = clip != nil ? 1.0f : 0.0f;
+    uniforms.clipUv[0] = prim.clipUvScale[0];
+    uniforms.clipUv[1] = prim.clipUvScale[1];
+    uniforms.clipUv[2] = prim.clipUvOffset[0];
+    uniforms.clipUv[3] = prim.clipUvOffset[1];
+    [encoder setFragmentBytes:&uniforms length:sizeof(uniforms) atIndex:0];
+    [encoder setFragmentTexture:clip != nil ? clip : ctx.clipFallbackTexture atIndex:0];
+    [encoder setFragmentSamplerState:ctx.clipSampler atIndex:0];
 
     const std::size_t vertexBytes = vertices.size() * sizeof(wsc::CompactSolidVertex);
     // setVertexBytes has a 4 KB limit; use a real buffer for larger uploads.
@@ -1927,6 +2063,8 @@ struct MetalTexturedUniforms
     float colorMatrixRow2[4];
     float colorMatrixRow3[4];
     float colorMatrixOffset[4];
+    float clipParams[4];
+    float clipUv[4];
 };
 
 void encodeTextured(id<MTLRenderCommandEncoder> encoder, MetalRenderDevice::MetalContext &ctx,
@@ -2036,10 +2174,20 @@ void encodeTextured(id<MTLRenderCommandEncoder> encoder, MetalRenderDevice::Meta
         u.colorMatrixOffset[2] = prim.colorMatrixOffset[2];
         u.colorMatrixOffset[3] = prim.colorMatrixOffset[3];
     }
+    id<MTLTexture> clip = clipMaskTexture(prim);
+    u.clipParams[0] = clip != nil ? 1.0f : 0.0f;
+    u.clipUv[0] = prim.clipUvScale[0];
+    u.clipUv[1] = prim.clipUvScale[1];
+    u.clipUv[2] = prim.clipUvOffset[0];
+    u.clipUv[3] = prim.clipUvOffset[1];
     [encoder setFragmentBytes:&u length:sizeof(u) atIndex:0];
 
     [encoder setFragmentTexture:tex atIndex:0];
+    [encoder setFragmentTexture:clip != nil ? clip : ctx.clipFallbackTexture atIndex:1];
     id<MTLSamplerState> samp = obtainSampler(ctx, prim.sampling, prim.tileMode);
+    if (samp == nil) {
+        return;
+    }
     [encoder setFragmentSamplerState:samp atIndex:0];
 
     [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:vertices.size()];
@@ -2055,6 +2203,8 @@ struct MetalGradientUniforms
     float stops[8][4];
     float offsets[4];
     float offsetsHigh[4];
+    float clipParams[4];
+    float clipUv[4];
 };
 
 void encodeGradient(id<MTLRenderCommandEncoder> encoder, MetalRenderDevice::MetalContext &ctx,
@@ -2121,7 +2271,15 @@ void encodeGradient(id<MTLRenderCommandEncoder> encoder, MetalRenderDevice::Meta
     for (int i = 0; i < 4; ++i) {
         u.offsetsHigh[i] = (i + 4) < n ? prim.gradientStopPositions[i + 4] : 1.0f;
     }
+    id<MTLTexture> clip = clipMaskTexture(prim);
+    u.clipParams[0] = clip != nil ? 1.0f : 0.0f;
+    u.clipUv[0] = prim.clipUvScale[0];
+    u.clipUv[1] = prim.clipUvScale[1];
+    u.clipUv[2] = prim.clipUvOffset[0];
+    u.clipUv[3] = prim.clipUvOffset[1];
     [encoder setFragmentBytes:&u length:sizeof(u) atIndex:0];
+    [encoder setFragmentTexture:clip != nil ? clip : ctx.clipFallbackTexture atIndex:0];
+    [encoder setFragmentSamplerState:ctx.clipSampler atIndex:0];
 
     if (!prim.shortIndices.empty()) {
         const std::size_t byteCount = prim.shortIndices.size() * sizeof(std::uint16_t);
@@ -2168,8 +2326,9 @@ void encodeClipFill(id<MTLRenderCommandEncoder> encoder, MetalRenderDevice::Meta
     [encoder setRenderPipelineState:pso];
     applyScissor(encoder, prim, targetW, targetH);
 
-    // Full-target quad in NDC (Y-up pre-flip).
-    const float verts[] = {
+    // Use the primitive geometry when clipping a path/text run. A full-target
+    // quad remains the fast path for a clip-only color fill.
+    const float fullTargetVerts[] = {
         -1.0f, -1.0f,
          1.0f, -1.0f,
          1.0f,  1.0f,
@@ -2177,8 +2336,18 @@ void encodeClipFill(id<MTLRenderCommandEncoder> encoder, MetalRenderDevice::Meta
          1.0f,  1.0f,
         -1.0f,  1.0f,
     };
-    [encoder setVertexBytes:verts length:sizeof(verts) atIndex:0];
-    stats.vertexBytes += sizeof(verts);
+    const float *vertexData = prim.positions.empty()
+        ? fullTargetVerts : prim.positions.data();
+    const std::size_t vertexCount = prim.positions.empty()
+        ? 6u : prim.positions.size() / 2u;
+    const std::size_t vertexBytes = vertexCount * 2u * sizeof(float);
+    if (vertexBytes <= 4096u) {
+        [encoder setVertexBytes:vertexData length:vertexBytes atIndex:0];
+    } else {
+        id<MTLBuffer> buffer = uploadToVertexScratch(ctx, vertexData, vertexBytes);
+        [encoder setVertexBuffer:buffer offset:0 atIndex:0];
+    }
+    stats.vertexBytes += vertexBytes;
 
     MetalClipUniforms u{};
     u.color[0] = prim.color[0];
@@ -2197,9 +2366,40 @@ void encodeClipFill(id<MTLRenderCommandEncoder> encoder, MetalRenderDevice::Meta
     [encoder setFragmentTexture:mask atIndex:0];
     [encoder setFragmentSamplerState:ctx.clipSampler atIndex:0];
 
-    [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6];
+    if (!prim.shortIndices.empty()) {
+        const std::size_t bytes = prim.shortIndices.size() * sizeof(std::uint16_t);
+        id<MTLBuffer> buffer = uploadToIndexScratch(ctx, prim.shortIndices.data(), bytes);
+        [encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
+                            indexCount:prim.shortIndices.size()
+                             indexType:MTLIndexTypeUInt16
+                           indexBuffer:buffer
+                     indexBufferOffset:0];
+        stats.indexBytes += bytes;
+    } else if (!prim.indices.empty()) {
+        const std::size_t bytes = prim.indices.size() * sizeof(std::uint32_t);
+        id<MTLBuffer> buffer = uploadToIndexScratch(ctx, prim.indices.data(), bytes);
+        [encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle
+                            indexCount:prim.indices.size()
+                             indexType:MTLIndexTypeUInt32
+                           indexBuffer:buffer
+                     indexBufferOffset:0];
+        stats.indexBytes += bytes;
+    } else {
+        [encoder drawPrimitives:MTLPrimitiveTypeTriangle
+                    vertexStart:0 vertexCount:vertexCount];
+    }
     stats.drawCallCount += 1;
 }
+
+// Gaussian shadows interrupt the main render pass, render their coverage into
+// an offscreen texture, blur it, and composite it back into the same ordered
+// command buffer. Defined below beside the shared blur implementation.
+bool encodeGaussianShadow(id<MTLCommandBuffer> cb,
+                          MetalRenderDevice::MetalContext &ctx,
+                          const wsc::DrawPrimitive &prim,
+                          id<MTLTexture> target,
+                          int width, int height,
+                          MetalExecutionStats &stats);
 
 } // namespace
 
@@ -2239,6 +2439,28 @@ bool MetalRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &ta
         [enc setViewport:makeViewport(rt->width(), rt->height())];
 
         for (const wsc::DrawPrimitive &prim : drawList) {
+            if (prim.kind == wsc::DrawPrimitiveKind::GaussianShadow) {
+                [enc endEncoding];
+                enc = nil;
+                if (!encodeGaussianShadow(cb, *context_, prim,
+                                          rt->metalTexture(), rt->width(),
+                                          rt->height(), stats)) {
+                    WSC_LOG_ERROR("MetalRenderDevice",
+                                  "Failed to encode Gaussian shadow.");
+                    return false;
+                }
+
+                // Resume the ordered stream without clearing the color already
+                // produced before the shadow operation.
+                MTLRenderPassDescriptor *resumePass =
+                    [MTLRenderPassDescriptor renderPassDescriptor];
+                resumePass.colorAttachments[0].texture = rt->metalTexture();
+                resumePass.colorAttachments[0].loadAction = MTLLoadActionLoad;
+                resumePass.colorAttachments[0].storeAction = MTLStoreActionStore;
+                enc = [cb renderCommandEncoderWithDescriptor:resumePass];
+                [enc setViewport:makeViewport(rt->width(), rt->height())];
+                continue;
+            }
             switch (prim.kind) {
             case wsc::DrawPrimitiveKind::SolidTriangles:
                 encodeSolid(enc, *context_, prim, rt->width(), rt->height(), stats);
@@ -2251,6 +2473,8 @@ bool MetalRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &ta
                 break;
             case wsc::DrawPrimitiveKind::ClipFill:
                 encodeClipFill(enc, *context_, prim, rt->width(), rt->height(), stats);
+                break;
+            case wsc::DrawPrimitiveKind::GaussianShadow:
                 break;
             }
         }
@@ -2267,6 +2491,10 @@ bool MetalRenderDevice::executeDrawList(const std::unique_ptr<IRenderTarget> &ta
 #endif
         [cb commit];
         [cb waitUntilCompleted];
+        if (cb.status == MTLCommandBufferStatusError) {
+            NSLog(@"WhatsCanvas Metal command buffer failed: %@", cb.error);
+            return false;
+        }
         if (context_->gpuTimingActive) {
             const CFTimeInterval start = cb.GPUStartTime;
             const CFTimeInterval end = cb.GPUEndTime;
@@ -2455,6 +2683,125 @@ void encodeBlurPass(id<MTLCommandBuffer> cb,
     [enc endEncoding];
 }
 
+bool encodeGaussianShadow(id<MTLCommandBuffer> cb,
+                          MetalRenderDevice::MetalContext &ctx,
+                          const wsc::DrawPrimitive &prim,
+                          id<MTLTexture> target,
+                          int width, int height,
+                          MetalExecutionStats &stats)
+{
+    if (cb == nil || target == nil || width <= 0 || height <= 0
+        || prim.shadowSilhouette.empty()) {
+        return false;
+    }
+
+    const MTLTextureUsage usage =
+        MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+    id<MTLTexture> coverage = makeFilterTexture(ctx.device, width, height, usage);
+    id<MTLTexture> blurHorizontal = makeFilterTexture(ctx.device, width, height, usage);
+    id<MTLTexture> blurVertical = makeFilterTexture(ctx.device, width, height, usage);
+    if (coverage == nil || blurHorizontal == nil || blurVertical == nil) {
+        return false;
+    }
+
+    // Pass 1: render the untinted silhouette. Geometry writes premultiplied
+    // white while glyph/image textures retain their source alpha; both become
+    // the coverage that the blur operates on.
+    MTLRenderPassDescriptor *coveragePass =
+        [MTLRenderPassDescriptor renderPassDescriptor];
+    coveragePass.colorAttachments[0].texture = coverage;
+    coveragePass.colorAttachments[0].loadAction = MTLLoadActionClear;
+    coveragePass.colorAttachments[0].storeAction = MTLStoreActionStore;
+    coveragePass.colorAttachments[0].clearColor =
+        MTLClearColorMake(0.0, 0.0, 0.0, 0.0);
+    id<MTLRenderCommandEncoder> coverageEncoder =
+        [cb renderCommandEncoderWithDescriptor:coveragePass];
+    if (coverageEncoder == nil) {
+        return false;
+    }
+    [coverageEncoder setViewport:makeViewport(width, height)];
+    for (const wsc::DrawPrimitive &silhouette : prim.shadowSilhouette) {
+        switch (silhouette.kind) {
+        case wsc::DrawPrimitiveKind::SolidTriangles:
+            encodeSolid(coverageEncoder, ctx, silhouette, width, height, stats);
+            break;
+        case wsc::DrawPrimitiveKind::TexturedQuad:
+            encodeTextured(coverageEncoder, ctx, silhouette, width, height, stats);
+            break;
+        default:
+            [coverageEncoder endEncoding];
+            return false;
+        }
+    }
+    [coverageEncoder endEncoding];
+
+    // Paint::setShadowLayer uses radius as the three-sigma visual reach, which
+    // is the same convention used by ImageFilter::blur throughout the project.
+    const float sigma = std::max(0.0f, prim.shadowBlurRadius) / 3.0f;
+    MetalBlurUniforms horizontal{};
+    MetalBlurUniforms vertical{};
+    computeGaussianWeights(sigma, horizontal);
+    computeGaussianWeights(sigma, vertical);
+    horizontal.direction[0] = 1.0f / static_cast<float>(width);
+    horizontal.direction[1] = 0.0f;
+    vertical.direction[0] = 0.0f;
+    vertical.direction[1] = 1.0f / static_cast<float>(height);
+    // Decal sampling prevents edge texels from being extended back into the
+    // canvas when a shadow silhouette touches a target boundary.
+    horizontal.tileMode = 1;
+    vertical.tileMode = 1;
+    encodeBlurPass(cb, ctx, coverage, blurHorizontal, horizontal, width, height);
+    encodeBlurPass(cb, ctx, blurHorizontal, blurVertical, vertical, width, height);
+    stats.drawCallCount += 2;
+
+    // Pass 4: tint the blurred coverage and composite it at the exact point in
+    // the ordered stream where DrawShadowCommand appeared.
+    MTLRenderPassDescriptor *compositePass =
+        [MTLRenderPassDescriptor renderPassDescriptor];
+    compositePass.colorAttachments[0].texture = target;
+    compositePass.colorAttachments[0].loadAction = MTLLoadActionLoad;
+    compositePass.colorAttachments[0].storeAction = MTLStoreActionStore;
+    id<MTLRenderCommandEncoder> compositeEncoder =
+        [cb renderCommandEncoderWithDescriptor:compositePass];
+    if (compositeEncoder == nil) {
+        return false;
+    }
+    [compositeEncoder setViewport:makeViewport(width, height)];
+
+    id<MTLRenderPipelineState> compositePipeline = obtainPipeline(
+        ctx, MetalPipelineKind::ShadowCompose, prim.blendMode);
+    if (compositePipeline == nil) {
+        [compositeEncoder endEncoding];
+        return false;
+    }
+    [compositeEncoder setRenderPipelineState:compositePipeline];
+    applyScissor(compositeEncoder, prim, width, height);
+    const float fullTargetVertices[] = {
+        -1.0f, -1.0f,  1.0f, -1.0f,  1.0f,  1.0f,
+        -1.0f, -1.0f,  1.0f,  1.0f, -1.0f,  1.0f,
+    };
+    [compositeEncoder setVertexBytes:fullTargetVertices
+                              length:sizeof(fullTargetVertices)
+                             atIndex:0];
+    MetalClipUniforms uniforms{};
+    for (std::size_t channel = 0; channel < 4; ++channel) {
+        uniforms.color[channel] = prim.tint[channel];
+    }
+    uniforms.uvScaleOffset[0] = 1.0f;
+    uniforms.uvScaleOffset[1] = 1.0f;
+    [compositeEncoder setFragmentBytes:&uniforms
+                                 length:sizeof(uniforms)
+                                atIndex:0];
+    [compositeEncoder setFragmentTexture:blurVertical atIndex:0];
+    [compositeEncoder setFragmentSamplerState:ctx.clipSampler atIndex:0];
+    [compositeEncoder drawPrimitives:MTLPrimitiveTypeTriangle
+                          vertexStart:0 vertexCount:6];
+    stats.vertexBytes += sizeof(fullTargetVertices);
+    stats.drawCallCount += 1;
+    [compositeEncoder endEncoding];
+    return true;
+}
+
 } // namespace
 
 SharedImageResource MetalRenderDevice::filterImageResource(const SharedImageResource &source,
@@ -2520,6 +2867,10 @@ SharedImageResource MetalRenderDevice::filterImageResource(const SharedImageReso
             encodeBlurPass(cb, *context_, tempTex, finalTex, uY, width, height);
             [cb commit];
             [cb waitUntilCompleted];
+            if (cb.status == MTLCommandBufferStatusError) {
+                NSLog(@"WhatsCanvas Metal blur command buffer failed: %@", cb.error);
+                return {};
+            }
         }
 
         if (finalTex == nil) {
@@ -2625,6 +2976,10 @@ SharedImageResource MetalRenderDevice::filterImageResource(const SharedImageReso
 
             [cb commit];
             [cb waitUntilCompleted];
+            if (cb.status == MTLCommandBufferStatusError) {
+                NSLog(@"WhatsCanvas Metal inner-shadow command buffer failed: %@", cb.error);
+                return {};
+            }
         }
 
         if (finalTex == nil) {
@@ -2662,6 +3017,24 @@ bool MetalRenderDevice::readPixelsRGBA(int width, int height, std::vector<unsign
       bytesPerRow:static_cast<NSUInteger>(width) * 4u
        fromRegion:region
       mipmapLevel:0];
+    // Render targets use premultiplied-alpha blending, while Canvas readback
+    // exposes straight RGBA like the other backends. Keep fully transparent
+    // pixels black and unpremultiply visible pixels once at the API boundary.
+    for (std::size_t offset = 0; offset + 3u < pixels.size(); offset += 4u) {
+        const unsigned int alpha = pixels[offset + 3u];
+        if (alpha == 0u) {
+            pixels[offset] = 0;
+            pixels[offset + 1u] = 0;
+            pixels[offset + 2u] = 0;
+            continue;
+        }
+        if (alpha == 255u) continue;
+        for (std::size_t channel = 0; channel < 3u; ++channel) {
+            const unsigned int value = pixels[offset + channel];
+            pixels[offset + channel] = static_cast<unsigned char>(
+                std::min(255u, (value * 255u + alpha / 2u) / alpha));
+        }
+    }
     return true;
 }
 
@@ -2762,8 +3135,11 @@ CAMetalLayer *coerceLayerFromSurface(const NativeSurface &surface, id<MTLDevice>
     if (layer.device == nil) {
         layer.device = device;
     }
-    layer.pixelFormat = MTLPixelFormatRGBA8Unorm;
-    layer.framebufferOnly = NO;
+    // CAMetalLayer's universally supported 8-bit presentation format is BGRA.
+    // The renderer keeps RGBA offscreen textures, so present() samples them
+    // through a tiny render pass instead of attempting an incompatible blit.
+    layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
+    layer.framebufferOnly = YES;
     if (drawableSize.width > 0.0 && drawableSize.height > 0.0) {
         layer.drawableSize = drawableSize;
     }
@@ -2777,8 +3153,49 @@ public:
                    const SwapchainConfig &config)
         : owner_(owner), layer_(layer), config_(config)
     {
+#if TARGET_OS_OSX
         if (@available(macOS 10.13, iOS 8.0, tvOS 9.0, *)) {
             layer_.displaySyncEnabled = config_.vsync ? YES : NO;
+        }
+#endif
+        id<MTLDevice> device = (__bridge id<MTLDevice>)(void *)owner_->nativeHandle(0);
+        if (device == nil) return;
+        static const char *kPresentShaderSource = R"(
+#include <metal_stdlib>
+using namespace metal;
+struct PresentVertex { float4 position [[position]]; float2 uv; };
+vertex PresentVertex presentVertex(uint vertexId [[vertex_id]]) {
+    const float2 positions[3] = {float2(-1.0, -1.0), float2(3.0, -1.0),
+                                 float2(-1.0, 3.0)};
+    const float2 coordinates[3] = {float2(0.0, 1.0), float2(2.0, 1.0),
+                                   float2(0.0, -1.0)};
+    PresentVertex result;
+    result.position = float4(positions[vertexId], 0.0, 1.0);
+    result.uv = coordinates[vertexId];
+    return result;
+}
+fragment float4 presentFragment(PresentVertex input [[stage_in]],
+                                texture2d<float> sourceTexture [[texture(0)]]) {
+    constexpr sampler textureSampler(coord::normalized, address::clamp_to_edge,
+                                     filter::linear);
+    return sourceTexture.sample(textureSampler, input.uv);
+}
+)";
+        NSString *source = [NSString stringWithUTF8String:kPresentShaderSource];
+        NSError *error = nil;
+        id<MTLLibrary> library = [device newLibraryWithSource:source
+                                                      options:nil error:&error];
+        if (library == nil) {
+            WSC_LOG_ERROR("MetalSwapchain", "Failed to compile presentation shaders.");
+            return;
+        }
+        MTLRenderPipelineDescriptor *descriptor = [[MTLRenderPipelineDescriptor alloc] init];
+        descriptor.vertexFunction = [library newFunctionWithName:@"presentVertex"];
+        descriptor.fragmentFunction = [library newFunctionWithName:@"presentFragment"];
+        descriptor.colorAttachments[0].pixelFormat = layer_.pixelFormat;
+        pipeline_ = [device newRenderPipelineStateWithDescriptor:descriptor error:&error];
+        if (pipeline_ == nil) {
+            WSC_LOG_ERROR("MetalSwapchain", "Failed to create presentation pipeline.");
         }
     }
 
@@ -2796,7 +3213,7 @@ public:
 
     bool present() override
     {
-        if (owner_ == nullptr || layer_ == nil) {
+        if (owner_ == nullptr || layer_ == nil || pipeline_ == nil) {
             return false;
         }
         id<MTLTexture> src = (__bridge id<MTLTexture>)(void *)owner_->nativeHandle(2);
@@ -2811,21 +3228,33 @@ public:
             }
             id<MTLTexture> dst = drawable.texture;
             id<MTLCommandBuffer> cb = [queue commandBuffer];
-            id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
-            MTLSize copySize = MTLSizeMake(std::min<NSUInteger>(src.width, dst.width),
-                                           std::min<NSUInteger>(src.height, dst.height), 1);
-            [blit copyFromTexture:src
-                      sourceSlice:0
-                      sourceLevel:0
-                     sourceOrigin:MTLOriginMake(0, 0, 0)
-                       sourceSize:copySize
-                        toTexture:dst
-                 destinationSlice:0
-                 destinationLevel:0
-                destinationOrigin:MTLOriginMake(0, 0, 0)];
-            [blit endEncoding];
-            [cb presentDrawable:drawable];
-            [cb commit];
+            MTLRenderPassDescriptor *pass = [MTLRenderPassDescriptor renderPassDescriptor];
+            pass.colorAttachments[0].texture = dst;
+            pass.colorAttachments[0].loadAction = MTLLoadActionClear;
+            pass.colorAttachments[0].storeAction = MTLStoreActionStore;
+            pass.colorAttachments[0].clearColor = MTLClearColorMake(0.0, 0.0, 0.0, 1.0);
+            id<MTLRenderCommandEncoder> encoder =
+                [cb renderCommandEncoderWithDescriptor:pass];
+            [encoder setRenderPipelineState:pipeline_];
+            [encoder setFragmentTexture:src atIndex:0];
+            [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+            [encoder endEncoding];
+            if (layer_.presentsWithTransaction) {
+                // On physical iOS devices the drawable must be handed to Core
+                // Animation explicitly after its command buffer is scheduled.
+                // Calling presentDrawable: on the command buffer can leave the
+                // CAMetalLayer showing its clear/background content indefinitely.
+                [cb commit];
+                [cb waitUntilScheduled];
+                if (cb.status == MTLCommandBufferStatusError) {
+                    NSLog(@"WhatsCanvas Metal presentation command buffer failed: %@", cb.error);
+                    return false;
+                }
+                [drawable present];
+            } else {
+                [cb presentDrawable:drawable];
+                [cb commit];
+            }
         }
         return true;
     }
@@ -2840,6 +3269,7 @@ public:
 private:
     MetalRenderDevice *owner_ = nullptr;
     CAMetalLayer *layer_ = nil;
+    id<MTLRenderPipelineState> pipeline_ = nil;
     SwapchainConfig config_{};
 };
 

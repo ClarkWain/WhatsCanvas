@@ -18,6 +18,7 @@
 #include "canvas/Paint.h"
 #include "render/LruCache.h"
 #include "text/DirectWriteTextBackend.h"
+#include "text/CoreTextTextBackend.h"
 #include "text/FontRasterizer.h"
 #include "text/GlyphAtlas.h"
 #include "text/ITextBackend.h"
@@ -27,6 +28,8 @@
 #include "text/TextUtils.h"
 
 namespace {
+
+using wsc::RectF;
 
 using wsc::text::TextRenderKind;
 using wsc::text::TextRenderResult;
@@ -114,8 +117,13 @@ public:
                 options_.enableNativeText = false;
             }
         } else if (options_.backendKind == wsc::text::TextBackendKind::CoreText) {
-            diagnostics_.push_back({wsc::text::TextBackendDiagnostic::Severity::Warning,
-                                    "coretext text adapter is not available yet; using portable glyph-atlas backend."});
+            wsc::text::CoreTextBackendOptions coreTextOptions;
+            coreTextOptions.enableSystemFontFallback = options_.enableSystemFontFallback;
+            coreTextBackend_ = wsc::text::createCoreTextTextBackend(coreTextOptions);
+            if (coreTextBackend_ == nullptr) {
+                diagnostics_.push_back({wsc::text::TextBackendDiagnostic::Severity::Warning,
+                                        "CoreText text adapter is unavailable on this platform; using portable glyph-atlas backend."});
+            }
             options_.enableNativeText = false;
         }
         if (options_.shapingBackend == wsc::text::TextShapingBackend::OpenType
@@ -140,24 +148,41 @@ public:
         return directWriteBackend_ != nullptr;
     }
 
+    bool hasNativeCoreTextBackend() const
+    {
+        return coreTextBackend_ != nullptr;
+    }
+
+    wsc::text::ITextBackend *nativeBackend()
+    {
+        return directWriteBackend_ != nullptr ? directWriteBackend_.get()
+             : coreTextBackend_ != nullptr ? coreTextBackend_.get() : nullptr;
+    }
+
+    const wsc::text::ITextBackend *nativeBackend() const
+    {
+        return directWriteBackend_ != nullptr ? directWriteBackend_.get()
+             : coreTextBackend_ != nullptr ? coreTextBackend_.get() : nullptr;
+    }
+
     wsc::text::TextRenderStats renderStats() const override
     {
-        return directWriteBackend_ != nullptr
-            ? directWriteBackend_->renderStats() : renderStats_;
+        const auto *native = nativeBackend();
+        return native != nullptr ? native->renderStats() : renderStats_;
     }
 
     void resetRenderStats() override
     {
         renderStats_ = {};
-        if (directWriteBackend_ != nullptr) {
-            directWriteBackend_->resetRenderStats();
+        if (auto *native = nativeBackend()) {
+            native->resetRenderStats();
         }
     }
 
     bool registerFontFace(const wsc::FontFace &face) override
     {
-        if (directWriteBackend_ != nullptr) {
-            return directWriteBackend_->registerFontFace(face);
+        if (auto *native = nativeBackend()) {
+            return native->registerFontFace(face);
         }
         clearRasterCaches();
         const bool registered = dynamicFontManager_->registerFace(face);
@@ -171,8 +196,8 @@ public:
     bool addFontProvider(std::shared_ptr<wsc::FontProvider> provider) override
     {
         if (!provider) return false;
-        if (directWriteBackend_ != nullptr) {
-            return directWriteBackend_->addFontProvider(std::move(provider));
+        if (auto *native = nativeBackend()) {
+            return native->addFontProvider(std::move(provider));
         }
         clearRasterCaches();
         glyphAtlas_.clear();
@@ -182,8 +207,8 @@ public:
 
     bool refreshSystemFonts() override
     {
-        if (directWriteBackend_ != nullptr) {
-            return directWriteBackend_->refreshSystemFonts();
+        if (auto *native = nativeBackend()) {
+            return native->refreshSystemFonts();
         }
 
         wsc::FontSystem::refreshInstalledFonts();
@@ -205,8 +230,8 @@ public:
 
     bool setFontFallbackChain(const wsc::FontFallbackChain &chain) override
     {
-        if (directWriteBackend_ != nullptr) {
-            return directWriteBackend_->setFontFallbackChain(chain);
+        if (auto *native = nativeBackend()) {
+            return native->setFontFallbackChain(chain);
         }
         clearRasterCaches();
         if (chain.primaryFamily().empty() || !fontResolver_.hasFamily(chain.primaryFamily())) {
@@ -227,8 +252,8 @@ public:
 
     std::vector<std::string> resolveFontFamilies(const std::string &preferredFamily) const override
     {
-        if (directWriteBackend_ != nullptr) {
-            return directWriteBackend_->resolveFontFamilies(preferredFamily);
+        if (const auto *native = nativeBackend()) {
+            return native->resolveFontFamilies(preferredFamily);
         }
         if (fontResolver_.hasFamily(preferredFamily)) {
             return fontResolver_.resolveFamilies(preferredFamily);
@@ -242,8 +267,8 @@ public:
     std::vector<wsc::text::TextLineBreak> breakLines(const std::string &text, float maxWidth,
                                                      const Paint &paint) const override
     {
-        if (directWriteBackend_ != nullptr) {
-            return directWriteBackend_->breakLines(text, maxWidth, paint);
+        if (const auto *native = nativeBackend()) {
+            return native->breakLines(text, maxWidth, paint);
         }
         std::vector<wsc::text::TextLineBreak> result;
         const std::string normalizedText = wsc::text::normalizeUtf8ForText(text);
@@ -338,8 +363,8 @@ public:
 
     bool hasGlyphForCodepoint(std::uint32_t codepoint, const Paint &paint) const override
     {
-        if (directWriteBackend_ != nullptr) {
-            return directWriteBackend_->hasGlyphForCodepoint(codepoint, paint);
+        if (const auto *native = nativeBackend()) {
+            return native->hasGlyphForCodepoint(codepoint, paint);
         }
         if (codepoint == '\n' || codepoint == '\t' || wsc::text::isBidiControlCodepoint(codepoint)
             || wsc::text::isZeroWidthBreakCodepoint(codepoint)
@@ -361,19 +386,23 @@ public:
 
     std::vector<wsc::text::TextBackendDiagnostic> diagnostics() const override
     {
+        std::vector<wsc::text::TextBackendDiagnostic> combined = diagnostics_;
         if (directWriteBackend_ != nullptr) {
-            std::vector<wsc::text::TextBackendDiagnostic> combined = diagnostics_;
             const auto dwDiags = directWriteBackend_->diagnostics();
             combined.insert(combined.end(), dwDiags.begin(), dwDiags.end());
-            return combined;
         }
-        return diagnostics_;
+        if (coreTextBackend_ != nullptr) {
+            const auto coreTextDiagnostics = coreTextBackend_->diagnostics();
+            combined.insert(combined.end(), coreTextDiagnostics.begin(),
+                            coreTextDiagnostics.end());
+        }
+        return combined;
     }
 
     float measureTextWidth(const std::string &text, const Paint &paint) const override
     {
-        if (directWriteBackend_ != nullptr) {
-            return directWriteBackend_->measureTextWidth(text, paint);
+        if (const auto *native = nativeBackend()) {
+            return native->measureTextWidth(text, paint);
         }
         const std::string normalizedText = wsc::text::normalizeUtf8ForText(text);
         if (normalizedText.empty() || paint.getTextSize() <= 0.0f) {
@@ -401,8 +430,8 @@ public:
 
     RectF measureTextBounds(const std::string &text, const Paint &paint) const override
     {
-        if (directWriteBackend_ != nullptr) {
-            return directWriteBackend_->measureTextBounds(text, paint);
+        if (const auto *native = nativeBackend()) {
+            return native->measureTextBounds(text, paint);
         }
         const std::string normalizedText = wsc::text::normalizeUtf8ForText(text);
         if (normalizedText.empty() || paint.getTextSize() <= 0.0f) {
@@ -462,8 +491,8 @@ public:
 
     wsc::text::TextMetrics measureTextMetrics(const std::string &text, const Paint &paint) const override
     {
-        if (directWriteBackend_ != nullptr) {
-            return directWriteBackend_->measureTextMetrics(text, paint);
+        if (const auto *native = nativeBackend()) {
+            return native->measureTextMetrics(text, paint);
         }
         wsc::text::TextMetrics metrics;
         metrics.bounds = measureTextBounds(text, paint);
@@ -528,8 +557,8 @@ private:
     TextRenderResult renderTextImpl(const std::string &text, float x, float y,
                                     const Paint &paint, bool allowLayoutView) const
     {
-        if (directWriteBackend_ != nullptr) {
-            return directWriteBackend_->renderTextView(text, x, y, paint);
+        if (const auto *native = nativeBackend()) {
+            return native->renderTextView(text, x, y, paint);
         }
         TextRenderResult result;
         ++renderStats_.normalizationCount;
@@ -1450,6 +1479,7 @@ private:
     mutable wsc::text::FontRasterizer rasterizer_;
     mutable wsc::text::GlyphAtlas glyphAtlas_{kDefaultGlyphAtlasSize, kDefaultGlyphAtlasSize, 1};
     std::unique_ptr<wsc::text::ITextBackend> directWriteBackend_;
+    std::unique_ptr<wsc::text::ITextBackend> coreTextBackend_;
     mutable wsc::render::LruCache<
         wsc::text::ShapedTextRun, std::string>
         rasterShapeCache_{kMaxRasterShapeCacheEntries};
@@ -1505,12 +1535,12 @@ std::vector<TextBackendCapability> queryTextBackendCapabilities()
                             true});
     capabilities.push_back({TextBackendKind::CoreText,
                             "coretext",
-                            false,
+                            wsc::text::isCoreTextAvailable(),
+                            true,
                             true,
                             false,
                             false,
-                            false,
-                            false});
+                            true});
     return capabilities;
 }
 
@@ -1523,6 +1553,12 @@ bool isNativeDirectWriteActive(const ITextBackend *backend)
 {
     const auto *basic = dynamic_cast<const BasicTextBackend *>(backend);
     return basic != nullptr && basic->hasNativeDirectWriteBackend();
+}
+
+bool isNativeCoreTextActive(const ITextBackend *backend)
+{
+    const auto *basic = dynamic_cast<const BasicTextBackend *>(backend);
+    return basic != nullptr && basic->hasNativeCoreTextBackend();
 }
 
 std::unique_ptr<ITextBackend> createPortableTextBackend()
