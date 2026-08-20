@@ -60,15 +60,23 @@ CoreText 始终作为 iOS Demo 的文字后端，真机不再回退到 portable 
 
 周期性将 render target 读回 PNG 会引入 GPU/CPU 同步和编码开销，真机帧率曾降至约 53 fps。截图现改为显式诊断开关：仅在 Scheme 的启动参数中加入 `--capture-frames` 时生成，正常运行不做周期性 readback。
 
+## 问题五：关闭 clip 时仍存在静态资源契约
+
+第一次修复裁剪蒙版的 constant buffer 后，普通测试和真机画面均正常，但开启 Metal API Validation 后，17 个测试报告 `solid_fs` 或 `gradient_fs` 缺少 sampler 绑定。原因是 shader 中声明的 clip texture 和 sampler 仍属于静态资源契约；运行时 uniform 关闭采样分支，并不代表 encoder 可以不绑定这些资源。
+
+当前 backend 创建一个只读的 1×1 白色 coverage texture。没有活动 clip 时，Solid、Textured 和 Gradient 管线绑定该 texture；有 clip 时绑定真实蒙版。clip sampler 在两种情况下都绑定。白色 coverage 不改变输出，同时让每次 draw 都满足完整资源契约。
+
+Metal 单元测试现默认开启 API Validation。以后新增 shader 参数但漏掉 encoder 绑定时，测试会直接失败，而不是等到某一代真机表现为黑屏。
+
 ## 同类问题审计
 
 已按 Metal shader 的 `buffer`、`texture`、`sampler` 声明逐条核对 encoder：
 
 | 管线 | 必需资源 | 结论 |
 | --- | --- | --- |
-| Solid | fragment buffer 0 | 普通绘制已绑定；裁剪蒙版缺失已修复 |
-| Textured / alpha texture | texture 0、sampler 0、fragment buffer 0 | 已绑定；clip texture 1 仅在 clip-enabled 时使用 |
-| Gradient | texture 0、sampler 0、fragment buffer 0 | 已绑定；clip 资源受开关保护 |
+| Solid | fragment buffer 0、texture 0、sampler 0 | 已绑定；无 clip 时使用白色 fallback texture |
+| Textured / alpha texture | texture 0/1、sampler 0、fragment buffer 0 | 已绑定；无 clip 时 texture 1 使用 fallback |
+| Gradient | texture 0、sampler 0、fragment buffer 0 | 已绑定；无 clip 时使用 fallback |
 | Clip fill | texture 0、sampler 0、fragment buffer 0 | 已绑定 |
 | Mask multiply | texture 0/1、sampler 0 | 已绑定 |
 | Blur | texture 0、sampler 0、fragment buffer 0 | 已绑定 |
@@ -76,13 +84,15 @@ CoreText 始终作为 iOS Demo 的文字后端，真机不再回退到 portable 
 | Inner-shadow compose | texture 0/1、sampler 0、fragment buffer 0 | 已绑定 |
 | Present | texture 0 | 已绑定 |
 
-没有发现第二处与裁剪蒙版相同的必需资源漏绑。另发现 mipmap 创建/更新、blur 和 inner-shadow 的同步命令缓冲区原先没有检查执行结果；这些路径现已在 `waitUntilCompleted` 后检查错误，避免真机 GPU 失败被静默转换成空白纹理。主绘制、裁剪和 presentation 同样保留阶段化错误输出。
+完整 API Validation 暴露并修复了无 clip 时的静态 texture/sampler 漏绑；修复后全部 Metal 测试、iOS 模拟器和 A14 真机验证层运行均未再报告资源契约错误。另发现 mipmap 创建/更新、blur 和 inner-shadow 的同步命令缓冲区原先没有检查执行结果；这些路径现已在 `waitUntilCompleted` 后检查错误，避免真机 GPU 失败被静默转换成空白纹理。主绘制、裁剪和 presentation 同样保留阶段化错误输出。
+
+初始化阶段也已改为强校验：10 条必需 pipeline 和默认 sampler 必须全部创建成功，backend 才会进入 ready 状态，避免单条 pipeline 初始化失败后只显示部分内容。
 
 ## 回归验证清单
 
 每次修改 Metal shader、资源布局、CoreText upload 或展示逻辑后至少执行：
 
-1. Metal 单元测试及 iOS parity 测试。
+1. Metal 单元测试及 iOS parity 测试；Metal 测试默认开启 API Validation。
 2. 模拟器 UI 测试：竖屏、横屏、进入后台、恢复前台、终止后冷启动。
 3. 真机 Release 运行，检查内容、CoreText、emoji、裁剪、渐变和阴影。
 4. 观察至少两个 FPS 统计窗口，目标为接近显示器刷新率的 60 fps。
