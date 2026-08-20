@@ -1228,7 +1228,12 @@ void MetalRenderDevice::finalizeBackend()
     context_->library = nil;
     context_->commandQueue = nil;
     context_->device = nil;
-    context_->deviceReady = false;
+    // Recreate the opaque context instead of retaining per-device state.
+    // In particular, lastReadbackTexture must never survive a background
+    // teardown and become presentation input for a newly-created device and
+    // command queue. This also clears timing results, dimensions, counters,
+    // and the selected-device name in one auditable lifecycle boundary.
+    context_ = std::make_unique<MetalContext>();
     backendInitialized_ = false;
 }
 
@@ -1637,7 +1642,8 @@ bool MetalRenderDevice::updateImageResourceRGBA(const SharedImageResource &image
                                                 bool regenerateMipmaps) const
 {
     auto *res = dynamic_cast<MetalTextureResource *>(imageResource.get());
-    if (res == nullptr || !res->isValid() || pixels == nullptr) {
+    if (!context_ || !context_->deviceReady || res == nullptr || !res->isValid()
+        || res->isAlphaOnly() || pixels == nullptr) {
         return false;
     }
     if (!res->updateRGBA(x, y, width, height, pixels, false)) {
@@ -1664,7 +1670,8 @@ bool MetalRenderDevice::updateImageResourceAlpha8(const SharedImageResource &ima
                                                   int height, const unsigned char *pixels) const
 {
     auto *res = dynamic_cast<MetalTextureResource *>(imageResource.get());
-    if (res == nullptr || !res->isValid() || pixels == nullptr) {
+    if (!context_ || !context_->deviceReady || res == nullptr || !res->isValid()
+        || !res->isAlphaOnly() || pixels == nullptr || width <= 0 || height <= 0) {
         return false;
     }
     id<MTLTexture> texture = res->metalTexture();

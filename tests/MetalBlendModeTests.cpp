@@ -1,8 +1,7 @@
 // Metal blend-mode tests. Draws a background rectangle then a foreground
 // rectangle with a specific blend mode set on its Paint, and verifies the
 // overlap pixel matches the expected blend of the two colors. Covers the
-// blend modes MetalRenderDevice's Solid pipeline configures explicitly
-// (SrcOver / Src / Add / Multiply / Screen).
+// every blend mode MetalRenderDevice's Solid pipeline configures explicitly.
 
 #include <algorithm>
 #include <cmath>
@@ -77,6 +76,10 @@ bool testMetalBlendModes()
     // SrcOver: opaque blue completely covers the red because fg alpha=1.
     ok = expect(drawOverlap(Paint::BlendMode::SRC_OVER, center) && center[2] > 200 && center[0] < 30,
                 "SrcOver of opaque blue over red should read blue") && ok;
+    // Src: source replaces destination without blending.
+    ok = expect(drawOverlap(Paint::BlendMode::SRC, center)
+                && center[2] > 200 && center[0] < 30,
+                "Src blend should replace the background with blue") && ok;
     // Add: red + blue -> magenta.
     ok = expect(drawOverlap(Paint::BlendMode::ADD, center)
                 && nearBy(center[0], 255, 10) && nearBy(center[2], 255, 10) && center[1] < 30,
@@ -117,6 +120,11 @@ bool testMetalBlendModes()
     ok = expect(drawOverlap(Paint::BlendMode::SRC_ATOP, center)
                 && center[2] > 200 && center[0] < 30,
                 "SrcAtop with opaque src+dst should read blue") && ok;
+    // DstAtop: src * (1 - dst.a) + dst * src.a. With both alphas 1 the
+    // destination survives -> red.
+    ok = expect(drawOverlap(Paint::BlendMode::DST_ATOP, center)
+                && center[0] > 200 && center[2] < 30,
+                "DstAtop with opaque src+dst should preserve red") && ok;
     // Xor: src * (1 - dst.a) + dst * (1 - src.a). Both alphas 1 -> zero.
     ok = expect(drawOverlap(Paint::BlendMode::XOR, center) && center[3] < 20,
                 "Xor of two opaque fills should read transparent") && ok;
