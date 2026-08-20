@@ -2,6 +2,8 @@
 
 #import <QuartzCore/CAMetalLayer.h>
 #import <Metal/Metal.h>
+#import <ImageIO/ImageIO.h>
+#import <MobileCoreServices/MobileCoreServices.h>
 
 #include "DemoScene.h"
 
@@ -10,6 +12,7 @@
 #include <chrono>
 #include <cmath>
 #include <memory>
+#include <vector>
 
 @interface MetalCanvasView ()
 @property(nonatomic, strong) CADisplayLink *displayLink;
@@ -23,6 +26,7 @@
     CFTimeInterval _startTime;
     CFTimeInterval _fpsWindowStart;
     NSUInteger _fpsFrameCount;
+    NSUInteger _screenshotCounter;
     BOOL _applicationActive;
 }
 
@@ -45,6 +49,7 @@
         layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
         layer.framebufferOnly = YES;
         layer.opaque = YES;
+        layer.contentsScale = UIScreen.mainScreen.scale;
         _applicationActive = YES;
         _startTime = CACurrentMediaTime();
         _fpsWindowStart = _startTime;
@@ -140,8 +145,17 @@
         _canvas.reset();
         return;
     }
-    if (!_canvas->setTextBackend(wsc::Canvas::TextBackend::CoreText)) {
-        NSLog(@"WhatsCanvas: CoreText backend initialization failed");
+    // iOS 26 on physical iPhones (verified iPhone 12 / A14) triggers a Metal
+    // GPU page fault after CoreText bitmap uploads through the shared
+    // TexturedQuad pipeline. Simulator and macOS are unaffected. Use the
+    // portable glyph-atlas backend on device until the underlying Metal path
+    // is repaired.
+    wsc::Canvas::TextBackend textBackend = wsc::Canvas::TextBackend::CoreText;
+#if TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
+    textBackend = wsc::Canvas::TextBackend::Portable;
+#endif
+    if (!_canvas->setTextBackend(textBackend)) {
+        NSLog(@"WhatsCanvas: text backend initialization failed");
         [self releaseRenderer];
         return;
     }
@@ -223,6 +237,58 @@
         _fpsWindowStart = now;
         _fpsFrameCount = 0;
     }
+
+    // C/S screenshot: dump the frame's source texture (mainTarget, i.e. what
+    // presentFragment samples to the drawable) as PNG so the Mac can pull it
+    // via `xcrun devicectl device copy from --domain-type appDataContainer`.
+    if ((_screenshotCounter++ % 120u) == 0u) {
+        [self dumpScreenshotAsPNG:@"screenshot.png"];
+    }
+}
+
+- (BOOL)dumpScreenshotAsPNG:(NSString *)filename
+{
+    if (_canvas == nullptr) return NO;
+    std::vector<unsigned char> pixels;
+    if (!_canvas->readPixelsRGBA(pixels) || pixels.empty()) {
+        NSLog(@"WhatsCanvas: screenshot readPixelsRGBA failed");
+        return NO;
+    }
+    const int pixelWidth = static_cast<int>(std::lround(_drawableSize.width));
+    const int pixelHeight = static_cast<int>(std::lround(_drawableSize.height));
+    const std::size_t expected =
+        static_cast<std::size_t>(pixelWidth) * static_cast<std::size_t>(pixelHeight) * 4u;
+    if (pixels.size() < expected) {
+        NSLog(@"WhatsCanvas: screenshot bytes %zu < expected %zu", pixels.size(), expected);
+        return NO;
+    }
+    CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
+    CFDataRef data = CFDataCreate(kCFAllocatorDefault, pixels.data(),
+                                  static_cast<CFIndex>(expected));
+    CGDataProviderRef provider = CGDataProviderCreateWithCFData(data);
+    CGBitmapInfo info = kCGBitmapByteOrder32Big | kCGImageAlphaPremultipliedLast;
+    CGImageRef image = CGImageCreate(pixelWidth, pixelHeight, 8, 32, pixelWidth * 4,
+                                     colorSpace, info, provider,
+                                     NULL, false, kCGRenderingIntentDefault);
+    NSString *docsDir = NSSearchPathForDirectoriesInDomains(
+        NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
+    NSString *fullPath = [docsDir stringByAppendingPathComponent:filename];
+    NSURL *url = [NSURL fileURLWithPath:fullPath];
+    CGImageDestinationRef dest = CGImageDestinationCreateWithURL(
+        (__bridge CFURLRef)url, (__bridge CFStringRef)@"public.png", 1, NULL);
+    BOOL ok = NO;
+    if (dest && image) {
+        CGImageDestinationAddImage(dest, image, NULL);
+        ok = CGImageDestinationFinalize(dest);
+    }
+    if (dest) CFRelease(dest);
+    if (image) CGImageRelease(image);
+    if (provider) CGDataProviderRelease(provider);
+    if (data) CFRelease(data);
+    if (colorSpace) CGColorSpaceRelease(colorSpace);
+    NSLog(@"WhatsCanvas: screenshot %s -> %@ (%dx%d)",
+          ok ? "OK" : "FAILED", fullPath, pixelWidth, pixelHeight);
+    return ok;
 }
 
 - (void)applicationWillResignActive:(NSNotification *)notification
