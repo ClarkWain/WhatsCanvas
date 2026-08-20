@@ -1,106 +1,73 @@
 # WhatsCanvas iOS Build Notes
 
-This note records the current iOS-oriented integration path for the GL-family backend. It is a build and host-app contract, not a claim that the repository currently ships a full Xcode sample.
+The repository ships a UIKit sample at `platforms/ios/` using Metal for
+rendering and CoreText for native text. The iOS path does not require or link
+OpenGL ES.
 
-For comparison, Android now has a complete host guide and runnable sample; see
-[Android Integration](ANDROID_INTEGRATION.md). Keep this file focused on Apple
-toolchain/backend constraints. When a UIKit/Metal sample is added, document its
-full lifecycle and packaging contract in a sibling `IOS_INTEGRATION.md` rather
-than mixing platform-specific host instructions into the Android guide.
+## Supported configuration
 
-## Current Support Boundary
+- Xcode 26.6 and the iOS 26.5 SDK
+- iOS 15.0 deployment target
+- iPhone and iPad, portrait and landscape
+- Bundle identifier `con.whatscanvas.demo`
+- C++17, Objective-C++, UIKit, Metal, QuartzCore, CoreGraphics, and CoreText
 
-- Use the OpenGLES library target: `WhatsCanvasOpenGLES`.
-- Disable the desktop demo target for iOS builds because the in-repo demo uses GLFW.
-- The host application owns the native iOS view, context creation, swapchain presentation, and frame loop.
-- The host application must make an OpenGLES context current before calling `Canvas::loadOpenGL`, `Canvas::initializeContext`, or any draw path that initializes the renderer.
-- The current GL-family backend expects an OpenGLES 3.0-compatible context.
-- Runtime validation on a physical iOS device or simulator remains separate from the desktop GLES compile smoke gate.
+Apple's Xcode 26.6 support matrix still permits iOS 15 deployment, while the
+2026 App Store toolchain requires the iOS 26 SDK. The project therefore keeps
+the broad iOS 15 runtime floor and builds with the current Xcode 26 toolchain.
 
-## Metal Backend on iOS
+## Build model
 
-WhatsCanvas ships a Metal render backend that is enabled by default on all
-Apple platforms, including iOS and tvOS (`-DWHATSCANVAS_ENABLE_METAL=ON`).
-The Objective-C++ implementation gates all platform-specific code through
-`TARGET_OS_IPHONE` / `TARGET_OS_TV`:
+The Xcode build phase calls `platforms/ios/scripts/build_whatscanvas.sh`. It
+configures only `WhatsCanvas::Metal` through `WHATSCANVAS_BUILD_METAL=ON` and
+turns off the OpenGL, OpenGL ES, Vulkan, Software, demo, benchmark, and portable
+font dependency targets. CMake selects the active simulator/device SDK and
+architecture supplied by Xcode.
 
-- Storage mode selection uses `MTLStorageModeShared` unconditionally on
-  iOS/tvOS (unified memory) and skips the managed-mode
-  `synchronizeResource` blit.
-- The Cocoa/UIKit surface bridge accepts either a `CAMetalLayer *` handed
-  through `NativeSurface::Cocoa` or a `UIView *` whose `+layerClass`
-  already returns `CAMetalLayer`. Because `UIView.layer` is read-only,
-  the host application is responsible for the `+layerClass` subclass —
-  Canvas does not attempt to replace an existing layer.
-- The CMake package links `Metal`, `Foundation`, `QuartzCore`, and
-  (when found) `CoreGraphics`, `AppKit`, `UIKit` on Apple builds; the
-  UIKit link is a no-op on macOS-only configurations because the
-  framework is not found there.
+The host creates a `CAMetalLayer`, initializes `Canvas::Backend::Metal`, selects
+`Canvas::TextBackend::CoreText`, and hands the layer to
+`OutputTarget::ToWindow`. The display link requests a fixed 60 Hz range and
+uses three swapchain images.
 
-The library can therefore be used on iOS through either
-`Canvas::Backend::OpenGLES` (existing GLES 3.0 path) or
-`Canvas::Backend::Metal`. The two paths coexist in the same target and
-are selected at runtime.
+## Lifecycle contract
 
-## CMake Shape
+On resize, safe-area change, or orientation change, the host recreates the
+canvas for the new drawable size and re-records static content. On background,
+it stops `CADisplayLink` and releases the Metal canvas, images, retained
+picture, and swapchain. Foreground activation reconstructs those resources
+before the frame loop resumes.
 
-A minimal iOS configure should keep only the GLES library target enabled:
+`WhatsCanvasDemoUITests` verifies portrait, landscape, background/resume, and
+a terminate/relaunch cold start. It keeps portrait and landscape screenshots in
+the Xcode result bundle.
 
-```sh
-cmake -S . -B build-ios \
-  -DCMAKE_SYSTEM_NAME=iOS \
-  -DWHATSCANVAS_BUILD_OPENGL=OFF \
-  -DWHATSCANVAS_BUILD_OPENGLES=ON \
-  -DWHATSCANVAS_BUILD_DEMO=OFF \
-  -DBUILD_TESTING=OFF \
-  -DWHATSCANVAS_INSTALL=ON
-cmake --build build-ios --target WhatsCanvasOpenGLES --config Release
-```
+The simulator lifecycle suite has been paired with physical-device validation
+on an iPhone 12 (A14, iOS 18.7.8). Debug runs use Metal API Validation, while
+Release runs verify the complete feature scene, CoreText CJK/emoji, clipping,
+gradients, shadows, and sustained display-link pacing at 59.2–59.9 fps. See
+`platforms/ios/METAL_API_VALIDATION.md` and
+`platforms/ios/DEVICE_RENDERING_TROUBLESHOOTING.md` for the API coverage matrix
+and simulator/device differences found during bring-up.
 
-If the selected iOS toolchain requires explicit GLES framework linkage, provide it through `WHATSCANVAS_OPENGLES_LIBRARIES`, for example:
+## Commands
 
 ```sh
-cmake -S . -B build-ios \
-  -DCMAKE_SYSTEM_NAME=iOS \
-  -DWHATSCANVAS_BUILD_OPENGL=OFF \
-  -DWHATSCANVAS_BUILD_OPENGLES=ON \
-  -DWHATSCANVAS_BUILD_DEMO=OFF \
-  -DWHATSCANVAS_OPENGLES_LIBRARIES="-framework OpenGLES"
+xcodebuild \
+  -project platforms/ios/WhatsCanvasDemo.xcodeproj \
+  -scheme WhatsCanvasDemo \
+  -configuration Debug \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  CODE_SIGNING_ALLOWED=NO \
+  build
+
+xcodebuild test \
+  -project platforms/ios/WhatsCanvasDemo.xcodeproj \
+  -scheme WhatsCanvasDemo \
+  -configuration Debug \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  CODE_SIGNING_ALLOWED=NO
 ```
 
-## Host App Responsibilities
-
-The host should follow this order:
-
-1. Create an `EAGLContext` or other platform-provided OpenGLES context.
-2. Make the context current on the render thread.
-3. Call `wsc::Canvas::loadOpenGL` with the platform proc-address loader used by the app.
-4. Create `wsc::Canvas`, call `setSize`, and call `initializeContext`.
-5. Render frames through `beginFrame`, draw calls, and `endFrame`.
-6. Call `releaseResources` before context loss, background teardown, or view destruction.
-7. Call `finalizeContext` after resource release and before destroying the native GL context.
-8. Recreate or reinitialize the native GL context, call `loadOpenGL` if required by the loader, then call `initializeContext` again before drawing.
-
-The public context lifecycle methods added for this flow are:
-
-- `Canvas::initializeContext()`
-- `Canvas::finalizeContext()`
-- `Canvas::isContextInitialized()`
-- `Canvas::releaseResources()`
-
-## Validation Checklist
-
-- Configure/build `WhatsCanvasOpenGLES` with desktop OpenGL disabled.
-- Confirm `WHATSCANVAS_OPENGL_ES` is defined for the target.
-- Confirm shaders use `#version 300 es` and precision qualifiers.
-- Confirm desktop-only states remain guarded away from GLES builds.
-- Run at least one host-app frame that clears, draws paths/images/text, calls
-  `endFrame()`, and presents.
-- Exercise background/foreground or view recreation by calling `releaseResources`, `finalizeContext`, then `initializeContext` again after a fresh current context is available.
-
-## Known Gaps
-
-- No in-repository Xcode/iOS sample app is currently checked in.
-- No automated iOS simulator/device smoke target is currently registered in CTest.
-- Text and font backend parity across iOS and desktop is still tracked separately in the text feature matrix.
-- The Metal backend now ships alongside the GLES path on Apple builds, but on-device / simulator smoke coverage is still an open item.
+A generic device compile uses `-sdk iphoneos -destination
+'generic/platform=iOS'`. Simulator checks do not replace final physical-device
+profiling, thermal, memory-pressure, signing, and distribution validation.

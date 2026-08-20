@@ -1114,13 +1114,19 @@ bool testTextBackendCapabilityMatrix()
             sawDirectWrite = capability.nativePlatformAdapter && !capability.available;
 #endif
         } else if (capability.kind == wsc::text::TextBackendKind::CoreText) {
+#if defined(__APPLE__)
+            sawCoreText = capability.nativePlatformAdapter && capability.available
+                && capability.supportsFontRegistration
+                && capability.supportsOpenTypeShaping;
+#else
             sawCoreText = capability.nativePlatformAdapter && !capability.available;
+#endif
         }
     }
 
     return expect(sawPortable, "portable text backend capability should be advertised")
         && expect(sawDirectWrite, "DirectWrite adapter slot should be advertised")
-        && expect(sawCoreText, "CoreText adapter slot should be advertised as unavailable");
+        && expect(sawCoreText, "CoreText adapter capability should match the host platform");
 }
 
 bool testUnavailableNativeTextAdaptersFallback()
@@ -1129,8 +1135,6 @@ bool testUnavailableNativeTextAdaptersFallback()
         wsc::text::createTextBackend(wsc::text::TextBackendKind::DirectWrite);
     std::unique_ptr<wsc::text::ITextBackend> coreText =
         wsc::text::createTextBackend(wsc::text::TextBackendKind::CoreText);
-
-    const std::vector<wsc::text::TextBackendDiagnostic> coreTextDiagnostics = coreText->diagnostics();
 
     bool directWriteOk = false;
 #ifdef _WIN32
@@ -1166,11 +1170,37 @@ bool testUnavailableNativeTextAdaptersFallback()
                               "DirectWrite diagnostic should name the adapter");
 #endif
 
-    return directWriteOk
-        && expect(!coreTextDiagnostics.empty(),
-                  "CoreText backend request should add an unavailable-adapter diagnostic")
-        && expect(coreTextDiagnostics.front().message.find("coretext") != std::string::npos,
+    bool coreTextOk = false;
+#if defined(__APPLE__)
+    if (coreText != nullptr) {
+        wsc::Paint paint;
+        paint.setFontFamily("Helvetica Neue");
+        paint.setTextSize(16.0f);
+        const float width = coreText->measureTextWidth("CoreText 中文", paint);
+        bool sawUnavailable = false;
+        for (const auto &diagnostic : coreText->diagnostics()) {
+            if (diagnostic.message.find("unavailable") != std::string::npos
+                || diagnostic.message.find("not available") != std::string::npos) {
+                sawUnavailable = true;
+            }
+        }
+        coreTextOk = expect(width > 0.0f,
+                            "CoreText backend should measure native text on Apple")
+            && expect(!sawUnavailable,
+                      "CoreText backend should not report unavailable on Apple");
+    } else {
+        coreTextOk = expect(false,
+                            "CoreText backend should be constructible on Apple");
+    }
+#else
+    const auto coreTextDiagnostics = coreText->diagnostics();
+    coreTextOk = expect(!coreTextDiagnostics.empty(),
+                        "CoreText request should add an unavailable diagnostic")
+        && expect(coreTextDiagnostics.front().message.find("CoreText")
+                      != std::string::npos,
                   "CoreText diagnostic should name the adapter");
+#endif
+    return directWriteOk && coreTextOk;
 }
 
 bool testWindowsNativeTextPreservesClearTypeCoverage()

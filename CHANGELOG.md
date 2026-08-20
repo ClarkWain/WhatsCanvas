@@ -9,6 +9,38 @@ For releases and downloadable artifacts, see the
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-20
+
+### Added
+- Added a runnable UIKit host under `platforms/ios/` that renders through Metal
+  and native CoreText without linking OpenGL ES. The feature scene aligns with
+  the Android card matrix, targets 60 fps through `CADisplayLink`, supports
+  portrait and landscape, and rebuilds GPU/text resources after backgrounding.
+- Added a native CoreText text backend with system fallback, file- and
+  memory-backed fonts, OpenType features and variations, CoreText line layout,
+  decoration, and bounded glyph bitmap caching.
+- Added iOS lifecycle UI tests, simulator/device screenshot diagnostics,
+  CoreText and iOS demo pixel-parity tests, and a Metal public API contract
+  suite. The 23 Metal tests run with Metal API Validation and exercise all 10
+  required pipelines, 14 blend modes, 3 sampling filters, 4 address modes,
+  supported image formats, filters, readback, lifecycle, and presentation.
+
+### Changed
+- Extended textured draw commands with vertex tinting so supported two-stop
+  gradients can be applied across CoreText bitmap quads without expanding the
+  Metal fragment uniform contract.
+- Kept gradient endpoints in canvas space across OpenGL, Vulkan, and Software
+  paths when device-pixel ratio is greater than one.
+
+### Fixed
+- Fixed iOS physical-device presentation, missing Metal shader resource
+  bindings, stale textures retained across backend reinitialization, invalid
+  texture update formats, and unchecked synchronous command-buffer failures.
+- Fixed Gaussian text shadows and gradient-text behavior in the iOS demo while
+  preserving stable rendering on A14 and iOS 26 simulator GPUs.
+- Disabled the bundled HarfBuzz CoreText shaper where it conflicted with the
+  native CoreText backend and macOS universal packaging.
+
 ## [0.5.0] - 2026-08-19
 
 ### Added

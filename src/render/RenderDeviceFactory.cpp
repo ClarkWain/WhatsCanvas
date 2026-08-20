@@ -1,6 +1,8 @@
 #include "RenderDeviceFactory.h"
 
+#if !defined(WHATSCANVAS_METAL_ONLY)
 #include "OpenGLRenderDevice.h"
+#endif
 #include "metal/MetalRenderDevice.h"
 #include "vulkan/VulkanRenderDevice.h"
 
@@ -11,7 +13,9 @@
 namespace {
 RenderBackendType defaultBackendType()
 {
-#if defined(WHATSCANVAS_OPENGL_ES)
+#if defined(WHATSCANVAS_METAL_ONLY)
+    return RenderBackendType::Metal;
+#elif defined(WHATSCANVAS_OPENGL_ES)
     return RenderBackendType::OpenGLES;
 #else
     return RenderBackendType::OpenGL;
@@ -39,8 +43,12 @@ std::unique_ptr<IRenderDevice> RenderDeviceFactory::create(RenderBackendType typ
     switch (type) {
     case RenderBackendType::OpenGL:
     case RenderBackendType::OpenGLES:
+#if defined(WHATSCANVAS_METAL_ONLY)
+        return nullptr;
+#else
         g_activeBackend = type;
         return std::make_unique<OpenGLRenderDevice>();
+#endif
 
     case RenderBackendType::Vulkan:
         if (VulkanRenderDevice::isAvailable()) {
@@ -70,7 +78,11 @@ bool RenderDeviceFactory::isBackendSupported(RenderBackendType type)
     switch (type) {
     case RenderBackendType::OpenGL:
     case RenderBackendType::OpenGLES:
+#if defined(WHATSCANVAS_METAL_ONLY)
+        return false;
+#else
         return true;  // Supported by the GL-family device when the target is built for it.
+#endif
 
     case RenderBackendType::Vulkan:
         return VulkanRenderDevice::isAvailable();

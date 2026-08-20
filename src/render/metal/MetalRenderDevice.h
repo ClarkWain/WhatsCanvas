@@ -23,7 +23,7 @@ class RenderTargetPool;
 /// The current implementation covers:
 ///   * offscreen render targets backed by `id<MTLTexture>`
 ///   * backend-neutral `wsc::DrawList` execution for the SolidTriangles,
-///     TexturedQuad, GradientFill, and ClipFill primitives
+///     TexturedQuad, GradientFill, ClipFill, and GaussianShadow primitives
 ///   * `executeCommands()` translation via `CommandDrawListEncoder`
 ///   * image resources (RGBA8 + Alpha8) with sub-region updates
 ///   * external image wrapping (id<MTLTexture> handle round-trip)

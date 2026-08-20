@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(WhatsCanvas VERSION 0.5.0 LANGUAGES C CXX)
+project(WhatsCanvas VERSION 0.6.0 LANGUAGES C CXX)
 
 include(CTest)
 include(GNUInstallDirs)
@@ -21,6 +21,7 @@ option(WHATSCANVAS_INSTALL "Enable install and package export rules." ON)
 option(WHATSCANVAS_INSTALL_TEXT_DEPENDENCIES "Install bundled FreeType/HarfBuzz when an exported renderer links them." ON)
 option(WHATSCANVAS_BUILD_OPENGL "Build the desktop OpenGL renderer library target." ON)
 option(WHATSCANVAS_BUILD_OPENGLES "Build the OpenGL ES renderer library target." OFF)
+option(WHATSCANVAS_BUILD_METAL "Build the standalone Metal renderer library target." OFF)
 option(WHATSCANVAS_BUILD_SOFTWARE "Build the dependency-free CPU (software) renderer library target." ON)
 option(WHATSCANVAS_BUILD_BENCHMARKS "Build lightweight benchmark executables." ON)
 option(WHATSCANVAS_BUILD_FUZZERS "Build Clang libFuzzer targets." OFF)
@@ -145,6 +146,38 @@ if (WHATSCANVAS_BUILD_OPENGLES)
     add_library(WhatsCanvas::OpenGLES ALIAS WhatsCanvasOpenGLES)
 endif()
 
+if (WHATSCANVAS_BUILD_METAL)
+    if (NOT APPLE)
+        message(FATAL_ERROR "WHATSCANVAS_BUILD_METAL requires an Apple platform.")
+    endif()
+    whatscanvas_add_metal_library(WhatsCanvasMetal ${CMAKE_CURRENT_LIST_DIR})
+    add_library(WhatsCanvas::Metal ALIAS WhatsCanvasMetal)
+endif()
+
+if (BUILD_TESTING AND APPLE AND TARGET WhatsCanvasMetal)
+    add_executable(WhatsCanvasCoreTextBackendTests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/CoreTextBackendTests.cpp"
+    )
+    target_include_directories(WhatsCanvasCoreTextBackendTests PRIVATE
+        "${SRC_DIR}"
+        "${SRC_DIR}/canvas"
+    )
+    target_compile_definitions(WhatsCanvasCoreTextBackendTests PRIVATE
+        WHATSCANVAS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+    target_link_libraries(WhatsCanvasCoreTextBackendTests PRIVATE
+        WhatsCanvasMetal
+        WhatsCanvasGLM
+    )
+    add_test(NAME WhatsCanvasCoreTextBackendTests
+        COMMAND WhatsCanvasCoreTextBackendTests
+    )
+    set_tests_properties(WhatsCanvasCoreTextBackendTests PROPERTIES
+        LABELS "unit;coretext;text"
+        TIMEOUT 60
+    )
+endif()
+
 if (WHATSCANVAS_BUILD_SOFTWARE)
     whatscanvas_add_software_library(WhatsCanvasSoftware ${CMAKE_CURRENT_LIST_DIR})
     add_library(WhatsCanvas::Software ALIAS WhatsCanvasSoftware)
@@ -175,12 +208,13 @@ if (WHATSCANVAS_BUILD_FUZZERS)
     )
 endif()
 
-if (NOT TARGET WhatsCanvasOpenGL AND NOT TARGET WhatsCanvasOpenGLES AND NOT TARGET WhatsCanvasSoftware)
-    message(FATAL_ERROR "At least one renderer target must be enabled: WHATSCANVAS_BUILD_OPENGL, WHATSCANVAS_BUILD_OPENGLES or WHATSCANVAS_BUILD_SOFTWARE.")
+if (NOT TARGET WhatsCanvasOpenGL AND NOT TARGET WhatsCanvasOpenGLES
+        AND NOT TARGET WhatsCanvasMetal AND NOT TARGET WhatsCanvasSoftware)
+    message(FATAL_ERROR "At least one renderer target must be enabled: WHATSCANVAS_BUILD_OPENGL, WHATSCANVAS_BUILD_OPENGLES, WHATSCANVAS_BUILD_METAL or WHATSCANVAS_BUILD_SOFTWARE.")
 endif()
 
 set(WHATSCANVAS_VULKAN_BACKEND_ENABLED OFF)
-if (TARGET WhatsCanvasOpenGL)
+if (TARGET WhatsCanvasOpenGL OR TARGET WhatsCanvasMetal)
     get_property(WHATSCANVAS_VULKAN_BACKEND_ENABLED
         GLOBAL PROPERTY WHATSCANVAS_VULKAN_BACKEND_ENABLED)
 endif()
@@ -1588,6 +1622,9 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     add_executable(WhatsCanvasMetalShadowAndTextTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalShadowAndTextTests.cpp"
     )
+    target_include_directories(WhatsCanvasMetalShadowAndTextTests PRIVATE
+        "${SRC_DIR}"
+    )
     target_link_libraries(WhatsCanvasMetalShadowAndTextTests PRIVATE
         WhatsCanvasOpenGL
         WhatsCanvasGLM
@@ -1601,6 +1638,30 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
     )
     set_tests_properties(WhatsCanvasMetalShadowAndTextTests PROPERTIES LABELS "unit;metal;shadow;text" TIMEOUT 60)
+
+    if (APPLE AND WHATSCANVAS_METAL_BACKEND_ENABLED)
+        add_executable(WhatsCanvasIOSDemoPixelParityTests
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/IOSDemoPixelParityTests.cpp"
+            "${CMAKE_CURRENT_SOURCE_DIR}/platforms/ios/WhatsCanvasDemo/DemoScene.cpp"
+        )
+        target_include_directories(WhatsCanvasIOSDemoPixelParityTests PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}"
+        )
+        target_link_libraries(WhatsCanvasIOSDemoPixelParityTests PRIVATE
+            WhatsCanvasOpenGL
+            WhatsCanvasGLM
+        )
+        add_test(NAME WhatsCanvasIOSDemoPixelParityTests
+            COMMAND ${CMAKE_COMMAND}
+                -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+                -DWHATSCANVAS_TEST_TARGET=WhatsCanvasIOSDemoPixelParityTests
+                -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasIOSDemoPixelParityTests>
+                -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+        )
+        set_tests_properties(WhatsCanvasIOSDemoPixelParityTests PROPERTIES
+            LABELS "unit;ios;metal;parity" TIMEOUT 60)
+    endif()
 
     add_executable(WhatsCanvasMetalDeviceTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalDeviceTests.cpp"
@@ -1621,6 +1682,36 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
     )
     set_tests_properties(WhatsCanvasMetalDeviceTests PROPERTIES LABELS "unit;metal;device" TIMEOUT 60)
+
+    if (APPLE AND WHATSCANVAS_METAL_BACKEND_ENABLED)
+        add_executable(WhatsCanvasMetalApiContractTests
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalApiContractTests.mm"
+        )
+        target_include_directories(WhatsCanvasMetalApiContractTests PRIVATE
+            "${SRC_DIR}"
+        )
+        target_compile_options(WhatsCanvasMetalApiContractTests PRIVATE
+            -fobjc-arc
+            -fmodules
+        )
+        target_link_libraries(WhatsCanvasMetalApiContractTests PRIVATE
+            WhatsCanvasOpenGL
+            WhatsCanvasGLM
+            "-framework Metal"
+            "-framework Foundation"
+            "-framework QuartzCore"
+        )
+        add_test(NAME WhatsCanvasMetalApiContractTests
+            COMMAND ${CMAKE_COMMAND}
+                -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+                -DWHATSCANVAS_TEST_TARGET=WhatsCanvasMetalApiContractTests
+                -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:WhatsCanvasMetalApiContractTests>
+                -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
+        )
+        set_tests_properties(WhatsCanvasMetalApiContractTests PROPERTIES
+            LABELS "unit;metal;api-contract" TIMEOUT 60)
+    endif()
 
     add_executable(WhatsCanvasMetalPaintTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/MetalPaintTests.cpp"
@@ -1698,6 +1789,41 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
     )
     set_tests_properties(WhatsCanvasMetalSolidGeometryTests PROPERTIES LABELS "unit;metal;geometry" TIMEOUT 60)
+
+    if (APPLE AND WHATSCANVAS_METAL_BACKEND_ENABLED)
+        # Keep API validation on for Metal unit tests. Conditional shader
+        # resources can appear harmless on one GPU while remaining invalid
+        # according to Metal's binding contract; the validation layer turns
+        # those latent device-only failures into deterministic CI failures.
+        set(WHATSCANVAS_METAL_VALIDATION_TESTS
+            WhatsCanvasMetalBackendSelectionTests
+            WhatsCanvasMetalCommandTests
+            WhatsCanvasMetalTextTests
+            WhatsCanvasMetalClipTests
+            WhatsCanvasMetalFilterTests
+            WhatsCanvasMetalImageEffectsTests
+            WhatsCanvasMetalBlendModeTests
+            WhatsCanvasMetalGeometryTests
+            WhatsCanvasMetalLayerTests
+            WhatsCanvasMetalGradientTests
+            WhatsCanvasMetalRenderTargetTests
+            WhatsCanvasMetalMipmapTests
+            WhatsCanvasMetalGpuTimingTests
+            WhatsCanvasMetalDrawListTests
+            WhatsCanvasMetalInteractionTests
+            WhatsCanvasMetalShadowAndTextTests
+            WhatsCanvasIOSDemoPixelParityTests
+            WhatsCanvasMetalDeviceTests
+            WhatsCanvasMetalApiContractTests
+            WhatsCanvasMetalPaintTests
+            WhatsCanvasMetalWrapExternalTests
+            WhatsCanvasMetalFilterPixelParityTests
+            WhatsCanvasMetalSolidGeometryTests
+        )
+        set_tests_properties(${WHATSCANVAS_METAL_VALIDATION_TESTS} PROPERTIES
+            ENVIRONMENT "MTL_DEBUG_LAYER=1;MTL_DEBUG_ERROR_MODE=0"
+        )
+    endif()
 
     # Ad-hoc Metal-vs-OpenGL throughput smoke. Built as an executable rather
     # than a CTest gate so per-run timing noise never breaks the CI signal.
