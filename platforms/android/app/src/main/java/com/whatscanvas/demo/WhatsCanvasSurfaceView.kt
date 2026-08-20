@@ -10,10 +10,13 @@ import android.view.SurfaceHolder
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
-class WhatsCanvasSurfaceView(context: Context) : GLSurfaceView(context) {
+class WhatsCanvasSurfaceView(
+    context: Context,
+    captureTimeSeconds: Float? = null
+) : GLSurfaceView(context) {
     private val canvasRenderer = WhatsCanvasRenderer {
         resources.displayMetrics.density
-    }
+    }.also { it.captureTimeSeconds = captureTimeSeconds }
     private val choreographer = Choreographer.getInstance()
     private var frameCallbackScheduled = false
     private var rendering = false
@@ -103,6 +106,7 @@ class WhatsCanvasRenderer(
     private var frameWindowCount = 0
     @Volatile
     private var nativeHandle: Long = nativeCreate()
+    var captureTimeSeconds: Float? = null
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         if (!nativeSurfaceCreated(nativeHandle)) {
@@ -118,7 +122,8 @@ class WhatsCanvasRenderer(
 
     override fun onDrawFrame(gl: GL10?) {
         val nowNanos = System.nanoTime()
-        val elapsedSeconds = (nowNanos - startedAtNanos) / 1_000_000_000.0f
+        val elapsedSeconds = captureTimeSeconds
+            ?: (nowNanos - startedAtNanos) / 1_000_000_000.0f
         nativeRender(nativeHandle, elapsedSeconds)
 
         if (frameWindowStartedAtNanos == 0L) {

@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "profiles": {
+    "layout": {
+      "search_radius": 1,
+      "bad_channel_threshold": 24,
+      "max_mean_delta": 5.0,
+      "max_bad_pixel_ratio": 0.08
+    },
+    "graphics": {
+      "search_radius": 1,
+      "bad_channel_threshold": 16,
+      "max_mean_delta": 2.0,
+      "max_bad_pixel_ratio": 0.03
+    },
+    "image_sampling": {
+      "search_radius": 2,
+      "bad_channel_threshold": 32,
+      "max_mean_delta": 1.5,
+      "max_bad_pixel_ratio": 0.03
+    },
+    "text": {
+      "search_radius": 2,
+      "bad_channel_threshold": 32,
+      "max_mean_delta": 8.0,
+      "max_bad_pixel_ratio": 0.12
+    }
+  },
+  "scenes": [
+    {
+      "id": "feature_showcase",
+      "version": 1,
+      "required_platforms": ["android", "ios", "desktop"],
+      "samples": [
+        {"id": "t0000", "time_seconds": 0.0},
+        {"id": "t0500", "time_seconds": 0.5},
+        {"id": "t1250", "time_seconds": 1.25},
+        {"id": "t2000", "time_seconds": 2.0}
+      ],
+      "viewports": [
+        {
+          "id": "landscape",
+          "width": 786,
+          "height": 377,
+          "regions": [
+            {"id": "grid", "rect": [0.017812, 0.183024, 0.964377, 0.724138], "profile": "layout"},
+            {"id": "text_content", "rect": [0.031807, 0.262599, 0.205471, 0.331565], "profile": "text"},
+            {"id": "path_content", "rect": [0.275445, 0.262599, 0.205471, 0.331565], "profile": "graphics"},
+            {"id": "clip_content", "rect": [0.519084, 0.262599, 0.205471, 0.331565], "profile": "graphics"},
+            {"id": "arc_content", "rect": [0.762723, 0.262599, 0.205471, 0.331565], "profile": "graphics"},
+            {"id": "transform_content", "rect": [0.031807, 0.635279, 0.205471, 0.331565], "profile": "graphics"},
+            {"id": "blend_content", "rect": [0.275445, 0.635279, 0.205471, 0.331565], "profile": "graphics"},
+            {"id": "image_content", "rect": [0.519084, 0.635279, 0.205471, 0.331565], "profile": "image_sampling"},
+            {"id": "motion_content", "rect": [0.762723, 0.635279, 0.205471, 0.331565], "profile": "graphics"}
+          ]
+        },
+        {
+          "id": "portrait",
+          "width": 393,
+          "height": 759,
+          "regions": [
+            {"id": "grid", "rect": [0.035623, 0.090909, 0.928753, 0.862978], "profile": "layout"},
+            {"id": "text_content", "rect": [0.063613, 0.130435, 0.399491, 0.169631], "profile": "text"},
+            {"id": "path_content", "rect": [0.538168, 0.130435, 0.399491, 0.169631], "profile": "graphics"},
+            {"id": "clip_content", "rect": [0.063613, 0.348485, 0.399491, 0.169631], "profile": "graphics"},
+            {"id": "arc_content", "rect": [0.538168, 0.348485, 0.399491, 0.169631], "profile": "graphics"},
+            {"id": "transform_content", "rect": [0.063613, 0.566535, 0.399491, 0.169631], "profile": "graphics"},
+            {"id": "blend_content", "rect": [0.538168, 0.566535, 0.399491, 0.169631], "profile": "graphics"},
+            {"id": "image_content", "rect": [0.063613, 0.784585, 0.399491, 0.169631], "profile": "image_sampling"},
+            {"id": "motion_content", "rect": [0.538168, 0.784585, 0.399491, 0.169631], "profile": "graphics"}
+          ]
+        }
+      ]
+    }
+  ]
+}

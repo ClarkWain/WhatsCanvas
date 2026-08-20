@@ -196,13 +196,19 @@ int GlfwHost::runDump(IScene& scene, const GlfwDumpConfig& config)
     if (!initializeGlfwOnce()) {
         return 1;
     }
-    // Dump dimensions are physical pixels. Disabling the Retina backing store
-    // keeps a requested 1280x720 capture at exactly 1280x720 on macOS.
+    // Dump dimensions are logical pixels; the explicit DPR below determines
+    // the physical framebuffer size. Disable GLFW's implicit Retina scaling so
+    // the host applies that scale exactly once on macOS.
     applyGlHints(true, false);
     glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
 
+    const float devicePixelRatio = std::max(0.01f, config.devicePixelRatio);
+    const int physicalWidth = std::max(
+        1, static_cast<int>(std::lround(config.width * devicePixelRatio)));
+    const int physicalHeight = std::max(
+        1, static_cast<int>(std::lround(config.height * devicePixelRatio)));
     GLFWwindow* window = glfwCreateWindow(
-        std::max(1, config.width), std::max(1, config.height),
+        physicalWidth, physicalHeight,
         "WhatsCanvas Desktop (dump)", nullptr, nullptr);
     if (!window) {
         std::fprintf(stderr, "[GlfwHost] hidden glfwCreateWindow failed\n");
@@ -218,13 +224,15 @@ int GlfwHost::runDump(IScene& scene, const GlfwDumpConfig& config)
         return 3;
     }
 
-    auto canvas = wsc::Canvas::create(wsc::Canvas::Backend::OpenGL, config.width, config.height);
+    auto canvas = wsc::Canvas::create(
+        wsc::Canvas::Backend::OpenGL, physicalWidth, physicalHeight);
     if (!canvas) {
         std::fprintf(stderr, "[GlfwHost] Canvas::create(OpenGL) failed\n");
         glfwDestroyWindow(window);
         return 4;
     }
 
+    canvas->setDevicePixelRatio(devicePixelRatio);
     if (!canvas->initializeContext()) {
         std::fprintf(stderr, "[GlfwHost] Canvas::initializeContext failed\n");
         glfwDestroyWindow(window);
@@ -245,9 +253,11 @@ int GlfwHost::runDump(IScene& scene, const GlfwDumpConfig& config)
 
     const int frameCount = std::max(1, config.frames);
     for (int i = 0; i < frameCount; ++i) {
-        prepareDefaultFramebuffer(config.width, config.height);
+        prepareDefaultFramebuffer(physicalWidth, physicalHeight);
         canvas->beginFrame();
-        const float elapsed = static_cast<float>(i) * config.frameDeltaSeconds;
+        const float elapsed = config.captureTimeSeconds >= 0.0f
+            ? config.captureTimeSeconds
+            : static_cast<float>(i) * config.frameDeltaSeconds;
         scene.onFrame(*canvas, FrameInfo{logicalWidth, logicalHeight, elapsed, i});
         canvas->endFrame();
     }
@@ -257,8 +267,10 @@ int GlfwHost::runDump(IScene& scene, const GlfwDumpConfig& config)
         std::fprintf(stderr, "[GlfwHost] savePixelsPPM(%s) failed\n",
                      config.outputPath.c_str());
     } else {
-        std::fprintf(stdout, "[GlfwHost] wrote %s (%dx%d, %d frame(s))\n",
-                     config.outputPath.c_str(), config.width, config.height, frameCount);
+        std::fprintf(stdout,
+                     "[GlfwHost] wrote %s (%dx%d, %.2fx, %d frame(s))\n",
+                     config.outputPath.c_str(), physicalWidth, physicalHeight,
+                     devicePixelRatio, frameCount);
     }
 
     scene.onCanvasReleasing();
