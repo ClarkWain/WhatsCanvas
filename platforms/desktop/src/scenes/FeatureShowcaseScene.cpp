@@ -1,5 +1,7 @@
 #include "FeatureShowcaseScene.h"
 
+#include "../SceneViewport.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
@@ -566,12 +568,22 @@ void FeatureShowcaseScene::onCanvasReady(wsc::Canvas& canvas)
 
 void FeatureShowcaseScene::onLayout(wsc::Canvas& canvas, float logicalWidth, float logicalHeight)
 {
-    logicalWidth_ = logicalWidth;
-    logicalHeight_ = logicalHeight;
+    const SceneViewport viewport = makeFeatureShowcaseViewport(
+        logicalWidth, logicalHeight);
+    sceneWidth_ = viewport.width;
+    sceneHeight_ = viewport.height;
+    sceneScale_ = viewport.scale;
+    sceneOffsetX_ = viewport.offsetX;
+    sceneOffsetY_ = viewport.offsetY;
     staticPicture_ = canvas.recordPicture(
         [&](wsc::Canvas& recordingCanvas) {
-            drawScene(recordingCanvas, nullptr, logicalWidth_, logicalHeight_,
+            recordingCanvas.drawColor(wsc::Color(8, 12, 29));
+            recordingCanvas.save();
+            recordingCanvas.translate(sceneOffsetX_, sceneOffsetY_);
+            recordingCanvas.scale(sceneScale_, sceneScale_);
+            drawScene(recordingCanvas, nullptr, sceneWidth_, sceneHeight_,
                       std::numeric_limits<float>::quiet_NaN());
+            recordingCanvas.restore();
         });
 }
 
@@ -580,12 +592,21 @@ void FeatureShowcaseScene::onFrame(wsc::Canvas& canvas, const FrameInfo& info)
     if (staticPicture_) {
         canvas.drawPictureRasterized(*staticPicture_);
     } else {
-        drawScene(canvas, checkerImage_.get(), info.logicalWidth,
-                  info.logicalHeight, info.elapsedSeconds);
+        canvas.drawColor(wsc::Color(8, 12, 29));
+        canvas.save();
+        canvas.translate(sceneOffsetX_, sceneOffsetY_);
+        canvas.scale(sceneScale_, sceneScale_);
+        drawScene(canvas, checkerImage_.get(), sceneWidth_, sceneHeight_,
+                  info.elapsedSeconds);
+        canvas.restore();
         return;
     }
-    drawDynamicScene(canvas, checkerImage_.get(), info.logicalWidth,
-                     info.logicalHeight, info.elapsedSeconds);
+    canvas.save();
+    canvas.translate(sceneOffsetX_, sceneOffsetY_);
+    canvas.scale(sceneScale_, sceneScale_);
+    drawDynamicScene(canvas, checkerImage_.get(), sceneWidth_, sceneHeight_,
+                     info.elapsedSeconds);
+    canvas.restore();
 }
 
 void FeatureShowcaseScene::onCanvasReleasing()
