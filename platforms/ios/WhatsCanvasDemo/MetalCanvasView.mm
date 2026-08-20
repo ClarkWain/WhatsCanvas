@@ -145,11 +145,6 @@
         _canvas.reset();
         return;
     }
-    // iOS 26 on physical iPhones (verified iPhone 12 / A14) triggers a Metal
-    // GPU page fault after CoreText bitmap uploads through the shared
-    // TexturedQuad pipeline. Simulator and macOS are unaffected. Use the
-    // portable glyph-atlas backend on device until the underlying Metal path
-    // is repaired.
     wsc::Canvas::TextBackend textBackend = wsc::Canvas::TextBackend::CoreText;
 #if TARGET_OS_IPHONE && !TARGET_OS_SIMULATOR
     textBackend = wsc::Canvas::TextBackend::Portable;
