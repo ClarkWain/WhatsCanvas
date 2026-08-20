@@ -131,19 +131,6 @@ struct TexturedUniforms {
     float4 colorMatrixOffset;
     float4 clipParams;    // x = enabled, yz unused
     float4 clipUv;        // xy = framebuffer-to-UV scale, zw = offset
-    // Gradient tint (parity with the GradientFill pipeline). When
-    // `gradientParams.x` > 0 the fragment shader samples the gradient at the
-    // per-pixel canvas-logical position (recovered from `imageOriginSize` and
-    // the interpolated `uv`) and multiplies it into the sampled texel instead
-    // of the uniform `tint`.
-    float4 gradientParams;   // x = type, y = tile mode, z = stop count, w = radial radius
-    float4 linearStart;      // xy used
-    float4 linearEnd;        // xy used
-    float4 radialCenter;     // xy used
-    float4 imageOriginSize;  // xy = image origin (canvas-logical), zw = size
-    float4 gradientStops[8]; // rgba per stop
-    float4 gradientOffsets;
-    float4 gradientOffsetsHigh;
 };
 
 vertex TexturedVSOut textured_vs(TexturedVSInput in [[stage_in]])
@@ -169,66 +156,6 @@ static float roundedRectCoverage(float2 localPx, float2 sizePx, float radius)
     return saturate(radius + 0.5 - dist);
 }
 
-static float applyTexturedGradientTile(float t, int mode)
-{
-    if (mode == 0) return saturate(t);
-    if (mode == 1) return t - floor(t);
-    if (mode == 2) {
-        float f = fmod(fabs(t), 2.0);
-        return f > 1.0 ? 2.0 - f : f;
-    }
-    return t;
-}
-
-// Sample the stored gradient at t, matching the GradientFill pipeline: clamped
-// t is looked up between adjacent stops. Returns (0,0,0,0) when the fill is
-// gated off (decal tile mode outside [0,1]).
-static float4 sampleTexturedGradient(constant TexturedUniforms &u, float2 localPos)
-{
-    int type = int(u.gradientParams.x);
-    int tileMode = int(u.gradientParams.y);
-    int stopCount = int(u.gradientParams.z);
-    if (stopCount <= 0) return float4(0.0);
-
-    float t = 0.0;
-    if (type == 1) {
-        float2 s = u.linearStart.xy;
-        float2 e = u.linearEnd.xy;
-        float2 d = e - s;
-        float denom = max(dot(d, d), 1e-8);
-        t = dot(localPos - s, d) / denom;
-    } else if (type == 2) {
-        float2 c = u.radialCenter.xy;
-        float r = max(u.gradientParams.w, 1e-8);
-        t = length(localPos - c) / r;
-    } else {
-        return float4(0.0);
-    }
-
-    float visibility = 1.0;
-    if (tileMode == 3 && (t < 0.0 || t > 1.0)) visibility = 0.0;
-    float tt = applyTexturedGradientTile(t, tileMode);
-
-    float offsets[8];
-    offsets[0] = u.gradientOffsets.x;     offsets[1] = u.gradientOffsets.y;
-    offsets[2] = u.gradientOffsets.z;     offsets[3] = u.gradientOffsets.w;
-    offsets[4] = u.gradientOffsetsHigh.x; offsets[5] = u.gradientOffsetsHigh.y;
-    offsets[6] = u.gradientOffsetsHigh.z; offsets[7] = u.gradientOffsetsHigh.w;
-
-    if (stopCount == 1 || tt <= offsets[0]) {
-        return u.gradientStops[0] * visibility;
-    }
-    for (int i = 1; i < 8; ++i) {
-        if (i >= stopCount) break;
-        if (tt <= offsets[i]) {
-            float span = max(offsets[i] - offsets[i - 1], 1e-4);
-            float localT = saturate((tt - offsets[i - 1]) / span);
-            return mix(u.gradientStops[i - 1], u.gradientStops[i], localT) * visibility;
-        }
-    }
-    return u.gradientStops[stopCount - 1] * visibility;
-}
-
 fragment float4 textured_fs(TexturedVSOut in [[stage_in]],
                             texture2d<float> tex [[texture(0)]],
                             texture2d<float> clipMask [[texture(1)]],
@@ -245,10 +172,9 @@ fragment float4 textured_fs(TexturedVSOut in [[stage_in]],
         s = m + u.colorMatrixOffset;
     }
     float4 tint = u.tint;
-    if (u.gradientParams.x > 0.5) {
-        float2 lp = u.imageOriginSize.xy + in.uv * u.imageOriginSize.zw;
-        tint = sampleTexturedGradient(u, lp);
-    }
+    // DIAG-D: temporarily disable Paint-gradient sampling in the textured
+    // path to test whether the added gradient code triggers the iOS 26 page
+    // fault. Text-with-gradient shows solid tint instead until proven safe.
     float4 c = s * tint * in.vertexTint;
     c.a *= u.params.x;
     if (u.params.y > 0.5) {
@@ -272,10 +198,8 @@ fragment float4 textured_alpha_fs(TexturedVSOut in [[stage_in]],
 {
     float coverage = tex.sample(samp, in.uv).r;
     float4 tint = u.tint;
-    if (u.gradientParams.x > 0.5) {
-        float2 lp = u.imageOriginSize.xy + in.uv * u.imageOriginSize.zw;
-        tint = sampleTexturedGradient(u, lp);
-    }
+    // DIAG-D: Paint-gradient sampling is currently disabled (see textured_fs);
+    // alpha-mask textured quads also fall back to the uniform tint.
     float4 c = tint * in.vertexTint;
     c.a *= coverage * u.params.x;
     if (u.clipParams.x > 0.5) {
@@ -2062,19 +1986,6 @@ struct MetalTexturedUniforms
     float colorMatrixOffset[4];
     float clipParams[4];
     float clipUv[4];
-    // Gradient tint (parity with GradientFill pipeline). params:
-    //   x = gradient type (0 none, 1 linear, 2 radial)
-    //   y = tile mode
-    //   z = stop count clamped to 8
-    //   w = radial radius
-    float gradientParams[4];
-    float linearStart[4];        // xy used
-    float linearEnd[4];          // xy used
-    float radialCenter[4];       // xy used
-    float imageOriginSize[4];    // xy = image origin (canvas-logical), zw = size
-    float gradientStops[8][4];   // rgba per stop
-    float gradientOffsets[4];    // stops 0..3
-    float gradientOffsetsHigh[4];// stops 4..7
 };
 
 void encodeTextured(id<MTLRenderCommandEncoder> encoder, MetalRenderDevice::MetalContext &ctx,
@@ -2190,36 +2101,6 @@ void encodeTextured(id<MTLRenderCommandEncoder> encoder, MetalRenderDevice::Meta
     u.clipUv[1] = prim.clipUvScale[1];
     u.clipUv[2] = prim.clipUvOffset[0];
     u.clipUv[3] = prim.clipUvOffset[1];
-    if (prim.gradientType != 0 && prim.gradientStopCount > 0) {
-        u.gradientParams[0] = static_cast<float>(prim.gradientType);
-        u.gradientParams[1] = static_cast<float>(prim.gradientTileMode);
-        u.gradientParams[2] = static_cast<float>(std::min(prim.gradientStopCount, 8));
-        u.gradientParams[3] = prim.radialRadius;
-        u.linearStart[0] = prim.linearStart[0];
-        u.linearStart[1] = prim.linearStart[1];
-        u.linearEnd[0] = prim.linearEnd[0];
-        u.linearEnd[1] = prim.linearEnd[1];
-        u.radialCenter[0] = prim.radialCenter[0];
-        u.radialCenter[1] = prim.radialCenter[1];
-        u.imageOriginSize[0] = prim.imageOrigin[0];
-        u.imageOriginSize[1] = prim.imageOrigin[1];
-        u.imageOriginSize[2] = prim.roundedWidth;
-        u.imageOriginSize[3] = prim.roundedHeight;
-        const int n = std::min(prim.gradientStopCount, 8);
-        for (int i = 0; i < n; ++i) {
-            u.gradientStops[i][0] = prim.gradientStopColors[i * 4 + 0];
-            u.gradientStops[i][1] = prim.gradientStopColors[i * 4 + 1];
-            u.gradientStops[i][2] = prim.gradientStopColors[i * 4 + 2];
-            u.gradientStops[i][3] = prim.gradientStopColors[i * 4 + 3];
-        }
-        for (int i = 0; i < 4; ++i) {
-            u.gradientOffsets[i] = i < n ? prim.gradientStopPositions[i] : 1.0f;
-        }
-        for (int i = 0; i < 4; ++i) {
-            u.gradientOffsetsHigh[i] =
-                (i + 4) < n ? prim.gradientStopPositions[i + 4] : 1.0f;
-        }
-    }
     [encoder setFragmentBytes:&u length:sizeof(u) atIndex:0];
 
     [encoder setFragmentTexture:tex atIndex:0];
