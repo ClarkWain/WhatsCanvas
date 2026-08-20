@@ -1760,6 +1760,40 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
     )
     set_tests_properties(WhatsCanvasMetalSolidGeometryTests PROPERTIES LABELS "unit;metal;geometry" TIMEOUT 60)
 
+    if (APPLE AND WHATSCANVAS_METAL_BACKEND_ENABLED)
+        # Keep API validation on for Metal unit tests. Conditional shader
+        # resources can appear harmless on one GPU while remaining invalid
+        # according to Metal's binding contract; the validation layer turns
+        # those latent device-only failures into deterministic CI failures.
+        set(WHATSCANVAS_METAL_VALIDATION_TESTS
+            WhatsCanvasMetalBackendSelectionTests
+            WhatsCanvasMetalCommandTests
+            WhatsCanvasMetalTextTests
+            WhatsCanvasMetalClipTests
+            WhatsCanvasMetalFilterTests
+            WhatsCanvasMetalImageEffectsTests
+            WhatsCanvasMetalBlendModeTests
+            WhatsCanvasMetalGeometryTests
+            WhatsCanvasMetalLayerTests
+            WhatsCanvasMetalGradientTests
+            WhatsCanvasMetalRenderTargetTests
+            WhatsCanvasMetalMipmapTests
+            WhatsCanvasMetalGpuTimingTests
+            WhatsCanvasMetalDrawListTests
+            WhatsCanvasMetalInteractionTests
+            WhatsCanvasMetalShadowAndTextTests
+            WhatsCanvasIOSDemoPixelParityTests
+            WhatsCanvasMetalDeviceTests
+            WhatsCanvasMetalPaintTests
+            WhatsCanvasMetalWrapExternalTests
+            WhatsCanvasMetalFilterPixelParityTests
+            WhatsCanvasMetalSolidGeometryTests
+        )
+        set_tests_properties(${WHATSCANVAS_METAL_VALIDATION_TESTS} PROPERTIES
+            ENVIRONMENT "MTL_DEBUG_LAYER=1;MTL_DEBUG_ERROR_MODE=0"
+        )
+    endif()
+
     # Ad-hoc Metal-vs-OpenGL throughput smoke. Built as an executable rather
     # than a CTest gate so per-run timing noise never breaks the CI signal.
     add_executable(WhatsCanvasMetalPerformanceSmoke
