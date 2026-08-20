@@ -41,6 +41,14 @@ before the frame loop resumes.
 a terminate/relaunch cold start. It keeps portrait and landscape screenshots in
 the Xcode result bundle.
 
+The simulator lifecycle suite has been paired with physical-device validation
+on an iPhone 12 (A14, iOS 18.7.8). Debug runs use Metal API Validation, while
+Release runs verify the complete feature scene, CoreText CJK/emoji, clipping,
+gradients, shadows, and sustained display-link pacing at 59.2–59.9 fps. See
+`platforms/ios/METAL_API_VALIDATION.md` and
+`platforms/ios/DEVICE_RENDERING_TROUBLESHOOTING.md` for the API coverage matrix
+and simulator/device differences found during bring-up.
+
 ## Commands
 
 ```sh

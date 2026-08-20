@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/ClarkWain/WhatsCanvas/actions/workflows/cross-platform-validation.yml/badge.svg)](https://github.com/ClarkWain/WhatsCanvas/actions/workflows/cross-platform-validation.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.5.0-informational.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.6.0-informational.svg)](CHANGELOG.md)
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C.svg)](CMakeLists.txt)
 [![Documentation](https://img.shields.io/badge/docs-online-success.svg)](https://clarkwain.github.io/WhatsCanvas/)
 
@@ -25,11 +25,11 @@ WhatsCanvas 的定位介于 NanoVG 这类基础绘制库和 Skia 这类大型图
 | **适用场景** | 原生应用自定义 UI、工具与数据界面、HUD、2D 游戏渲染层、服务端或测试环境中的离屏图片生成。 |
 | **API 与语言** | C++17；公开 API 位于 `include/wsc/`，入口是 `#include <wsc/wsc.h>`。 |
 | **渲染后端** | OpenGL、纯 CPU Software；可选 OpenGL ES、Vulkan 以及 Metal（macOS/iOS）。WebGPU 尚未实现。 |
-| **平台状态** | Windows、Linux、macOS 持续执行构建和单元测试；Android 有三 ABI GLES 示例和真机检查。iOS 已有仓库内 Metal/CoreText 宿主并在 iOS 26.5 模拟器验证，发布前仍需真机验证。 |
+| **平台状态** | Windows、Linux、macOS 持续执行构建和单元测试；Android 有三 ABI GLES 示例和真机检查。iOS 已有仓库内 Metal/CoreText 宿主，并在 iOS 26.5 模拟器和运行 iOS 18.7.8 的 iPhone 12 上完成横竖屏、生命周期、冷启动、API Validation 与 60 fps 检查。 |
 | **文本能力** | 字体发现和 fallback、CJK/RTL、UAX #9、换行与省略号、glyph atlas、COLR/CPAL v0；便携路径使用 FreeType/HarfBuzz，Windows 可选 DirectWrite，Apple 平台可选 CoreText。 |
 | **接入方式** | vcpkg overlay port、CMake `find_package`、`add_subdirectory`，或从源码生成可搬运的安装目录。 |
 | **体量** | 非 header-only。支持按后端仅链接 `WhatsCanvas::Software`、`::OpenGL`、`::OpenGLES` 或 Apple 平台的 `::Metal`；参考体量见[体量与依赖](#体量与依赖)。 |
-| **成熟度** | 当前版本 `0.5.0`，尚未达到 1.0。仓库已经建立公开 API 边界、跨平台 CI、像素回归、package consumer 集成测试与可审计的性能基线；升级前仍需评估下文列出的平台和兼容性风险。 |
+| **成熟度** | 当前版本 `0.6.0`，尚未达到 1.0。仓库已经建立公开 API 边界、跨平台 CI、像素回归、package consumer 集成测试与可审计的性能基线；升级前仍需评估下文列出的平台和兼容性风险。 |
 | **许可证** | MIT；`third_party/` 组件遵循各自许可证。 |
 
 **何时推荐使用 WhatsCanvas？**
@@ -73,7 +73,7 @@ cmake_minimum_required(VERSION 3.16)
 project(MyApp LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
-find_package(WhatsCanvas 0.5.0 CONFIG REQUIRED)
+find_package(WhatsCanvas 0.6.0 CONFIG REQUIRED)
 
 add_executable(MyApp main.cpp)
 target_link_libraries(MyApp PRIVATE WhatsCanvas::Software)
@@ -101,7 +101,7 @@ build\Release\MyApp.exe
 
 ### 使用发布包
 
-GitHub Release 中的发布包名为 `whatscanvas-<platform>-release-<version>.zip`，例如 `whatscanvas-win64-release-0.5.0.zip`。目录布局如下：
+GitHub Release 中的发布包名为 `whatscanvas-<platform>-release-<version>.zip`，例如 `whatscanvas-win64-release-0.6.0.zip`。目录布局如下：
 
 ```text
 include/wsc/                 公开头文件
@@ -117,7 +117,7 @@ Android tag 还会发布 `whatscanvas-android-demo-profile-<version>.apk`。这�
 各平台预编译包所包含的 target 可能有所差异。实际使用时，建议通过 CMake 显式校验所需 target 是否存在：
 
 ```cmake
-find_package(WhatsCanvas 0.5.0 CONFIG REQUIRED)
+find_package(WhatsCanvas 0.6.0 CONFIG REQUIRED)
 if (NOT TARGET WhatsCanvas::Software)
     message(FATAL_ERROR "This package does not contain the Software backend")
 endif()
