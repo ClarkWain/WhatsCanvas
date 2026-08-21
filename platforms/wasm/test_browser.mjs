@@ -345,9 +345,29 @@ async function run() {
         lastState = await waitForState(
             session, (state) => state?.ready === true && state.frameIndex > 0,
             "cold reload");
+        const renderer = await evaluate(session, `(() => {
+            const canvas = document.querySelector("canvas");
+            const gl = canvas?.getContext("webgl2");
+            if (!gl) return "unknown";
+            const extension = gl.getExtension("WEBGL_debug_renderer_info");
+            return extension
+                ? gl.getParameter(extension.UNMASKED_RENDERER_WEBGL)
+                : gl.getParameter(gl.RENDERER);
+        })()`);
+        // Hosted Linux runners expose WebGL through SwiftShader/llvmpipe. At
+        // DPR 3 this validates lifecycle and forward progress, but it is not
+        // hardware performance evidence. Keep the display-rate gate for real
+        // GPU renderers and use a conservative liveness floor for software GL.
+        const softwareRenderer = /swiftshader|llvmpipe|softpipe|software/i.test(
+            String(renderer));
+        const minimumFps = softwareRenderer ? 5 : 55;
         lastState = await waitForState(
-            session, (state) => Number.isFinite(state?.fps) && state.fps >= 55,
-            "display-rate frame pacing", 20000);
+            session, (state) => Number.isFinite(state?.fps)
+                && state.fps >= minimumFps,
+            softwareRenderer
+                ? "software-renderer frame progress"
+                : "display-rate frame pacing",
+            20000);
         assert(lastState.fps <= 165,
                `Unexpected requestAnimationFrame rate: ${lastState.fps}`);
 
@@ -361,6 +381,8 @@ async function run() {
         const captureCount = scenes.reduce(
             (count, scene) => count + scene.samples.length * viewports.length, 0);
         console.log(`WEB_BROWSER_SMOKE status=PASS fps=${lastState.fps.toFixed(1)}`
+            + ` min_fps=${minimumFps}`
+            + ` renderer_mode=${softwareRenderer ? "software" : "hardware"}`
             + ` captures=${captureCount}`
             + " capture_dpr=3 resize=PASS background=PASS context_restore=PASS cold_reload=PASS");
     } finally {
