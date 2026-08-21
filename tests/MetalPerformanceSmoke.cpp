@@ -1,3 +1,5 @@
+#include <wsc/CanvasStats.h>
+
 // WhatsCanvas cross-backend performance smoke (Software / OpenGL / Metal /
 // Vulkan). Renders the same workload through every available backend, reports
 // wall-clock time per frame, and — when the backend supports it — the GPU-side

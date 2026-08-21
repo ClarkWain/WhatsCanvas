@@ -1,3 +1,5 @@
+#include <wsc/FontSystem.h>
+
 #include <iostream>
 #include <vector>
 #include <array>

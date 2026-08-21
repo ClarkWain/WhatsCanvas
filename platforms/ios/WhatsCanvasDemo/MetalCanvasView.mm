@@ -1,3 +1,5 @@
+#include <wsc/CanvasStats.h>
+
 #import "MetalCanvasView.h"
 
 #import <QuartzCore/CAMetalLayer.h>

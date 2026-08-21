@@ -1,4 +1,5 @@
 #include <wsc/wsc.h>
+#include <wsc/FontResolver.h>
 
 #include <cstdint>
 #include <memory>

@@ -1,3 +1,5 @@
+#include <wsc/FontSystem.h>
+
 // Sanity check for wsc::FontSystem::discoverInstalledFontFaces(). Runs the
 // platform's native font manager (CoreText / DirectWrite / fontconfig) and
 // verifies the returned face list is non-empty and self-consistent. Skips
