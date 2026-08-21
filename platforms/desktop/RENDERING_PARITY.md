@@ -9,11 +9,16 @@ radii and feature geometry retained their original point sizes. The result was
 not a uniform enlargement and did not match Android at the same physical
 resolution.
 
-Android screenshots and its reported display density establish these logical
-reference viewports:
+The first fix used logical sizes measured from an Android screenshot. That
+removed the immediate mismatch but coupled the contract to one device's DPR
+and system bars. The long-term primary reference is now device-neutral and
+rotation-symmetric:
 
-- Landscape: 786 x 377 points.
-- Portrait: 393 x 759 points.
+- Landscape: 800 x 400 units.
+- Portrait: 400 x 800 units.
+
+The measured 786 x 377 / 393 x 759 pair remains available under the
+`legacy_android` standard only for comparing historical captures.
 
 `SceneViewport` now aspect-fits the orientation-specific reference canvas into
 the host, centers it horizontally, anchors it at the top and applies one shared
@@ -25,7 +30,7 @@ background instead of stretching individual elements.
 
 - A 1080 x 540 macOS render matches the geometry of the 2160 x 1080 Android
   screenshot after accounting for Retina 2x backing scale.
-- Landscape (1080 x 540) and portrait (520 x 780 and 393 x 759) were rendered
+- Landscape (1080 x 540) and portrait (520 x 780 and 400 x 800) were rendered
   through both OpenGL and Software backends.
 - At 1080 x 540, OpenGL versus Software mean absolute channel delta was
   0.009997. At 520 x 780 it was 0.011954.

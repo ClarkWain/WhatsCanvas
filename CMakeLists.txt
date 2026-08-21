@@ -2408,7 +2408,7 @@ if (BUILD_TESTING AND TARGET WhatsCanvasDesktopHost)
         COMMAND WhatsCanvasDesktopHost
             --scene=feature_showcase
             --backend=software
-            --w=393 --h=759 --dpr=3
+            --w=400 --h=800 --dpr=3
             --time=1.25
             --dump-png=${CMAKE_CURRENT_BINARY_DIR}/desktop_high_dpr_smoke.ppm
             --frames=1
@@ -2416,6 +2416,27 @@ if (BUILD_TESTING AND TARGET WhatsCanvasDesktopHost)
     set_tests_properties(WhatsCanvasDesktopHighDprCaptureSmoke PROPERTIES
         LABELS "smoke;desktop;visual-parity;platforms"
         TIMEOUT 60)
+
+    foreach(_viewport_case IN ITEMS
+            "phone_16_9;360;640"
+            "tablet_4_3;768;1024"
+            "desktop_16_10;1440;900")
+        list(GET _viewport_case 0 _viewport_id)
+        list(GET _viewport_case 1 _viewport_width)
+        list(GET _viewport_case 2 _viewport_height)
+        add_test(NAME WhatsCanvasDesktopViewport_${_viewport_id}
+            COMMAND WhatsCanvasDesktopHost
+                --scene=feature_showcase
+                --backend=software
+                --viewport-standard=${_viewport_id}
+                --w=${_viewport_width} --h=${_viewport_height}
+                --time=1.25
+                --dump-png=${CMAKE_CURRENT_BINARY_DIR}/desktop_${_viewport_id}.ppm
+                --frames=1)
+        set_tests_properties(WhatsCanvasDesktopViewport_${_viewport_id} PROPERTIES
+            LABELS "unit;desktop;viewport-standard;platforms"
+            TIMEOUT 60)
+    endforeach()
 endif()
 
 if (BUILD_TESTING AND WHATSCANVAS_ENABLE_SCRIPT_TESTS)

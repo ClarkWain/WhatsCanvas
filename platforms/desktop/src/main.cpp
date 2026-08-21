@@ -17,6 +17,8 @@ struct Args
 {
     std::string scene = whatscanvas::desktop::SceneCatalog::defaultName();
     BackendChoice backend = BackendChoice::OpenGL;
+    whatscanvas::scenes::ViewportStandard viewportStandard =
+        whatscanvas::scenes::ViewportStandard::Phone2To1;
     int width = 1280;
     int height = 720;
     bool disableMsaa = false;
@@ -78,6 +80,8 @@ void printUsage()
         "  --backend=<name>   'gl' (default) uses GLFW + OpenGL 3.3;\n"
         "                     'software' uses the dependency-free CPU backend\n"
         "                     (headless, no display, dump-png only).\n"
+        "  --viewport-standard=<id>  phone_2_1 (default), phone_16_9,\n"
+        "                     tablet_4_3, desktop_16_10, or legacy_android.\n"
         "  --w=<px>           Window / dump width in pixels (default: 1280).\n"
         "  --h=<px>           Window / dump height in pixels (default: 720).\n"
         "  --no-msaa          Disable MSAA context hint.\n"
@@ -110,6 +114,15 @@ bool parseArgs(int argc, char** argv, Args& args)
             else {
                 std::fprintf(stderr, "Unknown backend: %.*s (expected 'gl' or 'software')\n",
                              static_cast<int>(name.size()), name.data());
+                return false;
+            }
+        }
+        else if (startsWith(a, "--viewport-standard=")) {
+            const std::string_view id = a.substr(20);
+            if (!whatscanvas::scenes::parseViewportStandard(
+                    id, args.viewportStandard)) {
+                std::fprintf(stderr, "Unknown viewport standard: %.*s\n",
+                             static_cast<int>(id.size()), id.data());
                 return false;
             }
         }
@@ -166,7 +179,8 @@ int main(int argc, char** argv)
         return 0;
     }
 
-    auto scene = whatscanvas::desktop::SceneCatalog::create(args.scene);
+    auto scene = whatscanvas::desktop::SceneCatalog::create(
+        args.scene, args.viewportStandard);
     if (!scene) {
         std::fprintf(stderr, "Unknown scene: %s\n", args.scene.c_str());
         std::fprintf(stderr, "Available scenes:\n");

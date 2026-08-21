@@ -4,6 +4,7 @@
 #include <string>
 
 #include "../IScene.h"
+#include "../../../shared/scenes/CanonicalViewport.h"
 
 namespace wsc { class Image; class Picture; }
 
@@ -23,7 +24,10 @@ struct FeatureShowcaseBranding
 class FeatureShowcaseScene final : public IScene
 {
 public:
-    explicit FeatureShowcaseScene(FeatureShowcaseBranding branding = {});
+    explicit FeatureShowcaseScene(
+        FeatureShowcaseBranding branding = {},
+        whatscanvas::scenes::ViewportStandard viewportStandard =
+            whatscanvas::scenes::ViewportStandard::Phone2To1);
     ~FeatureShowcaseScene() override;
 
     const char* name() const override { return "feature_showcase"; }
@@ -35,6 +39,7 @@ public:
 
 private:
     FeatureShowcaseBranding branding_;
+    whatscanvas::scenes::ViewportStandard viewportStandard_;
     std::unique_ptr<wsc::Image> checkerImage_;
     std::shared_ptr<const wsc::Picture> staticPicture_;
     float sceneWidth_ = 0.0f;

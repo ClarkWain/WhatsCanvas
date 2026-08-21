@@ -18,8 +18,8 @@ const captureRoot = path.resolve(
         ?? path.join(repositoryRoot, "out/visual-parity/captures/web"));
 
 const viewports = [
-    {id: "landscape", width: 786, height: 377},
-    {id: "portrait", width: 393, height: 759},
+    {id: "landscape", width: 800, height: 400},
+    {id: "portrait", width: 400, height: 800},
 ];
 const samples = [
     {id: "t0000", time: 0.0},

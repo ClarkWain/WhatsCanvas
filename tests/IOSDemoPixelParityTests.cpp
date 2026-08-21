@@ -9,6 +9,7 @@
 #include "wsc/wsc.h"
 
 #include "platforms/ios/WhatsCanvasDemo/DemoScene.h"
+#include "platforms/shared/scenes/CanonicalViewport.h"
 
 namespace {
 
@@ -34,15 +35,20 @@ RegionDiff compareRegion(const std::vector<unsigned char> &actual,
                          const std::vector<unsigned char> &reference,
                          const Region &region)
 {
-    const float scale = 390.0f / 393.0f;
-    const int left = std::max(0, static_cast<int>(std::floor(region.x * scale)));
+    const auto viewport = whatscanvas::scenes::makeCanonicalViewport(
+        static_cast<float>(kWidth), static_cast<float>(kHeight),
+        {47.0f, 34.0f, 0.0f, 0.0f});
+    const int left = std::max(0, static_cast<int>(std::floor(
+        viewport.offsetX + region.x * viewport.scale)));
     const int top = std::max(
-        0, static_cast<int>(std::floor(47.0f + region.y * scale)));
+        0, static_cast<int>(std::floor(
+            viewport.offsetY + region.y * viewport.scale)));
     const int right = std::min(
-        kWidth, static_cast<int>(std::ceil((region.x + region.width) * scale)));
+        kWidth, static_cast<int>(std::ceil(
+            viewport.offsetX + (region.x + region.width) * viewport.scale)));
     const int bottom = std::min(
-        kHeight,
-        static_cast<int>(std::ceil(47.0f + (region.y + region.height) * scale)));
+        kHeight, static_cast<int>(std::ceil(
+            viewport.offsetY + (region.y + region.height) * viewport.scale)));
 
     std::uint64_t absoluteError = 0;
     std::size_t divergentPixels = 0;
@@ -147,14 +153,14 @@ int main()
     // Canonical portrait card content rectangles. Reporting every region keeps
     // a backend bug in one feature from being hidden by the full-screen mean.
     const Region regions[] = {
-        {"text", 25.0f, 99.0f, 157.0f, 129.0f},
-        {"path", 211.5f, 99.0f, 157.0f, 129.0f},
-        {"clip", 25.0f, 264.5f, 157.0f, 129.0f},
-        {"arc", 211.5f, 264.5f, 157.0f, 129.0f},
-        {"transform", 25.0f, 430.0f, 157.0f, 129.0f},
-        {"blend", 211.5f, 430.0f, 157.0f, 129.0f},
-        {"image", 25.0f, 595.5f, 157.0f, 129.0f},
-        {"motion", 211.5f, 595.5f, 157.0f, 129.0f}
+        {"text", 25.0f, 99.0f, 160.0f, 131.0f},
+        {"path", 215.0f, 99.0f, 160.0f, 131.0f},
+        {"clip", 25.0f, 275.0f, 160.0f, 131.0f},
+        {"arc", 215.0f, 275.0f, 160.0f, 131.0f},
+        {"transform", 25.0f, 451.0f, 160.0f, 131.0f},
+        {"blend", 215.0f, 451.0f, 160.0f, 131.0f},
+        {"image", 25.0f, 627.0f, 160.0f, 131.0f},
+        {"motion", 215.0f, 627.0f, 160.0f, 131.0f}
     };
     bool regionsPassed = true;
     for (const Region &region : regions) {

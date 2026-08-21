@@ -7,11 +7,25 @@ pixels are compared.
 
 ## Canonical content window
 
-Physical device screens cannot have one size. The comparable unit is therefore
-the scene's logical content window:
+Physical device screens cannot have one size. The primary comparable unit is a
+neutral, rotation-symmetric 2:1 design-space window:
 
-- Landscape: 786 x 377.
-- Portrait: 393 x 759.
+- Landscape: 800 x 400.
+- Portrait: 400 x 800.
+
+These numbers are not copied from a device or its system bars. They are round
+logical units with an exact reciprocal orientation, so a new device cannot
+silently redefine the contract. The catalog also registers 16:9 phone, 4:3
+tablet and 16:10 desktop layout standards. The former 393 x 759 / 786 x 377
+Android-derived pair is retained as `legacy_android` for historical regression
+only; it is not a primary pixel reference.
+
+The four-platform pixel matrix runs the primary `phone_2_1` standard. The
+additional standards are layout-conformance cases rendered by the deterministic
+Desktop Software host in CI. This separation keeps pixel comparisons stable
+while still detecting assumptions that only work at one phone aspect ratio.
+Run an auxiliary case with, for example,
+`WhatsCanvasDesktopHost --viewport-standard=tablet_4_3 --w=768 --h=1024`.
 
 Every host removes platform safe areas, aspect-fits this canonical canvas,
 centers it horizontally and anchors it to the usable top. The complete scene is
@@ -56,10 +70,10 @@ The latest measured evidence and threshold rationale are recorded in
 [`VISUAL_PARITY_VALIDATION.md`](VISUAL_PARITY_VALIDATION.md).
 
 Reference captures must use the canonical logical size with `DPR=3`, then be
-normalized by the comparator. Merely rendering a `1179 x 2277` DPR=1 canvas is
+normalized by the comparator. Merely rendering a `1200 x 2400` DPR=1 canvas is
 not equivalent: text, image sampling, shadows and raster caches still take the
 1x path. For example, the portrait Software reference is generated with
-`--w=393 --h=759 --dpr=3`.
+`--w=400 --h=800 --dpr=3`.
 
 ## Capture identity and metadata
 
@@ -135,6 +149,8 @@ python3 tools/visual_parity/visual_parity.py matrix \
 4. The device matrix compares normalized Android, iOS, Desktop and Web captures.
 5. Lifecycle, rotation, cold start and background/foreground tests run outside
    the pixel comparator, then capture the same deterministic scene again.
+6. Software layout-conformance tests render the registered phone, tablet and
+   desktop standards independently of the primary pixel matrix.
 
 Layers 1-3 are fast pull-request gates. The full device matrix should run on
 rendering pull requests, nightly, and before release. Missing required captures
