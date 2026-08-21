@@ -88,6 +88,9 @@ scene resources. The browser smoke forces both paths and performs a cold reload.
   capture size are correctness and liveness gates, not performance evidence.
   The browser smoke keeps the hardware display-rate requirement but applies a
   conservative forward-progress floor when the unmasked renderer is software.
+  Linux CI explicitly enables SwiftShader for this trusted local test page, as
+  required by current headless Chrome; production hosts should not add that
+  browser flag on behalf of arbitrary content.
 
 Chrome's WebGL validation and forced context-loss extension cover the browser
 API surface used by the canonical scene. They do not prove that unused renderer

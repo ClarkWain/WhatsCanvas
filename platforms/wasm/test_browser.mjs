@@ -260,6 +260,11 @@ async function run() {
         "about:blank",
     ];
     if (process.platform === "darwin") chromeArguments.unshift("--use-angle=metal");
+    if (process.platform === "linux") {
+        // Hosted runners have no hardware GPU. Current Chrome requires an
+        // explicit opt-in before trusted local test content may use SwiftShader.
+        chromeArguments.unshift("--enable-unsafe-swiftshader");
+    }
     const chrome = spawn(chromeExecutable(), chromeArguments, {
         stdio: ["ignore", "ignore", "pipe"],
     });
@@ -374,7 +379,7 @@ async function run() {
         const severeChromeErrors = browserErrors.filter((message) =>
             /GL_INVALID|RuntimeError|Aborted|WebGL.*(?:error|invalid)/i.test(message));
         const severeProcessErrors = chromeLog.split(/\r?\n/).filter((line) =>
-            /GL_INVALID|RuntimeError|Aborted|ERROR.*WebGL/i.test(line));
+            /GL_INVALID|RuntimeError|Aborted|WebGL.*(?:error|invalid)/i.test(line));
         assert(severeChromeErrors.length === 0 && severeProcessErrors.length === 0,
                `Browser rendering errors:\n${[...severeChromeErrors, ...severeProcessErrors].join("\n")}`);
 

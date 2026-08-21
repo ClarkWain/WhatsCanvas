@@ -46,6 +46,9 @@ For releases and downloadable artifacts, see the
 - Fixed Android capture races by waiting for the requested scene and physical
   dimensions to finish their first native frame instead of accepting the
   system cold-start splash or a stale orientation.
+- Fixed a Desktop command-line integer parser lifetime error found by the
+  sanitizer gate; parsed storage now remains alive through end-pointer checks
+  and rejects values outside the `int` range.
 
 ## [0.7.0] - 2026-08-20
 
