@@ -1,3 +1,5 @@
+#include <wsc/FontSystem.h>
+
 #include "text/DirectWriteTextBackend.h"
 #include "text/FontRasterizer.h"
 #include "wsc/FontResolver.h"

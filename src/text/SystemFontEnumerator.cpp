@@ -1,3 +1,5 @@
+#include <wsc/FontSystem.h>
+
 // Cross-platform system font enumeration. Uses the OS's native font manager
 // so consumers can find installed fonts by their real family names (e.g.
 // "Menlo" on macOS, "Consolas" on Windows, "DejaVu Sans" on Linux) instead

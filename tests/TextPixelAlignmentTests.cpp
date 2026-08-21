@@ -1,3 +1,5 @@
+#include <wsc/FontSystem.h>
+
 // Regression test for text pixel-grid snapping (crisp, non-blurry text).
 //
 // Glyphs are rasterized at an integer pixel size, so their texels only map 1:1

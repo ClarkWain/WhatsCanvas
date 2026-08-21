@@ -1,3 +1,5 @@
+#include <wsc/CanvasStats.h>
+
 #include <wsc/wsc.h>
 
 #include <algorithm>
