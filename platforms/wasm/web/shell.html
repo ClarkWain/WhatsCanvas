@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#080c1d">
+  <title>WhatsCanvas Web</title>
+  <style>
+    :root { color-scheme: dark; background: #080c1d; }
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+    body { background: #080c1d; font: 14px/1.4 system-ui, sans-serif; }
+    #whatscanvas-canvas {
+      position: fixed;
+      inset: 0;
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      height: 100dvh;
+      border: 0;
+      outline: 0;
+      touch-action: none;
+    }
+    #status {
+      position: fixed;
+      inset: 50% auto auto 50%;
+      max-width: min(32rem, calc(100vw - 2rem));
+      margin: 0;
+      padding: .7rem 1rem;
+      transform: translate(-50%, -50%);
+      border: 1px solid rgba(139, 166, 226, .35);
+      border-radius: .7rem;
+      color: #dce7ff;
+      background: rgba(19, 28, 53, .94);
+      text-align: center;
+      z-index: 1;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="whatscanvas-canvas" width="393" height="759"
+          aria-label="WhatsCanvas WebGL rendering demo"></canvas>
+  <p id="status" role="status">Loading WhatsCanvas WebAssembly…</p>
+  <script>
+    var Module = {
+      canvas: document.getElementById('whatscanvas-canvas'),
+      printErr: function(message) {
+        console.error(message);
+        var status = document.getElementById('status');
+        if (status && !status.hidden) status.textContent = String(message);
+      }
+    };
+  </script>
+  {{{ SCRIPT }}}
+</body>
+</html>

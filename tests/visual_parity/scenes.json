@@ -30,7 +30,7 @@
     {
       "id": "feature_showcase",
       "version": 1,
-      "required_platforms": ["android", "ios", "desktop"],
+      "required_platforms": ["android", "ios", "desktop", "web"],
       "samples": [
         {"id": "t0000", "time_seconds": 0.0},
         {"id": "t0500", "time_seconds": 0.5},

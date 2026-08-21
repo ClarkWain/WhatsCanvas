@@ -18,7 +18,7 @@ void StreamBuffer::initialize(std::size_t initialCapacity)
         * sizeof(float);
     glGenBuffers(1, &buffer_);
     allocateStorage(capacityBytes_);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindBuffer(target_, 0);
 }
 
 void StreamBuffer::release()
@@ -88,15 +88,15 @@ GLuint StreamBuffer::upload(const float *data, std::size_t floatCount)
         while (byteCount > capacityBytes_) {
             capacityBytes_ *= GROW_FACTOR;
         }
-        glBindBuffer(GL_ARRAY_BUFFER, buffer_);
-        glBufferData(GL_ARRAY_BUFFER,
+        glBindBuffer(target_, buffer_);
+        glBufferData(target_,
                      static_cast<GLsizeiptr>(capacityBytes_),
                      nullptr,
                      GL_DYNAMIC_DRAW);
     }
 
-    glBindBuffer(GL_ARRAY_BUFFER, buffer_);
-    glBufferSubData(GL_ARRAY_BUFFER, 0,
+    glBindBuffer(target_, buffer_);
+    glBufferSubData(target_, 0,
                     static_cast<GLsizeiptr>(byteCount),
                     data);
     return buffer_;
@@ -178,9 +178,9 @@ StreamBuffer::UploadRange StreamBuffer::uploadRangeBytes(
         byteOffset = 0;
     }
 
-    glBindBuffer(GL_ARRAY_BUFFER, buffer_);
+    glBindBuffer(target_, buffer_);
     glBufferSubData(
-        GL_ARRAY_BUFFER, static_cast<GLintptr>(byteOffset),
+        target_, static_cast<GLintptr>(byteOffset),
         static_cast<GLsizeiptr>(byteCount), data);
     writeOffsetBytes_ = byteOffset + byteCount;
     return {buffer_, byteOffset};
@@ -188,9 +188,9 @@ StreamBuffer::UploadRange StreamBuffer::uploadRangeBytes(
 
 void StreamBuffer::allocateStorage(std::size_t byteCapacity)
 {
-    glBindBuffer(GL_ARRAY_BUFFER, buffer_);
+    glBindBuffer(target_, buffer_);
     glBufferData(
-        GL_ARRAY_BUFFER,
+        target_,
         static_cast<GLsizeiptr>(byteCapacity),
         nullptr, GL_STREAM_DRAW);
 }
