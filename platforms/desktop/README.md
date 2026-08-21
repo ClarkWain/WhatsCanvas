@@ -14,9 +14,8 @@ platforms display and can regression-test the same visual content.
   window/context creation, high-DPI content-scale, resize, VSYNC and orderly
   teardown.
 - A scene registry (`SceneCatalog`) that dispatches by name.
-- One bundled scene: `feature_showcase` — the same 8-card feature matrix that
-  the Android host draws (text, path, clip, arcs, transform, shadow, image,
-  motion), including the retained-`Picture` + dynamic-overlay split.
+- Four bundled scenes: the retained `feature_showcase` plus shared
+  `text_stress`, `geometry_stress` and `compositing_stress` regressions.
 - Optional headless dump mode that renders N frames to an off-screen framebuffer
   and writes a PPM, suitable for pixel-regression golden comparison.
 - Native text selection on supported desktop systems: CoreText on macOS and
@@ -94,10 +93,11 @@ platforms/desktop/capture_visual_parity.sh \
 
 ## Adding a new scene
 
-1. Create `src/scenes/YourScene.h/.cpp` implementing `IScene`.
-2. Register it in [`src/SceneCatalog.cpp`](src/SceneCatalog.cpp).
-3. Add the source to `CMakeLists.txt`.
+1. Put reusable drawing code under `platforms/shared/scenes/`.
+2. Add a small `IScene` adapter and register it in
+   [`src/SceneCatalog.cpp`](src/SceneCatalog.cpp).
+3. Register the same id and sample in all hosts and the visual contract.
 
 The Scene interface (`onCanvasReady`, `onLayout`, `onFrame`, `onCanvasReleasing`)
-is deliberately platform-agnostic; the same file is intended to be linked into
-the Android/iOS/Web hosts once a `platforms/shared/scenes/` extraction lands.
+is deliberately platform-agnostic. The stress scenes are already shared
+directly by Android, iOS, Desktop and Web.

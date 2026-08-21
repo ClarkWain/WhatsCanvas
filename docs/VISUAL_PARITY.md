@@ -47,10 +47,19 @@ validation registry. Every scene declares:
 - deterministic animation samples in seconds;
 - named comparison regions and their tolerance profile.
 
-The current `feature_showcase` samples 0.0, 0.5, 1.25 and 2.0 seconds. New
-animation logic must be a pure function of the supplied elapsed time. Random,
-wall-clock and locale-dependent input must be seeded or supplied by the scene
-contract.
+The registry currently contains four scenes. `feature_showcase` samples 0.0,
+0.5, 1.25 and 2.0 seconds; each focused stress scene samples 1.25 seconds:
+
+- `text_stress`: fallback, emoji clusters, wrapping, baselines, glyph effects
+  and text on a path;
+- `geometry_stress`: even-odd holes, concave fills, nested clips, stroke joins,
+  dashes, subpixel geometry, arcs and negative scale;
+- `compositing_stress`: Porter-Duff cutouts, blend modes, backdrop glass,
+  inner shadow and layer alpha.
+
+New animation logic must be a pure function of the supplied elapsed time.
+Random, wall-clock and locale-dependent input must be seeded or supplied by
+the scene contract.
 
 Profiles are intentionally separated:
 
@@ -60,6 +69,8 @@ Profiles are intentionally separated:
   at different physical pixel densities;
 - `text` allows limited native rasterization differences while still catching
   missing glyphs, wrapping and geometry changes;
+- `filters` allows small kernel/sampling differences while still rejecting a
+  missing filter, incorrect layer bounds or broad compositing change;
 - `layout` catches whole-card displacement and scaling regressions.
 
 The comparator searches a small neighboring-pixel radius before measuring a
@@ -105,9 +116,10 @@ layout and before normalization. The comparator rejects an aspect mismatch
 instead of guessing a crop.
 
 Desktop accepts `--time=<seconds>` for deterministic dumps and `--dpr=3` to
-match high-density mobile rasterization. Android accepts the
-`capture_time_seconds` Activity extra. iOS accepts
-`--capture-time=<seconds>` together with its opt-in `--capture-frames` switch.
+match high-density mobile rasterization. Android accepts
+`capture_time_seconds` and `capture_scene_id` Activity extras. iOS accepts
+`--capture-time=<seconds>` and `--capture-scene=<id>` together with its opt-in
+`--capture-frames` switch. Web accepts `scene`, `time` and `dpr` query values.
 
 ## Commands
 

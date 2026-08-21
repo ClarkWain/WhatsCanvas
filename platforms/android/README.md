@@ -93,7 +93,8 @@ animation time, for example:
 
 ```sh
 adb shell am start -S -n com.whatscanvas.demo/.MainActivity \
-  --ef capture_time_seconds 1.25
+  --ef capture_time_seconds 1.25 \
+  --es capture_scene_id text_stress
 ```
 
 The cross-platform capture layout, metadata and comparison workflow are in
@@ -107,7 +108,8 @@ platforms/android/capture_emulator_visual_parity.sh --device emulator-5554
 
 The script restores the emulator's original rotation settings on exit and
 rejects captures whose renderer surface has not reached the requested
-orientation.
+orientation or whose matching native first frame has not completed. Pass
+`--scene <id>` to recapture one scene during development.
 
 The sample includes density-aware touch interaction, lifecycle/context-loss
 handling, CI builds and lint, retained-scene diagnostics, and device checkpoints

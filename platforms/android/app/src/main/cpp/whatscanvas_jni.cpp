@@ -13,11 +13,13 @@
 #include <memory>
 #include <limits>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <wsc/wsc.h>
 
 #include "platforms/shared/scenes/CanonicalViewport.h"
+#include "platforms/shared/scenes/StressScenes.h"
 
 namespace {
 
@@ -597,6 +599,16 @@ void drawDynamicScene(wsc::Canvas& canvas, const wsc::Image* checkerImage,
 
 class NativeRenderer {
 public:
+    explicit NativeRenderer(std::string sceneName)
+        : sceneName_(std::move(sceneName))
+    {
+        stressSceneEnabled_ = whatscanvas::scenes::parseStressScene(
+            sceneName_, stressSceneId_);
+        if (!stressSceneEnabled_) {
+            sceneName_ = "feature_showcase";
+        }
+    }
+
     bool surfaceCreated()
     {
         const EGLContext currentContext = eglGetCurrentContext();
@@ -660,22 +672,24 @@ public:
             canvas_.reset();
             return false;
         }
-        createCheckerImage(*canvas_, checkerImage_);
-        staticPicture_ = canvas_->recordPicture(
-            [&](wsc::Canvas& recordingCanvas) {
-                recordingCanvas.drawColor(wsc::Color(8, 12, 29));
-                recordingCanvas.save();
-                recordingCanvas.translate(sceneOffsetX_, sceneOffsetY_);
-                recordingCanvas.scale(sceneScale_, sceneScale_);
-                drawScene(recordingCanvas, nullptr, sceneWidth_, sceneHeight_,
-                          std::numeric_limits<float>::quiet_NaN());
-                recordingCanvas.restore();
-            });
-        if (!staticPicture_) {
-            logError("Static Picture recording failed");
-            canvas_->finalizeContext();
-            canvas_.reset();
-            return false;
+        if (!stressSceneEnabled_) {
+            createCheckerImage(*canvas_, checkerImage_);
+            staticPicture_ = canvas_->recordPicture(
+                [&](wsc::Canvas& recordingCanvas) {
+                    recordingCanvas.drawColor(wsc::Color(8, 12, 29));
+                    recordingCanvas.save();
+                    recordingCanvas.translate(sceneOffsetX_, sceneOffsetY_);
+                    recordingCanvas.scale(sceneScale_, sceneScale_);
+                    drawScene(recordingCanvas, nullptr, sceneWidth_, sceneHeight_,
+                              std::numeric_limits<float>::quiet_NaN());
+                    recordingCanvas.restore();
+                });
+            if (!staticPicture_) {
+                logError("Static Picture recording failed");
+                canvas_->finalizeContext();
+                canvas_.reset();
+                return false;
+            }
         }
 
         auto probePaint = makeTextPaint(18.0f, wsc::Color::WHITE);
@@ -702,7 +716,8 @@ public:
             width, height, density,
             wsc::Canvas::getOpenGLVersionString().c_str(), probeWidth,
             cjkProbeWidth, boldProbeWidth, emojiProbeWidth,
-            complexEmojiProbeWidth, staticPicture_->operationCount());
+            complexEmojiProbeWidth,
+            staticPicture_ ? staticPicture_->operationCount() : 0u);
         return true;
     }
 
@@ -719,19 +734,35 @@ public:
 
         canvas_->beginFrame();
         const auto recordStart = std::chrono::steady_clock::now();
-        // The retained scene is an isolated, opaque full-screen layer. Cache
-        // its raster result like Flutter's RepaintBoundary/RasterCache so the
-        // steady state submits one textured quad instead of ~100 static draws.
-        canvas_->drawPictureRasterized(*staticPicture_);
+        if (stressSceneEnabled_) {
+            canvas_->drawColor(wsc::Color(7, 11, 27));
+            canvas_->save();
+            canvas_->translate(sceneOffsetX_, sceneOffsetY_);
+            canvas_->scale(sceneScale_, sceneScale_);
+            whatscanvas::scenes::drawStressScene(
+                *canvas_, stressSceneId_, sceneWidth_, sceneHeight_, elapsedSeconds);
+            canvas_->restore();
+        } else {
+            // The retained scene is an isolated, opaque full-screen layer.
+            canvas_->drawPictureRasterized(*staticPicture_);
+        }
         const auto pictureEnd = std::chrono::steady_clock::now();
-        canvas_->save();
-        canvas_->translate(sceneOffsetX_, sceneOffsetY_);
-        canvas_->scale(sceneScale_, sceneScale_);
-        drawDynamicScene(*canvas_, checkerImage_.get(), sceneWidth_, sceneHeight_,
-                         elapsedSeconds);
-        canvas_->restore();
+        if (!stressSceneEnabled_) {
+            canvas_->save();
+            canvas_->translate(sceneOffsetX_, sceneOffsetY_);
+            canvas_->scale(sceneScale_, sceneScale_);
+            drawDynamicScene(*canvas_, checkerImage_.get(), sceneWidth_, sceneHeight_,
+                             elapsedSeconds);
+            canvas_->restore();
+        }
         const auto recordEnd = std::chrono::steady_clock::now();
         canvas_->endFrame();
+        if (!firstFrameLogged_) {
+            firstFrameLogged_ = true;
+            __android_log_print(ANDROID_LOG_INFO, kLogTag,
+                                "First frame ready: scene=%s size=%dx%d",
+                                sceneName_.c_str(), physicalWidth_, physicalHeight_);
+        }
         lastRecordCpuTimeUs_ = static_cast<std::uint64_t>(
             std::chrono::duration_cast<std::chrono::microseconds>(
                 recordEnd - recordStart).count());
@@ -830,6 +861,7 @@ public:
         physicalHeight_ = 0;
         density_ = 1.0f;
         lastStatsSecond_ = -1;
+        firstFrameLogged_ = false;
     }
 
     void abandon()
@@ -848,6 +880,7 @@ public:
         physicalHeight_ = 0;
         density_ = 1.0f;
         lastStatsSecond_ = -1;
+        firstFrameLogged_ = false;
     }
 
 private:
@@ -869,6 +902,11 @@ private:
     std::uint64_t lastRecordCpuTimeUs_ = 0;
     std::uint64_t lastPictureCpuTimeUs_ = 0;
     std::uint64_t lastDynamicCpuTimeUs_ = 0;
+    whatscanvas::scenes::StressSceneId stressSceneId_ =
+        whatscanvas::scenes::StressSceneId::Text;
+    bool stressSceneEnabled_ = false;
+    std::string sceneName_ = "feature_showcase";
+    bool firstFrameLogged_ = false;
 };
 
 NativeRenderer* rendererFromHandle(jlong handle)
@@ -881,7 +919,7 @@ NativeRenderer* rendererFromHandle(jlong handle)
 
 extern "C" JNIEXPORT jlong JNICALL
 Java_com_whatscanvas_demo_WhatsCanvasRenderer_nativeCreate(
-    JNIEnv*, jobject)
+    JNIEnv* environment, jobject, jstring sceneName)
 {
     wsc::Log::setLevel(wsc::LogLevel::Info);
     wsc::Log::setHandler([](const wsc::LogMessage &message) {
@@ -889,8 +927,16 @@ Java_com_whatscanvas_demo_WhatsCanvasRenderer_nativeCreate(
             androidLogPriority(message.level), kLogTag,
             "%s: %s", message.category, message.message.c_str());
     });
+    std::string selectedScene = "feature_showcase";
+    if (sceneName != nullptr) {
+        const char* value = environment->GetStringUTFChars(sceneName, nullptr);
+        if (value != nullptr) {
+            selectedScene = value;
+            environment->ReleaseStringUTFChars(sceneName, value);
+        }
+    }
     return static_cast<jlong>(reinterpret_cast<std::uintptr_t>(
-        new NativeRenderer()));
+        new NativeRenderer(std::move(selectedScene))));
 }
 
 extern "C" JNIEXPORT jboolean JNICALL

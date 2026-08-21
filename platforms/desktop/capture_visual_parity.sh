@@ -36,20 +36,29 @@ if [ -z "${HOST}" ] || [ ! -x "${HOST}" ]; then
     exit 1
 fi
 
-capture_viewport() {
-    VIEWPORT="$1"
-    WIDTH="$2"
-    HEIGHT="$3"
-    DESTINATION="${OUTPUT}/feature_showcase/${VIEWPORT}"
+capture_one() {
+    SCENE="$1"
+    VIEWPORT="$2"
+    WIDTH="$3"
+    HEIGHT="$4"
+    SAMPLE_ID="$5"
+    SAMPLE_TIME="$6"
+    DESTINATION="${OUTPUT}/${SCENE}/${VIEWPORT}"
     mkdir -p "${DESTINATION}"
-    for SAMPLE in "t0000 0.0" "t0500 0.5" "t1250 1.25" "t2000 2.0"; do
-        set -- ${SAMPLE}
-        "${HOST}" --backend=software --scene=feature_showcase \
-            --w="${WIDTH}" --h="${HEIGHT}" --dpr=3 --time="$2" \
-            --dump-png="${DESTINATION}/$1.ppm"
-    done
+    "${HOST}" --backend=software --scene="${SCENE}" \
+        --w="${WIDTH}" --h="${HEIGHT}" --dpr=3 --time="${SAMPLE_TIME}" \
+        --dump-png="${DESTINATION}/${SAMPLE_ID}.ppm"
 }
 
-capture_viewport portrait 400 800
-capture_viewport landscape 800 400
+for VIEWPORT_SPEC in "portrait 400 800" "landscape 800 400"; do
+    set -- ${VIEWPORT_SPEC}
+    VIEWPORT="$1"; WIDTH="$2"; HEIGHT="$3"
+    for SAMPLE in "t0000 0.0" "t0500 0.5" "t1250 1.25" "t2000 2.0"; do
+        set -- ${SAMPLE}
+        capture_one feature_showcase "${VIEWPORT}" "${WIDTH}" "${HEIGHT}" "$1" "$2"
+    done
+    for SCENE in text_stress geometry_stress compositing_stress; do
+        capture_one "${SCENE}" "${VIEWPORT}" "${WIDTH}" "${HEIGHT}" t1250 1.25
+    done
+done
 echo "Desktop visual-parity captures: ${OUTPUT}"

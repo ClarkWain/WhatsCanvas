@@ -8,9 +8,10 @@ APK="${SCRIPT_DIR}/app/build/outputs/apk/debug/app-debug.apk"
 OUTPUT="${REPOSITORY_ROOT}/out/visual-parity/captures/android"
 DEVICE=""
 PACKAGE="com.whatscanvas.demo"
+SCENE_FILTER=""
 
 usage() {
-    echo "Usage: $0 [--device SERIAL] [--apk PATH] [--output DIR]"
+    echo "Usage: $0 [--device SERIAL] [--apk PATH] [--output DIR] [--scene ID]"
 }
 
 while [ $# -gt 0 ]; do
@@ -18,6 +19,7 @@ while [ $# -gt 0 ]; do
         --device) DEVICE="$2"; shift 2 ;;
         --apk) APK="$2"; shift 2 ;;
         --output) OUTPUT="$2"; shift 2 ;;
+        --scene) SCENE_FILTER="$2"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
         *) echo "Unknown option: $1" >&2; usage; exit 1 ;;
     esac
@@ -53,14 +55,20 @@ display_rotation() {
 
 rotate_display() {
     EXPECTED_ROTATION="$1"
-    adb_cmd shell cmd window user-rotation free
+    case "${EXPECTED_ROTATION}" in
+        0) ROTATION_INDEX=0 ;;
+        90) ROTATION_INDEX=1 ;;
+        180) ROTATION_INDEX=2 ;;
+        270) ROTATION_INDEX=3 ;;
+        *) echo "Unsupported display rotation: ${EXPECTED_ROTATION}" >&2; exit 1 ;;
+    esac
+    adb_cmd shell cmd window user-rotation lock "${ROTATION_INDEX}"
     ATTEMPT=0
     ACTIVE_ROTATION=$(display_rotation)
     while [ "${ACTIVE_ROTATION}" != "${EXPECTED_ROTATION}" ] \
-        && [ "${ATTEMPT}" -lt 4 ]; do
-        adb_cmd emu rotate >/dev/null
+        && [ "${ATTEMPT}" -lt 20 ]; do
         ATTEMPT=$((ATTEMPT + 1))
-        sleep 1
+        sleep 0.2
         ACTIVE_ROTATION=$(display_rotation)
     done
     if [ "${ACTIVE_ROTATION}" != "${EXPECTED_ROTATION}" ]; then
@@ -82,11 +90,12 @@ trap cleanup EXIT INT TERM
 adb_cmd install -r "${APK}" >/dev/null
 
 capture_one() {
-    VIEWPORT="$1"
-    ROTATION="$2"
-    SAMPLE_ID="$3"
-    SAMPLE_TIME="$4"
-    DESTINATION="${OUTPUT}/feature_showcase/${VIEWPORT}"
+    SCENE="$1"
+    VIEWPORT="$2"
+    ROTATION="$3"
+    SAMPLE_ID="$4"
+    SAMPLE_TIME="$5"
+    DESTINATION="${OUTPUT}/${SCENE}/${VIEWPORT}"
     IMAGE="${DESTINATION}/${SAMPLE_ID}.png"
     METADATA="${DESTINATION}/${SAMPLE_ID}.json"
 
@@ -105,7 +114,8 @@ capture_one() {
     # NEW_TASK | CLEAR_TASK prevents a retained task from restoring its prior
     # orientation after an in-place APK install.
     adb_cmd shell am start -W -f 0x10008000 -n "${PACKAGE}/.MainActivity" \
-        --ef capture_time_seconds "${SAMPLE_TIME}" >/dev/null
+        --ef capture_time_seconds "${SAMPLE_TIME}" \
+        --es capture_scene_id "${SCENE}" >/dev/null
 
     ATTEMPT=0
     READY=""
@@ -138,16 +148,35 @@ capture_one() {
         echo "Renderer did not become ready for ${VIEWPORT}/${SAMPLE_ID}." >&2
         exit 1
     fi
-
-    # Allow one composed frame after initialization, then capture the display.
-    sleep 0.5
-    adb_cmd exec-out screencap -p > "${IMAGE}"
     set -- ${READY}
     SURFACE_WIDTH="$1"
     SURFACE_HEIGHT="$2"
     DPR="$3"
-    python3 - "${IMAGE}" "${METADATA}" "${VIEWPORT}" "${SAMPLE_ID}" \
-        "${SAMPLE_TIME}" "${SURFACE_WIDTH}" "${SURFACE_HEIGHT}" "${DPR}" <<'PY'
+
+    # Canvas/context initialization can complete while Android's cold-start
+    # splash is still visible, especially for a text-heavy first frame. Wait
+    # for the native renderer to finish that frame before taking a screenshot.
+    ATTEMPT=0
+    FIRST_FRAME=""
+    while [ "${ATTEMPT}" -lt 100 ]; do
+        FIRST_FRAME=$(adb_cmd logcat -d -s WhatsCanvas:I '*:S' \
+            | sed -n "s/.*First frame ready: scene=${SCENE} size=${SURFACE_WIDTH}x${SURFACE_HEIGHT}.*/ready/p" \
+            | tail -n 1)
+        if [ -n "${FIRST_FRAME}" ]; then
+            break
+        fi
+        ATTEMPT=$((ATTEMPT + 1))
+        sleep 0.1
+    done
+    if [ -z "${FIRST_FRAME}" ]; then
+        echo "First frame did not complete for ${SCENE}/${VIEWPORT}/${SAMPLE_ID}." >&2
+        exit 1
+    fi
+    sleep 0.5
+    adb_cmd exec-out screencap -p > "${IMAGE}"
+    python3 - "${IMAGE}" "${METADATA}" "${SCENE}" "${VIEWPORT}" \
+        "${SAMPLE_ID}" "${SAMPLE_TIME}" "${SURFACE_WIDTH}" \
+        "${SURFACE_HEIGHT}" "${DPR}" <<'PY'
 import json
 import math
 import pathlib
@@ -156,10 +185,10 @@ import sys
 
 image_path = pathlib.Path(sys.argv[1])
 metadata_path = pathlib.Path(sys.argv[2])
-viewport_id, sample_id = sys.argv[3], sys.argv[4]
-sample_time = float(sys.argv[5])
-surface_width, surface_height = int(sys.argv[6]), int(sys.argv[7])
-dpr = float(sys.argv[8])
+scene_id, viewport_id, sample_id = sys.argv[3], sys.argv[4], sys.argv[5]
+sample_time = float(sys.argv[6])
+surface_width, surface_height = int(sys.argv[7]), int(sys.argv[8])
+dpr = float(sys.argv[9])
 data = image_path.read_bytes()
 if data[:8] != b"\x89PNG\r\n\x1a\n":
     raise SystemExit(f"invalid screenshot PNG: {image_path}")
@@ -174,7 +203,7 @@ offset_x = (surface_width - canonical_width * scale) * 0.5
 round_half_up = lambda value: int(math.floor(value + 0.5))
 metadata = {
     "schema_version": 1,
-    "scene_id": "feature_showcase",
+    "scene_id": scene_id,
     "viewport_id": viewport_id,
     "sample_id": sample_id,
     "platform": "android",
@@ -193,13 +222,20 @@ PY
     echo "Captured android/${VIEWPORT}/${SAMPLE_ID} (${SURFACE_WIDTH}x${SURFACE_HEIGHT}, ${DPR}x)"
 }
 
-for SAMPLE in "t0000 0.0" "t0500 0.5" "t1250 1.25" "t2000 2.0"; do
-    set -- ${SAMPLE}
-    capture_one portrait 0 "$1" "$2"
-done
-for SAMPLE in "t0000 0.0" "t0500 0.5" "t1250 1.25" "t2000 2.0"; do
-    set -- ${SAMPLE}
-    capture_one landscape 1 "$1" "$2"
+for VIEWPORT_SPEC in "portrait 0" "landscape 1"; do
+    set -- ${VIEWPORT_SPEC}
+    VIEWPORT="$1"; ROTATION="$2"
+    if [ -z "${SCENE_FILTER}" ] || [ "${SCENE_FILTER}" = feature_showcase ]; then
+        for SAMPLE in "t0000 0.0" "t0500 0.5" "t1250 1.25" "t2000 2.0"; do
+            set -- ${SAMPLE}
+            capture_one feature_showcase "${VIEWPORT}" "${ROTATION}" "$1" "$2"
+        done
+    fi
+    for SCENE in text_stress geometry_stress compositing_stress; do
+        if [ -z "${SCENE_FILTER}" ] || [ "${SCENE_FILTER}" = "${SCENE}" ]; then
+            capture_one "${SCENE}" "${VIEWPORT}" "${ROTATION}" t1250 1.25
+        fi
+    done
 done
 
 echo "Android visual-parity captures: ${OUTPUT}"

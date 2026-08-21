@@ -7,6 +7,7 @@
 
 #include "DemoScene.h"
 #include "../../shared/scenes/CanonicalViewport.h"
+#include "../../shared/scenes/StressScenes.h"
 
 #include <wsc/wsc.h>
 
@@ -32,6 +33,9 @@
     BOOL _fixedCaptureTimeEnabled;
     float _fixedCaptureTimeSeconds;
     BOOL _applicationActive;
+    whatscanvas::scenes::StressSceneId _stressSceneId;
+    BOOL _stressSceneEnabled;
+    NSString *_sceneID;
 }
 
 + (Class)layerClass
@@ -59,6 +63,7 @@
         layer.presentsWithTransaction = YES;
         _screenshotCaptureEnabled =
             [NSProcessInfo.processInfo.arguments containsObject:@"--capture-frames"];
+        _sceneID = @"feature_showcase";
         for (NSString *argument in NSProcessInfo.processInfo.arguments) {
             static NSString *const prefix = @"--capture-time=";
             if ([argument hasPrefix:prefix]) {
@@ -66,6 +71,16 @@
                 if (std::isfinite(value) && value >= 0.0) {
                     _fixedCaptureTimeEnabled = YES;
                     _fixedCaptureTimeSeconds = static_cast<float>(value);
+                }
+            }
+            static NSString *const scenePrefix = @"--capture-scene=";
+            if ([argument hasPrefix:scenePrefix]) {
+                NSString *value = [argument substringFromIndex:scenePrefix.length];
+                whatscanvas::scenes::StressSceneId parsed;
+                if (whatscanvas::scenes::parseStressScene(value.UTF8String, parsed)) {
+                    _stressSceneId = parsed;
+                    _stressSceneEnabled = YES;
+                    _sceneID = value;
                 }
             }
         }
@@ -182,16 +197,18 @@
         return;
     }
 
-    whatscanvas::demo::createCheckerImage(*_canvas, _checkerImage);
     const float logicalWidth = pixelWidth / scale;
     const float logicalHeight = pixelHeight / scale;
     const float safeTop = static_cast<float>(self.safeAreaInsets.top);
     const float safeBottom = static_cast<float>(self.safeAreaInsets.bottom);
     const float safeLeft = static_cast<float>(self.safeAreaInsets.left);
     const float safeRight = static_cast<float>(self.safeAreaInsets.right);
-    _staticPicture = whatscanvas::demo::recordStaticScene(
-        *_canvas, logicalWidth, logicalHeight, safeTop, safeBottom,
-        safeLeft, safeRight);
+    if (!_stressSceneEnabled) {
+        whatscanvas::demo::createCheckerImage(*_canvas, _checkerImage);
+        _staticPicture = whatscanvas::demo::recordStaticScene(
+            *_canvas, logicalWidth, logicalHeight, safeTop, safeBottom,
+            safeLeft, safeRight);
+    }
     _startTime = CACurrentMediaTime();
     _fpsWindowStart = _startTime;
     _fpsFrameCount = 0;
@@ -226,12 +243,24 @@
         : static_cast<float>(displayLink.timestamp - _startTime);
 
     _canvas->beginFrame();
-    if (_staticPicture != nullptr) {
-        _canvas->drawPictureRasterized(*_staticPicture);
+    if (_stressSceneEnabled) {
+        _canvas->drawColor(wsc::Color(7, 11, 27));
+        const auto viewport = whatscanvas::scenes::makeCanonicalViewport(
+            width, height, {safeTop, safeBottom, safeLeft, safeRight});
+        _canvas->save();
+        _canvas->translate(viewport.offsetX, viewport.offsetY);
+        _canvas->scale(viewport.scale, viewport.scale);
+        whatscanvas::scenes::drawStressScene(
+            *_canvas, _stressSceneId, viewport.width, viewport.height, elapsed);
+        _canvas->restore();
+    } else {
+        if (_staticPicture != nullptr) {
+            _canvas->drawPictureRasterized(*_staticPicture);
+        }
+        whatscanvas::demo::drawDynamicScene(*_canvas, _checkerImage.get(),
+                                            width, height, safeTop, safeBottom,
+                                            safeLeft, safeRight, elapsed);
     }
-    whatscanvas::demo::drawDynamicScene(*_canvas, _checkerImage.get(),
-                                        width, height, safeTop, safeBottom,
-                                        safeLeft, safeRight, elapsed);
     _canvas->endFrame();
     if (!_canvas->present()) {
         NSLog(@"WhatsCanvas: Metal present failed");
@@ -260,8 +289,8 @@
                 ? @"landscape" : @"portrait";
             const NSString *sampleID = [NSString stringWithFormat:@"t%04d",
                 static_cast<int>(std::lround(_fixedCaptureTimeSeconds * 1000.0f))];
-            filename = [NSString stringWithFormat:@"feature_showcase-%@-%@.png",
-                viewportID, sampleID];
+            filename = [NSString stringWithFormat:@"%@-%@-%@.png",
+                _sceneID, viewportID, sampleID];
         }
         [self dumpScreenshotAsPNG:filename];
     }
@@ -329,7 +358,7 @@
             : @"live";
         const NSDictionary *metadata = @{
             @"schema_version": @1,
-            @"scene_id": @"feature_showcase",
+            @"scene_id": _sceneID,
             @"viewport_id": viewport.width > viewport.height
                 ? @"landscape" : @"portrait",
             @"sample_id": sampleID,

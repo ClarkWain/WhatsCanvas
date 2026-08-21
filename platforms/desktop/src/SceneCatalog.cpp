@@ -1,12 +1,18 @@
 #include "SceneCatalog.h"
 
 #include "scenes/FeatureShowcaseScene.h"
+#include "scenes/StressScene.h"
 
 namespace whatscanvas::desktop {
 
 namespace {
 
-constexpr const char* kSceneNames[] = {"feature_showcase"};
+constexpr const char* kSceneNames[] = {
+    "feature_showcase",
+    "text_stress",
+    "geometry_stress",
+    "compositing_stress"
+};
 
 } // namespace
 
@@ -16,6 +22,10 @@ ScenePtr SceneCatalog::create(const std::string& name,
     if (name == kSceneNames[0]) {
         return std::make_unique<FeatureShowcaseScene>(
             FeatureShowcaseBranding{}, viewportStandard);
+    }
+    scenes::StressSceneId stressId;
+    if (scenes::parseStressScene(name, stressId)) {
+        return std::make_unique<StressScene>(stressId, viewportStandard);
     }
     return nullptr;
 }
