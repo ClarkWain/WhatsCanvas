@@ -27,6 +27,12 @@ const samples = [
     {id: "t1250", time: 1.25},
     {id: "t2000", time: 2.0},
 ];
+const scenes = [
+    {id: "feature_showcase", samples},
+    {id: "text_stress", samples: [{id: "t1250", time: 1.25}]},
+    {id: "geometry_stress", samples: [{id: "t1250", time: 1.25}]},
+    {id: "compositing_stress", samples: [{id: "t1250", time: 1.25}]},
+];
 
 function sleep(milliseconds) {
     return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -176,7 +182,7 @@ async function evaluate(session, expression) {
     return result.result?.value;
 }
 
-async function navigate(session, baseUrl, viewport, sample) {
+async function navigate(session, baseUrl, scene, viewport, sample) {
     await session.send("Emulation.setDeviceMetricsOverride", {
         width: viewport.width,
         height: viewport.height,
@@ -184,7 +190,7 @@ async function navigate(session, baseUrl, viewport, sample) {
         mobile: false,
     });
     await session.send("Page.navigate", {
-        url: `${baseUrl}/?time=${sample.time}&dpr=3`,
+        url: `${baseUrl}/?scene=${scene.id}&time=${sample.time}&dpr=3`,
     });
     const state = await waitForState(
         session, (candidate) => candidate?.ready === true,
@@ -199,14 +205,14 @@ async function navigate(session, baseUrl, viewport, sample) {
     return state;
 }
 
-async function capture(session, viewport, sample) {
+async function capture(session, scene, viewport, sample) {
     const result = await session.send("Page.captureScreenshot", {
         format: "png",
         fromSurface: true,
         captureBeyondViewport: false,
     });
     const directory = path.join(
-        captureRoot, "feature_showcase", viewport.id);
+        captureRoot, scene.id, viewport.id);
     fs.mkdirSync(directory, {recursive: true});
     const imagePath = path.join(directory, `${sample.id}.png`);
     const png = Buffer.from(result.data, "base64");
@@ -218,7 +224,7 @@ async function capture(session, viewport, sample) {
     fs.writeFileSync(imagePath, png);
     const metadata = {
         schema_version: 1,
-        scene_id: "feature_showcase",
+        scene_id: scene.id,
         viewport_id: viewport.id,
         sample_id: sample.id,
         platform: "web",
@@ -293,16 +299,20 @@ async function run() {
         await session.send("Network.setCacheDisabled", {cacheDisabled: true});
 
         let lastState;
-        for (const viewport of viewports) {
-            for (const sample of samples) {
-                lastState = await navigate(session, baseUrl, viewport, sample);
-                await capture(session, viewport, sample);
+        for (const scene of scenes) {
+            for (const viewport of viewports) {
+                for (const sample of scene.samples) {
+                    lastState = await navigate(
+                        session, baseUrl, scene, viewport, sample);
+                    await capture(session, scene, viewport, sample);
+                }
             }
         }
 
         const activeViewport = viewports[1];
         const activeSample = samples[2];
-        lastState = await navigate(session, baseUrl, activeViewport, activeSample);
+        lastState = await navigate(
+            session, baseUrl, scenes[0], activeViewport, activeSample);
         const contextTestStarted = await evaluate(
             session, "window.whatsCanvasDemo.loseAndRestoreContext(300)");
         assert(contextTestStarted === true, "WEBGL_lose_context is unavailable");
@@ -348,8 +358,10 @@ async function run() {
         assert(severeChromeErrors.length === 0 && severeProcessErrors.length === 0,
                `Browser rendering errors:\n${[...severeChromeErrors, ...severeProcessErrors].join("\n")}`);
 
+        const captureCount = scenes.reduce(
+            (count, scene) => count + scene.samples.length * viewports.length, 0);
         console.log(`WEB_BROWSER_SMOKE status=PASS fps=${lastState.fps.toFixed(1)}`
-            + ` captures=${viewports.length * samples.length}`
+            + ` captures=${captureCount}`
             + " capture_dpr=3 resize=PASS background=PASS context_restore=PASS cold_reload=PASS");
     } finally {
         session?.close();

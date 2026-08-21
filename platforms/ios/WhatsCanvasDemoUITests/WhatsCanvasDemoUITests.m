@@ -79,18 +79,26 @@
         @{@"id": @"portrait", @"orientation": @(UIDeviceOrientationPortrait)},
         @{@"id": @"landscape", @"orientation": @(UIDeviceOrientationLandscapeLeft)},
     ];
-    NSArray<NSString *> *sampleTimes = @[@"0.0", @"0.5", @"1.25", @"2.0"];
+    NSArray<NSDictionary *> *scenes = @[
+        @{@"id": @"feature_showcase",
+          @"times": @[@"0.0", @"0.5", @"1.25", @"2.0"]},
+        @{@"id": @"text_stress", @"times": @[@"1.25"]},
+        @{@"id": @"geometry_stress", @"times": @[@"1.25"]},
+        @{@"id": @"compositing_stress", @"times": @[@"1.25"]},
+    ];
 
     for (NSDictionary *viewport in viewports) {
         XCUIDevice.sharedDevice.orientation =
             (UIDeviceOrientation)[viewport[@"orientation"] integerValue];
         const BOOL landscape = [viewport[@"id"] isEqualToString:@"landscape"];
 
-        for (NSString *sampleTime in sampleTimes) {
+        for (NSDictionary *scene in scenes) {
+          for (NSString *sampleTime in scene[@"times"]) {
             XCUIApplication *app = [[XCUIApplication alloc] init];
             app.launchArguments = @[
                 @"--capture-frames",
                 [@"--capture-time=" stringByAppendingString:sampleTime],
+                [@"--capture-scene=" stringByAppendingString:scene[@"id"]],
             ];
             app.launchEnvironment = @{
                 @"MTL_DEBUG_LAYER": @"1",
@@ -107,6 +115,7 @@
             [app terminate];
             XCTAssertTrue([app waitForState:XCUIApplicationStateNotRunning
                                     timeout:5.0]);
+          }
         }
     }
 }

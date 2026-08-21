@@ -14,8 +14,9 @@ failures can be recognized when more scenes or platforms are added.
 | Web | Headless Chrome with ANGLE Metal | WebGL 2 | 3 |
 
 The application and bundle identifier is `com.whatscanvas.demo` on Android and
-iOS. The matrix covers portrait and landscape at 0.0, 0.5, 1.25 and 2.0
-seconds, for 24 comparisons against the Desktop reference.
+iOS. The matrix covers `feature_showcase` at 0.0, 0.5, 1.25 and 2.0 seconds
+plus the focused text, geometry and compositing scenes at 1.25 seconds. Both
+orientations and all four platforms produce 42 comparisons against Desktop.
 
 ## Problems and fixes
 
@@ -66,18 +67,37 @@ It reads the PNG IHDR and rejects any screenshot that is not exactly three
 times the canonical logical size. This changed the Web image-sampling error
 from 2.61-3.02 mean channel delta to 0.28-0.64, without relaxing its profile.
 
-### Android rotation could race the first cold launch
+### Android rotation and first-frame capture could race a cold launch
 
 Writing `user_rotation` can update input state before WindowManager publishes
 new application bounds. The first portrait sample could therefore launch with
 a landscape surface and receive incorrect portrait metadata.
 
-The emulator capture script now drives the emulator sensor until the active
-display reaches the requested orientation, locks that orientation, and then
-independently checks the renderer-ready dimensions. API 33 can restore a
-retained task orientation on the first frame after `adb install -r`; the script
-corrects that foreground Activity once and waits for its resized GL surface.
-An unresolved orientation mismatch is a hard failure.
+The emulator capture script now locks WindowManager to the requested rotation,
+waits for the active display value, and independently checks renderer-ready
+dimensions. It then waits for a native first-frame signal containing the scene
+id and exact surface dimensions. This prevents both a stale-orientation surface
+and Android's cold-start splash from being accepted as a valid capture. A
+single scene can be recaptured with `--scene text_stress`.
+
+The expanded matrix exposed both races: sensor-driven rotation failed to reach
+landscape reliably, then the first text-stress portrait capture was the system
+splash because context initialization completed before its expensive first
+frame. Direct rotation locking and the dimension-qualified frame signal fixed
+both without changing pixel thresholds.
+
+### Even-odd hole tessellation fell back to a filled triangle fan
+
+The new geometry scene rendered a concentric even-odd path as a solid disk on
+every backend. This was a shared tessellation defect, not platform drift. Hole
+bridging intentionally duplicates its bridge endpoints, but the ear-clipping
+containment test treated those equal-position points as unrelated vertices.
+No ear could be selected, so the fallback triangle fan filled the hole.
+
+The ear test now treats equal-position bridge endpoints as the same vertex. An
+exact Software pixel test asserts that the outer contour is filled while the
+inner contour preserves the background. The corrected scene was rebuilt and
+recaptured on Software, OpenGL ES/WebGL and Metal.
 
 ### iOS SpringBoard does not prove application orientation
 
@@ -88,7 +108,17 @@ was valid; the assertion was observing the wrong process.
 The UI test still sets orientation before each cold launch, but verifies the
 screen aspect only after the application reaches the foreground. Each fixed
 frame is written under a unique scene/view/time filename with exact safe-area
-crop metadata, so all eight captures survive the test run.
+crop metadata, so all fourteen captures survive the test run.
+
+### Expanded scene matrix result
+
+The final run produced 41 passing comparisons immediately. The only failed
+report was the Android cold-start splash described above; its targeted
+recapture passed all four text regions with mean channel deltas from 0.36 to
+2.35 and bad-pixel ratios from 0.23% to 2.72%. The aggregate is therefore 42
+comparisons with zero rendering failures. Web additionally passed DPR 3,
+resize, visibility pause/resume, context loss/restoration, cold reload and
+frame-pacing checks. iOS ran all fourteen captures with Metal validation.
 
 ### Nearest-neighbor phase at Android 2.75 DPR
 

@@ -11,6 +11,7 @@
 #include <wsc/wsc.h>
 
 #include "scenes/FeatureShowcaseScene.h"
+#include "scenes/StressScene.h"
 
 namespace {
 
@@ -31,6 +32,14 @@ EM_JS(double, queryDevicePixelRatio, (), {
     const override = raw === null ? NaN : Number(raw);
     const value = Number.isFinite(override) ? override : window.devicePixelRatio;
     return Math.max(1.0, Math.min(4.0, value || 1.0));
+});
+
+EM_JS(int, querySceneIndex, (), {
+    const scene = new URLSearchParams(window.location.search).get('scene');
+    if (scene === 'text_stress') return 1;
+    if (scene === 'geometry_stress') return 2;
+    if (scene === 'compositing_stress') return 3;
+    return 0;
 });
 
 EM_JS(void, publishState,
@@ -135,9 +144,7 @@ class WebApp
 {
 public:
     WebApp()
-        : scene_({"WhatsCanvas Web",
-                  "WebGL 2  |  WebAssembly  |  live feature matrix",
-                  "8 feature cards  |  real WebGL 2 output"}),
+        : scene_(makeScene()),
           fixedTimeSeconds_(queryFixedTimeSeconds())
     {
     }
@@ -190,6 +197,27 @@ public:
     }
 
 private:
+    static whatscanvas::desktop::ScenePtr makeScene()
+    {
+        switch (querySceneIndex()) {
+        case 1:
+            return std::make_unique<whatscanvas::desktop::StressScene>(
+                whatscanvas::scenes::StressSceneId::Text);
+        case 2:
+            return std::make_unique<whatscanvas::desktop::StressScene>(
+                whatscanvas::scenes::StressSceneId::Geometry);
+        case 3:
+            return std::make_unique<whatscanvas::desktop::StressScene>(
+                whatscanvas::scenes::StressSceneId::Compositing);
+        default:
+            return std::make_unique<whatscanvas::desktop::FeatureShowcaseScene>(
+                whatscanvas::desktop::FeatureShowcaseBranding{
+                    "WhatsCanvas Web",
+                    "WebGL 2  |  WebAssembly  |  live feature matrix",
+                    "8 feature cards  |  real WebGL 2 output"});
+        }
+    }
+
     bool createCanvas()
     {
         canvas_ = wsc::Canvas::create(
@@ -210,8 +238,8 @@ private:
             canvas_.reset();
             return false;
         }
-        scene_.onCanvasReady(*canvas_);
-        scene_.onLayout(*canvas_, logicalWidth_, logicalHeight_);
+        scene_->onCanvasReady(*canvas_);
+        scene_->onLayout(*canvas_, logicalWidth_, logicalHeight_);
         return true;
     }
 
@@ -251,7 +279,7 @@ private:
         if (canvas_) {
             canvas_->setSize(width, height);
             canvas_->setDevicePixelRatio(dpr);
-            scene_.onLayout(*canvas_, logicalWidth_, logicalHeight_);
+            scene_->onLayout(*canvas_, logicalWidth_, logicalHeight_);
         }
         return true;
     }
@@ -282,7 +310,7 @@ private:
         canvas_->beginFrame();
         const float sceneTime = static_cast<float>(
             fixedTimeSeconds_ >= 0.0 ? fixedTimeSeconds_ : animationSeconds_);
-        scene_.onFrame(*canvas_, whatscanvas::desktop::FrameInfo{
+        scene_->onFrame(*canvas_, whatscanvas::desktop::FrameInfo{
             logicalWidth_, logicalHeight_, sceneTime, frameIndex_});
         canvas_->endFrame();
 
@@ -302,7 +330,7 @@ private:
         contextLost_ = true;
         if (canvas_) {
             canvas_->abandonContext();
-            scene_.onCanvasReleasing();
+            scene_->onCanvasReleasing();
         }
         publishState("context-lost", physicalWidth_, physicalHeight_,
                      logicalWidth_, logicalHeight_, devicePixelRatio_,
@@ -322,8 +350,8 @@ private:
         if (!resizeSurface(true)) {
             return false;
         }
-        scene_.onCanvasReady(*canvas_);
-        scene_.onLayout(*canvas_, logicalWidth_, logicalHeight_);
+        scene_->onCanvasReady(*canvas_);
+        scene_->onLayout(*canvas_, logicalWidth_, logicalHeight_);
         lastFrameMilliseconds_ = emscripten_get_now();
         publishReady();
         return true;
@@ -391,7 +419,7 @@ private:
             ? EM_TRUE : EM_FALSE;
     }
 
-    whatscanvas::desktop::FeatureShowcaseScene scene_;
+    whatscanvas::desktop::ScenePtr scene_;
     std::unique_ptr<wsc::Canvas> canvas_;
     EMSCRIPTEN_WEBGL_CONTEXT_HANDLE context_ = 0;
     int physicalWidth_ = 0;
