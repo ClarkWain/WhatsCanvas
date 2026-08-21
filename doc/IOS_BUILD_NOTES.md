@@ -9,7 +9,7 @@ OpenGL ES.
 - Xcode 26.6 and the iOS 26.5 SDK
 - iOS 15.0 deployment target
 - iPhone and iPad, portrait and landscape
-- Bundle identifier `con.whatscanvas.demo`
+- Bundle identifier `com.whatscanvas.demo`
 - C++17, Objective-C++, UIKit, Metal, QuartzCore, CoreGraphics, and CoreText
 
 Apple's Xcode 26.6 support matrix still permits iOS 15 deployment, while the

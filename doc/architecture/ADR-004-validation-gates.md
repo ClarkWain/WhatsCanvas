@@ -78,7 +78,7 @@ WhatsCanvas will adopt a layered verification model.
 - `scripts/smoke_test.bat` / `scripts/smoke_test.sh`: fixed-time first-frame render gate for the root demo.
 - `scripts/clip_path_smoke.bat` / `scripts/clip_path_smoke.sh`: fixed-time first-frame render gate for the root demo with stacked non-rect `clipPath` explicitly enabled.
 - `scripts/regression_smoke.bat` / `scripts/regression_smoke.sh`: strict local pixel-baseline gate that runs both the default smoke scene and the stacked non-rect `clipPath` smoke scene with expected hashes.
-- `scripts/examples_smoke.bat` / `scripts/examples_smoke.sh`: aggregated independent example build gate for Tetris, Racer, and Bubble Shooter.
+- `scripts/examples_smoke.bat` / `scripts/examples_smoke.sh`: aggregated independent example build gate for Tetris and Racer.
 - `scripts/validation_scene_smoke.bat` / `scripts/validation_scene_smoke.sh`: fixed-time non-MSAA scene suite gate that runs text-heavy, image-heavy, gradient/effect, clipping, transform, and saveLayer scenes and requires pixel-hash output for each.
 - `scripts/release_preflight.bat` / `scripts/release_preflight.sh`: fast local pre-release gate for generated API reference freshness, version consistency, Debug unit tests, and package-consumer validation.
 - `scripts/api_reference_check.bat` / `scripts/api_reference_check.sh`: generated public API reference freshness gate for `doc/API_REFERENCE.md`.

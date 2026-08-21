@@ -2416,7 +2416,19 @@ std::vector<detail::Vec2> triangulateSimplePolygon(const std::vector<detail::Vec
                     continue;
                 }
 
-                if (pointInTriangle(polygon[candidateIndex], previous, current, next)) {
+                // Hole bridging intentionally duplicates the bridge endpoints
+                // to form a weakly-simple polygon. Treat an equal-position
+                // duplicate as the same vertex; otherwise every ear adjacent
+                // to the bridge is rejected and the fallback triangle fan
+                // incorrectly fills the hole.
+                const auto &candidate = polygon[candidateIndex];
+                if (nearlySamePoint(candidate, previous)
+                    || nearlySamePoint(candidate, current)
+                    || nearlySamePoint(candidate, next)) {
+                    continue;
+                }
+
+                if (pointInTriangle(candidate, previous, current, next)) {
                     containsPoint = true;
                     break;
                 }

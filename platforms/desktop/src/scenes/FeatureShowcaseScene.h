@@ -1,12 +1,21 @@
 #pragma once
 
 #include <memory>
+#include <string>
 
 #include "../IScene.h"
+#include "../../../shared/scenes/CanonicalViewport.h"
 
 namespace wsc { class Image; class Picture; }
 
 namespace whatscanvas::desktop {
+
+struct FeatureShowcaseBranding
+{
+    std::string title = "WhatsCanvas Desktop";
+    std::string subtitle = "OpenGL 3.3  |  live feature matrix";
+    std::string footer = "8 feature cards  |  real OpenGL output";
+};
 
 // Eight-card feature matrix that mirrors the Android host card-for-card. The
 // static card chrome, labels and paths are recorded once into a retained
@@ -15,7 +24,10 @@ namespace whatscanvas::desktop {
 class FeatureShowcaseScene final : public IScene
 {
 public:
-    FeatureShowcaseScene();
+    explicit FeatureShowcaseScene(
+        FeatureShowcaseBranding branding = {},
+        whatscanvas::scenes::ViewportStandard viewportStandard =
+            whatscanvas::scenes::ViewportStandard::Phone2To1);
     ~FeatureShowcaseScene() override;
 
     const char* name() const override { return "feature_showcase"; }
@@ -26,6 +38,8 @@ public:
     void onCanvasReleasing() override;
 
 private:
+    FeatureShowcaseBranding branding_;
+    whatscanvas::scenes::ViewportStandard viewportStandard_;
     std::unique_ptr<wsc::Image> checkerImage_;
     std::shared_ptr<const wsc::Picture> staticPicture_;
     float sceneWidth_ = 0.0f;

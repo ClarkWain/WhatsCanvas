@@ -18,7 +18,10 @@ public:
         std::size_t byteOffset = 0;
     };
 
-    StreamBuffer() = default;
+    explicit StreamBuffer(GLenum target = GL_ARRAY_BUFFER)
+        : target_(target)
+    {
+    }
     ~StreamBuffer();
 
     StreamBuffer(const StreamBuffer &) = delete;
@@ -77,6 +80,7 @@ private:
         std::size_t alignment);
 
     GLuint buffer_ = 0;
+    GLenum target_ = GL_ARRAY_BUFFER;
     std::size_t capacityBytes_ = 0;
     std::size_t writeOffsetBytes_ = 0;
     static constexpr std::size_t GROW_FACTOR = 2;

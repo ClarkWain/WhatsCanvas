@@ -202,9 +202,9 @@ Tagged releases publish per-platform prebuilt packages on the repository's
 
 ```
 whatscanvas-<os>-release-<version>.zip
-# e.g. whatscanvas-win64-release-0.7.0.zip
-#      whatscanvas-linux-x64-release-0.7.0.zip
-#      whatscanvas-macos-universal-release-0.7.0.zip
+# e.g. whatscanvas-win64-release-0.8.0.zip
+#      whatscanvas-linux-x64-release-0.8.0.zip
+#      whatscanvas-macos-universal-release-0.8.0.zip
 ```
 
 Tagged releases also contain an installable, debug-signed Android evaluation
@@ -226,7 +226,7 @@ project(MyApp LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(WhatsCanvas 0.7.0 CONFIG REQUIRED)
+find_package(WhatsCanvas 0.8.0 CONFIG REQUIRED)
 
 add_executable(MyApp main.cpp)
 target_link_libraries(MyApp PRIVATE WhatsCanvas::OpenGL)   # or ::Software / ::OpenGLES
@@ -335,7 +335,7 @@ presentation surface**:
   can read with `readPixelsRGBA` or use as a texture. On Win32, the Canvas API
   can also build a surface/swapchain through `OutputTarget::ToWindow(...)` and
   deliver frames with `present()`; see
-  [`examples/vulkan_canvas_present`](../examples/vulkan_canvas_present). Other
+  [`examples/present`](../examples/present). Other
   native surface types remain future work.
 
 **Why does the pipeline differ from OpenGL at all?** The OpenGL backend is driven
@@ -361,7 +361,7 @@ auto canvas = wsc::Canvas::isBackendAvailable(Backend::Metal)
 Off-screen usage (`readPixelsRGBA`) works exactly like the other GPU backends.
 For on-screen presentation, wrap a `CAMetalLayer` in an `OutputTarget` and
 call `Canvas::setOutputTarget(...)` + `Canvas::present()`; see
-[`examples/metal_present`](../examples/metal_present). GPU frame timing
+[`examples/present`](../examples/present). GPU frame timing
 (`beginGpuFrameTiming` / `lastGpuFrameTimeNs`) is backed by
 `MTLCommandBuffer.GPUStartTime`, and the Canvas exposes the underlying
 `MTLDevice` / `MTLCommandQueue` handles for tighter host integration.
@@ -623,11 +623,8 @@ if (canvas->setOutputTarget(wsc::OutputTarget::ToWindow(surface))) {  // false i
 }
 ```
 
-Runnable demos:
-[`software_present`](../examples/software_present),
-[`gl_present`](../examples/gl_present),
-[`vulkan_canvas_present`](../examples/vulkan_canvas_present),
-[`metal_present`](../examples/metal_present).
+Runnable Software, OpenGL, Vulkan and Metal hosts are grouped under
+[`examples/present`](../examples/present).
 
 **Embed into an existing renderer** — draw into *your* GPU target instead of a
 window (no `present()`; your engine composites/presents its own target):
