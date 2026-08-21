@@ -366,7 +366,9 @@ if (!canvas) {
 
 ## 示例
 
-仓库包含根 demo、API snippets、package consumer、Software/OpenGL/Vulkan/Metal present，以及两个游戏示例：
+仓库包含最小入门项目、package consumer、统一目录下的
+Software/OpenGL/Vulkan/Metal presentation 宿主，以及两个游戏示例。专项视觉回归程序归档在
+`tests/visual`，不再放在 `examples` 中。
 
 <table>
 <tr>

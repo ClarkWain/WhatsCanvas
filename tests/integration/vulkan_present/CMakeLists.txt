@@ -8,10 +8,15 @@ if (MSVC)
     add_compile_options(/wd4819)
 endif()
 
+if (NOT COMMAND whatscanvas_add_glfw_dependency)
+    set(PROJECT_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../..")
+    include("${PROJECT_ROOT}/cmake/WhatsCanvasOpenGL.cmake")
+endif()
+
 find_package(Vulkan QUIET)
 
 if (Vulkan_FOUND)
-    whatscanvas_add_glfw_dependency("${CMAKE_CURRENT_LIST_DIR}/../..")
+    whatscanvas_add_glfw_dependency("${CMAKE_CURRENT_LIST_DIR}/../../..")
 
     add_executable(WhatsCanvasVulkanPresent
         "main.cpp"

@@ -4,7 +4,7 @@ set -eu
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 START_TS=$(date +%s)
 
-echo "EXAMPLES_SMOKE_TARGETS=Tetris,Racer,BubbleShooter"
+echo "EXAMPLES_SMOKE_TARGETS=Tetris,Racer"
 
 run_example() {
     name="$1"
@@ -28,7 +28,6 @@ run_example() {
 
 run_example Tetris "$ROOT_DIR/examples/game/tetris/build.sh"
 run_example Racer "$ROOT_DIR/examples/game/racer/build.sh"
-run_example BubbleShooter "$ROOT_DIR/examples/game/bubble_shooter/build.sh"
 
 END_TS=$(date +%s)
 TOTAL_MS=$(( (END_TS - START_TS) * 1000 ))
