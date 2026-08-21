@@ -632,7 +632,6 @@ std::vector<FontFace> FontSystem::defaultSystemFontFaces()
                  {FontCodepointRange(0x2000, 0x27BF),
                   FontCodepointRange(0x2B00, 0x2BFF),
                   FontCodepointRange(0x1F000, 0x1FAFF),
-                  FontCodepointRange(0x2600, 0x27BF),
                   FontCodepointRange(0xFE00, 0xFE0F)});
         addAlias(kDefaultSerifFamily, serifFamilies, 400);
         addAlias(kDefaultMonoFamily, monoFamilies, 400);
