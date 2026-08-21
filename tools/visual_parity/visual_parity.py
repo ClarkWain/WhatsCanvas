@@ -290,8 +290,9 @@ def validate_contract(contract: dict[str, Any]) -> list[str]:
             errors.append(f"scene id is empty or duplicated: {scene_id!r}")
         scene_ids.add(scene_id)
         platforms = scene.get("required_platforms", [])
-        if sorted(platforms) != ["android", "desktop", "ios"]:
-            errors.append(f"scene {scene_id} must require android, ios and desktop")
+        if sorted(platforms) != ["android", "desktop", "ios", "web"]:
+            errors.append(
+                f"scene {scene_id} must require android, ios, desktop and web")
         samples = scene.get("samples", [])
         sample_ids = [sample.get("id") for sample in samples]
         if not samples or len(sample_ids) != len(set(sample_ids)):
