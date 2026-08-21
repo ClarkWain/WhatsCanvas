@@ -1,3 +1,5 @@
+#include <wsc/CanvasStats.h>
+
 // Integration tests for the fill tessellation cache exposed through
 // Canvas::getRenderStats(). drawPath only records commands (no GPU work), so
 // these run headlessly: they exercise contour extraction, triangulation, and

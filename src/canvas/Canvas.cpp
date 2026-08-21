@@ -1,3 +1,5 @@
+#include <wsc/CanvasStats.h>
+
 #include <algorithm>
 #include <chrono>
 #include <string>

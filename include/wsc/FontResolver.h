@@ -10,7 +10,7 @@
 #include <utility>
 #include <vector>
 
-#include "Font.h"
+#include "FontSystem.h"
 
 namespace wsc {
 
@@ -25,6 +25,8 @@ enum class FontProviderKind
     SYSTEM
 };
 
+/// One style/coverage lookup. `codepoints` are Unicode scalar values used to
+/// choose a face that can cover the whole requested cluster/run.
 struct FontMatchRequest
 {
     std::string family;
@@ -35,6 +37,8 @@ struct FontMatchRequest
     bool allowFallback = true;
 };
 
+/// Resolution result and diagnostics. The face pointer is borrowed from the
+/// provider and must be invalidated when the resolver generation changes.
 struct FontMatchResult
 {
     /// Non-owning pointer. It remains valid until the winning provider mutates.
@@ -51,26 +55,37 @@ struct FontMatchResult
     explicit operator bool() const { return face != nullptr; }
 };
 
+/// Abstract source of font metadata and faces. Providers are owned through
+/// shared_ptr by FontResolver/Canvas and are called synchronously on the
+/// rendering thread unless a concrete provider documents host-driven I/O.
 class FontProvider
 {
 public:
     virtual ~FontProvider() = default;
+
     virtual FontProviderKind kind() const = 0;
+
     virtual const std::string &name() const = 0;
+
     virtual std::uint64_t generation() const = 0;
+
     /// Family-scoped generation for resolution caches. Providers without
     /// targeted invalidation may return their global generation.
     virtual std::uint64_t generationForFamily(const std::string &) const
     {
         return generation();
     }
+
     /// Invalidate provider-owned discovery and resolution caches after the
     /// host reports a system-font change. Static asset providers may no-op.
     virtual void refresh() {}
+
     virtual bool hasFamily(const std::string &family) const = 0;
+
     /// Families known from provider metadata. Platform providers that only
     /// support open-ended character matching may return an empty list.
     virtual std::vector<std::string> families() const { return {}; }
+
     /// Return a stable display spelling without forcing a lazy source load.
     virtual std::string displayFamilyName(const std::string &family) const
     {
@@ -94,21 +109,26 @@ public:
     }
 
     FontProviderKind kind() const override { return kind_; }
+
     const std::string &name() const override { return name_; }
+
     std::uint64_t generation() const override
     {
         return manager_ ? manager_->generation() : 0;
     }
+
     bool hasFamily(const std::string &family) const override
     {
         return manager_ && manager_->hasFamily(family);
     }
+
     std::string displayFamilyName(const std::string &family) const override
     {
         if (!manager_) return family;
         const FontFace *face = manager_->findFirstFace(family);
         return face == nullptr ? family : face->family();
     }
+
     std::vector<std::string> families() const override
     {
         std::vector<std::string> result;
@@ -123,6 +143,7 @@ public:
         }
         return result;
     }
+
     std::vector<const FontFace *> match(const FontMatchRequest &request) const override
     {
         return manager_
@@ -163,30 +184,45 @@ public:
 
     LazyFontProvider(FontProviderKind providerKind, std::string providerName,
                      Loader loader);
+
     ~LazyFontProvider() override;
+
     LazyFontProvider(const LazyFontProvider &) = delete;
+
     LazyFontProvider &operator=(const LazyFontProvider &) = delete;
 
     FontProviderKind kind() const override;
+
     const std::string &name() const override;
+
     std::uint64_t generation() const override;
+
     std::uint64_t generationForFamily(const std::string &family) const override;
+
     void refresh() override;
+
     bool hasFamily(const std::string &family) const override;
+
     std::vector<std::string> families() const override;
+
     std::string displayFamilyName(const std::string &family) const override;
+
     std::vector<const FontFace *> match(
         const FontMatchRequest &request) const override;
 
     /// Add or replace one source identified by (family, sourceId). Registration
     /// validates metadata but does not invoke Loader.
     bool registerSource(LazyFontSource source);
+
     /// Forget loaded/failed state for one family so its sources can be retried.
     bool invalidateFamily(const std::string &family);
+
     /// Remove every source in one family. Previously returned pointers become
     /// invalid and callers must observe the changed generation.
     bool removeFamily(const std::string &family);
+
     std::size_t sourceCount() const;
+
     std::size_t loadedFaceCount() const;
 
 private:
@@ -245,38 +281,54 @@ class WSC_API RemoteFontProvider final : public FontProvider
 public:
     RemoteFontProvider(FontProviderKind providerKind, std::string providerName,
                        RemoteFontProviderOptions options = {});
+
     ~RemoteFontProvider() override;
+
     RemoteFontProvider(const RemoteFontProvider &) = delete;
+
     RemoteFontProvider &operator=(const RemoteFontProvider &) = delete;
 
     FontProviderKind kind() const override;
+
     const std::string &name() const override;
+
     std::uint64_t generation() const override;
+
     std::uint64_t generationForFamily(const std::string &family) const override;
+
     void refresh() override;
+
     bool hasFamily(const std::string &family) const override;
+
     std::vector<std::string> families() const override;
+
     std::string displayFamilyName(const std::string &family) const override;
+
     std::vector<const FontFace *> match(
         const FontMatchRequest &request) const override;
 
     /// sourceId must be unique within this provider. Re-registering it replaces
     /// metadata and invalidates any loaded/failed instance.
     bool registerSource(RemoteFontSource source);
+
     bool removeFamily(const std::string &family);
+
     bool invalidateFamily(const std::string &family);
 
     /// Move queued sources to DOWNLOADING, respecting maxConcurrentDownloads.
     /// The host starts these requests and later calls completeDownload or
     /// failDownload on the same source id.
     std::vector<RemoteFontRequest> takeDownloadRequests();
+
     /// Drain family changes accumulated since the previous call. Results are
     /// deduplicated and sorted so the host can schedule one safe-frame
     /// relayout/repaint instead of re-entering layout from download callbacks.
     std::vector<std::string> takeChangedFamilies();
+
     bool completeDownload(const std::string &sourceId,
                           std::uint64_t requestToken,
                           std::vector<std::uint8_t> bytes);
+
     /// consumedBytes counts transfer budget already spent by the failed try.
     /// Non-permanent failures return to IDLE until maxAttemptsPerSource.
     bool failDownload(const std::string &sourceId,
@@ -284,8 +336,11 @@ public:
                       std::size_t consumedBytes = 0);
 
     RemoteFontState state(const std::string &sourceId) const;
+
     std::size_t queuedCount() const;
+
     std::size_t downloadingCount() const;
+
     std::size_t downloadedBytes() const;
 
 private:
@@ -293,12 +348,19 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
+/// Ordered provider and fallback coordinator used by Canvas text layout.
+///
+/// Provider priority is Dynamic -> Asset -> Test -> System. Resolver mutation
+/// and resolution are not a concurrent API; configure/use it on the owning
+/// Canvas rendering thread. Cache clients must include generation() or
+/// resolutionGeneration() in their keys.
 class FontResolver
 {
 public:
     using CoveragePredicate = std::function<bool(
         const FontFace &, const std::vector<std::uint32_t> &)>;
 
+    /// Retain and insert a provider according to FontProviderKind priority.
     void addProvider(std::shared_ptr<FontProvider> provider)
     {
         if (!provider) return;
@@ -359,6 +421,9 @@ public:
         return {displayFamily(preferredFamily)};
     }
 
+    /// Resolve the first style/coverage-compatible face. `covers`, when
+    /// supplied, performs definitive cmap/glyph coverage checks; otherwise
+    /// provider range metadata is used when available.
     FontMatchResult resolve(const FontMatchRequest &request,
                             const CoveragePredicate &covers = {}) const
     {
