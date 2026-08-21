@@ -77,6 +77,12 @@ See [RENDERING_PARITY.md](RENDERING_PARITY.md) for the diagnosis and validation
 record.
 The multi-platform contract and new-scene workflow are documented in
 [VISUAL_PARITY.md](../../docs/VISUAL_PARITY.md).
+Generate the complete DPR 3 reference set for the shared matrix with:
+
+```sh
+platforms/desktop/capture_visual_parity.sh \
+  --host <build-directory>/WhatsCanvasDesktopHost
+```
 
 ## Adding a new scene
 

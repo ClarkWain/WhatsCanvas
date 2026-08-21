@@ -92,12 +92,22 @@ For deterministic visual-parity capture, launch the Activity with a fixed
 animation time, for example:
 
 ```sh
-adb shell am start -S -n con.whatscanvas.demo/.MainActivity \
+adb shell am start -S -n com.whatscanvas.demo/.MainActivity \
   --ef capture_time_seconds 1.25
 ```
 
 The cross-platform capture layout, metadata and comparison workflow are in
 [`../../docs/VISUAL_PARITY.md`](../../docs/VISUAL_PARITY.md).
+To generate the complete portrait/landscape, four-time-sample capture set on a
+running emulator, build the Debug APK and run:
+
+```sh
+platforms/android/capture_emulator_visual_parity.sh --device emulator-5554
+```
+
+The script restores the emulator's original rotation settings on exit and
+rejects captures whose renderer surface has not reached the requested
+orientation.
 
 The sample includes density-aware touch interaction, lifecycle/context-loss
 handling, CI builds and lint, retained-scene diagnostics, and device checkpoints

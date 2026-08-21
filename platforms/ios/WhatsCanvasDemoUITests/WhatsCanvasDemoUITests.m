@@ -73,6 +73,44 @@
     }
 }
 
+- (void)testVisualParityCaptureMatrix
+{
+    NSArray<NSDictionary *> *viewports = @[
+        @{@"id": @"portrait", @"orientation": @(UIDeviceOrientationPortrait)},
+        @{@"id": @"landscape", @"orientation": @(UIDeviceOrientationLandscapeLeft)},
+    ];
+    NSArray<NSString *> *sampleTimes = @[@"0.0", @"0.5", @"1.25", @"2.0"];
+
+    for (NSDictionary *viewport in viewports) {
+        XCUIDevice.sharedDevice.orientation =
+            (UIDeviceOrientation)[viewport[@"orientation"] integerValue];
+        const BOOL landscape = [viewport[@"id"] isEqualToString:@"landscape"];
+
+        for (NSString *sampleTime in sampleTimes) {
+            XCUIApplication *app = [[XCUIApplication alloc] init];
+            app.launchArguments = @[
+                @"--capture-frames",
+                [@"--capture-time=" stringByAppendingString:sampleTime],
+            ];
+            app.launchEnvironment = @{
+                @"MTL_DEBUG_LAYER": @"1",
+                @"MTL_DEBUG_ERROR_MODE": @"0",
+            };
+            [app launch];
+            XCTAssertTrue([app waitForState:XCUIApplicationStateRunningForeground
+                                    timeout:10.0]);
+            XCTAssertTrue(landscape
+                ? [self waitForLandscapeScreen] : [self waitForPortraitScreen]);
+            XCTAssertTrue([self waitForCanvasReady:app]);
+            // The first display-link callback writes the deterministic frame.
+            [NSThread sleepForTimeInterval:0.5];
+            [app terminate];
+            XCTAssertTrue([app waitForState:XCUIApplicationStateNotRunning
+                                    timeout:5.0]);
+        }
+    }
+}
+
 - (BOOL)waitForCanvasReady:(XCUIApplication *)app
 {
     XCUIElement *canvas = app.otherElements[@"whatscanvas.canvas"];

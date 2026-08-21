@@ -1,9 +1,9 @@
 # Cross-platform visual parity
 
 WhatsCanvas treats visual parity as a tested contract rather than a manual
-screenshot review. Android, iOS and Desktop must render the same scene content,
-orientation, animation time and logical content viewport before their pixels
-are compared.
+screenshot review. Android, iOS, Desktop and Web must render the same scene
+content, orientation, animation time and logical content viewport before their
+pixels are compared.
 
 ## Canonical content window
 
@@ -28,7 +28,7 @@ Any new host must use it rather than defining another viewport policy.
 validation registry. Every scene declares:
 
 - a stable scene id and contract version;
-- Android, iOS and Desktop as required platforms;
+- Android, iOS, Desktop and Web as required platforms;
 - portrait and landscape canonical sizes;
 - deterministic animation samples in seconds;
 - named comparison regions and their tolerance profile.
@@ -52,6 +52,8 @@ The comparator searches a small neighboring-pixel radius before measuring a
 delta. This tolerates subpixel edge placement, but not a larger geometry shift.
 Threshold changes require a reason and evidence; they must not be raised merely
 to make a failing capture pass.
+The latest measured evidence and threshold rationale are recorded in
+[`VISUAL_PARITY_VALIDATION.md`](VISUAL_PARITY_VALIDATION.md).
 
 Reference captures must use the canonical logical size with `DPR=3`, then be
 normalized by the comparator. Merely rendering a `1179 x 2277` DPR=1 canvas is
@@ -130,7 +132,7 @@ python3 tools/visual_parity/visual_parity.py matrix \
 1. Contract and comparator unit tests run on every change.
 2. Deterministic Software golden tests guard the reference rasterizer.
 3. OpenGL, OpenGL ES and Metal tests compare their backend against Software.
-4. The device matrix compares normalized Android, iOS and Desktop captures.
+4. The device matrix compares normalized Android, iOS, Desktop and Web captures.
 5. Lifecycle, rotation, cold start and background/foreground tests run outside
    the pixel comparator, then capture the same deterministic scene again.
 
