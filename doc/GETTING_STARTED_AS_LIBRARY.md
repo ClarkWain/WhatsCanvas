@@ -335,7 +335,7 @@ presentation surface**:
   can read with `readPixelsRGBA` or use as a texture. On Win32, the Canvas API
   can also build a surface/swapchain through `OutputTarget::ToWindow(...)` and
   deliver frames with `present()`; see
-  [`examples/vulkan_canvas_present`](../examples/vulkan_canvas_present). Other
+  [`examples/present`](../examples/present). Other
   native surface types remain future work.
 
 **Why does the pipeline differ from OpenGL at all?** The OpenGL backend is driven
@@ -361,7 +361,7 @@ auto canvas = wsc::Canvas::isBackendAvailable(Backend::Metal)
 Off-screen usage (`readPixelsRGBA`) works exactly like the other GPU backends.
 For on-screen presentation, wrap a `CAMetalLayer` in an `OutputTarget` and
 call `Canvas::setOutputTarget(...)` + `Canvas::present()`; see
-[`examples/metal_present`](../examples/metal_present). GPU frame timing
+[`examples/present`](../examples/present). GPU frame timing
 (`beginGpuFrameTiming` / `lastGpuFrameTimeNs`) is backed by
 `MTLCommandBuffer.GPUStartTime`, and the Canvas exposes the underlying
 `MTLDevice` / `MTLCommandQueue` handles for tighter host integration.
@@ -623,11 +623,8 @@ if (canvas->setOutputTarget(wsc::OutputTarget::ToWindow(surface))) {  // false i
 }
 ```
 
-Runnable demos:
-[`software_present`](../examples/software_present),
-[`gl_present`](../examples/gl_present),
-[`vulkan_canvas_present`](../examples/vulkan_canvas_present),
-[`metal_present`](../examples/metal_present).
+Runnable Software, OpenGL, Vulkan and Metal hosts are grouped under
+[`examples/present`](../examples/present).
 
 **Embed into an existing renderer** — draw into *your* GPU target instead of a
 window (no `present()`; your engine composites/presents its own target):

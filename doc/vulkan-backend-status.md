@@ -61,8 +61,9 @@ All 12 required methods are implemented on Vulkan.
   the same primitive stream without regressing the production renderer.
 - **Windowed presentation (M8 swapchain)**: Canvas-level
   `OutputTarget::ToWindow(...)` + `Canvas::present()` is implemented for Win32
-  Vulkan and exercised by `examples/vulkan_canvas_present`. The lower-level
-  `examples/vulkan_present` remains a standalone swapchain validation path.
+  Vulkan and exercised by `examples/present/vulkan_main.cpp`. The lower-level
+  `tests/integration/vulkan_present` remains a standalone swapchain validation
+  path.
   Cross-platform surfaces, broader resize/device-loss coverage, and a CTest
   gate remain follow-ups because windowed presentation is environment
   dependent.

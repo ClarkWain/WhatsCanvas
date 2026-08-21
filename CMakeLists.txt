@@ -227,19 +227,12 @@ if (TARGET WhatsCanvasOpenGL)
 endif()
 
 if (WHATSCANVAS_BUILD_DEMO AND TARGET WhatsCanvasOpenGL)
-    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/showcase")
-    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/aa_showcase")
-    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/image_filter_showcase")
-    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/gl_present")
-    if (WIN32)
-        add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/software_present")
-    endif()
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/tests/visual/showcase")
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/tests/visual/aa_showcase")
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/tests/visual/image_filter_showcase")
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/present")
     if (WHATSCANVAS_VULKAN_BACKEND_ENABLED)
-        add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/vulkan_present")
-        add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/vulkan_canvas_present")
-    endif()
-    if (WHATSCANVAS_METAL_BACKEND_ENABLED)
-        add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/metal_present")
+        add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/vulkan_present")
     endif()
 endif()
 
@@ -263,7 +256,7 @@ endif()
 
 if (TARGET WhatsCanvasOpenGL)
     add_executable(WhatsCanvasFeatureSnippets
-        "${CMAKE_CURRENT_SOURCE_DIR}/examples/snippets/FeatureSnippets.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/compile/FeatureSnippets.cpp"
     )
     target_link_libraries(WhatsCanvasFeatureSnippets PRIVATE
         WhatsCanvasOpenGL
@@ -2383,7 +2376,17 @@ if (BUILD_TESTING AND TARGET WhatsCanvasAAShowcase)
     add_test(NAME WhatsCanvasAAShowcaseSmoke
         COMMAND WhatsCanvasAAShowcase "${CMAKE_CURRENT_BINARY_DIR}/aa_showcase_smoke.png"
     )
-    set_tests_properties(WhatsCanvasAAShowcaseSmoke PROPERTIES LABELS "smoke;aa;examples" TIMEOUT 120)
+    set_tests_properties(WhatsCanvasAAShowcaseSmoke PROPERTIES
+        LABELS "smoke;aa;visual" TIMEOUT 120)
+endif()
+
+if (BUILD_TESTING AND TARGET WhatsCanvasImageFilterShowcase)
+    add_test(NAME WhatsCanvasImageFilterShowcaseSmoke
+        COMMAND WhatsCanvasImageFilterShowcase
+            "${CMAKE_CURRENT_BINARY_DIR}/image_filter_showcase_smoke.png"
+    )
+    set_tests_properties(WhatsCanvasImageFilterShowcaseSmoke PROPERTIES
+        LABELS "smoke;filter;visual" TIMEOUT 120)
 endif()
 
 if (BUILD_TESTING AND TARGET WhatsCanvasDesktopHost)

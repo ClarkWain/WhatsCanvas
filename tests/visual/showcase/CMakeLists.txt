@@ -25,11 +25,11 @@ if (TARGET WhatsCanvas::OpenGL)
             WhatsCanvas::OpenGL
     )
 
-    whatscanvas_link_gl_app(WhatsCanvasDemo "${CMAKE_CURRENT_LIST_DIR}/../..")
+    whatscanvas_link_gl_app(WhatsCanvasDemo "${CMAKE_CURRENT_LIST_DIR}/../../..")
     return()
 endif()
 
-set(PROJECT_ROOT ${CMAKE_CURRENT_LIST_DIR}/../..)
+set(PROJECT_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../..)
 include(${PROJECT_ROOT}/cmake/WhatsCanvasOpenGL.cmake)
 
 whatscanvas_add_common_dependencies(${PROJECT_ROOT})

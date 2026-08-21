@@ -23,13 +23,13 @@ if (TARGET WhatsCanvas::OpenGL)
 
     target_include_directories(WhatsCanvasImageFilterShowcase
         PRIVATE
-            "${CMAKE_CURRENT_LIST_DIR}/../../third_party/glad/include"
-            "${CMAKE_CURRENT_LIST_DIR}/../../third_party/stb"
+            "${CMAKE_CURRENT_LIST_DIR}/../../../third_party/glad/include"
+            "${CMAKE_CURRENT_LIST_DIR}/../../../third_party/stb"
     )
 
     target_compile_definitions(WhatsCanvasImageFilterShowcase
         PRIVATE
-            WSC_SHOWCASE_CJK_FONT_PATH="${CMAKE_CURRENT_LIST_DIR}/../../third_party/harfbuzz/test/subset/data/fonts/Mplus1p-Regular.ttf"
+            WSC_SHOWCASE_CJK_FONT_PATH="${CMAKE_CURRENT_LIST_DIR}/../../../third_party/harfbuzz/test/subset/data/fonts/Mplus1p-Regular.ttf"
     )
 
     target_link_libraries(WhatsCanvasImageFilterShowcase
@@ -37,5 +37,5 @@ if (TARGET WhatsCanvas::OpenGL)
             WhatsCanvas::OpenGL
     )
 
-    whatscanvas_link_gl_app(WhatsCanvasImageFilterShowcase "${CMAKE_CURRENT_LIST_DIR}/../..")
+    whatscanvas_link_gl_app(WhatsCanvasImageFilterShowcase "${CMAKE_CURRENT_LIST_DIR}/../../..")
 endif()

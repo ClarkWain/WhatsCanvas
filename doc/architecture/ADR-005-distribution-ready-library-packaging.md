@@ -102,9 +102,15 @@ include/
   wsc/platform/
 
 examples/
+  hello_world/
+  package_consumer/
+  present/
   game/
 
 tests/
+  compile/
+  integration/
+  visual/
 scripts/
 ```
 

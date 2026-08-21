@@ -35,7 +35,8 @@ still platform- and backend-specific:
   adapter is available (WGL; guarded GLX on Linux). The common embedding path
   remains a host-owned current GL context plus `glfwSwapBuffers`/equivalent.
 - **Vulkan** supports Canvas-level `ToWindow` + `present()` on Win32. The
-  lower-level `examples/vulkan_present` remains a standalone swapchain test.
+  lower-level `tests/integration/vulkan_present` remains a standalone swapchain
+  test.
 - **Software (CPU)** supports window blitting on Windows GDI and Linux/X11;
   otherwise it produces a CPU RGBA buffer for the host to display.
 - **Metal / D3D** do not exist (factory returns `nullptr`).
@@ -294,12 +295,12 @@ backend expansion.
 1. ~~**Vulkan `ISwapchain`**~~ / **Software `ISwapchain`** — done first instead,
    since it needs no Vulkan SDK and validates the whole seam end-to-end
    (`SoftwareSwapchain`, GDI, Windows). Backend-neutral scaffolding + the public
-   `Canvas` present API + `examples/software_present` also landed.
+   `Canvas` present API + `examples/present/software_main.cpp` also landed.
 2. ~~**Vulkan `ISwapchain`**~~ **done** — the instance/device are made
    present-ready (surface + `VK_KHR_swapchain` extensions, present-capable
    graphics queue) and present blits the render device's offscreen image
    (`readbackImage`) into the acquired swapchain image. Validated on hardware
-   via `examples/vulkan_canvas_present` (clean under the Khronos validation
+   via `examples/present/vulkan_main.cpp` (clean under the Khronos validation
    layer). Reuses the entire existing offscreen renderer.
 3. ~~**Vulkan `wrapBackendRenderTarget`**~~ **done** — renders into a host-owned
    `VkImage` allocated on the canvas's Vulkan device (exposed via

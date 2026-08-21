@@ -853,6 +853,7 @@ int main(int argc, char **argv)
     glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
     glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
     glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_FALSE);
+    glfwWindowHint(GLFW_SCALE_FRAMEBUFFER, GLFW_FALSE);
 #ifdef __APPLE__
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
     glfwWindowHint(GLFW_COCOA_RETINA_FRAMEBUFFER, GLFW_FALSE);
@@ -866,17 +867,6 @@ int main(int argc, char **argv)
         return 1;
     }
     glfwMakeContextCurrent(window);
-    int framebufferWidth = 0;
-    int framebufferHeight = 0;
-    glfwGetFramebufferSize(window, &framebufferWidth, &framebufferHeight);
-    if (framebufferWidth != kWidth || framebufferHeight != kHeight) {
-        std::cerr << "Unexpected framebuffer size " << framebufferWidth
-                  << 'x' << framebufferHeight << "; expected "
-                  << kWidth << 'x' << kHeight << '\n';
-        glfwDestroyWindow(window);
-        glfwTerminate();
-        return 1;
-    }
     if (!Canvas::loadOpenGL(
             reinterpret_cast<Canvas::OpenGLProcAddress>(glfwGetProcAddress))) {
         std::cerr << "Failed to load OpenGL\n";
@@ -899,11 +889,41 @@ int main(int argc, char **argv)
         glfwTerminate();
         return 1;
     }
+
+    // Hidden GLFW windows may still receive a Retina backing buffer even when
+    // scaling hints are disabled. Render into an exact-size off-screen target
+    // so the visual baseline never depends on the host monitor's DPR.
+    GLuint outputTexture = 0;
+    GLuint outputFramebuffer = 0;
+    glGenTextures(1, &outputTexture);
+    glBindTexture(GL_TEXTURE_2D, outputTexture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, kWidth, kHeight, 0,
+                 GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glGenFramebuffers(1, &outputFramebuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, outputFramebuffer);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                           GL_TEXTURE_2D, outputTexture, 0);
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+        std::cerr << "Failed to create the fixed-size capture framebuffer\n";
+        glDeleteFramebuffers(1, &outputFramebuffer);
+        glDeleteTextures(1, &outputTexture);
+        canvas.reset();
+        glfwDestroyWindow(window);
+        glfwTerminate();
+        return 1;
+    }
     canvas->setSize(kWidth, kHeight);
     if (!canvas->setOutputTarget(
-            OutputTarget::GLFramebuffer(0, kWidth, kHeight, true))) {
+            OutputTarget::GLFramebuffer(
+                outputFramebuffer, kWidth, kHeight, true))) {
         std::cerr << "Failed to set the OpenGL output target\n";
         canvas.reset();
+        glDeleteFramebuffers(1, &outputFramebuffer);
+        glDeleteTextures(1, &outputTexture);
         glfwDestroyWindow(window);
         glfwTerminate();
         return 1;
@@ -939,6 +959,8 @@ int main(int argc, char **argv)
                           pixels.data(), kWidth * 4) != 0;
 
     canvas.reset();
+    glDeleteFramebuffers(1, &outputFramebuffer);
+    glDeleteTextures(1, &outputTexture);
     glfwDestroyWindow(window);
     glfwTerminate();
 
