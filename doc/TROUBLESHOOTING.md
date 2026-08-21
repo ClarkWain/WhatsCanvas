@@ -194,9 +194,9 @@ Checklist:
   include the `wsc/` headers **first** and define `NOMINMAX`, so the `min`/`max`
   macros do not break WhatsCanvas headers.
 
-See the `software_present`, `gl_present`, and `vulkan_canvas_present`
-[examples](https://github.com/ClarkWain/WhatsCanvas/tree/master/examples) for
-working setups.
+See the backend hosts in
+[`examples/present`](https://github.com/ClarkWain/WhatsCanvas/tree/master/examples/present)
+for working setups.
 
 ## Build & packaging
 

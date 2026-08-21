@@ -4,6 +4,15 @@ This directory is the top-level home for WhatsCanvas validation beyond ad-hoc lo
 
 ## Current Entry Points
 
+- `tests/compile/FeatureSnippets.cpp`: compile-only public API snippets.
+- `tests/integration/vulkan_present/`: low-level Vulkan surface and swapchain
+  validation kept separate from user-facing examples.
+- `tests/visual/`: legacy showcase, analytic-AA, and image-filter capture
+  harnesses used by smoke tests, documentation evidence, and pixel baselines.
+- `WhatsCanvasAAShowcaseSmoke` and `WhatsCanvasImageFilterShowcaseSmoke`:
+  headless capture gates for the visual harnesses, including fixed-size output
+  on high-DPR hosts.
+
 - `WhatsCanvasCoreDependencyBoundary`: prevents public headers, product source,
   platform adapters, and the root CMake file from acquiring reference-engine
   names or dependencies. Test-only Oracle tooling and comparison documentation

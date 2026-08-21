@@ -7,15 +7,12 @@ for %%I in ("%SCRIPT_DIR%\..") do set "ROOT_DIR=%%~fI"
 
 call :get_tick EXAMPLES_START_MS
 
-echo EXAMPLES_SMOKE_TARGETS=Tetris,Racer,BubbleShooter
+echo EXAMPLES_SMOKE_TARGETS=Tetris,Racer
 
 call :run_example Tetris "%ROOT_DIR%\examples\game\tetris\build.bat"
 if errorlevel 1 goto fail
 
 call :run_example Racer "%ROOT_DIR%\examples\game\racer\build.bat"
-if errorlevel 1 goto fail
-
-call :run_example BubbleShooter "%ROOT_DIR%\examples\game\bubble_shooter\build.bat"
 if errorlevel 1 goto fail
 
 call :elapsed_ms EXAMPLES_START_MS TOTAL_MS

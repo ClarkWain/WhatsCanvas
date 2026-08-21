@@ -14,6 +14,9 @@ For releases and downloadable artifacts, see the
   `400 x 800` portrait / `800 x 400` landscape primary standard. Added named
   16:9 phone, 4:3 tablet and 16:10 desktop layout standards, while retaining
   the former Android measurements as a legacy-regression profile only.
+- Consolidated native presentation samples under `examples/present`, moved
+  compile/integration/visual harnesses under `tests`, and removed the Bubble
+  Shooter sample while retaining the Tetris and Racer games.
 
 ## [0.7.0] - 2026-08-20
 
@@ -202,7 +205,7 @@ For releases and downloadable artifacts, see the
     region instead of unioning.
   - Windowed presentation via `ISwapchain` on top of `CAMetalLayer`
     `nextDrawable` + blit, wired through `Canvas::setOutputTarget` +
-    `Canvas::present`. See `examples/metal_present/` for a CAMetalLayer demo.
+    `Canvas::present`. See `examples/present/` for a CAMetalLayer demo.
   - GPU frame timing (`beginGpuFrameTiming` / `endGpuFrameTiming` /
     `lastGpuFrameTimeNs`) is backed by `MTLCommandBuffer.GPUStartTime` /
     `GPUEndTime`.

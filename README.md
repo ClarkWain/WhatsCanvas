@@ -368,7 +368,9 @@ Risks to keep in mind:
 
 ## Examples
 
-The repository includes a root demo, API snippets, package consumers, Software/OpenGL/Vulkan/Metal present examples, and two full games:
+The repository includes a minimal starter, a package consumer, unified
+Software/OpenGL/Vulkan/Metal presentation hosts, and two full games. Focused
+visual regression harnesses live under `tests/visual` rather than `examples`.
 
 <table>
 <tr>
