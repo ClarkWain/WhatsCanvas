@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <string>
 #include <string_view>
 
@@ -44,9 +45,14 @@ bool startsWith(std::string_view s, std::string_view prefix)
 bool parseInt(std::string_view text, int& out)
 {
     if (text.empty()) return false;
+    const std::string valueText(text);
     char* end = nullptr;
-    const long value = std::strtol(std::string(text).c_str(), &end, 10);
-    if (end == nullptr || *end != '\0') return false;
+    const long value = std::strtol(valueText.c_str(), &end, 10);
+    if (end == valueText.c_str() || *end != '\0'
+        || value < std::numeric_limits<int>::min()
+        || value > std::numeric_limits<int>::max()) {
+        return false;
+    }
     out = static_cast<int>(value);
     return true;
 }
