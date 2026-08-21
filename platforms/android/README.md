@@ -72,7 +72,7 @@ shipping applications must build/sign their own host from source.
 - OpenGL ES 3 rendering through the existing WhatsCanvas GLES target.
 - Per-view native renderer ownership, resize, frame rendering, and deterministic
   GL-thread cleanup over JNI.
-- An eight-card scene that uses the shared 393 x 759 portrait and 786 x 377
+- An eight-card scene that uses the shared 400 x 800 portrait and 800 x 400
   landscape content windows, aspect-fitted as one unit on every device, and
   exercises UTF-8 text, system font fallback, gradients, paths,
   clipping, arcs, strokes, alpha blending, transforms, raw RGBA images, texture

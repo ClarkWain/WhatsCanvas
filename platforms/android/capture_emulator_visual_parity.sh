@@ -167,7 +167,7 @@ screen_width, screen_height = struct.unpack(">II", data[16:24])
 if surface_width > screen_width or surface_height > screen_height:
     raise SystemExit("reported surface is outside the screenshot")
 canonical_width, canonical_height = (
-    (786.0, 377.0) if viewport_id == "landscape" else (393.0, 759.0)
+    (800.0, 400.0) if viewport_id == "landscape" else (400.0, 800.0)
 )
 scale = min(surface_width / canonical_width, surface_height / canonical_height)
 offset_x = (surface_width - canonical_width * scale) * 0.5

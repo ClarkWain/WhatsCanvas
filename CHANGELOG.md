@@ -9,6 +9,12 @@ For releases and downloadable artifacts, see the
 
 ## [Unreleased]
 
+### Changed
+- Replaced the device-derived canonical viewport with a neutral, reciprocal
+  `400 x 800` portrait / `800 x 400` landscape primary standard. Added named
+  16:9 phone, 4:3 tablet and 16:10 desktop layout standards, while retaining
+  the former Android measurements as a legacy-regression profile only.
+
 ## [0.7.0] - 2026-08-20
 
 ### Added

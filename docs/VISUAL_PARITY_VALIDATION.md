@@ -19,6 +19,40 @@ seconds, for 24 comparisons against the Desktop reference.
 
 ## Problems and fixes
 
+### Device-derived viewport dimensions were not a stable standard
+
+The original 393 x 759 portrait and 786 x 377 landscape canvases came from one
+Android device's usable area. They were neither common design dimensions nor
+exact rotations of each other, so orientation changed both aspect ratio and
+scene geometry.
+
+The primary pixel gate now uses a device-neutral 400 x 800 portrait and
+800 x 400 landscape design space. The orientations are exact rotations, the
+values are easy to reason about, and physical DPR remains independent. A
+registry adds 360 x 640 phone, 768 x 1024 tablet and 1440 x 900 desktop layout
+coverage. The device-derived pair remains available only as `legacy_android`.
+The registry validator rejects a non-legacy standard that is not rotation
+symmetric or a scene whose dimensions do not match its declared standard.
+
+All four platforms were recaptured after the migration. The fresh matrix at
+four animation samples in both orientations produced 24 comparisons, zero
+failures. The primary DPR 3 Desktop/Web outputs were 1200 x 2400 portrait and
+2400 x 1200 landscape; Android and iOS supplied exact content crops through
+their metadata.
+
+### Web smoke test could run a stale Wasm binary
+
+The first matrix after changing the viewport contract failed all eight Web
+comparisons even though the browser launched with the new dimensions. The test
+script had reused an older `.wasm` artifact, so the JavaScript shell and native
+scene disagreed about the canonical canvas.
+
+`platforms/wasm/test.sh` now rebuilds by default before browser validation.
+An explicit `WHATSCANVAS_WEB_SKIP_BUILD=1` escape hatch is reserved for callers
+that have already built the exact source revision. After rebuilding, the Web
+smoke test passed resize, background, context-restore and cold-reload checks,
+and all eight Web matrix comparisons passed.
+
 ### Web backing buffer was captured at CSS resolution
 
 The Web renderer correctly allocated a high-DPR drawing buffer, but Chrome DevTools
