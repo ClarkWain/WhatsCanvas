@@ -180,11 +180,11 @@ async function navigate(session, baseUrl, viewport, sample) {
     await session.send("Emulation.setDeviceMetricsOverride", {
         width: viewport.width,
         height: viewport.height,
-        deviceScaleFactor: 1,
+        deviceScaleFactor: 3,
         mobile: false,
     });
     await session.send("Page.navigate", {
-        url: `${baseUrl}/?time=${sample.time}&dpr=2`,
+        url: `${baseUrl}/?time=${sample.time}&dpr=3`,
     });
     const state = await waitForState(
         session, (candidate) => candidate?.ready === true,
@@ -192,9 +192,9 @@ async function navigate(session, baseUrl, viewport, sample) {
     assert(state.logicalWidth === viewport.width
            && state.logicalHeight === viewport.height,
            `${viewport.id}: logical viewport mismatch: ${JSON.stringify(state)}`);
-    assert(state.physicalWidth === viewport.width * 2
-           && state.physicalHeight === viewport.height * 2
-           && state.dpr === 2,
+    assert(state.physicalWidth === viewport.width * 3
+           && state.physicalHeight === viewport.height * 3
+           && state.dpr === 3,
            `${viewport.id}: DPR drawing buffer mismatch: ${JSON.stringify(state)}`);
     return state;
 }
@@ -209,14 +209,23 @@ async function capture(session, viewport, sample) {
         captureRoot, "feature_showcase", viewport.id);
     fs.mkdirSync(directory, {recursive: true});
     const imagePath = path.join(directory, `${sample.id}.png`);
-    fs.writeFileSync(imagePath, Buffer.from(result.data, "base64"));
+    const png = Buffer.from(result.data, "base64");
+    const physicalWidth = png.readUInt32BE(16);
+    const physicalHeight = png.readUInt32BE(20);
+    assert(physicalWidth === viewport.width * 3
+           && physicalHeight === viewport.height * 3,
+           `${viewport.id}: screenshot DPR mismatch: ${physicalWidth}x${physicalHeight}`);
+    fs.writeFileSync(imagePath, png);
     const metadata = {
         schema_version: 1,
         scene_id: "feature_showcase",
         viewport_id: viewport.id,
         sample_id: sample.id,
-        content_rect_pixels: [0, 0, viewport.width, viewport.height],
-        device_pixel_ratio: 2,
+        platform: "web",
+        backend: "webgl2",
+        elapsed_seconds: sample.time,
+        content_rect_pixels: [0, 0, physicalWidth, physicalHeight],
+        device_pixel_ratio: 3,
     };
     fs.writeFileSync(
         path.join(directory, `${sample.id}.json`),
@@ -341,7 +350,7 @@ async function run() {
 
         console.log(`WEB_BROWSER_SMOKE status=PASS fps=${lastState.fps.toFixed(1)}`
             + ` captures=${viewports.length * samples.length}`
-            + " dpr=2 resize=PASS background=PASS context_restore=PASS cold_reload=PASS");
+            + " capture_dpr=3 resize=PASS background=PASS context_restore=PASS cold_reload=PASS");
     } finally {
         session?.close();
         chrome.kill("SIGTERM");

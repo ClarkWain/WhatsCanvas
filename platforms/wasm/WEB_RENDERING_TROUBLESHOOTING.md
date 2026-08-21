@@ -52,7 +52,9 @@ treated as one coordinate space.
 
 **Fix:** CSS pixels define the canonical logical viewport. The backing buffer
 is `logical size * DPR`, capped to the supported 1-4 range, and the Canvas gets
-the same DPR. The test requires exact 2-DPR buffers for both canonical sizes.
+the same DPR. The visual-parity test requires exact 3-DPR buffers and verifies
+the captured PNG dimensions, so browser compositing cannot silently reduce a
+high-DPR backing buffer to a 1-DPR screenshot.
 
 ## Background and context lifecycle
 
