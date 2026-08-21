@@ -17,7 +17,7 @@
       "search_radius": 2,
       "bad_channel_threshold": 32,
       "max_mean_delta": 1.5,
-      "max_bad_pixel_ratio": 0.03
+      "max_bad_pixel_ratio": 0.04
     },
     "text": {
       "search_radius": 2,

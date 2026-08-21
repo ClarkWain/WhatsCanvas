@@ -8,7 +8,7 @@ CoreText text backend. It does not compile or link OpenGL ES.
 - Xcode 26.6 or newer
 - iOS 15.0 deployment target
 - iPhone or iPad simulator/device with Metal support
-- Bundle identifier `con.whatscanvas.demo`
+- Bundle identifier `com.whatscanvas.demo`
 
 ## Run
 
@@ -59,6 +59,17 @@ coverage remains the repeatable lifecycle gate; representative older and
 current physical GPUs are still required before production distribution.
 
 Add `--capture-frames` and `--capture-time=1.25` to the Scheme launch arguments
-to produce a deterministic `Documents/screenshot.png`. The complete
+to produce a deterministic
+`Documents/feature_showcase-<viewport>-t1250.png` plus its JSON metadata. A
+live, non-fixed capture continues to use `Documents/screenshot.png`. The complete
 cross-platform capture contract is documented in
 [`../../docs/VISUAL_PARITY.md`](../../docs/VISUAL_PARITY.md).
+
+The simulator capture matrix uses cold launches for all four deterministic
+times in both orientations, preserves each frame with its crop metadata, and
+copies the results into the shared capture tree:
+
+```sh
+platforms/ios/scripts/capture_simulator_visual_parity.sh \
+  --device <booted-simulator-udid>
+```

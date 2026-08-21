@@ -254,7 +254,16 @@
     // presentFragment samples to the drawable) as PNG so the Mac can pull it
     // via `xcrun devicectl device copy from --domain-type appDataContainer`.
     if (_screenshotCaptureEnabled && (_screenshotCounter++ % 120u) == 0u) {
-        [self dumpScreenshotAsPNG:@"screenshot.png"];
+        NSString *filename = @"screenshot.png";
+        if (_fixedCaptureTimeEnabled) {
+            const NSString *viewportID = width > height
+                ? @"landscape" : @"portrait";
+            const NSString *sampleID = [NSString stringWithFormat:@"t%04d",
+                static_cast<int>(std::lround(_fixedCaptureTimeSeconds * 1000.0f))];
+            filename = [NSString stringWithFormat:@"feature_showcase-%@-%@.png",
+                viewportID, sampleID];
+        }
+        [self dumpScreenshotAsPNG:filename];
     }
 }
 

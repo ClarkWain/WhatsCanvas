@@ -42,7 +42,7 @@ The page publishes readiness and frame data as `window.whatsCanvasDemo`, which
 headless browser tests can inspect.
 
 `test.sh` launches a clean Chrome profile and validates all eight canonical
-portrait/landscape captures at 2 DPR. It also checks resize, visibility
+portrait/landscape captures at 3 DPR. It also checks resize, visibility
 pause/resume, forced WebGL context loss/restoration, a cache-bypassing cold
 reload, browser errors, and display-rate frame pacing. Captures and metadata
 are written directly into the shared visual-parity directory under `out/`.
