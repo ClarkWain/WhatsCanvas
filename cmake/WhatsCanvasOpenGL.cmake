@@ -137,7 +137,7 @@ function(whatscanvas_link_x11_if_enabled target_name)
 endfunction()
 
 function(whatscanvas_link_fontconfig_if_available target_name)
-    if (NOT UNIX OR APPLE)
+    if (NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
         return()
     endif()
 
