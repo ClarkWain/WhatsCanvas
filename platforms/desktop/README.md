@@ -59,8 +59,13 @@ WhatsCanvasDesktopHost --scene=feature_showcase --w=1280 --h=720 `
     --dump-png=out.ppm --frames=1
 
 # Deterministic visual-parity frame:
-WhatsCanvasDesktopHost --scene=feature_showcase --w=786 --h=377 --dpr=3 `
+WhatsCanvasDesktopHost --scene=feature_showcase --w=800 --h=400 --dpr=3 `
     --dump-png=feature_showcase.ppm --time=1.25
+
+# Exercise a responsive layout standard outside the primary pixel gate:
+WhatsCanvasDesktopHost --scene=feature_showcase `
+    --viewport-standard=tablet_4_3 --w=768 --h=1024 `
+    --backend=software --dump-png=tablet.ppm --frames=1
 ```
 
 On macOS, interactive windows use the Retina framebuffer and map Canvas
@@ -68,11 +73,14 @@ coordinates through the display scale. Dump and benchmark dimensions are
 physical pixels, so `--w=1280 --h=720` always produces and measures a
 1280 x 720 framebuffer rather than a 2x backing store.
 
-The feature showcase uses the Android demo's measured logical viewports
-(786 x 377 landscape and 393 x 759 portrait) as reference canvases. Each
-reference canvas is aspect-fitted, horizontally centered and scaled as one
-unit. Text, strokes, radii, spacing and card geometry therefore retain the
-same proportions instead of independently reflowing at desktop window sizes.
+The feature showcase uses a device-neutral 2:1 logical standard (800 x 400
+landscape and 400 x 800 portrait). Each reference canvas is aspect-fitted,
+horizontally centered and scaled as one unit. Text, strokes, radii, spacing and
+card geometry therefore retain the same proportions instead of independently
+reflowing at desktop window sizes.
+The `--viewport-standard` option also accepts `phone_16_9`, `tablet_4_3` and
+`desktop_16_10` for layout-conformance coverage. `legacy_android` is available
+only to reproduce captures made before the neutral standard was adopted.
 See [RENDERING_PARITY.md](RENDERING_PARITY.md) for the diagnosis and validation
 record.
 The multi-platform contract and new-scene workflow are documented in

@@ -560,8 +560,10 @@ void createCheckerImage(wsc::Canvas& canvas,
 
 } // namespace
 
-FeatureShowcaseScene::FeatureShowcaseScene(FeatureShowcaseBranding branding)
-    : branding_(std::move(branding))
+FeatureShowcaseScene::FeatureShowcaseScene(
+    FeatureShowcaseBranding branding,
+    whatscanvas::scenes::ViewportStandard viewportStandard)
+    : branding_(std::move(branding)), viewportStandard_(viewportStandard)
 {
 }
 FeatureShowcaseScene::~FeatureShowcaseScene() = default;
@@ -574,7 +576,7 @@ void FeatureShowcaseScene::onCanvasReady(wsc::Canvas& canvas)
 void FeatureShowcaseScene::onLayout(wsc::Canvas& canvas, float logicalWidth, float logicalHeight)
 {
     const SceneViewport viewport = makeFeatureShowcaseViewport(
-        logicalWidth, logicalHeight);
+        logicalWidth, logicalHeight, viewportStandard_);
     sceneWidth_ = viewport.width;
     sceneHeight_ = viewport.height;
     sceneScale_ = viewport.scale;

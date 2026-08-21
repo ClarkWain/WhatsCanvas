@@ -50,6 +50,6 @@ capture_viewport() {
     done
 }
 
-capture_viewport portrait 393 759
-capture_viewport landscape 786 377
+capture_viewport portrait 400 800
+capture_viewport landscape 800 400
 echo "Desktop visual-parity captures: ${OUTPUT}"
