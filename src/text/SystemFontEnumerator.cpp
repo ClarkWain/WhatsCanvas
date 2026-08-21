@@ -34,11 +34,8 @@
 #  include <windows.h>
 #  include <dwrite.h>
 #  include <wrl/client.h>
-#elif defined(__linux__)
-#  if __has_include(<fontconfig/fontconfig.h>)
-#    define WHATSCANVAS_HAS_FONTCONFIG 1
-#    include <fontconfig/fontconfig.h>
-#  endif
+#elif defined(__linux__) && defined(WHATSCANVAS_HAS_FONTCONFIG)
+#  include <fontconfig/fontconfig.h>
 #endif
 
 namespace wsc {
@@ -377,6 +374,19 @@ std::vector<DiscoveredFontFace> discoverWindows()
 
 #elif defined(__linux__) && defined(WHATSCANVAS_HAS_FONTCONFIG)
 
+int fontconfigWeightToCss(int weight)
+{
+    if (weight <= FC_WEIGHT_THIN) return 100;
+    if (weight <= FC_WEIGHT_EXTRALIGHT) return 200;
+    if (weight <= FC_WEIGHT_LIGHT) return 300;
+    if (weight <= FC_WEIGHT_REGULAR) return 400;
+    if (weight <= FC_WEIGHT_MEDIUM) return 500;
+    if (weight <= FC_WEIGHT_SEMIBOLD) return 600;
+    if (weight <= FC_WEIGHT_BOLD) return 700;
+    if (weight <= FC_WEIGHT_EXTRABOLD) return 800;
+    return 900;
+}
+
 std::vector<DiscoveredFontFace> discoverFontconfig()
 {
     std::vector<DiscoveredFontFace> out;
@@ -389,33 +399,31 @@ std::vector<DiscoveredFontFace> discoverFontconfig()
     if (fontSet != nullptr) {
         for (int i = 0; i < fontSet->nfont; ++i) {
             FcPattern *entry = fontSet->fonts[i];
-            FcChar8 *familyStr = nullptr;
             FcChar8 *fileStr = nullptr;
             int faceIndex = 0;
             int weight = FC_WEIGHT_REGULAR;
             int slant = FC_SLANT_ROMAN;
-            if (FcPatternGetString(entry, FC_FAMILY, 0, &familyStr) != FcResultMatch) continue;
             if (FcPatternGetString(entry, FC_FILE, 0, &fileStr) != FcResultMatch) continue;
             FcPatternGetInteger(entry, FC_INDEX, 0, &faceIndex);
             FcPatternGetInteger(entry, FC_WEIGHT, 0, &weight);
             FcPatternGetInteger(entry, FC_SLANT, 0, &slant);
 
-            DiscoveredFontFace fd;
-            fd.family = reinterpret_cast<const char *>(familyStr);
-            fd.path = reinterpret_cast<const char *>(fileStr);
-            fd.faceIndex = faceIndex;
-            fd.italic = slant != FC_SLANT_ROMAN;
-            // fontconfig weight is 0..215; map to CSS 100..900 by rule of thumb.
-            if (weight <= FC_WEIGHT_THIN) fd.weight = 100;
-            else if (weight <= FC_WEIGHT_EXTRALIGHT) fd.weight = 200;
-            else if (weight <= FC_WEIGHT_LIGHT) fd.weight = 300;
-            else if (weight <= FC_WEIGHT_REGULAR) fd.weight = 400;
-            else if (weight <= FC_WEIGHT_MEDIUM) fd.weight = 500;
-            else if (weight <= FC_WEIGHT_SEMIBOLD) fd.weight = 600;
-            else if (weight <= FC_WEIGHT_BOLD) fd.weight = 700;
-            else if (weight <= FC_WEIGHT_EXTRABOLD) fd.weight = 800;
-            else fd.weight = 900;
-            if (!fd.family.empty() && !fd.path.empty()) {
+            const std::string path = reinterpret_cast<const char *>(fileStr);
+            if (path.empty()) continue;
+
+            std::unordered_set<std::string> entryFamilies;
+            for (int familyIndex = 0;; ++familyIndex) {
+                FcChar8 *familyStr = nullptr;
+                if (FcPatternGetString(entry, FC_FAMILY, familyIndex, &familyStr) != FcResultMatch) break;
+                std::string family = reinterpret_cast<const char *>(familyStr);
+                if (family.empty() || !entryFamilies.insert(family).second) continue;
+
+                DiscoveredFontFace fd;
+                fd.family = std::move(family);
+                fd.path = path;
+                fd.faceIndex = faceIndex;
+                fd.weight = fontconfigWeightToCss(weight);
+                fd.italic = slant != FC_SLANT_ROMAN;
                 out.push_back(std::move(fd));
             }
         }
@@ -584,13 +592,21 @@ std::vector<FontFace> FontSystem::defaultSystemFontFaces()
         const auto serifFamilies = {"Georgia", "Times"};
         const auto monoFamilies = {"Menlo", "SF Mono", "Monaco"};
 #else
-        const auto primaryFamilies = {"DejaVu Sans", "Noto Sans", "Liberation Sans"};
-        const auto cjkFamilies = {"Noto Sans CJK SC", "Noto Sans CJK JP", "Noto Sans CJK TC", "WenQuanYi Zen Hei"};
-        const auto arabicFamilies = {"Noto Naskh Arabic", "Noto Sans Arabic", "DejaVu Sans"};
-        const auto hebrewFamilies = {"Noto Sans Hebrew", "DejaVu Sans"};
-        const auto symbolFamilies = {"Noto Sans Symbols", "Noto Color Emoji", "DejaVu Sans"};
-        const auto serifFamilies = {"DejaVu Serif", "Noto Serif", "Liberation Serif"};
-        const auto monoFamilies = {"DejaVu Sans Mono", "Noto Sans Mono", "Liberation Mono"};
+        const auto primaryFamilies = {"DejaVu Sans", "Noto Sans", "Liberation Sans",
+                          "Ubuntu", "Cantarell", "Roboto", "FreeSans"};
+        const auto cjkFamilies = {"Noto Sans CJK SC", "Noto Sans CJK JP", "Noto Sans CJK TC",
+                      "Noto Sans CJK KR", "Noto Sans SC", "Noto Sans TC",
+                      "Noto Sans JP", "Noto Sans KR", "Source Han Sans SC",
+                      "Source Han Sans TC", "Source Han Sans JP", "Source Han Sans KR",
+                      "WenQuanYi Zen Hei", "WenQuanYi Micro Hei"};
+        const auto arabicFamilies = {"Noto Naskh Arabic", "Noto Sans Arabic", "Amiri",
+                         "Scheherazade New", "DejaVu Sans"};
+        const auto hebrewFamilies = {"Noto Sans Hebrew", "DejaVu Sans", "Liberation Sans"};
+        const auto symbolFamilies = {"Noto Sans Symbols", "Noto Sans Symbols 2",
+                         "Noto Color Emoji", "Symbola", "DejaVu Sans"};
+        const auto serifFamilies = {"DejaVu Serif", "Noto Serif", "Liberation Serif", "FreeSerif"};
+        const auto monoFamilies = {"DejaVu Sans Mono", "Noto Sans Mono", "Liberation Mono",
+                       "Ubuntu Mono", "Roboto Mono", "FreeMono"};
 #endif
 
         const auto addAlias = [&](const char *alias, const auto &families, int weight,
