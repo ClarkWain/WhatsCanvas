@@ -1,3 +1,7 @@
+#include <wsc/FontSystem.h>
+
+#include <wsc/CanvasStats.h>
+
 #include <jni.h>
 
 #include <EGL/egl.h>
@@ -17,6 +21,7 @@
 #include <vector>
 
 #include <wsc/wsc.h>
+#include <wsc/Log.h>
 
 #include "platforms/shared/scenes/CanonicalViewport.h"
 #include "platforms/shared/scenes/StressScenes.h"

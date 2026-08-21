@@ -9,11 +9,11 @@ complete than the latter. It exposes a familiar `Canvas` / `Paint` / `Path` /
 OpenGL, OpenGL ES, a pure-CPU software rasterizer (no GPU at all), an
 optional Vulkan backend, and a Metal backend on Apple platforms.
 
-!!! success "WhatsCanvas 0.8.0 is available"
-    This release adds an Emscripten/WebGL 2 host and unifies Android, iOS,
-    Desktop, and Web on shared high-DPR visual stress scenes, deterministic
-    capture tooling, and 42 required pairwise comparisons. Download a
-    [desktop package or Android demo](https://github.com/ClarkWain/WhatsCanvas/releases/tag/v0.8.0).
+!!! success "WhatsCanvas 0.8.1 is available"
+    This release makes the installed C++ interface self-documenting, generates
+    the API reference from header comments, and separates common drawing APIs
+    from opt-in diagnostics, font-system, provider, and logging headers.
+    Download a [desktop package or Android demo](https://github.com/ClarkWain/WhatsCanvas/releases/tag/v0.8.1).
 
 ![WhatsCanvas quality showcase — analytic AA, gradients, Gaussian shadows, AA path clipping](images/aa/quality_showcase.png)
 

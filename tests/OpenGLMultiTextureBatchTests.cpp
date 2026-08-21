@@ -1,3 +1,5 @@
+#include <wsc/CanvasStats.h>
+
 #include <array>
 #include <cstdint>
 #include <iostream>

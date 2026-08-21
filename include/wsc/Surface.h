@@ -1,23 +1,28 @@
 #pragma once
 
-// Public presentation types for on-screen rendering. See the internal
-// ISwapchain (src/render/Surface.h) and doc/windowed-presentation-design.md.
+/**
+ * @file Surface.h
+ * @brief Backend-neutral output/presentation descriptors.
+ *
+ * These are non-owning descriptions: the host keeps OS windows, displays,
+ * external framebuffers and images alive for as long as the Canvas uses them.
+ */
 
 namespace wsc {
 
 /// A neutral operating-system window handle. The only input common to every
 /// graphics backend is the OS window itself; each backend builds its own
-/// surface/swapchain from this. Populate it directly, or via a platform helper.
+/// surface/swapchain from this. All handles are borrowed, not owned.
 struct NativeSurface
 {
 	enum class Platform
 	{
-		Win32,
-		Xlib,
-		Xcb,
-		Wayland,
-		Cocoa,
-		Android,
+		Win32,   ///< `window=HWND`, `display=HINSTANCE` when required.
+		Xlib,    ///< `window=Window` encoded as a pointer, `display=Display*`.
+		Xcb,     ///< `window=xcb_window_t` encoded as a pointer, `display=xcb_connection_t*`.
+		Wayland, ///< `window=wl_surface*`, `display=wl_display*`.
+		Cocoa,   ///< `window=NSView*` or backend-compatible `CAMetalLayer*`.
+		Android, ///< `window=ANativeWindow*`.
 	};
 
 	Platform platform = Platform::Win32;
@@ -26,17 +31,19 @@ struct NativeSurface
 };
 
 /// Neutral swapchain preferences. Backends map these to their own concepts and
-/// gracefully degrade features they cannot honor.
+/// gracefully degrade preferences they cannot honor. Sizes are not stored here;
+/// use Canvas::setSize/resizeOutput with the physical drawable dimensions.
 struct SwapchainConfig
 {
-	bool vsync = true;
-	int imageCount = 3;
+	bool vsync = true; ///< Request presentation synchronized to display refresh.
+	int imageCount = 3; ///< Preferred swapchain buffering count.
 };
 
 /// Where a canvas delivers its rendered frames. A single "output axis":
 /// off-screen (read back / use as a texture), an on-screen window, or a
 /// host-owned backend render target (embed into an existing GL/Vulkan renderer).
-/// Construct via the static factories. See doc/windowed-presentation-design.md.
+/// Construct via the static factories and pass to Canvas::setOutputTarget().
+/// Changing targets invalidates the previous target configuration.
 struct OutputTarget
 {
 	enum class Kind
@@ -69,7 +76,8 @@ struct OutputTarget
 		return t;
 	}
 
-	/// Present to an OS window (the library builds the swapchain / blit).
+	/// Present to a borrowed OS window. Returns a descriptor only; support and
+	/// handle validity are checked when Canvas::setOutputTarget() is called.
 	static OutputTarget ToWindow(const NativeSurface &surface, const SwapchainConfig &config = SwapchainConfig())
 	{
 		OutputTarget t;
@@ -80,7 +88,9 @@ struct OutputTarget
 		return t;
 	}
 
-	/// Render into a host-owned OpenGL framebuffer object.
+	/// Render into a host-owned OpenGL framebuffer in this Canvas' current
+	/// context. Width/height are physical pixels; framebuffer 0 means the
+	/// context's default framebuffer. The host retains ownership.
 	static OutputTarget GLFramebuffer(unsigned int framebuffer, int width, int height, bool opaque = false)
 	{
 		OutputTarget t;
@@ -94,7 +104,8 @@ struct OutputTarget
 
 	/// Render into a host-owned VkImage (created on this canvas's Vulkan device,
 	/// R8G8B8A8_UNORM with COLOR_ATTACHMENT and TRANSFER_SRC usage). `format` is
-	/// a VkFormat.
+	/// a VkFormat encoded as an integer. The host owns synchronization and image
+	/// lifetime outside WhatsCanvas submissions.
 	static OutputTarget VulkanImageTarget(void *image, unsigned long long format, int width, int height)
 	{
 		OutputTarget t;

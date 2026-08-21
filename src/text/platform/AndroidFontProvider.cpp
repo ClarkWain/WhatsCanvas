@@ -1,3 +1,5 @@
+#include <wsc/FontSystem.h>
+
 #include "text/platform/AndroidFontProvider.h"
 #include "text/platform/AndroidFontConfig.h"
 #include "text/FontRasterizer.h"

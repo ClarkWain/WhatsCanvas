@@ -1,3 +1,7 @@
+#include <wsc/FontSystem.h>
+
+#include <wsc/CanvasStats.h>
+
 #include <algorithm>
 #include <iostream>
 #include <sstream>

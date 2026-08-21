@@ -9,7 +9,7 @@ class SizeF;
 class Rect;
 class RectF;
 
-/// Integer point in 2D space.
+/// Integer point in Canvas' top-left-origin 2D coordinate space.
 class WSC_API Point
 {
 public:
@@ -38,7 +38,7 @@ private:
     int y;
 };
 
-/// Floating-point point in 2D space.
+/// Floating-point point in Canvas' top-left-origin 2D coordinate space.
 class WSC_API PointF
 {
 public:
@@ -68,7 +68,8 @@ private:
     float y;
 };
 
-/// Integer width and height pair.
+/// Integer width and height pair. Values are stored verbatim; callers provide
+/// positive dimensions where an API requires a drawable area.
 class WSC_API Size
 {
 public:
@@ -88,7 +89,7 @@ private:
     int height;
 };
 
-/// Floating-point width and height pair.
+/// Floating-point width and height pair. Values are stored verbatim.
 class WSC_API SizeF
 {
 public:
@@ -108,11 +109,17 @@ private:
     float height;
 };
 
-/// Floating-point rectangle in 2D space.
+/// Floating-point `(x, y, width, height)` rectangle.
+///
+/// This is not a left/top/right/bottom tuple. Geometry helpers assume
+/// non-negative width and height; Canvas drawing methods document where they
+/// normalize negative dimensions. Edges are inclusive for contains().
 class WSC_API RectF
 {
 public:
+    /// Construct from top-left position and size.
     RectF(float x = 0.0f, float y = 0.0f, float width = 0.0f, float height = 0.0f);
+    /// Construct from two corners; reversed corners produce negative dimensions.
     RectF(const PointF &leftTop, const PointF &bottomRight);
 
     float getX() const;
@@ -129,14 +136,18 @@ public:
     PointF getCenter() const;
     void setCenter(const PointF &center);
     void setCenter(float cx, float cy);
+    /// Whether a point lies on or inside all four edges.
     bool contains(float px, float py) const;
     bool contains(const PointF &point) const;
+    /// Translate only the rectangle origin.
     void transform(float dx, float dy);
+    /// Scale width and height around the unchanged top-left origin.
     void scale(float sx, float sy);
     float getArea() const;
     float getPerimeter() const;
     bool intersects(const RectF &other) const;
     bool isSquare() const;
+    /// Return the positive-area overlap, or an empty default rectangle.
     RectF getIntersection(const RectF &other) const;
 
 private:
@@ -146,7 +157,7 @@ private:
     float height;
 };
 
-/// Integer rectangle in 2D space.
+/// Integer `(x, y, width, height)` rectangle; see RectF for edge and helper semantics.
 class WSC_API Rect
 {
 public:

@@ -6,15 +6,19 @@
 
 namespace wsc {
 
-/// Unified interface for any object that can serve as a GPU texture source.
+/// Unified interface for any object that can serve as a renderer image source.
 /// Both Image and Canvas implement this interface, allowing either to be used
-/// wherever a texture is expected (e.g. drawImage, SpriteBatch, etc.).
+/// wherever a texture is expected. Sources are backend/device-bound and are
+/// sampled only after their content is valid; Canvas sources require endFrame().
 class WSC_API ITextureSource
 {
 public:
 	ITextureSource() = default;
+
 	ITextureSource(const ITextureSource &) = delete;
+
 	ITextureSource &operator=(const ITextureSource &) = delete;
+
 	virtual ~ITextureSource() = default;
 
 	/// Width of the underlying texture in pixels.

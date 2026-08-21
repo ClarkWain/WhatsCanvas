@@ -1,3 +1,5 @@
+#include <wsc/FontSystem.h>
+
 // DirectWrite text backend test. On Windows it validates that the real
 // DirectWrite backend measures and renders text (glyph coverage). On other
 // platforms it validates graceful unavailability.
