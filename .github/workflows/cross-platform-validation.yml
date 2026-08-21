@@ -50,7 +50,8 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev xvfb
+          sudo apt-get install -y libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+                                  xvfb pkg-config libfontconfig1-dev fonts-dejavu-core fonts-noto-core
 
       - name: Set up MSVC developer command prompt
         if: runner.os == 'Windows'
@@ -65,6 +66,13 @@ jobs:
         run: cmake --build ${{ matrix.build_dir }} --config Debug
 
       - name: Unit tests
+        if: runner.os != 'Linux'
+        run: ctest --test-dir ${{ matrix.build_dir }} -C Debug -L unit --output-on-failure
+
+      - name: Linux unit tests with system font discovery
+        if: runner.os == 'Linux'
+        env:
+          WHATSCANVAS_REQUIRE_SYSTEM_FONT_DISCOVERY: "1"
         run: ctest --test-dir ${{ matrix.build_dir }} -C Debug -L unit --output-on-failure
 
       # Desktop platform host: builds WhatsCanvasDesktopHost and renders one
@@ -344,7 +352,9 @@ jobs:
       - name: Install text shaping dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libharfbuzz-dev libfreetype-dev
+          sudo apt-get install -y libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+                                  libharfbuzz-dev libfreetype-dev pkg-config libfontconfig1-dev \
+                                  fonts-dejavu-core fonts-noto-core
 
       - name: Configure the default text stack
         run: cmake -S . -B build-validation-font-stack -DCMAKE_BUILD_TYPE=Debug
@@ -353,7 +363,7 @@ jobs:
         run: cmake --build build-validation-font-stack --config Debug
 
       - name: Text unit tests with the default text stack
-        run: ctest --test-dir build-validation-font-stack -C Debug -L text --output-on-failure
+        run: WHATSCANVAS_REQUIRE_SYSTEM_FONT_DISCOVERY=1 ctest --test-dir build-validation-font-stack -C Debug -L text --output-on-failure
 
       - name: Font benchmark smoke
         run: WHATSCANVAS_BENCHMARK_ITERATIONS=20 ./build-validation-font-stack/WhatsCanvasCoreBenchmarks

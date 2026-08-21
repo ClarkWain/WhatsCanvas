@@ -205,6 +205,13 @@ sh ./build.sh --release --package --no-run
 
 在 Ubuntu 环境下编译 demo 时，通常需要安装 `libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev`。
 
+Linux 已安装字体发现依赖 Fontconfig：当 `pkg-config` 能找到 `fontconfig`
+开发包时，`FontSystem::discoverInstalledFontFaces()` 会启用系统字体枚举。
+如果希望默认 fallback alias 也可用，请安装 `pkg-config libfontconfig1-dev`
+以及至少一个可读的系统字体包，例如 `fonts-dejavu-core`。CI 中如果希望
+字体发现不可用时直接失败，而不是按无后端场景跳过，可以在运行字体测试时
+设置 `WHATSCANVAS_REQUIRE_SYSTEM_FONT_DISCOVERY=1`。
+
 包管理器构建可以设置 `WHATSCANVAS_USE_SYSTEM_DEPENDENCIES=ON`，使用
 registry 提供的 GLAD、GLM、stb、FreeType 和 HarfBuzz。Linux 下可通过
 `WHATSCANVAS_X11` 明确控制窗口呈现支持：`AUTO` 保留源码构建时的自动
