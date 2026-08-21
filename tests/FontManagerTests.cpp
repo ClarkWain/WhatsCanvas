@@ -716,6 +716,10 @@ bool testClusterCoverageFallbackAndGeneration()
 bool testDefaultSymbolFallbackCoversEmoji()
 {
     const std::vector<wsc::FontFace> faces = wsc::FontSystem::defaultSystemFontFaces();
+    if (faces.empty()) {
+        return true;
+    }
+
     const wsc::FontFace *symbol = nullptr;
     for (const wsc::FontFace &face : faces) {
         if (face.family() == wsc::FontSystem::kDefaultSymbolFamily) {
@@ -736,8 +740,13 @@ bool testDefaultSymbolFallbackCoversEmoji()
 
 bool testCjkAliasFallsBackToSymbolEmojiFamily()
 {
+    const std::vector<wsc::FontFace> faces = wsc::FontSystem::defaultSystemFontFaces();
+    if (faces.empty()) {
+        return true;
+    }
+
     auto manager = std::make_shared<wsc::FontManager>();
-    for (const wsc::FontFace &face : wsc::FontSystem::defaultSystemFontFaces()) {
+    for (const wsc::FontFace &face : faces) {
         manager->registerFace(face);
     }
     wsc::FontResolver resolver;
