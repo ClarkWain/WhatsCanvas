@@ -713,6 +713,56 @@ bool testClusterCoverageFallbackAndGeneration()
                   "provider mutation should change the resolver generation");
 }
 
+bool testDefaultSymbolFallbackCoversEmoji()
+{
+    const std::vector<wsc::FontFace> faces = wsc::FontSystem::defaultSystemFontFaces();
+    const wsc::FontFace *symbol = nullptr;
+    for (const wsc::FontFace &face : faces) {
+        if (face.family() == wsc::FontSystem::kDefaultSymbolFamily) {
+            symbol = &face;
+            break;
+        }
+    }
+
+    return expect(symbol != nullptr,
+                  "system font aliases should include the default symbol family")
+        && expect(symbol->supportsCodepoint(0x1F4BB),
+                  "default symbol fallback should cover emoji codepoints like the laptop glyph")
+        && expect(symbol->supportsCodepoint(0x1F1E8),
+                  "default symbol fallback should cover flag codepoints")
+        && expect(symbol->supportsCodepoint(0x2705),
+                  "default symbol fallback should keep common symbol coverage");
+}
+
+bool testCjkAliasFallsBackToSymbolEmojiFamily()
+{
+    auto manager = std::make_shared<wsc::FontManager>();
+    for (const wsc::FontFace &face : wsc::FontSystem::defaultSystemFontFaces()) {
+        manager->registerFace(face);
+    }
+    wsc::FontResolver resolver;
+    resolver.addProvider(std::make_shared<wsc::FontManagerProvider>(
+        manager, wsc::FontProviderKind::SYSTEM, "system"));
+
+    wsc::FontFallbackChain cjkChain(wsc::FontSystem::kDefaultCjkFamily);
+    cjkChain.addFallbackFamily(wsc::FontSystem::kDefaultSymbolFamily);
+    const bool chainSet = resolver.setFallbackChain(cjkChain);
+    wsc::FontMatchRequest request;
+    request.family = wsc::FontSystem::kDefaultCjkFamily;
+    request.codepoints = {0x1F4BB};
+    const wsc::FontMatchResult result = resolver.resolve(
+        request, [](const wsc::FontFace &face, const std::vector<std::uint32_t> &) {
+            return face.family() == wsc::FontSystem::kDefaultSymbolFamily;
+        });
+
+    return expect(chainSet,
+                  "CJK alias should accept an explicit symbol fallback chain")
+        && expect(static_cast<bool>(result),
+                  "CJK family should resolve to a symbol fallback for emoji codepoints")
+        && expect(result.face != nullptr && result.face->family() == wsc::FontSystem::kDefaultSymbolFamily,
+                  "emoji codepoints from the CJK alias should land on the symbol fallback family");
+}
+
 bool testSystemFontFallbackChain()
 {
     const wsc::FontFallbackChain chain = wsc::FontSystem::defaultFallbackChain();
@@ -774,6 +824,8 @@ int main()
         && testLazyFontProviderLoadingAndFamilyInvalidation()
         && testRemoteFontProviderSchedulingAndBudget()
         && testClusterCoverageFallbackAndGeneration()
+        && testDefaultSymbolFallbackCoversEmoji()
+        && testCjkAliasFallsBackToSymbolEmojiFamily()
         && testSystemFontFallbackChain()
         && testSystemFontRefreshGeneration();
     return ok ? EXIT_SUCCESS : EXIT_FAILURE;
