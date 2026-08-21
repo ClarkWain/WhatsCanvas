@@ -1,3 +1,7 @@
+#include <wsc/FontSystem.h>
+
+#include <wsc/CanvasStats.h>
+
 #include "wsc/wsc.h"
 
 #include "command/DrawCommand.h"

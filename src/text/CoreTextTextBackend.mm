@@ -1,3 +1,5 @@
+#include <wsc/FontSystem.h>
+
 #include "text/CoreTextTextBackend.h"
 
 #if defined(__APPLE__)

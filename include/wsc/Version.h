@@ -1,5 +1,8 @@
 #pragma once
 
+/// @file Version.h
+/// Compile-time semantic version of the public WhatsCanvas headers. Runtime
+/// libraries and headers should come from the same installed package.
 #define WSC_VERSION_MAJOR 0
 #define WSC_VERSION_MINOR 8
 #define WSC_VERSION_PATCH 0

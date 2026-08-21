@@ -1,3 +1,5 @@
+#include <wsc/FontSystem.h>
+
 #include <algorithm>
 #include <iostream>
 #include <atomic>

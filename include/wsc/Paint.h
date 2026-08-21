@@ -12,7 +12,13 @@
 
 namespace wsc {
 
-/// Drawing state container for fill, stroke, text and image options.
+/// Copyable drawing-state value for geometry, text, images and layer compositing.
+///
+/// Canvas snapshots the Paint values needed by a recorded draw, so a Paint may
+/// be changed or destroyed immediately after the call. Unless a method says
+/// otherwise, dimensions are logical Canvas units. Defaults are anti-aliasing
+/// on, opaque black fill/stroke, FILL style, 1-unit stroke, 16-unit text,
+/// SRC_OVER blending and linear image sampling.
 class WSC_API Paint
 {
 public:
@@ -50,25 +56,25 @@ public:
     /// Whether geometry is filled, stroked (outlined), or both.
     enum class Style
     {
-        FILL,
-        STROKE,
-        FILL_AND_STROKE
+        FILL,            ///< Fill the interior using fill color/shader.
+        STROKE,          ///< Draw only the centered outline.
+        FILL_AND_STROKE  ///< Fill first, then stroke.
     };
 
     /// Shape of the ends of an open stroked path.
     enum class StrokeCap
     {
-        BUTT,
-        ROUND,
-        SQUARE
+        BUTT,   ///< End at the endpoint.
+        ROUND,  ///< Add a half-circle cap.
+        SQUARE  ///< Extend by half the stroke width.
     };
 
     /// How two stroked segments are joined at a corner.
     enum class StrokeJoin
     {
-        MITER,
-        ROUND,
-        BEVEL
+        MITER, ///< Extend edges until the miter limit is reached.
+        ROUND, ///< Join with a circular arc.
+        BEVEL  ///< Join with a straight clipped corner.
     };
 
     /// Active shader: a solid color or a linear/radial gradient.
@@ -82,10 +88,10 @@ public:
     /// How a gradient/image repeats outside its defined range.
     enum class ShaderTileMode
     {
-        CLAMP,
-        REPEAT,
-        MIRROR,
-        DECAL
+        CLAMP,  ///< Extend edge colors.
+        REPEAT, ///< Repeat every unit interval.
+        MIRROR, ///< Repeat with alternating direction.
+        DECAL   ///< Transparent outside the defined range.
     };
 
     /// Horizontal alignment of text relative to its draw position.
@@ -99,9 +105,9 @@ public:
     /// Vertical anchor of text relative to its draw position.
     enum class TextBaseline
     {
-        TOP,
-        MIDDLE,
-        BOTTOM
+        TOP,    ///< Y identifies the top of the text bounds (default).
+        MIDDLE, ///< Y identifies the vertical middle of the text bounds.
+        BOTTOM  ///< Y identifies the bottom of the text bounds.
     };
 
     /// Per-Paint text anti-aliasing mode override. `Default` inherits from the
@@ -137,9 +143,9 @@ public:
     /// Texture sampling filter used when drawing images.
     enum class ImageSampling
     {
-        LINEAR,
-        NEAREST,
-        MIPMAP_LINEAR
+        LINEAR,        ///< Bilinear sampling; default.
+        NEAREST,       ///< Nearest texel; useful for pixel art.
+        MIPMAP_LINEAR  ///< Mipmap minification when mipmaps are available.
     };
 
     /// How an image repeats outside its source rectangle.
@@ -151,114 +157,197 @@ public:
         DECAL
     };
 
+    /// Construct the documented default state. Paint is cheap to copy and move.
     Paint();
+
     Paint(const Paint &other);
+
     Paint &operator=(const Paint &other);
+
     Paint(Paint &&other) noexcept;
+
     Paint &operator=(Paint &&other) noexcept;
+
     ~Paint();
 
-    /// Enable or disable anti-aliasing for edges drawn with this paint.
+    /// Enable or disable geometry edge anti-aliasing. Text backends may apply
+    /// their own rasterization mode.
     void setAntiAlias(bool aa);
+
     bool isAntiAlias() const;
 
-    /// Fill color (RGBA). Also used to tint images; use Color::WHITE to draw an
-    /// image untinted. The default color is opaque black.
+    /// Set both fill and stroke color and clear any gradient shader. This color
+    /// also tints images; use Color::WHITE to draw an image untinted.
     void setColor(const Color &color);
+
     void setColor(int r, int g, int b, int a = 255);
+
     void setColor(float r, float g, float b, float a = 1.0f);
+
+    /// Set only the fill/image-tint color and clear any gradient shader.
     void setFillColor(const Color &color);
+
     /// Overall opacity multiplier (0-255 / 0.0-1.0) applied on top of the color.
     void setAlpha(int alpha);
+
     void setAlpha(float alpha);
+
     int getAlpha() const;
+
     float getAlphaF() const;
+
     Color getFillColor() const;
 
-    /// Configure a linear gradient fill between two points, with two colors or a
-    /// list of color stops. Replaces any solid color/shader.
+    /// Configure a linear gradient in local coordinates. Stop positions are
+    /// clamped to [0,1], non-finite stops are removed and the remainder sorted.
+    /// Replaces the current solid/gradient shader.
     void setLinearGradient(float startX, float startY, float endX, float endY,
                            const Color &startColor, const Color &endColor);
+
     void setLinearGradient(float startX, float startY, float endX, float endY,
                            const std::vector<ColorStop> &stops);
-    /// Configure a radial gradient fill centered at a point, with two colors or
-    /// a list of color stops.
+
+    /// Configure a radial gradient in local coordinates. Radius should be
+    /// positive; stop normalization matches setLinearGradient().
     void setRadialGradient(float centerX, float centerY, float radius,
                            const Color &startColor, const Color &endColor);
+
     void setRadialGradient(float centerX, float centerY, float radius,
                            const std::vector<ColorStop> &stops);
+
     /// Remove any gradient and return to solid-color fill.
     void clearShader();
+
     ShaderType getShaderType() const;
+
+    /// Control sampling outside the normalized gradient range.
     void setShaderTileMode(ShaderTileMode tileMode);
+
     ShaderTileMode getShaderTileMode() const;
+
     bool hasLinearGradient() const;
+
     bool hasRadialGradient() const;
+
     float getGradientStartX() const;
+
     float getGradientStartY() const;
+
     float getGradientEndX() const;
+
     float getGradientEndY() const;
+
     Color getGradientStartColor() const;
+
     Color getGradientEndColor() const;
+
     const std::vector<ColorStop> &getGradientStops() const;
+
     float getRadialCenterX() const;
+
     float getRadialCenterY() const;
+
     float getRadialRadius() const;
+
     Color getRadialStartColor() const;
+
     Color getRadialEndColor() const;
 
-    /// Attach a blurred drop shadow drawn beneath the shape (blur radius, offset
-    /// and color). Applies to subsequent draws using this paint.
+    /// Attach a drop shadow beneath supported geometry/text. Radius is blur
+    /// reach and `(dx,dy)` is the local offset. Non-positive/transparent values
+    /// effectively disable visible output; call clearShadowLayer() to reset.
     void setShadowLayer(float radius, float dx, float dy, const Color &color);
+
     void clearShadowLayer();
+
     bool hasShadowLayer() const;
+
     float getShadowRadius() const;
+
     float getShadowDx() const;
+
     float getShadowDy() const;
+
     Color getShadowColor() const;
 
     Color getColor() const;
-    /// Stroke (outline) width in pixels; used when Style includes STROKE.
+
+    /// Centered stroke width in logical units; used when Style includes STROKE.
+    /// Callers should provide a finite non-negative value.
     void setStrokeWidth(float width);
+
     float getStrokeWidth() const;
+
+    /// Set the miter length/stroke-width limit; clamped to at least 1.
     void setStrokeMiterLimit(float limit);
+
     float getStrokeMiterLimit() const;
 
-    /// Text size in pixels for drawText / drawTextBox.
+    /// Text size in logical units for drawText/drawTextBox. Must be positive.
     void setTextSize(float size);
+
     float getTextSize() const;
-    /// Preferred font family name (must be registered on the Canvas).
+
+    /// Preferred UTF-8 font family. Resolution uses registered/provider/system
+    /// faces and the Canvas fallback chain; an empty family selects defaults.
     void setFontFamily(const std::string &family);
+
     void setFont(const std::string &family);
+
     const std::string &getFontFamily() const;
+
     const std::string &getFont() const;
+
     bool hasFontFamily() const;
+
     void clearFontFamily();
+
     void clearFont();
+
+    /// CSS/OpenType-style weight, clamped to [1,1000] (400 normal, 700 bold).
     void setFontWeight(int weight);
+
     int getFontWeight() const;
+
     void setFontSlant(FontSlant slant);
+
     FontSlant getFontSlant() const;
+
     /// Set or replace a whole-run OpenType variable-font axis override.
     /// Tags must contain exactly four bytes (for example `wght`, `wdth`, or
     /// `opsz`) and values must be finite. Paint overrides take precedence over
     /// coordinates carried by the resolved FontFace.
     void setFontVariation(const std::string &tag, float value);
+
     /// Remove all Paint-level variable-font overrides.
     void clearFontVariations();
+
     const std::vector<FontVariationCoordinate> &getFontVariations() const;
+
+    /// Additional advance in logical units between shaped clusters. Non-finite
+    /// input resets to zero.
     void setLetterSpacing(float spacing);
+
     float getLetterSpacing() const;
+
+    /// Set horizontal and vertical anchoring of the `(x,y)` text draw position.
     void setTextAlign(TextAlign align);
+
     TextAlign getTextAlign() const;
+
     void setTextBaseline(TextBaseline baseline);
+
     TextBaseline getTextBaseline() const;
+
     /// BCP-47 locale (e.g. "en-US", "ja-JP") for locale-aware shaping and
     /// fallback. Honoured by portable HarfBuzz and native DirectWrite paths;
     /// empty by default.
     void setTextLocale(const std::string &locale);
+
     const std::string &getTextLocale() const;
+
     bool hasTextLocale() const;
+
     /// Set or update a whole-run OpenType feature override.
     ///
     /// There is no tag whitelist: any case-sensitive tag of exactly four bytes
@@ -270,56 +359,100 @@ public:
     /// alternate selection. The dependency-free simple shaper does not apply
     /// OpenType feature overrides.
     void setFontFeature(const std::string &tag, std::uint32_t value = 1);
+
     /// Remove every explicit feature override and restore font/shaper defaults.
     /// This differs from retaining a tag with value 0, which explicitly
     /// disables that feature.
     void clearFontFeatures();
+
     /// Return the active whole-run overrides, with at most one entry per tag.
     const std::vector<FontFeature> &getFontFeatures() const;
+
     /// Text decorations. Honoured by the native (DirectWrite) backend; off by
     /// default.
     void setUnderline(bool enabled);
+
     bool isUnderline() const;
+
     void setStrikethrough(bool enabled);
+
     bool isStrikethrough() const;
+
     /// Per-Paint text render mode override. Default = inherit backend setting.
     void setTextRenderMode(TextRenderMode mode);
+
     TextRenderMode getTextRenderMode() const;
 
     /// Compositing blend mode for subsequent draws.
     void setBlendMode(BlendMode blendMode);
+
     BlendMode getBlendMode() const;
+
+    /// Set image minification/magnification sampling. MIPMAP_LINEAR falls back
+    /// when the source has no mipmaps.
     void setImageSampling(ImageSampling sampling);
+
     ImageSampling getImageSampling() const;
+
     void setImageTileMode(ImageTileMode tileMode);
+
     ImageTileMode getImageTileMode() const;
-    /// Round the corners of stroked/filled paths by the given radius.
+
+    /// Round Path corners by a non-negative local radius before fill/stroke.
+    /// Non-finite or negative input disables the effect.
     void setCornerPathEffect(float radius);
+
     void clearCornerPathEffect();
+
     bool hasCornerPathEffect() const;
+
     float getCornerPathEffectRadius() const;
-    /// Dash a stroked path using on/off interval lengths and a starting phase.
+
+    /// Dash a stroke using alternating positive on/off interval lengths. Invalid
+    /// entries are removed; an odd valid list is duplicated to become even.
+    /// Empty output disables dashing. Phase is in local units.
     void setDashPathEffect(const std::vector<float> &intervals, float phase = 0.0f);
+
     void clearDashPathEffect();
+
     bool hasDashPathEffect() const;
+
     const std::vector<float> &getDashIntervals() const;
+
     float getDashPhase() const;
-    /// Apply a 4x5 color matrix to filter drawn colors (e.g. tint, grayscale).
+
+    /// Apply a row-major 4x5 straight-RGBA color matrix. The fifth value in each
+    /// row is an additive normalized-channel offset. Any non-finite element
+    /// clears the filter.
     void setColorMatrix(const std::array<float, 20> &matrix);
+
     void clearColorMatrix();
+
     bool hasColorMatrix() const;
+
     const std::array<float, 20> &getColorMatrix() const;
 
-    /// Separate stroke color (defaults to black); used when stroking.
+    /// Set only the stroke color; does not change fill color or shader.
     void setStrokeColor(const Color &color);
+
     void setStrokeColor(int r, int g, int b, int a = 255);
+
     void setStrokeColor(float r, float g, float b, float a = 1.0f);
+
     Color getStrokeColor() const;
+
+    /// Select fill/stroke evaluation for geometry and Path operations.
     void setStyle(Style style);
+
     Style getStyle() const;
+
+    /// Configure cap/join geometry for stroked paths and lines.
     void setStrokeCap(StrokeCap cap);
+
     StrokeCap getStrokeCap() const;
+
     void setStrokeJoin(StrokeJoin join);
+
     StrokeJoin getStrokeJoin() const;
 
 private:

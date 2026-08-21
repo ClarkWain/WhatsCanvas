@@ -1,3 +1,5 @@
+#include <wsc/CanvasStats.h>
+
 #pragma once
 
 #include <cstddef>

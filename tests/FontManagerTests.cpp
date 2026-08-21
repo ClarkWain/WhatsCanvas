@@ -1,3 +1,5 @@
+#include <wsc/FontSystem.h>
+
 #include <cmath>
 #include <cstdlib>
 #include <cstdint>

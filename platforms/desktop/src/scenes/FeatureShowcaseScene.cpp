@@ -1,3 +1,5 @@
+#include <wsc/FontSystem.h>
+
 #include "FeatureShowcaseScene.h"
 
 #include "../SceneViewport.h"

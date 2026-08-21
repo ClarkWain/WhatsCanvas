@@ -1,3 +1,5 @@
+#include <wsc/CanvasStats.h>
+
 #include <cmath>
 #include <iostream>
 #include <memory>
