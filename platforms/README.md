@@ -11,7 +11,7 @@ headers remain in `include/`.
 | `android/` | Gradle application, `GLSurfaceView`, JNI, Android fonts, and OpenGL ES presentation | Runnable sample |
 | `desktop/` | GLFW-based host (`WhatsCanvasDesktopHost`), OpenGL 3.3 core, scene registry, interactive / dump / benchmark modes | Runnable sample |
 | `ios/` | UIKit, `CAMetalLayer`, CoreText, lifecycle handling, and UI tests | Runnable Metal sample |
-| `web/` | Emscripten/WebGL host and JavaScript bridge | Planned |
+| `wasm/` | Emscripten/WebAssembly, WebGL 2 host, browser lifecycle bridge, and visual captures | Runnable sample |
 
 Keep platform build systems, manifests, lifecycle adapters, and sample UI in
 this directory. Backend-neutral Canvas behavior, tessellation, text layout,

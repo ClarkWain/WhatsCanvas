@@ -92,8 +92,8 @@ enabled — a Vulkan build gate.
 
 - `src/` — core implementation (canvas, command, render, opengl, vulkan, text).
 - `include/wsc/` — public headers (the consumer surface).
-- `examples/` — demo + game examples (GLFW windows).
-- `tests/` — unit tests and the runnable `package_consumer`.
+- `examples/` — focused starter, package-consumer, game, and presentation hosts.
+- `tests/` — unit, integration, compile-contract, and visual-regression tests.
 - `benchmarks/` — core benchmarks.
 - `scripts/` — build/smoke/regression/validation scripts.
 - `doc/` — guides, matrices, ADRs; `mkdocs.yml` builds the docs site from it.

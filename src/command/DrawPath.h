@@ -56,6 +56,7 @@ private:
     bool initialized_ = false;
 
     StreamBuffer geometryBuffer_;
+    StreamBuffer indexBuffer_{GL_ELEMENT_ARRAY_BUFFER};
     TexelBuffer gradientStopBuffer_;
     TexelBuffer drawParameterBuffer_;
     std::size_t frameUploadCount_ = 0;

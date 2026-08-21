@@ -171,7 +171,8 @@ hardening targets.
 ### M8 — Windowed presentation + external images · **Done; platform hardening ongoing**
 Depends on: M2 (swapchain can proceed in parallel after M2).
 - GLFW Vulkan surface (`glfwCreateWindowSurface`) + swapchain + present queue.
-  **Done** both in the standalone example (`examples/vulkan_present`) and in
+  **Done** both in the standalone integration harness
+  (`tests/integration/vulkan_present`) and in
   the Win32 Canvas `OutputTarget::ToWindow(...)` path.
 - Frame loop: acquire/record/submit/present with proper synchronization + resize.
   *Partial*: single-frame present; a continuous loop + resize/recreate is a
@@ -181,7 +182,7 @@ Depends on: M2 (swapchain can proceed in parallel after M2).
   `WhatsCanvasVulkanWrapExternalTests` cover round-tripping and wrapping.
 Canvas-level Win32 presentation is now wired through `VulkanRenderDevice` via
 `OutputTarget::ToWindow(...)` and `Canvas::present()`. The lower-level
-`examples/vulkan_present` path remains a standalone swapchain validation aid.
+`tests/integration/vulkan_present` remains a standalone swapchain validation aid.
 Cross-platform surface support and broader resize/device-loss coverage remain
 follow-ups. This is not a CTest gate because windowed present is environment
 dependent; the Win32 path was verified manually on NVIDIA RTX 2080 Ti (3

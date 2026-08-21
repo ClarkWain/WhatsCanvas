@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "IScene.h"
+#include "../../shared/scenes/CanonicalViewport.h"
 
 namespace whatscanvas::desktop {
 
@@ -12,7 +13,10 @@ namespace whatscanvas::desktop {
 class SceneCatalog
 {
 public:
-    static ScenePtr create(const std::string& name);
+    static ScenePtr create(
+        const std::string& name,
+        scenes::ViewportStandard viewportStandard =
+            scenes::ViewportStandard::Phone2To1);
     static std::vector<std::string> listNames();
     static const char* defaultName();
 };

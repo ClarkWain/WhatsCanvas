@@ -14,9 +14,8 @@ platforms display and can regression-test the same visual content.
   window/context creation, high-DPI content-scale, resize, VSYNC and orderly
   teardown.
 - A scene registry (`SceneCatalog`) that dispatches by name.
-- One bundled scene: `feature_showcase` — the same 8-card feature matrix that
-  the Android host draws (text, path, clip, arcs, transform, shadow, image,
-  motion), including the retained-`Picture` + dynamic-overlay split.
+- Four bundled scenes: the retained `feature_showcase` plus shared
+  `text_stress`, `geometry_stress` and `compositing_stress` regressions.
 - Optional headless dump mode that renders N frames to an off-screen framebuffer
   and writes a PPM, suitable for pixel-regression golden comparison.
 - Native text selection on supported desktop systems: CoreText on macOS and
@@ -59,8 +58,13 @@ WhatsCanvasDesktopHost --scene=feature_showcase --w=1280 --h=720 `
     --dump-png=out.ppm --frames=1
 
 # Deterministic visual-parity frame:
-WhatsCanvasDesktopHost --scene=feature_showcase --w=786 --h=377 --dpr=3 `
+WhatsCanvasDesktopHost --scene=feature_showcase --w=800 --h=400 --dpr=3 `
     --dump-png=feature_showcase.ppm --time=1.25
+
+# Exercise a responsive layout standard outside the primary pixel gate:
+WhatsCanvasDesktopHost --scene=feature_showcase `
+    --viewport-standard=tablet_4_3 --w=768 --h=1024 `
+    --backend=software --dump-png=tablet.ppm --frames=1
 ```
 
 On macOS, interactive windows use the Retina framebuffer and map Canvas
@@ -68,22 +72,32 @@ coordinates through the display scale. Dump and benchmark dimensions are
 physical pixels, so `--w=1280 --h=720` always produces and measures a
 1280 x 720 framebuffer rather than a 2x backing store.
 
-The feature showcase uses the Android demo's measured logical viewports
-(786 x 377 landscape and 393 x 759 portrait) as reference canvases. Each
-reference canvas is aspect-fitted, horizontally centered and scaled as one
-unit. Text, strokes, radii, spacing and card geometry therefore retain the
-same proportions instead of independently reflowing at desktop window sizes.
+The feature showcase uses a device-neutral 2:1 logical standard (800 x 400
+landscape and 400 x 800 portrait). Each reference canvas is aspect-fitted,
+horizontally centered and scaled as one unit. Text, strokes, radii, spacing and
+card geometry therefore retain the same proportions instead of independently
+reflowing at desktop window sizes.
+The `--viewport-standard` option also accepts `phone_16_9`, `tablet_4_3` and
+`desktop_16_10` for layout-conformance coverage. `legacy_android` is available
+only to reproduce captures made before the neutral standard was adopted.
 See [RENDERING_PARITY.md](RENDERING_PARITY.md) for the diagnosis and validation
 record.
 The multi-platform contract and new-scene workflow are documented in
 [VISUAL_PARITY.md](../../docs/VISUAL_PARITY.md).
+Generate the complete DPR 3 reference set for the shared matrix with:
+
+```sh
+platforms/desktop/capture_visual_parity.sh \
+  --host <build-directory>/WhatsCanvasDesktopHost
+```
 
 ## Adding a new scene
 
-1. Create `src/scenes/YourScene.h/.cpp` implementing `IScene`.
-2. Register it in [`src/SceneCatalog.cpp`](src/SceneCatalog.cpp).
-3. Add the source to `CMakeLists.txt`.
+1. Put reusable drawing code under `platforms/shared/scenes/`.
+2. Add a small `IScene` adapter and register it in
+   [`src/SceneCatalog.cpp`](src/SceneCatalog.cpp).
+3. Register the same id and sample in all hosts and the visual contract.
 
 The Scene interface (`onCanvasReady`, `onLayout`, `onFrame`, `onCanvasReleasing`)
-is deliberately platform-agnostic; the same file is intended to be linked into
-the Android/iOS/Web hosts once a `platforms/shared/scenes/` extraction lands.
+is deliberately platform-agnostic. The stress scenes are already shared
+directly by Android, iOS, Desktop and Web.

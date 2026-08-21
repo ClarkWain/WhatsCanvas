@@ -9,7 +9,7 @@
 
 set -eu
 
-BUNDLE_ID="con.whatscanvas.demo"
+BUNDLE_ID="com.whatscanvas.demo"
 REMOTE_NAME="screenshot.png"
 REMOTE_METADATA="screenshot.json"
 LOCAL_DIR="${TMPDIR:-/tmp}/whatscanvas-ios-screenshots"

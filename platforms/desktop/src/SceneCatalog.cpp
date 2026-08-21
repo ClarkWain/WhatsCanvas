@@ -1,31 +1,31 @@
 #include "SceneCatalog.h"
 
 #include "scenes/FeatureShowcaseScene.h"
+#include "scenes/StressScene.h"
 
 namespace whatscanvas::desktop {
 
 namespace {
 
-struct Entry
-{
-    const char* name;
-    ScenePtr (*factory)();
-};
-
-const Entry kEntries[] = {
-    { "feature_showcase", []() -> ScenePtr {
-          return std::make_unique<FeatureShowcaseScene>();
-      } },
+constexpr const char* kSceneNames[] = {
+    "feature_showcase",
+    "text_stress",
+    "geometry_stress",
+    "compositing_stress"
 };
 
 } // namespace
 
-ScenePtr SceneCatalog::create(const std::string& name)
+ScenePtr SceneCatalog::create(const std::string& name,
+                              scenes::ViewportStandard viewportStandard)
 {
-    for (const auto& entry : kEntries) {
-        if (name == entry.name) {
-            return entry.factory();
-        }
+    if (name == kSceneNames[0]) {
+        return std::make_unique<FeatureShowcaseScene>(
+            FeatureShowcaseBranding{}, viewportStandard);
+    }
+    scenes::StressSceneId stressId;
+    if (scenes::parseStressScene(name, stressId)) {
+        return std::make_unique<StressScene>(stressId, viewportStandard);
     }
     return nullptr;
 }
@@ -33,16 +33,16 @@ ScenePtr SceneCatalog::create(const std::string& name)
 std::vector<std::string> SceneCatalog::listNames()
 {
     std::vector<std::string> names;
-    names.reserve(sizeof(kEntries) / sizeof(kEntries[0]));
-    for (const auto& entry : kEntries) {
-        names.emplace_back(entry.name);
+    names.reserve(sizeof(kSceneNames) / sizeof(kSceneNames[0]));
+    for (const char* name : kSceneNames) {
+        names.emplace_back(name);
     }
     return names;
 }
 
 const char* SceneCatalog::defaultName()
 {
-    return kEntries[0].name;
+    return kSceneNames[0];
 }
 
 } // namespace whatscanvas::desktop

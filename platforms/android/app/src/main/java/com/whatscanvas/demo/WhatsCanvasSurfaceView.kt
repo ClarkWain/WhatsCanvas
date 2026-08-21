@@ -12,9 +12,10 @@ import javax.microedition.khronos.opengles.GL10
 
 class WhatsCanvasSurfaceView(
     context: Context,
-    captureTimeSeconds: Float? = null
+    captureTimeSeconds: Float? = null,
+    sceneId: String = "feature_showcase"
 ) : GLSurfaceView(context) {
-    private val canvasRenderer = WhatsCanvasRenderer {
+    private val canvasRenderer = WhatsCanvasRenderer(sceneId) {
         resources.displayMetrics.density
     }.also { it.captureTimeSeconds = captureTimeSeconds }
     private val choreographer = Choreographer.getInstance()
@@ -99,13 +100,14 @@ class WhatsCanvasSurfaceView(
 }
 
 class WhatsCanvasRenderer(
+    private val sceneId: String,
     private val densityProvider: () -> Float
 ) : GLSurfaceView.Renderer {
     private val startedAtNanos = System.nanoTime()
     private var frameWindowStartedAtNanos = 0L
     private var frameWindowCount = 0
     @Volatile
-    private var nativeHandle: Long = nativeCreate()
+    private var nativeHandle: Long = nativeCreate(sceneId)
     var captureTimeSeconds: Float? = null
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
@@ -141,7 +143,7 @@ class WhatsCanvasRenderer(
 
     fun ensureNativeRenderer() {
         if (nativeHandle == 0L) {
-            nativeHandle = nativeCreate()
+            nativeHandle = nativeCreate(sceneId)
         }
     }
 
@@ -153,7 +155,7 @@ class WhatsCanvasRenderer(
         }
     }
 
-    private external fun nativeCreate(): Long
+    private external fun nativeCreate(sceneId: String): Long
     private external fun nativeSurfaceCreated(handle: Long): Boolean
     private external fun nativeResize(handle: Long, width: Int, height: Int, density: Float): Boolean
     private external fun nativeRender(handle: Long, elapsedSeconds: Float)

@@ -10,6 +10,7 @@
 #include <limits>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <wsc/wsc.h>
@@ -84,7 +85,8 @@ void drawCard(wsc::Canvas& canvas, const wsc::RectF& rect,
 // function record a static Picture and also render the fallback path.
 void drawScene(wsc::Canvas& canvas, const wsc::Image* checkerImage,
                float logicalWidth, float logicalHeight,
-               float elapsedSeconds)
+               float elapsedSeconds,
+               const FeatureShowcaseBranding& branding)
 {
     using wsc::Color;
     using wsc::Paint;
@@ -115,9 +117,9 @@ void drawScene(wsc::Canvas& canvas, const wsc::Image* checkerImage,
 
     auto title = makeTextPaint(23.0f, Color(242, 247, 255));
     title.setFontWeight(400);
-    canvas.drawText("WhatsCanvas Desktop", 15.0f, 13.0f, title);
+    canvas.drawText(branding.title, 15.0f, 13.0f, title);
     auto subtitle = makeTextPaint(10.5f, Color(130, 157, 211));
-    canvas.drawText("OpenGL 3.3  |  live feature matrix", 16.0f, 44.0f, subtitle);
+    canvas.drawText(branding.subtitle, 16.0f, 44.0f, subtitle);
 
     Paint livePill;
     livePill.setStyle(Paint::Style::FILL);
@@ -394,7 +396,7 @@ void drawScene(wsc::Canvas& canvas, const wsc::Image* checkerImage,
 
     auto footer = makeTextPaint(9.5f, Color(108, 132, 183));
     footer.setTextAlign(Paint::TextAlign::CENTER);
-    canvas.drawText("8 feature cards  |  real OpenGL output",
+    canvas.drawText(branding.footer,
                     width * 0.5f, height - 23.0f, footer);
 }
 
@@ -558,7 +560,12 @@ void createCheckerImage(wsc::Canvas& canvas,
 
 } // namespace
 
-FeatureShowcaseScene::FeatureShowcaseScene() = default;
+FeatureShowcaseScene::FeatureShowcaseScene(
+    FeatureShowcaseBranding branding,
+    whatscanvas::scenes::ViewportStandard viewportStandard)
+    : branding_(std::move(branding)), viewportStandard_(viewportStandard)
+{
+}
 FeatureShowcaseScene::~FeatureShowcaseScene() = default;
 
 void FeatureShowcaseScene::onCanvasReady(wsc::Canvas& canvas)
@@ -569,7 +576,7 @@ void FeatureShowcaseScene::onCanvasReady(wsc::Canvas& canvas)
 void FeatureShowcaseScene::onLayout(wsc::Canvas& canvas, float logicalWidth, float logicalHeight)
 {
     const SceneViewport viewport = makeFeatureShowcaseViewport(
-        logicalWidth, logicalHeight);
+        logicalWidth, logicalHeight, viewportStandard_);
     sceneWidth_ = viewport.width;
     sceneHeight_ = viewport.height;
     sceneScale_ = viewport.scale;
@@ -582,7 +589,7 @@ void FeatureShowcaseScene::onLayout(wsc::Canvas& canvas, float logicalWidth, flo
             recordingCanvas.translate(sceneOffsetX_, sceneOffsetY_);
             recordingCanvas.scale(sceneScale_, sceneScale_);
             drawScene(recordingCanvas, nullptr, sceneWidth_, sceneHeight_,
-                      std::numeric_limits<float>::quiet_NaN());
+                      std::numeric_limits<float>::quiet_NaN(), branding_);
             recordingCanvas.restore();
         });
 }
@@ -597,7 +604,7 @@ void FeatureShowcaseScene::onFrame(wsc::Canvas& canvas, const FrameInfo& info)
         canvas.translate(sceneOffsetX_, sceneOffsetY_);
         canvas.scale(sceneScale_, sceneScale_);
         drawScene(canvas, checkerImage_.get(), sceneWidth_, sceneHeight_,
-                  info.elapsedSeconds);
+                  info.elapsedSeconds, branding_);
         canvas.restore();
         return;
     }

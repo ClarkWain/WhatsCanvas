@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(WhatsCanvas VERSION 0.7.0 LANGUAGES C CXX)
+project(WhatsCanvas VERSION 0.8.0 LANGUAGES C CXX)
 
 include(CTest)
 include(GNUInstallDirs)
@@ -17,6 +17,7 @@ option(WHATSCANVAS_ENABLE_EXTERNAL_FONT_ORACLES
 option(WHATSCANVAS_ENABLE_LOCAL_REGRESSION_TEST "Register the strict local pixel-hash regression gate with CTest." OFF)
 option(WHATSCANVAS_BUILD_DEMO "Build the root WhatsCanvas demo executable." ON)
 option(WHATSCANVAS_BUILD_DESKTOP_PLATFORM "Build the platforms/desktop host (WhatsCanvasDesktopHost)." ON)
+option(WHATSCANVAS_BUILD_WASM_WEB "Build the platforms/wasm/web WebGL 2 host." OFF)
 option(WHATSCANVAS_INSTALL "Enable install and package export rules." ON)
 option(WHATSCANVAS_INSTALL_TEXT_DEPENDENCIES "Install bundled FreeType/HarfBuzz when an exported renderer links them." ON)
 option(WHATSCANVAS_BUILD_OPENGL "Build the desktop OpenGL renderer library target." ON)
@@ -226,19 +227,12 @@ if (TARGET WhatsCanvasOpenGL)
 endif()
 
 if (WHATSCANVAS_BUILD_DEMO AND TARGET WhatsCanvasOpenGL)
-    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/showcase")
-    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/aa_showcase")
-    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/image_filter_showcase")
-    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/gl_present")
-    if (WIN32)
-        add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/software_present")
-    endif()
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/tests/visual/showcase")
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/tests/visual/aa_showcase")
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/tests/visual/image_filter_showcase")
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/present")
     if (WHATSCANVAS_VULKAN_BACKEND_ENABLED)
-        add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/vulkan_present")
-        add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/vulkan_canvas_present")
-    endif()
-    if (WHATSCANVAS_METAL_BACKEND_ENABLED)
-        add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/metal_present")
+        add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/vulkan_present")
     endif()
 endif()
 
@@ -250,9 +244,19 @@ if (WHATSCANVAS_BUILD_DESKTOP_PLATFORM AND TARGET WhatsCanvasOpenGL)
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/platforms/desktop")
 endif()
 
+if (WHATSCANVAS_BUILD_WASM_WEB)
+    if (NOT EMSCRIPTEN)
+        message(FATAL_ERROR "WHATSCANVAS_BUILD_WASM_WEB requires the Emscripten toolchain.")
+    endif()
+    if (NOT TARGET WhatsCanvasOpenGLES)
+        message(FATAL_ERROR "WHATSCANVAS_BUILD_WASM_WEB requires WHATSCANVAS_BUILD_OPENGLES=ON.")
+    endif()
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/platforms/wasm")
+endif()
+
 if (TARGET WhatsCanvasOpenGL)
     add_executable(WhatsCanvasFeatureSnippets
-        "${CMAKE_CURRENT_SOURCE_DIR}/examples/snippets/FeatureSnippets.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/compile/FeatureSnippets.cpp"
     )
     target_link_libraries(WhatsCanvasFeatureSnippets PRIVATE
         WhatsCanvasOpenGL
@@ -2372,7 +2376,17 @@ if (BUILD_TESTING AND TARGET WhatsCanvasAAShowcase)
     add_test(NAME WhatsCanvasAAShowcaseSmoke
         COMMAND WhatsCanvasAAShowcase "${CMAKE_CURRENT_BINARY_DIR}/aa_showcase_smoke.png"
     )
-    set_tests_properties(WhatsCanvasAAShowcaseSmoke PROPERTIES LABELS "smoke;aa;examples" TIMEOUT 120)
+    set_tests_properties(WhatsCanvasAAShowcaseSmoke PROPERTIES
+        LABELS "smoke;aa;visual" TIMEOUT 120)
+endif()
+
+if (BUILD_TESTING AND TARGET WhatsCanvasImageFilterShowcase)
+    add_test(NAME WhatsCanvasImageFilterShowcaseSmoke
+        COMMAND WhatsCanvasImageFilterShowcase
+            "${CMAKE_CURRENT_BINARY_DIR}/image_filter_showcase_smoke.png"
+    )
+    set_tests_properties(WhatsCanvasImageFilterShowcaseSmoke PROPERTIES
+        LABELS "smoke;filter;visual" TIMEOUT 120)
 endif()
 
 if (BUILD_TESTING AND TARGET WhatsCanvasDesktopHost)
@@ -2397,7 +2411,7 @@ if (BUILD_TESTING AND TARGET WhatsCanvasDesktopHost)
         COMMAND WhatsCanvasDesktopHost
             --scene=feature_showcase
             --backend=software
-            --w=393 --h=759 --dpr=3
+            --w=400 --h=800 --dpr=3
             --time=1.25
             --dump-png=${CMAKE_CURRENT_BINARY_DIR}/desktop_high_dpr_smoke.ppm
             --frames=1
@@ -2405,6 +2419,27 @@ if (BUILD_TESTING AND TARGET WhatsCanvasDesktopHost)
     set_tests_properties(WhatsCanvasDesktopHighDprCaptureSmoke PROPERTIES
         LABELS "smoke;desktop;visual-parity;platforms"
         TIMEOUT 60)
+
+    foreach(_viewport_case IN ITEMS
+            "phone_16_9;360;640"
+            "tablet_4_3;768;1024"
+            "desktop_16_10;1440;900")
+        list(GET _viewport_case 0 _viewport_id)
+        list(GET _viewport_case 1 _viewport_width)
+        list(GET _viewport_case 2 _viewport_height)
+        add_test(NAME WhatsCanvasDesktopViewport_${_viewport_id}
+            COMMAND WhatsCanvasDesktopHost
+                --scene=feature_showcase
+                --backend=software
+                --viewport-standard=${_viewport_id}
+                --w=${_viewport_width} --h=${_viewport_height}
+                --time=1.25
+                --dump-png=${CMAKE_CURRENT_BINARY_DIR}/desktop_${_viewport_id}.ppm
+                --frames=1)
+        set_tests_properties(WhatsCanvasDesktopViewport_${_viewport_id} PROPERTIES
+            LABELS "unit;desktop;viewport-standard;platforms"
+            TIMEOUT 60)
+    endforeach()
 endif()
 
 if (BUILD_TESTING AND WHATSCANVAS_ENABLE_SCRIPT_TESTS)

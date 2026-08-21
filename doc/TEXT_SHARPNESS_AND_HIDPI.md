@@ -81,7 +81,7 @@ void framebuffer_size_callback(GLFWwindow *window, int width, int height) {
 }
 ```
 
-The `examples/game/*` samples (Tetris, Racer, Bubble Shooter) use exactly this
+The `examples/game/*` samples (Tetris and Racer) use exactly this
 pattern: they lay the scene out in logical design units and set the device pixel
 ratio from the window content scale.
 
