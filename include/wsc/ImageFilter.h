@@ -15,7 +15,8 @@ namespace wsc {
 /// A pixel filter applied to a saved layer or to the content behind it.
 ///
 /// Blur and inner shadow are represented as a backend-neutral value, keeping
-/// GPU objects out of the Canvas API.
+/// GPU objects out of the Canvas API. Values are cheap to copy and are snapped
+/// by saveLayer(). Invalid/zero filters are ignored.
 class WSC_API ImageFilter
 {
 public:
@@ -23,6 +24,7 @@ public:
     static constexpr float kMaxBlurSigma = kMaxBlurRadius / 3.0f;
     static constexpr float kMaxShadowOffset = 256.0f;
 
+    /// Active filter operation.
     enum class Type
     {
         None,
@@ -30,6 +32,7 @@ public:
         InnerShadow,
     };
 
+    /// Sampling outside the layer bounds during blur.
     enum class TileMode
     {
         Clamp,
@@ -155,7 +158,9 @@ public:
         return *this;
     }
 
+    /// Query normalized/clamped filter properties.
     Type type() const { return type_; }
+
     bool isValid() const
     {
         if (type_ == Type::Blur) {
@@ -165,9 +170,13 @@ public:
     }
 
     float radiusX() const { return radiusX_; }
+
     float radiusY() const { return radiusY_; }
+
     float offsetX() const { return type_ == Type::InnerShadow ? saturation_ : 0.0f; }
+
     float offsetY() const { return type_ == Type::InnerShadow ? brightness_ : 0.0f; }
+
     Color shadowColor() const
     {
         if (type_ != Type::InnerShadow) {
@@ -177,11 +186,17 @@ public:
         const int ba = static_cast<int>(grain_);
         return Color(rg / 256, rg % 256, ba / 256, ba % 256);
     }
+
     TileMode tileMode() const { return tileMode_; }
+
     float saturation() const { return type_ == Type::Blur ? saturation_ : 1.0f; }
+
     float brightness() const { return type_ == Type::Blur ? brightness_ : 1.0f; }
+
     float contrast() const { return type_ == Type::Blur ? contrast_ : 1.0f; }
+
     float grain() const { return type_ == Type::Blur ? grain_ : 0.0f; }
+
     bool hasColorAdjustment() const
     {
         return type_ == Type::Blur
@@ -189,6 +204,7 @@ public:
             || std::abs(brightness_ - 1.0f) > 1e-6f
             || std::abs(contrast_ - 1.0f) > 1e-6f);
     }
+
     bool hasGrain() const { return type_ == Type::Blur && grain_ > 1e-6f; }
 
     /// Conservative source sampling expansion required by this filter.
@@ -238,7 +254,9 @@ static_assert(sizeof(ImageFilter) == 32,
 ///
 /// Blur and inner shadow retain the compact ImageFilter value ABI. Generic
 /// color-matrix and offset nodes live in this explicit chain so their larger
-/// payloads do not add pointers or ownership to every ImageFilter value.
+/// payloads do not add pointers or ownership to every ImageFilter value. A
+/// chain stores at most kMaxNodes; invalid nodes and overflow appends are
+/// ignored and leave the chain unchanged.
 class WSC_API ImageFilterChain
 {
 public:
@@ -266,11 +284,13 @@ public:
     };
 
     ImageFilterChain() = default;
+
     explicit ImageFilterChain(const ImageFilter &filter)
     {
         append(filter);
     }
 
+    /// Append one valid filter when capacity remains; otherwise no-op.
     ImageFilterChain &append(const ImageFilter &filter)
     {
         if (!filter.isValid() || nodes_.size() >= kMaxNodes) {
@@ -322,8 +342,12 @@ public:
     }
 
     std::size_t size() const { return nodes_.size(); }
+
     bool empty() const { return nodes_.empty(); }
+
     bool isValid() const { return !nodes_.empty(); }
+
+    /// Borrow a node. `index` must be less than size().
     const Node &operator[](std::size_t index) const
     {
         return nodes_[index];
@@ -369,9 +393,12 @@ private:
 ///
 /// `imageFilter` processes the layer's own content. `backdropFilter` processes
 /// the pixels already drawn behind the layer before the layer content is added.
+/// Filters run in the order stored by ImageFilterChain and are evaluated only
+/// when the corresponding saveLayer is restored.
 class WSC_API LayerOptions
 {
 public:
+    /// Replace the layer-content filter/chain. Later calls replace earlier ones.
     LayerOptions &setImageFilter(const ImageFilter &filter)
     {
         imageFilter_ = filter;
@@ -388,6 +415,8 @@ public:
         return *this;
     }
 
+    /// Replace the backdrop filter/chain. A backdrop observes only pixels
+    /// recorded before the matching saveLayer().
     LayerOptions &setBackdropFilter(const ImageFilter &filter)
     {
         backdropFilter_ = filter;
@@ -405,16 +434,21 @@ public:
     }
 
     const ImageFilter &imageFilter() const { return imageFilter_; }
+
     const ImageFilter &backdropFilter() const { return backdropFilter_; }
+
     const ImageFilterChain &imageFilterChain() const
     {
         return imageFilterChain_;
     }
+
     const ImageFilterChain &backdropFilterChain() const
     {
         return backdropFilterChain_;
     }
+
     bool hasImageFilter() const { return imageFilterChain_.isValid(); }
+
     bool hasBackdropFilter() const
     {
         return backdropFilterChain_.isValid();

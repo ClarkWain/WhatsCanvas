@@ -1,3 +1,5 @@
+#include <wsc/FontSystem.h>
+
 #include "text/BasicTextBackend.h"
 
 #include <algorithm>

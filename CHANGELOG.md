@@ -9,6 +9,27 @@ For releases and downloadable artifacts, see the
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-08-21
+
+### Added
+- Added an installed `include/wsc/README.md` integration guide covering CMake
+  package targets, frame lifecycle, OpenGL host setup, DPR, resource ownership,
+  context loss, diagnostics, and a minimal Software example.
+- Added Doxygen contracts and minimal Software/OpenGL examples to the public
+  headers. The generated API reference now uses those code comments as its
+  single behavioral-contract source.
+
+### Changed
+- Added visual spacing between public function declarations and reduced the
+  default header surface: `wsc.h` now aggregates the common drawing API, while
+  logging, custom font providers, font-system controls, and detailed frame
+  statistics are opt-in.
+- Moved `Canvas::RenderStats` fields to `<wsc/CanvasStats.h>` and moved
+  `FontManager`/`FontSystem` to `<wsc/FontSystem.h>` without changing their
+  public names. Code using these advanced APIs must include the corresponding
+  header explicitly; custom providers use `<wsc/FontResolver.h>` and logging
+  uses `<wsc/Log.h>`.
+
 ## [0.8.0] - 2026-08-21
 
 ### Added
@@ -583,7 +604,11 @@ For releases and downloadable artifacts, see the
 For changes prior to 0.1.11, see the
 [GitHub Releases](https://github.com/ClarkWain/WhatsCanvas/releases) history.
 
-[Unreleased]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.8.0...v0.8.1
+[0.8.0]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.7.0...v0.8.0
+[0.7.0]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.6.0...v0.7.0
+[0.6.0]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.2.0...v0.3.0

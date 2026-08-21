@@ -1,3 +1,5 @@
+#include <wsc/CanvasStats.h>
+
 // Headless tests for the pure-CPU software rasterizer backend. No GPU or
 // graphics context is required, so these run anywhere and assert exact pixels.
 

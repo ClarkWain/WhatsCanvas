@@ -1,3 +1,5 @@
+#include <wsc/FontSystem.h>
+
 #pragma once
 
 #include <algorithm>
