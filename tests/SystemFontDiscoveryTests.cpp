@@ -30,7 +30,7 @@ bool expect(bool condition, const std::string &message)
 
 bool shouldRequireSystemFontDiscovery()
 {
-#ifdef WHATSCANVAS_EXPECT_SYSTEM_FONT_DISCOVERY
+#if defined(_WIN32) || defined(__APPLE__) || defined(WHATSCANVAS_EXPECT_SYSTEM_FONT_DISCOVERY)
     return true;
 #else
     return std::getenv("WHATSCANVAS_REQUIRE_SYSTEM_FONT_DISCOVERY") != nullptr;
