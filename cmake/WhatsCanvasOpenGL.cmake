@@ -22,9 +22,11 @@ function(whatscanvas_add_common_dependencies project_root)
         message(FATAL_ERROR "Missing third-party dependencies. Run: git submodule update --init --recursive")
     endif()
 
-    if (NOT WHATSCANVAS_USE_SYSTEM_DEPENDENCIES
-        AND (WHATSCANVAS_BUILD_OPENGL OR WHATSCANVAS_BUILD_OPENGLES)
-        AND NOT TARGET WhatsCanvasGLAD)
+    # Standalone example projects call this helper without setting the root
+    # WHATSCANVAS_BUILD_OPENGL / WHATSCANVAS_BUILD_OPENGLES cache options. The
+    # GLAD interface target is still required whenever a bundled GL family
+    # backend is built, so create it whenever we are not using system GLAD.
+    if (NOT WHATSCANVAS_USE_SYSTEM_DEPENDENCIES AND NOT TARGET WhatsCanvasGLAD)
         add_library(WhatsCanvasGLAD INTERFACE)
         target_include_directories(WhatsCanvasGLAD INTERFACE "${glad_path}/include")
     endif()
