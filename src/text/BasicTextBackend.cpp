@@ -662,14 +662,22 @@ private:
 
         const auto registerAliasChain = [&](const std::string &primary,
                                             std::initializer_list<const char *> fallbacks) {
+            if (!fontResolver_.hasFamily(primary)) {
+                return;
+            }
+
             wsc::FontFallbackChain chain(primary);
             for (const char *fallback : fallbacks) {
-                if (fallback == nullptr || *fallback == '\0') {
+                if (fallback == nullptr || *fallback == '\0'
+                    || !fontResolver_.hasFamily(fallback)) {
                     continue;
                 }
                 chain.addFallbackFamily(fallback);
             }
-            fontResolver_.setFallbackChain(chain);
+            if (!fontResolver_.setFallbackChain(chain)) {
+                diagnostics_.push_back({wsc::text::TextBackendDiagnostic::Severity::Warning,
+                                        "Failed to register a default system font fallback chain."});
+            }
         };
 
         const wsc::FontFallbackChain defaultChain = wsc::FontSystem::defaultFallbackChain();
