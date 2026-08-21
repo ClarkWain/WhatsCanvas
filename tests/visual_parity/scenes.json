@@ -51,6 +51,12 @@
       "bad_channel_threshold": 32,
       "max_mean_delta": 8.0,
       "max_bad_pixel_ratio": 0.12
+    },
+    "filters": {
+      "search_radius": 2,
+      "bad_channel_threshold": 28,
+      "max_mean_delta": 5.0,
+      "max_bad_pixel_ratio": 0.08
     }
   },
   "scenes": [
@@ -96,6 +102,105 @@
             {"id": "blend_content", "rect": [0.5375, 0.56375, 0.4, 0.16375], "profile": "graphics"},
             {"id": "image_content", "rect": [0.0625, 0.78375, 0.4, 0.16375], "profile": "image_sampling"},
             {"id": "motion_content", "rect": [0.5375, 0.78375, 0.4, 0.16375], "profile": "graphics"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "text_stress",
+      "version": 1,
+      "viewport_standard": "phone_2_1",
+      "required_platforms": ["android", "ios", "desktop", "web"],
+      "samples": [
+        {"id": "t1250", "time_seconds": 1.25}
+      ],
+      "viewports": [
+        {
+          "id": "landscape",
+          "width": 800,
+          "height": 400,
+          "regions": [
+            {"id": "mixed_script", "rect": [0.0175, 0.175, 0.2328, 0.785], "profile": "text"},
+            {"id": "wrap_align", "rect": [0.2615, 0.175, 0.2328, 0.785], "profile": "text"},
+            {"id": "baseline_effects", "rect": [0.5056, 0.175, 0.2328, 0.785], "profile": "text"},
+            {"id": "path_transform", "rect": [0.7496, 0.175, 0.2328, 0.785], "profile": "text"}
+          ]
+        },
+        {
+          "id": "portrait",
+          "width": 400,
+          "height": 800,
+          "regions": [
+            {"id": "mixed_script", "rect": [0.035, 0.0875, 0.455, 0.44125], "profile": "text"},
+            {"id": "wrap_align", "rect": [0.5125, 0.0875, 0.455, 0.44125], "profile": "text"},
+            {"id": "baseline_effects", "rect": [0.035, 0.54, 0.455, 0.44125], "profile": "text"},
+            {"id": "path_transform", "rect": [0.5125, 0.54, 0.455, 0.44125], "profile": "text"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "geometry_stress",
+      "version": 1,
+      "viewport_standard": "phone_2_1",
+      "required_platforms": ["android", "ios", "desktop", "web"],
+      "samples": [
+        {"id": "t1250", "time_seconds": 1.25}
+      ],
+      "viewports": [
+        {
+          "id": "landscape",
+          "width": 800,
+          "height": 400,
+          "regions": [
+            {"id": "fill_rules", "rect": [0.0175, 0.175, 0.2328, 0.785], "profile": "graphics"},
+            {"id": "nested_clip", "rect": [0.2615, 0.175, 0.2328, 0.785], "profile": "graphics"},
+            {"id": "stroke_join_dash", "rect": [0.5056, 0.175, 0.2328, 0.785], "profile": "graphics"},
+            {"id": "precision_transform", "rect": [0.7496, 0.175, 0.2328, 0.785], "profile": "graphics"}
+          ]
+        },
+        {
+          "id": "portrait",
+          "width": 400,
+          "height": 800,
+          "regions": [
+            {"id": "fill_rules", "rect": [0.035, 0.0875, 0.455, 0.44125], "profile": "graphics"},
+            {"id": "nested_clip", "rect": [0.5125, 0.0875, 0.455, 0.44125], "profile": "graphics"},
+            {"id": "stroke_join_dash", "rect": [0.035, 0.54, 0.455, 0.44125], "profile": "graphics"},
+            {"id": "precision_transform", "rect": [0.5125, 0.54, 0.455, 0.44125], "profile": "graphics"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "compositing_stress",
+      "version": 1,
+      "viewport_standard": "phone_2_1",
+      "required_platforms": ["android", "ios", "desktop", "web"],
+      "samples": [
+        {"id": "t1250", "time_seconds": 1.25}
+      ],
+      "viewports": [
+        {
+          "id": "landscape",
+          "width": 800,
+          "height": 400,
+          "regions": [
+            {"id": "porter_duff", "rect": [0.0175, 0.175, 0.2328, 0.785], "profile": "filters"},
+            {"id": "blend_modes", "rect": [0.2615, 0.175, 0.2328, 0.785], "profile": "filters"},
+            {"id": "backdrop_filter", "rect": [0.5056, 0.175, 0.2328, 0.785], "profile": "filters"},
+            {"id": "inner_shadow", "rect": [0.7496, 0.175, 0.2328, 0.785], "profile": "filters"}
+          ]
+        },
+        {
+          "id": "portrait",
+          "width": 400,
+          "height": 800,
+          "regions": [
+            {"id": "porter_duff", "rect": [0.035, 0.0875, 0.455, 0.44125], "profile": "filters"},
+            {"id": "blend_modes", "rect": [0.5125, 0.0875, 0.455, 0.44125], "profile": "filters"},
+            {"id": "backdrop_filter", "rect": [0.035, 0.54, 0.455, 0.44125], "profile": "filters"},
+            {"id": "inner_shadow", "rect": [0.5125, 0.54, 0.455, 0.44125], "profile": "filters"}
           ]
         }
       ]

@@ -1,7 +1,7 @@
 # WhatsCanvas WebAssembly platform
 
 The Web platform builds the shared C++ renderer to WebAssembly and presents it
-through WebGL 2. It runs the same canonical `feature_showcase` scene and
+through WebGL 2. It runs the same four canonical validation scenes and
 aspect-fit viewport contract as Android, iOS, and Desktop.
 
 ## Toolchain
@@ -36,13 +36,13 @@ as the first argument to `build.sh` and `serve.sh`.
 - OpenType shaping is enabled so emoji ZWJ, modifier, flag, and keycap
   sequences stay intact across platforms.
 
-For deterministic visual captures, use `?time=<seconds>&dpr=<scale>`, for
-example `http://127.0.0.1:8080/?time=1.25&dpr=2`.
+For deterministic captures, use `scene`, `time` and `dpr`, for example
+`http://127.0.0.1:8080/?scene=text_stress&time=1.25&dpr=2`.
 The page publishes readiness and frame data as `window.whatsCanvasDemo`, which
 headless browser tests can inspect.
 
 `test.sh` rebuilds the Web target, launches a clean Chrome profile and validates
-all eight canonical portrait/landscape captures at 3 DPR. It also checks resize, visibility
+all fourteen canonical portrait/landscape captures at DPR 3. It also checks resize, visibility
 pause/resume, forced WebGL context loss/restoration, a cache-bypassing cold
 reload, browser errors, and display-rate frame pacing. Captures and metadata
 are written directly into the shared visual-parity directory under `out/`.

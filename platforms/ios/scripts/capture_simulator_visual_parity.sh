@@ -40,10 +40,16 @@ xcodebuild test \
 
 CONTAINER=$(xcrun simctl get_app_container "${DEVICE}" "${BUNDLE_ID}" data)
 for VIEWPORT in portrait landscape; do
-    DESTINATION="${OUTPUT}/feature_showcase/${VIEWPORT}"
-    mkdir -p "${DESTINATION}"
-    for SAMPLE_ID in t0000 t0500 t1250 t2000; do
-        STEM="feature_showcase-${VIEWPORT}-${SAMPLE_ID}"
+    for SCENE in feature_showcase text_stress geometry_stress compositing_stress; do
+        DESTINATION="${OUTPUT}/${SCENE}/${VIEWPORT}"
+        mkdir -p "${DESTINATION}"
+        if [ "${SCENE}" = feature_showcase ]; then
+            SAMPLE_IDS="t0000 t0500 t1250 t2000"
+        else
+            SAMPLE_IDS="t1250"
+        fi
+      for SAMPLE_ID in ${SAMPLE_IDS}; do
+        STEM="${SCENE}-${VIEWPORT}-${SAMPLE_ID}"
         for SUFFIX in png json; do
             SOURCE="${CONTAINER}/Documents/${STEM}.${SUFFIX}"
             if [ ! -f "${SOURCE}" ]; then
@@ -53,6 +59,7 @@ for VIEWPORT in portrait landscape; do
             cp "${SOURCE}" "${DESTINATION}/${SAMPLE_ID}.${SUFFIX}"
         done
         echo "Captured ios/${VIEWPORT}/${SAMPLE_ID}"
+      done
     done
 done
 
