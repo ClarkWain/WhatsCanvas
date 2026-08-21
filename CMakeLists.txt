@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(WhatsCanvas VERSION 0.7.0 LANGUAGES C CXX)
+project(WhatsCanvas VERSION 0.8.0 LANGUAGES C CXX)
 
 include(CTest)
 include(GNUInstallDirs)
