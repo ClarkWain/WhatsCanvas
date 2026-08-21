@@ -84,6 +84,10 @@ scene resources. The browser smoke forces both paths and performs a cold reload.
 - High-refresh displays: requestAnimationFrame may exceed 60 Hz. The release
   condition is sustained rendering at or above 60 Hz without simulation-time
   jumps, not an artificial 60-Hz cap.
+- Headless CI software renderers: SwiftShader/llvmpipe at the canonical DPR 3
+  capture size are correctness and liveness gates, not performance evidence.
+  The browser smoke keeps the hardware display-rate requirement but applies a
+  conservative forward-progress floor when the unmasked renderer is software.
 
 Chrome's WebGL validation and forced context-loss extension cover the browser
 API surface used by the canonical scene. They do not prove that unused renderer

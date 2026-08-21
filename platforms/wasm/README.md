@@ -44,7 +44,9 @@ headless browser tests can inspect.
 `test.sh` rebuilds the Web target, launches a clean Chrome profile and validates
 all fourteen canonical portrait/landscape captures at DPR 3. It also checks resize, visibility
 pause/resume, forced WebGL context loss/restoration, a cache-bypassing cold
-reload, browser errors, and display-rate frame pacing. Captures and metadata
+reload, browser errors, and frame pacing. Hardware-backed browsers must reach
+the display-rate gate; SwiftShader/llvmpipe CI runs use a low liveness floor
+because they validate correctness rather than GPU performance. Captures and metadata
 are written directly into the shared visual-parity directory under `out/`.
 
 ## Font assets
