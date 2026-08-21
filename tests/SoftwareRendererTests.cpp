@@ -867,6 +867,49 @@ bool testGammaLinearBlend()
     return ok;
 }
 
+bool testEvenOddFillPreservesHole()
+{
+    constexpr int w = 48;
+    constexpr int h = 48;
+    std::unique_ptr<Canvas> canvas = makeSoftwareCanvas(w, h);
+    if (!canvas) {
+        return expect(false, "createSoftware should return a canvas");
+    }
+
+    Paint background;
+    background.setColor(Color(10, 20, 40, 255));
+    background.setAntiAlias(false);
+    Paint fill;
+    fill.setColor(Color(240, 80, 110, 255));
+    fill.setAntiAlias(false);
+    Path ring;
+    ring.setFillType(Path::FillType::EVEN_ODD);
+    ring.addRect(RectF(4.0f, 4.0f, 40.0f, 40.0f));
+    ring.addRect(RectF(16.0f, 16.0f, 16.0f, 16.0f));
+
+    canvas->beginFrame();
+    canvas->drawRect(RectF(0.0f, 0.0f, static_cast<float>(w),
+                           static_cast<float>(h)), background);
+    canvas->drawPath(ring, fill);
+    canvas->endFrame();
+
+    std::vector<unsigned char> pixels;
+    if (!canvas->readPixelsRGBA(pixels)) {
+        return expect(false, "even-odd readback should succeed");
+    }
+    auto pixelAt = [&](int x, int y) {
+        return &pixels[(static_cast<std::size_t>(y) * w + x) * 4u];
+    };
+    const unsigned char *ringPixel = pixelAt(9, 24);
+    const unsigned char *holePixel = pixelAt(24, 24);
+    return expect(ringPixel[0] == 240 && ringPixel[1] == 80
+                      && ringPixel[2] == 110 && ringPixel[3] == 255,
+                  "even-odd outer contour should remain filled")
+        && expect(holePixel[0] == 10 && holePixel[1] == 20
+                      && holePixel[2] == 40 && holePixel[3] == 255,
+                  "even-odd inner contour should remain a hole");
+}
+
 } // namespace
 
 int main()
@@ -890,6 +933,7 @@ int main()
     ok = testLayerInnerShadow() && ok;
     ok = testFullBleedInnerShadow() && ok;
     ok = testComposableImageFilterChain() && ok;
+    ok = testEvenOddFillPreservesHole() && ok;
     ok = testGammaLinearBlend() && ok;
     return ok ? 0 : 1;
 }

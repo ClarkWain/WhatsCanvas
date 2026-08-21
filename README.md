@@ -4,7 +4,7 @@ English | [中文](README_zh.md)
 
 [![CI](https://github.com/ClarkWain/WhatsCanvas/actions/workflows/cross-platform-validation.yml/badge.svg)](https://github.com/ClarkWain/WhatsCanvas/actions/workflows/cross-platform-validation.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.7.0-informational.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.8.0-informational.svg)](CHANGELOG.md)
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C.svg)](CMakeLists.txt)
 [![Documentation](https://img.shields.io/badge/docs-online-success.svg)](https://clarkwain.github.io/WhatsCanvas/)
 
@@ -22,21 +22,21 @@ This project aims to bridge the gap between minimal drawing libraries (such as N
 
 | Concern | Current Status |
 | --- | --- |
-| **Applicability** | Custom UIs in native apps, tool/data interfaces, HUDs, 2D game render layers, offscreen image generation on servers or in test environments. |
+| **Applicability** | Custom UIs in native apps and browsers, tool/data interfaces, HUDs, 2D game render layers, offscreen image generation on servers or in test environments. |
 | **API & Language** | C++17; the public API is located in `include/wsc/`, with the entry point being `#include <wsc/wsc.h>`. |
-| **Render Backends** | OpenGL, pure CPU Software; optional OpenGL ES, Vulkan, and Metal (macOS/iOS). WebGPU is not yet implemented. |
-| **Platform Status** | Windows, Linux, and macOS run continuous builds and unit tests; release packages cover Windows x64, Linux x64, and macOS universal. Android has a three-ABI GLES sample and physical-device checkpoints. iOS has an in-repository Metal/CoreText host validated on the iOS 26.5 simulator and an iPhone 12 running iOS 18.7.8, including orientation, lifecycle, cold-start, API Validation, and 60 fps checkpoints. |
+| **Render Backends** | OpenGL, pure CPU Software; optional OpenGL ES, Vulkan, and Metal (macOS/iOS). The Web host compiles the OpenGL ES path to WebAssembly/WebGL 2; WebGPU is not yet implemented. |
+| **Platform Status** | Windows, Linux, and macOS run continuous builds and unit tests; release packages cover Windows x64, Linux x64, and macOS universal. Android has a three-ABI GLES sample and physical-device checkpoints. iOS has an in-repository Metal/CoreText host validated on simulator and hardware, including orientation, lifecycle, cold-start, API Validation, and 60 fps checkpoints. Web has an Emscripten/WebGL 2 host with automated browser lifecycle, DPR, context-restore, and visual-parity checks. |
 | **Text Capabilities** | Font discovery and fallback, CJK/RTL, UAX #9, line breaking and ellipsis, glyph atlas, COLR/CPAL v0 and common COLRv1 paint graphs; FreeType/HarfBuzz serve the portable path, with selectable DirectWrite on Windows and CoreText on Apple platforms. |
 | **Integration** | vcpkg overlay port, CMake `find_package`, `add_subdirectory`, or portable installation directories generated from source. |
 | **Footprint** | Not header-only. Supports linking only against `WhatsCanvas::Software`, `::OpenGL`, `::OpenGLES`, or Apple-only `::Metal` based on backend; see [Footprint and Dependencies](#footprint-and-dependencies) for reference. |
-| **Maturity** | Current version `0.7.0`, still pre-1.0. Public API boundaries, cross-platform CI, pixel regression, package-consumer integration tests, and auditable performance baselines are in place; upgrade and platform risks should still be evaluated against the boundaries described below. |
+| **Maturity** | Current version `0.8.0`, still pre-1.0. Public API boundaries, cross-platform CI, pixel regression, package-consumer integration tests, and auditable performance baselines are in place; upgrade and platform risks should still be evaluated against the boundaries described below. |
 | **License** | MIT; components in `third_party/` follow their respective licenses. |
 
 **When to Choose WhatsCanvas?**
 If you want a unified Canvas-style API for CPU/GPU rendering, multilingual text, and common UI effects, and you value snapshot determinism, pixel-level regression testing, and source readability, WhatsCanvas is a good fit.
 
 **When to Look Elsewhere?**
-If your project heavily relies on a ready-made UI control system, needs to run in the browser, requires native WebGPU support, needs strict color management, needs document/PDF generation, involves complex rich-text editing, or requires a mature rendering library already in a long-term ABI-stable release line (1.0+), then WhatsCanvas may not be the right fit today.
+If your project heavily relies on a ready-made UI control system, requires native WebGPU support, needs strict color management, needs document/PDF generation, involves complex rich-text editing, or requires a mature rendering library already in a long-term ABI-stable release line (1.0+), then WhatsCanvas may not be the right fit today.
 
 ## 60 Seconds to Draw the First Frame
 
@@ -73,7 +73,7 @@ cmake_minimum_required(VERSION 3.16)
 project(MyApp LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
-find_package(WhatsCanvas 0.7.0 CONFIG REQUIRED)
+find_package(WhatsCanvas 0.8.0 CONFIG REQUIRED)
 
 add_executable(MyApp main.cpp)
 target_link_libraries(MyApp PRIVATE WhatsCanvas::Software)
@@ -101,7 +101,7 @@ For advanced features like in-window OpenGL, OpenGL ES, Vulkan, font registratio
 
 ### Using Precompiled Packages
 
-Tagged release assets are named `whatscanvas-<platform>-release-<version>.zip`, e.g., `whatscanvas-win64-release-0.7.0.zip`. The package layout is:
+Tagged release assets are named `whatscanvas-<platform>-release-<version>.zip`, e.g., `whatscanvas-win64-release-0.8.0.zip`. The package layout is:
 
 ```text
 include/wsc/                 Public headers
@@ -118,7 +118,7 @@ or application signing deliverable. See the [Android Integration Guide](doc/ANDR
 The targets provided by the precompiled packages may differ across platforms. In practice, verify the required targets exist via CMake:
 
 ```cmake
-find_package(WhatsCanvas 0.7.0 CONFIG REQUIRED)
+find_package(WhatsCanvas 0.8.0 CONFIG REQUIRED)
 if (NOT TARGET WhatsCanvas::Software)
     message(FATAL_ERROR "This package does not contain the Software backend")
 endif()
@@ -262,7 +262,7 @@ Platform Validation Status:
 
 **Testing conventions**: "Unit tests" in the table mainly cover headless logic and contract checks; "Pixel gate" actually starts the corresponding graphics backend and compares pixels against the reference output; "Release package" only means the build, packaging, and package-consumer integration flow succeeded—it does not imply full real-device or window-rendering validation on target hardware.
 
-**Desktop host**: [`platforms/desktop/`](platforms/desktop/README.md) builds `WhatsCanvasDesktopHost`, a shared GLFW + OpenGL 3.3 host that drives portable `IScene` implementations. It ships with a `feature_showcase` scene that mirrors the Android host card-for-card and supports interactive, headless PPM dump, and benchmark modes; the same `IScene` contract is intended to back the Android, iOS and Web hosts through a future `platforms/shared/scenes/` extraction.
+**Desktop host**: [`platforms/desktop/`](platforms/desktop/README.md) builds `WhatsCanvasDesktopHost`, a GLFW + OpenGL 3.3 host that drives portable scene implementations. It supports interactive, headless PPM dump, and benchmark modes and consumes the same canonical viewport and stress-scene code as Android, iOS, and Web.
 
 | Platform | Automated coverage | Notes |
 | --- | --- | --- |
@@ -270,7 +270,7 @@ Platform Validation Status:
 | Linux x64 | GCC build, unit tests, OpenGL/GLES filter pixel gates, package consumption | Automated GL scenarios use Mesa/Xvfb; GLX window presentation from source lacks continuous verification. |
 | macOS x86_64/arm64 | Unit tests, Metal pixel/contract gates, and universal release packages | Metal is enabled by default and supports offscreen rendering plus `CAMetalLayer` presentation; system OpenGL remains available. |
 | iOS / Android | [iOS UIKit/Metal/CoreText sample](platforms/ios/README.md), iOS lifecycle UI test, [Android GLSurfaceView/JNI sample](platforms/android/README.md), and Android integration guide | The iOS host is simulator-validated in portrait/landscape, background/resume, and cold launch. Android builds three ABIs and has Pixel 3/Redmi K30 checkpoints. Both still require target-hardware validation before shipping. |
-| Web | Not supported | WebAssembly / WebGL 2 bridging is still planned. |
+| Web | [Emscripten/WebGL 2 host](platforms/wasm/README.md), headless-browser lifecycle/DPR/context-restore checks, and 14 visual-parity captures | Source build; no WebGPU backend or prebuilt release archive yet. |
 
 See [Android Integration](doc/ANDROID_INTEGRATION.md), [Cross-Platform Validation Matrix](doc/CROSS_PLATFORM_VALIDATION_MATRIX.md), [iOS Build Notes](doc/IOS_BUILD_NOTES.md), and [Vulkan Backend Status](doc/vulkan-backend-status.md) for detailed statuses.
 
@@ -359,16 +359,19 @@ WhatsCanvas is more than just "able to draw pixels". The engineering and automat
 
 Risks to keep in mind:
 
-- The version is still pre-1.0 (`0.4.x`); read the CHANGELOG and run package-consumer tests before upgrading.
+- The version is still pre-1.0 (`0.8.x`); read the CHANGELOG and run package-consumer tests before upgrading.
 - The capability tables in this README are not a parity guarantee for every backend × platform combination; consult the feature matrices for filters, text, and output targets, and validate the combination you actually use.
 - Vulkan is opt-in and not the default backend; cross-platform window presentation and broader pixel coverage are still being extended.
-- The Android GLSurfaceView/JNI host builds both Arm ABIs plus `x86_64`; Pixel 3 and Redmi K30 checkpoints cover rendering, fonts, lifecycle, and pacing, but broad device coverage and AAR packaging remain open. The iOS Metal/CoreText sample is simulator-tested, while physical-device performance and signing/distribution remain host-owned. WebGPU and WebAssembly are not yet available.
+- The Android GLSurfaceView/JNI host builds both Arm ABIs plus `x86_64`; Pixel 3 and Redmi K30 checkpoints cover rendering, fonts, lifecycle, and pacing, but broad device coverage and AAR packaging remain open. The iOS Metal/CoreText sample has simulator and device checkpoints, while signing/distribution remain host-owned. The WebAssembly/WebGL 2 host is source-built and browser-tested; WebGPU and a prebuilt Web release archive are not yet available.
 - Real-time GPU rendering results may vary with drivers; use Software as the deterministic baseline and use tolerance-based comparison for GPU regressions.
 - `Canvas` should be used from within its rendering / context thread; current public documentation does not promise concurrent access to a single instance, and no cross-thread contract is defined for sharing images, fonts, or external textures across Canvas instances.
 
 ## Examples
 
-The repository includes a root demo, API snippets, package consumers, Software/OpenGL/Vulkan/Metal present examples, and two full games:
+The repository includes a minimal starter, a package consumer, unified
+Software/OpenGL/Vulkan/Metal presentation hosts, a WebAssembly/WebGL 2 host,
+and two full games. Focused
+visual regression harnesses live under `tests/visual` rather than `examples`.
 
 <table>
 <tr>
@@ -434,7 +437,7 @@ Start from the **[Online Documentation](https://clarkwain.github.io/WhatsCanvas/
 
 ## Roadmap
 
-WhatsCanvas is currently focused on cross-backend pixel consistency, text rendering quality, broader Vulkan and Apple-device coverage, and more reproducible performance benchmarks. Longer-term directions include WebAssembly / WebGL 2 and WebGPU support, plus additional CBDT/CBLC bitmap formats, SBIX, SVG, and full COLRv1 compositing. These directions are still in planning and should not be treated as available features today.
+WhatsCanvas is currently focused on cross-backend pixel consistency, text rendering quality, broader Vulkan, Web, and device coverage, and more reproducible performance benchmarks. Longer-term directions include WebGPU, prebuilt Web distribution, additional CBDT/CBLC bitmap formats, SBIX, SVG, and full COLRv1 compositing. These directions are still in planning and should not be treated as available features today.
 
 ## License
 

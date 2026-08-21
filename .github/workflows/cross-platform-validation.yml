@@ -119,6 +119,36 @@ jobs:
             exit "$status"
           fi
 
+  wasm-web:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up pinned 2025 Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 4.0.22
+          actions-cache-folder: emsdk-cache
+
+      - name: Build WebAssembly host
+        run: |
+          chmod +x platforms/wasm/build.sh platforms/wasm/test.sh
+          platforms/wasm/build.sh
+
+      - name: Browser lifecycle and visual-capture smoke
+        run: platforms/wasm/test.sh
+
+      - name: Upload canonical Web captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-visual-parity-captures
+          path: out/visual-parity/captures/web
+          if-no-files-found: error
+
   android:
     runs-on: ubuntu-latest
     steps:

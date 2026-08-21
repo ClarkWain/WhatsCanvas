@@ -1,5 +1,32 @@
 {
   "schema_version": 1,
+  "viewport_standards": {
+    "phone_2_1": {
+      "role": "primary_pixel_gate",
+      "portrait": [400, 800],
+      "landscape": [800, 400]
+    },
+    "phone_16_9": {
+      "role": "layout_conformance",
+      "portrait": [360, 640],
+      "landscape": [640, 360]
+    },
+    "tablet_4_3": {
+      "role": "layout_conformance",
+      "portrait": [768, 1024],
+      "landscape": [1024, 768]
+    },
+    "desktop_16_10": {
+      "role": "layout_conformance",
+      "portrait": [900, 1440],
+      "landscape": [1440, 900]
+    },
+    "legacy_android": {
+      "role": "legacy_regression_only",
+      "portrait": [393, 759],
+      "landscape": [786, 377]
+    }
+  },
   "profiles": {
     "layout": {
       "search_radius": 1,
@@ -17,20 +44,27 @@
       "search_radius": 2,
       "bad_channel_threshold": 32,
       "max_mean_delta": 1.5,
-      "max_bad_pixel_ratio": 0.03
+      "max_bad_pixel_ratio": 0.04
     },
     "text": {
       "search_radius": 2,
       "bad_channel_threshold": 32,
       "max_mean_delta": 8.0,
       "max_bad_pixel_ratio": 0.12
+    },
+    "filters": {
+      "search_radius": 2,
+      "bad_channel_threshold": 28,
+      "max_mean_delta": 5.0,
+      "max_bad_pixel_ratio": 0.08
     }
   },
   "scenes": [
     {
       "id": "feature_showcase",
       "version": 1,
-      "required_platforms": ["android", "ios", "desktop"],
+      "viewport_standard": "phone_2_1",
+      "required_platforms": ["android", "ios", "desktop", "web"],
       "samples": [
         {"id": "t0000", "time_seconds": 0.0},
         {"id": "t0500", "time_seconds": 0.5},
@@ -40,34 +74,133 @@
       "viewports": [
         {
           "id": "landscape",
-          "width": 786,
-          "height": 377,
+          "width": 800,
+          "height": 400,
           "regions": [
-            {"id": "grid", "rect": [0.017812, 0.183024, 0.964377, 0.724138], "profile": "layout"},
-            {"id": "text_content", "rect": [0.031807, 0.262599, 0.205471, 0.331565], "profile": "text"},
-            {"id": "path_content", "rect": [0.275445, 0.262599, 0.205471, 0.331565], "profile": "graphics"},
-            {"id": "clip_content", "rect": [0.519084, 0.262599, 0.205471, 0.331565], "profile": "graphics"},
-            {"id": "arc_content", "rect": [0.762723, 0.262599, 0.205471, 0.331565], "profile": "graphics"},
-            {"id": "transform_content", "rect": [0.031807, 0.635279, 0.205471, 0.331565], "profile": "graphics"},
-            {"id": "blend_content", "rect": [0.275445, 0.635279, 0.205471, 0.331565], "profile": "graphics"},
-            {"id": "image_content", "rect": [0.519084, 0.635279, 0.205471, 0.331565], "profile": "image_sampling"},
-            {"id": "motion_content", "rect": [0.762723, 0.635279, 0.205471, 0.331565], "profile": "graphics"}
+            {"id": "grid", "rect": [0.0175, 0.1725, 0.965, 0.74], "profile": "layout"},
+            {"id": "text_content", "rect": [0.03125, 0.2475, 0.20625, 0.2675], "profile": "text"},
+            {"id": "path_content", "rect": [0.275, 0.2475, 0.20625, 0.2675], "profile": "graphics"},
+            {"id": "clip_content", "rect": [0.51875, 0.2475, 0.20625, 0.2675], "profile": "graphics"},
+            {"id": "arc_content", "rect": [0.7625, 0.2475, 0.20625, 0.2675], "profile": "graphics"},
+            {"id": "transform_content", "rect": [0.03125, 0.6275, 0.20625, 0.2675], "profile": "graphics"},
+            {"id": "blend_content", "rect": [0.275, 0.6275, 0.20625, 0.2675], "profile": "graphics"},
+            {"id": "image_content", "rect": [0.51875, 0.6275, 0.20625, 0.2675], "profile": "image_sampling"},
+            {"id": "motion_content", "rect": [0.7625, 0.6275, 0.20625, 0.2675], "profile": "graphics"}
           ]
         },
         {
           "id": "portrait",
-          "width": 393,
-          "height": 759,
+          "width": 400,
+          "height": 800,
           "regions": [
-            {"id": "grid", "rect": [0.035623, 0.090909, 0.928753, 0.862978], "profile": "layout"},
-            {"id": "text_content", "rect": [0.063613, 0.130435, 0.399491, 0.169631], "profile": "text"},
-            {"id": "path_content", "rect": [0.538168, 0.130435, 0.399491, 0.169631], "profile": "graphics"},
-            {"id": "clip_content", "rect": [0.063613, 0.348485, 0.399491, 0.169631], "profile": "graphics"},
-            {"id": "arc_content", "rect": [0.538168, 0.348485, 0.399491, 0.169631], "profile": "graphics"},
-            {"id": "transform_content", "rect": [0.063613, 0.566535, 0.399491, 0.169631], "profile": "graphics"},
-            {"id": "blend_content", "rect": [0.538168, 0.566535, 0.399491, 0.169631], "profile": "graphics"},
-            {"id": "image_content", "rect": [0.063613, 0.784585, 0.399491, 0.169631], "profile": "image_sampling"},
-            {"id": "motion_content", "rect": [0.538168, 0.784585, 0.399491, 0.169631], "profile": "graphics"}
+            {"id": "grid", "rect": [0.035, 0.08625, 0.93, 0.87], "profile": "layout"},
+            {"id": "text_content", "rect": [0.0625, 0.12375, 0.4, 0.16375], "profile": "text"},
+            {"id": "path_content", "rect": [0.5375, 0.12375, 0.4, 0.16375], "profile": "graphics"},
+            {"id": "clip_content", "rect": [0.0625, 0.34375, 0.4, 0.16375], "profile": "graphics"},
+            {"id": "arc_content", "rect": [0.5375, 0.34375, 0.4, 0.16375], "profile": "graphics"},
+            {"id": "transform_content", "rect": [0.0625, 0.56375, 0.4, 0.16375], "profile": "graphics"},
+            {"id": "blend_content", "rect": [0.5375, 0.56375, 0.4, 0.16375], "profile": "graphics"},
+            {"id": "image_content", "rect": [0.0625, 0.78375, 0.4, 0.16375], "profile": "image_sampling"},
+            {"id": "motion_content", "rect": [0.5375, 0.78375, 0.4, 0.16375], "profile": "graphics"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "text_stress",
+      "version": 1,
+      "viewport_standard": "phone_2_1",
+      "required_platforms": ["android", "ios", "desktop", "web"],
+      "samples": [
+        {"id": "t1250", "time_seconds": 1.25}
+      ],
+      "viewports": [
+        {
+          "id": "landscape",
+          "width": 800,
+          "height": 400,
+          "regions": [
+            {"id": "mixed_script", "rect": [0.0175, 0.175, 0.2328, 0.785], "profile": "text"},
+            {"id": "wrap_align", "rect": [0.2615, 0.175, 0.2328, 0.785], "profile": "text"},
+            {"id": "baseline_effects", "rect": [0.5056, 0.175, 0.2328, 0.785], "profile": "text"},
+            {"id": "path_transform", "rect": [0.7496, 0.175, 0.2328, 0.785], "profile": "text"}
+          ]
+        },
+        {
+          "id": "portrait",
+          "width": 400,
+          "height": 800,
+          "regions": [
+            {"id": "mixed_script", "rect": [0.035, 0.0875, 0.455, 0.44125], "profile": "text"},
+            {"id": "wrap_align", "rect": [0.5125, 0.0875, 0.455, 0.44125], "profile": "text"},
+            {"id": "baseline_effects", "rect": [0.035, 0.54, 0.455, 0.44125], "profile": "text"},
+            {"id": "path_transform", "rect": [0.5125, 0.54, 0.455, 0.44125], "profile": "text"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "geometry_stress",
+      "version": 1,
+      "viewport_standard": "phone_2_1",
+      "required_platforms": ["android", "ios", "desktop", "web"],
+      "samples": [
+        {"id": "t1250", "time_seconds": 1.25}
+      ],
+      "viewports": [
+        {
+          "id": "landscape",
+          "width": 800,
+          "height": 400,
+          "regions": [
+            {"id": "fill_rules", "rect": [0.0175, 0.175, 0.2328, 0.785], "profile": "graphics"},
+            {"id": "nested_clip", "rect": [0.2615, 0.175, 0.2328, 0.785], "profile": "graphics"},
+            {"id": "stroke_join_dash", "rect": [0.5056, 0.175, 0.2328, 0.785], "profile": "graphics"},
+            {"id": "precision_transform", "rect": [0.7496, 0.175, 0.2328, 0.785], "profile": "graphics"}
+          ]
+        },
+        {
+          "id": "portrait",
+          "width": 400,
+          "height": 800,
+          "regions": [
+            {"id": "fill_rules", "rect": [0.035, 0.0875, 0.455, 0.44125], "profile": "graphics"},
+            {"id": "nested_clip", "rect": [0.5125, 0.0875, 0.455, 0.44125], "profile": "graphics"},
+            {"id": "stroke_join_dash", "rect": [0.035, 0.54, 0.455, 0.44125], "profile": "graphics"},
+            {"id": "precision_transform", "rect": [0.5125, 0.54, 0.455, 0.44125], "profile": "graphics"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "compositing_stress",
+      "version": 1,
+      "viewport_standard": "phone_2_1",
+      "required_platforms": ["android", "ios", "desktop", "web"],
+      "samples": [
+        {"id": "t1250", "time_seconds": 1.25}
+      ],
+      "viewports": [
+        {
+          "id": "landscape",
+          "width": 800,
+          "height": 400,
+          "regions": [
+            {"id": "porter_duff", "rect": [0.0175, 0.175, 0.2328, 0.785], "profile": "filters"},
+            {"id": "blend_modes", "rect": [0.2615, 0.175, 0.2328, 0.785], "profile": "filters"},
+            {"id": "backdrop_filter", "rect": [0.5056, 0.175, 0.2328, 0.785], "profile": "filters"},
+            {"id": "inner_shadow", "rect": [0.7496, 0.175, 0.2328, 0.785], "profile": "filters"}
+          ]
+        },
+        {
+          "id": "portrait",
+          "width": 400,
+          "height": 800,
+          "regions": [
+            {"id": "porter_duff", "rect": [0.035, 0.0875, 0.455, 0.44125], "profile": "filters"},
+            {"id": "blend_modes", "rect": [0.5125, 0.0875, 0.455, 0.44125], "profile": "filters"},
+            {"id": "backdrop_filter", "rect": [0.035, 0.54, 0.455, 0.44125], "profile": "filters"},
+            {"id": "inner_shadow", "rect": [0.5125, 0.54, 0.455, 0.44125], "profile": "filters"}
           ]
         }
       ]

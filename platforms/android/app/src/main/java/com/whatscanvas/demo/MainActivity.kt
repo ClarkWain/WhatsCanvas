@@ -31,7 +31,12 @@ class MainActivity : Activity() {
             ?.takeIf { it.hasExtra(CAPTURE_TIME_EXTRA) }
             ?.getFloatExtra(CAPTURE_TIME_EXTRA, 0.0f)
             ?.takeIf { it.isFinite() && it >= 0.0f }
-        canvasView = WhatsCanvasSurfaceView(this, requestedCaptureTime)
+        val requestedScene = intent
+            ?.getStringExtra(CAPTURE_SCENE_EXTRA)
+            ?.takeIf { it in VALID_SCENES }
+            ?: DEFAULT_SCENE
+        canvasView = WhatsCanvasSurfaceView(
+            this, requestedCaptureTime, requestedScene)
         setContentView(canvasView)
     }
 
@@ -58,5 +63,13 @@ class MainActivity : Activity() {
     private companion object {
         const val ANIMATION_REFRESH_RATE_HZ = 60.0f
         const val CAPTURE_TIME_EXTRA = "capture_time_seconds"
+        const val CAPTURE_SCENE_EXTRA = "capture_scene_id"
+        const val DEFAULT_SCENE = "feature_showcase"
+        val VALID_SCENES = setOf(
+            DEFAULT_SCENE,
+            "text_stress",
+            "geometry_stress",
+            "compositing_stress"
+        )
     }
 }

@@ -9,6 +9,47 @@ For releases and downloadable artifacts, see the
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-08-21
+
+### Added
+- Added an Emscripten/WebGL 2 host under `platforms/wasm`, including pinned
+  toolchain bootstrap, build/serve scripts, a browser shell, and automated
+  DPR, resize, background/foreground, context-restore, cold-reload, frame-rate,
+  and screenshot checks.
+- Added one shared visual-parity workflow for Android, iOS, Desktop, and Web.
+  Four scenes across seven canonical viewport/DPR samples now produce 14
+  captures per platform and 42 required pairwise platform comparisons.
+- Added shared text, geometry, and compositing stress scenes covering CJK,
+  emoji, bidi and fallback text; path fill/stroke, curves and transforms; and
+  clipping, blend modes, shadows, filters, alpha, and save/restore behavior.
+- Added release-oriented capture automation and troubleshooting guidance for
+  Android emulators, iOS simulators, Desktop, and headless browsers.
+
+### Changed
+- Replaced the device-derived canonical viewport with a neutral, reciprocal
+  `400 x 800` portrait / `800 x 400` landscape primary standard. Added named
+  16:9 phone, 4:3 tablet and 16:10 desktop layout standards, while retaining
+  the former Android measurements as a legacy-regression profile only.
+- Consolidated native presentation samples under `examples/present`, moved
+  compile/integration/visual harnesses under `tests`, and removed the Bubble
+  Shooter sample while retaining the Tetris and Racer games.
+- Moved platform hosts onto the same scene implementations, deterministic
+  animation inputs, aspect-fit rules, and capture contract so new rendering
+  scenarios can be added once and exercised consistently on every host.
+
+### Fixed
+- Fixed WebGL 2 path rendering by separating vertex and element-array streams,
+  restoring the owning vertex array before sprite draws, and expanding glyph
+  coverage textures where WebGL does not expose GLES texture swizzles.
+- Fixed even-odd path triangulation around duplicated hole-bridge endpoints;
+  valid holes no longer fall back to an incorrectly filled triangle fan.
+- Fixed Android capture races by waiting for the requested scene and physical
+  dimensions to finish their first native frame instead of accepting the
+  system cold-start splash or a stale orientation.
+- Fixed a Desktop command-line integer parser lifetime error found by the
+  sanitizer gate; parsed storage now remains alive through end-pointer checks
+  and rejects values outside the `int` range.
+
 ## [0.7.0] - 2026-08-20
 
 ### Added
@@ -196,7 +237,7 @@ For releases and downloadable artifacts, see the
     region instead of unioning.
   - Windowed presentation via `ISwapchain` on top of `CAMetalLayer`
     `nextDrawable` + blit, wired through `Canvas::setOutputTarget` +
-    `Canvas::present`. See `examples/metal_present/` for a CAMetalLayer demo.
+    `Canvas::present`. See `examples/present/` for a CAMetalLayer demo.
   - GPU frame timing (`beginGpuFrameTiming` / `endGpuFrameTiming` /
     `lastGpuFrameTimeNs`) is backed by `MTLCommandBuffer.GPUStartTime` /
     `GPUEndTime`.

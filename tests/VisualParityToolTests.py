@@ -98,7 +98,7 @@ class VisualParityToolTests(unittest.TestCase):
                 },
                 "scenes": [{
                     "id": "sample",
-                    "required_platforms": ["android", "ios", "desktop"],
+                    "required_platforms": ["android", "ios", "desktop", "web"],
                     "samples": [{"id": "t0000"}],
                     "viewports": [{
                         "id": "portrait",
@@ -113,6 +113,54 @@ class VisualParityToolTests(unittest.TestCase):
                 self.assertIn(
                     "profile graphics search_radius must be between 0 and 4", errors
                 )
+
+    def test_nonlegacy_viewport_standard_must_rotate_exactly(self) -> None:
+        contract = json.loads(
+            (ROOT / "tests" / "visual_parity" / "scenes.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        contract["viewport_standards"]["phone_2_1"]["landscape"] = [801, 400]
+        errors = visual_parity.validate_contract(contract)
+        self.assertIn(
+            "viewport standard phone_2_1 must be rotation-symmetric", errors
+        )
+
+    def test_malformed_viewport_standard_is_reported_without_crashing(self) -> None:
+        contract = json.loads(
+            (ROOT / "tests" / "visual_parity" / "scenes.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        contract["viewport_standards"] = []
+        self.assertIn(
+            "viewport_standards must be an object",
+            visual_parity.validate_contract(contract),
+        )
+
+        contract["viewport_standards"] = {
+            "bad": {"role": "layout_conformance", "portrait": None,
+                    "landscape": [640, 360]}
+        }
+        errors = visual_parity.validate_contract(contract)
+        self.assertIn("viewport standard bad/portrait has invalid dimensions", errors)
+        self.assertIn(
+            "viewport_standards must define exactly one primary pixel gate", errors
+        )
+
+    def test_scene_dimensions_must_match_declared_standard(self) -> None:
+        contract = json.loads(
+            (ROOT / "tests" / "visual_parity" / "scenes.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        contract["scenes"][0]["viewports"][0]["width"] = 801
+        errors = visual_parity.validate_contract(contract)
+        self.assertIn(
+            "scene feature_showcase/landscape does not match "
+            "viewport standard phone_2_1",
+            errors,
+        )
 
     def test_metadata_crop_and_resize_are_deterministic(self) -> None:
         rgba = bytes((
@@ -177,7 +225,7 @@ class VisualParityToolTests(unittest.TestCase):
             "scenes": [{
                 "id": "sample",
                 "version": 1,
-                "required_platforms": ["android", "ios", "desktop"],
+                "required_platforms": ["android", "ios", "desktop", "web"],
                 "samples": [{"id": "t0000", "time_seconds": 0.0}],
                 "viewports": [
                     {"id": "landscape", "width": 2, "height": 1,
@@ -195,7 +243,7 @@ class VisualParityToolTests(unittest.TestCase):
             contract_path = root / "contract.json"
             contract_path.write_text(json.dumps(contract), encoding="utf-8")
             captures = root / "captures"
-            for platform in ("android", "ios", "desktop"):
+            for platform in ("android", "ios", "desktop", "web"):
                 for viewport in ("landscape", "portrait"):
                     write_pam(captures / platform / "sample" / viewport / "t0000.pam",
                               2 if viewport == "landscape" else 1,
@@ -210,7 +258,7 @@ class VisualParityToolTests(unittest.TestCase):
                 ))
             self.assertEqual(0, result)
             summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
-            self.assertEqual(4, summary["comparisons"])
+            self.assertEqual(6, summary["comparisons"])
             self.assertEqual("PASS", summary["status"])
 
 

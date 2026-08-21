@@ -283,6 +283,38 @@ def validate_contract(contract: dict[str, Any]) -> list[str]:
     if not isinstance(scenes, list) or not scenes:
         errors.append("scenes must be a non-empty array")
         return errors
+    standards = contract.get("viewport_standards", {})
+    if not isinstance(standards, dict):
+        errors.append("viewport_standards must be an object")
+        standards = {}
+    primary_standards = 0
+    for standard_id, standard in standards.items():
+        if not standard_id or not isinstance(standard, dict):
+            errors.append("viewport standard id is empty or invalid")
+            continue
+        role = standard.get("role")
+        if role not in {
+                "primary_pixel_gate", "layout_conformance",
+                "legacy_regression_only"}:
+            errors.append(f"viewport standard {standard_id} has an invalid role")
+        primary_standards += role == "primary_pixel_gate"
+        portrait = standard.get("portrait", [])
+        landscape = standard.get("landscape", [])
+        for orientation, dimensions in (("portrait", portrait),
+                                        ("landscape", landscape)):
+            if not isinstance(dimensions, list) or len(dimensions) != 2 or any(
+                    not isinstance(value, int) or isinstance(value, bool) or value <= 0
+                    for value in dimensions):
+                errors.append(
+                    f"viewport standard {standard_id}/{orientation} has invalid dimensions")
+        if role != "legacy_regression_only" \
+                and isinstance(portrait, list) and len(portrait) == 2 \
+                and isinstance(landscape, list) and len(landscape) == 2 \
+                and portrait != [landscape[1], landscape[0]]:
+            errors.append(f"viewport standard {standard_id} must be rotation-symmetric")
+    if standards and primary_standards != 1:
+        errors.append("viewport_standards must define exactly one primary pixel gate")
+
     scene_ids: set[str] = set()
     for scene in scenes:
         scene_id = scene.get("id", "")
@@ -290,8 +322,9 @@ def validate_contract(contract: dict[str, Any]) -> list[str]:
             errors.append(f"scene id is empty or duplicated: {scene_id!r}")
         scene_ids.add(scene_id)
         platforms = scene.get("required_platforms", [])
-        if sorted(platforms) != ["android", "desktop", "ios"]:
-            errors.append(f"scene {scene_id} must require android, ios and desktop")
+        if sorted(platforms) != ["android", "desktop", "ios", "web"]:
+            errors.append(
+                f"scene {scene_id} must require android, ios, desktop and web")
         samples = scene.get("samples", [])
         sample_ids = [sample.get("id") for sample in samples]
         if not samples or len(sample_ids) != len(set(sample_ids)):
@@ -299,6 +332,9 @@ def validate_contract(contract: dict[str, Any]) -> list[str]:
         times = [sample.get("time_seconds") for sample in samples]
         if any(not isinstance(value, (int, float)) or value < 0 for value in times):
             errors.append(f"scene {scene_id} sample times must be non-negative numbers")
+        standard_id = scene.get("viewport_standard")
+        if standards and standard_id not in standards:
+            errors.append(f"scene {scene_id} uses an unknown viewport standard")
         viewport_ids: set[str] = set()
         for viewport in scene.get("viewports", []):
             viewport_id = viewport.get("id", "")
@@ -323,6 +359,16 @@ def validate_contract(contract: dict[str, Any]) -> list[str]:
                     errors.append(f"scene {scene_id}/{viewport_id}/{region_id} rect is out of bounds")
         if viewport_ids != {"landscape", "portrait"}:
             errors.append(f"scene {scene_id} must define landscape and portrait viewports")
+        if standard_id in standards:
+            expected = standards[standard_id]
+            for viewport in scene.get("viewports", []):
+                orientation = viewport.get("id")
+                if orientation in ("portrait", "landscape"):
+                    dimensions = [viewport.get("width"), viewport.get("height")]
+                    if dimensions != expected.get(orientation):
+                        errors.append(
+                            f"scene {scene_id}/{orientation} does not match "
+                            f"viewport standard {standard_id}")
     return errors
 
 

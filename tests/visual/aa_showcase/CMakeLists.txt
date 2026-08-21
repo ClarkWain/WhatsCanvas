@@ -22,7 +22,7 @@ if (TARGET WhatsCanvas::OpenGL)
 
     target_include_directories(WhatsCanvasAAShowcase
         PRIVATE
-            "${CMAKE_CURRENT_LIST_DIR}/../../third_party/stb"
+            "${CMAKE_CURRENT_LIST_DIR}/../../../third_party/stb"
     )
 
     target_link_libraries(WhatsCanvasAAShowcase
@@ -30,5 +30,5 @@ if (TARGET WhatsCanvas::OpenGL)
             WhatsCanvas::OpenGL
     )
 
-    whatscanvas_link_gl_app(WhatsCanvasAAShowcase "${CMAKE_CURRENT_LIST_DIR}/../..")
+    whatscanvas_link_gl_app(WhatsCanvasAAShowcase "${CMAKE_CURRENT_LIST_DIR}/../../..")
 endif()

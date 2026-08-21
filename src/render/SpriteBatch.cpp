@@ -177,6 +177,12 @@ void SpriteBatch::flush(RenderContext &context, DrawBlendMode blendMode)
         boundProgram_ = activeProgram;
     }
 
+    // Other draw commands may bind or clear a different VAO between batch
+    // flushes while the shader program remains unchanged. The element-array
+    // binding belongs to the VAO in GLES 3/WebGL 2, so restore our VAO on
+    // every flush instead of treating it as part of the program cache.
+    glBindVertexArray(instanced ? instanceVAO_ : VAO_);
+
     const std::size_t sprites = spriteCount();
     if (instanced) {
         glBindBuffer(GL_ARRAY_BUFFER, instanceVBO_);
