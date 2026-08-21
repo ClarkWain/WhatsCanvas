@@ -515,7 +515,7 @@ function(whatscanvas_add_gl_family_library target_name project_root)
         endif()
     endif()
 
-    if (UNIX AND NOT APPLE)
+    if (UNIX AND NOT APPLE AND NOT EMSCRIPTEN)
         find_package(PkgConfig QUIET)
         if (PkgConfig_FOUND)
             pkg_check_modules(WHATSCANVAS_FONTCONFIG QUIET fontconfig)

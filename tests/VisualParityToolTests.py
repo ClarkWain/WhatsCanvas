@@ -98,7 +98,7 @@ class VisualParityToolTests(unittest.TestCase):
                 },
                 "scenes": [{
                     "id": "sample",
-                    "required_platforms": ["android", "ios", "desktop"],
+                    "required_platforms": ["android", "ios", "desktop", "web"],
                     "samples": [{"id": "t0000"}],
                     "viewports": [{
                         "id": "portrait",
@@ -177,7 +177,7 @@ class VisualParityToolTests(unittest.TestCase):
             "scenes": [{
                 "id": "sample",
                 "version": 1,
-                "required_platforms": ["android", "ios", "desktop"],
+                "required_platforms": ["android", "ios", "desktop", "web"],
                 "samples": [{"id": "t0000", "time_seconds": 0.0}],
                 "viewports": [
                     {"id": "landscape", "width": 2, "height": 1,
@@ -195,7 +195,7 @@ class VisualParityToolTests(unittest.TestCase):
             contract_path = root / "contract.json"
             contract_path.write_text(json.dumps(contract), encoding="utf-8")
             captures = root / "captures"
-            for platform in ("android", "ios", "desktop"):
+            for platform in ("android", "ios", "desktop", "web"):
                 for viewport in ("landscape", "portrait"):
                     write_pam(captures / platform / "sample" / viewport / "t0000.pam",
                               2 if viewport == "landscape" else 1,
@@ -210,7 +210,7 @@ class VisualParityToolTests(unittest.TestCase):
                 ))
             self.assertEqual(0, result)
             summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
-            self.assertEqual(4, summary["comparisons"])
+            self.assertEqual(6, summary["comparisons"])
             self.assertEqual("PASS", summary["status"])
 
 

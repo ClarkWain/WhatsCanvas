@@ -338,9 +338,10 @@ void DrawPathProgram::initialize(bool commonProgram)
         // Create the VAO
         glGenVertexArrays(1, &VAO_);
 
-    // Positions, colors, coverage and indices share one frame stream. This
-    // avoids orphaning four separate GL buffers at every frame boundary.
+    // Vertex attributes share one frame stream. Indices use a dedicated
+    // element stream because WebGL assigns buffers to their binding target.
         geometryBuffer_.initialize(16384);
+        indexBuffer_.initialize(4096);
 
     // Bind the VAO and configure vertex attributes
         glBindVertexArray(VAO_);
@@ -391,10 +392,12 @@ void DrawPathProgram::release(bool abandon)
 
     if (abandon) {
         geometryBuffer_.abandon();
+        indexBuffer_.abandon();
         gradientStopBuffer_.abandon();
         drawParameterBuffer_.abandon();
     } else {
         geometryBuffer_.release();
+        indexBuffer_.release();
         gradientStopBuffer_.release();
         drawParameterBuffer_.release();
     }
@@ -441,6 +444,7 @@ void DrawPathProgram::beginFrame()
     frameIndexBytes_ = 0;
     frameUploadedVertexCount_ = 0;
     geometryBuffer_.beginFrame();
+    indexBuffer_.beginFrame();
 }
 
 void DrawPathProgram::beginBatch()
@@ -604,8 +608,6 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
         reserveSection(coverageBytes, coverageAlignment);
     const std::size_t drawIdOffset =
         reserveSection(drawIdBytes, alignof(std::uint16_t));
-    const std::size_t indexOffset =
-        reserveSection(indexBytes, indexAlignment);
 
     StreamBuffer::UploadRange positions;
     StreamBuffer::UploadRange colors;
@@ -638,8 +640,6 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
         copySection(
             coverageOffset, coverageSource, coverageBytes);
         copySection(drawIdOffset, drawIdSource, drawIdBytes);
-        copySection(indexOffset, indexSource, indexBytes);
-
         geometryBuffer_.reserveAdditionalBytes(packetBytes);
         const StreamBuffer::UploadRange packet =
             geometryBuffer_.uploadBytes(
@@ -657,9 +657,6 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
         };
         drawIds = {
             packet.buffer, packet.byteOffset + drawIdOffset
-        };
-        indices = {
-            packet.buffer, packet.byteOffset + indexOffset
         };
     } else {
         geometryBuffer_.reserveAdditionalBytes(packetBytes + 16u);
@@ -687,12 +684,15 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
             ++frameUploadCount_;
             frameUploadBytes_ += drawIdBytes;
         }
-        if (indexBytes != 0) {
-            indices = geometryBuffer_.uploadBytes(
-                indexSource, indexBytes, indexAlignment);
-            ++frameUploadCount_;
-            frameUploadBytes_ += indexBytes;
-        }
+    }
+    if (indexBytes != 0) {
+        // WebGL assigns a buffer object to its first binding target. Keep
+        // indices in a dedicated ELEMENT_ARRAY_BUFFER instead of sharing the
+        // vertex stream, which desktop GL permits but WebGL 2 rejects.
+        indices = indexBuffer_.uploadBytes(
+            indexSource, indexBytes, indexAlignment);
+        ++frameUploadCount_;
+        frameUploadBytes_ += indexBytes;
     }
     frameIndexBytes_ += indexBytes;
 

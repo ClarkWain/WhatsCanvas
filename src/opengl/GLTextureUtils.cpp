@@ -68,8 +68,21 @@ TextureHandle createTextureAlpha8(
             * static_cast<std::size_t>(height)) {
         return {};
     }
+#if defined(__EMSCRIPTEN__)
+    // WebGL 2 deliberately omits GLES texture swizzle parameters. Sampling
+    // R8 would therefore return (coverage, 0, 0, 1), producing opaque red
+    // glyph rectangles. Expand the portable glyph atlas to white RGBA so the
+    // existing image shader receives coverage in alpha on the Web platform.
+    std::vector<unsigned char> rgba(pixels.size() * 4u, 255u);
+    for (std::size_t pixel = 0; pixel < pixels.size(); ++pixel) {
+        rgba[pixel * 4u + 3u] = pixels[pixel];
+    }
+    return createTexture(
+        width, height, GL_RGBA8, GL_RGBA, rgba.data(), false);
+#else
     return createTexture(
         width, height, GL_R8, GL_RED, pixels.data(), false, true);
+#endif
 }
 
 TextureHandle createTextureFromImageData(int width, int height, int channels, const unsigned char *pixels,
@@ -125,9 +138,21 @@ bool updateTextureAlpha8(
     glBindTexture(
         GL_TEXTURE_2D, static_cast<GLuint>(handle.value));
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+#if defined(__EMSCRIPTEN__)
+    const std::size_t pixelCount = static_cast<std::size_t>(width)
+        * static_cast<std::size_t>(height);
+    std::vector<unsigned char> rgba(pixelCount * 4u, 255u);
+    for (std::size_t pixel = 0; pixel < pixelCount; ++pixel) {
+        rgba[pixel * 4u + 3u] = pixels[pixel];
+    }
+    glTexSubImage2D(
+        GL_TEXTURE_2D, 0, x, y, width, height,
+        GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+#else
     glTexSubImage2D(
         GL_TEXTURE_2D, 0, x, y, width, height,
         GL_RED, GL_UNSIGNED_BYTE, pixels);
+#endif
 
     const GLenum error = glGetError();
     glPixelStorei(
