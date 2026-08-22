@@ -21,6 +21,70 @@ struct GaussianKernel
     int radius() const { return static_cast<int>(weights.size()) - 1; }
 };
 
+/// A Gaussian half-kernel packed for bilinear texture sampling. Each positive
+/// entry combines two neighboring discrete taps into one fractional sample:
+/// linear filtering reconstructs the original two weights exactly (up to GPU
+/// interpolation precision). The negative side reuses the same offset.
+struct GaussianLinearSampleKernel
+{
+    std::vector<float> weights;
+    std::vector<float> offsets;
+
+    int tapCount() const
+    {
+        return static_cast<int>(weights.size()) - 1;
+    }
+};
+
+/// Writes the bilinear-packed half kernel into caller-owned storage and
+/// returns the number of populated entries.  GPU blur passes use this overload
+/// to avoid allocating two vectors for every filter pass.
+inline int packGaussianKernelForLinearSampling(
+    const GaussianKernel &kernel, float *weights, float *offsets,
+    int capacity)
+{
+    if (kernel.weights.empty() || weights == nullptr || offsets == nullptr
+        || capacity <= 0) {
+        return 0;
+    }
+
+    weights[0] = kernel.weights[0];
+    offsets[0] = 0.0f;
+    int count = 1;
+    const int lastTap = std::min(
+        kernel.radius(), 2 * std::max(0, capacity - 1));
+    for (int tap = 1; tap <= lastTap && count < capacity; tap += 2) {
+        const float first = kernel.weights[static_cast<std::size_t>(tap)];
+        const float second = tap + 1 <= lastTap
+            ? kernel.weights[static_cast<std::size_t>(tap + 1)] : 0.0f;
+        const float combined = first + second;
+        weights[count] = combined;
+        offsets[count] = combined > 0.0f
+            ? (static_cast<float>(tap) * first
+               + static_cast<float>(tap + 1) * second) / combined
+            : static_cast<float>(tap);
+        ++count;
+    }
+    return count;
+}
+
+inline GaussianLinearSampleKernel packGaussianKernelForLinearSampling(
+    const GaussianKernel &kernel)
+{
+    GaussianLinearSampleKernel packed;
+    if (kernel.weights.empty()) {
+        return packed;
+    }
+    const int capacity = (kernel.radius() + 3) / 2;
+    packed.weights.resize(static_cast<std::size_t>(capacity));
+    packed.offsets.resize(static_cast<std::size_t>(capacity));
+    const int count = packGaussianKernelForLinearSampling(
+        kernel, packed.weights.data(), packed.offsets.data(), capacity);
+    packed.weights.resize(static_cast<std::size_t>(count));
+    packed.offsets.resize(static_cast<std::size_t>(count));
+    return packed;
+}
+
 /// Builds a Gaussian kernel whose effective reach is `radiusPixels`. The
 /// standard deviation is derived as radius/3 so the taps cover ~3 sigma, where
 /// the Gaussian has decayed to a negligible weight. A radius <= 0 yields a

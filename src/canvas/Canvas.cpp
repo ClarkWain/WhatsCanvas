@@ -58,6 +58,14 @@
 #include "StrokeTessellator.h"
 #include "stb_easy_font.h"
 
+// Per-primitive steady_clock probes for the simple-fill path are a diagnostic
+// aid only. They cost ~1ms across ~700 primitives in the Compositing scene, so
+// they are compiled out by default to keep recordCpu numbers uncontaminated.
+// Define WHATSCANVAS_ENABLE_SIMPLE_FILL_STATS at build time to re-enable them.
+#ifndef WHATSCANVAS_ENABLE_SIMPLE_FILL_STATS
+#define WHATSCANVAS_ENABLE_SIMPLE_FILL_STATS 0
+#endif
+
 namespace wsc {
 
 struct Picture::Impl
@@ -3135,6 +3143,9 @@ struct Canvas::Impl
     std::uint64_t retainedPictureRasterTextBackendCpuTimeNs = 0;
     std::uint64_t retainedPictureRasterTextAtlasCpuTimeNs = 0;
     bool measuringRetainedPictureRasterPrepare = false;
+    std::size_t simpleFillPrimitiveCount = 0;
+    std::uint64_t simpleFillGeometryCpuTimeNs = 0;
+    std::uint64_t simpleFillSubmitCpuTimeNs = 0;
     std::uint64_t retainedPictureRasterUseEpoch = 0;
     std::size_t retainedPictureRasterBudgetBytes = 32u * 1024u * 1024u;
     std::vector<std::weak_ptr<const Picture>> retainedPictures;
@@ -3806,6 +3817,9 @@ bool Canvas::Impl::submitSimpleFillPrimitive(
         || !(primitive.height > 0.0f)) {
         return true;
     }
+#if WHATSCANVAS_ENABLE_SIMPLE_FILL_STATS
+    const auto primitiveStart = std::chrono::steady_clock::now();
+#endif
 
     const std::uint64_t fillKey =
         hashSimpleFillPrimitive(primitive);
@@ -3877,6 +3891,9 @@ bool Canvas::Impl::submitSimpleFillPrimitive(
         }
         data.points = flattenPoints(*fillTriangles);
     }
+#if WHATSCANVAS_ENABLE_SIMPLE_FILL_STATS
+    const auto geometryEnd = std::chrono::steady_clock::now();
+#endif
 
     data.width = paint.getStrokeWidth();
     const Color color = applyPaintAlpha(
@@ -3907,6 +3924,16 @@ bool Canvas::Impl::submitSimpleFillPrimitive(
     renderer->submit(
         std::make_unique<DrawPathCommand>(
             std::move(data)));
+#if WHATSCANVAS_ENABLE_SIMPLE_FILL_STATS
+    const auto submitEnd = std::chrono::steady_clock::now();
+    ++simpleFillPrimitiveCount;
+    simpleFillGeometryCpuTimeNs += static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            geometryEnd - primitiveStart).count());
+    simpleFillSubmitCpuTimeNs += static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            submitEnd - geometryEnd).count());
+#endif
     return true;
 }
 
@@ -4273,6 +4300,12 @@ Canvas::RenderStats Canvas::getRenderStats() const
     stats.downsampledFilterCount = frameStats.downsampledFilterCount;
     stats.filterInputPixelCount = frameStats.filterInputPixelCount;
     stats.filterPixelPassCount = frameStats.filterPixelPassCount;
+    stats.layerBackdropRenderCpuTimeNs =
+        frameStats.layerBackdropRenderCpuTimeNs;
+    stats.layerFilterCpuTimeNs =
+        frameStats.layerFilterCpuTimeNs;
+    stats.layerCompositeRenderCpuTimeNs =
+        frameStats.layerCompositeRenderCpuTimeNs;
     stats.pathVertexCount = frameStats.pathVertexCount;
     stats.pathInputVertexCount =
         frameStats.pathInputVertexCount;
@@ -4350,6 +4383,11 @@ Canvas::RenderStats Canvas::getRenderStats() const
     stats.aaCacheMisses = impl_->fillAaCache.missCount();
     stats.aaCacheSize = impl_->fillAaCache.size();
     stats.aaCacheBytes = impl_->fillAaCache.residentBytes();
+    stats.simpleFillPrimitiveCount = impl_->simpleFillPrimitiveCount;
+    stats.simpleFillGeometryCpuTimeNs =
+        impl_->simpleFillGeometryCpuTimeNs;
+    stats.simpleFillSubmitCpuTimeNs =
+        impl_->simpleFillSubmitCpuTimeNs;
     stats.strokeCacheHits = impl_->strokeTessellationCache.hitCount();
     stats.strokeCacheMisses = impl_->strokeTessellationCache.missCount();
     stats.strokeCacheSize = impl_->strokeTessellationCache.size();
@@ -7904,6 +7942,9 @@ void Canvas::beginFrame()
     impl_->retainedPictureRasterTextBackendCpuTimeNs = 0;
     impl_->retainedPictureRasterTextAtlasCpuTimeNs = 0;
     impl_->measuringRetainedPictureRasterPrepare = false;
+    impl_->simpleFillPrimitiveCount = 0;
+    impl_->simpleFillGeometryCpuTimeNs = 0;
+    impl_->simpleFillSubmitCpuTimeNs = 0;
     impl_->fillTessellationCache.beginEpoch();
     impl_->fillAaCache.beginEpoch();
     impl_->strokeTessellationCache.beginEpoch();

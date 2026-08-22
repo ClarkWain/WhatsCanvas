@@ -270,6 +270,75 @@ void DrawImageProgram::initialize(bool commonProgram)
     }
 }
 
+void DrawImageProgram::initializeFast(bool premultiplied)
+{
+    GLProgram *&requestedProgram = premultiplied
+        ? fastPremultipliedProgram_ : fastStraightProgram_;
+    if (requestedProgram != nullptr) {
+        return;
+    }
+
+    const std::string vertexSrc = std::string(wsc::opengl::shaderVersionDirective()) + R"(
+        #ifdef WHATSCANVAS_OPENGL_ES
+        precision highp float;
+        #endif
+        layout (location = 0) in vec2 aPos;
+        layout (location = 1) in vec2 aUv;
+        uniform mat4 uProjection;
+        uniform mat4 uTransform;
+        out vec2 vUv;
+        void main()
+        {
+            gl_Position = uProjection * uTransform * vec4(aPos, 0.0, 1.0);
+            vUv = aUv;
+        }
+    )";
+
+    const std::string fragmentSrc = std::string(wsc::opengl::shaderVersionDirective())
+        + (premultiplied ? "#define WHATSCANVAS_FAST_PREMULTIPLIED 1\n" : "")
+        + R"(
+        #ifdef WHATSCANVAS_OPENGL_ES
+        precision mediump float;
+        #endif
+        in vec2 vUv;
+        uniform sampler2D uTexture;
+        uniform vec4 uTintColor;
+        uniform float uAlpha;
+        out vec4 FragColor;
+        void main()
+        {
+            vec4 texColor = texture(uTexture, vUv);
+            #ifdef WHATSCANVAS_FAST_PREMULTIPLIED
+            if (texColor.a > 0.000001) {
+                texColor.rgb /= texColor.a;
+            }
+            #endif
+            FragColor = vec4(
+                texColor.rgb * uTintColor.rgb,
+                texColor.a * uTintColor.a * uAlpha);
+        }
+    )";
+
+    requestedProgram = new GLProgram(
+        premultiplied ? "draw_image_fast_premul" : "draw_image_fast",
+        vertexSrc, fragmentSrc);
+
+    if (!initialized_) {
+        glGenVertexArrays(1, &VAO_);
+        vertexBuffer_.initialize(16);
+        glBindVertexArray(VAO_);
+        glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer_.handle());
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE,
+                              4 * sizeof(float), (void *)0);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE,
+                              4 * sizeof(float), (void *)(2 * sizeof(float)));
+        glEnableVertexAttribArray(1);
+        glBindVertexArray(0);
+        initialized_ = true;
+    }
+}
+
 void DrawImageProgram::release(bool abandon)
 {
     if (!initialized_) {
@@ -286,6 +355,16 @@ void DrawImageProgram::release(bool abandon)
         delete commonProgram_;
         commonProgram_ = nullptr;
     }
+    if (fastStraightProgram_ != nullptr) {
+        if (abandon) fastStraightProgram_->abandonVolatile();
+        delete fastStraightProgram_;
+        fastStraightProgram_ = nullptr;
+    }
+    if (fastPremultipliedProgram_ != nullptr) {
+        if (abandon) fastPremultipliedProgram_->abandonVolatile();
+        delete fastPremultipliedProgram_;
+        fastPremultipliedProgram_ = nullptr;
+    }
 
     if (VAO_ != static_cast<unsigned int>(-1)) {
         if (!abandon) glDeleteVertexArrays(1, &VAO_);
@@ -299,15 +378,33 @@ void DrawImageProgram::release(bool abandon)
 
 void DrawImageProgram::draw(const RenderContext &context, const DrawImageData &data)
 {
+    const bool useFastProgram =
+        !data.hasColorMatrix
+        && !data.clearTypeMask
+        && !data.rgbCoverageMask
+        && data.tileMode == DrawImageTileMode::Clamp
+        && data.gradientType == DrawGradientType::None
+        && !data.hasRoundedCorners()
+        && !context.isClipMaskActive();
+    const bool sourcePremultiplied =
+        data.imageResource
+        && data.imageResource->alphaType() == ImageAlphaType::Premultiplied;
     const bool useCommonProgram =
 #if defined(WHATSCANVAS_OPENGL_ES)
-        !data.hasColorMatrix && data.tileMode != DrawImageTileMode::Decal;
+        !useFastProgram
+        && !data.hasColorMatrix && data.tileMode != DrawImageTileMode::Decal;
 #else
         false;
 #endif
-    initialize(useCommonProgram);
-    GLProgram *activeProgram = useCommonProgram
-        ? commonProgram_ : program_;
+    if (useFastProgram) {
+        initializeFast(sourcePremultiplied);
+    } else {
+        initialize(useCommonProgram);
+    }
+    GLProgram *activeProgram = useFastProgram
+        ? (sourcePremultiplied
+            ? fastPremultipliedProgram_ : fastStraightProgram_)
+        : (useCommonProgram ? commonProgram_ : program_);
     if (!DrawValidation::validateProgram(
             initialized_ && activeProgram != nullptr,
             "DrawImageProgram::draw")) {
@@ -344,8 +441,10 @@ void DrawImageProgram::draw(const RenderContext &context, const DrawImageData &d
     activeProgram->setVec4("uTintColor", glm::vec4(tintColor[0], tintColor[1], tintColor[2], tintColor[3]));
     activeProgram->setFloat("uAlpha", data.alpha);
     const bool roundedClip = data.hasRoundedCorners();
-    activeProgram->setInt("uRoundedClip", roundedClip ? 1 : 0);
-    if (roundedClip) {
+    if (!useFastProgram) {
+        activeProgram->setInt("uRoundedClip", roundedClip ? 1 : 0);
+    }
+    if (!useFastProgram && roundedClip) {
         activeProgram->setVec2(
             "uRoundedSize", glm::vec2(data.width, data.height));
         activeProgram->setFloat("uRoundedRadius", data.roundedRadius);
@@ -356,10 +455,11 @@ void DrawImageProgram::draw(const RenderContext &context, const DrawImageData &d
     activeProgram->setInt("uRgbCoverageFallback",
                      data.rgbCoverageMask && !context.isClearTypeBlendModeActive() ? 1 : 0);
 #endif
-    activeProgram->setInt(
-        "uSourcePremultiplied",
-        data.imageResource->alphaType() == ImageAlphaType::Premultiplied ? 1 : 0);
-    if (!useCommonProgram) {
+    if (!useFastProgram) {
+        activeProgram->setInt(
+            "uSourcePremultiplied", sourcePremultiplied ? 1 : 0);
+    }
+    if (!useFastProgram && !useCommonProgram) {
         activeProgram->setInt("uUseColorMatrix", data.hasColorMatrix ? 1 : 0);
         if (data.hasColorMatrix) {
             const glm::mat4 colorMatrix(
@@ -382,9 +482,11 @@ void DrawImageProgram::draw(const RenderContext &context, const DrawImageData &d
         }
         activeProgram->setInt("uTileMode", tileMode);
     }
-    activeProgram->setInt(
-        "uGradientType", static_cast<int>(data.gradientType));
-    if (data.gradientType != DrawGradientType::None) {
+    if (!useFastProgram) {
+        activeProgram->setInt(
+            "uGradientType", static_cast<int>(data.gradientType));
+    }
+    if (!useFastProgram && data.gradientType != DrawGradientType::None) {
         activeProgram->setInt(
             "uGradientTileMode", static_cast<int>(data.gradientTileMode));
         if (data.gradientType == DrawGradientType::Linear) {
@@ -423,7 +525,9 @@ void DrawImageProgram::draw(const RenderContext &context, const DrawImageData &d
         }
     }
     activeProgram->setInt("uTexture", 0);
-    wsc::opengl::applyClipMaskUniforms(activeProgram, context);
+    if (!useFastProgram) {
+        wsc::opengl::applyClipMaskUniforms(activeProgram, context);
+    }
 
     context.bindImageResource(data.imageResource, data.sampling, data.tileMode, data.mipmapsReady);
 

@@ -1,6 +1,7 @@
 // Unit tests for the separable Gaussian blur kernel.
 
 #include <cmath>
+#include <array>
 #include <iostream>
 #include <limits>
 #include <string>
@@ -67,6 +68,73 @@ bool testWeightsAreMonotonicallyDecreasing()
     }
     return expect(kernel.weights.front() > kernel.weights.back(),
                   "centre weight should exceed the outermost weight");
+}
+
+bool testLinearSamplePackingPreservesDiscreteWeights()
+{
+    for (float radius : {1.0f, 2.0f, 7.0f, 12.0f}) {
+        const wsc::render::GaussianKernel kernel =
+            wsc::render::computeGaussianKernel(radius);
+        const wsc::render::GaussianLinearSampleKernel packed =
+            wsc::render::packGaussianKernelForLinearSampling(kernel);
+        if (!expect(!packed.weights.empty()
+                        && packed.weights.size() == packed.offsets.size(),
+                    "linear-sample kernel should carry matched weights and offsets")
+            || !expect(std::abs(packed.weights[0] - kernel.weights[0]) < 1e-7f,
+                       "linear-sample kernel should preserve the center tap")) {
+            return false;
+        }
+        for (std::size_t sample = 1; sample < packed.weights.size(); ++sample) {
+            const int firstTap = static_cast<int>(sample * 2u - 1u);
+            const float fraction = packed.offsets[sample]
+                - static_cast<float>(firstTap);
+            const float firstReconstructed =
+                packed.weights[sample] * (1.0f - fraction);
+            const float secondReconstructed =
+                packed.weights[sample] * fraction;
+            const float expectedSecond = firstTap + 1 <= kernel.radius()
+                ? kernel.weights[static_cast<std::size_t>(firstTap + 1)]
+                : 0.0f;
+            if (!expect(std::abs(firstReconstructed
+                                 - kernel.weights[static_cast<std::size_t>(firstTap)])
+                            < 1e-6f,
+                        "bilinear packing should reconstruct the first discrete tap")
+                || !expect(std::abs(secondReconstructed - expectedSecond) < 1e-6f,
+                           "bilinear packing should reconstruct the second discrete tap")) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+bool testLinearSamplePackingWritesCallerStorage()
+{
+    const wsc::render::GaussianKernel kernel =
+        wsc::render::computeGaussianKernel(12.0f);
+    const wsc::render::GaussianLinearSampleKernel expected =
+        wsc::render::packGaussianKernelForLinearSampling(kernel);
+    std::array<float, 16> weights{};
+    std::array<float, 16> offsets{};
+    const int count = wsc::render::packGaussianKernelForLinearSampling(
+        kernel, weights.data(), offsets.data(),
+        static_cast<int>(weights.size()));
+    if (!expect(count == static_cast<int>(expected.weights.size()),
+                "caller storage should receive every packed sample")) {
+        return false;
+    }
+    for (int index = 0; index < count; ++index) {
+        if (!expect(std::abs(weights[static_cast<std::size_t>(index)]
+                             - expected.weights[static_cast<std::size_t>(index)])
+                            < 1e-7f
+                        && std::abs(offsets[static_cast<std::size_t>(index)]
+                                    - expected.offsets[static_cast<std::size_t>(index)])
+                               < 1e-7f,
+                    "caller storage should preserve bilinear packed taps")) {
+            return false;
+        }
+    }
+    return true;
 }
 
 bool testRadiusScalesWithRequest()
@@ -210,6 +278,8 @@ int main()
     ok = testNegativeRadiusIsPassThrough() && ok;
     ok = testWeightsAreNormalized() && ok;
     ok = testWeightsAreMonotonicallyDecreasing() && ok;
+    ok = testLinearSamplePackingPreservesDiscreteWeights() && ok;
+    ok = testLinearSamplePackingWritesCallerStorage() && ok;
     ok = testRadiusScalesWithRequest() && ok;
     ok = testSigmaAndFrostedGlassFactories() && ok;
     ok = testInnerShadowFactory() && ok;
