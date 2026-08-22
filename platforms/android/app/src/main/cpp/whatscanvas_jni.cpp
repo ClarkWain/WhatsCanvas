@@ -607,9 +607,11 @@ public:
     explicit NativeRenderer(std::string sceneName)
         : sceneName_(std::move(sceneName))
     {
+        rasterizeStaticPicture_ = sceneName_ != "feature_showcase_picture";
         stressSceneEnabled_ = whatscanvas::scenes::parseStressScene(
             sceneName_, stressSceneId_);
-        if (!stressSceneEnabled_) {
+        if (!stressSceneEnabled_
+            && sceneName_ != "feature_showcase_picture") {
             sceneName_ = "feature_showcase";
         }
     }
@@ -749,7 +751,11 @@ public:
             canvas_->restore();
         } else {
             // The retained scene is an isolated, opaque full-screen layer.
-            canvas_->drawPictureRasterized(*staticPicture_);
+            if (rasterizeStaticPicture_) {
+                canvas_->drawPictureRasterized(*staticPicture_);
+            } else {
+                canvas_->drawPicture(*staticPicture_);
+            }
         }
         const auto pictureEnd = std::chrono::steady_clock::now();
         if (!stressSceneEnabled_) {
@@ -794,7 +800,9 @@ public:
                 "rasterCache=%zu/%zu/%zu/%zuKB/%zuevict "
                 "rasterCpu=%llu/%llu/%llu path=%llu text=%llu(%llu+%llu)us "
                 "shaders=%zu/%zu/%llu+%lluus "
-                "recordCpu=%lluus pictureCpu=%lluus dynamicCpu=%lluus flushCpu=%lluus",
+                "recordCpu=%lluus pictureCpu=%lluus dynamicCpu=%lluus flushCpu=%lluus "
+                "simpleFill=%zu/%llu/%lluus "
+                "saveLayer=%llu/%llu/%lluus",
                 stats.commandCount, stats.drawCallCount,
                 stats.pathVertexCount, stats.pathUploadCount,
                 stats.pathUploadBytes / 1024u,
@@ -847,7 +855,18 @@ public:
                 static_cast<unsigned long long>(lastRecordCpuTimeUs_),
                 static_cast<unsigned long long>(lastPictureCpuTimeUs_),
                 static_cast<unsigned long long>(lastDynamicCpuTimeUs_),
-                static_cast<unsigned long long>(stats.flushCpuTimeNs / 1000u));
+                static_cast<unsigned long long>(stats.flushCpuTimeNs / 1000u),
+                stats.simpleFillPrimitiveCount,
+                static_cast<unsigned long long>(
+                    stats.simpleFillGeometryCpuTimeNs / 1000u),
+                static_cast<unsigned long long>(
+                    stats.simpleFillSubmitCpuTimeNs / 1000u),
+                static_cast<unsigned long long>(
+                    stats.layerBackdropRenderCpuTimeNs / 1000u),
+                static_cast<unsigned long long>(
+                    stats.layerFilterCpuTimeNs / 1000u),
+                static_cast<unsigned long long>(
+                    stats.layerCompositeRenderCpuTimeNs / 1000u));
         }
     }
 
@@ -910,6 +929,7 @@ private:
     whatscanvas::scenes::StressSceneId stressSceneId_ =
         whatscanvas::scenes::StressSceneId::Text;
     bool stressSceneEnabled_ = false;
+    bool rasterizeStaticPicture_ = true;
     std::string sceneName_ = "feature_showcase";
     bool firstFrameLogged_ = false;
 };
