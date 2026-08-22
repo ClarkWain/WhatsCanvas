@@ -802,7 +802,8 @@ public:
                 "shaders=%zu/%zu/%llu+%lluus "
                 "recordCpu=%lluus pictureCpu=%lluus dynamicCpu=%lluus flushCpu=%lluus "
                 "simpleFill=%zu/%llu/%lluus "
-                "saveLayer=%llu/%llu/%lluus",
+                "saveLayer=%llu/%llu/%lluus "
+                "frameCompile=%lluus",
                 stats.commandCount, stats.drawCallCount,
                 stats.pathVertexCount, stats.pathUploadCount,
                 stats.pathUploadBytes / 1024u,
@@ -866,7 +867,9 @@ public:
                 static_cast<unsigned long long>(
                     stats.layerFilterCpuTimeNs / 1000u),
                 static_cast<unsigned long long>(
-                    stats.layerCompositeRenderCpuTimeNs / 1000u));
+                    stats.layerCompositeRenderCpuTimeNs / 1000u),
+                static_cast<unsigned long long>(
+                    stats.frameCompileCpuTimeNs / 1000u));
         }
     }
 
