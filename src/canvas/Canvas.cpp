@@ -145,6 +145,205 @@ private:
     bool previous_ = false;
 };
 
+// FNV-1a 64-bit content fingerprint helpers used to detect frame-to-frame
+// stability of pre-layer command sequences. This is the foundation for the
+// backdrop compile-result cache: a hit means the pre-layer draw output is
+// visually identical to the previous frame's, so the offscreen render + blur
+// can be reused. Returning 0 from fingerprintCommand() means "cannot be
+// fingerprinted safely" and disables caching over that command.
+//
+// NOTE (PoC diagnostics): initial device measurements on the compositing_stress
+// scene show fingerprint compute at ~1ms per 1489 commands (acceptable) but
+// stableFrames=0 across ~290 frames despite visually static pre-layer content.
+// A follow-up commit needs to isolate which per-frame-varying field slips
+// through: prime suspects are ClipMaskState.fingerprint (may re-hash each
+// frame due to clip-stack rebuild churn) and float precision in the affine
+// transforms. Until that is resolved, the fingerprint is measurement-only and
+// no cache decision consumes its output.
+struct Fnv1a64
+{
+    std::uint64_t state = 0xcbf29ce484222325ULL;
+
+    inline void mixBytes(const void *data, std::size_t bytes)
+    {
+        const auto *p = static_cast<const std::uint8_t *>(data);
+        for (std::size_t i = 0; i < bytes; ++i) {
+            state = (state ^ p[i]) * 0x100000001b3ULL;
+        }
+    }
+
+    template <typename T>
+    inline void mix(const T &value)
+    {
+        mixBytes(&value, sizeof(T));
+    }
+};
+
+// Returns 0 when the command contains state we cannot safely fingerprint
+// (e.g., a Points/Lines/Shadow command). Callers must treat 0 as poison and
+// disable caching over the containing sequence.
+inline std::uint64_t fingerprintCommand(const Command *cmd)
+{
+    if (cmd == nullptr) {
+        return 0;
+    }
+    Fnv1a64 h;
+    const std::uint8_t typeTag = static_cast<std::uint8_t>(cmd->type());
+    h.mix(typeTag);
+    switch (cmd->type()) {
+    case Command::Type::Path: {
+        const auto &d =
+            static_cast<const DrawPathCommand *>(cmd)->data();
+        h.mix(d.width);
+        h.mixBytes(d.color, sizeof(d.color));
+        h.mix(d.drawMode);
+        h.mix(d.capStyle);
+        h.mixBytes(&d.transform, sizeof(d.transform));
+        h.mixBytes(&d.scissor, sizeof(d.scissor));
+        h.mix(d.blendMode);
+        h.mix(d.clipMask.fingerprint);
+        h.mix(d.gradientType);
+        h.mix(d.gradientTileMode);
+        h.mixBytes(d.gradientStart, sizeof(d.gradientStart));
+        h.mixBytes(d.gradientEnd, sizeof(d.gradientEnd));
+        h.mixBytes(d.radialCenter, sizeof(d.radialCenter));
+        h.mix(d.radialRadius);
+        h.mix(d.gradientStopCount);
+        if (d.gradientStops) {
+            h.mixBytes(
+                d.gradientStops.get(),
+                sizeof(DrawPathGradientStops));
+        }
+        if (d.sharedGeometry) {
+            h.mix(d.sharedGeometry->topologyFingerprint);
+            h.mix(d.sharedGeometry->tessellatedVertexCount);
+        } else if (!d.points.empty()) {
+            h.mixBytes(
+                d.points.data(),
+                d.points.size() * sizeof(float));
+            if (!d.indices.empty()) {
+                h.mixBytes(
+                    d.indices.data(),
+                    d.indices.size() * sizeof(std::uint32_t));
+            }
+        } else {
+            // Empty path draw is a no-op; folding it into the fingerprint
+            // with no positional data would be indistinguishable from a
+            // different empty-path command, so mark uncacheable to be safe.
+            return 0;
+        }
+        break;
+    }
+    case Command::Type::Image: {
+        const auto &d =
+            static_cast<const DrawImageCommand *>(cmd)->data();
+        // Fingerprint the backend-stable texture handle rather than the
+        // SharedImageResource pointer. RenderTargetPool re-wraps the same GL
+        // texture as a fresh SharedImageResource across frames, so pointer
+        // identity churns even when the image content is stable.
+        const std::uint64_t texHandle = d.imageResource
+            ? d.imageResource->nativeHandle().value
+            : 0;
+        h.mix(texHandle);
+        h.mixBytes(&d.x, sizeof(float) * 8u); // x,y,w,h,u0,v0,u1,v1
+        h.mix(d.roundedRadius);
+        h.mixBytes(d.tintColor, sizeof(d.tintColor));
+        h.mix(d.hasColorMatrix);
+        if (d.hasColorMatrix) {
+            h.mixBytes(d.colorMatrix, sizeof(d.colorMatrix));
+            h.mixBytes(
+                d.colorMatrixOffset, sizeof(d.colorMatrixOffset));
+        }
+        h.mix(d.alpha);
+        h.mix(d.clearTypeMask);
+        h.mix(d.rgbCoverageMask);
+        h.mix(d.sampling);
+        h.mix(d.tileMode);
+        h.mixBytes(&d.transform, sizeof(d.transform));
+        h.mixBytes(&d.scissor, sizeof(d.scissor));
+        h.mix(d.blendMode);
+        h.mix(d.clipMask.fingerprint);
+        h.mix(d.gradientType);
+        h.mix(d.gradientTileMode);
+        h.mixBytes(d.gradientStart, sizeof(d.gradientStart));
+        h.mixBytes(d.gradientEnd, sizeof(d.gradientEnd));
+        h.mixBytes(d.radialCenter, sizeof(d.radialCenter));
+        h.mix(d.radialRadius);
+        h.mix(d.gradientStopCount);
+        if (d.gradientStopCount > 0) {
+            h.mixBytes(
+                d.gradientStopPositions,
+                sizeof(d.gradientStopPositions));
+            h.mixBytes(
+                d.gradientStopColors,
+                sizeof(d.gradientStopColors));
+        }
+        break;
+    }
+    case Command::Type::ImageBatch: {
+        const auto &d =
+            static_cast<const DrawImageBatchCommand *>(cmd)->data();
+        const std::uint64_t texHandle = d.imageResource
+            ? d.imageResource->nativeHandle().value
+            : 0;
+        h.mix(texHandle);
+        h.mixBytes(d.tintColor, sizeof(d.tintColor));
+        h.mix(d.alpha);
+        h.mixBytes(&d.transform, sizeof(d.transform));
+        h.mixBytes(&d.scissor, sizeof(d.scissor));
+        h.mix(d.blendMode);
+        h.mix(d.clipMask.fingerprint);
+        if (d.quads.empty()) {
+            return 0;
+        }
+        h.mixBytes(
+            d.quads.data(),
+            d.quads.size() * sizeof(DrawImageBatchQuad));
+        break;
+    }
+    case Command::Type::Text: {
+        const auto &d =
+            static_cast<const DrawTextCommand *>(cmd)->data();
+        h.mixBytes(d.color, sizeof(d.color));
+        h.mixBytes(&d.transform, sizeof(d.transform));
+        h.mixBytes(&d.scissor, sizeof(d.scissor));
+        h.mix(d.blendMode);
+        h.mix(d.clipMask.fingerprint);
+        h.mix(d.gradientType);
+        h.mix(d.gradientTileMode);
+        h.mixBytes(d.gradientStart, sizeof(d.gradientStart));
+        h.mixBytes(d.gradientEnd, sizeof(d.gradientEnd));
+        h.mixBytes(d.radialCenter, sizeof(d.radialCenter));
+        h.mix(d.radialRadius);
+        h.mix(d.gradientStopCount);
+        if (d.gradientStopCount > 0) {
+            h.mixBytes(
+                d.gradientStopPositions,
+                sizeof(d.gradientStopPositions));
+            h.mixBytes(
+                d.gradientStopColors,
+                sizeof(d.gradientStopColors));
+        }
+        if (d.vertices.empty()) {
+            return 0;
+        }
+        h.mixBytes(
+            d.vertices.data(),
+            d.vertices.size() * sizeof(float));
+        break;
+    }
+    case Command::Type::Points:
+    case Command::Type::Lines:
+    case Command::Type::Shadow:
+        // These command kinds are not yet covered. Returning 0 forces the
+        // caller to disable caching whenever they appear in the sequence.
+        return 0;
+    }
+    // Reserve 0 as the "uncacheable" sentinel; deterministic collision-free
+    // remap to a non-zero code when the FNV-1a state happens to be 0.
+    return h.state != 0 ? h.state : 1;
+}
+
 void applyGammaFramebufferState()
 {
 #if !defined(WHATSCANVAS_SOFTWARE_ONLY) && !defined(WHATSCANVAS_METAL_ONLY)
@@ -3146,6 +3345,15 @@ struct Canvas::Impl
     std::size_t simpleFillPrimitiveCount = 0;
     std::uint64_t simpleFillGeometryCpuTimeNs = 0;
     std::uint64_t simpleFillSubmitCpuTimeNs = 0;
+    // Foundation for the backdrop compile-result cache. Fingerprints are
+    // computed only on saveLayer restore paths that request a backdrop
+    // filter; costs and hit/miss counts flow through RenderStats so a follow-
+    // up commit can integrate a real cache without further diagnostics.
+    std::uint64_t lastBackdropCommandsFingerprint = 0;
+    std::uint64_t backdropFingerprintCpuTimeNs = 0;
+    std::size_t backdropFingerprintStableFrames = 0;
+    std::size_t backdropFingerprintDivergentFrames = 0;
+    std::size_t backdropFingerprintUncacheable = 0;
     std::uint64_t retainedPictureRasterUseEpoch = 0;
     std::size_t retainedPictureRasterBudgetBytes = 32u * 1024u * 1024u;
     std::vector<std::weak_ptr<const Picture>> retainedPictures;
@@ -4306,6 +4514,14 @@ Canvas::RenderStats Canvas::getRenderStats() const
         frameStats.layerFilterCpuTimeNs;
     stats.layerCompositeRenderCpuTimeNs =
         frameStats.layerCompositeRenderCpuTimeNs;
+    stats.backdropFingerprintCpuTimeNs =
+        impl_->backdropFingerprintCpuTimeNs;
+    stats.backdropFingerprintStableFrames =
+        impl_->backdropFingerprintStableFrames;
+    stats.backdropFingerprintDivergentFrames =
+        impl_->backdropFingerprintDivergentFrames;
+    stats.backdropFingerprintUncacheable =
+        impl_->backdropFingerprintUncacheable;
     stats.pathVertexCount = frameStats.pathVertexCount;
     stats.pathInputVertexCount =
         frameStats.pathInputVertexCount;
@@ -7139,6 +7355,42 @@ void Canvas::Impl::restoreLayer(const LayerState &layer)
     std::vector<std::unique_ptr<Command>> layerCommands;
     std::size_t generatedBackdropCommandCount = 0;
     if (layer.options.hasBackdropFilter()) {
+        // Compute a pre-layer command sequence fingerprint. This is
+        // measurement-only for now; the follow-up cache implementation will
+        // use the same fingerprint plus a filter-chain fingerprint and layer
+        // geometry key to skip the backdrop rerender + filter altogether when
+        // the pre-layer content is stable across frames.
+        const auto fingerprintStart = std::chrono::steady_clock::now();
+        std::uint64_t combined = 0xcbf29ce484222325ULL;
+        bool cacheable = true;
+        const std::size_t preLayerCount = layer.commandStart;
+        for (std::size_t i = 0; i < preLayerCount; ++i) {
+            const Command *cmd = renderer->commandAt(i);
+            const std::uint64_t stepFp = fingerprintCommand(cmd);
+            if (stepFp == 0) {
+                cacheable = false;
+                break;
+            }
+            combined = (combined ^ stepFp) * 0x100000001b3ULL;
+        }
+        const auto fingerprintEnd = std::chrono::steady_clock::now();
+        backdropFingerprintCpuTimeNs +=
+            static_cast<std::uint64_t>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    fingerprintEnd - fingerprintStart).count());
+        if (cacheable) {
+            if (lastBackdropCommandsFingerprint == combined
+                && lastBackdropCommandsFingerprint != 0) {
+                ++backdropFingerprintStableFrames;
+            } else {
+                ++backdropFingerprintDivergentFrames;
+            }
+            lastBackdropCommandsFingerprint = combined;
+        } else {
+            ++backdropFingerprintUncacheable;
+            lastBackdropCommandsFingerprint = 0;
+        }
+
         SharedImageResource backdrop = renderer->renderQueuedCommandsToImageResource(layer.commandStart, request);
         if (backdrop && backdrop->isValid()) {
             SharedImageResource filteredBackdrop =
