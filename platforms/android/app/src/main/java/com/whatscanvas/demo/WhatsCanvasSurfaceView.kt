@@ -103,21 +103,37 @@ class WhatsCanvasRenderer(
     private val sceneId: String,
     private val densityProvider: () -> Float
 ) : GLSurfaceView.Renderer {
+    private val nanoVG = sceneId.startsWith(NANOVG_SCENE_PREFIX)
+    private val nativeSceneId = sceneId.removePrefix(NANOVG_SCENE_PREFIX)
     private val startedAtNanos = System.nanoTime()
     private var frameWindowStartedAtNanos = 0L
     private var frameWindowCount = 0
     @Volatile
-    private var nativeHandle: Long = nativeCreate(sceneId)
+    private var nativeHandle: Long = if (nanoVG) {
+        nativeNanoCreate(nativeSceneId)
+    } else {
+        nativeCreate(sceneId)
+    }
     var captureTimeSeconds: Float? = null
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
-        if (!nativeSurfaceCreated(nativeHandle)) {
+        val initialized = if (nanoVG) {
+            nativeNanoSurfaceCreated(nativeHandle)
+        } else {
+            nativeSurfaceCreated(nativeHandle)
+        }
+        if (!initialized) {
             Log.e(TAG, "Unable to initialize the OpenGL ES function loader")
         }
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
-        if (!nativeResize(nativeHandle, width, height, densityProvider())) {
+        val resized = if (nanoVG) {
+            nativeNanoResize(nativeHandle, width, height, densityProvider())
+        } else {
+            nativeResize(nativeHandle, width, height, densityProvider())
+        }
+        if (!resized) {
             Log.e(TAG, "Unable to create the WhatsCanvas OpenGLES renderer")
         }
     }
@@ -126,7 +142,11 @@ class WhatsCanvasRenderer(
         val nowNanos = System.nanoTime()
         val elapsedSeconds = captureTimeSeconds
             ?: (nowNanos - startedAtNanos) / 1_000_000_000.0f
-        nativeRender(nativeHandle, elapsedSeconds)
+        if (nanoVG) {
+            nativeNanoRender(nativeHandle, elapsedSeconds)
+        } else {
+            nativeRender(nativeHandle, elapsedSeconds)
+        }
 
         if (frameWindowStartedAtNanos == 0L) {
             frameWindowStartedAtNanos = nowNanos
@@ -135,7 +155,9 @@ class WhatsCanvasRenderer(
         val windowNanos = nowNanos - frameWindowStartedAtNanos
         if (windowNanos >= FRAME_LOG_INTERVAL_NANOS) {
             val renderedFps = frameWindowCount * 1_000_000_000.0 / windowNanos
-            Log.i(TAG, "Frame pacing: renderedFps=%.1f frames=%d".format(renderedFps, frameWindowCount))
+            val backend = if (nanoVG) "NanoVG" else "WhatsCanvas"
+            Log.i(TAG, "Frame pacing: backend=%s renderedFps=%.1f frames=%d".format(
+                backend, renderedFps, frameWindowCount))
             frameWindowStartedAtNanos = nowNanos
             frameWindowCount = 0
         }
@@ -143,14 +165,18 @@ class WhatsCanvasRenderer(
 
     fun ensureNativeRenderer() {
         if (nativeHandle == 0L) {
-            nativeHandle = nativeCreate(sceneId)
+            nativeHandle = if (nanoVG) {
+                nativeNanoCreate(nativeSceneId)
+            } else {
+                nativeCreate(sceneId)
+            }
         }
     }
 
     fun destroyOnGlThread() {
         val handle = nativeHandle
         if (handle != 0L) {
-            nativeDestroy(handle)
+            if (nanoVG) nativeNanoDestroy(handle) else nativeDestroy(handle)
             nativeHandle = 0L
         }
     }
@@ -160,13 +186,22 @@ class WhatsCanvasRenderer(
     private external fun nativeResize(handle: Long, width: Int, height: Int, density: Float): Boolean
     private external fun nativeRender(handle: Long, elapsedSeconds: Float)
     private external fun nativeDestroy(handle: Long)
+    private external fun nativeNanoCreate(sceneId: String): Long
+    private external fun nativeNanoSurfaceCreated(handle: Long): Boolean
+    private external fun nativeNanoResize(
+        handle: Long, width: Int, height: Int, density: Float
+    ): Boolean
+    private external fun nativeNanoRender(handle: Long, elapsedSeconds: Float)
+    private external fun nativeNanoDestroy(handle: Long)
 
     private companion object {
         const val TAG = "WhatsCanvas"
+        const val NANOVG_SCENE_PREFIX = "nanovg_"
         const val FRAME_LOG_INTERVAL_NANOS = 5_000_000_000L
 
         init {
             System.loadLibrary("whatscanvas_android")
+            System.loadLibrary("nanovg_android")
         }
     }
 }
