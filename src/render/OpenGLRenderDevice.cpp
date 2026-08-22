@@ -24,6 +24,7 @@
 #include "render/GammaCorrect.h"
 #include "render/FrameCompiler.h"
 #include "render/RenderTargetPool.h"
+#include "render/SpriteBatch.h"
 #include "render/GLPresent.h"
 
 struct OpenGLContextState
@@ -407,6 +408,8 @@ DrawBlendMode blendModeFromDrawListIndex(int mode)
 
 } // namespace
 
+OpenGLRenderDevice::OpenGLRenderDevice() = default;
+
 OpenGLRenderDevice::~OpenGLRenderDevice()
 {
     finalizeBackend();
@@ -446,6 +449,10 @@ void OpenGLRenderDevice::abandonBackend()
     if (renderTargetPool_) {
         renderTargetPool_->clear();
     }
+    if (offscreenSpriteBatch_) {
+        offscreenSpriteBatch_->abandonGLResources();
+        offscreenSpriteBatch_.reset();
+    }
 
     std::fill(std::begin(gpuTimerQueries_), std::end(gpuTimerQueries_), 0u);
     std::fill(std::begin(gpuTimerPending_), std::end(gpuTimerPending_), false);
@@ -477,6 +484,7 @@ void OpenGLRenderDevice::finalizeBackend()
     if (renderTargetPool_) {
         renderTargetPool_->clear();
     }
+    offscreenSpriteBatch_.reset();
 
 #if !defined(WHATSCANVAS_OPENGL_ES)
     if (gpuTimerQueries_[0] != 0u && glDeleteQueries != nullptr) {
@@ -731,27 +739,50 @@ RenderResourceStats OpenGLRenderDevice::resourceStats() const
     return stats;
 }
 
-bool OpenGLRenderDevice::executeDrawList(const wsc::DrawList &drawList, int width, int height,
-                                         int scissorOffsetX, int scissorOffsetY) const
+bool OpenGLRenderDevice::executeDrawList(const wsc::DrawList &drawList,
+                                         int canvasWidth, int canvasHeight,
+                                         int targetHeight) const
 {
-    if (width <= 0 || height <= 0) {
+    if (canvasWidth <= 0 || canvasHeight <= 0 || targetHeight <= 0) {
         return false;
     }
 
     RenderContext context;
-    context.setSize(width, height);
-    context.setScissorOffset(scissorOffsetX, scissorOffsetY);
+    context.setSize(canvasWidth, canvasHeight);
+    if (!offscreenSpriteBatch_) {
+        offscreenSpriteBatch_ = std::make_unique<SpriteBatch>();
+    }
+    SpriteBatch &spriteBatch = *offscreenSpriteBatch_;
+    spriteBatch.beginFrame();
+    DrawPathProgram *pathProgram = DrawPathProgram::getInstance();
+    bool pathBatchActive = false;
+    const auto endPathBatch = [&]() {
+        if (pathBatchActive) {
+            pathProgram->endBatch();
+            pathBatchActive = false;
+        }
+    };
+    const auto fail = [&]() {
+        endPathBatch();
+        spriteBatch.endBatch();
+        return false;
+    };
 
     for (const wsc::DrawPrimitive &prim : drawList) {
         ScissorState scissor;
         if (prim.scissorEnabled) {
             scissor.enabled = true;
             scissor.x = prim.scissorX;
-            scissor.y = height - (prim.scissorY + prim.scissorHeight);
+            // DrawPrimitive scissors are already resolved into the cropped
+            // target by CommandDrawListEncoder. Convert from its top-left
+            // convention to GL bottom-left exactly once.
+            scissor.y = targetHeight
+                - (prim.scissorY + prim.scissorHeight);
             scissor.width = prim.scissorWidth;
             scissor.height = prim.scissorHeight;
         }
         const DrawBlendMode blendMode = blendModeFromDrawListIndex(prim.blendMode);
+        context.applyScissorState(scissor);
         context.applyBlendMode(blendMode);
 
         if (prim.kind == wsc::DrawPrimitiveKind::SolidTriangles || prim.kind == wsc::DrawPrimitiveKind::GradientFill) {
@@ -760,18 +791,20 @@ bool OpenGLRenderDevice::executeDrawList(const wsc::DrawList &drawList, int widt
                 prim.indices.empty() ? vertexCount : prim.indices.size();
             if ((prim.positions.size() % 2u) != 0u || vertexCount < 3
                 || elementCount < 3 || (elementCount % 3u) != 0u) {
-                return false;
+                return fail();
             }
             for (const std::uint32_t index : prim.indices) {
                 if (index >= vertexCount) {
-                    return false;
+                    return fail();
                 }
             }
             DrawPathData data;
             data.points.reserve(prim.positions.size());
             for (std::size_t i = 0; i < vertexCount; ++i) {
-                data.points.push_back(fromNdcX(prim.positions[i * 2u + 0u], width));
-                data.points.push_back(fromNdcY(prim.positions[i * 2u + 1u], height));
+                data.points.push_back(fromNdcX(
+                    prim.positions[i * 2u + 0u], canvasWidth));
+                data.points.push_back(fromNdcY(
+                    prim.positions[i * 2u + 1u], canvasHeight));
             }
             data.indices = prim.indices;
             data.colors = prim.colors;
@@ -804,17 +837,65 @@ bool OpenGLRenderDevice::executeDrawList(const wsc::DrawList &drawList, int widt
                     stops.colors, prim.gradientStopColors,
                     sizeof(stops.colors));
             }
-            DrawPathProgram::getInstance()->draw(context, data);
+            if (!pathBatchActive) {
+                pathProgram->beginBatch();
+                pathBatchActive = true;
+            }
+            pathProgram->draw(context, data);
         } else if (prim.kind == wsc::DrawPrimitiveKind::TexturedQuad) {
-            if (!prim.texture || prim.positions.size() < 12u || prim.uvs.size() != prim.positions.size()) {
-                return false;
+            endPathBatch();
+            if (!prim.texture || prim.positions.size() < 12u
+                || prim.positions.size() % 12u != 0u
+                || prim.uvs.size() != prim.positions.size()) {
+                return fail();
+            }
+            const std::size_t quadCount = prim.positions.size() / 12u;
+            if (quadCount > 1u || !prim.packedTints.empty()) {
+                spriteBatch.clear();
+                spriteBatch.setTexture(prim.texture);
+                for (std::size_t quad = 0; quad < quadCount; ++quad) {
+                    const std::size_t base = quad * 12u;
+                    const float x = fromNdcX(
+                        prim.positions[base], canvasWidth);
+                    const float y = fromNdcY(
+                        prim.positions[base + 1u], canvasHeight);
+                    const float right = fromNdcX(
+                        prim.positions[base + 4u], canvasWidth);
+                    const float bottom = fromNdcY(
+                        prim.positions[base + 5u], canvasHeight);
+                    float tint[4] = {
+                        prim.tint[0], prim.tint[1], prim.tint[2],
+                        prim.tint[3] * prim.layerAlpha,
+                    };
+                    if (!prim.packedTints.empty()) {
+                        const std::uint32_t packed =
+                            prim.packedTints[quad * 6u];
+                        tint[0] *= static_cast<float>(packed & 0xffu)
+                            / 255.0f;
+                        tint[1] *= static_cast<float>(
+                            (packed >> 8u) & 0xffu) / 255.0f;
+                        tint[2] *= static_cast<float>(
+                            (packed >> 16u) & 0xffu) / 255.0f;
+                        tint[3] *= static_cast<float>(
+                            (packed >> 24u) & 0xffu) / 255.0f;
+                    }
+                    GammaCorrect::srgbToLinear4(tint);
+                    spriteBatch.add(
+                        x, y, right - x, bottom - y,
+                        prim.uvs[base], prim.uvs[base + 1u],
+                        prim.uvs[base + 4u], prim.uvs[base + 5u],
+                        tint[0], tint[1], tint[2], tint[3]);
+                }
+                spriteBatch.flush(context, blendMode);
+                spriteBatch.endBatch();
+                continue;
             }
             DrawImageData data;
             data.imageResource = prim.texture;
-            data.x = fromNdcX(prim.positions[0], width);
-            data.y = fromNdcY(prim.positions[1], height);
-            const float x1 = fromNdcX(prim.positions[4], width);
-            const float y1 = fromNdcY(prim.positions[5], height);
+            data.x = fromNdcX(prim.positions[0], canvasWidth);
+            data.y = fromNdcY(prim.positions[1], canvasHeight);
+            const float x1 = fromNdcX(prim.positions[4], canvasWidth);
+            const float y1 = fromNdcY(prim.positions[5], canvasHeight);
             data.width = x1 - data.x;
             data.height = y1 - data.y;
             data.u0 = prim.uvs[0];
@@ -822,6 +903,7 @@ bool OpenGLRenderDevice::executeDrawList(const wsc::DrawList &drawList, int widt
             data.u1 = prim.uvs[4];
             data.v1 = prim.uvs[5];
             data.alpha = prim.layerAlpha;
+            data.roundedRadius = prim.roundedRadius;
             data.tintColor[0] = prim.tint[0];
             data.tintColor[1] = prim.tint[1];
             data.tintColor[2] = prim.tint[2];
@@ -851,8 +933,9 @@ bool OpenGLRenderDevice::executeDrawList(const wsc::DrawList &drawList, int widt
             }
             DrawImageProgram::getInstance()->draw(context, data);
         } else if (prim.kind == wsc::DrawPrimitiveKind::ClipFill) {
+            endPathBatch();
             if (!prim.texture || !prim.texture->isValid()) {
-                return false;
+                return fail();
             }
             wsc::opengl::DrawClipFillData data;
             data.positions = &prim.positions;
@@ -869,10 +952,11 @@ bool OpenGLRenderDevice::executeDrawList(const wsc::DrawList &drawList, int widt
             clipProgram->initialize();
             clipProgram->draw(context, data);
         } else {
-            return false;
+            return fail();
         }
     }
 
+    endPathBatch();
     return true;
 }
 
@@ -932,11 +1016,7 @@ SharedImageResource OpenGLRenderDevice::renderCommandsToImageResource(const std:
 
     renderTarget->activate();
     bool rendered = false;
-    const bool fullCanvasTarget =
-        request.targetWidth == request.canvasWidth
-        && request.targetHeight == request.canvasHeight
-        && request.viewportX == 0 && request.viewportY == 0;
-    if (fullCanvasTarget) {
+    {
         CommandDrawListEncodeRequest compileRequest;
         compileRequest.canvasWidth = request.canvasWidth;
         compileRequest.canvasHeight = request.canvasHeight;
@@ -950,20 +1030,71 @@ SharedImageResource OpenGLRenderDevice::renderCommandsToImageResource(const std:
             for (const wsc::DrawPrimitive &packet : frame.packets) {
                 if (packet.kind == wsc::DrawPrimitiveKind::GaussianShadow
                     || packet.kind == wsc::DrawPrimitiveKind::ClipFill
+                    || packet.clipTexture
                     || (packet.kind == wsc::DrawPrimitiveKind::TexturedQuad
-                        && (packet.positions.size() != 12u
-                            || !packet.packedTints.empty()
-                            || !packet.texturedInstances.empty()))) {
+                        && (!packet.texturedInstances.empty()
+                            || packet.gradientType != 0
+                            || (packet.positions.size() != 12u
+                                && (packet.hasColorMatrix
+                                    || packet.sampling != 0
+                                    || packet.tileMode != 0))))) {
                     portable = false;
+                    break;
+                }
+                if (packet.kind == wsc::DrawPrimitiveKind::TexturedQuad) {
+                    if (packet.positions.empty()
+                        || packet.positions.size() % 12u != 0u
+                        || packet.uvs.size() != packet.positions.size()
+                        || (!packet.packedTints.empty()
+                            && packet.packedTints.size()
+                                != packet.positions.size() / 2u)) {
+                        portable = false;
+                        break;
+                    }
+                    const auto near = [](float left, float right) {
+                        return std::fabs(left - right) <= 1.0e-5f;
+                    };
+                    const std::vector<float> &p = packet.positions;
+                    for (std::size_t base = 0; base < p.size();
+                         base += 12u) {
+                        const bool axisAligned =
+                            near(p[base + 1u], p[base + 3u])
+                            && near(p[base + 1u], p[base + 7u])
+                            && near(p[base + 2u], p[base + 4u])
+                            && near(p[base + 4u], p[base + 8u])
+                            && near(p[base + 5u], p[base + 9u])
+                            && near(p[base + 5u], p[base + 11u])
+                            && near(p[base + 6u], p[base + 10u])
+                            && near(p[base], p[base + 6u]);
+                        if (!axisAligned) {
+                            portable = false;
+                            break;
+                        }
+                        if (!packet.packedTints.empty()) {
+                            const std::uint32_t tint =
+                                packet.packedTints[base / 2u];
+                            for (std::size_t vertex = 1; vertex < 6u;
+                                 ++vertex) {
+                                if (packet.packedTints[base / 2u + vertex]
+                                    != tint) {
+                                    portable = false;
+                                    break;
+                                }
+                            }
+                        }
+                        if (!portable) {
+                            break;
+                        }
+                    }
+                }
+                if (!portable) {
                     break;
                 }
             }
             if (portable) {
                 rendered = executeDrawList(
                     frame.packets, request.canvasWidth,
-                    request.canvasHeight,
-                    request.scissorOffsetX,
-                    request.scissorOffsetY);
+                    request.canvasHeight, request.targetHeight);
                 if (rendered) {
                     lastCompiledPacketCount_ =
                         frame.stats.packetCount;
@@ -978,8 +1109,8 @@ SharedImageResource OpenGLRenderDevice::renderCommandsToImageResource(const std:
         }
     }
     if (!rendered) {
-        // The direct path remains the correctness fallback for cropped layers,
-        // complex clip masks, and packet kinds not covered by portable replay.
+        // The direct path remains the correctness fallback for complex clip
+        // masks and packet kinds not covered by portable replay.
         RenderContext context;
         context.setSize(request.canvasWidth, request.canvasHeight);
         context.setScissorOffset(

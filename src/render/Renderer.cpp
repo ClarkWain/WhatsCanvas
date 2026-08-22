@@ -580,10 +580,14 @@ SharedImageResource Renderer::renderCommandsToImageResource(const std::vector<st
         return {};
     }
 
+    const auto startTime = std::chrono::steady_clock::now();
     stats_.commandCount += commands.size();
     SharedImageResource resource = device_->renderCommandsToImageResource(commands, request);
     if (resource && resource->isValid()) {
-        stats_.drawCallCount += commands.size();
+        const std::size_t compiledPacketCount =
+            device_->lastCompiledPacketCount();
+        stats_.drawCallCount += compiledPacketCount > 0
+            ? compiledPacketCount : commands.size();
         ++stats_.renderTargetSwitches;
         stats_.frameCompileCpuTimeNs +=
             device_->lastFrameCompileCpuTimeNs();
@@ -594,6 +598,11 @@ SharedImageResource Renderer::renderCommandsToImageResource(const std::vector<st
         stats_.compiledIndexBytes +=
             device_->lastCompiledIndexBytes();
     }
+    const auto endTime = std::chrono::steady_clock::now();
+    stats_.layerCompositeRenderCpuTimeNs +=
+        static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                endTime - startTime).count());
     return resource;
 }
 
@@ -604,9 +613,33 @@ SharedImageResource Renderer::renderQueuedCommandsToImageResource(
         return {};
     }
 
-    return commandEnd == commands_.size()
-        ? renderCommandsToImageResource(commands_, request)
-        : SharedImageResource();
+    if (commandEnd != commands_.size()) {
+        return SharedImageResource();
+    }
+
+    const auto startTime = std::chrono::steady_clock::now();
+    // renderCommandsToImageResource itself accumulates into
+    // layerCompositeRenderCpuTimeNs. Snapshot the prior value so we can
+    // reassign the same wall-clock cost to the backdrop bucket instead,
+    // preserving the total but attributing it to the correct saveLayer stage.
+    const std::uint64_t priorComposite =
+        stats_.layerCompositeRenderCpuTimeNs;
+    SharedImageResource resource =
+        renderCommandsToImageResource(commands_, request);
+    const std::uint64_t compositeDelta =
+        stats_.layerCompositeRenderCpuTimeNs - priorComposite;
+    stats_.layerCompositeRenderCpuTimeNs = priorComposite;
+    const auto endTime = std::chrono::steady_clock::now();
+    // Prefer the delegate delta when it fits, so wrapping/refactor changes to
+    // renderCommandsToImageResource do not silently double count.
+    const std::uint64_t elapsed =
+        static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                endTime - startTime).count());
+    stats_.layerBackdropRenderCpuTimeNs +=
+        compositeDelta > 0 && compositeDelta <= elapsed
+            ? compositeDelta : elapsed;
+    return resource;
 }
 
 SharedImageResource Renderer::filterImageResource(const SharedImageResource &source,
@@ -620,6 +653,7 @@ SharedImageResource Renderer::filterImageResource(const SharedImageResource &sou
     if (device_ == nullptr) {
         return {};
     }
+    const auto startTime = std::chrono::steady_clock::now();
     FilterExecutionStats execution;
     SharedImageResource result =
         device_->filterImageResource(source, width, height, filter, &execution);
@@ -634,6 +668,11 @@ SharedImageResource Renderer::filterImageResource(const SharedImageResource &sou
             static_cast<std::size_t>(width) * static_cast<std::size_t>(height);
         stats_.filterPixelPassCount += execution.pixelPassCount;
     }
+    const auto endTime = std::chrono::steady_clock::now();
+    stats_.layerFilterCpuTimeNs +=
+        static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                endTime - startTime).count());
     return result;
 }
 

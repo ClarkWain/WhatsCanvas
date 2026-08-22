@@ -22,6 +22,7 @@ public:
     ~DrawImageProgram();
 
     void initialize(bool commonProgram);
+    void initializeFast(bool premultiplied);
     void release(bool abandon = false);
     void draw(const RenderContext &context, const DrawImageData &data);
 
@@ -32,6 +33,8 @@ private:
 
     GLProgram *program_ = nullptr;
     GLProgram *commonProgram_ = nullptr;
+    GLProgram *fastStraightProgram_ = nullptr;
+    GLProgram *fastPremultipliedProgram_ = nullptr;
     unsigned int VAO_ = static_cast<unsigned int>(-1);
     StreamBuffer vertexBuffer_;
     bool initialized_ = false;
