@@ -1,9 +1,9 @@
 #include "GaussianBlurProgram.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <string>
-#include <vector>
 
 #include "GLShaderSource.h"
 #include "GLProgram.h"
@@ -47,7 +47,7 @@ void GaussianBlurProgram::initialize()
         uniform sampler2D uTexture;
         uniform int uMode;        // 0 = alpha blur, 1 = composite, 2 = RGBA blur, 3 = inner shadow
         uniform vec2 uDirection;  // texel step along the blur axis
-        uniform int uRadius;
+        uniform int uRadius;      // number of positive sample locations
         uniform int uDecal;
         uniform int uColorAdjust;
         uniform int uSourcePremultiplied;
@@ -55,7 +55,7 @@ void GaussianBlurProgram::initialize()
         uniform int uResampleStraightAlpha;
         uniform vec3 uColorAdjustment; // saturation, brightness, contrast
         uniform float uGrain;
-        uniform float uWeights[65];
+        uniform vec2 uTaps[65];   // x = weight, y = fractional texel offset
         uniform vec4 uTint;
         uniform sampler2D uOriginalTexture;
         uniform vec2 uInnerShadowOffset;
@@ -132,29 +132,29 @@ void GaussianBlurProgram::initialize()
         void main()
         {
             if (uMode == 0) {
-                float a = texture(uTexture, vUv).a * uWeights[0];
+                float a = texture(uTexture, vUv).a * uTaps[0].x;
                 for (int i = 1; i <= 64; ++i) {
                     if (i > uRadius) {
                         break;
                     }
-                    vec2 offset = uDirection * float(i);
-                    a += texture(uTexture, vUv + offset).a * uWeights[i];
-                    a += texture(uTexture, vUv - offset).a * uWeights[i];
+                    vec2 offset = uDirection * uTaps[i].y;
+                    a += texture(uTexture, vUv + offset).a * uTaps[i].x;
+                    a += texture(uTexture, vUv - offset).a * uTaps[i].x;
                 }
                 FragColor = vec4(1.0, 1.0, 1.0, a);
             }
             #ifndef WHATSCANVAS_SIMPLE_BLUR
             else if (uMode == 2) {
-                vec4 sum = samplePremultiplied(vUv) * uWeights[0];
+                vec4 sum = samplePremultiplied(vUv) * uTaps[0].x;
                 for (int i = 1; i <= 64; ++i) {
                     if (i > uRadius) {
                         break;
                     }
-                    vec2 offset = uDirection * float(i);
+                    vec2 offset = uDirection * uTaps[i].y;
                     vec2 loUv = vUv - offset;
                     vec2 hiUv = vUv + offset;
-                    sum += samplePremultiplied(loUv) * uWeights[i];
-                    sum += samplePremultiplied(hiUv) * uWeights[i];
+                    sum += samplePremultiplied(loUv) * uTaps[i].x;
+                    sum += samplePremultiplied(hiUv) * uTaps[i].x;
                 }
                 if (uOutputStraight == 0) {
                     FragColor = sum;
@@ -419,10 +419,35 @@ void GaussianBlurProgram::blurPassImpl(GLuint srcTexture, GLuint dstFramebuffer,
     activeProgram->setFloat("uGrain", grain);
     activeProgram->setVec2("uDirection", direction);
 
-    const int radius = std::min(kernel.radius(), kMaxRadius);
-    activeProgram->setInt("uRadius", radius);
-    for (int i = 0; i <= radius; ++i) {
-        activeProgram->setFloat("uWeights[" + std::to_string(i) + "]", kernel.weights[static_cast<std::size_t>(i)]);
+    // A premultiplied sample can combine neighboring Gaussian taps through
+    // bilinear interpolation without changing the convolution. Straight-alpha
+    // inputs must be premultiplied per discrete sample first, so they retain
+    // the unpaired path.
+    const bool canPairLinearSamples = mode == 0
+        || (sourcePremultiplied && !resampleStraightAlpha);
+    std::array<float, kMaxRadius + 1> weights{};
+    std::array<float, kMaxRadius + 1> offsets{};
+    int tapCount = 0;
+    if (canPairLinearSamples) {
+        tapCount = wsc::render::packGaussianKernelForLinearSampling(
+            kernel, weights.data(), offsets.data(), kMaxRadius + 1);
+    } else {
+        const int radius = std::min(kernel.radius(), kMaxRadius);
+        for (int tap = 0; tap <= radius; ++tap) {
+            weights[static_cast<std::size_t>(tap)] =
+                kernel.weights[static_cast<std::size_t>(tap)];
+            offsets[static_cast<std::size_t>(tap)] =
+                static_cast<float>(tap);
+        }
+        tapCount = radius + 1;
+    }
+    const int sampleCount = std::max(0, std::min(tapCount - 1, kMaxRadius));
+    activeProgram->setInt("uRadius", sampleCount);
+    for (int i = 0; i <= sampleCount; ++i) {
+        activeProgram->setVec2(
+            "uTaps[" + std::to_string(i) + "]",
+            glm::vec2(weights[static_cast<std::size_t>(i)],
+                      offsets[static_cast<std::size_t>(i)]));
     }
 
     glActiveTexture(GL_TEXTURE0);

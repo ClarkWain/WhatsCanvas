@@ -133,6 +133,119 @@ bool testGaussianShadowSemanticPreserved()
                   "path shadow silhouette should retain analytic AA coverage");
 }
 
+bool testAdjacentSolidTrianglesAreMerged()
+{
+    DrawPathData first;
+    first.points = {0.0f, 0.0f, 8.0f, 0.0f, 0.0f, 8.0f};
+    first.color[0] = 1.0f;
+    first.color[1] = 0.0f;
+    first.color[2] = 0.0f;
+    first.color[3] = 0.5f;
+
+    DrawPathData second;
+    second.points = {8.0f, 8.0f, 16.0f, 8.0f, 16.0f, 16.0f};
+    second.color[0] = 0.0f;
+    second.color[1] = 0.0f;
+    second.color[2] = 1.0f;
+    second.color[3] = 0.75f;
+    second.coverage = {1.0f, 0.5f, 0.0f};
+
+    std::vector<std::unique_ptr<Command>> commands;
+    commands.push_back(std::make_unique<DrawPathCommand>(std::move(first)));
+    commands.push_back(std::make_unique<DrawPathCommand>(std::move(second)));
+    CommandDrawListEncodeRequest request;
+    request.canvasWidth = 16;
+    request.canvasHeight = 16;
+    request.targetHeight = 16;
+    CompiledFrame frame;
+    FrameCompiler compiler;
+    if (!expect(compiler.compile(commands, request, frame),
+                "adjacent solid triangles should compile")
+        || !expect(frame.packets.size() == 1,
+                   "compatible adjacent solids should merge into one packet")) {
+        return false;
+    }
+    const wsc::DrawPrimitive &packet = frame.packets.front();
+    return expect(packet.positions.size() == 12,
+                  "merged packet should retain all six vertices")
+        && expect(packet.colors.size() == 24,
+                  "merged packet should expand both uniform colors")
+        && expect(near(packet.colors[0], 1.0f)
+                      && near(packet.colors[14], 1.0f),
+                  "merged packet should preserve ordered red and blue colors")
+        && expect(packet.coverage.size() == 6,
+                  "merged packet should supply default and explicit coverage")
+        && expect(near(packet.coverage[2], 1.0f)
+                      && near(packet.coverage[4], 0.5f),
+                  "merged packet should preserve coverage values");
+}
+
+bool testSameColorSolidTrianglesStayUniform()
+{
+    DrawPathData first;
+    first.points = {0.0f, 0.0f, 8.0f, 0.0f, 0.0f, 8.0f};
+    first.color[0] = 0.25f;
+    first.color[1] = 0.5f;
+    first.color[2] = 0.75f;
+    first.color[3] = 1.0f;
+    DrawPathData second = first;
+    second.points = {8.0f, 8.0f, 16.0f, 8.0f, 16.0f, 16.0f};
+
+    std::vector<std::unique_ptr<Command>> commands;
+    commands.push_back(std::make_unique<DrawPathCommand>(std::move(first)));
+    commands.push_back(std::make_unique<DrawPathCommand>(std::move(second)));
+    CommandDrawListEncodeRequest request;
+    request.canvasWidth = 16;
+    request.canvasHeight = 16;
+    request.targetHeight = 16;
+    CompiledFrame frame;
+    FrameCompiler compiler;
+    if (!expect(compiler.compile(commands, request, frame)
+                && frame.packets.size() == 1,
+                "same-color solids should merge")) {
+        return false;
+    }
+    const wsc::DrawPrimitive &packet = frame.packets.front();
+    return expect(packet.colors.empty(),
+                  "same-color merged solids should remain uniform")
+        && expect(near(packet.color[0], 0.25f)
+                      && near(packet.color[2], 0.75f),
+                  "same-color merged solids should retain their uniform tint");
+}
+
+bool testCroppedTargetScissorIsResolvedOnce()
+{
+    DrawPathData path;
+    path.points = {10.0f, 20.0f, 20.0f, 20.0f, 10.0f, 30.0f};
+    path.scissor.enabled = true;
+    path.scissor.x = 10;
+    path.scissor.y = 170;
+    path.scissor.width = 20;
+    path.scissor.height = 10;
+
+    std::vector<std::unique_ptr<Command>> commands;
+    commands.push_back(std::make_unique<DrawPathCommand>(std::move(path)));
+    CommandDrawListEncodeRequest request;
+    request.canvasWidth = 100;
+    request.canvasHeight = 200;
+    request.targetHeight = 40;
+    request.scissorOffsetX = -5;
+    request.scissorOffsetY = -160;
+    CompiledFrame frame;
+    FrameCompiler compiler;
+    if (!expect(compiler.compile(commands, request, frame),
+                "cropped scissor command should compile")) {
+        return false;
+    }
+    const wsc::DrawPrimitive &packet = frame.packets.front();
+    return expect(packet.scissorEnabled,
+                  "cropped scissor should remain enabled")
+        && expect(packet.scissorX == 5 && packet.scissorY == 20,
+                  "cropped scissor should be expressed in target coordinates")
+        && expect(packet.scissorWidth == 20 && packet.scissorHeight == 10,
+                  "cropped scissor dimensions should remain unchanged");
+}
+
 } // namespace
 
 int main()
@@ -218,6 +331,9 @@ int main()
                "encoder should preserve zero coverage")
             && testLinearImageGradientUsesVertexTints()
             && testGaussianShadowSemanticPreserved()
+            && testAdjacentSolidTrianglesAreMerged()
+            && testSameColorSolidTrianglesStayUniform()
+            && testCroppedTargetScissorIsResolvedOnce()
         ? 0
         : 1;
 }
