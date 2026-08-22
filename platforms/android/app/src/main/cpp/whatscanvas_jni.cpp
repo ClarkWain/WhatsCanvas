@@ -803,7 +803,8 @@ public:
                 "recordCpu=%lluus pictureCpu=%lluus dynamicCpu=%lluus flushCpu=%lluus "
                 "simpleFill=%zu/%llu/%lluus "
                 "saveLayer=%llu/%llu/%lluus "
-                "frameCompile=%lluus",
+                "frameCompile=%lluus "
+                "bdFp=%lluus/%zu/%zu/%zu",
                 stats.commandCount, stats.drawCallCount,
                 stats.pathVertexCount, stats.pathUploadCount,
                 stats.pathUploadBytes / 1024u,
@@ -869,7 +870,12 @@ public:
                 static_cast<unsigned long long>(
                     stats.layerCompositeRenderCpuTimeNs / 1000u),
                 static_cast<unsigned long long>(
-                    stats.frameCompileCpuTimeNs / 1000u));
+                    stats.frameCompileCpuTimeNs / 1000u),
+                static_cast<unsigned long long>(
+                    stats.backdropFingerprintCpuTimeNs / 1000u),
+                stats.backdropFingerprintStableFrames,
+                stats.backdropFingerprintDivergentFrames,
+                stats.backdropFingerprintUncacheable);
         }
     }
 

@@ -143,6 +143,16 @@ struct Canvas::RenderStats
 	std::uint64_t layerBackdropRenderCpuTimeNs = 0;
 	std::uint64_t layerFilterCpuTimeNs = 0;
 	std::uint64_t layerCompositeRenderCpuTimeNs = 0;
+	/// Backdrop compile-result cache PoC diagnostics. `backdropFingerprintCpuTimeNs`
+	/// measures the cost of hashing the pre-layer command sequence; the counters
+	/// track how often that sequence is stable across frames (cache-hit-eligible)
+	/// versus divergent (miss) or uncacheable because a command kind currently
+	/// has no fingerprint implementation. These fields exist so a follow-up
+	/// change can integrate an actual cache without adding more diagnostics.
+	std::uint64_t backdropFingerprintCpuTimeNs = 0;
+	std::size_t backdropFingerprintStableFrames = 0;
+	std::size_t backdropFingerprintDivergentFrames = 0;
+	std::size_t backdropFingerprintUncacheable = 0;
 	std::size_t trackedResourceBytes = 0;
 };
 
