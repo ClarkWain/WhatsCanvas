@@ -58,6 +58,14 @@
 #include "StrokeTessellator.h"
 #include "stb_easy_font.h"
 
+// Per-primitive steady_clock probes for the simple-fill path are a diagnostic
+// aid only. They cost ~1ms across ~700 primitives in the Compositing scene, so
+// they are compiled out by default to keep recordCpu numbers uncontaminated.
+// Define WHATSCANVAS_ENABLE_SIMPLE_FILL_STATS at build time to re-enable them.
+#ifndef WHATSCANVAS_ENABLE_SIMPLE_FILL_STATS
+#define WHATSCANVAS_ENABLE_SIMPLE_FILL_STATS 0
+#endif
+
 namespace wsc {
 
 struct Picture::Impl
@@ -136,6 +144,291 @@ private:
     bool &flag_;
     bool previous_ = false;
 };
+
+// FNV-1a 64-bit content fingerprint helpers used to detect frame-to-frame
+// stability of pre-layer command sequences. This is the foundation for the
+// backdrop compile-result cache: a hit means the pre-layer draw output is
+// visually identical to the previous frame's, so the offscreen render + blur
+// can be reused. Returning 0 from fingerprintCommand() means "cannot be
+// fingerprinted safely" and disables caching over that command.
+//
+// NOTE (PoC diagnostics): initial device measurements on the compositing_stress
+// scene show fingerprint compute at ~1ms per 1489 commands (acceptable) but
+// stableFrames=0 across ~290 frames despite visually static pre-layer content.
+// A follow-up commit needs to isolate which per-frame-varying field slips
+// through: prime suspects are ClipMaskState.fingerprint (may re-hash each
+// frame due to clip-stack rebuild churn) and float precision in the affine
+// transforms. Until that is resolved, the fingerprint is measurement-only and
+// no cache decision consumes its output.
+struct Fnv1a64
+{
+    std::uint64_t state = 0xcbf29ce484222325ULL;
+
+    inline void mixBytes(const void *data, std::size_t bytes)
+    {
+        const auto *p = static_cast<const std::uint8_t *>(data);
+        for (std::size_t i = 0; i < bytes; ++i) {
+            state = (state ^ p[i]) * 0x100000001b3ULL;
+        }
+    }
+
+    template <typename T>
+    inline void mix(const T &value)
+    {
+        mixBytes(&value, sizeof(T));
+    }
+};
+
+// Returns 0 when the command contains state we cannot safely fingerprint
+// (e.g., a Points/Lines/Shadow command). Callers must treat 0 as poison and
+// disable caching over the containing sequence.
+inline void mixScissorState(Fnv1a64 &h, const ScissorState &s)
+{
+    // ScissorState has a bool followed by four ints, which introduces
+    // implementation-defined padding bytes. Those bytes remain uninitialized
+    // when Canvas constructs a scissor state per frame, so hashing the raw
+    // struct pulls stale-stack garbage into the fingerprint and breaks
+    // frame-to-frame stability. Hash each field explicitly to avoid it.
+    const std::uint8_t enabled = s.enabled ? 1u : 0u;
+    h.mix(enabled);
+    h.mix(s.x);
+    h.mix(s.y);
+    h.mix(s.width);
+    h.mix(s.height);
+}
+
+// Fingerprint an ImageFilterChain field-by-field. ImageFilterChain::Node
+// mixes an enum + ImageFilter (fixed 32 bytes) + a 20-float array + two
+// floats and can carry padding around the initial NodeType tag, so we
+// avoid raw mixBytes on the Node itself and hash each semantically
+// meaningful field.
+inline std::uint64_t fingerprintImageFilterChain(const ImageFilterChain &chain)
+{
+    Fnv1a64 h;
+    const std::size_t nodeCount = chain.size();
+    h.mix(nodeCount);
+    for (std::size_t i = 0; i < nodeCount; ++i) {
+        const auto &node = chain[i];
+        const std::uint8_t nodeType =
+            static_cast<std::uint8_t>(node.type);
+        h.mix(nodeType);
+        switch (node.type) {
+        case ImageFilterChain::NodeType::ImageFilter: {
+            const auto &f = node.imageFilter;
+            const std::uint8_t filterType =
+                static_cast<std::uint8_t>(f.type());
+            const std::uint8_t tileMode =
+                static_cast<std::uint8_t>(f.tileMode());
+            h.mix(filterType);
+            h.mix(tileMode);
+            const float radiusX = f.radiusX();
+            const float radiusY = f.radiusY();
+            const float saturation = f.saturation();
+            const float brightness = f.brightness();
+            const float contrast = f.contrast();
+            const float grain = f.grain();
+            h.mix(radiusX);
+            h.mix(radiusY);
+            h.mix(saturation);
+            h.mix(brightness);
+            h.mix(contrast);
+            h.mix(grain);
+            if (f.type() == ImageFilter::Type::InnerShadow) {
+                const float offsetX = f.offsetX();
+                const float offsetY = f.offsetY();
+                const Color color = f.shadowColor();
+                h.mix(offsetX);
+                h.mix(offsetY);
+                const std::uint8_t r =
+                    static_cast<std::uint8_t>(color.getR());
+                const std::uint8_t g =
+                    static_cast<std::uint8_t>(color.getG());
+                const std::uint8_t b =
+                    static_cast<std::uint8_t>(color.getB());
+                const std::uint8_t a =
+                    static_cast<std::uint8_t>(color.getA());
+                h.mix(r);
+                h.mix(g);
+                h.mix(b);
+                h.mix(a);
+            }
+            break;
+        }
+        case ImageFilterChain::NodeType::ColorMatrix:
+            h.mixBytes(
+                node.colorMatrix.data(),
+                node.colorMatrix.size() * sizeof(float));
+            break;
+        case ImageFilterChain::NodeType::Offset:
+            h.mix(node.offsetX);
+            h.mix(node.offsetY);
+            break;
+        }
+    }
+    return h.state != 0 ? h.state : 1;
+}
+
+inline std::uint64_t fingerprintCommand(const Command *cmd)
+{
+    if (cmd == nullptr) {
+        return 0;
+    }
+    Fnv1a64 h;
+    const std::uint8_t typeTag = static_cast<std::uint8_t>(cmd->type());
+    h.mix(typeTag);
+    switch (cmd->type()) {
+    case Command::Type::Path: {
+        const auto &d =
+            static_cast<const DrawPathCommand *>(cmd)->data();
+        h.mix(d.width);
+        h.mixBytes(d.color, sizeof(d.color));
+        h.mix(d.drawMode);
+        h.mix(d.capStyle);
+        h.mixBytes(&d.transform, sizeof(d.transform));
+        mixScissorState(h, d.scissor);
+        h.mix(d.blendMode);
+        h.mix(d.clipMask.fingerprint);
+        h.mix(d.gradientType);
+        h.mix(d.gradientTileMode);
+        h.mixBytes(d.gradientStart, sizeof(d.gradientStart));
+        h.mixBytes(d.gradientEnd, sizeof(d.gradientEnd));
+        h.mixBytes(d.radialCenter, sizeof(d.radialCenter));
+        h.mix(d.radialRadius);
+        h.mix(d.gradientStopCount);
+        if (d.gradientStops) {
+            h.mixBytes(
+                d.gradientStops.get(),
+                sizeof(DrawPathGradientStops));
+        }
+        if (d.sharedGeometry) {
+            h.mix(d.sharedGeometry->topologyFingerprint);
+            h.mix(d.sharedGeometry->tessellatedVertexCount);
+        } else if (!d.points.empty()) {
+            h.mixBytes(
+                d.points.data(),
+                d.points.size() * sizeof(float));
+            if (!d.indices.empty()) {
+                h.mixBytes(
+                    d.indices.data(),
+                    d.indices.size() * sizeof(std::uint32_t));
+            }
+        } else {
+            // Empty path draw is a no-op; folding it into the fingerprint
+            // with no positional data would be indistinguishable from a
+            // different empty-path command, so mark uncacheable to be safe.
+            return 0;
+        }
+        break;
+    }
+    case Command::Type::Image: {
+        const auto &d =
+            static_cast<const DrawImageCommand *>(cmd)->data();
+        // Fingerprint the backend-stable texture handle rather than the
+        // SharedImageResource pointer. RenderTargetPool re-wraps the same GL
+        // texture as a fresh SharedImageResource across frames, so pointer
+        // identity churns even when the image content is stable.
+        const std::uint64_t texHandle = d.imageResource
+            ? d.imageResource->nativeHandle().value
+            : 0;
+        h.mix(texHandle);
+        h.mixBytes(&d.x, sizeof(float) * 8u); // x,y,w,h,u0,v0,u1,v1
+        h.mix(d.roundedRadius);
+        h.mixBytes(d.tintColor, sizeof(d.tintColor));
+        h.mix(d.hasColorMatrix);
+        if (d.hasColorMatrix) {
+            h.mixBytes(d.colorMatrix, sizeof(d.colorMatrix));
+            h.mixBytes(
+                d.colorMatrixOffset, sizeof(d.colorMatrixOffset));
+        }
+        h.mix(d.alpha);
+        h.mix(d.clearTypeMask);
+        h.mix(d.rgbCoverageMask);
+        h.mix(d.sampling);
+        h.mix(d.tileMode);
+        h.mixBytes(&d.transform, sizeof(d.transform));
+        mixScissorState(h, d.scissor);
+        h.mix(d.blendMode);
+        h.mix(d.clipMask.fingerprint);
+        h.mix(d.gradientType);
+        h.mix(d.gradientTileMode);
+        h.mixBytes(d.gradientStart, sizeof(d.gradientStart));
+        h.mixBytes(d.gradientEnd, sizeof(d.gradientEnd));
+        h.mixBytes(d.radialCenter, sizeof(d.radialCenter));
+        h.mix(d.radialRadius);
+        h.mix(d.gradientStopCount);
+        if (d.gradientStopCount > 0) {
+            h.mixBytes(
+                d.gradientStopPositions,
+                sizeof(d.gradientStopPositions));
+            h.mixBytes(
+                d.gradientStopColors,
+                sizeof(d.gradientStopColors));
+        }
+        break;
+    }
+    case Command::Type::ImageBatch: {
+        const auto &d =
+            static_cast<const DrawImageBatchCommand *>(cmd)->data();
+        const std::uint64_t texHandle = d.imageResource
+            ? d.imageResource->nativeHandle().value
+            : 0;
+        h.mix(texHandle);
+        h.mixBytes(d.tintColor, sizeof(d.tintColor));
+        h.mix(d.alpha);
+        h.mixBytes(&d.transform, sizeof(d.transform));
+        mixScissorState(h, d.scissor);
+        h.mix(d.blendMode);
+        h.mix(d.clipMask.fingerprint);
+        if (d.quads.empty()) {
+            return 0;
+        }
+        h.mixBytes(
+            d.quads.data(),
+            d.quads.size() * sizeof(DrawImageBatchQuad));
+        break;
+    }
+    case Command::Type::Text: {
+        const auto &d =
+            static_cast<const DrawTextCommand *>(cmd)->data();
+        h.mixBytes(d.color, sizeof(d.color));
+        h.mixBytes(&d.transform, sizeof(d.transform));
+        mixScissorState(h, d.scissor);
+        h.mix(d.blendMode);
+        h.mix(d.clipMask.fingerprint);
+        h.mix(d.gradientType);
+        h.mix(d.gradientTileMode);
+        h.mixBytes(d.gradientStart, sizeof(d.gradientStart));
+        h.mixBytes(d.gradientEnd, sizeof(d.gradientEnd));
+        h.mixBytes(d.radialCenter, sizeof(d.radialCenter));
+        h.mix(d.radialRadius);
+        h.mix(d.gradientStopCount);
+        if (d.gradientStopCount > 0) {
+            h.mixBytes(
+                d.gradientStopPositions,
+                sizeof(d.gradientStopPositions));
+            h.mixBytes(
+                d.gradientStopColors,
+                sizeof(d.gradientStopColors));
+        }
+        if (d.vertices.empty()) {
+            return 0;
+        }
+        h.mixBytes(
+            d.vertices.data(),
+            d.vertices.size() * sizeof(float));
+        break;
+    }
+    case Command::Type::Points:
+    case Command::Type::Lines:
+    case Command::Type::Shadow:
+        // These command kinds are not yet covered. Returning 0 forces the
+        // caller to disable caching whenever they appear in the sequence.
+        return 0;
+    }
+    // Reserve 0 as the "uncacheable" sentinel; deterministic collision-free
+    // remap to a non-zero code when the FNV-1a state happens to be 0.
+    return h.state != 0 ? h.state : 1;
+}
 
 void applyGammaFramebufferState()
 {
@@ -3135,6 +3428,49 @@ struct Canvas::Impl
     std::uint64_t retainedPictureRasterTextBackendCpuTimeNs = 0;
     std::uint64_t retainedPictureRasterTextAtlasCpuTimeNs = 0;
     bool measuringRetainedPictureRasterPrepare = false;
+    std::size_t simpleFillPrimitiveCount = 0;
+    std::uint64_t simpleFillGeometryCpuTimeNs = 0;
+    std::uint64_t simpleFillSubmitCpuTimeNs = 0;
+    // Foundation for the backdrop compile-result cache. Fingerprints are
+    // computed only on saveLayer restore paths that request a backdrop
+    // filter; costs and hit/miss counts flow through RenderStats so a follow-
+    // up commit can integrate a real cache without further diagnostics.
+    std::uint64_t lastBackdropCommandsFingerprint = 0;
+    std::uint64_t backdropFingerprintCpuTimeNs = 0;
+    std::size_t backdropFingerprintStableFrames = 0;
+    std::size_t backdropFingerprintDivergentFrames = 0;
+    std::size_t backdropFingerprintUncacheable = 0;
+    // Per-command fingerprints kept across frames so the first divergent
+    // command (index + type) can be identified when stableFrames stays at 0.
+    // Only populated on saveLayer restore paths with a backdrop filter.
+    std::vector<std::uint64_t> lastPreLayerCommandFingerprints;
+    std::size_t backdropFirstDivergentIndex = 0;
+    std::uint32_t backdropFirstDivergentType = 0;
+    std::uint32_t backdropFirstDivergentReason = 0; // 0=none 1=type 2=hash 3=count
+    // Backdrop compile-result cache (PoC integration). When the pre-layer
+    // command fingerprint plus filter chain plus geometry key match the
+    // previous frame's, restoreLayer reuses the cached filtered backdrop
+    // instead of rerendering pre-layer commands to an offscreen target and
+    // running the filter chain again. Skips the biggest single cost in the
+    // compositing_stress scene (measured 12-15 ms/frame). Correctness of the
+    // reused image is guaranteed by the fingerprint including every
+    // rendering-visible field; when any pre-layer command carries state we
+    // cannot fingerprint (uncacheable=1), caching is disabled for the frame.
+    struct BackdropCacheEntry
+    {
+        std::uint64_t commandsFingerprint = 0;
+        std::uint64_t filterFingerprint = 0;
+        int layerLeft = 0;
+        int layerTop = 0;
+        int layerWidth = 0;
+        int layerHeight = 0;
+        int canvasWidth = 0;
+        int canvasHeight = 0;
+        SharedImageResource filteredBackdrop;
+    };
+    BackdropCacheEntry backdropCache;
+    std::size_t backdropCacheHits = 0;
+    std::size_t backdropCacheMisses = 0;
     std::uint64_t retainedPictureRasterUseEpoch = 0;
     std::size_t retainedPictureRasterBudgetBytes = 32u * 1024u * 1024u;
     std::vector<std::weak_ptr<const Picture>> retainedPictures;
@@ -3806,6 +4142,9 @@ bool Canvas::Impl::submitSimpleFillPrimitive(
         || !(primitive.height > 0.0f)) {
         return true;
     }
+#if WHATSCANVAS_ENABLE_SIMPLE_FILL_STATS
+    const auto primitiveStart = std::chrono::steady_clock::now();
+#endif
 
     const std::uint64_t fillKey =
         hashSimpleFillPrimitive(primitive);
@@ -3877,6 +4216,9 @@ bool Canvas::Impl::submitSimpleFillPrimitive(
         }
         data.points = flattenPoints(*fillTriangles);
     }
+#if WHATSCANVAS_ENABLE_SIMPLE_FILL_STATS
+    const auto geometryEnd = std::chrono::steady_clock::now();
+#endif
 
     data.width = paint.getStrokeWidth();
     const Color color = applyPaintAlpha(
@@ -3907,6 +4249,16 @@ bool Canvas::Impl::submitSimpleFillPrimitive(
     renderer->submit(
         std::make_unique<DrawPathCommand>(
             std::move(data)));
+#if WHATSCANVAS_ENABLE_SIMPLE_FILL_STATS
+    const auto submitEnd = std::chrono::steady_clock::now();
+    ++simpleFillPrimitiveCount;
+    simpleFillGeometryCpuTimeNs += static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            geometryEnd - primitiveStart).count());
+    simpleFillSubmitCpuTimeNs += static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            submitEnd - geometryEnd).count());
+#endif
     return true;
 }
 
@@ -4273,6 +4625,28 @@ Canvas::RenderStats Canvas::getRenderStats() const
     stats.downsampledFilterCount = frameStats.downsampledFilterCount;
     stats.filterInputPixelCount = frameStats.filterInputPixelCount;
     stats.filterPixelPassCount = frameStats.filterPixelPassCount;
+    stats.layerBackdropRenderCpuTimeNs =
+        frameStats.layerBackdropRenderCpuTimeNs;
+    stats.layerFilterCpuTimeNs =
+        frameStats.layerFilterCpuTimeNs;
+    stats.layerCompositeRenderCpuTimeNs =
+        frameStats.layerCompositeRenderCpuTimeNs;
+    stats.backdropFingerprintCpuTimeNs =
+        impl_->backdropFingerprintCpuTimeNs;
+    stats.backdropFingerprintStableFrames =
+        impl_->backdropFingerprintStableFrames;
+    stats.backdropFingerprintDivergentFrames =
+        impl_->backdropFingerprintDivergentFrames;
+    stats.backdropFingerprintUncacheable =
+        impl_->backdropFingerprintUncacheable;
+    stats.backdropFirstDivergentIndex =
+        impl_->backdropFirstDivergentIndex;
+    stats.backdropFirstDivergentType =
+        impl_->backdropFirstDivergentType;
+    stats.backdropFirstDivergentReason =
+        impl_->backdropFirstDivergentReason;
+    stats.backdropCacheHits = impl_->backdropCacheHits;
+    stats.backdropCacheMisses = impl_->backdropCacheMisses;
     stats.pathVertexCount = frameStats.pathVertexCount;
     stats.pathInputVertexCount =
         frameStats.pathInputVertexCount;
@@ -4350,6 +4724,11 @@ Canvas::RenderStats Canvas::getRenderStats() const
     stats.aaCacheMisses = impl_->fillAaCache.missCount();
     stats.aaCacheSize = impl_->fillAaCache.size();
     stats.aaCacheBytes = impl_->fillAaCache.residentBytes();
+    stats.simpleFillPrimitiveCount = impl_->simpleFillPrimitiveCount;
+    stats.simpleFillGeometryCpuTimeNs =
+        impl_->simpleFillGeometryCpuTimeNs;
+    stats.simpleFillSubmitCpuTimeNs =
+        impl_->simpleFillSubmitCpuTimeNs;
     stats.strokeCacheHits = impl_->strokeTessellationCache.hitCount();
     stats.strokeCacheMisses = impl_->strokeTessellationCache.missCount();
     stats.strokeCacheSize = impl_->strokeTessellationCache.size();
@@ -7101,30 +7480,163 @@ void Canvas::Impl::restoreLayer(const LayerState &layer)
     std::vector<std::unique_ptr<Command>> layerCommands;
     std::size_t generatedBackdropCommandCount = 0;
     if (layer.options.hasBackdropFilter()) {
-        SharedImageResource backdrop = renderer->renderQueuedCommandsToImageResource(layer.commandStart, request);
-        if (backdrop && backdrop->isValid()) {
-            SharedImageResource filteredBackdrop =
-                renderer->filterImageResource(backdrop, layerWidth, layerHeight,
-                                              layer.options.backdropFilterChain());
-            if (filteredBackdrop && filteredBackdrop->isValid()) {
-                DrawImageData backdropData;
-                backdropData.imageResource = std::move(filteredBackdrop);
-                backdropData.x = layerRect.getX();
-                backdropData.y = layerRect.getY();
-                backdropData.width = layerRect.getWidth();
-                backdropData.height = layerRect.getHeight();
-                backdropData.u0 = 0.0f;
-                backdropData.u1 = 1.0f;
-                const bool flipBackdrop =
-                    backdropData.imageResource->origin() == ImageOrigin::BottomLeft;
-                backdropData.v0 = flipBackdrop ? 1.0f : 0.0f;
-                backdropData.v1 = flipBackdrop ? 0.0f : 1.0f;
-                backdropData.sampling = DrawImageSampling::Linear;
-                backdropData.tileMode = DrawImageTileMode::Clamp;
-                backdropData.transform = glm::mat4(1.0f);
-                layerCommands.push_back(std::make_unique<DrawImageCommand>(backdropData));
-                generatedBackdropCommandCount = 1;
+        // Compute a pre-layer command sequence fingerprint. This is
+        // measurement-only for now; the follow-up cache implementation will
+        // use the same fingerprint plus a filter-chain fingerprint and layer
+        // geometry key to skip the backdrop rerender + filter altogether when
+        // the pre-layer content is stable across frames.
+        const auto fingerprintStart = std::chrono::steady_clock::now();
+        std::uint64_t combined = 0xcbf29ce484222325ULL;
+        bool cacheable = true;
+        const std::size_t preLayerCount = layer.commandStart;
+        thread_local std::vector<std::uint64_t> perCommand;
+        perCommand.clear();
+        perCommand.reserve(preLayerCount);
+        thread_local std::vector<std::uint8_t> perCommandType;
+        perCommandType.clear();
+        perCommandType.reserve(preLayerCount);
+        for (std::size_t i = 0; i < preLayerCount; ++i) {
+            const Command *cmd = renderer->commandAt(i);
+            const std::uint64_t stepFp = fingerprintCommand(cmd);
+            perCommand.push_back(stepFp);
+            perCommandType.push_back(cmd == nullptr
+                ? static_cast<std::uint8_t>(0xffu)
+                : static_cast<std::uint8_t>(cmd->type()));
+            if (stepFp == 0) {
+                cacheable = false;
+                break;
             }
+            combined = (combined ^ stepFp) * 0x100000001b3ULL;
+        }
+        const auto fingerprintEnd = std::chrono::steady_clock::now();
+        backdropFingerprintCpuTimeNs +=
+            static_cast<std::uint64_t>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    fingerprintEnd - fingerprintStart).count());
+        if (cacheable) {
+            if (lastBackdropCommandsFingerprint == combined
+                && lastBackdropCommandsFingerprint != 0) {
+                ++backdropFingerprintStableFrames;
+                backdropFirstDivergentReason = 0;
+            } else {
+                ++backdropFingerprintDivergentFrames;
+                // Bisect the divergence: walk the previous frame's
+                // per-command fingerprint list until the first mismatching
+                // slot. Persist its index/type so external tooling can
+                // identify which pre-layer command is unstable.
+                if (lastPreLayerCommandFingerprints.size() != perCommand.size()) {
+                    backdropFirstDivergentReason = 3; // count mismatch
+                    backdropFirstDivergentIndex = std::min(
+                        lastPreLayerCommandFingerprints.size(),
+                        perCommand.size());
+                    backdropFirstDivergentType = 0;
+                } else {
+                    backdropFirstDivergentReason = 0;
+                    for (std::size_t i = 0; i < perCommand.size(); ++i) {
+                        if (lastPreLayerCommandFingerprints[i]
+                                != perCommand[i]) {
+                            backdropFirstDivergentReason = 2; // hash diff
+                            backdropFirstDivergentIndex = i;
+                            backdropFirstDivergentType = i < perCommandType.size()
+                                ? static_cast<std::uint32_t>(perCommandType[i])
+                                : 0;
+                            break;
+                        }
+                    }
+                }
+            }
+            lastBackdropCommandsFingerprint = combined;
+            lastPreLayerCommandFingerprints = perCommand;
+        } else {
+            ++backdropFingerprintUncacheable;
+            lastBackdropCommandsFingerprint = 0;
+            lastPreLayerCommandFingerprints.clear();
+            // Clear the divergence-report fields so that a subsequent
+            // stale-looking bdDiv= value in the log actually reflects this
+            // frame's uncacheable status instead of leaking a stale index /
+            // type / reason left over from an earlier divergent frame.
+            backdropFirstDivergentReason = 0;
+            backdropFirstDivergentIndex = 0;
+            backdropFirstDivergentType = 0;
+        }
+
+        // Cache lookup. Reuse the previous frame's filtered backdrop when
+        // every rendering-visible input matches: pre-layer command
+        // fingerprint, backdrop filter chain fingerprint, and geometry
+        // (canvas + layer rect). Cache is disabled for the frame if any
+        // pre-layer command carried unfingerprintable state.
+        const std::uint64_t filterFp = fingerprintImageFilterChain(
+            layer.options.backdropFilterChain());
+        const bool geometryMatches =
+            backdropCache.canvasWidth == width
+            && backdropCache.canvasHeight == height
+            && backdropCache.layerLeft == layerLeft
+            && backdropCache.layerTop == layerTop
+            && backdropCache.layerWidth == layerWidth
+            && backdropCache.layerHeight == layerHeight;
+        const bool cacheHitEligible = cacheable
+            && backdropCache.commandsFingerprint == combined
+            && backdropCache.commandsFingerprint != 0
+            && backdropCache.filterFingerprint == filterFp
+            && geometryMatches
+            && backdropCache.filteredBackdrop
+            && backdropCache.filteredBackdrop->isValid();
+        SharedImageResource filteredBackdrop;
+        if (cacheHitEligible) {
+            ++backdropCacheHits;
+            filteredBackdrop = backdropCache.filteredBackdrop;
+        } else {
+            ++backdropCacheMisses;
+            SharedImageResource backdrop =
+                renderer->renderQueuedCommandsToImageResource(
+                    layer.commandStart, request);
+            if (backdrop && backdrop->isValid()) {
+                filteredBackdrop = renderer->filterImageResource(
+                    backdrop, layerWidth, layerHeight,
+                    layer.options.backdropFilterChain());
+            }
+            // Populate the cache only when this frame's filter succeeded
+            // and the fingerprint sequence is cacheable. Note the cached
+            // SharedImageResource points at the backend's filter output;
+            // the fingerprint invalidation on the next frame is what
+            // guarantees safety when RenderTargetPool re-hosts the same
+            // GL texture with fresh content.
+            if (cacheable
+                && filteredBackdrop
+                && filteredBackdrop->isValid()) {
+                backdropCache.commandsFingerprint = combined;
+                backdropCache.filterFingerprint = filterFp;
+                backdropCache.canvasWidth = width;
+                backdropCache.canvasHeight = height;
+                backdropCache.layerLeft = layerLeft;
+                backdropCache.layerTop = layerTop;
+                backdropCache.layerWidth = layerWidth;
+                backdropCache.layerHeight = layerHeight;
+                backdropCache.filteredBackdrop = filteredBackdrop;
+            } else {
+                backdropCache.commandsFingerprint = 0;
+                backdropCache.filteredBackdrop.reset();
+            }
+        }
+        if (filteredBackdrop && filteredBackdrop->isValid()) {
+            DrawImageData backdropData;
+            backdropData.imageResource = filteredBackdrop;
+            backdropData.x = layerRect.getX();
+            backdropData.y = layerRect.getY();
+            backdropData.width = layerRect.getWidth();
+            backdropData.height = layerRect.getHeight();
+            backdropData.u0 = 0.0f;
+            backdropData.u1 = 1.0f;
+            const bool flipBackdrop =
+                backdropData.imageResource->origin() == ImageOrigin::BottomLeft;
+            backdropData.v0 = flipBackdrop ? 1.0f : 0.0f;
+            backdropData.v1 = flipBackdrop ? 0.0f : 1.0f;
+            backdropData.sampling = DrawImageSampling::Linear;
+            backdropData.tileMode = DrawImageTileMode::Clamp;
+            backdropData.transform = glm::mat4(1.0f);
+            layerCommands.push_back(
+                std::make_unique<DrawImageCommand>(backdropData));
+            generatedBackdropCommandCount = 1;
         }
     }
     for (auto &command : commands) {
@@ -7904,6 +8416,9 @@ void Canvas::beginFrame()
     impl_->retainedPictureRasterTextBackendCpuTimeNs = 0;
     impl_->retainedPictureRasterTextAtlasCpuTimeNs = 0;
     impl_->measuringRetainedPictureRasterPrepare = false;
+    impl_->simpleFillPrimitiveCount = 0;
+    impl_->simpleFillGeometryCpuTimeNs = 0;
+    impl_->simpleFillSubmitCpuTimeNs = 0;
     impl_->fillTessellationCache.beginEpoch();
     impl_->fillAaCache.beginEpoch();
     impl_->strokeTessellationCache.beginEpoch();
