@@ -50,6 +50,24 @@ add_subdirectory(
 add_library(whatscanvas_android SHARED
     whatscanvas_jni.cpp)
 
+add_library(nanovg_android SHARED
+    nanovg_benchmark.cpp
+    "${WHATSCANVAS_ROOT}/third_party/nanovg/src/nanovg.c")
+
+target_include_directories(nanovg_android PRIVATE
+    "${WHATSCANVAS_ROOT}/third_party/nanovg/src")
+
+target_compile_options(nanovg_android PRIVATE
+    -Wall
+    -Wextra)
+
+target_link_libraries(nanovg_android PRIVATE
+    ${ANDROID_LIBRARY}
+    ${EGL_LIBRARY}
+    ${GLES3_LIBRARY}
+    ${LOG_LIBRARY}
+    ${CMAKE_DL_LIBS})
+
 target_include_directories(whatscanvas_android PRIVATE
     "${WHATSCANVAS_ROOT}")
 

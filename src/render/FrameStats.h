@@ -47,6 +47,10 @@ struct FrameStats
     std::size_t pathUploadBytes = 0;        ///< OpenGL path stream bytes.
     std::size_t pathTopologyCacheHits = 0;  ///< Reused merged topology packets.
     std::size_t pathTopologyCacheMisses = 0;///< Rebuilt merged topology packets.
+    /// saveLayer breakdown. Each accumulates across every layer restored this frame.
+    std::uint64_t layerBackdropRenderCpuTimeNs = 0; ///< Backdrop pre-layer render CPU cost.
+    std::uint64_t layerFilterCpuTimeNs = 0;         ///< Filter chain CPU cost per layer.
+    std::uint64_t layerCompositeRenderCpuTimeNs = 0;///< Layer-body offscreen render CPU cost.
 
     void reset()
     {
@@ -91,5 +95,8 @@ struct FrameStats
         pathUploadBytes = 0;
         pathTopologyCacheHits = 0;
         pathTopologyCacheMisses = 0;
+        layerBackdropRenderCpuTimeNs = 0;
+        layerFilterCpuTimeNs = 0;
+        layerCompositeRenderCpuTimeNs = 0;
     }
 };

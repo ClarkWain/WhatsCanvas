@@ -60,6 +60,11 @@ public:
     }
     virtual size_t commandCount() const = 0;
     virtual std::vector<std::unique_ptr<Command>> takeCommandsFrom(size_t index) = 0;
+    /// Read-only peek used by cache prototypes (currently: pre-layer command
+    /// fingerprinting for the backdrop cache PoC). Returns nullptr for indices
+    /// that are out of range or for renderer implementations that do not
+    /// expose a command queue.
+    virtual const Command *commandAt(size_t /*index*/) const { return nullptr; }
     virtual void appendCommands(std::vector<std::unique_ptr<Command>> &&commands) = 0;
     virtual bool readPixelsRGBA(std::vector<unsigned char> &pixels) const = 0;
     virtual SharedClipMaskResource createClipMaskResource(const ClipMaskPath &maskPath) const = 0;
