@@ -377,7 +377,7 @@ visual regression harnesses live under `tests/visual` rather than `examples`.
 
 <table>
 <tr>
-<td width="50%" align="center"><a href="examples/game/tetris"><img src="images/tetris.jpg" alt="WhatsCanvas Tetris example" width="100%"></a><br><b>Tetris</b> — Layouts, text panels, blocks, and state overlays</td>
+<td width="50%" align="center"><a href="examples/game/tetris"><img src="images/tetris.png" alt="WhatsCanvas Tetris example" width="100%"></a><br><b>Tetris</b> — Layouts, text panels, blocks, and state overlays</td>
 <td width="50%" align="center"><a href="examples/game/racer"><img src="images/racer.png" alt="WhatsCanvas Racer example" width="100%"></a><br><b>Racer</b> — Scrolling scenes, clipping, HUDs, and animations</td>
 </tr>
 </table>
