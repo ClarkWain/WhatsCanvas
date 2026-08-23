@@ -65,6 +65,36 @@ OpenGL 和 Vulkan 的验证哈希在这些优化中保持稳定。Software 的�
 Vulkan 现在会使用打包 RGBA8 每顶点 tint 合并兼容的 atlas/image 四边形，并在一帧内复用相同的采样图像描述符集。
 `text_stress` 从 577 个 GPU 绘制下降到 194，同时保留像素哈希 `6554c1da7b50ade0`。它最终的串行标准中位数为 16.320 ms，而此前为 16.134 ms，差异 1.2%，处于运行变异范围内；这同样属于结构化批处理改进，而不是计时加速声明。
 
+## 已验证的 Android compositing 优化（v0.9.0）
+
+真机 Android 上，`compositing_stress` 存在两项桌面 1080p 矩阵未覆盖的 CPU 瓶颈：裁剪版 `saveLayer` 的离屏重放绕开了共享批处理路径，会为每条排队的绘制单独提交一条 OpenGL 命令；而每次 restore 又会在执行 backdrop 滤镜链之前，把 pre-layer 命令序列再走一次 `FrameCompiler.compile`。两者合计吃掉两台真机上每帧约 300 ms 的 `recordCpu`，把 FPS 压到个位数。
+
+测量于 2026-08-23 使用 Android profile APK 完成。两台设备使用同一个 APK、同一段 warmup、相同 profile 构建选项、相同动画时钟，全程 thermal status = 0。
+
+| 设备                 | 指标                  |    v0.8.1 |    v0.9.0 |    变化   |
+| ---                  | ---                   |     ---:  |     ---:  |     ---:  |
+| Mi MIX 2（1080x2160）| FPS                   |       4.7 |      30.8 |    +6.6x  |
+| Mi MIX 2             | recordCpu / 帧        |  18-20 ms |    7.4 ms | ~63% 下降 |
+| Mi MIX 2             | frameCompile / 帧     |   8-9 ms  |   0.24 ms | ~97% 下降 |
+| Mi MIX 2             | saveLayer backdrop    |     13 ms |      0 ms | 命中时    |
+| Mi MIX 2             | draws                 |        45 |        28 |           |
+| U Ultra（1440x2560） | FPS                   |       3.2 |      26.4 |    +8.3x  |
+| U Ultra              | recordCpu / 帧        |  18-20 ms |    5.1 ms | ~72% 下降 |
+| U Ultra              | frameCompile / 帧     |   5-6 ms  |   0.10 ms | ~98% 下降 |
+| U Ultra              | saveLayer backdrop    |     15 ms |      0 ms | 命中时    |
+| U Ultra              | draws                 |        45 |        28 |           |
+
+固定动画时间戳（`capture_time_seconds=3.0`）下的像素对齐已核验。v0.8.1 无 cache 基线与 v0.9.0 cache 命中结果的 SHA-256 完全一致：
+`BCB565C9F7A009AE5DFD0D3FD4D6C9F0C023A69538DDE33BF07647638EFB5BDE`。cache 命中直接复用上一帧的 filtered backdrop image，可见输出零差异。其它场景无回归：`feature_showcase` 59.8 (Mi) / 54.6 (U)，`text_stress` 57.9 (Mi) / 34.6 (U)，`geometry_stress` 59.6 (Mi) / 55.5 (U)。
+
+关键改动同步记录在 `CHANGELOG.md` 的 `[0.9.0]` 段：
+
+- 裁剪版 `saveLayer` 的离屏路径改走与主 framebuffer 相同的 FrameCompiler 与 OpenGL sprite/path 批处理路径。`DrawPathProgram` 的 VAO、program、投影 uniform，以及设备生命周期的 `SpriteBatch` 与 GL programs 会在离屏重放之间复用。
+- 新引入的 backdrop 编译结果缓存以 `(pre-layer 命令 fingerprint, backdrop 滤镜链 fingerprint, canvas + layer 几何)` 为 key，一旦匹配就同时短路 `renderQueuedCommandsToImageResource()` 与 `filterImageResource()`。命中率与诊断字段通过 `Canvas::RenderStats` 暴露：`backdropCacheHits` / `Misses`、`backdropFingerprintStableFrames` / `DivergentFrames` / `Uncacheable`、`backdropFingerprintCpuTimeNs`、`backdropFirstDivergentIndex` / `Type` / `Reason`。
+- `ScissorState` 是 `{ bool + 4 int }`，编译器会在 `enabled` 后插入 3 个 padding 字节。直接对整个结构体做 `mixBytes` 会把未初始化的 padding 折进 fingerprint，导致 cache 每帧都 miss 却没有可见症状。修复是逐字段显式 hash。任何在代码库里做内容 hash 的 POD，只要混用 `bool`/`enum(1 字节)` 与 `int`/pointer 成员，都必须逐字段 hash，否则 cache 会静默失效。
+
+两台设备的下一个 CPU 优化目标是 U Ultra 上的 `text_stress`（34.6 FPS）。该帧 `commands=233`、`draws=206`、`batchBreak=14/6/0/0`：14 次批处理在 command type 边界断开，6 次在渲染状态边界断开。当前 `Renderer::reorderIndependentPathRuns()` 已经处理独立的 solid fill Path 段，但 `finishSegment()` 遇到任何非 Path 命令都会立刻收段，因此 `drawTextScene()` 里 Path 与 Text 命令交错时，被 Text 分隔的 Path 段永远不会被跨 Text 重排。下一次优化的计划见 `PERFORMANCE_OPTIMIZATION_TODO.md`：先给 14 次 command-type 断点加 `(lhs.type, rhs.type)` pair 分类诊断，再决定是否让 reorder 段跨越那些设备空间边界与 Path 段不重叠的非 Path 命令。
+
 ## 标准场景矩阵
 
 默认分辨率为 1920 x 1080。每个场景都是确定性的，并在计时结束后产生固定的验证帧哈希。默认值匹配广泛部署的桌面显示工作负载，而 `--width` 和 `--height` 仍可用于受控研究。
