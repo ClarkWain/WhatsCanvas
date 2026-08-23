@@ -153,6 +153,9 @@ struct Canvas::RenderStats
 	std::size_t backdropFingerprintStableFrames = 0;
 	std::size_t backdropFingerprintDivergentFrames = 0;
 	std::size_t backdropFingerprintUncacheable = 0;
+	std::size_t backdropFirstDivergentIndex = 0;
+	std::uint32_t backdropFirstDivergentType = 0;
+	std::uint32_t backdropFirstDivergentReason = 0;
 	std::size_t trackedResourceBytes = 0;
 };
 
