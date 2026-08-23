@@ -165,11 +165,11 @@ noteworthy pieces are:
   both `renderQueuedCommandsToImageResource()` and `filterImageResource()`
   when nothing that affects the backdrop has changed. The cache exposes
   `backdropCacheHits`, `backdropCacheMisses`,
-  `backdropFingerprintStableFrames` / `DivergentFrames` /
-  `Uncacheable`, `backdropFingerprintCpuTimeNs`, and
-  `backdropFirstDivergentIndex` / `Type` / `Reason` through
-  `Canvas::RenderStats` so consumers can measure hit rates and diagnose why
-  a scene is not caching.
+  `backdropFingerprintStableFrames`, `backdropFingerprintDivergentFrames`,
+  `backdropFingerprintUncacheable`, `backdropFingerprintCpuTimeNs`,
+  `backdropFirstDivergentIndex`, `backdropFirstDivergentType`, and
+  `backdropFirstDivergentReason` through `Canvas::RenderStats` so
+  consumers can measure hit rates and diagnose why a scene is not caching.
 - `ScissorState` is `{ bool + int + int + int + int }` and carries three
   implementation-defined padding bytes. Hashing it as a raw byte blob folded
   those uninitialized bytes into the fingerprint, defeating cache hits with
