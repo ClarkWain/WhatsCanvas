@@ -32,7 +32,12 @@ struct GaussianLinearSampleKernel
 
     int tapCount() const
     {
-        return static_cast<int>(weights.size()) - 1;
+        // Empty kernels have no taps; guard against underflow so callers can
+        // treat the result as a non-negative count without special-casing
+        // the empty case.
+        return weights.empty()
+            ? 0
+            : static_cast<int>(weights.size()) - 1;
     }
 };
 

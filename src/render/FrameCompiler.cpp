@@ -107,6 +107,11 @@ void appendSolidTriangles(wsc::DrawPrimitive &batch,
             }
         }
         if (incoming.indices.empty()) {
+            // Incoming carried an implicit sequential index range; reserve
+            // for that expansion so we do not repeatedly reallocate when
+            // batching many mixed-index packets in a row.
+            batch.indices.reserve(
+                batch.indices.size() + incomingVertices);
             for (std::size_t vertex = 0; vertex < incomingVertices; ++vertex) {
                 batch.indices.push_back(static_cast<std::uint32_t>(
                     batchVertices + vertex));
