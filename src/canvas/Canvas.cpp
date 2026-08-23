@@ -182,6 +182,21 @@ struct Fnv1a64
 // Returns 0 when the command contains state we cannot safely fingerprint
 // (e.g., a Points/Lines/Shadow command). Callers must treat 0 as poison and
 // disable caching over the containing sequence.
+inline void mixScissorState(Fnv1a64 &h, const ScissorState &s)
+{
+    // ScissorState has a bool followed by four ints, which introduces
+    // implementation-defined padding bytes. Those bytes remain uninitialized
+    // when Canvas constructs a scissor state per frame, so hashing the raw
+    // struct pulls stale-stack garbage into the fingerprint and breaks
+    // frame-to-frame stability. Hash each field explicitly to avoid it.
+    const std::uint8_t enabled = s.enabled ? 1u : 0u;
+    h.mix(enabled);
+    h.mix(s.x);
+    h.mix(s.y);
+    h.mix(s.width);
+    h.mix(s.height);
+}
+
 inline std::uint64_t fingerprintCommand(const Command *cmd)
 {
     if (cmd == nullptr) {
@@ -199,7 +214,7 @@ inline std::uint64_t fingerprintCommand(const Command *cmd)
         h.mix(d.drawMode);
         h.mix(d.capStyle);
         h.mixBytes(&d.transform, sizeof(d.transform));
-        h.mixBytes(&d.scissor, sizeof(d.scissor));
+        mixScissorState(h, d.scissor);
         h.mix(d.blendMode);
         h.mix(d.clipMask.fingerprint);
         h.mix(d.gradientType);
@@ -260,7 +275,7 @@ inline std::uint64_t fingerprintCommand(const Command *cmd)
         h.mix(d.sampling);
         h.mix(d.tileMode);
         h.mixBytes(&d.transform, sizeof(d.transform));
-        h.mixBytes(&d.scissor, sizeof(d.scissor));
+        mixScissorState(h, d.scissor);
         h.mix(d.blendMode);
         h.mix(d.clipMask.fingerprint);
         h.mix(d.gradientType);
@@ -290,7 +305,7 @@ inline std::uint64_t fingerprintCommand(const Command *cmd)
         h.mixBytes(d.tintColor, sizeof(d.tintColor));
         h.mix(d.alpha);
         h.mixBytes(&d.transform, sizeof(d.transform));
-        h.mixBytes(&d.scissor, sizeof(d.scissor));
+        mixScissorState(h, d.scissor);
         h.mix(d.blendMode);
         h.mix(d.clipMask.fingerprint);
         if (d.quads.empty()) {
@@ -306,7 +321,7 @@ inline std::uint64_t fingerprintCommand(const Command *cmd)
             static_cast<const DrawTextCommand *>(cmd)->data();
         h.mixBytes(d.color, sizeof(d.color));
         h.mixBytes(&d.transform, sizeof(d.transform));
-        h.mixBytes(&d.scissor, sizeof(d.scissor));
+        mixScissorState(h, d.scissor);
         h.mix(d.blendMode);
         h.mix(d.clipMask.fingerprint);
         h.mix(d.gradientType);
@@ -3354,6 +3369,13 @@ struct Canvas::Impl
     std::size_t backdropFingerprintStableFrames = 0;
     std::size_t backdropFingerprintDivergentFrames = 0;
     std::size_t backdropFingerprintUncacheable = 0;
+    // Per-command fingerprints kept across frames so the first divergent
+    // command (index + type) can be identified when stableFrames stays at 0.
+    // Only populated on saveLayer restore paths with a backdrop filter.
+    std::vector<std::uint64_t> lastPreLayerCommandFingerprints;
+    std::size_t backdropFirstDivergentIndex = 0;
+    std::uint32_t backdropFirstDivergentType = 0;
+    std::uint32_t backdropFirstDivergentReason = 0; // 0=none 1=type 2=hash 3=count
     std::uint64_t retainedPictureRasterUseEpoch = 0;
     std::size_t retainedPictureRasterBudgetBytes = 32u * 1024u * 1024u;
     std::vector<std::weak_ptr<const Picture>> retainedPictures;
@@ -4522,6 +4544,12 @@ Canvas::RenderStats Canvas::getRenderStats() const
         impl_->backdropFingerprintDivergentFrames;
     stats.backdropFingerprintUncacheable =
         impl_->backdropFingerprintUncacheable;
+    stats.backdropFirstDivergentIndex =
+        impl_->backdropFirstDivergentIndex;
+    stats.backdropFirstDivergentType =
+        impl_->backdropFirstDivergentType;
+    stats.backdropFirstDivergentReason =
+        impl_->backdropFirstDivergentReason;
     stats.pathVertexCount = frameStats.pathVertexCount;
     stats.pathInputVertexCount =
         frameStats.pathInputVertexCount;
@@ -7364,9 +7392,19 @@ void Canvas::Impl::restoreLayer(const LayerState &layer)
         std::uint64_t combined = 0xcbf29ce484222325ULL;
         bool cacheable = true;
         const std::size_t preLayerCount = layer.commandStart;
+        thread_local std::vector<std::uint64_t> perCommand;
+        perCommand.clear();
+        perCommand.reserve(preLayerCount);
+        thread_local std::vector<std::uint8_t> perCommandType;
+        perCommandType.clear();
+        perCommandType.reserve(preLayerCount);
         for (std::size_t i = 0; i < preLayerCount; ++i) {
             const Command *cmd = renderer->commandAt(i);
             const std::uint64_t stepFp = fingerprintCommand(cmd);
+            perCommand.push_back(stepFp);
+            perCommandType.push_back(cmd == nullptr
+                ? static_cast<std::uint8_t>(0xffu)
+                : static_cast<std::uint8_t>(cmd->type()));
             if (stepFp == 0) {
                 cacheable = false;
                 break;
@@ -7382,13 +7420,40 @@ void Canvas::Impl::restoreLayer(const LayerState &layer)
             if (lastBackdropCommandsFingerprint == combined
                 && lastBackdropCommandsFingerprint != 0) {
                 ++backdropFingerprintStableFrames;
+                backdropFirstDivergentReason = 0;
             } else {
                 ++backdropFingerprintDivergentFrames;
+                // Bisect the divergence: walk the previous frame's
+                // per-command fingerprint list until the first mismatching
+                // slot. Persist its index/type so external tooling can
+                // identify which pre-layer command is unstable.
+                if (lastPreLayerCommandFingerprints.size() != perCommand.size()) {
+                    backdropFirstDivergentReason = 3; // count mismatch
+                    backdropFirstDivergentIndex = std::min(
+                        lastPreLayerCommandFingerprints.size(),
+                        perCommand.size());
+                    backdropFirstDivergentType = 0;
+                } else {
+                    backdropFirstDivergentReason = 0;
+                    for (std::size_t i = 0; i < perCommand.size(); ++i) {
+                        if (lastPreLayerCommandFingerprints[i]
+                                != perCommand[i]) {
+                            backdropFirstDivergentReason = 2; // hash diff
+                            backdropFirstDivergentIndex = i;
+                            backdropFirstDivergentType = i < perCommandType.size()
+                                ? static_cast<std::uint32_t>(perCommandType[i])
+                                : 0;
+                            break;
+                        }
+                    }
+                }
             }
             lastBackdropCommandsFingerprint = combined;
+            lastPreLayerCommandFingerprints = perCommand;
         } else {
             ++backdropFingerprintUncacheable;
             lastBackdropCommandsFingerprint = 0;
+            lastPreLayerCommandFingerprints.clear();
         }
 
         SharedImageResource backdrop = renderer->renderQueuedCommandsToImageResource(layer.commandStart, request);
