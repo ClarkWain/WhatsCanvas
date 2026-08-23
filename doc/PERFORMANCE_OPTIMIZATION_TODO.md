@@ -165,6 +165,83 @@ The 1,024 dynamic-structure cell moved from 1.875/1.753 ms to
 6.242/5.934 ms to 5.751/6.029 ms. The 256 cell remains statistically
 inconclusive at 0.788/0.811 ms.
 
+## Android compositing closure (v0.9.0)
+
+The Android `compositing_stress` scene had a 40-60x recordCpu regression
+against the desktop 1080p numbers that the parameter matrix did not
+exercise. Two costs dominated the frame: cropped `saveLayer` offscreen
+replay bypassed the shared batching path and issued one OpenGL command per
+queued draw, and every restore ran the pre-layer command sequence through
+`FrameCompiler.compile()` again before the backdrop filter chain. Together
+they consumed ~300 ms per frame on both real devices.
+
+The v0.9.0 fix landed four changes that must be preserved by future work:
+
+- Cropped `saveLayer` offscreen replay flows through the same FrameCompiler
+  and OpenGL sprite/path batching path as the main framebuffer, and
+  `DrawPathProgram` VAO / program / projection uniforms plus the
+  device-lifetime `SpriteBatch` and GL programs are reused across offscreen
+  replays.
+- A backdrop compile-result cache keyed on `(pre-layer command
+  fingerprint, backdrop filter chain fingerprint, canvas + layer
+  geometry)` short-circuits both `renderQueuedCommandsToImageResource()`
+  and `filterImageResource()`. `Canvas::RenderStats` exposes hit-rate
+  counters (`backdropCacheHits`, `backdropCacheMisses`,
+  `backdropFingerprintStableFrames` / `DivergentFrames` /
+  `Uncacheable`, `backdropFingerprintCpuTimeNs`) plus a first-divergent
+  bisect field so a scene that stops caching can be diagnosed with one
+  device sample.
+- Gaussian blur passes pair adjacent taps with linear sampling
+  (`packGaussianKernelForLinearSampling()`), reducing a radius-12 pass from
+  25 to 13 texture samples per direction while keeping the analytical
+  Gaussian within float precision.
+- A fast textured-quad shader handles the common uniform-tint,
+  no-clip-mask, no-color-matrix path; the general shader continues to
+  cover gradients, tile modes, rounded corners, color matrices, and clip
+  masks.
+
+Verified on-device numbers (Mi MIX 2 at 1080x2160, U Ultra at 1440x2560):
+FPS 4.7 -> 30.8 and 3.2 -> 26.4, recordCpu 18-20 ms -> 5-7 ms, frameCompile
+5-9 ms -> 0.1-0.24 ms, saveLayer backdrop 13-15 ms -> 0 ms on hits, draws
+45 -> 28. Pixel output at a fixed animation timestamp is SHA-256 identical
+to v0.8.1 (`BCB565C9F7A009AE5DFD0D3FD4D6C9F0C023A69538DDE33BF07647638EFB5BDE`).
+
+Diagnostic pitfall documented for the future: the backdrop cache
+initially had stableFrames=0 because hashing `ScissorState` as a raw byte
+blob folded uninitialized padding into the fingerprint. `ScissorState` is
+`{ bool + 4 int }` and the compiler inserts three padding bytes after
+`enabled`. Anywhere the codebase content-hashes a POD that mixes `bool`
+or `enum(1 byte)` with `int` / pointer members must hash it field-by-field
+or the cache will silently miss.
+
+### Next Android CPU target: text_stress
+
+The remaining Android CPU target is `text_stress` on U Ultra at 34.6 FPS.
+The frame has `commands=233`, `draws=206`, `batchBreak=14/6/0/0` (14
+command-type breaks + 6 state breaks), and `flushCpu` at 12-16 ms. The
+current `Renderer::reorderIndependentPathRuns()` in `src/render/Renderer.cpp`
+already handles independent solid-fill Path runs, but the `finishSegment()`
+loop terminates whenever it encounters a non-Path command, so
+interleaved Path/Text commands in
+`platforms/shared/scenes/StressScenes.h drawTextScene()` are never
+reordered past the Text commands between them. The plan is:
+
+1. Extend `stats_.batchBreakCommandTypeCount` with a first-break
+   `(lhs.type, rhs.type)` pair diagnostic (same pattern as the v0.9.0
+   `backdropFirstDivergentType` field) so a single device sample confirms
+   whether Text->Path, Path->Text, or Path->ImageBatch dominates.
+2. If data confirms Text->Path is the dominant boundary, add a device
+   bounds accessor to `DrawTextData` and let
+   `reorderIndependentPathRuns()` skip over Text commands whose device
+   bounds do not overlap the reorder segment, treating them as opaque
+   pass-through boundaries rather than segment terminators.
+3. Keep every step gated by (a) fixed-time SHA-256 pixel regression on
+   both devices and (b) a Windows CTest clean-worktree rerun. The
+   v0.9.0 pass verified that `build_stub` and other build directories
+   that have seen many branch switches will produce stale-object
+   regressions in `WhatsCanvasVariableFontGoldenTests` and similar
+   golden tests even when the source is clean.
+
 ## Root cause
 
 The common problem is **early expansion and late batching**. Images retain

@@ -115,6 +115,81 @@ tints and reuses identical sampled-image descriptor sets within a frame.
 previous 16.134 ms, a 1.2% difference within run variability; this is likewise
 a structural batching improvement, not a timing-speedup claim.
 
+## Verified Android compositing optimization (v0.9.0)
+
+On real Android hardware `compositing_stress` was CPU bound by two costs the
+1080p desktop matrix does not exercise. Cropped `saveLayer` offscreen replay
+bypassed the shared batching path and issued one OpenGL command per queued
+draw, and every restore ran the pre-layer command sequence through
+`FrameCompiler.compile` again before the backdrop filter chain. Together they
+consumed ~300 ms of `recordCpu`, which held the two-device sample to single
+digit FPS.
+
+Measurements were captured on 2026-08-23 at each device's native resolution
+using the Android profile APK. Both devices ran the same APK, the same
+temperature-checked warmup (thermal status 0 throughout), the same profile
+build flags, and the same animation clock.
+
+| Device                | Metric               |    v0.8.1 |    v0.9.0 |    Delta |
+| ---                   | ---                  |     ---:  |      ---: |     ---: |
+| Mi MIX 2 (1080x2160)  | FPS                  |       4.7 |      30.8 |    +6.6x |
+| Mi MIX 2              | recordCpu / frame    |  18-20 ms |    7.4 ms | ~63% off |
+| Mi MIX 2              | frameCompile / frame |   8-9 ms  |   0.24 ms | ~97% off |
+| Mi MIX 2              | saveLayer backdrop   |     13 ms |      0 ms | on hits  |
+| Mi MIX 2              | draws                |        45 |        28 |          |
+| U Ultra (1440x2560)   | FPS                  |       3.2 |      26.4 |    +8.3x |
+| U Ultra               | recordCpu / frame    |  18-20 ms |    5.1 ms | ~72% off |
+| U Ultra               | frameCompile / frame |   5-6 ms  |   0.10 ms | ~98% off |
+| U Ultra               | saveLayer backdrop   |     15 ms |      0 ms | on hits  |
+| U Ultra               | draws                |        45 |        28 |          |
+
+The cache pixel-parity was verified at a fixed animation timestamp
+(`capture_time_seconds=3.0`). The v0.8.1 baseline (fingerprint-only,
+no cache) and the v0.9.0 result produced the same SHA-256 digest
+`BCB565C9F7A009AE5DFD0D3FD4D6C9F0C023A69538DDE33BF07647638EFB5BDE`, so cache
+hits reuse the previous frame's filtered backdrop image without disturbing
+the visible output. Other scenes did not regress: `feature_showcase` measured
+59.8 (Mi) / 54.6 (U), `text_stress` 57.9 (Mi) / 34.6 (U), and
+`geometry_stress` 59.6 (Mi) / 55.5 (U).
+
+Root causes and fixes are documented in `[0.9.0]` of `CHANGELOG.md`. The three
+noteworthy pieces are:
+
+- Cropped `saveLayer` offscreen now runs through the same FrameCompiler
+  and OpenGL sprite/path batching that the main framebuffer uses, and
+  `DrawPathProgram` VAO, program, and projection uniforms plus the
+  device-lifetime `SpriteBatch` and GL programs are reused across offscreen
+  replays.
+- A new backdrop compile-result cache keyed on the pre-layer command
+  sequence, the backdrop filter chain, and the layer geometry short-circuits
+  both `renderQueuedCommandsToImageResource()` and `filterImageResource()`
+  when nothing that affects the backdrop has changed. The cache exposes
+  `backdropCacheHits`, `backdropCacheMisses`,
+  `backdropFingerprintStableFrames` / `DivergentFrames` /
+  `Uncacheable`, `backdropFingerprintCpuTimeNs`, and
+  `backdropFirstDivergentIndex` / `Type` / `Reason` through
+  `Canvas::RenderStats` so consumers can measure hit rates and diagnose why
+  a scene is not caching.
+- `ScissorState` is `{ bool + int + int + int + int }` and carries three
+  implementation-defined padding bytes. Hashing it as a raw byte blob folded
+  those uninitialized bytes into the fingerprint, defeating cache hits with
+  no visible symptom. The fingerprint helper now hashes each field
+  explicitly. This padding pitfall applies to any POD that combines
+  `bool` / `enum(1 byte)` with `int` / pointer members.
+
+The follow-up target on the two devices is `text_stress` on U Ultra
+(34.6 FPS). The frame has `commands=233`, `draws=206`, and
+`batchBreak=14/6/0/0`, meaning 14 batches end at a command-type boundary and
+6 break on incompatible render state. `Renderer::reorderIndependentPathRuns()`
+already handles independent solid-fill Path runs, but the current
+`finishSegment()` loop terminates whenever it encounters a non-Path command,
+so the interleaved Path/Text commands in `drawTextScene()` are never
+reordered across the Text commands that separate them. The next optimization
+pass tracked in `PERFORMANCE_OPTIMIZATION_TODO.md` will attribute the 14
+command-type breaks to specific `(lhs.type, rhs.type)` pairs, then extend the
+reorder segment past `non-Path` commands whose device bounds do not overlap
+the Path segment.
+
 ## Standard scene matrix
 
 The default resolution is 1920 x 1080. Every scene is deterministic and
