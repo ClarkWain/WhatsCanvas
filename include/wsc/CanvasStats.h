@@ -156,6 +156,8 @@ struct Canvas::RenderStats
 	std::size_t backdropFirstDivergentIndex = 0;
 	std::uint32_t backdropFirstDivergentType = 0;
 	std::uint32_t backdropFirstDivergentReason = 0;
+	std::size_t backdropCacheHits = 0;
+	std::size_t backdropCacheMisses = 0;
 	std::size_t trackedResourceBytes = 0;
 };
 
