@@ -379,7 +379,7 @@ Software/OpenGL/Vulkan/Metal presentation 宿主，以及两个游戏示例。�
 
 <table>
 <tr>
-<td width="50%" align="center"><a href="examples/game/tetris"><img src="images/tetris.jpg" alt="WhatsCanvas Tetris example" width="100%"></a><br><b>Tetris</b> — 布局、文本面板、方块与状态叠加</td>
+<td width="50%" align="center"><a href="examples/game/tetris"><img src="images/tetris.png" alt="WhatsCanvas Tetris example" width="100%"></a><br><b>Tetris</b> — 布局、文本面板、方块与状态叠加</td>
 <td width="50%" align="center"><a href="examples/game/racer"><img src="images/racer.png" alt="WhatsCanvas Racer example" width="100%"></a><br><b>Racer</b> — 滚动场景、裁剪、HUD 与动画</td>
 </tr>
 </table>
