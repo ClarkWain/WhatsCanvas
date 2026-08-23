@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/ClarkWain/WhatsCanvas/actions/workflows/cross-platform-validation.yml/badge.svg)](https://github.com/ClarkWain/WhatsCanvas/actions/workflows/cross-platform-validation.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.8.1-informational.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.9.0-informational.svg)](CHANGELOG.md)
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C.svg)](CMakeLists.txt)
 [![Documentation](https://img.shields.io/badge/docs-online-success.svg)](https://clarkwain.github.io/WhatsCanvas/)
 
@@ -101,7 +101,7 @@ build\Release\MyApp.exe
 
 ### 使用发布包
 
-GitHub Release 中的发布包名为 `whatscanvas-<platform>-release-<version>.zip`，例如 `whatscanvas-win64-release-0.8.1.zip`。目录布局如下：
+GitHub Release 中的发布包名为 `whatscanvas-<platform>-release-<version>.zip`，例如 `whatscanvas-win64-release-0.9.0.zip`。目录布局如下：
 
 ```text
 include/wsc/                 公开头文件
