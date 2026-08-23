@@ -187,10 +187,10 @@ The v0.9.0 fix landed four changes that must be preserved by future work:
   geometry)` short-circuits both `renderQueuedCommandsToImageResource()`
   and `filterImageResource()`. `Canvas::RenderStats` exposes hit-rate
   counters (`backdropCacheHits`, `backdropCacheMisses`,
-  `backdropFingerprintStableFrames` / `DivergentFrames` /
-  `Uncacheable`, `backdropFingerprintCpuTimeNs`) plus a first-divergent
-  bisect field so a scene that stops caching can be diagnosed with one
-  device sample.
+  `backdropFingerprintStableFrames`, `backdropFingerprintDivergentFrames`,
+  `backdropFingerprintUncacheable`, `backdropFingerprintCpuTimeNs`) plus a
+  first-divergent bisect field so a scene that stops caching can be
+  diagnosed with one device sample.
 - Gaussian blur passes pair adjacent taps with linear sampling
   (`packGaussianKernelForLinearSampling()`), reducing a radius-12 pass from
   25 to 13 texture samples per direction while keeping the analytical
