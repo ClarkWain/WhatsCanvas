@@ -7,11 +7,12 @@
 #include "RenderTargetPool.h"
 
 struct OpenGLContextState;
+class SpriteBatch;
 
 class OpenGLRenderDevice : public IRenderDevice
 {
 public:
-    OpenGLRenderDevice() = default;
+    OpenGLRenderDevice();
     ~OpenGLRenderDevice() override;
 
     void initializeBackend() override;
@@ -42,8 +43,8 @@ public:
                                             int width, int height,
                                             const wsc::ImageFilter &filter,
                                             FilterExecutionStats *executionStats = nullptr) const override;
-    bool executeDrawList(const wsc::DrawList &drawList, int width, int height,
-                         int scissorOffsetX = 0, int scissorOffsetY = 0) const;
+    bool executeDrawList(const wsc::DrawList &drawList, int canvasWidth,
+                         int canvasHeight, int targetHeight) const;
     bool beginGpuFrameTiming() override;
     void endGpuFrameTiming() override;
     void setGpuFrameTimingEnabled(bool enabled) override
@@ -95,5 +96,6 @@ private:
     mutable std::size_t lastCompiledIndexBytes_ = 0;
     mutable std::uint64_t lastFrameCompileCpuTimeNs_ = 0;
     mutable std::unique_ptr<RenderTargetPool> renderTargetPool_;
+    mutable std::unique_ptr<SpriteBatch> offscreenSpriteBatch_;
     std::shared_ptr<OpenGLContextState> contextState_;
 };

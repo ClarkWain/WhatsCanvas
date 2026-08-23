@@ -67,9 +67,14 @@ class MainActivity : Activity() {
         const val DEFAULT_SCENE = "feature_showcase"
         val VALID_SCENES = setOf(
             DEFAULT_SCENE,
+            "feature_showcase_picture",
             "text_stress",
             "geometry_stress",
-            "compositing_stress"
+            "compositing_stress",
+            "nanovg_feature_showcase",
+            "nanovg_text_stress",
+            "nanovg_geometry_stress",
+            "nanovg_compositing_stress"
         )
     }
 }

@@ -106,6 +106,9 @@ struct Canvas::RenderStats
 	std::size_t aaCacheMisses = 0;
 	std::size_t aaCacheSize = 0;
 	std::size_t aaCacheBytes = 0;
+	std::size_t simpleFillPrimitiveCount = 0;
+	std::uint64_t simpleFillGeometryCpuTimeNs = 0;
+	std::uint64_t simpleFillSubmitCpuTimeNs = 0;
 	std::size_t strokeCacheHits = 0;
 	std::size_t strokeCacheMisses = 0;
 	std::size_t strokeCacheSize = 0;
@@ -130,6 +133,31 @@ struct Canvas::RenderStats
 	std::uint64_t retainedPictureRasterTextCpuTimeNs = 0;
 	std::uint64_t retainedPictureRasterTextBackendCpuTimeNs = 0;
 	std::uint64_t retainedPictureRasterTextAtlasCpuTimeNs = 0;
+	/// saveLayer / restoreLayer breakdown. Each field aggregates all layers
+	/// touched during the frame. layerBackdropRenderCpuTimeNs counts the
+	/// offscreen rerender of pre-layer commands used as backdrop input, so it
+	/// scales with the number of backdrop-filter layers times the queued
+	/// command volume. layerFilterCpuTimeNs covers the driver-side blocking
+	/// portion of blur/inner-shadow filter chains. layerCompositeRenderCpuTimeNs
+	/// covers the offscreen render of the layer body itself.
+	std::uint64_t layerBackdropRenderCpuTimeNs = 0;
+	std::uint64_t layerFilterCpuTimeNs = 0;
+	std::uint64_t layerCompositeRenderCpuTimeNs = 0;
+	/// Backdrop compile-result cache PoC diagnostics. `backdropFingerprintCpuTimeNs`
+	/// measures the cost of hashing the pre-layer command sequence; the counters
+	/// track how often that sequence is stable across frames (cache-hit-eligible)
+	/// versus divergent (miss) or uncacheable because a command kind currently
+	/// has no fingerprint implementation. These fields exist so a follow-up
+	/// change can integrate an actual cache without adding more diagnostics.
+	std::uint64_t backdropFingerprintCpuTimeNs = 0;
+	std::size_t backdropFingerprintStableFrames = 0;
+	std::size_t backdropFingerprintDivergentFrames = 0;
+	std::size_t backdropFingerprintUncacheable = 0;
+	std::size_t backdropFirstDivergentIndex = 0;
+	std::uint32_t backdropFirstDivergentType = 0;
+	std::uint32_t backdropFirstDivergentReason = 0;
+	std::size_t backdropCacheHits = 0;
+	std::size_t backdropCacheMisses = 0;
 	std::size_t trackedResourceBytes = 0;
 };
 

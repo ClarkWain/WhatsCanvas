@@ -43,6 +43,10 @@ public:
         std::size_t additionalQuadCount) override;
     size_t commandCount() const override;
     std::vector<std::unique_ptr<Command>> takeCommandsFrom(size_t index) override;
+    const Command *commandAt(size_t index) const override
+    {
+        return index < commands_.size() ? commands_[index].get() : nullptr;
+    }
     void appendCommands(std::vector<std::unique_ptr<Command>> &&commands) override;
 
     bool readPixelsRGBA(std::vector<unsigned char> &pixels) const override;
