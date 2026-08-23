@@ -679,6 +679,10 @@ public:
             canvas_.reset();
             return false;
         }
+        // Enable GPU timer queries so Frame stats can split flushCpu between
+        // driver-side CPU work and GPU-bound waiting. On OpenGL ES the timer
+        // query is deferred by 1-2 frames but still gives per-frame numbers.
+        canvas_->setGpuTimingEnabled(true);
         if (!stressSceneEnabled_) {
             createCheckerImage(*canvas_, checkerImage_);
             staticPicture_ = canvas_->recordPicture(
@@ -805,7 +809,8 @@ public:
                 "saveLayer=%llu/%llu/%lluus "
                 "frameCompile=%lluus "
                 "bdFp=%lluus/%zu/%zu/%zu bdDiv=%u@%zu/type%u "
-                "bdCache=%zu/%zu",
+                "bdCache=%zu/%zu "
+                "gpuTime=%lluus batchBreak=%zu/%zu/%zu/%zu",
                 stats.commandCount, stats.drawCallCount,
                 stats.pathVertexCount, stats.pathUploadCount,
                 stats.pathUploadBytes / 1024u,
@@ -881,7 +886,15 @@ public:
                 stats.backdropFirstDivergentIndex,
                 stats.backdropFirstDivergentType,
                 stats.backdropCacheHits,
-                stats.backdropCacheMisses);
+                stats.backdropCacheMisses,
+                static_cast<unsigned long long>(
+                    stats.gpuTimeAvailable
+                        ? stats.gpuTimeNs / 1000u
+                        : 0ull),
+                stats.batchBreakCommandTypeCount,
+                stats.batchBreakStateCount,
+                stats.batchBreakTextureLimitCount,
+                stats.batchBreakVertexLimitCount);
         }
     }
 
