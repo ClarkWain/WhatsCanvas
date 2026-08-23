@@ -7551,6 +7551,13 @@ void Canvas::Impl::restoreLayer(const LayerState &layer)
             ++backdropFingerprintUncacheable;
             lastBackdropCommandsFingerprint = 0;
             lastPreLayerCommandFingerprints.clear();
+            // Clear the divergence-report fields so that a subsequent
+            // stale-looking bdDiv= value in the log actually reflects this
+            // frame's uncacheable status instead of leaking a stale index /
+            // type / reason left over from an earlier divergent frame.
+            backdropFirstDivergentReason = 0;
+            backdropFirstDivergentIndex = 0;
+            backdropFirstDivergentType = 0;
         }
 
         // Cache lookup. Reuse the previous frame's filtered backdrop when
