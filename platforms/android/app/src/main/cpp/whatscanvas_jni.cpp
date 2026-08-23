@@ -804,7 +804,8 @@ public:
                 "simpleFill=%zu/%llu/%lluus "
                 "saveLayer=%llu/%llu/%lluus "
                 "frameCompile=%lluus "
-                "bdFp=%lluus/%zu/%zu/%zu bdDiv=%u@%zu/type%u",
+                "bdFp=%lluus/%zu/%zu/%zu bdDiv=%u@%zu/type%u "
+                "bdCache=%zu/%zu",
                 stats.commandCount, stats.drawCallCount,
                 stats.pathVertexCount, stats.pathUploadCount,
                 stats.pathUploadBytes / 1024u,
@@ -878,7 +879,9 @@ public:
                 stats.backdropFingerprintUncacheable,
                 stats.backdropFirstDivergentReason,
                 stats.backdropFirstDivergentIndex,
-                stats.backdropFirstDivergentType);
+                stats.backdropFirstDivergentType,
+                stats.backdropCacheHits,
+                stats.backdropCacheMisses);
         }
     }
 
