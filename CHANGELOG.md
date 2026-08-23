@@ -75,7 +75,8 @@ For releases and downloadable artifacts, see the
     saveLayer backdrop 15 ms → 0 ms on cache hits, draws 45 → 28, FPS
     3.2 → 26.4 (8.3x).
   - Pixel output at a fixed animation timestamp is SHA-256 identical to the
-    pre-change baseline (`BCB565C9F7A009AE...5BDE`).
+    pre-change baseline (full digest
+    `BCB565C9F7A009AE5DFD0D3FD4D6C9F0C023A69538DDE33BF07647638EFB5BDE`).
 - Other scenes are unchanged or slightly improved: feature_showcase (Mi 59.8,
   U 56.3), text_stress (Mi 57.9, U 34.6), geometry_stress (Mi 59.6, U 55.5).
 
