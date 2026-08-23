@@ -9,6 +9,77 @@ For releases and downloadable artifacts, see the
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-08-23
+
+### Added
+- Added a saveLayer stage CPU breakdown (`layerBackdropRenderCpuTimeNs`,
+  `layerFilterCpuTimeNs`, `layerCompositeRenderCpuTimeNs`) to
+  `Canvas::RenderStats` so callers can attribute `restoreLayer()` time to
+  pre-layer backdrop rerender, filter chain execution, or the layer body
+  offscreen render.
+- Added `Command`-content fingerprints and a backdrop compile-result cache
+  keyed on the pre-layer command sequence, backdrop filter chain, and layer
+  geometry. `restoreLayer()` reuses the cached filtered backdrop when every
+  visible input matches the previous frame; correctness is guarded by the
+  fingerprint changing on any semantic difference and by the `Canvas::RenderStats`
+  hit-rate counters (`backdropCacheHits`, `backdropCacheMisses`,
+  `backdropFingerprintStableFrames`, `backdropFingerprintDivergentFrames`,
+  `backdropFingerprintUncacheable`, `backdropFingerprintCpuTimeNs`,
+  `backdropFirstDivergentIndex`, `backdropFirstDivergentType`,
+  `backdropFirstDivergentReason`).
+- Added a NanoVG A/B reference build to the Android profile APK so
+  feature/text/geometry/compositing scenes can be measured against NanoVG on
+  the same device, resolution, and animation clock. NanoVG is included as a
+  submodule under `third_party/nanovg`.
+
+### Changed
+- Cropped `saveLayer` offscreen rendering now flows through the shared
+  FrameCompiler and OpenGL sprite/path batching path used by the main
+  framebuffer. `DrawPathProgram` VAO, program, and projection uniforms are
+  reused across consecutive packets, and the device-lifetime `SpriteBatch`
+  and GL programs are reused across offscreen replays.
+- Gaussian blur passes pair adjacent taps with linear sampling so a
+  radius-12 pass now issues 13 texture samples per direction instead of 25,
+  matching the analytical Gaussian to within float precision.
+- Added a fast textured-quad shader for the common uniform-tint,
+  no-clip-mask, no-color-matrix case. The general shader continues to handle
+  gradients, tile modes, rounded corners, color matrices, and clip masks.
+- `Renderer` `renderCommandsToImageResource()` counts draw calls by compiled
+  packet when available, so offscreen replay no longer inflates draw counts
+  by treating each queued command as a draw.
+- `Canvas` simple-fill path no longer runs a per-primitive `steady_clock`
+  probe by default. The diagnostic can be restored by compiling with
+  `WHATSCANVAS_ENABLE_SIMPLE_FILL_STATS`.
+
+### Fixed
+- `ScissorState`, which stores a `bool` followed by four `int`s, was hashed
+  by the new backdrop cache as a raw byte blob and pulled uninitialized
+  padding into the fingerprint, defeating cache hits. Hash it field-by-field
+  in the fingerprint helper.
+- `GaussianLinearSampleKernel::tapCount()` returned `-1` for an empty
+  kernel; it now returns `0` so callers can treat the result as a
+  non-negative count.
+- `Canvas` `restoreLayer()` now resets `backdropFirstDivergent{Index,Type,Reason}`
+  on the uncacheable path so stale divergence-report fields cannot leak into
+  logs from earlier frames.
+- `FrameCompiler` `appendSolidTriangles()` now reserves the incoming vertex
+  count before pushing implicit sequential indices, matching the reserve
+  already present for explicit incoming indices.
+
+### Performance
+- Android `compositing_stress`:
+  - Mi MIX 2: recordCpu 18-20 ms → 7.4 ms, frameCompile 8-9 ms → 0.24 ms,
+    saveLayer backdrop 13 ms → 0 ms on cache hits, draws 45 → 28, FPS
+    4.7 → 30.8 (6.6x).
+  - U Ultra: recordCpu 18-20 ms → 5.1 ms, frameCompile 5-6 ms → 0.10 ms,
+    saveLayer backdrop 15 ms → 0 ms on cache hits, draws 45 → 28, FPS
+    3.2 → 26.4 (8.3x).
+  - Pixel output at a fixed animation timestamp is SHA-256 identical to the
+    pre-change baseline (full digest
+    `BCB565C9F7A009AE5DFD0D3FD4D6C9F0C023A69538DDE33BF07647638EFB5BDE`).
+- Other scenes are unchanged or slightly improved: feature_showcase (Mi 59.8,
+  U 56.3), text_stress (Mi 57.9, U 34.6), geometry_stress (Mi 59.6, U 55.5).
+
 ## [0.8.1] - 2026-08-21
 
 ### Added
