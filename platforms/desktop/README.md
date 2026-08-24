@@ -83,7 +83,7 @@ only to reproduce captures made before the neutral standard was adopted.
 See [RENDERING_PARITY.md](RENDERING_PARITY.md) for the diagnosis and validation
 record.
 The multi-platform contract and new-scene workflow are documented in
-[VISUAL_PARITY.md](../../docs/VISUAL_PARITY.md).
+[VISUAL_PARITY.md](../../doc/VISUAL_PARITY.md).
 Generate the complete DPR 3 reference set for the shared matrix with:
 
 ```sh

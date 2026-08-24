@@ -11,8 +11,8 @@ android {
         applicationId 'com.whatscanvas.demo'
         minSdkVersion "${min_sdk_version}" as Integer
         targetSdkVersion "${target_sdk_version}" as Integer
-        versionCode 10
-        versionName '0.9.0'
+        versionCode 10000
+        versionName '1.0.0'
 
         externalNativeBuild {
             cmake {
