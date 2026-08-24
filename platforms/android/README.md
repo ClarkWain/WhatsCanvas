@@ -61,11 +61,12 @@ flags. The APKs are written to
 `app/build/outputs/apk/profile/app-profile.apk` respectively. Release remains
 the shipping configuration and is not signed with the sample debug key.
 
-Tagged GitHub releases also attach
-`whatscanvas-android-demo-profile-<version>.apk`. It contains all three sample
-ABIs and uses the Android debug key so it can be installed for feature and
-performance evaluation. It is not a production-signed application or an AAR;
-shipping applications must build/sign their own host from source.
+Tagged GitHub releases attach `whatscanvas-android-release-<version>.aar`.
+The Prefab AAR contains public `wsc` headers and `libwhatscanvas.so` for all
+three ABIs. Build it locally with `gradlew.bat :whatscanvas:assembleRelease`;
+the result is `sdk/build/outputs/aar/whatscanvas-release.aar`. The demo APK remains available from
+local builds and is compiled/linted in CI, but it is not uploaded as a Release
+asset. Shipping applications continue to own their Android host and signing.
 
 ## Current scope
 
@@ -98,7 +99,7 @@ adb shell am start -S -n com.whatscanvas.demo/.MainActivity \
 ```
 
 The cross-platform capture layout, metadata and comparison workflow are in
-[`../../docs/VISUAL_PARITY.md`](../../docs/VISUAL_PARITY.md).
+[`../../doc/VISUAL_PARITY.md`](../../doc/VISUAL_PARITY.md).
 To generate the complete portrait/landscape, four-time-sample capture set on a
 running emulator, build the Debug APK and run:
 
@@ -114,5 +115,5 @@ orientation or whose matching native first frame has not completed. Pass
 The sample includes density-aware touch interaction, lifecycle/context-loss
 handling, CI builds and lint, retained-scene diagnostics, and device checkpoints
 on Pixel 3 (Android 12) and Redmi K30 (Android 11/MIUI 12.5). Encoded-image use
-in this demo, managed-emulator instrumentation, AAR/Prefab packaging, broad OEM
-device coverage, and Vulkan presentation remain follow-up work.
+in this demo, managed-emulator instrumentation, broad OEM device coverage, and
+Vulkan presentation remain follow-up work.
