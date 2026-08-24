@@ -19,6 +19,27 @@ namespace wsc {
 /// otherwise, dimensions are logical Canvas units. Defaults are anti-aliasing
 /// on, opaque black fill/stroke, FILL style, 1-unit stroke, 16-unit text,
 /// SRC_OVER blending and linear image sampling.
+///
+/// Minimal setup:
+/// @code{.cpp}
+/// wsc::Paint fillPaint;
+/// fillPaint.setColor(wsc::Color(40, 120, 240));
+/// fillPaint.setStyle(wsc::Paint::Style::FILL);
+///
+/// wsc::Paint strokePaint;
+/// strokePaint.setColor(wsc::Color::BLACK);
+/// strokePaint.setStyle(wsc::Paint::Style::STROKE);
+/// strokePaint.setStrokeWidth(2.0f);
+/// @endcode
+///
+/// Typical usage patterns:
+/// - Solid color: `setColor()` / `setAlpha()` / `setFillColor()`
+/// - Stroke: `setStyle(Paint::Style::STROKE)`, `setStrokeWidth()`, `setStrokeCap()`
+/// - Gradient: `setLinearGradient()` or `setRadialGradient()`
+/// - Text: set `setTextSize()`, `setTextAlign()`, `setTextBaseline()` and then
+///   draw text with a Canvas method
+/// - Layer blending: adjust `setBlendMode()` and image tinting through
+///   `setColor()` / `setFillColor()` when needed
 class WSC_API Paint
 {
 public:
