@@ -207,11 +207,18 @@ whatscanvas-<os>-release-<version>.zip
 #      whatscanvas-macos-universal-release-0.8.1.zip
 ```
 
-Tagged releases also contain an installable, debug-signed Android evaluation
-asset named `whatscanvas-android-demo-profile-<version>.apk`. It is the
-three-ABI reference application, not a production AAR or a substitute for the
-host application's signing process. Android library users should follow the
-[Android Integration Guide](ANDROID_INTEGRATION.md) and build from source.
+Mobile release assets are library SDKs:
+
+```
+whatscanvas-android-release-<version>.aar
+whatscanvas-ios-release-<version>.zip
+```
+
+The Android Prefab AAR includes headers and three OpenGL ES ABI slices. The iOS
+zip includes a static Metal/CoreText XCFramework with device and universal
+simulator slices. Follow the [Android Integration Guide](ANDROID_INTEGRATION.md)
+or [iOS Build Notes](IOS_BUILD_NOTES.md) for host-specific setup. Demo apps are
+validation inputs and are not published as Release assets.
 
 1. Download the archive for your OS from **Releases** and unzip it. You get:
    - `include/wsc/` — public headers
@@ -226,7 +233,7 @@ project(MyApp LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(WhatsCanvas 0.9.0 CONFIG REQUIRED)
+find_package(WhatsCanvas 1.0.0 CONFIG REQUIRED)
 
 add_executable(MyApp main.cpp)
 target_link_libraries(MyApp PRIVATE WhatsCanvas::OpenGL)   # or ::Software / ::OpenGLES

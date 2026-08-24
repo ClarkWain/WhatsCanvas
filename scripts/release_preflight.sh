@@ -8,11 +8,12 @@ CONFIG=${WHATSCANVAS_PREFLIGHT_CONFIG:-Debug}
 
 "$SCRIPT_DIR/api_reference_check.sh"
 "$SCRIPT_DIR/version_consistency_check.sh"
+python3 "$ROOT_DIR/scripts/performance_claims_check.py"
 
 cmake -S "$ROOT_DIR" -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE="$CONFIG"
 cmake --build "$BUILD_DIR" --config "$CONFIG"
 
 ctest --test-dir "$BUILD_DIR" -C "$CONFIG" -L unit --output-on-failure
-ctest --test-dir "$BUILD_DIR" -C "$CONFIG" -R "^(WhatsCanvasApiReferenceCheck|WhatsCanvasVersionConsistencyCheck|WhatsCanvasPackageConsumerSmoke)$" --output-on-failure
+ctest --test-dir "$BUILD_DIR" -C "$CONFIG" -R "^(WhatsCanvasApiReferenceCheck|WhatsCanvasVersionConsistencyCheck|WhatsCanvasPerformanceClaimsCheck|WhatsCanvasPackageConsumerSmoke)$" --output-on-failure
 
 echo "RELEASE_PREFLIGHT_RESULT=PASS"

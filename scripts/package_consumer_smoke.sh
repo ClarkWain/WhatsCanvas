@@ -7,10 +7,12 @@ PACKAGE_DIR=${WHATSCANVAS_PACKAGE_DIR:-"$ROOT_DIR/out/package/$CONFIG"}
 CONSUMER_BUILD_DIR=${WHATSCANVAS_CONSUMER_BUILD_DIR:-"$ROOT_DIR/build-package-consumer"}
 SOFTWARE_CONSUMER_BUILD_DIR="$CONSUMER_BUILD_DIR-software"
 
-if [ ! -f "$PACKAGE_DIR/lib/cmake/WhatsCanvas/WhatsCanvasConfig.cmake" ]; then
-    echo "Package not found, building package first: $PACKAGE_DIR"
+if ! python3 "$ROOT_DIR/scripts/verify_desktop_release_artifact.py" --package-dir "$PACKAGE_DIR" >/dev/null 2>&1; then
+    echo "Current package not found or stale, building package first: $PACKAGE_DIR"
     sh "$ROOT_DIR/build.sh" --release --package --no-run
 fi
+
+python3 "$ROOT_DIR/scripts/verify_desktop_release_artifact.py" --package-dir "$PACKAGE_DIR"
 
 rm -rf "$CONSUMER_BUILD_DIR"
 rm -rf "$SOFTWARE_CONSUMER_BUILD_DIR"

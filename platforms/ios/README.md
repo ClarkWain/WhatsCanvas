@@ -10,6 +10,25 @@ CoreText text backend. It does not compile or link OpenGL ES.
 - iPhone or iPad simulator/device with Metal support
 - Bundle identifier `com.whatscanvas.demo`
 
+## Release SDK
+
+Tagged releases provide `whatscanvas-ios-release-<version>.zip`. It contains
+`WhatsCanvas.xcframework`, the public `wsc` headers, an `arm64` device slice,
+and an `arm64`/`x86_64` simulator slice. The library uses Metal and CoreText and
+has an iOS 15 deployment target.
+
+Add the XCFramework to the application target, include `<wsc/wsc.h>` from
+C++/Objective-C++, and link Metal, Foundation, QuartzCore, CoreGraphics,
+CoreText, and UIKit. The host owns its `CAMetalLayer`, lifecycle, and signing.
+
+Build the same archive locally with:
+
+```sh
+platforms/ios/scripts/package_xcframework.sh
+```
+
+The versioned zip is written under `out/mobile/ios/`.
+
 ## Run
 
 Open `WhatsCanvasDemo.xcodeproj`, select an iOS simulator, and run the
@@ -64,7 +83,7 @@ to produce a deterministic
 `Documents/feature_showcase-<viewport>-t1250.png` plus its JSON metadata. A
 live, non-fixed capture continues to use `Documents/screenshot.png`. The complete
 cross-platform capture contract is documented in
-[`../../docs/VISUAL_PARITY.md`](../../docs/VISUAL_PARITY.md).
+[`../../doc/VISUAL_PARITY.md`](../../doc/VISUAL_PARITY.md).
 
 The simulator capture matrix uses cold launches for every contracted sample in
 both orientations, preserves each frame with its crop metadata, and
