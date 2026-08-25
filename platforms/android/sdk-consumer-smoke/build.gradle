@@ -1,4 +1,4 @@
-apply plugin: 'com.android.library'
+apply plugin: 'com.android.application'
 
 android {
     namespace 'com.whatscanvas.sdk.consumer.smoke'
@@ -7,6 +7,7 @@ android {
     ndkVersion "${ndk_version}"
 
     defaultConfig {
+        applicationId 'com.whatscanvas.sdk.consumer.smoke'
         minSdkVersion "${min_sdk_version}" as Integer
         targetSdkVersion "${target_sdk_version}" as Integer
 
