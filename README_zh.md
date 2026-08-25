@@ -372,7 +372,7 @@ if (!canvas) {
 
 已知风险：
 
-- 版本仍处于 pre-1.0（`0.9.x`），升级前应阅读 CHANGELOG 并执行 package consumer 测试。
+- 当前稳定 API 线为 `1.x`；公开 API 的破坏性变更保留到主版本升级，但升级前仍应阅读 CHANGELOG 并执行 package consumer 测试。
 - README 的能力表不保证所有 backend × platform 组合都具备相同能力；滤镜、文字和输出目标应查对应的 feature matrix，并验证项目的实际组合。
 - Vulkan 不是默认后端，跨平台窗口呈现和更大场景的像素覆盖仍在扩展。
 - Android Prefab AAR 已覆盖两个 Arm ABI 和 `x86_64`，Pixel 3、Redmi K30 覆盖渲染、字体、生命周期与帧率检查；广泛真机覆盖仍待补齐。iOS Metal/CoreText XCFramework 已覆盖模拟器和真机切片，应用接入、签名和分发仍由宿主负责。WebAssembly/WebGL 2 宿主采用源码构建并执行浏览器测试；WebGPU 和预编译 Web 发布包尚未提供。
