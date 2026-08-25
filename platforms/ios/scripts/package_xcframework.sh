@@ -59,8 +59,8 @@ build_slice() {
 DEVICE_LIBRARY="$(build_slice device iphoneos arm64)"
 SIMULATOR_LIBRARY="$(build_slice simulator iphonesimulator 'arm64;x86_64')"
 
-lipo -verify_arch arm64 "${DEVICE_LIBRARY}"
-lipo -verify_arch arm64 x86_64 "${SIMULATOR_LIBRARY}"
+lipo "${DEVICE_LIBRARY}" -verify_arch arm64
+lipo "${SIMULATOR_LIBRARY}" -verify_arch arm64 x86_64
 
 link_consumer() {
   sdk="$1"
