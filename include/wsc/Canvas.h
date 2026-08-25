@@ -43,9 +43,33 @@ class Picture;
 /// logical-coordinate scale. Drawing state (matrix, DPR, clip, color and blend
 /// mode) is scoped by save()/restore().
 ///
+/// Typical drawing flow:
+/// @code{.cpp}
+/// auto canvas = wsc::Canvas::create(wsc::Canvas::Backend::Software, 256, 256);
+/// if (!canvas) return;
+///
+/// canvas->beginFrame();
+/// canvas->drawColor(wsc::Color::WHITE);
+///
+/// wsc::Paint paint;
+/// paint.setColor(wsc::Color(40, 120, 240));
+/// canvas->drawRoundRect(wsc::RectF(32, 32, 192, 128), 16.0f, paint);
+///
+/// canvas->endFrame();
+/// @endcode
+///
 /// A normal frame is `beginFrame()` -> draw calls -> `endFrame()`. Pixel
 /// readback and Canvas-as-texture sampling require the frame to have ended;
 /// call present() afterwards only when an output target needs presentation.
+///
+/// `OutputTarget` is a design choice that separates drawing from presentation.
+/// A Canvas records commands and renders to an internal backend resource; the
+/// output target decides where the finished frame is sent: an offscreen buffer
+/// for readback/texture reuse, a native OS window for presentation, or a
+/// host-owned framebuffer/swapchain for embedding in an existing graphics
+/// pipeline. This lets the same drawing code target different destinations
+/// without reworking the drawing commands themselves. The flow is typically:
+/// `create -> setOutputTarget -> beginFrame -> draw -> endFrame -> present()`.
 ///
 /// Minimal software frame:
 /// @code{.cpp}
@@ -65,6 +89,18 @@ class Picture;
 /// canvas->endFrame();
 /// swapBuffers(); // Provided by the window system.
 /// @endcode
+///
+/// Common lifecycle checklist:
+/// - Create a Canvas once for a backend/device and keep it on the same render
+///   thread.
+/// - Call `beginFrame()` before issuing draw commands.
+/// - Use `Paint` to set fill/stroke/text state and `RectF`/`PointF`/`Path` for
+///   geometry. `save()`/`restore()` apply state changes within a frame.
+/// - End the frame with `endFrame()`. Only present to a window-backed target when
+///   the target needs a display update.
+/// - Call `finalizeContext()` or destroy the canvas during teardown; do not use a
+///   GL-backed canvas after the owning context is lost unless the backend is
+///   reinitialized.
 class WSC_API Canvas : public ITextureSource
 {
 public:
@@ -728,9 +764,16 @@ public:
 
 	// Output target — where this canvas delivers rendered frames.
 	// See doc/windowed-presentation-design.md.
-	/// Set where frames go: off-screen, an on-screen window, or a host-owned
-	/// GL/Vulkan/Metal render target. Returns false when the target is unsupported for
-	/// this backend/platform. Default is `OutputTarget::Offscreen()`.
+	/// `OutputTarget` describes the destination of each rendered frame:
+	/// - `OutputTarget::Offscreen()` for CPU readback or texture reuse;
+	/// - `OutputTarget::ToWindow()` for window presentation;
+	/// - `OutputTarget::GLFramebuffer()` / `OutputTarget::VulkanImageTarget()` for
+	///   embedding in a host-owned render target.
+	///
+	/// Set the target once for the Canvas's presentation mode. A window target
+	/// usually requires the host to provide a valid native surface and a current
+	/// graphics context. Returns false when the target is unsupported for this
+	/// backend/platform. Default is `OutputTarget::Offscreen()`.
 	bool setOutputTarget(const OutputTarget &target);
 
 	/// Deliver the current frame to the output target. Call after `endFrame()`.

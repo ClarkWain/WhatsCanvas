@@ -9,6 +9,26 @@ For releases and downloadable artifacts, see the
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-08-24
+
+### Added
+- Added a three-ABI Android Prefab AAR release asset containing the public
+  headers, OpenGL ES shared library, and shared C++ runtime.
+- Added an iOS static XCFramework release asset containing public headers plus
+  `arm64` device and `arm64`/`x86_64` simulator Metal/CoreText slices.
+- Added explicit 1.0 release criteria and a private vulnerability-reporting policy.
+- Added a pinned-dependency audit and bundled third-party license notices to
+  desktop, Android, and iOS SDK artifacts.
+
+### Changed
+- Android demo APKs remain build/lint validation inputs but are no longer
+  uploaded as workflow artifacts or tagged Release assets.
+- Defined the 1.x public source/API and official-package ABI compatibility policy.
+- The fast release preflight now validates performance claims and propagates its
+  selected CMake toolchain into clean package-consumer builds.
+- Desktop package-consumer validation now rejects stale-version install trees
+  and requires bundled license notices before compiling the consumer.
+
 ## [0.9.0] - 2026-08-23
 
 ### Added
@@ -675,7 +695,9 @@ For releases and downloadable artifacts, see the
 For changes prior to 0.1.11, see the
 [GitHub Releases](https://github.com/ClarkWain/WhatsCanvas/releases) history.
 
-[Unreleased]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.8.1...HEAD
+[Unreleased]: https://github.com/ClarkWain/WhatsCanvas/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.9.0...v1.0.0
+[0.9.0]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.6.0...v0.7.0

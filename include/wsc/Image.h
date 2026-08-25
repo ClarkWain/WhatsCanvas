@@ -21,6 +21,28 @@ class ImageLifecycleTestAccess;
 /// unrelated backend/device is unsupported and draws nothing. Destroy Images
 /// before orderly Canvas/context teardown when practical. External texture
 /// wrappers retain no ownership unless explicitly stated by that overload.
+///
+/// Minimal usage:
+/// @code{.cpp}
+/// auto canvas = wsc::Canvas::create(wsc::Canvas::Backend::Software, 256, 256);
+/// if (!canvas) return;
+///
+/// std::vector<unsigned char> rgba(256 * 256 * 4, 255);
+/// wsc::Image image;
+/// if (!image.loadFromRGBA(*canvas, rgba, 256, 256)) return;
+///
+/// canvas->beginFrame();
+/// canvas->drawImage(image, 0.0f, 0.0f, 256.0f, 256.0f, wsc::Paint());
+/// canvas->endFrame();
+/// @endcode
+///
+/// Ownership and reuse rules:
+/// - `Image` is bound to a specific Canvas backend/device; reusing it with a
+///   different Canvas or a different GL/Metal/Vulkan device is unsupported.
+/// - `Image` instances are not thread-safe and should be used on the same render
+///   thread as their owning Canvas.
+/// - External texture wrappers only borrow the supplied handle; the caller must
+///   keep that native resource alive for as long as the wrapper is used.
 class WSC_API Image : public ITextureSource
 {
 public:

@@ -1,0 +1,79 @@
+apply plugin: 'com.android.library'
+
+android {
+    namespace 'com.whatscanvas.sdk'
+    compileSdkVersion = "${compile_sdk_version}" as Integer
+    buildToolsVersion = "${build_tools_version}"
+    ndkVersion "${ndk_version}"
+
+    defaultConfig {
+        minSdkVersion "${min_sdk_version}" as Integer
+        targetSdkVersion "${target_sdk_version}" as Integer
+
+        externalNativeBuild {
+            cmake {
+                cppFlags '-std=c++17', '-fexceptions', '-frtti'
+                arguments '-DANDROID_STL=c++_shared'
+                targets 'whatscanvas'
+            }
+        }
+
+        ndk {
+            abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86_64'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    buildFeatures {
+        prefabPublishing true
+    }
+
+    prefab {
+        whatscanvas {
+            headers "${rootProject.projectDir}/../../include"
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path file('src/main/cpp/CMakeLists.txt')
+            version "${cmake_version}"
+        }
+    }
+
+    sourceSets {
+        main.assets.srcDir "$buildDir/generated/whatscanvasNotices"
+    }
+}
+
+def prepareWhatsCanvasNotices = tasks.register('prepareWhatsCanvasNotices', Copy) {
+    def repositoryRoot = file("${rootProject.projectDir}/../..")
+    into "$buildDir/generated/whatscanvasNotices/META-INF"
+    from(new File(repositoryRoot, 'LICENSE'))
+    from(new File(repositoryRoot, 'THIRD_PARTY_NOTICES.md'))
+    into('licenses/freetype') {
+        from(new File(repositoryRoot, 'third_party/freetype/LICENSE.TXT'))
+        from(new File(repositoryRoot, 'third_party/freetype/docs/FTL.TXT'))
+    }
+    into('licenses/glfw') {
+        from(new File(repositoryRoot, 'third_party/glfw/LICENSE.md'))
+    }
+    into('licenses/glm') {
+        from(new File(repositoryRoot, 'third_party/glm/copying.txt'))
+    }
+    into('licenses/harfbuzz') {
+        from(new File(repositoryRoot, 'third_party/harfbuzz/COPYING'))
+    }
+    into('licenses/stb') {
+        from(new File(repositoryRoot, 'third_party/stb/LICENSE'))
+    }
+}
+
+tasks.named('preBuild').configure {
+    dependsOn prepareWhatsCanvasNotices
+}

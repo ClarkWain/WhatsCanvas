@@ -16,3 +16,8 @@ dependencyResolutionManagement {
 
 rootProject.name = "WhatsCanvasAndroid"
 include ':app'
+include ':whatscanvas'
+project(':whatscanvas').projectDir = file('sdk')
+if (System.getenv('WHATSCANVAS_ENABLE_SDK_CONSUMER_SMOKE') == '1') {
+    include ':sdk-consumer-smoke'
+}

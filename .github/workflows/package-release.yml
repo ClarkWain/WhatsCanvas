@@ -131,9 +131,10 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          body_path: doc/RELEASE_NOTES_1_0.md
           files: ${{ steps.archive.outputs.archive }}
 
-  android-demo:
+  android-sdk:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -156,10 +157,12 @@ jobs:
           java-version: '11'
           cache: gradle
 
-      - name: Build installable Profile demo and run lint
+      - name: Build Android SDK and validate the demo host
         working-directory: platforms/android
         run: |
           chmod +x gradlew
+          ./gradlew --no-daemon :whatscanvas:assembleRelease
+          WHATSCANVAS_ENABLE_SDK_CONSUMER_SMOKE=1 ./gradlew --no-daemon :sdk-consumer-smoke:assembleRelease
           ./gradlew --no-daemon :app:assembleProfile :app:lintProfile
 
       - name: Name Android artifact
@@ -174,11 +177,14 @@ jobs:
           if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") {
             throw "Tag/version mismatch: ref is '$($env:GITHUB_REF_NAME)', CMake version requires 'v$version'"
           }
-          $artifactName = "whatscanvas-android-demo-profile-$version"
-          $artifactPath = Join-Path $PWD "$artifactName.apk"
-          Copy-Item platforms/android/app/build/outputs/apk/profile/app-profile.apk $artifactPath
+          $artifactName = "whatscanvas-android-release-$version"
+          $artifactPath = Join-Path $PWD "$artifactName.aar"
+          Copy-Item platforms/android/sdk/build/outputs/aar/whatscanvas-release.aar $artifactPath
           "artifact=$artifactPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "artifact_name=$artifactName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Verify Android SDK layout
+        run: python scripts/verify_mobile_release_artifact.py --android-aar "${{ steps.android_archive.outputs.artifact }}"
 
       - name: Upload Android workflow artifact
         uses: actions/upload-artifact@v4
@@ -190,4 +196,52 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          body_path: doc/RELEASE_NOTES_1_0.md
           files: ${{ steps.android_archive.outputs.artifact }}
+
+  ios-sdk:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build iOS XCFramework
+        shell: bash
+        run: |
+          chmod +x platforms/ios/scripts/package_xcframework.sh
+          platforms/ios/scripts/package_xcframework.sh
+
+      - name: Name iOS artifact
+        id: ios_archive
+        shell: pwsh
+        run: |
+          $cmake = Get-Content CMakeLists.txt -Raw
+          if ($cmake -notmatch 'project\s*\(\s*WhatsCanvas\s+VERSION\s+([0-9]+\.[0-9]+\.[0-9]+)') {
+            throw "Unable to read WhatsCanvas version from CMakeLists.txt"
+          }
+          $version = $Matches[1]
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") {
+            throw "Tag/version mismatch: ref is '$($env:GITHUB_REF_NAME)', CMake version requires 'v$version'"
+          }
+          $artifactName = "whatscanvas-ios-release-$version"
+          $artifactPath = Join-Path $PWD "out/mobile/ios/$artifactName.zip"
+          "artifact=$artifactPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "artifact_name=$artifactName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Verify iOS SDK layout
+        run: python3 scripts/verify_mobile_release_artifact.py --ios-zip "${{ steps.ios_archive.outputs.artifact }}"
+
+      - name: Upload iOS workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.ios_archive.outputs.artifact_name }}
+          path: ${{ steps.ios_archive.outputs.artifact }}
+
+      - name: Upload iOS release asset
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: doc/RELEASE_NOTES_1_0.md
+          files: ${{ steps.ios_archive.outputs.artifact }}

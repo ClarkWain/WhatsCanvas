@@ -2,13 +2,20 @@
 
 This checklist keeps releases aligned with the project's current goal: a lightweight, embeddable Canvas-style 2D renderer with reliable packaging and validation.
 
+For `v1.0.0`, every Must Have item in
+[`RELEASE_1_0_CRITERIA.md`](RELEASE_1_0_CRITERIA.md) must also have objective
+release evidence. Should Have and explicitly out-of-scope items do not block the tag.
+
 ## Before Tagging
 
 1. Update the version in `CMakeLists.txt`.
 2. Update `include/wsc/Version.h`.
 3. Update Android `versionCode` / `versionName`, CHANGELOG, and versioned
    `find_package` snippets in both READMEs and `doc/GETTING_STARTED_AS_LIBRARY.md`.
-4. Run the fast metadata checks:
+   The Android `versionCode` convention is `major * 10000 + minor * 100 + patch`.
+4. Review `doc/DEPENDENCY_AUDIT_1_0.md` (or its successor) and confirm official
+   packages contain `LICENSE`, `THIRD_PARTY_NOTICES.md`, and bundled dependency licenses.
+5. Run the fast metadata checks:
 
 ```bat
 cmake --build build --target WhatsCanvasCheckApiReference
@@ -18,7 +25,7 @@ cmd /c scripts\api_reference_check.bat
 cmd /c scripts\version_consistency_check.bat
 ```
 
-5. Run the package consumer smoke:
+6. Run the package consumer smoke:
 
 ```bat
 cmake --build build --target WhatsCanvasCheckPackageConsumer
@@ -30,7 +37,7 @@ used by the GL-family libraries. Set `WHATSCANVAS_PACKAGE_ENABLE_FREETYPE=0`
 and pass `-DWHATSCANVAS_ENABLE_OPENTYPE_SHAPING=OFF` through
 `WHATSCANVAS_CMAKE_EXTRA_ARGS` only for a deliberately reduced text package.
 
-6. Run the normal validation set appropriate for the change:
+7. Run the normal validation set appropriate for the change:
 
 ```bat
 ctest --test-dir build -C Debug -L unit --output-on-failure
@@ -39,7 +46,8 @@ ctest --test-dir build -C Debug -R "^(WhatsCanvasApiReferenceCheck|WhatsCanvasVe
 
 For rendering or text changes, also run the relevant smoke/pixel gates from `README.md` and `doc/REGRESSION_BASELINES.md`.
 
-For the common fast path, the metadata, Debug unit, and package-consumer checks can be run together:
+For the common fast path, API/version/performance metadata, Debug unit, and
+package-consumer checks can be run together:
 
 ```bat
 cmd /c scripts\release_preflight.bat
@@ -63,12 +71,14 @@ After pushing, verify these workflows:
   - `api-reference`
   - `unit` on Windows / Linux / macOS
   - `opengles-smoke`
+  - `android` AAR packaging and `ios-sdk` XCFramework packaging
   - `default-font-stack`
   - `package-consumer`
 - `Package WhatsCanvas`
   - package job on Windows / Linux / macOS
   - per-platform package consumer smoke before archive upload
-  - Android Profile demo build, `lintProfile`, and APK upload
+  - Android Prefab AAR build/layout verification plus Profile demo build and lint
+  - iOS XCFramework device/simulator build and layout verification
 
 ## Artifact Sanity Check
 
@@ -89,11 +99,29 @@ cmake -S tests/package_consumer -B build-package-consumer \
 cmake --build build-package-consumer --config Release
 ```
 
-Install the Android release asset on a representative device and verify that
-its package version is correct, the feature scene renders CJK/color emoji, the
-frame callback follows the active display mode, and pause/resume recreates GPU
-resources without changing completed content. The APK is intentionally
-debug-signed for evaluation; do not treat it as a production signing artifact.
+Verify the mobile assets with the same structural gate used in CI:
+
+```sh
+python3 scripts/verify_mobile_release_artifact.py \
+  --android-aar whatscanvas-android-release-X.Y.Z.aar
+python3 scripts/verify_mobile_release_artifact.py \
+  --ios-zip whatscanvas-ios-release-X.Y.Z.zip
+```
+
+Verify an extracted desktop install tree, including its version and licenses:
+
+```sh
+python3 scripts/verify_desktop_release_artifact.py --package-dir /path/to/package
+```
+
+The Android AAR must expose the `whatscanvas::whatscanvas` Prefab target and
+compile in a clean consuming application for every distributed ABI. Install a
+locally built Profile demo on a representative device and verify CJK/color
+emoji, pacing, and pause/resume; the demo APK is not a Release asset.
+
+The iOS XCFramework must link in a clean Objective-C++ consumer for both a
+generic device and simulator destination with Metal, Foundation, QuartzCore,
+CoreGraphics, CoreText, and UIKit. Application signing remains host-owned.
 
 ## Release Notes
 
