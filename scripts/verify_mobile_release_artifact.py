@@ -23,11 +23,23 @@ def verify_android(path: Path) -> None:
     require(path.is_file(), f"Android AAR not found: {path}")
     with zipfile.ZipFile(path) as archive:
         names = set(archive.namelist())
-        required = {
+        required_notices = {
             "META-INF/LICENSE",
             "META-INF/THIRD_PARTY_NOTICES.md",
             "META-INF/licenses/freetype/FTL.TXT",
             "META-INF/licenses/harfbuzz/COPYING",
+        }
+        asset_notices = {f"assets/{name}" for name in required_notices}
+        if not required_notices.issubset(names) and not asset_notices.issubset(names):
+            require("classes.jar" in names, "Android AAR is missing classes.jar notices")
+            with zipfile.ZipFile(io.BytesIO(archive.read("classes.jar"))) as classes:
+                missing_notices = sorted(required_notices - set(classes.namelist()))
+            require(
+                not missing_notices,
+                "Android AAR is missing notices: " + ", ".join(missing_notices),
+            )
+
+        required = {
             "prefab/prefab.json",
             "prefab/modules/whatscanvas/module.json",
             "prefab/modules/whatscanvas/include/wsc/wsc.h",

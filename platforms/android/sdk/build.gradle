@@ -47,7 +47,7 @@ android {
     }
 
     sourceSets {
-        main.resources.srcDir "$buildDir/generated/whatscanvasNotices"
+        main.assets.srcDir "$buildDir/generated/whatscanvasNotices"
     }
 }
 
