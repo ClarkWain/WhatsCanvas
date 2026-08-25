@@ -24,6 +24,22 @@ turns off the OpenGL, OpenGL ES, Vulkan, Software, demo, benchmark, and portable
 font dependency targets. CMake selects the active simulator/device SDK and
 architecture supplied by Xcode.
 
+Tagged releases also publish `whatscanvas-ios-release-<version>.zip`. Its
+`WhatsCanvas.xcframework` contains one `arm64` device static library and one
+universal `arm64`/`x86_64` simulator static library, with `include/wsc` copied
+into every slice. Build it locally with:
+
+```sh
+platforms/ios/scripts/package_xcframework.sh
+```
+
+Add the XCFramework to the application target and include `<wsc/wsc.h>` from
+C++ or Objective-C++. The application must link Metal, Foundation, QuartzCore,
+CoreGraphics, CoreText, and UIKit. The archive does not contain an application,
+provisioning profile, or signing identity; those remain host responsibilities.
+Packaging also compile-links a minimal consumer against both the device and
+simulator libraries before creating the archive.
+
 The host creates a `CAMetalLayer`, initializes `Canvas::Backend::Metal`, selects
 `Canvas::TextBackend::CoreText`, and hands the layer to
 `OutputTarget::ToWindow`. The display link requests a fixed 60 Hz range and

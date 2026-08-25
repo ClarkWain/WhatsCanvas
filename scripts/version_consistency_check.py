@@ -29,6 +29,8 @@ def main() -> int:
     readme_zh = read("README_zh.md")
     getting_started = read("doc/GETTING_STARTED_AS_LIBRARY.md")
     android_gradle = read("platforms/android/app/build.gradle")
+    android_integration = read("doc/ANDROID_INTEGRATION.md")
+    changelog = read("CHANGELOG.md")
     package_workflow = read(".github/workflows/package-release.yml")
 
     project_version = require(r"project\s*\(\s*WhatsCanvas\s+VERSION\s+([0-9]+\.[0-9]+\.[0-9]+)", cmake, "CMake project version")
@@ -43,6 +45,13 @@ def main() -> int:
         "README_zh find_package": require(r"find_package\s*\(\s*WhatsCanvas\s+([0-9]+\.[0-9]+\.[0-9]+)\s+CONFIG\s+REQUIRED\s*\)", readme_zh, "README_zh find_package version"),
         "getting-started find_package": require(r"find_package\s*\(\s*WhatsCanvas\s+([0-9]+\.[0-9]+\.[0-9]+)\s+CONFIG\s+REQUIRED\s*\)", getting_started, "getting-started find_package version"),
         "Android versionName": require(r"versionName\s+['\"]([0-9]+\.[0-9]+\.[0-9]+)['\"]", android_gradle, "Android versionName"),
+        "Android versionCode": require(r"versionCode\s+([0-9]+)", android_gradle, "Android versionCode"),
+        "README badge": require(r"shields\.io/badge/version-([0-9]+\.[0-9]+\.[0-9]+)-", readme, "README version badge"),
+        "README_zh badge": require(r"shields\.io/badge/version-([0-9]+\.[0-9]+\.[0-9]+)-", readme_zh, "README_zh version badge"),
+        "README release example": require(r"whatscanvas-win64-release-([0-9]+\.[0-9]+\.[0-9]+)\.zip", readme, "README release example"),
+        "README_zh release example": require(r"whatscanvas-win64-release-([0-9]+\.[0-9]+\.[0-9]+)\.zip", readme_zh, "README_zh release example"),
+        "Android AAR example": require(r"whatscanvas-android-release-([0-9]+\.[0-9]+\.[0-9]+)\.aar", android_integration, "Android AAR example"),
+        "CHANGELOG release": require(r"^## \[([0-9]+\.[0-9]+\.[0-9]+)\] - [0-9]{4}-[0-9]{2}-[0-9]{2}$", changelog, "CHANGELOG release"),
     }
 
     expected = {
@@ -54,6 +63,13 @@ def main() -> int:
         "README_zh find_package": project_version,
         "getting-started find_package": project_version,
         "Android versionName": project_version,
+        "Android versionCode": str(int(major) * 10000 + int(minor) * 100 + int(patch)),
+        "README badge": project_version,
+        "README_zh badge": project_version,
+        "README release example": project_version,
+        "README_zh release example": project_version,
+        "Android AAR example": project_version,
+        "CHANGELOG release": project_version,
     }
 
     errors: list[str] = []

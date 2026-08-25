@@ -1,0 +1,41 @@
+apply plugin: 'com.android.application'
+
+android {
+    namespace 'com.whatscanvas.sdk.consumer.smoke'
+    compileSdkVersion = "${compile_sdk_version}" as Integer
+    buildToolsVersion = "${build_tools_version}"
+    ndkVersion "${ndk_version}"
+
+    defaultConfig {
+        applicationId 'com.whatscanvas.sdk.consumer.smoke'
+        minSdkVersion "${min_sdk_version}" as Integer
+        targetSdkVersion "${target_sdk_version}" as Integer
+
+        externalNativeBuild {
+            cmake {
+                cppFlags '-std=c++17', '-fexceptions', '-frtti'
+                arguments '-DANDROID_STL=c++_shared'
+                targets 'whatscanvas_consumer_smoke'
+            }
+        }
+
+        ndk {
+            abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86_64'
+        }
+    }
+
+    buildFeatures {
+        prefab true
+    }
+
+    externalNativeBuild {
+        cmake {
+            path file('src/main/cpp/CMakeLists.txt')
+            version "${cmake_version}"
+        }
+    }
+}
+
+dependencies {
+    implementation files('../sdk/build/outputs/aar/whatscanvas-release.aar')
+}

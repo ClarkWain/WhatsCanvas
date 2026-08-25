@@ -44,6 +44,17 @@ struct SwapchainConfig
 /// host-owned backend render target (embed into an existing GL/Vulkan renderer).
 /// Construct via the static factories and pass to Canvas::setOutputTarget().
 /// Changing targets invalidates the previous target configuration.
+///
+/// Minimal usage patterns:
+/// - Off-screen rendering: `OutputTarget::Offscreen()`
+/// - Window presentation: `OutputTarget::ToWindow(surface)` where `surface` is a
+///   prepared `NativeSurface`
+/// - Host-owned framebuffer: `OutputTarget::GLFramebuffer(...)`
+/// - Host-owned Vulkan image: `OutputTarget::VulkanImageTarget(...)`
+///
+/// Typical lifecycle for an off-screen target:
+/// `auto canvas = wsc::Canvas::create(...); canvas->setOutputTarget(wsc::OutputTarget::Offscreen()); canvas->beginFrame(); draw...; canvas->endFrame();`
+/// For a window target, the final frame submission is `endFrame(); present();`.
 struct OutputTarget
 {
 	enum class Kind
