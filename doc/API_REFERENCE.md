@@ -35,6 +35,15 @@ WhatsCanvas requires C++17. Installed packages should normally be consumed
 through one of the imported CMake targets: `WhatsCanvas::Software`,
 `WhatsCanvas::OpenGL`, or `WhatsCanvas::OpenGLES`.
 
+Quick start for a simple off-screen drawing:
+1. Pick a backend (`Software` is the simplest starting point).
+2. Create a Canvas with the desired size.
+3. Call `beginFrame()` before drawing anything.
+4. Configure a `Paint` (color, stroke width, fill/stroke style, etc.).
+5. Draw geometry or text.
+6. Call `endFrame()`. If the canvas is rendering to a window/output target,
+call `present()` after the frame ends.
+
 The smallest off-screen program is:
 ```cpp
 #include <wsc/wsc.h>
@@ -54,6 +63,15 @@ A Canvas is rendering-thread confined. Every frame follows
 `beginFrame()` -> draw calls -> `endFrame()`; call `present()` afterwards
 only for a configured output target. OpenGL/OpenGL ES hosts must make their
 context current and call Canvas::loadOpenGL() before creating the Canvas.
+
+Common startup checklist:
+- For the first app, prefer `Canvas::Backend::Software` to validate drawing
+logic and resource lifetime before switching to a GL-backed backend.
+- Check the return value of `Canvas::create()` and `Canvas::loadOpenGL()`.
+- Do not call draw methods outside a frame or on a different thread from the
+Canvas's owner thread.
+- When using a window-backed target (`OutputTarget::ToWindow()`), call
+`present()` after `endFrame()` only for that output target.
 
 **See also:** README.md in this installed directory for package linking, high-DPI,
 resource ownership, context-loss, image, and font integration guidance.
@@ -268,9 +286,33 @@ drawing uses physical pixels unless setDevicePixelRatio() establishes a
 logical-coordinate scale. Drawing state (matrix, DPR, clip, color and blend
 mode) is scoped by save()/restore().
 
+Typical drawing flow:
+```cpp
+auto canvas = wsc::Canvas::create(wsc::Canvas::Backend::Software, 256, 256);
+if (!canvas) return;
+
+canvas->beginFrame();
+canvas->drawColor(wsc::Color::WHITE);
+
+wsc::Paint paint;
+paint.setColor(wsc::Color(40, 120, 240));
+canvas->drawRoundRect(wsc::RectF(32, 32, 192, 128), 16.0f, paint);
+
+canvas->endFrame();
+```
+
 A normal frame is `beginFrame()` -> draw calls -> `endFrame()`. Pixel
 readback and Canvas-as-texture sampling require the frame to have ended;
 call present() afterwards only when an output target needs presentation.
+
+`OutputTarget` is a design choice that separates drawing from presentation.
+A Canvas records commands and renders to an internal backend resource; the
+output target decides where the finished frame is sent: an offscreen buffer
+for readback/texture reuse, a native OS window for presentation, or a
+host-owned framebuffer/swapchain for embedding in an existing graphics
+pipeline. This lets the same drawing code target different destinations
+without reworking the drawing commands themselves. The flow is typically:
+`create -> setOutputTarget -> beginFrame -> draw -> endFrame -> present()`.
 
 Minimal software frame:
 ```cpp
@@ -290,6 +332,18 @@ canvas->drawColor(wsc::Color::WHITE);
 canvas->endFrame();
 swapBuffers(); // Provided by the window system.
 ```
+
+Common lifecycle checklist:
+- Create a Canvas once for a backend/device and keep it on the same render
+thread.
+- Call `beginFrame()` before issuing draw commands.
+- Use `Paint` to set fill/stroke/text state and `RectF`/`PointF`/`Path` for
+geometry. `save()`/`restore()` apply state changes within a frame.
+- End the frame with `endFrame()`. Only present to a window-backed target when
+the target needs a display update.
+- Call `finalizeContext()` or destroy the canvas during teardown; do not use a
+GL-backed canvas after the owning context is lost unless the backend is
+reinitialized.
 
 #### `initialize`
 
@@ -1020,9 +1074,16 @@ differences make it unsuitable as a cross-platform perceptual metric.
 
 - `bool setOutputTarget(const OutputTarget &target);`
 
-Set where frames go: off-screen, an on-screen window, or a host-owned
-GL/Vulkan/Metal render target. Returns false when the target is unsupported for
-this backend/platform. Default is `OutputTarget::Offscreen()`.
+`OutputTarget` describes the destination of each rendered frame:
+- `OutputTarget::Offscreen()` for CPU readback or texture reuse;
+- `OutputTarget::ToWindow()` for window presentation;
+- `OutputTarget::GLFramebuffer()` / `OutputTarget::VulkanImageTarget()` for
+embedding in a host-owned render target.
+
+Set the target once for the Canvas's presentation mode. A window target
+usually requires the host to provide a valid native surface and a current
+graphics context. Returns false when the target is unsupported for this
+backend/platform. Default is `OutputTarget::Offscreen()`.
 
 #### `present`
 
@@ -1728,6 +1789,28 @@ unrelated backend/device is unsupported and draws nothing. Destroy Images
 before orderly Canvas/context teardown when practical. External texture
 wrappers retain no ownership unless explicitly stated by that overload.
 
+Minimal usage:
+```cpp
+auto canvas = wsc::Canvas::create(wsc::Canvas::Backend::Software, 256, 256);
+if (!canvas) return;
+
+std::vector<unsigned char> rgba(256 * 256 * 4, 255);
+wsc::Image image;
+if (!image.loadFromRGBA(*canvas, rgba, 256, 256)) return;
+
+canvas->beginFrame();
+canvas->drawImage(image, 0.0f, 0.0f, 256.0f, 256.0f, wsc::Paint());
+canvas->endFrame();
+```
+
+Ownership and reuse rules:
+- `Image` is bound to a specific Canvas backend/device; reusing it with a
+different Canvas or a different GL/Metal/Vulkan device is unsupported.
+- `Image` instances are not thread-safe and should be used on the same render
+thread as their owning Canvas.
+- External texture wrappers only borrow the supplied handle; the caller must
+keep that native resource alive for as long as the wrapper is used.
+
 #### `getWidth`
 
 - `int getWidth() const;`
@@ -2085,6 +2168,27 @@ be changed or destroyed immediately after the call. Unless a method says
 otherwise, dimensions are logical Canvas units. Defaults are anti-aliasing
 on, opaque black fill/stroke, FILL style, 1-unit stroke, 16-unit text,
 SRC_OVER blending and linear image sampling.
+
+Minimal setup:
+```cpp
+wsc::Paint fillPaint;
+fillPaint.setColor(wsc::Color(40, 120, 240));
+fillPaint.setStyle(wsc::Paint::Style::FILL);
+
+wsc::Paint strokePaint;
+strokePaint.setColor(wsc::Color::BLACK);
+strokePaint.setStyle(wsc::Paint::Style::STROKE);
+strokePaint.setStrokeWidth(2.0f);
+```
+
+Typical usage patterns:
+- Solid color: `setColor()` / `setAlpha()` / `setFillColor()`
+- Stroke: `setStyle(Paint::Style::STROKE)`, `setStrokeWidth()`, `setStrokeCap()`
+- Gradient: `setLinearGradient()` or `setRadialGradient()`
+- Text: set `setTextSize()`, `setTextAlign()`, `setTextBaseline()` and then
+draw text with a Canvas method
+- Layer blending: adjust `setBlendMode()` and image tinting through
+`setColor()` / `setFillColor()` when needed
 
 #### `Paint`
 
@@ -2630,6 +2734,17 @@ off-screen (read back / use as a texture), an on-screen window, or a
 host-owned backend render target (embed into an existing GL/Vulkan renderer).
 Construct via the static factories and pass to Canvas::setOutputTarget().
 Changing targets invalidates the previous target configuration.
+
+Minimal usage patterns:
+- Off-screen rendering: `OutputTarget::Offscreen()`
+- Window presentation: `OutputTarget::ToWindow(surface)` where `surface` is a
+prepared `NativeSurface`
+- Host-owned framebuffer: `OutputTarget::GLFramebuffer(...)`
+- Host-owned Vulkan image: `OutputTarget::VulkanImageTarget(...)`
+
+Typical lifecycle for an off-screen target:
+`auto canvas = wsc::Canvas::create(...); canvas->setOutputTarget(wsc::OutputTarget::Offscreen()); canvas->beginFrame(); draw...; canvas->endFrame();`
+For a window target, the final frame submission is `endFrame(); present();`.
 
 #### `Offscreen`
 

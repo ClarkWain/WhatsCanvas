@@ -5,13 +5,11 @@ OpenGL ES 3, `GLSurfaceView`, CMake, and JNI. The runnable implementation is in
 the repository's `platforms/android/` directory; this document defines the integration
 and lifecycle contract that a production host should follow.
 
-WhatsCanvas does not currently publish an Android AAR. Integrate it from source
-or use the checked-in Android application as the starting module.
-
-Tagged releases publish a debug-signed, three-ABI Profile demo APK named
-`whatscanvas-android-demo-profile-<version>.apk`. It is intended for evaluating
-the reference scene and collecting representative device traces; it is not a
-production-signed app and is not a substitute for an AAR or source integration.
+Tagged releases publish `whatscanvas-android-release-<version>.aar`. This
+Prefab AAR contains the public `wsc` headers, `libwhatscanvas.so`, and the
+required shared C++ runtime for `armeabi-v7a`, `arm64-v8a`, and `x86_64`.
+The checked-in demo APK remains a local/CI validation host and is not a Release
+asset.
 
 ## Integration Architecture
 
@@ -51,7 +49,45 @@ These exact build-tool versions describe the checked-in sample rather than a
 permanent library requirement. OpenGL ES 3 and C++17 are the runtime and source
 requirements that an embedding application must preserve.
 
-## 1. Add the Native Build
+## Use the Release AAR
+
+Copy the release AAR into the application's `app/libs/` directory and add it as
+a dependency:
+
+```groovy
+dependencies {
+    implementation files('libs/whatscanvas-android-release-1.0.0.aar')
+}
+
+android {
+    buildFeatures {
+        prefab true
+    }
+}
+```
+
+Consume its Prefab target from the application's native CMake project:
+
+```cmake
+find_package(whatscanvas REQUIRED CONFIG)
+
+add_library(my_android_renderer SHARED my_renderer_jni.cpp)
+target_link_libraries(my_android_renderer PRIVATE
+    whatscanvas::whatscanvas
+    android EGL GLESv3 log)
+```
+
+Use C++17 and `-DANDROID_STL=c++_shared`, and restrict the application to ABIs
+present in the AAR. The application still owns EGL, the `GLSurfaceView` or
+equivalent host, the JNI lifecycle, frame scheduling, and signing. Include the
+API from C++ as `<wsc/wsc.h>`.
+
+Build the AAR from source with `gradlew.bat :whatscanvas:assembleRelease` in
+`platforms/android/`. CI verifies the three native slices, Prefab metadata,
+public headers, shared C++ runtime, and a clean three-ABI Prefab consumer before
+publishing it.
+
+## 1. Add the Native Build from Source
 
 Enable only the OpenGL ES backend in the Android CMake project. The sample uses
 the following shape in `platforms/android/app/src/main/cpp/CMakeLists.txt`:
@@ -518,6 +554,7 @@ with a compact card layout for short landscape viewports.
 From `platforms/android/` on Windows:
 
 ```bat
+gradlew.bat :whatscanvas:assembleRelease
 gradlew.bat :app:assembleDebug
 gradlew.bat :app:lintDebug
 gradlew.bat :app:assembleProfile
@@ -594,7 +631,6 @@ with another emulator GPU backend. On the reference Windows machine,
 
 ## Current Limitations
 
-- No published AAR or Prefab package.
 - Android Gradle debug/release builds and lint run in CI, but there is no managed
   emulator or instrumentation gate yet.
 - The sample has local density-aware touch handling, but the core renderer does

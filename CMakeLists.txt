@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(WhatsCanvas VERSION 0.9.0 LANGUAGES C CXX)
+project(WhatsCanvas VERSION 1.0.0 LANGUAGES C CXX)
 
 include(CTest)
 include(GNUInstallDirs)
@@ -2762,5 +2762,32 @@ if (WHATSCANVAS_INSTALL)
         "${CMAKE_CURRENT_BINARY_DIR}/WhatsCanvasConfig.cmake"
         "${CMAKE_CURRENT_BINARY_DIR}/WhatsCanvasConfigVersion.cmake"
         DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/WhatsCanvas"
+    )
+
+    install(FILES
+        "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE"
+        "${CMAKE_CURRENT_SOURCE_DIR}/THIRD_PARTY_NOTICES.md"
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/WhatsCanvas"
+    )
+    install(FILES
+        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/freetype/LICENSE.TXT"
+        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/freetype/docs/FTL.TXT"
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/WhatsCanvas/licenses/freetype"
+    )
+    install(FILES
+        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/glfw/LICENSE.md"
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/WhatsCanvas/licenses/glfw"
+    )
+    install(FILES
+        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/glm/copying.txt"
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/WhatsCanvas/licenses/glm"
+    )
+    install(FILES
+        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/harfbuzz/COPYING"
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/WhatsCanvas/licenses/harfbuzz"
+    )
+    install(FILES
+        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb/LICENSE"
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/WhatsCanvas/licenses/stb"
     )
 endif()

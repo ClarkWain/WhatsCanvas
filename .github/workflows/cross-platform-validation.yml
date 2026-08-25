@@ -185,7 +185,28 @@ jobs:
         working-directory: platforms/android
         run: |
           chmod +x gradlew
+          ./gradlew --no-daemon :whatscanvas:assembleRelease
+          WHATSCANVAS_ENABLE_SDK_CONSUMER_SMOKE=1 ./gradlew --no-daemon :sdk-consumer-smoke:assembleRelease
           ./gradlew --no-daemon :app:assembleDebug :app:assembleRelease :app:lintDebug
+
+      - name: Verify Android SDK layout
+        run: python scripts/verify_mobile_release_artifact.py --android-aar platforms/android/sdk/build/outputs/aar/whatscanvas-release.aar
+
+  ios-sdk:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build iOS XCFramework
+        run: |
+          chmod +x platforms/ios/scripts/package_xcframework.sh
+          platforms/ios/scripts/package_xcframework.sh
+
+      - name: Verify iOS SDK layout
+        run: python3 scripts/verify_mobile_release_artifact.py --ios-zip out/mobile/ios/whatscanvas-ios-release-*.zip
 
   sanitizers:
     runs-on: ubuntu-latest

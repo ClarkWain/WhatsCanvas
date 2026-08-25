@@ -9,6 +9,7 @@ The stable public surface lives under `include/wsc/` and is exported through the
 - `wsc/wsc.h`
 - `wsc/base.h`
 - `wsc/Canvas.h`
+- `wsc/CanvasStats.h`
 - `wsc/Color.h`
 - `wsc/Export.h`
 - `wsc/Paint.h`
@@ -16,7 +17,10 @@ The stable public surface lives under `include/wsc/` and is exported through the
 - `wsc/Image.h`
 - `wsc/ImageFilter.h`
 - `wsc/Font.h`
+- `wsc/FontResolver.h`
+- `wsc/FontSystem.h`
 - `wsc/Matrix.h`
+- `wsc/Picture.h`
 - `wsc/Log.h`
 - `wsc/Surface.h`
 - `wsc/Version.h`
@@ -78,6 +82,11 @@ Vulkan does not have a separate package target. When enabled with
 target and selected at runtime with `Canvas::Backend::Vulkan`. Vulkan remains
 optional and is unavailable when no usable Vulkan SDK/device is present.
 
+Tagged mobile SDKs expose the same public headers through these delivery surfaces:
+
+- Android Prefab package `whatscanvas`, target `whatscanvas::whatscanvas`
+- iOS `WhatsCanvas.xcframework`, delivered as a static Metal library
+
 Repository-internal targets, helper libraries, and example targets should not be treated as application-facing API.
 
 ## Experimental or Internal Surface
@@ -92,6 +101,22 @@ The following areas may change without API compatibility guarantees:
 - native backend placeholders that are not exposed as package targets
 
 ## Compatibility Rules
+
+For the 1.x release line:
+
+- documented public source APIs remain backward-compatible within 1.x;
+- minor releases may add APIs and deprecate existing ones, while removals or
+  incompatible semantic changes require a new major version;
+- a deprecated API remains available for at least one subsequent minor release
+  and identifies its replacement where one exists;
+- patch releases contain compatible fixes, but may correct unsafe, undefined,
+  or clearly contradicted behavior;
+- documented header paths, release asset names, and package target names remain
+  stable within 1.x; and
+- binary compatibility applies only to an official package used with its stated
+  architecture, compiler/runtime, SDK, configuration, and dependency versions.
+  Cross-compiler, cross-STL, cross-NDK/CRT, or custom-build ABI compatibility is
+  outside the contract; source compatibility is the portable boundary.
 
 When changing stable public API:
 
