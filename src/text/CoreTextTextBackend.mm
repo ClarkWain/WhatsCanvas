@@ -483,7 +483,9 @@ public:
         } else if (paint.getTextAlign() == Paint::TextAlign::RIGHT) {
             left = -info.width;
         }
-        return {left, textBaselineOffset(paint.getTextBaseline(), info.height),
+        return {left,
+                textBaselineOffset(
+                    paint.getTextBaseline(), info.height, info.ascent),
                 info.width, info.height};
     }
 
@@ -544,6 +546,7 @@ private:
     {
         float width = 0.0f;
         float height = 0.0f;
+        float alphabeticBaseline = 0.0f;
         int pixelWidth = 0;
         int pixelHeight = 0;
         std::uint64_t contentId = 0;
@@ -577,6 +580,7 @@ private:
         const LayoutInfo info = measureAttributedString(attributed.get());
         result.width = info.width;
         result.height = info.height;
+        result.alphabeticBaseline = info.ascent;
         result.pixelWidth = std::max(1, static_cast<int>(std::ceil(info.width)));
         result.pixelHeight = std::max(1, static_cast<int>(std::ceil(info.height)));
         const std::size_t rowBytes = static_cast<std::size_t>(result.pixelWidth) * 4u;
@@ -652,7 +656,9 @@ private:
         }
         result.kind = TextRenderKind::Bitmap;
         result.drawX = alignedX;
-        result.drawY = y + textBaselineOffset(paint.getTextBaseline(), cached.height);
+        result.drawY = y + textBaselineOffset(
+            paint.getTextBaseline(), cached.height,
+            cached.alphabeticBaseline);
         result.width = cached.width;
         result.height = cached.height;
         result.bitmapWidth = cached.pixelWidth;

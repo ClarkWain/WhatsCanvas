@@ -114,6 +114,8 @@ NativeTextMeasure measureNativeText(const std::string &text, const Paint &paint)
     result.pixelHeight = std::max(1, static_cast<int>(std::ceil(height)));
     result.width = static_cast<float>(result.pixelWidth);
     result.height = static_cast<float>(result.pixelHeight);
+    result.alphabeticBaseline = std::clamp(
+        static_cast<float>(textMetric.tmAscent), 0.0f, result.height);
 #else
     (void)text;
     (void)paint;
