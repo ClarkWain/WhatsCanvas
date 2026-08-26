@@ -3296,6 +3296,10 @@ float textBaselineOffset(Paint::TextBaseline baseline, float textHeight)
         return -textHeight * 0.5f;
     case Paint::TextBaseline::BOTTOM:
         return -textHeight;
+    case Paint::TextBaseline::ALPHABETIC:
+        // The legacy ASCII geometry has no independent line metrics; its
+        // typographic baseline is the bottom of the synthesized em box.
+        return -textHeight;
     }
 
     return 0.0f;
@@ -6577,9 +6581,19 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
 
         const ScissorState scissor = impl_->makeCurrentScissorState();
         const ClipMaskState clipMask = impl_->makeCurrentClipMaskState();
-        float clearTypeTx = 0.0f;
-        float clearTypeTy = 0.0f;
-        float clearTypeTransformScale = 1.0f;
+        float bitmapTx = 0.0f;
+        float bitmapTy = 0.0f;
+        float bitmapTransformScale = 1.0f;
+        const bool pixelAlignedBitmapTransform = pixelSnappableTransform(
+            impl_->currentState().matrix, bitmapTx, bitmapTy,
+            bitmapTransformScale)
+            // The native backend rasterized at `textRasterScale`. Reusing the
+            // integer bitmap extent is only a 1:1 mapping when the draw
+            // transform has the same device scale.
+            && std::abs(bitmapTransformScale - textRasterScale) <= 1e-3f;
+        // LCD texels must map 1:1 to physical subpixels. The raster stage and
+        // root transform share the actual DPR even when the font height itself
+        // was rounded to a whole physical pixel.
         const bool useClearTypeBitmap = renderedText.bitmapIsClearType
             && drawFill
             && strokePasses.empty()
@@ -6590,28 +6604,27 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
             && !paint.hasLinearGradient()
             && !paint.hasRadialGradient()
             && fillColor.a() >= 0.999f
-            && pixelSnappableTransform(impl_->currentState().matrix, clearTypeTx, clearTypeTy,
-                                       clearTypeTransformScale)
-            // LCD texels must map 1:1 to physical subpixels. The raster stage
-            // and root transform now share the actual DPR even when the font
-            // height itself was rounded to a whole physical pixel.
-            && std::abs(clearTypeTransformScale - textRasterScale) <= 1e-3f;
-        const auto submitBitmapText = [&](const Color &textColor, const glm::mat4 &transform, bool useFillShader = false) {
+            && pixelAlignedBitmapTransform;
+        const auto submitBitmapText = [&](const Color &textColor, const glm::mat4 &transform,
+                                          bool useFillShader = false,
+                                          bool preferPixelAlignedBitmap = false) {
             DrawImageData data;
             data.imageResource = imageResource;
             data.x = renderedText.drawX;
             data.y = renderedText.drawY;
-            // LCD coverage is a physical-pixel mask.  DirectWrite layout
-            // metrics are fractional while the bitmap dimensions are ceiled
-            // to whole texels; drawing the texture with the fractional metric
-            // size squeezes N mask texels into <N device pixels and softens
-            // stems even with nearest sampling.  Give every ClearType texel
-            // exactly one device pixel.  Logical measurement continues to use
-            // the fractional layout metrics returned by the backend.
-            data.width = useClearTypeBitmap
+            // Native coverage bitmaps have integer texel dimensions while
+            // DirectWrite/CoreText layout metrics may be fractional. Drawing
+            // the texture at the fractional metric extent resamples an already
+            // rasterized glyph and softens stems. For the ordinary axis-aligned
+            // UI fill, give every grayscale or LCD texel exactly one device
+            // pixel. Logical measurement still uses the fractional metrics.
+            const bool usePixelAlignedBitmap = preferPixelAlignedBitmap
+                && pixelAlignedBitmapTransform
+                && transform == impl_->currentState().matrix;
+            data.width = usePixelAlignedBitmap
                 ? static_cast<float>(renderedText.bitmapWidth) / textRasterScale
                 : renderedText.width;
-            data.height = useClearTypeBitmap
+            data.height = usePixelAlignedBitmap
                 ? static_cast<float>(renderedText.bitmapHeight) / textRasterScale
                 : renderedText.height;
             data.u0 = 0.0f;
@@ -6629,19 +6642,22 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
             // the existing alpha-mask rendering semantics.
             data.clearTypeMask = useClearTypeBitmap && !useFillShader
                 && textColor.a() >= 0.999f && transform == impl_->currentState().matrix;
-            data.sampling = data.clearTypeMask ? DrawImageSampling::Nearest : DrawImageSampling::Linear;
+            data.sampling = usePixelAlignedBitmap
+                ? DrawImageSampling::Nearest : DrawImageSampling::Linear;
             data.tileMode = DrawImageTileMode::Clamp;
             data.transform = transform;
             data.scissor = scissor;
             data.blendMode = toDrawBlendMode(paint.getBlendMode());
             data.clipMask = clipMask;
-            if (data.clearTypeMask) {
-                // Preserve the transform but align the bitmap's device origin
-                // so DirectWrite's LCD samples do not straddle adjacent pixels.
-                data.x = (std::round(data.x * clearTypeTransformScale + clearTypeTx)
-                          - clearTypeTx) / clearTypeTransformScale;
-                data.y = (std::round(data.y * clearTypeTransformScale + clearTypeTy)
-                          - clearTypeTy) / clearTypeTransformScale;
+            if (usePixelAlignedBitmap) {
+                // Preserve the transform but align the coverage bitmap's
+                // device origin. This is required for grayscale just as much
+                // as LCD text: otherwise even Nearest/Linear sampling straddles
+                // adjacent framebuffer pixels at fractional-DPR positions.
+                data.x = (std::round(data.x * bitmapTransformScale + bitmapTx)
+                          - bitmapTx) / bitmapTransformScale;
+                data.y = (std::round(data.y * bitmapTransformScale + bitmapTy)
+                          - bitmapTy) / bitmapTransformScale;
             }
             if (useFillShader) {
                 applyImageGradient(paint, data);
@@ -6695,7 +6711,8 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
             // ineligible for the ClearType compositor, even though all other
             // LCD safety checks had succeeded.
             submitBitmapText(fillColor, impl_->currentState().matrix,
-                             paint.hasLinearGradient() || paint.hasRadialGradient());
+                             paint.hasLinearGradient() || paint.hasRadialGradient(),
+                             true);
         }
         return;
     }

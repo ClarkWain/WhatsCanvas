@@ -147,6 +147,61 @@ bool testFractionalTextStaysCrisp()
     return ok;
 }
 
+// Native bitmap backends return an integer coverage texture plus fractional
+// layout metrics. At fractional DPR, two logical origins that resolve to the
+// same physical pixel must therefore produce the same framebuffer. If Canvas
+// uses the fractional metric extent with Linear sampling, the second render is
+// visibly softer and the frames differ even though both origins should snap to
+// the same device pixel.
+bool testNativeGrayscaleBitmapSnapsAtFractionalDpr()
+{
+    auto availability = Canvas::create(Canvas::Backend::Software, 4, 4);
+    if (!availability || !availability->initializeContext()
+        || !availability->setTextBackend(Canvas::TextBackend::DirectWrite,
+                                         Canvas::TextRenderMode::Grayscale)) {
+        std::cout << "Skipping native grayscale bitmap test; DirectWrite unavailable."
+                  << std::endl;
+        return true;
+    }
+
+    const auto render = [](float x) {
+        constexpr int w = 180;
+        constexpr int h = 64;
+        auto canvas = Canvas::create(Canvas::Backend::Software, w, h);
+        canvas->initializeContext();
+        canvas->setTextBackend(Canvas::TextBackend::DirectWrite,
+                               Canvas::TextRenderMode::Grayscale);
+        canvas->setDevicePixelRatio(1.25f);
+        canvas->beginFrame();
+        Paint bg;
+        bg.setStyle(Paint::Style::FILL);
+        bg.setColor(Color(255, 255, 255, 255));
+        bg.setAntiAlias(false);
+        canvas->drawRect(RectF(0.0f, 0.0f, 144.0f, 52.0f), bg);
+        Paint text;
+        text.setColor(Color(0, 0, 0, 255));
+        text.setFontFamily("Segoe UI");
+        text.setTextSize(13.0f);
+        text.setTextBaseline(Paint::TextBaseline::ALPHABETIC);
+        canvas->drawText("Native text", x, 32.0f, text);
+        canvas->endFrame();
+        std::vector<unsigned char> pixels;
+        canvas->readPixelsRGBA(pixels);
+        return pixels;
+    };
+
+    // 20.00 * 1.25 = 25.00 and 20.24 * 1.25 = 25.30: both round to device
+    // pixel 25 under the UI text snapping contract.
+    const auto integerOrigin = render(20.0f);
+    const auto fractionalOrigin = render(20.24f);
+    const bool ok = expect(!integerOrigin.empty()
+                               && integerOrigin == fractionalOrigin,
+                           "DirectWrite grayscale text at equivalent snapped origins should be pixel-identical");
+    std::cout << "[TextPixelAlignmentTests] native grayscale fractional DPR: "
+              << (ok ? "identical" : "different") << std::endl;
+    return ok;
+}
+
 // Count solidly-inked (near-black) pixels produced by black text rendered with
 // a given logical text size under a given uniform canvas scale, placed so the
 // on-screen size is the same for every (size, scale) pair.
@@ -674,6 +729,7 @@ bool testDecorationsCrossBackendConsistency()
 int main()
 {
     bool ok = testFractionalTextStaysCrisp();
+    ok = testNativeGrayscaleBitmapSnapsAtFractionalDpr() && ok;
     ok = testScaledTextRasterizedAtDeviceResolution() && ok;
     ok = testDevicePixelRatioScalesAndStaysCrisp() && ok;
     ok = testSetMatrixPreservesDevicePixelRatio() && ok;

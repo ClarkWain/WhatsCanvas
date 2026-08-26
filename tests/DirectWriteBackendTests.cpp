@@ -70,6 +70,37 @@ int main()
         return 1;
     }
 
+    // Public baseline anchors must remain semantically distinct. In
+    // particular, ALPHABETIC is the first line's typographic baseline rather
+    // than an alias for the bitmap bottom.
+    constexpr float anchorY = 100.0f;
+    wsc::Paint topPaint = paint;
+    topPaint.setTextBaseline(wsc::Paint::TextBaseline::TOP);
+    wsc::Paint bottomPaint = paint;
+    bottomPaint.setTextBaseline(wsc::Paint::TextBaseline::BOTTOM);
+    wsc::Paint alphabeticPaint = paint;
+    alphabeticPaint.setTextBaseline(wsc::Paint::TextBaseline::ALPHABETIC);
+    const auto topAnchor = backend->renderText("Hg", 0.0f, anchorY, topPaint);
+    const auto bottomAnchor = backend->renderText("Hg", 0.0f, anchorY, bottomPaint);
+    const auto alphabeticAnchor =
+        backend->renderText("Hg", 0.0f, anchorY, alphabeticPaint);
+    const auto alphabeticBounds =
+        backend->measureTextBounds("Hg", alphabeticPaint);
+    if (topAnchor.kind != wsc::text::TextRenderKind::Bitmap
+        || bottomAnchor.kind != wsc::text::TextRenderKind::Bitmap
+        || alphabeticAnchor.kind != wsc::text::TextRenderKind::Bitmap
+        || !(bottomAnchor.drawY < alphabeticAnchor.drawY
+             && alphabeticAnchor.drawY < topAnchor.drawY)
+        || std::abs((alphabeticAnchor.drawY - anchorY)
+                    - alphabeticBounds.getY()) > 0.01f) {
+        std::cerr << "[DirectWriteBackendTests] FAIL: top/alphabetic/bottom anchors lost their distinct semantics."
+                  << " top=" << topAnchor.drawY
+                  << " alphabetic=" << alphabeticAnchor.drawY
+                  << " bottom=" << bottomAnchor.drawY
+                  << " boundsY=" << alphabeticBounds.getY() << std::endl;
+        return 1;
+    }
+
     // Rendering (grayscale, the default).
     const wsc::text::TextRenderResult result = backend->renderText("Hg", 0.0f, 0.0f, paint);
     if (result.kind != wsc::text::TextRenderKind::Bitmap) {

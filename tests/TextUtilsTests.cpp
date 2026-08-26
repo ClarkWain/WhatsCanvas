@@ -855,6 +855,28 @@ bool testGeometryTextVerticesRespectOrigin()
                   "glyph y should sit at the pen origin, not the scaled origin");
 }
 
+bool testTextBaselineOffsetsKeepDistinctSemantics()
+{
+    constexpr float height = 20.0f;
+    constexpr float alphabetic = 15.0f;
+    return expect(
+               wsc::text::textBaselineOffset(
+                   wsc::Paint::TextBaseline::TOP, height, alphabetic) == 0.0f,
+               "top baseline should anchor the text bounds top")
+        && expect(
+               wsc::text::textBaselineOffset(
+                   wsc::Paint::TextBaseline::MIDDLE, height, alphabetic) == -10.0f,
+               "middle baseline should anchor the text bounds centre")
+        && expect(
+               wsc::text::textBaselineOffset(
+                   wsc::Paint::TextBaseline::BOTTOM, height, alphabetic) == -20.0f,
+               "bottom baseline should anchor the text bounds bottom")
+        && expect(
+               wsc::text::textBaselineOffset(
+                   wsc::Paint::TextBaseline::ALPHABETIC, height, alphabetic) == -15.0f,
+               "alphabetic baseline should use the backend typographic baseline");
+}
+
 } // namespace
 
 int main()
@@ -899,6 +921,7 @@ int main()
         && testUnicodeBidiOverrideControls()
         && testColorFontTableDetection()
         && testColorFontTableDetectionHandlesTtcAndMalformedData()
-        && testGeometryTextVerticesRespectOrigin();
+        && testGeometryTextVerticesRespectOrigin()
+        && testTextBaselineOffsetsKeepDistinctSemantics();
     return ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }
