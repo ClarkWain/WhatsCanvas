@@ -225,6 +225,9 @@ bool testTextAndStrokeState()
     paint.setStrokeMiterLimit(6.0f);
     ok = expect(paint.getTextAlign() == wsc::Paint::TextAlign::RIGHT, "text align should round trip") && ok;
     ok = expect(paint.getTextBaseline() == wsc::Paint::TextBaseline::BOTTOM, "text baseline should round trip") && ok;
+    paint.setTextBaseline(wsc::Paint::TextBaseline::ALPHABETIC);
+    ok = expect(paint.getTextBaseline() == wsc::Paint::TextBaseline::ALPHABETIC,
+                "alphabetic text baseline should round trip") && ok;
     ok = expect(paint.getStyle() == wsc::Paint::Style::FILL_AND_STROKE, "paint style should round trip") && ok;
     ok = expect(paint.getStrokeCap() == wsc::Paint::StrokeCap::ROUND, "stroke cap should round trip") && ok;
     ok = expect(paint.getStrokeJoin() == wsc::Paint::StrokeJoin::BEVEL, "stroke join should round trip") && ok;

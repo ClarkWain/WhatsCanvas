@@ -465,7 +465,9 @@ public:
                     left = -nativeMeasure.width;
                 }
                 return RectF(left,
-                             wsc::text::textBaselineOffset(paint.getTextBaseline(), nativeMeasure.height),
+                             wsc::text::textBaselineOffset(
+                                 paint.getTextBaseline(), nativeMeasure.height,
+                                 nativeMeasure.alphabeticBaseline),
                              nativeMeasure.width,
                              nativeMeasure.height);
             }
@@ -592,7 +594,9 @@ private:
 
                     result.kind = TextRenderKind::Bitmap;
                     result.drawX = alignedX - static_cast<float>(bitmap.leftPadding);
-                    result.drawY = y + wsc::text::textBaselineOffset(paint.getTextBaseline(), nativeMeasure.height);
+                    result.drawY = y + wsc::text::textBaselineOffset(
+                        paint.getTextBaseline(), nativeMeasure.height,
+                        nativeMeasure.alphabeticBaseline);
                     result.width = nativeMeasure.width + static_cast<float>(bitmap.leftPadding + bitmap.rightPadding);
                     result.height = nativeMeasure.height;
                     result.bitmapWidth = bitmap.width;

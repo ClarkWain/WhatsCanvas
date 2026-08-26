@@ -638,7 +638,8 @@ float measureAsciiTextHeight(const std::string &asciiText, float scale)
     return static_cast<float>(stb_easy_font_height(const_cast<char *>(asciiText.c_str()))) * scale;
 }
 
-float textBaselineOffset(Paint::TextBaseline baseline, float textHeight)
+float textBaselineOffset(Paint::TextBaseline baseline, float textHeight,
+                         float alphabeticBaseline)
 {
     switch (baseline) {
     case Paint::TextBaseline::TOP:
@@ -647,6 +648,10 @@ float textBaselineOffset(Paint::TextBaseline baseline, float textHeight)
         return -textHeight * 0.5f;
     case Paint::TextBaseline::BOTTOM:
         return -textHeight;
+    case Paint::TextBaseline::ALPHABETIC:
+        return -(alphabeticBaseline >= 0.0f
+                     ? std::clamp(alphabeticBaseline, 0.0f, textHeight)
+                     : textHeight);
     }
 
     return 0.0f;
