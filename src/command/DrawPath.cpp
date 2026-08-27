@@ -872,8 +872,17 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
         static_cast<std::size_t>(
             std::max(0, data.gradientStopCount)),
         DrawPathData::kMaxGradientStops);
+    // Only walk the stop table when we actually have one. `hasGradient`
+    // reflects `gradientType != None`, but the stop pointer can be null if
+    // the producer set a type without allocating stops via
+    // `writableGradientStops()`. Dereferencing would then be a null-pointer
+    // access. `hasShaderGradient()` already validates the pointer + count,
+    // so use it as the loop gate.
+    const bool uploadStopUniforms =
+        uploadGradientUniforms && data.hasShaderGradient()
+        && gradientStopData != nullptr;
     for (std::size_t i = 0;
-         uploadGradientUniforms && i < gradientUniformCount; ++i) {
+         uploadStopUniforms && i < gradientUniformCount; ++i) {
         drawProgram->setFloat(
             "uGradientStopPositions[" + std::to_string(i) + "]",
             gradientStopData->positions[i]);

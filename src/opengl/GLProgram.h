@@ -59,7 +59,7 @@ public:
     void setMat4(const std::string& name, const glm::mat4& value);
 
 private:
-    GLuint program_;
+    GLuint program_ = 0;
     std::string vertexSrc_;
     std::string fragmentSrc_;
     std::string geometrySrc_;

@@ -7230,8 +7230,13 @@ void Canvas::restore()
     }
 
     if (!impl_->layerStack.empty() && impl_->layerStack.back().saveCount == getSaveCount()) {
-        impl_->restoreLayer(impl_->layerStack.back());
+        // Move-out and pop before invoking restoreLayer so any indirect
+        // reentry that mutates layerStack (e.g. nested filter/backdrop paths
+        // that themselves call saveLayer) cannot leave the reference we pass
+        // in dangling if the vector reallocates.
+        Impl::LayerState layer = std::move(impl_->layerStack.back());
         impl_->layerStack.pop_back();
+        impl_->restoreLayer(layer);
     }
 
     impl_->graphicsStates->restore();
