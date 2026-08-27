@@ -440,18 +440,21 @@ public:
             return RectF();
         }
 
-        if (const auto rasterWidth = measureRasterizedTextWidth(normalizedText, paint)) {
-            const float height = paint.getTextSize();
+        if (const auto shapedRun = shapeRasterizedText(normalizedText, paint)) {
+            const RasterVerticalLayout vertical =
+                rasterVerticalLayout(*shapedRun, paint);
             float left = 0.0f;
             if (paint.getTextAlign() == Paint::TextAlign::CENTER) {
-                left = -*rasterWidth * 0.5f;
+                left = -shapedRun->width * 0.5f;
             } else if (paint.getTextAlign() == Paint::TextAlign::RIGHT) {
-                left = -*rasterWidth;
+                left = -shapedRun->width;
             }
             return RectF(left,
-                         wsc::text::textBaselineOffset(paint.getTextBaseline(), height),
-                         *rasterWidth,
-                         height);
+                         wsc::text::textBaselineOffset(
+                             paint.getTextBaseline(), vertical.height,
+                             vertical.alphabeticBaseline),
+                         shapedRun->width,
+                         vertical.height);
         }
 
 #ifdef _WIN32
@@ -841,6 +844,14 @@ private:
         std::size_t sourceEnd = 0;
     };
 
+    struct RasterVerticalLayout
+    {
+        float ascent = 0.0f;
+        float descent = 0.0f;
+        float height = 0.0f;
+        float alphabeticBaseline = 0.0f;
+    };
+
     struct RasterGlyphLayout
     {
         std::uint64_t atlasGeneration = 0;
@@ -918,6 +929,52 @@ private:
         return run ? std::optional<float>(run->width) : std::nullopt;
     }
 
+    RasterVerticalLayout rasterVerticalLayout(
+        const wsc::text::ShapedTextRun &shapedRun, const Paint &paint) const
+    {
+        RasterVerticalLayout layout;
+        std::unordered_set<std::string> measuredFaces;
+
+        // A shaped run may contain fallback fonts. Its line box must cover the
+        // largest ascent and descent of every face actually used by the run.
+        for (const wsc::text::ShapedGlyph &glyph : shapedRun.glyphs) {
+            const wsc::FontFace *face = glyph.fontFace != nullptr
+                ? glyph.fontFace
+                : findRasterFaceForCodepoint(glyph.codepoint, paint);
+            if (face == nullptr) {
+                continue;
+            }
+
+            const wsc::FontFace effectiveFace =
+                applyPaintFontVariations(*face, paint);
+            if (!measuredFaces.insert(
+                    wsc::text::fontFaceIdentity(effectiveFace)).second) {
+                continue;
+            }
+
+            const auto metrics = rasterizer_.verticalMetrics(
+                effectiveFace, paint.getTextSize());
+            if (!metrics) {
+                continue;
+            }
+            layout.ascent = std::max(layout.ascent,
+                                     std::max(0.0f, metrics->ascent));
+            layout.descent = std::max(layout.descent,
+                                      std::max(0.0f, -metrics->descent));
+        }
+
+        layout.height = layout.ascent + layout.descent;
+        if (!(layout.height > 0.0f) || !std::isfinite(layout.height)) {
+            // Preserve the old deterministic behavior when a provider cannot
+            // expose vertical metrics for an otherwise rasterizable face.
+            layout.ascent = std::max(0.0f, paint.getTextSize());
+            layout.descent = 0.0f;
+            layout.height = layout.ascent;
+        }
+        layout.alphabeticBaseline = layout.ascent;
+        return layout;
+    }
+
     std::optional<TextRenderResult> renderRasterizedText(const std::string &normalizedText, float x, float y,
                                                          const Paint &paint,
                                                          bool allowLayoutView) const
@@ -980,16 +1037,18 @@ private:
         } else if (paint.getTextAlign() == Paint::TextAlign::RIGHT) {
             drawXOffset -= shapedRun->width;
         }
-        const float drawYOffset =
-            wsc::text::textBaselineOffset(
-                paint.getTextBaseline(), paint.getTextSize());
+        const RasterVerticalLayout vertical =
+            rasterVerticalLayout(*shapedRun, paint);
+        const float drawYOffset = wsc::text::textBaselineOffset(
+            paint.getTextBaseline(), vertical.height,
+            vertical.alphabeticBaseline);
 
         TextRenderResult result;
         result.kind = TextRenderKind::GlyphAtlas;
         result.drawX = x + drawXOffset;
         result.drawY = y + drawYOffset;
         result.width = shapedRun->width;
-        result.height = paint.getTextSize();
+        result.height = vertical.height;
 
         struct PendingGlyphDraw
         {
@@ -1074,7 +1133,7 @@ private:
                  std::move(rasterized->bitmap), std::nullopt});
         }
 
-        const float baselineY = drawYOffset + paint.getTextSize();
+        const float baselineY = drawYOffset + vertical.alphabeticBaseline;
         const float spacing = std::isfinite(paint.getLetterSpacing()) ? paint.getLetterSpacing() : 0.0f;
         bool uploadedConsistentGeneration = false;
         for (int attempt = 0; attempt < 3 && !uploadedConsistentGeneration; ++attempt) {
