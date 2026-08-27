@@ -535,8 +535,9 @@ DefaultsCache &defaultsCache()
 std::vector<FontFace> FontSystem::discoverInstalledFontFaces()
 {
     {
-        std::lock_guard<std::mutex> lock(discoveryCache().mutex);
-        if (discoveryCache().value.has_value()) return *discoveryCache().value;
+        DiscoveryCache &cache = discoveryCache();
+        std::lock_guard<std::mutex> lock(cache.mutex);
+        if (cache.value.has_value()) return *cache.value;
     }
 
     const std::vector<detail::DiscoveredFontFace> raw = detail::discoverInstalledFontFaces();
@@ -566,8 +567,9 @@ std::vector<FontFace> FontSystem::discoverInstalledFontFaces()
 std::vector<FontFace> FontSystem::defaultSystemFontFaces()
 {
     {
-        std::lock_guard<std::mutex> lock(defaultsCache().mutex);
-        if (defaultsCache().value.has_value()) return *defaultsCache().value;
+        DefaultsCache &cache = defaultsCache();
+        std::lock_guard<std::mutex> lock(cache.mutex);
+        if (cache.value.has_value()) return *cache.value;
     }
 
     std::vector<FontFace> built = [] {
@@ -638,9 +640,10 @@ std::vector<FontFace> FontSystem::defaultSystemFontFaces()
         return faces;
     }();
 
-    std::lock_guard<std::mutex> lock(defaultsCache().mutex);
-    if (!defaultsCache().value.has_value()) defaultsCache().value = std::move(built);
-    return *defaultsCache().value;
+    DefaultsCache &cache = defaultsCache();
+    std::lock_guard<std::mutex> lock(cache.mutex);
+    if (!cache.value.has_value()) cache.value = std::move(built);
+    return *cache.value;
 }
 
 void FontSystem::refreshDefaultSystemFontFaces()

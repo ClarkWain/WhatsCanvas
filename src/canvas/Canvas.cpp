@@ -5479,11 +5479,14 @@ void Canvas::drawPath(const Path &path, const Paint &paint)
             == Path::FillType::WINDING
         && contours.size() == 1u
         && contours.front().closed) {
-        if (impl_->submitSimpleFill(
-                std::move(contours),
-                paint)) {
-            return;
-        }
+        // submitSimpleFill takes contours by value (we hand ownership over
+        // with std::move). Its `return false` branch fires only when
+        // canUseSimpleFillPath is false, which the outer condition already
+        // ruled out. Always bail here so the moved-from `contours` cannot
+        // be touched by the fall-through path even if that invariant
+        // regresses in a future refactor of submitSimpleFill.
+        impl_->submitSimpleFill(std::move(contours), paint);
+        return;
     }
 
     const Paint effectivePaint =
