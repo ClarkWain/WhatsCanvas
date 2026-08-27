@@ -412,7 +412,11 @@ OpenGLRenderDevice::OpenGLRenderDevice() = default;
 
 OpenGLRenderDevice::~OpenGLRenderDevice()
 {
-    finalizeBackend();
+    // Intentional: invoke this class's finalizeBackend to release GL
+    // resources owned at this layer. Any derived device must run its own
+    // finalization from its own destructor first, so polymorphic dispatch
+    // is neither needed nor wanted here.
+    OpenGLRenderDevice::finalizeBackend();
 }
 
 void OpenGLRenderDevice::initializeBackend()
