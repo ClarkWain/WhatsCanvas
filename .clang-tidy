@@ -1,0 +1,56 @@
+---
+# clang-tidy configuration for WhatsCanvas.
+#
+# Scope: focus on actual bugs (memory safety, UB, concurrency, C API misuse)
+# rather than style / modernization. Enabling `bugprone-*`, `cert-*`, and
+# `clang-analyzer-*` catches null-dereference, use-after-free, uninitialized
+# reads, integer overflow, iterator invalidation, and CERT secure-coding
+# violations.
+#
+# Explicitly disabled sub-checks:
+#   * bugprone-easily-swappable-parameters — too noisy, style-adjacent.
+#   * bugprone-narrowing-conversions — pervasive in graphics math
+#     (size_t -> int for GL/Vulkan APIs).
+#   * bugprone-signed-char-misuse — false positives against `unsigned char*`
+#     pixel and glyph bitmaps we already handle carefully.
+#   * bugprone-branch-clone — many rendering fast/slow paths intentionally
+#     look similar.
+#   * bugprone-implicit-widening-of-multiplication-result — we cast to
+#     size_t/VkDeviceSize when it actually matters (pixel byte math); the
+#     other sites are bounded arithmetic on ints.
+#   * cert-err58-cpp — global constructor guardrail; several diagnostic
+#     tables and once-initializers are file-scope by design.
+#   * cert-dcl21-cpp — postfix operator style, not a bug.
+#   * clang-analyzer-cplusplus.NewDeleteLeaks — noisy for `delete this` in
+#     COM-style refcounted DirectWrite classes.
+#
+# HeaderFilterRegex restricts analysis to first-party sources; the huge
+# third_party trees (FreeType/HarfBuzz/glm/glfw) are still consumed via
+# includes but their diagnostics are silenced.
+Checks: >
+  -*,
+  bugprone-*,
+  cert-*,
+  clang-analyzer-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-narrowing-conversions,
+  -bugprone-signed-char-misuse,
+  -bugprone-branch-clone,
+  -bugprone-implicit-widening-of-multiplication-result,
+  -cert-err58-cpp,
+  -cert-dcl21-cpp,
+  -clang-analyzer-cplusplus.NewDeleteLeaks
+
+# We want the incremental CI to fail on any of the enabled checks, but a
+# local invocation of `clang-tidy` still reports rather than fails.
+WarningsAsErrors: ''
+
+# Only diagnose in first-party headers. `include/wsc` is the public API and
+# `src` / `platforms` are library implementation. Third-party (FreeType,
+# HarfBuzz, glm, GLFW, spirv-cross, ...) are intentionally excluded.
+HeaderFilterRegex: '^.*/(include/wsc|src|platforms)/.*\.(h|hpp)$'
+ExcludeHeaderFilterRegex: '.*/third_party/.*'
+
+# Do not rewrite formatting — the project has its own C++ style and
+# clang-tidy's --format-style would fight with reviewer intent.
+FormatStyle: none
