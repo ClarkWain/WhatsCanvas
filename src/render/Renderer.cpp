@@ -277,7 +277,11 @@ void Renderer::finalize()
 
 Renderer::~Renderer()
 {
-    finalizeBackend();
+    // Intentional: invoke this class's finalizeBackend to release the base
+    // Renderer's device / batches. A derived class must run its own
+    // finalization from its own destructor first; by the time we reach here
+    // no polymorphic dispatch is needed or wanted.
+    Renderer::finalizeBackend();
 }
 
 void Renderer::initializeBackend()

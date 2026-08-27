@@ -69,14 +69,12 @@ jobs:
         # inherits per-TU flags. Per-file mode keeps diagnostic output
         # readable.
         #
-        # Report-only rollout: this initial CI job intentionally does not
-        # pass `--warnings-as-errors='*'`. First-party sources have never
-        # been linted before, so a hard fail would block every PR that
-        # touches legacy code. Flip to `--warnings-as-errors='*'` in a
-        # follow-up PR once the baseline is triaged / suppressed with
-        # NOLINT comments.
+        # `--warnings-as-errors='*'` upgrades every enabled diagnostic to a
+        # build failure. The baseline was cleaned on 1.1.0 (LLVM 22 / macOS
+        # Xcode 26); any regression is a real bug that should block the PR
+        # or be locally suppressed with a `// NOLINT(check-name)` comment
+        # accompanied by a rationale.
         run: |
           set -o pipefail
           xargs -a changed.txt -d '\n' -I {} \
-            clang-tidy -p build-tidy --quiet {} \
-            || echo "::warning::clang-tidy reported findings above (report-only mode)"
+            clang-tidy -p build-tidy --quiet --warnings-as-errors='*' {}
