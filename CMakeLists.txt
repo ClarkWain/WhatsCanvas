@@ -34,6 +34,8 @@ option(WHATSCANVAS_ENABLE_OPENTYPE_SHAPING "Enable HarfBuzz OpenType shaping whe
 option(WHATSCANVAS_ENABLE_FREETYPE_RASTERIZER "Enable FreeType glyph rasterization when FreeType is available." ON)
 option(WHATSCANVAS_USE_SYSTEM_DEPENDENCIES "Use package-manager-provided glad, glm, stb, FreeType, and HarfBuzz instead of bundled sources." OFF)
 option(WHATSCANVAS_ENABLE_VULKAN "Enable the optional Vulkan render backend when a Vulkan SDK is available." OFF)
+option(WHATSCANVAS_ENABLE_STDLIB_HARDENING
+    "Enable libc++/libstdc++ hardened-mode assertions (bounds-check std::vector/string, iterators). Debug builds only." OFF)
 # The Metal backend is Apple-only. Default ON on Darwin/iOS platforms so
 # macOS/iOS builds get a first-class Metal path without extra configuration.
 if (APPLE)
@@ -72,6 +74,30 @@ if (MSVC)
     # objects free of these version-specific symbols, so the released binaries
     # link against any VS 2022 STL. See doc/TROUBLESHOOTING.md.
     add_compile_definitions(_USE_STD_VECTOR_ALGORITHMS=0)
+endif()
+
+if (WHATSCANVAS_ENABLE_STDLIB_HARDENING)
+    # Debug-only standard-library hardening. Turns unchecked operator[] on
+    # std::vector/std::string, iterator arithmetic, span/mdspan into checked
+    # (aborting) operations. Zero source changes; small runtime overhead
+    # (Debug-only). Complements ASan/UBSan by catching bugs in Debug builds
+    # without sanitizers.
+    #
+    # * libstdc++ (GCC): `_GLIBCXX_ASSERTIONS` enables the safe-mode overloads
+    #   shipped since GCC 6. MSVC-STL ignores it.
+    # * libc++ (Clang / Apple LLVM 19+): `_LIBCPP_HARDENING_MODE=2`
+    #   (`_LIBCPP_HARDENING_MODE_EXTENSIVE`). The older
+    #   `_LIBCPP_ENABLE_HARDENED_MODE` / `_LIBCPP_ENABLE_ASSERTIONS` macros are
+    #   hard errors on Xcode 26+/LLVM 20+ so we intentionally do not define
+    #   them. Older libc++ ignores the new macro rather than erroring, so
+    #   defining it unconditionally in Debug is safe.
+    #
+    # Both macros are Debug-config gated so Release binaries keep zero
+    # overhead.
+    add_compile_definitions(
+        $<$<CONFIG:Debug>:_GLIBCXX_ASSERTIONS>
+        $<$<CONFIG:Debug>:_LIBCPP_HARDENING_MODE=2>
+    )
 endif()
 
 set(THIRD_PARTY_DIR ${CMAKE_CURRENT_LIST_DIR}/third_party)
