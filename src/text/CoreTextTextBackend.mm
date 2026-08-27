@@ -446,6 +446,7 @@ public:
         CFRef<CTLineRef> line(CTLineCreateWithAttributedString(attributed.get()));
         if (!line) return false;
         CFArrayRef runs = CTLineGetGlyphRuns(line.get());
+        if (runs == nullptr) return false;
         for (CFIndex i = 0; i < CFArrayGetCount(runs); ++i) {
             const CTRunRef run = static_cast<CTRunRef>(
                 const_cast<void *>(CFArrayGetValueAtIndex(runs, i)));

@@ -126,8 +126,10 @@ void DrawPointsProgram::draw(const RenderContext &context, const DrawPointsData 
     float color[4] = {data.color[0], data.color[1], data.color[2], data.color[3]};
     GammaCorrect::srgbToLinear4(color);
 
-    // Process vertex data in batches
-    for (size_t i = 0; i < data.points.size(); i += 2) {
+    // Process vertex data in batches. Guard on `i + 1` so an odd-sized
+    // `points` buffer (from a malformed producer) cannot read a float past
+    // the end of the vector.
+    for (size_t i = 0; i + 1 < data.points.size(); i += 2) {
         vertexCache_.push_back(data.points[i]);
         vertexCache_.push_back(data.points[i + 1]);
         vertexCache_.push_back(color[0]);
