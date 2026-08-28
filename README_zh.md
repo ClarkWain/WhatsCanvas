@@ -27,7 +27,7 @@ WhatsCanvas 的定位介于 NanoVG 这类基础绘制库和 Skia 这类大型图
 | **渲染后端** | OpenGL、纯 CPU Software；可选 OpenGL ES、Vulkan 以及 Metal（macOS/iOS）。Web 宿主把 OpenGL ES 路径编译为 WebAssembly/WebGL 2；WebGPU 尚未实现。 |
 | **平台状态** | Windows、Linux、macOS 持续执行构建和单元测试；Android 有三 ABI GLES 示例和真机检查。iOS 已有仓库内 Metal/CoreText 宿主，并在模拟器和真机完成横竖屏、生命周期、冷启动、API Validation 与 60 fps 检查。Web 已有 Emscripten/WebGL 2 宿主以及浏览器生命周期、DPR、上下文恢复和视觉一致性自动化检查。 |
 | **文本能力** | 字体发现和 fallback、CJK/RTL、UAX #9、换行与省略号、glyph atlas、COLR/CPAL v0；便携路径使用 FreeType/HarfBuzz，Windows 可选 DirectWrite，Apple 平台可选 CoreText。 |
-| **接入方式** | vcpkg overlay port、CMake `find_package`、`add_subdirectory`，或从源码生成可搬运的安装目录。 |
+| **接入方式** | CMake `find_package`、`add_subdirectory`，或从源码生成可搬运的安装目录。 |
 | **体量** | 非 header-only。支持按后端仅链接 `WhatsCanvas::Software`、`::OpenGL`、`::OpenGLES` 或 Apple 平台的 `::Metal`；参考体量见[体量与依赖](#体量与依赖)。 |
 | **成熟度** | 当前稳定 API 版本为 `1.0.0`。仓库已经建立公开 API 边界、跨平台 CI、像素回归、package consumer 集成测试与可审计的性能基线；平台支持仍以文档中的兼容性边界为准。 |
 | **许可证** | MIT；`third_party/` 组件遵循各自许可证。 |
@@ -144,37 +144,6 @@ FreeType/HarfBuzz 配置作用于 GL 家族的 target；`WhatsCanvas::Software` 
 Windows 包由 VS 2022 工具链生成。正式接入时应匹配平台、架构、配置与 C/C++ runtime；如需不同的 target 或依赖组合，请从源码构建。
 
 官方包的具体构建参数记录在 [package-release workflow](.github/workflows/package-release.yml)；本地执行 `--package` 时采用下文所述的默认设置，因此产物配置与 Windows 官方包不同。
-
-### vcpkg
-
-仓库内提供了经过验证的 overlay port，但 vcpkg 工具本身需要单独安装，WhatsCanvas 不会内置它。在 WhatsCanvas 源码目录打开 Windows CMD，可执行：
-
-```bat
-git clone https://github.com/microsoft/vcpkg.git ..\vcpkg
-..\vcpkg\bootstrap-vcpkg.bat
-..\vcpkg\vcpkg.exe install whatscanvas --overlay-ports=.\ports
-```
-
-如果 `vcpkg` 已加入 `PATH`，可直接安装包含 OpenGL、Software 和文本相关 feature 的默认组合：
-
-```sh
-vcpkg install whatscanvas --overlay-ports=./ports
-```
-
-如果只需要 CPU 渲染，不引入 OpenGL、FreeType 或 HarfBuzz：
-
-```sh
-vcpkg install "whatscanvas[core,software]" --overlay-ports=./ports
-```
-
-随后使用 vcpkg toolchain 配置应用，并链接所需 renderer：
-
-```cmake
-find_package(WhatsCanvas CONFIG REQUIRED COMPONENTS OpenGL)
-target_link_libraries(MyApp PRIVATE WhatsCanvas::OpenGL)
-```
-
-纯 CPU 渲染改用 `COMPONENTS Software` 与 `WhatsCanvas::Software`。当前 overlay port 可直接从本仓库使用；进入 vcpkg 中央注册表仍需单独完成上游审核。
 
 ### 从源码构建
 
