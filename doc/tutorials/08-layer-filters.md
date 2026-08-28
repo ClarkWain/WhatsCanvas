@@ -339,12 +339,20 @@ int main()
     composite.setColor(wsc::Color(255, 255, 255, 255));
     wsc::LayerOptions glass;
     glass.setBackdropFilter(wsc::ImageFilter::frostedGlass(8.0f, 1.16f, 1.04f, 1.02f, 0.004f));
+
+    // saveLayer 的边界是矩形；先使用同尺寸的圆角路径裁剪，避免右上角等位置
+    // 泄漏矩形的 backdropFilter 结果。
+    canvas->save();
+    wsc::Path glassClip;
+    glassClip.addRoundRect(glassBounds, 30.0f);
+    canvas->clipPath(glassClip);
     canvas->saveLayer(glassBounds, composite, glass);
     wsc::Paint tint;
     tint.setColor(wsc::Color(239, 246, 255, 54));
     tint.setAntiAlias(true);
     canvas->drawRoundRect(glassBounds, 30, tint);
-    canvas->restore();
+    canvas->restore(); // 合成毛玻璃图层。
+    canvas->restore(); // 解除圆角裁剪。
 
     wsc::Paint border;
     border.setStyle(wsc::Paint::Style::STROKE);
