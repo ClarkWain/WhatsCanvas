@@ -51,6 +51,12 @@ if (BUILD_TESTING)
     add_executable(WhatsCanvasDesktopSceneViewportTests
         "${CMAKE_CURRENT_LIST_DIR}/../../tests/DesktopSceneViewportTests.cpp"
     )
+    foreach(config Debug Release RelWithDebInfo MinSizeRel)
+        string(TOUPPER ${config} config_upper)
+        set_target_properties(WhatsCanvasDesktopSceneViewportTests PROPERTIES
+            "RUNTIME_OUTPUT_DIRECTORY_${config_upper}" "${CMAKE_BINARY_DIR}/${config}"
+        )
+    endforeach()
     target_include_directories(WhatsCanvasDesktopSceneViewportTests PRIVATE
         "${CMAKE_CURRENT_LIST_DIR}/../.."
     )

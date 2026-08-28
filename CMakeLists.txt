@@ -264,6 +264,7 @@ endif()
 
 if (WHATSCANVAS_BUILD_DEMO AND TARGET WhatsCanvasSoftware)
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/hello_world")
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/tutorials")
 endif()
 
 if (WHATSCANVAS_BUILD_DESKTOP_PLATFORM AND TARGET WhatsCanvasOpenGL)
