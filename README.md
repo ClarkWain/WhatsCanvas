@@ -351,7 +351,7 @@ Risks to keep in mind:
 
 The repository includes a minimal starter, a package consumer, unified
 Software/OpenGL/Vulkan/Metal presentation hosts, a WebAssembly/WebGL 2 host,
-and two full games. Focused
+and three full games. Focused
 visual regression harnesses live under `tests/visual` rather than `examples`.
 
 <table>
@@ -361,11 +361,20 @@ visual regression harnesses live under `tests/visual` rather than `examples`.
 </tr>
 </table>
 
+[**Spider Solitaire**](examples/game/spider_solitaire) — A complete, image-free card game with mouse dragging, three difficulty levels, hints, undo, scoring, timing, vector-drawn suits, and procedural card backs.
+
 To build Tetris separately on Windows:
 
 ```bat
 cd examples\game\tetris
 build.bat --no-run
+```
+
+Spider Solitaire includes deterministic rule and pointer-interaction suites:
+
+```sh
+examples/game/spider_solitaire/build/SpiderSolitaire --self-test
+examples/game/spider_solitaire/build/SpiderSolitaire --play-test
 ```
 
 ## Verify Your Integration
