@@ -351,7 +351,7 @@ if (!canvas) {
 ## 示例
 
 仓库包含最小入门项目、package consumer、统一目录下的
-Software/OpenGL/Vulkan/Metal presentation 宿主，以及两个游戏示例。专项视觉回归程序归档在
+Software/OpenGL/Vulkan/Metal presentation 宿主，以及三个游戏示例。专项视觉回归程序归档在
 `tests/visual`，不再放在 `examples` 中。
 
 <table>
@@ -361,11 +361,20 @@ Software/OpenGL/Vulkan/Metal presentation 宿主，以及两个游戏示例。�
 </tr>
 </table>
 
+[**蜘蛛纸牌**](examples/game/spider_solitaire) — 完整、无图片素材的纸牌游戏，支持鼠标拖拽、三档难度、提示、撤销、计分、计时、矢量花色与程序化牌背。
+
 Windows 单独构建 Tetris：
 
 ```bat
 cd examples\game\tetris
 build.bat --no-run
+```
+
+蜘蛛纸牌包含确定性的规则与鼠标入口交互测试：
+
+```sh
+examples/game/spider_solitaire/build/SpiderSolitaire --self-test
+examples/game/spider_solitaire/build/SpiderSolitaire --play-test
 ```
 
 ## 验证你的集成
