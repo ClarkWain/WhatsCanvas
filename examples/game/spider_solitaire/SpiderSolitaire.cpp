@@ -8,9 +8,11 @@
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>
+#include <memory>
 #include <random>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -24,12 +26,12 @@ namespace {
 
 constexpr float DESIGN_W = 1280.0f;
 constexpr float DESIGN_H = 860.0f;
-constexpr float CARD_W = 94.0f;
-constexpr float CARD_H = 128.0f;
-constexpr float COL_X = 48.0f;
-constexpr float COL_GAP = 121.0f;
-constexpr float TABLE_Y = 154.0f;
-constexpr float TABLE_BOTTOM = 822.0f;
+constexpr float CARD_W = 98.0f;
+constexpr float CARD_H = 136.0f;
+constexpr float COL_X = 34.0f;
+constexpr float COL_GAP = 124.0f;
+constexpr float TABLE_Y = 176.0f;
+constexpr float TABLE_BOTTOM = 814.0f;
 constexpr unsigned int kOpenGLMultisample = 0x809D;
 
 enum class Suit : int { Spade = 0, Heart = 1, Club = 2, Diamond = 3 };
@@ -55,7 +57,29 @@ struct HitCard {
     int index = -1;
 };
 
+struct CardMotion {
+    Card card;
+    float fromX = 0.0f;
+    float fromY = 0.0f;
+    float toX = 0.0f;
+    float toY = 0.0f;
+    float delay = 0.0f;
+    float duration = 0.2f;
+};
+
 float clamp01(float value) { return std::max(0.0f, std::min(1.0f, value)); }
+
+float easeOutQuint(float value) {
+    const float t = clamp01(value);
+    const float inv = 1.0f - t;
+    return 1.0f - inv * inv * inv * inv * inv;
+}
+
+float easeInOutCubic(float value) {
+    const float t = clamp01(value);
+    return t < 0.5f ? 4.0f * t * t * t
+                    : 1.0f - std::pow(-2.0f * t + 2.0f, 3.0f) * 0.5f;
+}
 
 Color mix(const Color& a, const Color& b, float t, int alpha = -1) {
     t = clamp01(t);
@@ -93,10 +117,10 @@ class SpiderGame {
 public:
     explicit SpiderGame(int difficulty = 1, std::uint32_t seed = 0)
         : difficulty_(difficulty), requestedSeed_(seed) {
-        newGame(seed);
+        newGame(seed, false);
     }
 
-    void newGame(std::uint32_t seed = 0) {
+    void newGame(std::uint32_t seed = 0, bool animate = true) {
         if (seed == 0) {
             seed = requestedSeed_ != 0 ? requestedSeed_ : static_cast<std::uint32_t>(
                 std::chrono::high_resolution_clock::now().time_since_epoch().count());
@@ -133,8 +157,11 @@ public:
         moves_ = 0;
         score_ = 500;
         elapsed_ = 0.0f;
-        toast_ = "Build suited runs from King down to Ace";
-        toastTime_ = 3.8f;
+        motions_.clear();
+        completionMotions_.clear();
+        completionMotionTime_ = 0.0f;
+        setToast("Build suited runs from King down to Ace", 3.8f);
+        tableauPictureDirty_ = true;
 
         for (int row = 0; row < 6; ++row) {
             for (int col = 0; col < 10; ++col) {
@@ -146,7 +173,40 @@ public:
         }
         for (auto& column : columns_) column.back().faceUp = true;
         stock_ = std::move(deck);
+        if (animate) startIntroAnimation();
         std::cout << "NEW_GAME seed=" << currentSeed_ << " suits=" << difficulty_ << '\n';
+    }
+
+    void startIntroAnimation() {
+        std::vector<CardMotion> motions;
+        const RectF stock = stockRect();
+        const float originX = stock.getX() + stock.getWidth() * 0.5f - CARD_W * 0.5f;
+        const float originY = stock.getY() + stock.getHeight() * 0.35f - CARD_H * 0.5f;
+        for (int col = 0; col < 10; ++col) {
+            if (columns_[col].empty()) continue;
+            const int index = static_cast<int>(columns_[col].size()) - 1;
+            const auto ys = columnPositions(col);
+            motions.push_back({columns_[col][index], originX, originY,
+                               columnX(col), ys[index], col * 0.025f, 0.24f});
+        }
+        startMotions(std::move(motions));
+    }
+
+    void startCompletionDemo(bool finalRun = false) {
+        for (auto& column : columns_) column.clear();
+        stock_.clear();
+        completed_.clear();
+        if (finalRun) completed_.assign(7, Suit::Spade);
+        history_.clear();
+        motions_.clear();
+        completionMotions_.clear();
+        completionMotionTime_ = 0.0f;
+        won_ = false;
+        for (int rank = 13; rank >= 1; --rank)
+            columns_[4].push_back({rank, Suit::Spade, true,
+                                   static_cast<std::uint32_t>(500 + rank)});
+        collectCompleteRuns();
+        tableauPictureDirty_ = true;
     }
 
     void update(float dt) {
@@ -155,17 +215,35 @@ public:
         toastTime_ = std::max(0.0f, toastTime_ - dt);
         hintTime_ = std::max(0.0f, hintTime_ - dt);
         dealPulse_ = std::max(0.0f, dealPulse_ - dt * 2.4f);
+        buttonPressTime_ = std::max(0.0f, buttonPressTime_ - dt);
+        if (!motions_.empty()) {
+            motionTime_ += dt;
+            float end = 0.0f;
+            for (const CardMotion& motion : motions_)
+                end = std::max(end, motion.delay + motion.duration);
+            if (motionTime_ >= end) finishMotions();
+        }
+        if (!completionMotions_.empty()) {
+            completionMotionTime_ += dt;
+            float end = 0.0f;
+            for (const CardMotion& motion : completionMotions_)
+                end = std::max(end, motion.delay + motion.duration);
+            if (completionMotionTime_ >= end) {
+                completionMotions_.clear();
+                completionMotionTime_ = 0.0f;
+            }
+        }
     }
 
-    void setDifficulty(int suits) {
+    void setDifficulty(int suits, bool animate = true) {
         if (suits != 1 && suits != 2 && suits != 4) return;
         difficulty_ = suits;
         requestedSeed_ = 0;
-        newGame();
+        newGame(0, animate);
     }
 
-    void cycleDifficulty() {
-        setDifficulty(difficulty_ == 1 ? 2 : difficulty_ == 2 ? 4 : 1);
+    void cycleDifficulty(bool animate = true) {
+        setDifficulty(difficulty_ == 1 ? 2 : difficulty_ == 2 ? 4 : 1, animate);
     }
 
     bool movableRun(int col, int index) const {
@@ -187,6 +265,15 @@ public:
 
     bool moveRun(int src, int index, int dest) {
         if (!canMove(src, index, dest)) return false;
+        finishMotions();
+        std::vector<CardMotion> motions;
+        const auto sourceYs = columnPositions(src);
+        const float sourceX = dragging_ ? pointerX_ - dragOffsetX_ : columnX(src);
+        const float sourceY = dragging_ ? pointerY_ - dragOffsetY_ : sourceYs[index];
+        for (int i = index; i < static_cast<int>(columns_[src].size()); ++i) {
+            motions.push_back({columns_[src][i], sourceX,
+                               sourceY + (sourceYs[i] - sourceYs[index]), 0, 0, 0, 0.2f});
+        }
         saveUndo();
         auto& from = columns_[src];
         auto& to = columns_[dest];
@@ -202,17 +289,28 @@ public:
         score_ = std::max(0, score_ - 1);
         const int before = static_cast<int>(completed_.size());
         collectCompleteRuns();
+        for (CardMotion& motion : motions) {
+            if (!findColumnPosition(motion.card.id, motion.toX, motion.toY)) motion.duration = 0.0f;
+        }
+        motions.erase(std::remove_if(motions.begin(), motions.end(),
+                                     [](const CardMotion& motion) { return motion.duration <= 0.0f; }),
+                      motions.end());
+        startMotions(std::move(motions));
+        tableauPictureDirty_ = true;
         selectedColumn_ = selectedIndex_ = -1;
         hintTime_ = 0.0f;
-        toast_ = revealed ? "A hidden card was revealed" : "Moved " + std::to_string(count) + (count == 1 ? " card" : " cards");
-        toastTime_ = 1.5f;
+        if (static_cast<int>(completed_.size()) > before)
+            setToast("Run complete  +100", 2.5f);
+        else
+            setToast(revealed ? "A hidden card was revealed" :
+                     "Moved " + std::to_string(count) + (count == 1 ? " card" : " cards"), 1.5f);
         std::cout << "MOVE c" << src + 1 << ':' << index << " -> c" << dest + 1
                   << " count=" << count << " runs=" << completed_.size() << '\n';
-        if (static_cast<int>(completed_.size()) > before) toastTime_ = 2.5f;
         return true;
     }
 
     bool dealStock() {
+        finishMotions();
         if (stock_.empty()) {
             setToast("No stock cards remain", 1.8f);
             return false;
@@ -225,16 +323,25 @@ public:
         }
         if (stock_.size() < 10) return false;
         saveUndo();
+        std::vector<CardMotion> motions;
+        const RectF stockBounds = stockRect();
+        const float originX = stockBounds.getX() + stockBounds.getWidth() * 0.5f - CARD_W * 0.5f;
+        const float originY = stockBounds.getY() + stockBounds.getHeight() * 0.35f - CARD_H * 0.5f;
         for (int col = 0; col < 10; ++col) {
             Card card = stock_.back();
             stock_.pop_back();
             card.faceUp = true;
             columns_[col].push_back(card);
+            const auto ys = columnPositions(col);
+            motions.push_back({card, originX, originY, columnX(col), ys.back(),
+                               col * 0.018f, 0.22f});
         }
         ++moves_;
         score_ = std::max(0, score_ - 1);
         selectedColumn_ = selectedIndex_ = -1;
         collectCompleteRuns();
+        startMotions(std::move(motions));
+        tableauPictureDirty_ = true;
         dealPulse_ = 1.0f;
         setToast("A new row was dealt", 1.7f);
         std::cout << "DEAL remaining=" << stock_.size() << '\n';
@@ -242,6 +349,7 @@ public:
     }
 
     bool undo() {
+        finishMotions();
         if (history_.empty()) {
             setToast("Nothing to undo", 1.6f);
             return false;
@@ -251,12 +359,15 @@ public:
         columns_ = state.columns;
         stock_ = state.stock;
         completed_ = state.completed;
+        completionMotions_.clear();
+        completionMotionTime_ = 0.0f;
         moves_ = state.moves;
         score_ = state.score;
         elapsed_ = state.elapsed;
         won_ = false;
         selectedColumn_ = selectedIndex_ = -1;
         dragging_ = false;
+        tableauPictureDirty_ = true;
         setToast("Move undone", 1.5f);
         std::cout << "UNDO history=" << history_.size() << '\n';
         return true;
@@ -287,7 +398,7 @@ public:
         if (hintSource_ >= 0) {
             setToast("Try the highlighted move", 2.2f);
         } else if (!stock_.empty()) {
-            setToast("No useful moves — deal the next row", 2.2f);
+            setToast("No useful moves - deal the next row", 2.2f);
             hintDest_ = 10;
         } else {
             setToast("No legal moves remain", 2.2f);
@@ -300,23 +411,27 @@ public:
         if (mouseDown_ && selectedColumn_ >= 0) {
             const float dx = x - pressX_;
             const float dy = y - pressY_;
-            if (dx * dx + dy * dy > 30.0f) dragging_ = true;
+            if (!dragging_ && dx * dx + dy * dy > 30.0f) {
+                dragging_ = true;
+                tableauPictureDirty_ = true;
+            }
         }
     }
 
     void pointerDown(float x, float y) {
+        finishMotions();
         pointerMove(x, y);
         mouseDown_ = true;
         pressX_ = x;
         pressY_ = y;
         dragging_ = false;
 
-        if (inside(newButton(), x, y)) { newGame(); mouseDown_ = false; return; }
-        if (inside(difficultyButton(), x, y)) { cycleDifficulty(); mouseDown_ = false; return; }
-        if (inside(undoButton(), x, y)) { undo(); mouseDown_ = false; return; }
-        if (inside(hintButton(), x, y)) { hint(); mouseDown_ = false; return; }
-        if (inside(stockRect(), x, y)) { dealStock(); mouseDown_ = false; return; }
-        if (won_) { newGame(); mouseDown_ = false; return; }
+        if (inside(newButton(), x, y)) { pressButton(1); newGame(0, true); mouseDown_ = false; return; }
+        if (inside(difficultyButton(), x, y)) { pressButton(2); cycleDifficulty(true); mouseDown_ = false; return; }
+        if (inside(undoButton(), x, y)) { pressButton(3); undo(); mouseDown_ = false; return; }
+        if (inside(hintButton(), x, y)) { pressButton(4); hint(); mouseDown_ = false; return; }
+        if (inside(stockRect(), x, y)) { pressButton(5); dealStock(); mouseDown_ = false; return; }
+        if (won_) { newGame(0, true); mouseDown_ = false; return; }
 
         HitCard hit = hitCard(x, y);
         if (hit.column >= 0 && hit.index >= 0) {
@@ -329,10 +444,12 @@ public:
             if (movableRun(hit.column, hit.index)) {
                 selectedColumn_ = hit.column;
                 selectedIndex_ = hit.index;
+                tableauPictureDirty_ = true;
                 dragOffsetX_ = x - columnX(hit.column);
                 dragOffsetY_ = y - columnPositions(hit.column)[hit.index];
             } else {
                 selectedColumn_ = selectedIndex_ = -1;
+                tableauPictureDirty_ = true;
                 setToast("Only a same-suit descending run can move", 2.0f);
             }
             return;
@@ -344,6 +461,7 @@ public:
             mouseDown_ = false;
         } else {
             selectedColumn_ = selectedIndex_ = -1;
+            tableauPictureDirty_ = true;
         }
     }
 
@@ -354,42 +472,78 @@ public:
             if (dest >= 0 && dest != selectedColumn_ && moveRun(selectedColumn_, selectedIndex_, dest)) {
                 // moved
             } else {
+                std::vector<CardMotion> motions;
+                const auto ys = columnPositions(selectedColumn_);
+                const float fromX = pointerX_ - dragOffsetX_;
+                const float fromY = pointerY_ - dragOffsetY_;
+                for (int i = selectedIndex_; i < static_cast<int>(columns_[selectedColumn_].size()); ++i) {
+                    motions.push_back({columns_[selectedColumn_][i], fromX,
+                                       fromY + (ys[i] - ys[selectedIndex_]),
+                                       columnX(selectedColumn_), ys[i], 0.0f, 0.16f});
+                }
+                startMotions(std::move(motions));
                 setToast("That run cannot be placed there", 1.8f);
             }
         }
         mouseDown_ = false;
         dragging_ = false;
+        tableauPictureDirty_ = true;
     }
 
     void cancelSelection() {
+        finishMotions();
         selectedColumn_ = selectedIndex_ = -1;
         mouseDown_ = dragging_ = false;
+        tableauPictureDirty_ = true;
     }
 
-    void render(Canvas& canvas, int windowW, int windowH) {
+    void updateRenderTransform(int windowW, int windowH) {
         const float scale = std::min(windowW / DESIGN_W, windowH / DESIGN_H);
         const float ox = (windowW - DESIGN_W * scale) * 0.5f;
         const float oy = (windowH - DESIGN_H * scale) * 0.5f;
         renderScale_ = scale;
         renderOffsetX_ = ox;
         renderOffsetY_ = oy;
+    }
+
+    void render(Canvas& canvas, int windowW, int windowH) {
+        updateRenderTransform(windowW, windowH);
+        const float scale = renderScale_;
+        const float ox = renderOffsetX_;
+        const float oy = renderOffsetY_;
 
         drawOutside(canvas, windowW, windowH);
         canvas.save();
         canvas.translate(ox, oy);
         canvas.scale(scale, scale);
-        drawTable(canvas);
+        if (!tablePicture_) {
+            tablePicture_ = canvas.recordPicture([this](Canvas& recording) {
+                drawTable(recording);
+            });
+        }
+        if (tablePicture_) canvas.drawPictureRasterized(*tablePicture_);
+        else drawTable(canvas);
         drawHeader(canvas);
         drawColumns(canvas);
         drawStock(canvas);
         drawToast(canvas);
-        if (won_) drawWin(canvas);
+        if (won_ && completionMotions_.empty()) drawWin(canvas);
         canvas.restore();
     }
 
     std::pair<float, float> toDesign(float windowX, float windowY) const {
         return {(windowX - renderOffsetX_) / std::max(renderScale_, 0.0001f),
                 (windowY - renderOffsetY_) / std::max(renderScale_, 0.0001f)};
+    }
+
+    std::pair<float, float> toWindow(float designX, float designY) const {
+        return {renderOffsetX_ + designX * renderScale_,
+                renderOffsetY_ + designY * renderScale_};
+    }
+
+    bool difficultyHoverMatches() const {
+        return inside(difficultyButton(), pointerX_, pointerY_) &&
+               !inside(hintButton(), pointerX_, pointerY_);
     }
 
     static bool runSelfTests() {
@@ -437,8 +591,13 @@ public:
         game.collectCompleteRuns();
         ok &= expect(game.completed_.size() == 1, "K-to-A suited run is collected");
         ok &= expect(game.columns_[0].size() == 1 && game.columns_[0].back().faceUp, "collection reveals hidden card");
+        ok &= expect(game.completionMotions_.size() == 13, "completed run creates thirteen collection motions");
+        game.update(1.0f);
+        ok &= expect(game.completionMotions_.empty(), "collection motions finish and clear");
 
         game.completed_.assign(7, Suit::Spade);
+        game.completionMotions_.clear();
+        game.completionMotionTime_ = 0.0f;
         for (auto& col : game.columns_) col.clear();
         for (int rank = 13; rank >= 1; --rank)
             game.columns_[4].push_back({rank, Suit::Spade, true, static_cast<std::uint32_t>(300 + rank)});
@@ -483,6 +642,7 @@ public:
         game.pointerUp(game.columnX(1) + 25, destY.back() + 50);
         ok &= expect(game.columns_[0].empty() && game.columns_[1].size() == 4, "drag moves a legal suited run");
         ok &= expect(game.moves_ == 1, "drag increments move counter");
+        ok &= expect(game.motions_.size() == 3, "legal drag creates one landing motion per moved card");
 
         const RectF undo = game.undoButton();
         game.pointerDown(undo.getX() + undo.getWidth() * 0.5f, undo.getY() + 10);
@@ -501,12 +661,14 @@ public:
         game.pointerMove(game.columnX(2) + 20, TABLE_Y + 70);
         game.pointerUp(game.columnX(2) + 20, TABLE_Y + 70);
         ok &= expect(game.columns_[0].size() == beforeInvalid, "illegal drag snaps back without mutation");
+        ok &= expect(game.motions_.size() == 3, "illegal drag creates a short snap-back motion");
 
         const size_t stockBefore = game.stock_.size();
         const RectF stock = game.stockRect();
         game.pointerDown(stock.getX() + 20, stock.getY() + 20);
         ok &= expect(game.stock_.size() == stockBefore - 10, "stock control deals through pointer handler");
         ok &= expect(game.moves_ == 1, "deal increments move counter");
+        ok &= expect(game.motions_.size() == 10, "stock deal staggers ten card motions");
 
         game.undo();
         game.columns_[5].clear();
@@ -517,10 +679,33 @@ public:
         const RectF difficulty = game.difficultyButton();
         game.pointerDown(difficulty.getX() + 20, difficulty.getY() + 20);
         ok &= expect(game.difficulty_ == 2 && game.stock_.size() == 50, "difficulty button starts a valid two-suit deal");
+        ok &= expect(game.motions_.size() == 10, "pointer-started new deal animates visible cards");
 
         const RectF hint = game.hintButton();
         game.pointerDown(hint.getX() + 20, hint.getY() + 20);
         ok &= expect(game.hintTime_ > 0, "Hint button produces visible guidance");
+
+        // GLFW cursor positions use window-content coordinates. Verify the inverse
+        // render transform stays exact for both scaled and letterboxed windows.
+        const auto verifyButtonMapping = [&game, &expect](int windowW, int windowH,
+                                                          const RectF& target,
+                                                          const RectF& neighbor) {
+            game.updateRenderTransform(windowW, windowH);
+            const float designX = target.getX() + target.getWidth() * 0.5f;
+            const float designY = target.getY() + target.getHeight() * 0.5f;
+            const float windowX = game.renderOffsetX_ + designX * game.renderScale_;
+            const float windowY = game.renderOffsetY_ + designY * game.renderScale_;
+            const auto mapped = game.toDesign(windowX, windowY);
+            return expect(std::abs(mapped.first - designX) < 0.01f &&
+                          std::abs(mapped.second - designY) < 0.01f,
+                          "window cursor maps back to button center") &&
+                   expect(inside(target, mapped.first, mapped.second) &&
+                          !inside(neighbor, mapped.first, mapped.second),
+                          "mapped cursor highlights only the intended button");
+        };
+        ok &= verifyButtonMapping(1280, 860, game.difficultyButton(), game.hintButton());
+        ok &= verifyButtonMapping(960, 720, game.difficultyButton(), game.hintButton());
+        ok &= verifyButtonMapping(1600, 900, game.difficultyButton(), game.hintButton());
 
         std::cout << "PLAY_TEST " << (ok ? "PASS" : "FAIL") << " checks=" << checks << '\n';
         return ok;
@@ -554,19 +739,69 @@ private:
     float dragOffsetY_ = 0.0f;
     float phase_ = 0.0f;
     float toastTime_ = 0.0f;
+    float toastDuration_ = 0.0f;
     float hintTime_ = 0.0f;
     float dealPulse_ = 0.0f;
+    float buttonPressTime_ = 0.0f;
+    int pressedButton_ = 0;
+    std::vector<CardMotion> motions_;
+    float motionTime_ = 0.0f;
+    std::vector<CardMotion> completionMotions_;
+    float completionMotionTime_ = 0.0f;
     std::string toast_;
+    std::string measuredToast_;
+    float measuredToastWidth_ = 0.0f;
+    std::shared_ptr<const Picture> tablePicture_;
+    std::shared_ptr<const Picture> tableauPicture_;
+    bool tableauPictureDirty_ = true;
     float renderScale_ = 1.0f;
     float renderOffsetX_ = 0.0f;
     float renderOffsetY_ = 0.0f;
 
     float columnX(int col) const { return COL_X + col * COL_GAP; }
-    RectF newButton() const { return RectF(737, 25, 112, 42); }
-    RectF difficultyButton() const { return RectF(858, 25, 108, 42); }
-    RectF undoButton() const { return RectF(975, 25, 92, 42); }
-    RectF hintButton() const { return RectF(1076, 25, 92, 42); }
-    RectF stockRect() const { return RectF(1177, 14, 76, 68); }
+    RectF newButton() const { return RectF(760, 28, 116, 44); }
+    RectF difficultyButton() const { return RectF(884, 28, 112, 44); }
+    RectF undoButton() const { return RectF(1004, 28, 98, 44); }
+    RectF hintButton() const { return RectF(1110, 28, 104, 44); }
+    RectF stockRect() const { return RectF(1148, 676, 100, 148); }
+
+    bool findColumnPosition(std::uint32_t id, float& x, float& y) const {
+        for (int col = 0; col < 10; ++col) {
+            const auto ys = columnPositions(col);
+            for (int i = 0; i < static_cast<int>(columns_[col].size()); ++i) {
+                if (columns_[col][i].id == id) {
+                    x = columnX(col);
+                    y = ys[i];
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    bool isCardAnimating(std::uint32_t id) const {
+        return std::any_of(motions_.begin(), motions_.end(),
+                           [id](const CardMotion& motion) { return motion.card.id == id; });
+    }
+
+    void finishMotions() {
+        if (motions_.empty()) return;
+        motions_.clear();
+        motionTime_ = 0.0f;
+        tableauPictureDirty_ = true;
+    }
+
+    void startMotions(std::vector<CardMotion> motions) {
+        finishMotions();
+        motions_ = std::move(motions);
+        motionTime_ = 0.0f;
+        if (!motions_.empty()) tableauPictureDirty_ = true;
+    }
+
+    void pressButton(int id) {
+        pressedButton_ = id;
+        buttonPressTime_ = 0.13f;
+    }
 
     void saveUndo() {
         history_.push_back({columns_, stock_, completed_, moves_, score_, elapsed_});
@@ -575,14 +810,36 @@ private:
 
     void setToast(std::string text, float time) {
         toast_ = std::move(text);
-        toastTime_ = time;
+        const float readableTime = std::max(time, 3.4f);
+        toastTime_ = readableTime;
+        toastDuration_ = readableTime;
+    }
+
+    void queueCompletionAnimation(int column, size_t start, const std::vector<float>& ys,
+                                  int completedSlot) {
+        float baseDelay = 0.0f;
+        for (const CardMotion& motion : completionMotions_)
+            baseDelay = std::max(baseDelay, motion.delay + motion.duration);
+        baseDelay = std::max(0.0f, baseDelay - completionMotionTime_);
+        if (completionMotions_.empty()) completionMotionTime_ = 0.0f;
+
+        const float targetX = 146.0f + completedSlot * 42.0f + 16.0f;
+        const float targetY = 139.0f;
+        const auto& col = columns_[column];
+        for (int i = 0; i < 13; ++i) {
+            const size_t index = start + static_cast<size_t>(i);
+            completionMotions_.push_back({col[index], columnX(column), ys[index],
+                                          targetX, targetY,
+                                          baseDelay + i * 0.018f, 0.28f});
+        }
     }
 
     void collectCompleteRuns() {
         bool collectedAny;
         do {
             collectedAny = false;
-            for (auto& col : columns_) {
+            for (int column = 0; column < 10; ++column) {
+                auto& col = columns_[column];
                 if (col.size() < 13) continue;
                 const size_t start = col.size() - 13;
                 const Suit suit = col[start].suit;
@@ -595,6 +852,8 @@ private:
                     }
                 }
                 if (!complete) continue;
+                const auto ys = columnPositions(column);
+                queueCompletionAnimation(column, start, ys, static_cast<int>(completed_.size()));
                 col.erase(col.begin() + static_cast<std::ptrdiff_t>(start), col.end());
                 completed_.push_back(suit);
                 score_ += 100;
@@ -606,6 +865,7 @@ private:
                     score_ += std::max(0, 1000 - static_cast<int>(elapsed_));
                     setToast("All eight runs completed", 4.0f);
                 }
+                tableauPictureDirty_ = true;
                 break;
             }
         } while (collectedAny);
@@ -649,174 +909,281 @@ private:
     void drawOutside(Canvas& canvas, int width, int height) {
         Paint p;
         p.setStyle(Paint::Style::FILL);
-        p.setColor(Color(6, 15, 22));
+        p.setColor(Color(5, 24, 18));
         canvas.drawRect(RectF(0, 0, static_cast<float>(width), static_cast<float>(height)), p);
     }
 
     void drawTable(Canvas& canvas) {
         Paint bg;
         bg.setStyle(Paint::Style::FILL);
-        bg.setLinearGradient(0, 0, DESIGN_W, DESIGN_H, {
-            {0.0f, Color(8, 54, 52)}, {0.48f, Color(9, 73, 65)}, {1.0f, Color(5, 42, 45)}});
+        bg.setColor(Color(5, 38, 28));
         canvas.drawRect(RectF(0, 0, DESIGN_W, DESIGN_H), bg);
 
-        Paint glow;
-        glow.setStyle(Paint::Style::FILL);
-        glow.setRadialGradient(700, 330, 620, Color(35, 152, 121, 42), Color(4, 38, 41, 0));
-        canvas.drawCircle(700, 330, 620, glow);
+        Paint felt;
+        felt.setStyle(Paint::Style::FILL);
+        felt.setRadialGradient(650, 430, 790,
+                              Color(27, 126, 83), Color(4, 42, 30));
+        canvas.drawCircle(650, 430, 790, felt);
+
+        Paint softLight;
+        softLight.setStyle(Paint::Style::FILL);
+        softLight.setRadialGradient(650, 390, 470,
+                                   Color(105, 190, 132, 28), Color(16, 82, 56, 0));
+        canvas.drawCircle(650, 390, 470, softLight);
 
         Paint line;
         line.setStyle(Paint::Style::STROKE);
         line.setStrokeWidth(1.0f);
-        line.setColor(Color(128, 222, 190, 14));
-        for (int i = 0; i < 12; ++i) {
-            const float y = 115.0f + i * 63.0f;
-            canvas.drawLine(0.0f, y, DESIGN_W, y + 100.0f, line);
+        line.setColor(Color(208, 225, 192, 10));
+        for (int i = -3; i < 15; ++i) {
+            const float x = i * 110.0f;
+            canvas.drawLine(x, 108.0f, x + 520.0f, DESIGN_H, line);
         }
 
         Paint header;
         header.setStyle(Paint::Style::FILL);
-        header.setColor(Color(4, 30, 35, 218));
-        canvas.drawRect(RectF(0, 0, DESIGN_W, 96), header);
+        header.setColor(Color(4, 29, 23, 238));
+        canvas.drawRect(RectF(0, 0, DESIGN_W, 104), header);
         Paint divider;
         divider.setStyle(Paint::Style::FILL);
-        divider.setLinearGradient(0, 0, DESIGN_W, 0, Color(75, 226, 178, 20), Color(88, 233, 192, 130));
-        canvas.drawRect(RectF(0, 95, DESIGN_W, 1), divider);
+        divider.setLinearGradient(0, 0, DESIGN_W, 0,
+                                  Color(193, 157, 98, 20), Color(222, 188, 126, 170));
+        canvas.drawRect(RectF(0, 103, DESIGN_W, 1), divider);
+
+        Paint rail;
+        rail.setStyle(Paint::Style::FILL);
+        rail.setColor(Color(3, 42, 30, 128));
+        canvas.drawRoundRect(RectF(24, 116, 1232, 48), 16, rail);
     }
 
     void drawSpiderMark(Canvas& canvas, float cx, float cy, float s, const Color& color) const {
         Paint stroke;
         stroke.setStyle(Paint::Style::STROKE);
-        stroke.setStrokeWidth(std::max(1.0f, s * 0.075f));
+        stroke.setStrokeWidth(std::max(1.0f, s * 0.065f));
         stroke.setStrokeCap(Paint::StrokeCap::ROUND);
         stroke.setColor(color);
         for (int side : {-1, 1}) {
-            for (int i = 0; i < 4; ++i) {
-                const float dy = (i - 1.5f) * s * 0.17f;
-                const float sy = cy + dy;
-                const float ex = cx + side * s * (0.50f + 0.06f * std::abs(i - 1));
-                const float ey = cy + dy * 1.8f + (i < 2 ? -s * 0.10f : s * 0.10f);
-                Path leg;
-                leg.moveTo(cx + side * s * 0.12f, sy);
-                leg.quadTo(cx + side * s * 0.35f, sy + (ey - sy) * 0.2f, ex, ey);
-                canvas.drawPath(leg, stroke);
-            }
+            const float d = static_cast<float>(side);
+            Path front;
+            front.moveTo(cx + d * s * 0.10f, cy - s * 0.20f);
+            front.cubicTo(cx + d * s * 0.23f, cy - s * 0.30f,
+                          cx + d * s * 0.35f, cy - s * 0.48f,
+                          cx + d * s * 0.52f, cy - s * 0.62f);
+            canvas.drawPath(front, stroke);
+
+            Path upper;
+            upper.moveTo(cx + d * s * 0.13f, cy - s * 0.08f);
+            upper.cubicTo(cx + d * s * 0.28f, cy - s * 0.10f,
+                          cx + d * s * 0.45f, cy - s * 0.26f,
+                          cx + d * s * 0.65f, cy - s * 0.29f);
+            canvas.drawPath(upper, stroke);
+
+            Path lower;
+            lower.moveTo(cx + d * s * 0.13f, cy + s * 0.06f);
+            lower.cubicTo(cx + d * s * 0.29f, cy + s * 0.09f,
+                          cx + d * s * 0.46f, cy + s * 0.23f,
+                          cx + d * s * 0.64f, cy + s * 0.32f);
+            canvas.drawPath(lower, stroke);
+
+            Path rear;
+            rear.moveTo(cx + d * s * 0.10f, cy + s * 0.18f);
+            rear.cubicTo(cx + d * s * 0.22f, cy + s * 0.30f,
+                         cx + d * s * 0.34f, cy + s * 0.49f,
+                         cx + d * s * 0.50f, cy + s * 0.63f);
+            canvas.drawPath(rear, stroke);
         }
         Paint body;
         body.setStyle(Paint::Style::FILL);
         body.setColor(color);
-        canvas.drawOval(RectF(cx - s * 0.13f, cy - s * 0.25f, s * 0.26f, s * 0.43f), body);
-        canvas.drawCircle(cx, cy - s * 0.24f, s * 0.11f, body);
+        canvas.drawOval(RectF(cx - s * 0.145f, cy - s * 0.02f, s * 0.29f, s * 0.43f), body);
+        canvas.drawCircle(cx, cy - s * 0.14f, s * 0.13f, body);
+        canvas.drawCircle(cx, cy - s * 0.31f, s * 0.075f, body);
     }
 
     void drawHeader(Canvas& canvas) {
-        drawSpiderMark(canvas, 48, 48, 50, Color(91, 239, 191));
+        drawSpiderMark(canvas, 48, 51, 43, Color(218, 180, 111));
         Paint title;
         title.setStyle(Paint::Style::FILL);
-        title.setColor(Color(235, 250, 244));
-        title.setTextSize(24);
-        title.setLetterSpacing(0.8f);
-        useUiFont(title, 700);
-        canvas.drawText("SPIDER", 83, 23, title);
+        title.setColor(Color(248, 243, 230));
+        title.setTextSize(25);
+        title.setLetterSpacing(1.0f);
+        useUiFont(title, 760);
+        canvas.drawText("SPIDER", 82, 25, title);
         Paint sub = title;
-        sub.setTextSize(11);
-        sub.setLetterSpacing(2.8f);
-        sub.setColor(Color(103, 196, 169));
-        canvas.drawText("SOLITAIRE", 84, 56, sub);
+        sub.setTextSize(11.5f);
+        sub.setLetterSpacing(1.35f);
+        sub.setColor(Color(218, 197, 153));
+        canvas.drawText("SOLITAIRE  -  CLASSIC TABLE", 83, 58, sub);
 
-        drawMetric(canvas, 244, "SCORE", std::to_string(score_));
-        drawMetric(canvas, 364, "MOVES", std::to_string(moves_));
-        drawMetric(canvas, 484, "TIME", formatTime(elapsed_));
-        drawMetric(canvas, 604, "RUNS", std::to_string(completed_.size()) + "/8");
+        drawMetric(canvas, 260, "SCORE", std::to_string(score_));
+        drawMetric(canvas, 375, "MOVES", std::to_string(moves_));
+        drawMetric(canvas, 490, "TIME", formatTime(elapsed_));
+        drawMetric(canvas, 605, "RUNS", std::to_string(completed_.size()) + "/8");
 
-        drawButton(canvas, newButton(), "NEW DEAL", true);
-        drawButton(canvas, difficultyButton(), std::to_string(difficulty_) + " SUIT" + (difficulty_ > 1 ? "S" : ""), true);
-        drawButton(canvas, undoButton(), "UNDO", !history_.empty());
-        drawButton(canvas, hintButton(), "HINT", true);
+        drawButton(canvas, newButton(), "NEW DEAL", true, 1, true);
+        drawButton(canvas, difficultyButton(), std::to_string(difficulty_) + " SUIT" + (difficulty_ > 1 ? "S" : ""), true, 2, false);
+        drawButton(canvas, undoButton(), "UNDO", !history_.empty(), 3, false);
+        drawButton(canvas, hintButton(), "HINT", true, 4, false);
 
+        Paint runLabel;
+        runLabel.setStyle(Paint::Style::FILL);
+        runLabel.setColor(Color(225, 209, 174));
+        runLabel.setTextSize(13.5f);
+        runLabel.setLetterSpacing(1.0f);
+        useUiFont(runLabel, 700);
+        canvas.drawText("COMPLETED", 44, 133, runLabel);
         for (int i = 0; i < 8; ++i) {
-            const float x = 424.0f + i * 46.0f;
+            const float x = 146.0f + i * 42.0f;
             Paint slot;
             slot.setStyle(Paint::Style::FILL);
-            slot.setColor(i < static_cast<int>(completed_.size()) ? Color(70, 199, 154, 35) : Color(4, 31, 34, 90));
-            canvas.drawRoundRect(RectF(x, 107, 34, 30), 8, slot);
+            slot.setColor(i < static_cast<int>(completed_.size()) ? Color(123, 50, 68, 170) : Color(19, 23, 38, 190));
+            canvas.drawRoundRect(RectF(x, 124, 32, 30), 7, slot);
             Paint border;
             border.setStyle(Paint::Style::STROKE);
             border.setStrokeWidth(1);
-            border.setColor(i < static_cast<int>(completed_.size()) ? Color(95, 235, 186, 210) : Color(85, 164, 145, 60));
-            canvas.drawRoundRect(RectF(x, 107, 34, 30), 8, border);
-            if (i < static_cast<int>(completed_.size())) drawSuit(canvas, completed_[i], x + 17, 122, 8, Color(112, 244, 197));
+            border.setColor(i < static_cast<int>(completed_.size()) ? Color(223, 184, 111, 210) : Color(139, 129, 112, 52));
+            canvas.drawRoundRect(RectF(x, 124, 32, 30), 7, border);
+            if (i < static_cast<int>(completed_.size()))
+                drawSuit(canvas, completed_[i], x + 16, 139, 7.5f, Color(236, 209, 157));
         }
-        Paint runLabel;
-        runLabel.setStyle(Paint::Style::FILL);
-        runLabel.setColor(Color(123, 195, 174));
-        runLabel.setTextSize(10);
-        runLabel.setLetterSpacing(1.5f);
-        useUiFont(runLabel, 600);
-        canvas.drawText("COMPLETED RUNS", 270, 115, runLabel);
+
+        Paint rule;
+        rule.setStyle(Paint::Style::FILL);
+        rule.setColor(Color(226, 218, 198));
+        rule.setTextSize(13.5f);
+        rule.setLetterSpacing(0.15f);
+        useUiFont(rule, 580);
+        canvas.drawText("Build same-suit runs from King to Ace", 760, 133, rule);
     }
 
     void drawMetric(Canvas& canvas, float x, const std::string& label, const std::string& value) {
         Paint labelPaint;
         labelPaint.setStyle(Paint::Style::FILL);
-        labelPaint.setColor(Color(106, 175, 158));
-        labelPaint.setTextSize(10);
-        labelPaint.setLetterSpacing(1.4f);
-        useUiFont(labelPaint, 600);
-        canvas.drawText(label, x, 24, labelPaint);
+        labelPaint.setColor(Color(215, 199, 165));
+        labelPaint.setTextSize(13.0f);
+        labelPaint.setLetterSpacing(0.8f);
+        useUiFont(labelPaint, 650);
+        canvas.drawText(label, x, 27, labelPaint);
         Paint valuePaint = labelPaint;
-        valuePaint.setColor(Color(239, 250, 246));
-        valuePaint.setTextSize(20);
+        valuePaint.setColor(Color(247, 241, 227));
+        valuePaint.setTextSize(21);
         valuePaint.setLetterSpacing(0);
         useUiFont(valuePaint, 700);
-        canvas.drawText(value, x, 45, valuePaint);
+        canvas.drawText(value, x, 49, valuePaint);
     }
 
-    void drawButton(Canvas& canvas, const RectF& rect, const std::string& label, bool enabled) {
+    void drawButton(Canvas& canvas, const RectF& rect, const std::string& label,
+                    bool enabled, int id, bool primary) {
         const bool hover = enabled && inside(rect, pointerX_, pointerY_);
+        const bool pressed = enabled && pressedButton_ == id && buttonPressTime_ > 0.0f;
+        const float scale = pressed ? 0.97f : hover ? 1.018f : 1.0f;
+        const float cx = rect.getX() + rect.getWidth() * 0.5f;
+        const float cy = rect.getY() + rect.getHeight() * 0.5f;
+        canvas.save();
+        canvas.translate(cx, cy);
+        canvas.scale(scale, scale);
+        canvas.translate(-cx, -cy);
         Paint fill;
         fill.setStyle(Paint::Style::FILL);
-        if (hover) fill.setLinearGradient(rect.getX(), rect.getY(), rect.getX(), rect.getY() + rect.getHeight(),
-                                         Color(48, 167, 132), Color(25, 119, 102));
-        else fill.setColor(enabled ? Color(15, 74, 70, 215) : Color(11, 46, 48, 150));
-        canvas.drawRoundRect(rect, 12, fill);
+        if (primary) {
+            fill.setLinearGradient(rect.getX(), rect.getY(), rect.getX(), rect.getY() + rect.getHeight(),
+                                   hover ? Color(242, 211, 151) : Color(222, 183, 112),
+                                   hover ? Color(204, 157, 83) : Color(179, 132, 69));
+        } else {
+            fill.setColor(enabled ? (hover ? Color(45, 43, 54, 245) : Color(24, 27, 42, 230))
+                                  : Color(17, 19, 30, 160));
+        }
+        canvas.drawRoundRect(rect, 10, fill);
         Paint border;
         border.setStyle(Paint::Style::STROKE);
         border.setStrokeWidth(1);
-        border.setColor(enabled ? Color(88, 209, 170, hover ? 210 : 100) : Color(77, 130, 121, 45));
-        canvas.drawRoundRect(rect, 12, border);
+        border.setColor(primary ? Color(248, 221, 166, hover ? 230 : 150)
+                                : enabled ? Color(185, 159, 112, hover ? 190 : 82)
+                                          : Color(103, 98, 91, 42));
+        canvas.drawRoundRect(rect, 10, border);
         Paint text;
         text.setStyle(Paint::Style::FILL);
-        text.setColor(enabled ? Color(223, 247, 239) : Color(92, 136, 128));
-        text.setTextSize(11);
-        text.setLetterSpacing(0.8f);
+        text.setColor(primary ? Color(35, 27, 24) : enabled ? Color(238, 230, 212) : Color(102, 99, 96));
+        text.setTextSize(14.0f);
+        text.setLetterSpacing(0.45f);
         text.setTextAlign(Paint::TextAlign::CENTER);
         text.setTextBaseline(Paint::TextBaseline::MIDDLE);
         useUiFont(text, 700);
         canvas.drawText(label, rect.getX() + rect.getWidth() * 0.5f,
                         rect.getY() + rect.getHeight() * 0.5f, text);
+        canvas.restore();
     }
 
-    void drawColumns(Canvas& canvas) {
-        int dragCol = dragging_ ? selectedColumn_ : -1;
+    void drawTableauBase(Canvas& canvas) {
+        const int dynamicCol = selectedColumn_;
         for (int col = 0; col < 10; ++col) {
             const auto ys = columnPositions(col);
             if (columns_[col].empty()) drawEmptySlot(canvas, col);
             for (int i = 0; i < static_cast<int>(columns_[col].size()); ++i) {
-                if (col == dragCol && i >= selectedIndex_) continue;
-                const bool selected = !dragging_ && col == selectedColumn_ && i >= selectedIndex_;
-                const bool hinted = hintTime_ > 0 && col == hintSource_ && i >= hintIndex_;
-                drawCard(canvas, columns_[col][i], columnX(col), ys[i], selected, hinted, 1.0f);
+                if (col == dynamicCol && i >= selectedIndex_) continue;
+                if (isCardAnimating(columns_[col][i].id)) continue;
+                drawCard(canvas, columns_[col][i], columnX(col), ys[i], false, false, 1.0f);
+            }
+        }
+    }
+
+    void drawColumns(Canvas& canvas) {
+        if (tableauPictureDirty_ || !tableauPicture_) {
+            tableauPicture_ = canvas.recordPicture([this](Canvas& recording) {
+                drawTableauBase(recording);
+            });
+            tableauPictureDirty_ = false;
+        }
+        if (tableauPicture_) canvas.drawPictureRasterized(*tableauPicture_);
+        else drawTableauBase(canvas);
+
+        if (selectedColumn_ >= 0) {
+            const auto ys = columnPositions(selectedColumn_);
+            const float x = dragging_ ? pointerX_ - dragOffsetX_ : columnX(selectedColumn_);
+            const float y = dragging_ ? pointerY_ - dragOffsetY_ : ys[selectedIndex_];
+            for (int i = selectedIndex_; i < static_cast<int>(columns_[selectedColumn_].size()); ++i) {
+                if (isCardAnimating(columns_[selectedColumn_][i].id)) continue;
+                drawCard(canvas, columns_[selectedColumn_][i], x,
+                         y + (ys[i] - ys[selectedIndex_]), true, false,
+                         dragging_ ? 0.96f : 1.0f);
             }
         }
 
-        if (dragging_ && selectedColumn_ >= 0) {
-            const auto ys = columnPositions(selectedColumn_);
-            float x = pointerX_ - dragOffsetX_;
-            float y = pointerY_ - dragOffsetY_;
-            for (int i = selectedIndex_; i < static_cast<int>(columns_[selectedColumn_].size()); ++i) {
-                drawCard(canvas, columns_[selectedColumn_][i], x, y + (ys[i] - ys[selectedIndex_]), true, false, 0.96f);
+        if (!dragging_ && hintTime_ > 0 && hintSource_ >= 0 && hintSource_ != selectedColumn_) {
+            const auto ys = columnPositions(hintSource_);
+            for (int i = hintIndex_; i < static_cast<int>(columns_[hintSource_].size()); ++i) {
+                if (isCardAnimating(columns_[hintSource_][i].id)) continue;
+                drawCard(canvas, columns_[hintSource_][i], columnX(hintSource_), ys[i], false, true, 1.0f);
             }
+        }
+
+        for (const CardMotion& motion : motions_) {
+            const float local = (motionTime_ - motion.delay) / std::max(0.001f, motion.duration);
+            const float t = easeOutQuint(local);
+            const float x = motion.fromX + (motion.toX - motion.fromX) * t;
+            const float y = motion.fromY + (motion.toY - motion.fromY) * t
+                            - std::sin(clamp01(local) * 3.14159265f) * 14.0f;
+            const float alpha = 0.82f + 0.18f * clamp01(local * 2.5f);
+            drawMotionCard(canvas, motion.card, x, y, alpha);
+        }
+
+        for (const CardMotion& motion : completionMotions_) {
+            const float local = (completionMotionTime_ - motion.delay) /
+                                std::max(0.001f, motion.duration);
+            const float progress = clamp01(local);
+            const float t = easeInOutCubic(progress);
+            const float startX = motion.fromX + CARD_W * 0.5f;
+            const float startY = motion.fromY + CARD_H * 0.5f;
+            const float centerX = startX + (motion.toX - startX) * t;
+            const float centerY = startY + (motion.toY - startY) * t
+                                  - std::sin(progress * 3.14159265f) * 24.0f;
+            const float scale = 1.0f - 0.72f * t;
+            const float alpha = 1.0f - clamp01((progress - 0.72f) / 0.28f);
+            canvas.save();
+            canvas.translate(centerX, centerY);
+            canvas.scale(scale, scale);
+            drawMotionCard(canvas, motion.card, -CARD_W * 0.5f, -CARD_H * 0.5f, alpha);
+            canvas.restore();
         }
 
         if (hintTime_ > 0 && hintDest_ >= 0 && hintDest_ < 10) {
@@ -834,14 +1201,14 @@ private:
         const float x = columnX(col);
         Paint fill;
         fill.setStyle(Paint::Style::FILL);
-        fill.setColor(Color(1, 28, 30, 115));
-        canvas.drawRoundRect(RectF(x, TABLE_Y, CARD_W, CARD_H), 12, fill);
+        fill.setColor(Color(8, 11, 22, 92));
+        canvas.drawRoundRect(RectF(x, TABLE_Y, CARD_W, CARD_H), 11, fill);
         Paint stroke;
         stroke.setStyle(Paint::Style::STROKE);
-        stroke.setStrokeWidth(1.5f);
-        stroke.setColor(Color(103, 206, 174, 70));
-        canvas.drawRoundRect(RectF(x, TABLE_Y, CARD_W, CARD_H), 12, stroke);
-        drawSpiderMark(canvas, x + CARD_W * 0.5f, TABLE_Y + CARD_H * 0.5f, 34, Color(76, 164, 142, 55));
+        stroke.setStrokeWidth(1.2f);
+        stroke.setColor(Color(180, 158, 118, 52));
+        canvas.drawRoundRect(RectF(x, TABLE_Y, CARD_W, CARD_H), 11, stroke);
+        drawSpiderMark(canvas, x + CARD_W * 0.5f, TABLE_Y + CARD_H * 0.5f, 30, Color(176, 150, 103, 38));
     }
 
     void drawCard(Canvas& canvas, const Card& card, float x, float y, bool selected, bool hinted, float alpha) {
@@ -849,74 +1216,141 @@ private:
         else drawFaceDown(canvas, x, y, alpha);
     }
 
+    void drawMotionCard(Canvas& canvas, const Card& card, float x, float y, float alpha) {
+        // During a short move the eye reads silhouette, rank and suit. Keeping that
+        // hierarchy while omitting static ornament makes multi-card deals cheap.
+        drawCardShadow(canvas, x, y, false, alpha);
+        Paint paper;
+        paper.setStyle(Paint::Style::FILL);
+        paper.setColor(Color(248, 243, 232, static_cast<int>(255 * alpha)));
+        canvas.drawRoundRect(RectF(x, y, CARD_W, CARD_H), 10, paper);
+        Paint border;
+        border.setStyle(Paint::Style::STROKE);
+        border.setStrokeWidth(1.1f);
+        border.setColor(Color(196, 170, 124, static_cast<int>(220 * alpha)));
+        canvas.drawRoundRect(RectF(x, y, CARD_W, CARD_H), 10, border);
+
+        const bool red = card.suit == Suit::Heart || card.suit == Suit::Diamond;
+        const Color ink = red ? Color(174, 48, 64, static_cast<int>(255 * alpha))
+                              : Color(28, 31, 43, static_cast<int>(255 * alpha));
+        Paint rank;
+        rank.setStyle(Paint::Style::FILL);
+        rank.setColor(ink);
+        rank.setTextSize(card.rank == 10 ? 22 : 26);
+        useUiFont(rank, 780);
+        canvas.drawText(rankText(card.rank), x + 10, y + 7, rank);
+        drawSuit(canvas, card.suit, x + CARD_W * 0.5f, y + CARD_H * 0.55f, 18.0f, ink);
+    }
+
+    void drawCardShadow(Canvas& canvas, float x, float y, bool selected, float alpha) const {
+        // A blurred Canvas shadow performs full-canvas offscreen Gaussian passes. With 54 cards
+        // visible at startup that makes the game needlessly redraw the whole framebuffer hundreds
+        // of times per frame. Two offset silhouettes retain the visual depth at a tiny fraction of
+        // the cost and are covered by the opaque card body everywhere except around its edges.
+        Paint ambient;
+        ambient.setStyle(Paint::Style::FILL);
+        ambient.setColor(Color(1, 18, 12, static_cast<int>((selected ? 54 : 26) * alpha)));
+        canvas.drawRoundRect(RectF(x - 0.5f, y + 1, CARD_W + 1, CARD_H + 1.5f), 11, ambient);
+
+        Paint key;
+        key.setStyle(Paint::Style::FILL);
+        key.setColor(Color(1, 12, 8, static_cast<int>((selected ? 92 : 46) * alpha)));
+        canvas.drawRoundRect(RectF(x + 0.5f, y + (selected ? 4 : 2), CARD_W - 1, CARD_H), 10, key);
+    }
+
     void drawFaceUp(Canvas& canvas, const Card& card, float x, float y, bool selected, bool hinted, float alpha) {
-        const float lift = selected ? -3.0f + std::sin(phase_ * 4.0f) : 0.0f;
+        const float lift = selected ? -4.0f : 0.0f;
         y += lift;
-        canvas.drawBoxShadow(RectF(x, y, CARD_W, CARD_H), 11, selected ? 3 : 1, selected ? 12 : 7,
-                             0, selected ? 6 : 4, selected ? Color(0, 21, 25, 145) : Color(0, 15, 19, 100));
+        drawCardShadow(canvas, x, y, selected, alpha);
         Paint paper;
         paper.setStyle(Paint::Style::FILL);
         paper.setLinearGradient(x, y, x + CARD_W, y + CARD_H,
-                                Color(255, 253, 245, static_cast<int>(255 * alpha)),
-                                Color(226, 235, 225, static_cast<int>(255 * alpha)));
-        canvas.drawRoundRect(RectF(x, y, CARD_W, CARD_H), 11, paper);
+                                Color(255, 253, 246, static_cast<int>(255 * alpha)),
+                                Color(233, 226, 213, static_cast<int>(255 * alpha)));
+        canvas.drawRoundRect(RectF(x, y, CARD_W, CARD_H), 10, paper);
 
         Paint topSheen;
         topSheen.setStyle(Paint::Style::FILL);
-        topSheen.setColor(Color(255, 255, 255, static_cast<int>(115 * alpha)));
-        canvas.drawRoundRect(RectF(x + 3, y + 3, CARD_W - 6, 28), 8, topSheen);
+        topSheen.setLinearGradient(x, y, x, y + 42,
+                                   Color(255, 255, 255, static_cast<int>(145 * alpha)),
+                                   Color(255, 255, 255, 0));
+        canvas.drawRoundRect(RectF(x + 3, y + 3, CARD_W - 6, 38), 7, topSheen);
 
         Paint border;
         border.setStyle(Paint::Style::STROKE);
-        border.setStrokeWidth(selected || hinted ? 2.5f : 1.0f);
-        border.setColor(selected ? Color(255, 210, 78, 240) : hinted ? Color(255, 215, 90, 225) : Color(206, 215, 204, 230));
-        canvas.drawRoundRect(RectF(x, y, CARD_W, CARD_H), 11, border);
-
+        border.setStrokeWidth(selected || hinted ? 2.2f : 0.8f);
+        border.setColor(selected ? Color(232, 188, 103, 245) : hinted ? Color(238, 190, 96, 230)
+                                 : Color(178, 168, 151, 210));
+        canvas.drawRoundRect(RectF(x, y, CARD_W, CARD_H), 10, border);
         const bool red = card.suit == Suit::Heart || card.suit == Suit::Diamond;
-        const Color ink = red ? Color(184, 51, 61, static_cast<int>(255 * alpha)) : Color(25, 37, 43, static_cast<int>(255 * alpha));
+        const Color ink = red ? Color(174, 48, 64, static_cast<int>(255 * alpha))
+                              : Color(28, 31, 43, static_cast<int>(255 * alpha));
         Paint text;
         text.setStyle(Paint::Style::FILL);
         text.setColor(ink);
-        text.setTextSize(card.rank == 10 ? 20 : 23);
-        useUiFont(text, 800);
-        canvas.drawText(rankText(card.rank), x + 9, y + 7, text);
-        drawSuit(canvas, card.suit, x + 18, y + 43, 8.2f, ink);
-        drawSuit(canvas, card.suit, x + CARD_W * 0.5f, y + 82, 17.0f,
-                 Color(ink.getR(), ink.getG(), ink.getB(), static_cast<int>(50 * alpha)));
+        text.setTextSize(card.rank == 10 ? 22 : 26);
+        useUiFont(text, 780);
+        canvas.drawText(rankText(card.rank), x + 10, y + 7, text);
+        drawSuit(canvas, card.suit, x + 19, y + 45, 8.1f, ink);
+        drawSuit(canvas, card.suit, x + CARD_W * 0.5f, y + 79, 17.2f, ink);
+
+        canvas.save();
+        canvas.translate(x + CARD_W - 9, y + CARD_H - 8);
+        canvas.rotate(3.14159265f);
+        Paint lower = text;
+        lower.setTextSize(card.rank == 10 ? 18 : 20);
+        canvas.drawText(rankText(card.rank), 0, 0, lower);
+        drawSuit(canvas, card.suit, 8, 31, 7.0f, ink);
+        canvas.restore();
     }
 
     void drawFaceDown(Canvas& canvas, float x, float y, float alpha) {
-        canvas.drawBoxShadow(RectF(x, y, CARD_W, CARD_H), 11, 1, 7, 0, 4, Color(0, 14, 19, 100));
-        Paint edge;
-        edge.setStyle(Paint::Style::FILL);
-        edge.setLinearGradient(x, y, x + CARD_W, y + CARD_H,
-                               Color(31, 62, 76, static_cast<int>(255 * alpha)),
-                               Color(11, 33, 48, static_cast<int>(255 * alpha)));
-        canvas.drawRoundRect(RectF(x, y, CARD_W, CARD_H), 11, edge);
+        drawCardShadow(canvas, x, y, false, alpha);
+        Paint paper;
+        paper.setStyle(Paint::Style::FILL);
+        paper.setColor(Color(190, 177, 153, static_cast<int>(255 * alpha)));
+        canvas.drawRoundRect(RectF(x, y, CARD_W, CARD_H), 10, paper);
         Paint inset;
         inset.setStyle(Paint::Style::FILL);
-        inset.setLinearGradient(x + 5, y + 5, x + CARD_W - 5, y + CARD_H - 5,
-                                Color(18, 93, 89, static_cast<int>(255 * alpha)),
-                                Color(10, 49, 63, static_cast<int>(255 * alpha)));
-        canvas.drawRoundRect(RectF(x + 5, y + 5, CARD_W - 10, CARD_H - 10), 8, inset);
+        inset.setLinearGradient(x + 2.5f, y + 2.5f, x + CARD_W - 2.5f, y + CARD_H - 2.5f,
+                                Color(112, 38, 60, static_cast<int>(255 * alpha)),
+                                Color(49, 20, 43, static_cast<int>(255 * alpha)));
+        canvas.drawRoundRect(RectF(x + 2.5f, y + 2.5f, CARD_W - 5, CARD_H - 5), 8, inset);
+
+        Paint lattice;
+        lattice.setStyle(Paint::Style::FILL);
+        lattice.setColor(Color(235, 198, 128, static_cast<int>(54 * alpha)));
+        for (int row = 0; row < 8; ++row) {
+            for (int col = 0; col < 5; ++col) {
+                const float px = x + 12 + col * 18.0f + (row % 2 ? 8.0f : 0.0f);
+                const float py = y + 14 + row * 15.0f;
+                if (px > x + CARD_W - 8) continue;
+                canvas.drawPolygon(std::vector<PointF>{{px, py - 3}, {px + 3, py},
+                                                       {px, py + 3}, {px - 3, py}}, lattice);
+            }
+        }
+
         Paint border;
         border.setStyle(Paint::Style::STROKE);
-        border.setStrokeWidth(1.2f);
-        border.setColor(Color(103, 218, 182, static_cast<int>(150 * alpha)));
-        canvas.drawRoundRect(RectF(x + 6, y + 6, CARD_W - 12, CARD_H - 12), 7, border);
+        border.setStrokeWidth(1.1f);
+        border.setColor(Color(226, 190, 119, static_cast<int>(190 * alpha)));
+        canvas.drawRoundRect(RectF(x + 4, y + 4, CARD_W - 8, CARD_H - 8), 7, border);
+        Paint innerBorder = border;
+        innerBorder.setColor(Color(248, 224, 174, static_cast<int>(80 * alpha)));
+        canvas.drawRoundRect(RectF(x + 7, y + 7, CARD_W - 14, CARD_H - 14), 5, innerBorder);
 
         const float cx = x + CARD_W * 0.5f;
         const float cy = y + CARD_H * 0.5f;
-        Paint web;
-        web.setStyle(Paint::Style::STROKE);
-        web.setStrokeWidth(0.85f);
-        web.setColor(Color(117, 223, 192, static_cast<int>(74 * alpha)));
-        for (int i = 0; i < 8; ++i) {
-            const float a = i * 3.14159265f / 4.0f;
-            canvas.drawLine(cx, cy, cx + std::cos(a) * 35, cy + std::sin(a) * 48, web);
-        }
-        for (int r = 1; r <= 3; ++r) canvas.drawOval(RectF(cx - r * 11, cy - r * 15, r * 22, r * 30), web);
-        drawSpiderMark(canvas, cx, cy, 26, Color(137, 245, 207, static_cast<int>(205 * alpha)));
+        Paint crest;
+        crest.setStyle(Paint::Style::FILL);
+        crest.setColor(Color(232, 195, 124, static_cast<int>(230 * alpha)));
+        canvas.drawPolygon(std::vector<PointF>{{cx, cy - 31}, {cx + 24, cy},
+                                               {cx, cy + 31}, {cx - 24, cy}}, crest);
+        Paint crestInset = crest;
+        crestInset.setColor(Color(62, 24, 48, static_cast<int>(255 * alpha)));
+        canvas.drawPolygon(std::vector<PointF>{{cx, cy - 27}, {cx + 20, cy},
+                                               {cx, cy + 27}, {cx - 20, cy}}, crestInset);
+        drawSpiderMark(canvas, cx, cy, 25, Color(242, 207, 140, static_cast<int>(255 * alpha)));
     }
 
     void drawSuit(Canvas& canvas, Suit suit, float cx, float cy, float size, const Color& color) const {
@@ -924,107 +1358,231 @@ private:
         p.setStyle(Paint::Style::FILL);
         p.setColor(color);
         if (suit == Suit::Diamond) {
-            canvas.drawPolygon(std::vector<PointF>{{cx, cy - size * 1.25f}, {cx + size, cy},
-                                                   {cx, cy + size * 1.25f}, {cx - size, cy}}, p);
+            canvas.drawPolygon(std::vector<PointF>{{cx, cy - size * 1.22f}, {cx + size * 0.82f, cy},
+                                                   {cx, cy + size * 1.22f}, {cx - size * 0.82f, cy}}, p);
             return;
         }
-        if (suit == Suit::Club) {
-            canvas.drawCircle(cx, cy - size * 0.55f, size * 0.62f, p);
-            canvas.drawCircle(cx - size * 0.55f, cy + size * 0.05f, size * 0.62f, p);
-            canvas.drawCircle(cx + size * 0.55f, cy + size * 0.05f, size * 0.62f, p);
-            canvas.drawPolygon(std::vector<PointF>{{cx - size * 0.28f, cy + size * 0.2f},
-                                                   {cx + size * 0.28f, cy + size * 0.2f},
-                                                   {cx + size * 0.47f, cy + size * 1.0f},
-                                                   {cx - size * 0.47f, cy + size * 1.0f}}, p);
-            return;
-        }
-        Path heart;
+
         if (suit == Suit::Heart) {
-            heart.moveTo(cx, cy + size * 1.05f);
-            heart.cubicTo(cx - size * 1.4f, cy + size * 0.18f, cx - size * 1.0f, cy - size * 1.0f, cx, cy - size * 0.32f);
-            heart.cubicTo(cx + size * 1.0f, cy - size * 1.0f, cx + size * 1.4f, cy + size * 0.18f, cx, cy + size * 1.05f);
+            Path heart;
+            heart.moveTo(cx, cy + size * 1.15f);
+            heart.cubicTo(cx - size * 0.20f, cy + size * 0.80f,
+                          cx - size * 1.10f, cy + size * 0.25f,
+                          cx - size * 1.10f, cy - size * 0.38f);
+            heart.cubicTo(cx - size * 1.10f, cy - size * 1.08f,
+                          cx - size * 0.24f, cy - size * 1.24f,
+                          cx, cy - size * 0.58f);
+            heart.cubicTo(cx + size * 0.24f, cy - size * 1.24f,
+                          cx + size * 1.10f, cy - size * 1.08f,
+                          cx + size * 1.10f, cy - size * 0.38f);
+            heart.cubicTo(cx + size * 1.10f, cy + size * 0.25f,
+                          cx + size * 0.20f, cy + size * 0.80f,
+                          cx, cy + size * 1.15f);
             heart.close();
             canvas.drawPath(heart, p);
-        } else {
-            heart.moveTo(cx, cy - size * 1.12f);
-            heart.cubicTo(cx - size * 1.4f, cy - size * 0.2f, cx - size * 0.9f, cy + size * 0.72f, cx, cy + size * 0.12f);
-            heart.cubicTo(cx + size * 0.9f, cy + size * 0.72f, cx + size * 1.4f, cy - size * 0.2f, cx, cy - size * 1.12f);
-            heart.close();
-            canvas.drawPath(heart, p);
-            canvas.drawPolygon(std::vector<PointF>{{cx - size * 0.28f, cy}, {cx + size * 0.28f, cy},
-                                                   {cx + size * 0.48f, cy + size * 1.0f},
-                                                   {cx - size * 0.48f, cy + size * 1.0f}}, p);
+            return;
         }
+
+        if (suit == Suit::Spade) {
+            Path spade;
+            spade.moveTo(cx, cy - size * 1.20f);
+            spade.cubicTo(cx - size * 0.18f, cy - size * 0.86f,
+                          cx - size * 1.05f, cy - size * 0.38f,
+                          cx - size * 1.05f, cy + size * 0.20f);
+            spade.cubicTo(cx - size * 1.05f, cy + size * 0.75f,
+                          cx - size * 0.44f, cy + size * 0.92f,
+                          cx - size * 0.17f, cy + size * 0.58f);
+            spade.lineTo(cx - size * 0.40f, cy + size * 1.18f);
+            spade.lineTo(cx + size * 0.40f, cy + size * 1.18f);
+            spade.lineTo(cx + size * 0.17f, cy + size * 0.58f);
+            spade.cubicTo(cx + size * 0.44f, cy + size * 0.92f,
+                          cx + size * 1.05f, cy + size * 0.75f,
+                          cx + size * 1.05f, cy + size * 0.20f);
+            spade.cubicTo(cx + size * 1.05f, cy - size * 0.38f,
+                          cx + size * 0.18f, cy - size * 0.86f,
+                          cx, cy - size * 1.20f);
+            spade.close();
+            canvas.drawPath(spade, p);
+            return;
+        }
+
+        // Draw the club as one silhouette. Separate translucent circles visibly
+        // darken where they overlap, especially on animated cards.
+        Path club;
+        club.moveTo(cx, cy - size * 1.16f);
+        club.cubicTo(cx - size * 0.42f, cy - size * 1.16f,
+                     cx - size * 0.68f, cy - size * 0.86f,
+                     cx - size * 0.68f, cy - size * 0.52f);
+        club.cubicTo(cx - size * 0.68f, cy - size * 0.34f,
+                     cx - size * 0.60f, cy - size * 0.18f,
+                     cx - size * 0.46f, cy - size * 0.06f);
+        club.cubicTo(cx - size * 0.62f, cy - size * 0.20f,
+                     cx - size * 0.84f, cy - size * 0.24f,
+                     cx - size * 1.01f, cy - size * 0.14f);
+        club.cubicTo(cx - size * 1.29f, cy + size * 0.02f,
+                     cx - size * 1.29f, cy + size * 0.54f,
+                     cx - size * 1.04f, cy + size * 0.72f);
+        club.cubicTo(cx - size * 0.82f, cy + size * 0.89f,
+                     cx - size * 0.48f, cy + size * 0.82f,
+                     cx - size * 0.33f, cy + size * 0.58f);
+        club.lineTo(cx - size * 0.42f, cy + size * 1.16f);
+        club.lineTo(cx + size * 0.42f, cy + size * 1.16f);
+        club.lineTo(cx + size * 0.33f, cy + size * 0.58f);
+        club.cubicTo(cx + size * 0.48f, cy + size * 0.82f,
+                     cx + size * 0.82f, cy + size * 0.89f,
+                     cx + size * 1.04f, cy + size * 0.72f);
+        club.cubicTo(cx + size * 1.29f, cy + size * 0.54f,
+                     cx + size * 1.29f, cy + size * 0.02f,
+                     cx + size * 1.01f, cy - size * 0.14f);
+        club.cubicTo(cx + size * 0.84f, cy - size * 0.24f,
+                     cx + size * 0.62f, cy - size * 0.20f,
+                     cx + size * 0.46f, cy - size * 0.06f);
+        club.cubicTo(cx + size * 0.60f, cy - size * 0.18f,
+                     cx + size * 0.68f, cy - size * 0.34f,
+                     cx + size * 0.68f, cy - size * 0.52f);
+        club.cubicTo(cx + size * 0.68f, cy - size * 0.86f,
+                     cx + size * 0.42f, cy - size * 1.16f,
+                     cx, cy - size * 1.16f);
+        club.close();
+        canvas.drawPath(club, p);
+    }
+
+    void drawStockBack(Canvas& canvas, float x, float y) {
+        constexpr float w = 70.0f;
+        constexpr float h = 98.0f;
+        Paint shadow;
+        shadow.setStyle(Paint::Style::FILL);
+        shadow.setColor(Color(1, 14, 9, 48));
+        canvas.drawRoundRect(RectF(x + 0.5f, y + 2, w - 1, h), 8, shadow);
+
+        Paint edge;
+        edge.setStyle(Paint::Style::FILL);
+        edge.setColor(Color(190, 177, 153));
+        canvas.drawRoundRect(RectF(x, y, w, h), 8, edge);
+
+        Paint back;
+        back.setStyle(Paint::Style::FILL);
+        back.setLinearGradient(x + 2, y + 2, x + w - 2, y + h - 2,
+                               Color(112, 38, 60), Color(49, 20, 43));
+        canvas.drawRoundRect(RectF(x + 2, y + 2, w - 4, h - 4), 6, back);
+
+        Paint lattice;
+        lattice.setStyle(Paint::Style::FILL);
+        lattice.setColor(Color(235, 198, 128, 58));
+        for (int row = 0; row < 6; ++row) {
+            for (int col = 0; col < 4; ++col) {
+                const float px = x + 10 + col * 16.0f + (row % 2 ? 7.0f : 0.0f);
+                const float py = y + 12 + row * 14.5f;
+                if (px > x + w - 7) continue;
+                canvas.drawPolygon(std::vector<PointF>{{px, py - 2.5f}, {px + 2.5f, py},
+                                                       {px, py + 2.5f}, {px - 2.5f, py}}, lattice);
+            }
+        }
+
+        Paint border;
+        border.setStyle(Paint::Style::STROKE);
+        border.setStrokeWidth(1.0f);
+        border.setColor(Color(231, 196, 127, 210));
+        canvas.drawRoundRect(RectF(x + 4, y + 4, w - 8, h - 8), 5, border);
+        Paint inner = border;
+        inner.setColor(Color(248, 224, 174, 92));
+        canvas.drawRoundRect(RectF(x + 7, y + 7, w - 14, h - 14), 4, inner);
+        const float cx = x + w * 0.5f;
+        const float cy = y + h * 0.5f;
+        Paint crest;
+        crest.setStyle(Paint::Style::FILL);
+        crest.setColor(Color(232, 195, 124, 230));
+        canvas.drawPolygon(std::vector<PointF>{{cx, cy - 23}, {cx + 17, cy},
+                                               {cx, cy + 23}, {cx - 17, cy}}, crest);
+        Paint crestInset = crest;
+        crestInset.setColor(Color(62, 24, 48));
+        canvas.drawPolygon(std::vector<PointF>{{cx, cy - 20}, {cx + 14, cy},
+                                               {cx, cy + 20}, {cx - 14, cy}}, crestInset);
+        drawSpiderMark(canvas, cx, cy, 19, Color(242, 207, 140));
     }
 
     void drawStock(Canvas& canvas) {
         const RectF r = stockRect();
         const int deals = static_cast<int>(stock_.size() / 10);
+        const bool hover = deals > 0 && inside(r, pointerX_, pointerY_);
+        const bool pressed = pressedButton_ == 5 && buttonPressTime_ > 0.0f;
+        const float stockScale = pressed ? 0.97f : hover ? 1.025f : 1.0f;
+        const float cx = r.getX() + r.getWidth() * 0.5f;
+        const float cy = r.getY() + r.getHeight() * 0.5f;
+        canvas.save();
+        canvas.translate(cx, cy);
+        canvas.scale(stockScale, stockScale);
+        canvas.translate(-cx, -cy);
         if (deals > 0) {
-            canvas.save();
-            canvas.translate(r.getX() + 7, r.getY() + 4);
-            canvas.scale(0.43f, 0.43f);
             for (int i = std::min(3, deals - 1); i >= 0; --i)
-                drawFaceDown(canvas, i * 13.0f, i * 5.0f, 1.0f);
-            canvas.restore();
+                drawStockBack(canvas, r.getX() + 7 + i * 5.5f, r.getY() + 1 + i * 2.2f);
             Paint badge;
             badge.setStyle(Paint::Style::FILL);
-            badge.setColor(Color(245, 200, 78));
-            canvas.drawCircle(r.getX() + r.getWidth() - 7, r.getY() + 8, 12 + dealPulse_ * 3, badge);
+            badge.setColor(Color(224, 184, 110));
+            canvas.drawCircle(r.getX() + r.getWidth() - 5, r.getY() + 10, 12 + dealPulse_ * 2, badge);
             Paint count;
             count.setStyle(Paint::Style::FILL);
-            count.setColor(Color(33, 38, 35));
-            count.setTextSize(11);
+            count.setColor(Color(39, 29, 25));
+            count.setTextSize(14);
             count.setTextAlign(Paint::TextAlign::CENTER);
             count.setTextBaseline(Paint::TextBaseline::MIDDLE);
             useUiFont(count, 800);
-            canvas.drawText(std::to_string(deals), r.getX() + r.getWidth() - 7, r.getY() + 8, count);
+            canvas.drawText(std::to_string(deals), r.getX() + r.getWidth() - 5, r.getY() + 10, count);
         } else {
             Paint empty;
             empty.setStyle(Paint::Style::STROKE);
             empty.setStrokeWidth(1.4f);
-            empty.setColor(Color(91, 190, 161, 70));
-            canvas.drawRoundRect(r, 11, empty);
+            empty.setColor(Color(185, 159, 112, 70));
+            canvas.drawRoundRect(RectF(r.getX() + 8, r.getY() + 1, 72, 98), 9, empty);
         }
         Paint label;
         label.setStyle(Paint::Style::FILL);
-        label.setColor(Color(147, 211, 191));
-        label.setTextSize(8);
-        label.setLetterSpacing(0.6f);
+        label.setColor(hover ? Color(249, 222, 169) : Color(222, 201, 160));
+        label.setTextSize(13);
+        label.setLetterSpacing(0.8f);
         label.setTextAlign(Paint::TextAlign::CENTER);
         useUiFont(label, 700);
-        canvas.drawText(deals > 0 ? "DEAL" : "EMPTY", r.getX() + r.getWidth() * 0.5f, r.getY() + 56, label);
+        canvas.drawText(deals > 0 ? "DEAL" : "EMPTY", cx, r.getY() + 135, label);
         if (hintTime_ > 0 && hintDest_ == 10) {
             Paint h;
             h.setStyle(Paint::Style::STROKE);
             h.setStrokeWidth(3);
-            h.setColor(Color(255, 211, 81, 220));
-            canvas.drawRoundRect(RectF(r.getX() - 4, r.getY() - 4, r.getWidth() + 8, r.getHeight() + 8), 15, h);
+            h.setColor(Color(232, 188, 103, 220));
+            canvas.drawRoundRect(RectF(r.getX() + 3, r.getY() - 2, 84, 112), 12, h);
         }
+        canvas.restore();
     }
 
     void drawToast(Canvas& canvas) {
         if (toastTime_ <= 0 || won_) return;
-        const float alpha = std::min(1.0f, toastTime_ * 3.0f);
+        const float age = std::max(0.0f, toastDuration_ - toastTime_);
+        const float enter = easeOutQuint(age / 0.25f);
+        const float exit = clamp01(toastTime_ / 0.30f);
+        const float alpha = std::min(enter, exit);
         Paint text;
         text.setStyle(Paint::Style::FILL);
-        text.setTextSize(12);
+        text.setTextSize(16.5f);
         text.setTextAlign(Paint::TextAlign::CENTER);
         text.setTextBaseline(Paint::TextBaseline::MIDDLE);
-        useUiFont(text, 650);
-        const float w = canvas.measureTextMetrics(toast_, text).width + 46;
-        const RectF rect((DESIGN_W - w) * 0.5f, 800, w, 38);
+        useUiFont(text, 680);
+        if (measuredToast_ != toast_) {
+            measuredToast_ = toast_;
+            measuredToastWidth_ = canvas.measureTextMetrics(toast_, text).width;
+        }
+        const float w = measuredToastWidth_ + 64;
+        const float y = 792.0f + (1.0f - enter) * 16.0f;
+        const RectF rect((DESIGN_W - w) * 0.5f, y, w, 48);
         Paint bg;
         bg.setStyle(Paint::Style::FILL);
-        bg.setColor(Color(4, 29, 33, static_cast<int>(220 * alpha)));
-        canvas.drawRoundRect(rect, 19, bg);
+        bg.setColor(Color(8, 10, 18, static_cast<int>(232 * alpha)));
+        canvas.drawRoundRect(rect, 24, bg);
         Paint border;
         border.setStyle(Paint::Style::STROKE);
         border.setStrokeWidth(1);
-        border.setColor(Color(92, 215, 178, static_cast<int>(120 * alpha)));
-        canvas.drawRoundRect(rect, 19, border);
-        text.setColor(Color(223, 245, 237, static_cast<int>(255 * alpha)));
-        canvas.drawText(toast_, DESIGN_W * 0.5f, 819, text);
+        border.setColor(Color(211, 174, 107, static_cast<int>(145 * alpha)));
+        canvas.drawRoundRect(rect, 24, border);
+        text.setColor(Color(239, 232, 216, static_cast<int>(255 * alpha)));
+        canvas.drawText(toast_, DESIGN_W * 0.5f, y + 24, text);
     }
 
     void drawWin(Canvas& canvas) {
@@ -1048,7 +1606,7 @@ private:
         canvas.drawText("Eight complete runs cleared in " + formatTime(elapsed_), DESIGN_W * 0.5f, 475, sub);
         sub.setTextSize(14);
         sub.setColor(Color(235, 208, 111));
-        canvas.drawText("Final score  " + std::to_string(score_) + "   •   Click anywhere for a new deal", DESIGN_W * 0.5f, 520, sub);
+        canvas.drawText("Final score  " + std::to_string(score_) + "   |   Click anywhere for a new deal", DESIGN_W * 0.5f, 520, sub);
     }
 };
 
@@ -1063,13 +1621,20 @@ void framebufferCallback(GLFWwindow* window, int width, int height) {
     glViewport(0, 0, width, height);
     auto* ctx = static_cast<GameContext*>(glfwGetWindowUserPointer(window));
     if (!ctx || !ctx->canvas || width <= 0 || height <= 0) return;
+    int windowW = 0, windowH = 0;
+    glfwGetWindowSize(window, &windowW, &windowH);
+    if (windowW <= 0 || windowH <= 0) return;
     ctx->canvas->setSize(width, height);
-    float sx = 1.0f, sy = 1.0f;
-    glfwGetWindowContentScale(window, &sx, &sy);
-    const float dpr = sx > 0.0f ? sx : 1.0f;
+    const float dpr = static_cast<float>(width) / static_cast<float>(windowW);
     ctx->canvas->setDevicePixelRatio(dpr);
-    ctx->windowW = static_cast<int>(width / dpr);
-    ctx->windowH = static_cast<int>(height / dpr);
+    ctx->windowW = windowW;
+    ctx->windowH = windowH;
+}
+
+void contentScaleCallback(GLFWwindow* window, float, float) {
+    int width = 0, height = 0;
+    glfwGetFramebufferSize(window, &width, &height);
+    framebufferCallback(window, width, height);
 }
 
 void cursorCallback(GLFWwindow* window, double x, double y) {
@@ -1097,12 +1662,12 @@ void keyCallback(GLFWwindow* window, int key, int, int action, int) {
     if (key == GLFW_KEY_ESCAPE) {
         ctx->game->cancelSelection();
         glfwSetWindowShouldClose(window, GLFW_TRUE);
-    } else if (key == GLFW_KEY_N || key == GLFW_KEY_R) ctx->game->newGame();
+    } else if (key == GLFW_KEY_N || key == GLFW_KEY_R) ctx->game->newGame(0, false);
     else if (key == GLFW_KEY_U) ctx->game->undo();
     else if (key == GLFW_KEY_H) ctx->game->hint();
-    else if (key == GLFW_KEY_1) ctx->game->setDifficulty(1);
-    else if (key == GLFW_KEY_2) ctx->game->setDifficulty(2);
-    else if (key == GLFW_KEY_4) ctx->game->setDifficulty(4);
+    else if (key == GLFW_KEY_1) ctx->game->setDifficulty(1, false);
+    else if (key == GLFW_KEY_2) ctx->game->setDifficulty(2, false);
+    else if (key == GLFW_KEY_4) ctx->game->setDifficulty(4, false);
 }
 
 } // namespace
@@ -1110,6 +1675,9 @@ void keyCallback(GLFWwindow* window, int key, int, int action, int) {
 int main(int argc, char** argv) {
     bool selfTest = false;
     bool playTest = false;
+    bool hoverTest = false;
+    bool completionDemo = false;
+    bool winDemo = false;
     bool exitAfterFrame = false;
     std::string capturePath;
     std::uint32_t seed = 0;
@@ -1118,6 +1686,9 @@ int main(int argc, char** argv) {
         const std::string arg = argv[i];
         if (arg == "--self-test") selfTest = true;
         else if (arg == "--play-test") playTest = true;
+        else if (arg == "--hover-test") hoverTest = true;
+        else if (arg == "--completion-demo") completionDemo = true;
+        else if (arg == "--win-demo") winDemo = true;
         else if (arg == "--capture" && i + 1 < argc) capturePath = argv[++i];
         else if (arg == "--exit-after-frame") exitAfterFrame = true;
         else if (arg == "--seed" && i + 1 < argc) seed = static_cast<std::uint32_t>(std::stoul(argv[++i]));
@@ -1138,7 +1709,7 @@ int main(int argc, char** argv) {
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 
     GLFWwindow* window = glfwCreateWindow(static_cast<int>(DESIGN_W), static_cast<int>(DESIGN_H),
-                                          "Spider Solitaire — WhatsCanvas", nullptr, nullptr);
+                                          "Spider Solitaire - WhatsCanvas", nullptr, nullptr);
     if (!window) {
         std::cerr << "Failed to create GLFW window\n";
         glfwTerminate();
@@ -1167,22 +1738,49 @@ int main(int argc, char** argv) {
     canvas.setSize(fbw, fbh);
     for (const FontFace& face : FontSystem::defaultSystemFontFaces()) canvas.registerFontFace(face);
     canvas.setFontFallbackChain(FontSystem::defaultFallbackChain());
-    float sx = 1.0f, sy = 1.0f;
-    glfwGetWindowContentScale(window, &sx, &sy);
-    const float dpr = sx > 0.0f ? sx : 1.0f;
+    int windowW = 0, windowH = 0;
+    glfwGetWindowSize(window, &windowW, &windowH);
+    const float dpr = windowW > 0 ? static_cast<float>(fbw) / static_cast<float>(windowW) : 1.0f;
     canvas.setDevicePixelRatio(dpr);
 
     SpiderGame game(difficulty, seed);
-    GameContext ctx{&game, &canvas, static_cast<int>(fbw / dpr), static_cast<int>(fbh / dpr)};
+    if (completionDemo || winDemo) game.startCompletionDemo(winDemo);
+    else if (capturePath.empty()) game.startIntroAnimation();
+    GameContext ctx{&game, &canvas, windowW, windowH};
     glfwSetWindowUserPointer(window, &ctx);
     glfwSetFramebufferSizeCallback(window, framebufferCallback);
+    glfwSetWindowContentScaleCallback(window, contentScaleCallback);
     glfwSetCursorPosCallback(window, cursorCallback);
     glfwSetMouseButtonCallback(window, mouseCallback);
     glfwSetKeyCallback(window, keyCallback);
 
+    bool hoverTestFailed = false;
+    if (hoverTest) {
+        game.updateRenderTransform(ctx.windowW, ctx.windowH);
+        const RectF difficulty(884, 28, 112, 44);
+        const auto windowPoint = game.toWindow(difficulty.getX() + difficulty.getWidth() * 0.5f,
+                                               difficulty.getY() + difficulty.getHeight() * 0.5f);
+        glfwSetCursorPos(window, windowPoint.first, windowPoint.second);
+        glfwPollEvents();
+        double cursorX = 0.0, cursorY = 0.0;
+        glfwGetCursorPos(window, &cursorX, &cursorY);
+        const auto mapped = game.toDesign(static_cast<float>(cursorX), static_cast<float>(cursorY));
+        game.pointerMove(mapped.first, mapped.second);
+        hoverTestFailed = !game.difficultyHoverMatches();
+        std::cout << "HOVER_TEST " << (hoverTestFailed ? "FAIL" : "PASS")
+                  << " window=" << ctx.windowW << 'x' << ctx.windowH
+                  << " framebuffer=" << fbw << 'x' << fbh
+                  << " dpr=" << dpr
+                  << " cursor=" << cursorX << ',' << cursorY
+                  << " design=" << mapped.first << ',' << mapped.second << '\n';
+    }
+
     double last = glfwGetTime();
+    double nextFrame = last;
+    const double captureReadyAt = last + (capturePath.empty() ? 0.0 : winDemo ? 0.8 : 0.35);
     bool captured = false;
     bool captureFailed = false;
+    constexpr double targetFrameSeconds = 1.0 / 60.0;
     while (!glfwWindowShouldClose(window)) {
         const double now = glfwGetTime();
         const float dt = static_cast<float>(now - last);
@@ -1192,7 +1790,7 @@ int main(int argc, char** argv) {
         game.update(dt);
         game.render(canvas, ctx.windowW, ctx.windowH);
         canvas.endFrame();
-        if (!captured && !capturePath.empty()) {
+        if (!captured && !capturePath.empty() && now >= captureReadyAt) {
             captured = true;
             if (!canvas.savePixelsPPM(capturePath)) {
                 std::cerr << "Failed to save capture: " << capturePath << '\n';
@@ -1202,12 +1800,20 @@ int main(int argc, char** argv) {
             }
         }
         glfwSwapBuffers(window);
-        glfwPollEvents();
         if (exitAfterFrame && (capturePath.empty() || captured)) glfwSetWindowShouldClose(window, GLFW_TRUE);
+        nextFrame += targetFrameSeconds;
+        const double frameRemainder = nextFrame - glfwGetTime();
+        if (frameRemainder > 0.0 && !glfwWindowShouldClose(window)) {
+            std::this_thread::sleep_for(std::chrono::duration<double>(frameRemainder));
+        } else if (frameRemainder < -targetFrameSeconds) {
+            // Recover after a resize, breakpoint or other long stall instead of trying to catch up.
+            nextFrame = glfwGetTime();
+        }
+        glfwPollEvents();
     }
 
     canvas.shutdown();
     glfwDestroyWindow(window);
     glfwTerminate();
-    return captureFailed ? 1 : 0;
+    return captureFailed || hoverTestFailed ? 1 : 0;
 }

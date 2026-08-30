@@ -3,7 +3,7 @@ set -eu
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 BUILD_DIR="$ROOT_DIR/build"
-CONFIG="Debug"
+CONFIG="Release"
 NO_RUN=0
 
 for arg in "$@"; do
