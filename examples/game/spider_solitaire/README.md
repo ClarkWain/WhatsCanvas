@@ -1,10 +1,15 @@
 # Spider Solitaire
 
-A complete, image-free Spider Solitaire game rendered entirely with WhatsCanvas.
+A polished, fully playable Spider Solitaire game rendered entirely with WhatsCanvas.
+It includes 1/2/4-suit difficulty, undo and hints, responsive high-DPI input, and animated dealing and completed-run collection.
+
+![Spider Solitaire gameplay](screenshot.png)
 
 ```sh
 ./build.sh
 ```
+
+Build scripts default to `Release` for smooth gameplay. Pass `--debug` when a debug build is needed.
 
 Mouse controls: click or drag a same-suit descending run onto an empty column or a card one rank higher. Click the stock to deal another row. Empty columns must be filled before dealing.
 
