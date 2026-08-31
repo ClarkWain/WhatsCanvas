@@ -17,6 +17,7 @@ dependencyResolutionManagement {
 rootProject.name = "WhatsCanvasAndroid"
 include ':app'
 include ':spider'
+project(':spider').projectDir = file('../../examples/game/spider_solitaire/android')
 include ':whatscanvas'
 project(':whatscanvas').projectDir = file('sdk')
 if (System.getenv('WHATSCANVAS_ENABLE_SDK_CONSUMER_SMOKE') == '1') {

@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 get_filename_component(WHATSCANVAS_ROOT
-    "${CMAKE_CURRENT_LIST_DIR}/../../../../../../"
+    "${CMAKE_CURRENT_LIST_DIR}/../../../../../../../"
     ABSOLUTE)
 
 set(WHATSCANVAS_BUILD_OPENGL OFF CACHE BOOL "" FORCE)
