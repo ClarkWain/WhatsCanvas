@@ -2,6 +2,14 @@
 
 namespace spider {
 
+namespace {
+
+constexpr const char* kWebLatinFontPath = "/fonts/Roboto-Regular.ttf";
+constexpr const char* kWebCjkFontPath = "/fonts/Mplus1p-Regular.ttf";
+constexpr const char* kWebEmojiFontPath = "/fonts/NotoColorEmoji.demo.subset.ttf";
+
+}
+
 void SpiderGame::drawFaceBaseContents(Canvas& canvas, float x, float y, float alpha) {
     drawCardShadow(canvas, x, y, false, alpha);
     Paint paper;
@@ -38,10 +46,28 @@ bool SpiderGame::ensureCardAtlas(Canvas& canvas) {
     constexpr int cellH = 144;
     auto scratch = Canvas::create(Canvas::Backend::Software, atlasW, atlasH);
     if (!scratch || !scratch->initializeContext()) return false;
+
+    // Keep card-glyph font selection aligned with the main Web canvas.
+    scratch->registerFontFace(wsc::FontFace::fromFile(
+        wsc::FontDescriptor(wsc::FontSystem::kDefaultPrimaryFamily, 400),
+        kWebLatinFontPath));
+    scratch->registerFontFace(wsc::FontFace::fromFile(
+        wsc::FontDescriptor(wsc::FontSystem::kDefaultCjkFamily, 400),
+        kWebCjkFontPath));
+    scratch->registerFontFace(wsc::FontFace::fromFile(
+        wsc::FontDescriptor(wsc::FontSystem::kDefaultSymbolFamily, 400),
+        kWebEmojiFontPath));
+
     for (const wsc::FontFace& face : wsc::FontSystem::defaultSystemFontFaces()) {
         scratch->registerFontFace(face);
     }
-    scratch->setFontFallbackChain(wsc::FontSystem::defaultFallbackChain());
+    wsc::FontFallbackChain primary(wsc::FontSystem::kDefaultPrimaryFamily);
+    primary.addFallbackFamily(wsc::FontSystem::kDefaultCjkFamily);
+    primary.addFallbackFamily(wsc::FontSystem::kDefaultSymbolFamily);
+    scratch->setFontFallbackChain(primary);
+    wsc::FontFallbackChain cjk(wsc::FontSystem::kDefaultCjkFamily);
+    cjk.addFallbackFamily(wsc::FontSystem::kDefaultSymbolFamily);
+    scratch->setFontFallbackChain(cjk);
     scratch->beginFrame();
 
     const bool atlasWasEnabled = useCardAtlas_;
