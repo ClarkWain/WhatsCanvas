@@ -377,47 +377,152 @@ assert(hash == expectedHash && "Pixel regression detected!");
 
 ---
 
-## 11.11 交互式场景：避免大缓存随手势失效
+## 11.11 交互式场景的缓存策略
 
-“界面只有几十个对象”不代表每帧工作量小。拖拽时突然从 60 FPS 降到 1 FPS，常见原因不是 `drawImage` 本身，而是一次 pointer move 让整张桌面、白板或编辑器图层失效，并在当前帧重新栅格化和上传大纹理。
+拖拽、缩放和动画会连续触发重绘。对于这类场景，除了减少绘制命令，还需要根据内容的变化频率选择合适的缓存方式。
 
-把场景拆成稳定层与动态层：
+### 稳定层与动态层
+
+可以先将界面分为两层：
 
 ```text
-稳定层：背景、固定工具栏、未变化的内容
-动态层：拖拽对象、吸附预览、按压反馈、正在播放的动画
+稳定层：背景、固定工具栏、未变化的列表或画布内容
+动态层：拖拽对象、选中效果、按压反馈和动画
 ```
 
-重复的小图元优先合并为一张共享 Atlas。对象只保存逻辑状态和 Atlas 源区域，不要为每个实例创建纹理：
+稳定层适合使用 Picture 或 Image 缓存；动态层通常直接绘制，并放在稳定层之后。这样，动态对象的位置发生变化时，不需要重新生成整个背景缓存。
+
+```cpp
+drawStableContent(canvas);   // 重放稳定内容
+drawMovingItem(canvas);      // 绘制当前帧的动态对象
+drawInteractionEffect(canvas);
+```
+
+### 选择缓存类型
+
+Picture、Image 和 Atlas 解决的问题不同：
+
+| 场景 | 推荐方式 |
+|------|---------|
+| 复杂矢量内容需要重复绘制 | `Picture` |
+| 内容复杂、尺寸固定且长期不变 | `drawPictureRasterized` |
+| 背景或装饰已经可以表示为稳定像素 | `Image` |
+| 大量重复的图标、棋子或粒子 | Image Atlas |
+| 内容每帧都变化或持续缩放 | 直接绘制或普通 `drawPicture` |
+
+`Picture` 保留矢量重放能力，适合仍需缩放或变换的内容。`drawPictureRasterized` 会额外占用纹理内存，但可以避免后续帧重复执行复杂命令。对于大面积静态渐变或装饰，也可以先使用 Software Canvas 绘制为位图，再加载为 `Image`。
+
+下面的示例使用离屏 Canvas 绘制背景，再将像素上传到目标 Canvas，创建可重复绘制的 Image：
+
+```cpp
+std::unique_ptr<wsc::Image> createBackgroundImage(wsc::Canvas& targetCanvas,
+                                                   int width, int height) {
+    // Software Canvas 用于一次性生成像素，不占用目标帧的绘制时间。
+    auto scratch = wsc::Canvas::create(
+        wsc::Canvas::Backend::Software, width, height);
+    if (!scratch || !scratch->initializeContext()) {
+        return nullptr;
+    }
+
+    scratch->beginFrame();
+
+    wsc::Paint background;
+    background.setRadialGradient(
+        width * 0.5f, height * 0.5f, width * 0.7f,
+        wsc::Color(42, 132, 88), wsc::Color(8, 48, 34));
+    scratch->drawRect(
+        wsc::RectF(0, 0, static_cast<float>(width),
+                   static_cast<float>(height)),
+        background);
+
+    // 还可以在这里绘制阴影、装饰线和其他静态内容。
+    scratch->endFrame();
+
+    std::vector<unsigned char> pixels;
+    const bool readOk = scratch->readPixelsRGBA(pixels);
+    scratch->finalizeContext();
+    if (!readOk) {
+        return nullptr;
+    }
+
+    auto image = std::make_unique<wsc::Image>();
+    if (!targetCanvas.loadImageFromRGBA(
+            *image, pixels, width, height,
+            false /* generateMipmaps */)) {
+        return nullptr;
+    }
+    return image;
+}
+```
+
+创建完成后，在帧循环中直接绘制该 Image：
+
+```cpp
+if (backgroundImage) {
+    wsc::Paint imagePaint;
+    imagePaint.setColor(wsc::Color::WHITE);
+    canvas.drawImage(
+        *backgroundImage,
+        wsc::RectF(0, 0,
+                   static_cast<float>(backgroundImage->getWidth()),
+                   static_cast<float>(backgroundImage->getHeight())),
+        viewport,
+        imagePaint);
+}
+```
+
+这段创建流程应放在初始化、资源恢复或尺寸变化时执行，不要放在每帧渲染函数中。对于 OpenGL/OpenGL ES 后端，调用 `loadImageFromRGBA` 时还应确保目标 Canvas 的图形上下文已经初始化并处于可用状态。
+
+当大量对象只包含有限几种外观时，可以将这些外观合并到一张 Atlas 中：
 
 ```cpp
 wsc::Paint imagePaint;
 imagePaint.setColor(wsc::Color::WHITE);
 
-for (const Card& card : visibleCards) {
-    const wsc::RectF src = atlasCell(card.rank, card.suit, card.faceUp);
-    canvas.drawImage(cardAtlas, src, card.bounds, imagePaint);
+for (const Item& item : visibleItems) {
+    const wsc::RectF src = atlasCell(item.type, item.state);
+    canvas.drawImage(atlas, src, item.bounds, imagePaint);
 }
-
-// 动态对象最后画；移动时无需重建静态桌面缓存。
-canvas.drawImage(cardAtlas, dragged.src, dragged.bounds, imagePaint);
 ```
 
-选择缓存方式时，先看失效模式，而不是只看静止帧的命令数：
+Atlas 中的对象共享同一张纹理，可以减少纹理切换和重复资源创建。图集尺寸应根据实际显示大小确定；RGBA 纹理的基本占用为 `宽 × 高 × 4` 字节，过大的图集会增加上传时间和内存占用。
 
-| 情况 | 推荐策略 |
-|---|---|
-| 内容复杂、尺寸固定且长期不变 | `drawPictureRasterized` |
-| 内容经常改变或缓存只能命中几帧 | `drawPicture` 或直接绘制 |
-| 大量重复图片或 UI 零件 | 单张 Image Atlas + 源矩形 |
-| 正在拖拽、缩放、旋转的对象 | 独立动态层直接绘制 |
-| 只有局部变化 | 以组件或最小脏区域为缓存边界 |
+### 控制缓存失效范围
 
-尤其不要在变化的 transform 下光栅化同一个 Picture。即使 Picture 对象未变，目标尺寸、缩放或缓存签名变化也可能触发新纹理生成。首次渲染、缓存 miss 和纹理上传必须计入最慢帧，而不能只测预热后的平均 FPS。
+缓存应按界面中能够独立变化的最小单元拆分。例如，列表中只有两个分组发生变化时，只需重建这两个分组的 Picture，不必让整个列表失效。
 
-动画观感也要单独检查。60 FPS 下，50 ms 动画理论上只有 3 帧；过强的 ease-out 或反弹会进一步压缩可见位移。拖拽吸附通常使用 120–180 ms、无反弹的 ease-out；发牌等需要看清轨迹的动作可以使用 180–260 ms，并通过错峰而不是同时启动所有对象来控制负载。
+```cpp
+void moveItem(int sourceGroup, int destinationGroup) {
+    updateModel(sourceGroup, destinationGroup);
+    invalidateGroup(sourceGroup);
+    invalidateGroup(destinationGroup);
+}
+```
 
-Android 蜘蛛纸牌的真实案例、原生 Canvas 对照方法和测量数据见[Android 交互式 Canvas 性能实战](../ANDROID_INTERACTIVE_PERFORMANCE.md)。
+失效条件应与缓存内容实际依赖的状态保持一致。指针坐标如果只影响动态覆盖层，就不应使稳定 Picture 失效。动画对象也可以暂时从稳定缓存中排除，在动画结束后再更新对应组件：
+
+```cpp
+drawStableComponents(canvas);
+for (const Motion& motion : motions) {
+    drawMotionSprite(canvas, motion);
+}
+```
+
+批量动画可以错开对象的开始或结束时间，将缓存更新分散到不同帧，避免同一帧重建多个大缓存。
+
+### 内存与性能平衡
+
+光栅化 Picture、Image 和 Atlas 都会占用纹理内存。设置缓存预算时，还需要考虑 CPU 像素副本、Mipmaps、多重采样缓冲和图形驱动开销。
+
+如果缓存只命中少量帧，或者频繁被淘汰，栅格化成本可能高于收益。此时应缩小缓存范围，或者改用普通 `drawPicture`。Surface 或图形上下文销毁时，也应释放相关 Picture、Image 和 Atlas，并在上下文恢复后按需重建。
+
+### 验证交互性能
+
+交互性能测试应覆盖完整操作过程，例如按下、连续移动、释放和动画结束。除平均 FPS 外，还应记录最大帧时间、超过目标帧预算的次数，以及首次生成缓存时的耗时和内存峰值。
+
+动画持续时间也应结合刷新率设计。60 FPS 下，50 ms 只有约 3 帧；需要看清运动轨迹的动画通常需要更长时间，并可通过错峰减少单帧负载。
+
+完整的测试示例见[Android 交互式 Canvas 性能实战](../ANDROID_INTERACTIVE_PERFORMANCE.md)。
 
 ---
 
@@ -434,6 +539,11 @@ Android 蜘蛛纸牌的真实案例、原生 Canvas 对照方法和测量数据�
 | 脏区域 + clipRect | 部分更新 UI | 减少绘制面积 |
 | 条件帧更新 | 静态场景 | 省电、减少 GPU 负载 |
 | 批量同属性绘制 | 列表渲染 | 减少着色器切换 |
+| 组件级缓存失效 | 拖拽、棋盘、编辑器 | 避免整屏缓存重建 |
+| 动态覆盖层 | 拖拽和批量动画 | 稳定缓存与逐帧对象解耦 |
+| Image Atlas | 重复复杂精灵 | 减少纹理数量和绘制状态变化 |
+| 错峰落地刷新 | 批量动画 | 分散缓存重建峰值 |
+| 缓存预算与淘汰统计 | 内存受限设备 | 平衡命中率与常驻内存 |
 
 ---
 
@@ -452,6 +562,8 @@ Android 蜘蛛纸牌的真实案例、原生 Canvas 对照方法和测量数据�
 - [x] 性能测试方法
 - [x] 静态层与动态层拆分
 - [x] Image Atlas 与缓存失效边界
+- [x] 组件级 dirty 标记与动画覆盖层
+- [x] 缓存预算、生命周期和平台差异
 - [x] 交互动画的帧预算与观感验证
 
 **下一章**：[跨平台实战](./12-cross-platform.md) —— 学习 Android、iOS 和 Web 平台的集成实践。
