@@ -100,6 +100,7 @@ nav:
       - Blend Modes: BLEND_MODE_AUDIT.md
       - Shader Portability: SHADER_PORTABILITY.md
       - Android Integration: ANDROID_INTEGRATION.md
+      - Android Interactive Performance: ANDROID_INTERACTIVE_PERFORMANCE.md
       - iOS Build Notes: IOS_BUILD_NOTES.md
   - Backends:
       - Vulkan Status: vulkan-backend-status.md
