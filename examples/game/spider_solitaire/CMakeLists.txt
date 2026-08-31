@@ -15,6 +15,11 @@ include(${PROJECT_ROOT}/cmake/WhatsCanvasOpenGL.cmake)
 whatscanvas_add_common_dependencies(${PROJECT_ROOT})
 whatscanvas_add_opengl_library(WhatsCanvasExampleOpenGL ${PROJECT_ROOT})
 
-add_executable(SpiderSolitaire "SpiderSolitaire.cpp")
+add_executable(SpiderSolitaire
+    SpiderSolitaire.cpp
+    SpiderGame.cpp
+    SpiderBackground.cpp
+    SpiderGameRenderer.cpp
+    SpiderCardAtlas.cpp)
 target_link_libraries(SpiderSolitaire PRIVATE WhatsCanvasExampleOpenGL)
 whatscanvas_link_gl_app(SpiderSolitaire "${PROJECT_ROOT}")
