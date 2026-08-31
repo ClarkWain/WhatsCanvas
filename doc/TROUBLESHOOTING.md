@@ -99,6 +99,73 @@ actually drew inside the canvas bounds with a non-transparent paint color.
 OpenGL does not implicitly clear a host-owned framebuffer; clear it explicitly
 when a fresh background is required.
 
+## Performance and animation
+
+### Dragging a few objects suddenly drops to 1 FPS
+
+The object count is usually not the cause. Check whether each pointer move
+invalidates a large retained `Picture`, calls `drawPictureRasterized` on it,
+and uploads a near-full-screen texture again. A cache that is excellent while
+idle can be the most expensive path during interaction.
+
+Split static content from the dragged/animated overlay. Keep the smallest
+useful invalidation boundary, and draw the moving object last. For repeated
+visuals, bake one shared Image atlas and draw source rectangles; keep only
+logical state per instance. Measure cache misses and the slowest frame, not
+only average FPS. See the [performance tutorial](tutorials/11-performance.md)
+and the [Android Spider case study](ANDROID_INTERACTIVE_PERFORMANCE.md).
+
+### Should I convert everything to an Image?
+
+No. Images are a good final representation for stable, repeated visuals, but
+turning every object into a separate texture wastes memory and increases
+texture switches. Prefer one atlas for related small visuals. Keep vectors for
+content that changes frequently, needs resolution-independent scaling, or is
+cheap to draw. Bake expensive, stable content once and reuse it.
+
+### Why can `drawPictureRasterized` be slower than direct drawing?
+
+Its first use and every cache miss must render the Picture into a texture and
+upload/retain that texture. If the Picture is large, changes often, is drawn at
+changing sizes/transforms, or exceeds the cache budget, this setup cost can be
+larger than replaying the commands. Rasterize only when many future frames can
+reuse the exact result; otherwise use `drawPicture` or direct drawing.
+
+### The FPS counter says 60, but the animation looks like 1–3 frames
+
+Check duration and easing before changing the renderer. At 60 Hz, a 50 ms
+animation contains only about three display intervals. A steep quintic easing
+or bounce can make only one or two positions visually meaningful. For short
+drag snap/place transitions, start around 120–180 ms with a cubic ease-out and
+no bounce; test the motion on the target device.
+
+### Dealing cards drops FPS, while normal dragging is smooth
+
+Look for state that accidentally participates in a much larger cache key. A
+pressed stock button, Undo availability, or one card animation should not
+invalidate a whole header or table texture. Also avoid rasterizing an element
+while its scale changes. Draw transient controls and dealing cards in the
+dynamic layer from stable images, and profile press, release, and first-use
+frames separately.
+
+### A cached radial gradient is no longer centered
+
+Gradient coordinates and cached image bounds are in different coordinate
+spaces. If a Picture is cropped to local bounds but the shader still receives
+the original global center, the radial gradient shifts. Record the gradient in
+local coordinates, compensate for the crop origin, or bake it once at the full
+viewport size. Add a screenshot/pixel regression for the center and edges.
+
+### How do I compare WhatsCanvas with native Android Canvas fairly?
+
+Render the same number of visible objects, use the same target size and VSYNC
+schedule, share image resources in both paths, and replay the same deterministic
+gesture. Report rendered frame count, average and maximum work time, and slow
+frames. Do not compare WhatsCanvas full-frame CPU timing with only Android
+`View.onDraw` time as if their boundaries were identical. The Spider sample
+provides `verify_drag_performance.ps1` and `compare_renderers.ps1` as a working
+model.
+
 ## Text
 
 ### Text doesn't appear
