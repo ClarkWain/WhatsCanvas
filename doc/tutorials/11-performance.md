@@ -377,7 +377,51 @@ assert(hash == expectedHash && "Pixel regression detected!");
 
 ---
 
-## 11.11 优化清单
+## 11.11 交互式场景：避免大缓存随手势失效
+
+“界面只有几十个对象”不代表每帧工作量小。拖拽时突然从 60 FPS 降到 1 FPS，常见原因不是 `drawImage` 本身，而是一次 pointer move 让整张桌面、白板或编辑器图层失效，并在当前帧重新栅格化和上传大纹理。
+
+把场景拆成稳定层与动态层：
+
+```text
+稳定层：背景、固定工具栏、未变化的内容
+动态层：拖拽对象、吸附预览、按压反馈、正在播放的动画
+```
+
+重复的小图元优先合并为一张共享 Atlas。对象只保存逻辑状态和 Atlas 源区域，不要为每个实例创建纹理：
+
+```cpp
+wsc::Paint imagePaint;
+imagePaint.setColor(wsc::Color::WHITE);
+
+for (const Card& card : visibleCards) {
+    const wsc::RectF src = atlasCell(card.rank, card.suit, card.faceUp);
+    canvas.drawImage(cardAtlas, src, card.bounds, imagePaint);
+}
+
+// 动态对象最后画；移动时无需重建静态桌面缓存。
+canvas.drawImage(cardAtlas, dragged.src, dragged.bounds, imagePaint);
+```
+
+选择缓存方式时，先看失效模式，而不是只看静止帧的命令数：
+
+| 情况 | 推荐策略 |
+|---|---|
+| 内容复杂、尺寸固定且长期不变 | `drawPictureRasterized` |
+| 内容经常改变或缓存只能命中几帧 | `drawPicture` 或直接绘制 |
+| 大量重复图片或 UI 零件 | 单张 Image Atlas + 源矩形 |
+| 正在拖拽、缩放、旋转的对象 | 独立动态层直接绘制 |
+| 只有局部变化 | 以组件或最小脏区域为缓存边界 |
+
+尤其不要在变化的 transform 下光栅化同一个 Picture。即使 Picture 对象未变，目标尺寸、缩放或缓存签名变化也可能触发新纹理生成。首次渲染、缓存 miss 和纹理上传必须计入最慢帧，而不能只测预热后的平均 FPS。
+
+动画观感也要单独检查。60 FPS 下，50 ms 动画理论上只有 3 帧；过强的 ease-out 或反弹会进一步压缩可见位移。拖拽吸附通常使用 120–180 ms、无反弹的 ease-out；发牌等需要看清轨迹的动作可以使用 180–260 ms，并通过错峰而不是同时启动所有对象来控制负载。
+
+Android 蜘蛛纸牌的真实案例、原生 Canvas 对照方法和测量数据见[Android 交互式 Canvas 性能实战](../ANDROID_INTERACTIVE_PERFORMANCE.md)。
+
+---
+
+## 11.12 优化清单
 
 | 优化 | 适用场景 | 效果 |
 |------|---------|------|
@@ -393,7 +437,7 @@ assert(hash == expectedHash && "Pixel regression detected!");
 
 ---
 
-## 11.12 小结
+## 11.13 小结
 
 本章学习了：
 
@@ -406,5 +450,8 @@ assert(hash == expectedHash && "Pixel regression detected!");
 - [x] 异步像素回读
 - [x] 脏区域追踪和条件帧更新
 - [x] 性能测试方法
+- [x] 静态层与动态层拆分
+- [x] Image Atlas 与缓存失效边界
+- [x] 交互动画的帧预算与观感验证
 
 **下一章**：[跨平台实战](./12-cross-platform.md) —— 学习 Android、iOS 和 Web 平台的集成实践。
