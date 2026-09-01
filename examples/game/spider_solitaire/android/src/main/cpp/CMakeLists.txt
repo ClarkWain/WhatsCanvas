@@ -38,14 +38,16 @@ add_subdirectory(
 
 add_library(spider_android SHARED
     spider_jni.cpp
-    "${WHATSCANVAS_ROOT}/examples/game/spider_solitaire/SpiderGame.cpp"
-    "${WHATSCANVAS_ROOT}/examples/game/spider_solitaire/SpiderBackground.cpp"
-    "${WHATSCANVAS_ROOT}/examples/game/spider_solitaire/SpiderGameRenderer.cpp"
-    "${WHATSCANVAS_ROOT}/examples/game/spider_solitaire/SpiderCardAtlas.cpp")
+    "${WHATSCANVAS_ROOT}/examples/game/spider_solitaire/common/SpiderGame.cpp"
+    "${WHATSCANVAS_ROOT}/examples/game/spider_solitaire/common/SpiderGameInput.cpp"
+    "${WHATSCANVAS_ROOT}/examples/game/spider_solitaire/common/SpiderGameLayout.cpp"
+    "${WHATSCANVAS_ROOT}/examples/game/spider_solitaire/common/SpiderBackground.cpp"
+    "${WHATSCANVAS_ROOT}/examples/game/spider_solitaire/common/SpiderGameRenderer.cpp"
+    "${WHATSCANVAS_ROOT}/examples/game/spider_solitaire/common/SpiderCardAtlas.cpp")
 
 target_include_directories(spider_android PRIVATE
     "${WHATSCANVAS_ROOT}"
-    "${WHATSCANVAS_ROOT}/examples/game/spider_solitaire")
+    "${WHATSCANVAS_ROOT}/examples/game/spider_solitaire/common")
 
 target_compile_options(spider_android PRIVATE
     -Wall

@@ -373,8 +373,8 @@ build.bat --no-run
 Spider Solitaire includes deterministic rule and pointer-interaction suites:
 
 ```sh
-examples/game/spider_solitaire/build/SpiderSolitaire --self-test
-examples/game/spider_solitaire/build/SpiderSolitaire --play-test
+examples/game/spider_solitaire/desktop/build/SpiderSolitaire --self-test
+examples/game/spider_solitaire/desktop/build/SpiderSolitaire --play-test
 ```
 
 ## Verify Your Integration

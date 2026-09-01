@@ -26,14 +26,16 @@ target_link_libraries(WhatsCanvasWeb PRIVATE
 
 add_executable(SpiderSolitaireWeb
     "${_spider_src}/web/SpiderWebApp.cpp"
-    "${_spider_src}/SpiderGame.cpp"
-    "${_spider_src}/SpiderBackground.cpp"
-    "${_spider_src}/SpiderGameRenderer.cpp"
-    "${_spider_src}/SpiderCardAtlas.cpp"
+    "${_spider_src}/common/SpiderGame.cpp"
+    "${_spider_src}/common/SpiderGameInput.cpp"
+    "${_spider_src}/common/SpiderGameLayout.cpp"
+    "${_spider_src}/common/SpiderBackground.cpp"
+    "${_spider_src}/common/SpiderGameRenderer.cpp"
+    "${_spider_src}/common/SpiderCardAtlas.cpp"
 )
 
 target_include_directories(SpiderSolitaireWeb PRIVATE
-    "${_spider_src}"
+    "${_spider_src}/common"
 )
 
 target_link_libraries(SpiderSolitaireWeb PRIVATE
