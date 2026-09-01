@@ -1,4 +1,4 @@
-#include "../SpiderGame.h"
+#include "../common/SpiderGame.h"
 
 #include <algorithm>
 #include <cmath>
