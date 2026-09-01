@@ -9,7 +9,7 @@ if (MSVC)
     add_compile_options(/wd4819)
 endif()
 
-set(PROJECT_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../..)
+set(PROJECT_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../../..)
 include(${PROJECT_ROOT}/cmake/WhatsCanvasOpenGL.cmake)
 
 whatscanvas_add_common_dependencies(${PROJECT_ROOT})
@@ -17,9 +17,12 @@ whatscanvas_add_opengl_library(WhatsCanvasExampleOpenGL ${PROJECT_ROOT})
 
 add_executable(SpiderSolitaire
     SpiderSolitaire.cpp
-    SpiderGame.cpp
-    SpiderBackground.cpp
-    SpiderGameRenderer.cpp
-    SpiderCardAtlas.cpp)
+    ../common/SpiderGame.cpp
+    ../common/SpiderGameInput.cpp
+    ../common/SpiderGameLayout.cpp
+    ../common/SpiderBackground.cpp
+    ../common/SpiderGameRenderer.cpp
+    ../common/SpiderCardAtlas.cpp)
 target_link_libraries(SpiderSolitaire PRIVATE WhatsCanvasExampleOpenGL)
+target_include_directories(SpiderSolitaire PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../common")
 whatscanvas_link_gl_app(SpiderSolitaire "${PROJECT_ROOT}")

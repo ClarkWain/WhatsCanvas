@@ -28,7 +28,7 @@ run_example() {
 
 run_example Tetris "$ROOT_DIR/examples/game/tetris/build.sh"
 run_example Racer "$ROOT_DIR/examples/game/racer/build.sh"
-run_example SpiderSolitaire "$ROOT_DIR/examples/game/spider_solitaire/build.sh"
+run_example SpiderSolitaire "$ROOT_DIR/examples/game/spider_solitaire/desktop/build.sh"
 
 END_TS=$(date +%s)
 TOTAL_MS=$(( (END_TS - START_TS) * 1000 ))
