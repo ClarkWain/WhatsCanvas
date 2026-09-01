@@ -364,133 +364,6 @@ void SpiderGame::hint() {
     }
 }
 
-void SpiderGame::pointerMove(float x, float y) {
-    pointerX_ = x;
-    pointerY_ = y;
-    if (mouseDown_ && selectedColumn_ >= 0) {
-        const float dx = x - pressX_;
-        const float dy = y - pressY_;
-        // Fingers slip more than a mouse pointer. Use a larger drag
-        // threshold in touch mode so a tap does not accidentally become
-        // a drag mid-motion.
-        const float threshold = touchInputMode_ ? 220.0f : 30.0f;
-        if (!dragging_ && dx * dx + dy * dy > threshold) {
-            dragging_ = true;
-            // The cached tableau picture already excludes the selected
-            // run starting at selectedIndex_, so toggling dragging_
-            // does not change what the picture needs to contain: no
-            // invalidation required here.
-        }
-    }
-}
-
-void SpiderGame::pointerDown(float x, float y) {
-    finishMotions();
-    pointerMove(x, y);
-    mouseDown_ = true;
-    pressX_ = x;
-    pressY_ = y;
-    dragging_ = false;
-
-    if (inside(newButton(), x, y)) { pressButton(1); newGame(0, true); mouseDown_ = false; return; }
-    if (inside(difficultyButton(), x, y)) { pressButton(2); cycleDifficulty(true); mouseDown_ = false; return; }
-    if (inside(undoButton(), x, y)) { pressButton(3); undo(); mouseDown_ = false; return; }
-    if (inside(hintButton(), x, y)) { pressButton(4); hint(); mouseDown_ = false; return; }
-    if (inside(stockRect(), x, y)) { pressButton(5); dealStock(); mouseDown_ = false; return; }
-    if (won_) { newGame(0, true); mouseDown_ = false; return; }
-
-    HitCard hit = hitCard(x, y);
-    if (hit.column >= 0 && hit.index >= 0) {
-        if (selectedColumn_ >= 0 && hit.column != selectedColumn_ &&
-            canMove(selectedColumn_, selectedIndex_, hit.column)) {
-            moveRun(selectedColumn_, selectedIndex_, hit.column);
-            mouseDown_ = false;
-            return;
-        }
-        if (movableRun(hit.column, hit.index)) {
-            const int prev = selectedColumn_;
-            selectedColumn_ = hit.column;
-            selectedIndex_ = hit.index;
-            invalidateColumn(prev);
-            invalidateColumn(hit.column);
-            dragOffsetX_ = x - columnX(hit.column);
-            dragOffsetY_ = y - columnPositions(hit.column)[hit.index];
-        } else {
-            if (selectedColumn_ >= 0) {
-                const int prev = selectedColumn_;
-                selectedColumn_ = selectedIndex_ = -1;
-                invalidateColumn(prev);
-            }
-            setToast("Only a same-suit descending run can move", 2.0f);
-        }
-        return;
-    }
-
-    const int empty = hitColumn(x, y);
-    if (empty >= 0 && selectedColumn_ >= 0 && canMove(selectedColumn_, selectedIndex_, empty)) {
-        moveRun(selectedColumn_, selectedIndex_, empty);
-        mouseDown_ = false;
-    } else if (selectedColumn_ >= 0) {
-        const int prev = selectedColumn_;
-        selectedColumn_ = selectedIndex_ = -1;
-        invalidateColumn(prev);
-    }
-}
-
-void SpiderGame::pointerUp(float x, float y) {
-    pointerMove(x, y);
-    if (mouseDown_ && dragging_ && selectedColumn_ >= 0) {
-        const int dest = hitColumn(x, y);
-        if (dest >= 0 && dest != selectedColumn_ && moveRun(selectedColumn_, selectedIndex_, dest)) {
-            // moved
-        } else {
-            std::vector<CardMotion> motions;
-            const auto ys = columnPositions(selectedColumn_);
-            const float fromX = pointerX_ - dragOffsetX_;
-            const float fromY = pointerY_ - dragOffsetY_;
-            for (int i = selectedIndex_; i < static_cast<int>(columns_[selectedColumn_].size()); ++i) {
-                motions.push_back({columns_[selectedColumn_][i], fromX,
-                                   fromY + (ys[i] - ys[selectedIndex_]),
-                                   columnX(selectedColumn_), ys[i], 0.0f,
-                                   motion::kSnapBackDuration, MotionKind::SnapBack});
-            }
-            // The selected run was already excluded when the drag began,
-            // and remains selected after an invalid drop. A snap-back
-            // therefore changes only the dynamic overlay; rebuilding the
-            // source column picture here is redundant and was the second
-            // visible hitch in a drag gesture.
-            startMotions(std::move(motions), false, false);
-            setToast("That run cannot be placed there", 1.8f);
-        }
-    } else if (touchInputMode_ && mouseDown_ && !dragging_ && selectedColumn_ >= 0) {
-        // Touch shortcut: a tap that never turned into a drag auto-moves
-        // the selected run to the highest-scoring legal destination.
-        const int dest = findBestDestination(selectedColumn_, selectedIndex_);
-        if (dest >= 0) {
-            moveRun(selectedColumn_, selectedIndex_, dest);
-        }
-    }
-    mouseDown_ = false;
-    dragging_ = false;
-    // Do not blanket-invalidate the tableau picture here: the picture
-    // content only depends on selectedColumn_/selectedIndex_ (exclusion
-    // range), motions_ (animating ids) and columns_ (contents). Neither
-    // dragging_ nor mouseDown_ affect the recorded output, and all the
-    // paths above that DO change any of those inputs (moveRun,
-    // startMotions, cancelSelection) already mark the picture dirty on
-    // their own. Invalidating on every touch-release forced a full
-    // re-record + re-rasterize on the frame the user let go, which was
-    // the visible hitch when releasing a card.
-}
-
-void SpiderGame::cancelSelection() {
-    finishMotions();
-    const int prev = selectedColumn_;
-    selectedColumn_ = selectedIndex_ = -1;
-    mouseDown_ = dragging_ = false;
-    if (prev >= 0) invalidateColumn(prev);
-}
-
 std::pair<float, float> SpiderGame::toDesign(float windowX, float windowY) const {
     return {(windowX - renderOffsetX_) / std::max(renderScale_, 0.0001f),
             (windowY - renderOffsetY_) / std::max(renderScale_, 0.0001f)};
@@ -706,18 +579,6 @@ void SpiderGame::invalidateColumn(int col) {
     }
 }
 
-float SpiderGame::columnX(int col) const { return COL_X + col * COL_GAP; }
-
-RectF SpiderGame::newButton() const { return RectF(760, 28, 116, 44); }
-
-RectF SpiderGame::difficultyButton() const { return RectF(884, 28, 112, 44); }
-
-RectF SpiderGame::undoButton() const { return RectF(1004, 28, 98, 44); }
-
-RectF SpiderGame::hintButton() const { return RectF(1110, 28, 104, 44); }
-
-RectF SpiderGame::stockRect() const { return RectF(1148, 676, 100, 148); }
-
 bool SpiderGame::findColumnPosition(std::uint32_t id, float& x, float& y) const {
     for (int col = 0; col < 10; ++col) {
         const auto ys = columnPositions(col);
@@ -861,41 +722,6 @@ void SpiderGame::collectCompleteRuns() {
             break;
         }
     } while (collectedAny);
-}
-
-std::vector<float> SpiderGame::columnPositions(int col) const {
-    std::vector<float> y;
-    const auto& cards = columns_[col];
-    y.resize(cards.size(), TABLE_Y);
-    if (cards.empty()) return y;
-    float raw = 0.0f;
-    for (size_t i = 0; i + 1 < cards.size(); ++i) raw += cards[i].faceUp ? 29.0f : 16.0f;
-    const float available = TABLE_BOTTOM - TABLE_Y - CARD_H;
-    const float factor = raw > available && raw > 0.0f ? available / raw : 1.0f;
-    float cursor = TABLE_Y;
-    for (size_t i = 0; i < cards.size(); ++i) {
-        y[i] = cursor;
-        if (i + 1 < cards.size()) cursor += (cards[i].faceUp ? 29.0f : 16.0f) * factor;
-    }
-    return y;
-}
-
-int SpiderGame::hitColumn(float x, float y) const {
-    if (y < TABLE_Y - 16.0f || y > TABLE_BOTTOM + 18.0f) return -1;
-    for (int col = 0; col < 10; ++col)
-        if (x >= columnX(col) - 8.0f && x <= columnX(col) + CARD_W + 8.0f) return col;
-    return -1;
-}
-
-HitCard SpiderGame::hitCard(float x, float y) const {
-    const int col = hitColumn(x, y);
-    if (col < 0 || columns_[col].empty()) return {};
-    const auto ys = columnPositions(col);
-    for (int i = static_cast<int>(ys.size()) - 1; i >= 0; --i) {
-        const float bottom = i + 1 == static_cast<int>(ys.size()) ? ys[i] + CARD_H : ys[i + 1];
-        if (y >= ys[i] && y <= bottom) return {col, i};
-    }
-    return {};
 }
 
 } // namespace spider
