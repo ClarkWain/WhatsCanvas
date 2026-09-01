@@ -32,6 +32,18 @@ build-vscode/
 build-github-win/
 build-example-consumer-vk/
 
+# macOS Finder metadata
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# macOS quarantine / resource-fork metadata
+.DocumentRevisions-V100/
+.TemporaryItems/
+.Trashes/
+.Spotlight-V100/
+
 # MkDocs site build output
 site/
 _site/
