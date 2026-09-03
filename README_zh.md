@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/ClarkWain/WhatsCanvas/actions/workflows/cross-platform-validation.yml/badge.svg)](https://github.com/ClarkWain/WhatsCanvas/actions/workflows/cross-platform-validation.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.0.0-informational.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.1.0-informational.svg)](CHANGELOG.md)
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C.svg)](CMakeLists.txt)
 [![Documentation](https://img.shields.io/badge/docs-online-success.svg)](https://clarkwain.github.io/WhatsCanvas/)
 
@@ -27,9 +27,9 @@ WhatsCanvas 的定位介于 NanoVG 这类基础绘制库和 Skia 这类大型图
 | **渲染后端** | OpenGL、纯 CPU Software；可选 OpenGL ES、Vulkan 以及 Metal（macOS/iOS）。Web 宿主把 OpenGL ES 路径编译为 WebAssembly/WebGL 2；WebGPU 尚未实现。 |
 | **平台状态** | Windows、Linux、macOS 持续执行构建和单元测试；Android 有三 ABI GLES 示例和真机检查。iOS 已有仓库内 Metal/CoreText 宿主，并在模拟器和真机完成横竖屏、生命周期、冷启动、API Validation 与 60 fps 检查。Web 已有 Emscripten/WebGL 2 宿主以及浏览器生命周期、DPR、上下文恢复和视觉一致性自动化检查。 |
 | **文本能力** | 字体发现和 fallback、CJK/RTL、UAX #9、换行与省略号、glyph atlas、COLR/CPAL v0；便携路径使用 FreeType/HarfBuzz，Windows 可选 DirectWrite，Apple 平台可选 CoreText。 |
-| **接入方式** | vcpkg overlay port、CMake `find_package`、`add_subdirectory`，或从源码生成可搬运的安装目录。 |
+| **接入方式** | CMake `find_package`、`add_subdirectory`，或从源码生成可搬运的安装目录。 |
 | **体量** | 非 header-only。支持按后端仅链接 `WhatsCanvas::Software`、`::OpenGL`、`::OpenGLES` 或 Apple 平台的 `::Metal`；参考体量见[体量与依赖](#体量与依赖)。 |
-| **成熟度** | 当前稳定 API 版本为 `1.0.0`。仓库已经建立公开 API 边界、跨平台 CI、像素回归、package consumer 集成测试与可审计的性能基线；平台支持仍以文档中的兼容性边界为准。 |
+| **成熟度** | 当前稳定 API 版本为 `1.1.0`。仓库已经建立公开 API 边界、跨平台 CI、像素回归、package consumer 集成测试与可审计的性能基线；平台支持仍以文档中的兼容性边界为准。 |
 | **许可证** | MIT；`third_party/` 组件遵循各自许可证。 |
 
 **何时推荐使用 WhatsCanvas？**
@@ -73,7 +73,7 @@ cmake_minimum_required(VERSION 3.16)
 project(MyApp LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
-find_package(WhatsCanvas 1.0.0 CONFIG REQUIRED)
+find_package(WhatsCanvas 1.1.0 CONFIG REQUIRED)
 
 add_executable(MyApp main.cpp)
 target_link_libraries(MyApp PRIVATE WhatsCanvas::Software)
@@ -101,7 +101,7 @@ build\Release\MyApp.exe
 
 ### 使用发布包
 
-桌面端 GitHub Release 包名为 `whatscanvas-<platform>-release-<version>.zip`，例如 `whatscanvas-win64-release-1.0.0.zip`。桌面包目录布局如下：
+桌面端 GitHub Release 包名为 `whatscanvas-<platform>-release-<version>.zip`，例如 `whatscanvas-win64-release-1.1.0.zip`。桌面包目录布局如下：
 
 ```text
 include/wsc/                 公开头文件
@@ -123,7 +123,7 @@ lib/cmake/WhatsCanvas/       find_package 配置
 各平台预编译包所包含的 target 可能有所差异。实际使用时，建议通过 CMake 显式校验所需 target 是否存在：
 
 ```cmake
-find_package(WhatsCanvas 1.0.0 CONFIG REQUIRED)
+find_package(WhatsCanvas 1.1.0 CONFIG REQUIRED)
 if (NOT TARGET WhatsCanvas::Software)
     message(FATAL_ERROR "This package does not contain the Software backend")
 endif()
@@ -144,37 +144,6 @@ FreeType/HarfBuzz 配置作用于 GL 家族的 target；`WhatsCanvas::Software` 
 Windows 包由 VS 2022 工具链生成。正式接入时应匹配平台、架构、配置与 C/C++ runtime；如需不同的 target 或依赖组合，请从源码构建。
 
 官方包的具体构建参数记录在 [package-release workflow](.github/workflows/package-release.yml)；本地执行 `--package` 时采用下文所述的默认设置，因此产物配置与 Windows 官方包不同。
-
-### vcpkg
-
-仓库内提供了经过验证的 overlay port，但 vcpkg 工具本身需要单独安装，WhatsCanvas 不会内置它。在 WhatsCanvas 源码目录打开 Windows CMD，可执行：
-
-```bat
-git clone https://github.com/microsoft/vcpkg.git ..\vcpkg
-..\vcpkg\bootstrap-vcpkg.bat
-..\vcpkg\vcpkg.exe install whatscanvas --overlay-ports=.\ports
-```
-
-如果 `vcpkg` 已加入 `PATH`，可直接安装包含 OpenGL、Software 和文本相关 feature 的默认组合：
-
-```sh
-vcpkg install whatscanvas --overlay-ports=./ports
-```
-
-如果只需要 CPU 渲染，不引入 OpenGL、FreeType 或 HarfBuzz：
-
-```sh
-vcpkg install "whatscanvas[core,software]" --overlay-ports=./ports
-```
-
-随后使用 vcpkg toolchain 配置应用，并链接所需 renderer：
-
-```cmake
-find_package(WhatsCanvas CONFIG REQUIRED COMPONENTS OpenGL)
-target_link_libraries(MyApp PRIVATE WhatsCanvas::OpenGL)
-```
-
-纯 CPU 渲染改用 `COMPONENTS Software` 与 `WhatsCanvas::Software`。当前 overlay port 可直接从本仓库使用；进入 vcpkg 中央注册表仍需单独完成上游审核。
 
 ### 从源码构建
 
@@ -382,7 +351,7 @@ if (!canvas) {
 ## 示例
 
 仓库包含最小入门项目、package consumer、统一目录下的
-Software/OpenGL/Vulkan/Metal presentation 宿主，以及两个游戏示例。专项视觉回归程序归档在
+Software/OpenGL/Vulkan/Metal presentation 宿主，以及三个游戏示例。专项视觉回归程序归档在
 `tests/visual`，不再放在 `examples` 中。
 
 <table>
@@ -392,11 +361,20 @@ Software/OpenGL/Vulkan/Metal presentation 宿主，以及两个游戏示例。�
 </tr>
 </table>
 
+[**蜘蛛纸牌**](examples/game/spider_solitaire) — 完整、无图片素材的纸牌游戏，支持鼠标拖拽、三档难度、提示、撤销、计分、计时、矢量花色与程序化牌背。
+
 Windows 单独构建 Tetris：
 
 ```bat
 cd examples\game\tetris
 build.bat --no-run
+```
+
+蜘蛛纸牌包含确定性的规则与鼠标入口交互测试：
+
+```sh
+examples/game/spider_solitaire/build/SpiderSolitaire --self-test
+examples/game/spider_solitaire/build/SpiderSolitaire --play-test
 ```
 
 ## 验证你的集成

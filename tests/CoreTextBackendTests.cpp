@@ -1,3 +1,4 @@
+#include <cmath>
 #include <fstream>
 #include <iostream>
 #include <iterator>
@@ -48,6 +49,26 @@ bool testLayoutRasterAndCache()
                 "identical styled text should reuse a stable bitmap identity") && ok;
     ok = expect(backend->hasGlyphForCodepoint(0x4E2D, paint),
                 "CoreText fallback should resolve a CJK glyph") && ok;
+
+    constexpr float anchorY = 100.0f;
+    wsc::Paint topPaint = paint;
+    topPaint.setTextBaseline(wsc::Paint::TextBaseline::TOP);
+    wsc::Paint bottomPaint = paint;
+    bottomPaint.setTextBaseline(wsc::Paint::TextBaseline::BOTTOM);
+    wsc::Paint alphabeticPaint = paint;
+    alphabeticPaint.setTextBaseline(wsc::Paint::TextBaseline::ALPHABETIC);
+    const auto topAnchor = backend->renderText(sample, 0.0f, anchorY, topPaint);
+    const auto bottomAnchor = backend->renderText(sample, 0.0f, anchorY, bottomPaint);
+    const auto alphabeticAnchor =
+        backend->renderText(sample, 0.0f, anchorY, alphabeticPaint);
+    const auto alphabeticBounds =
+        backend->measureTextBounds(sample, alphabeticPaint);
+    ok = expect(bottomAnchor.drawY < alphabeticAnchor.drawY
+                    && alphabeticAnchor.drawY < topAnchor.drawY,
+                "CoreText top/alphabetic/bottom anchors should remain distinct") && ok;
+    ok = expect(std::abs((alphabeticAnchor.drawY - anchorY)
+                         - alphabeticBounds.getY()) < 0.01f,
+                "CoreText measurement and rendering should share the alphabetic anchor") && ok;
     return ok;
 }
 

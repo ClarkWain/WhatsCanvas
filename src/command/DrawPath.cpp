@@ -628,7 +628,12 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
         const auto copySection =
             [&](std::size_t offset, const void *source,
                 std::size_t bytes) {
-                if (bytes != 0) {
+                // Both a non-zero byte count AND a live source pointer are
+                // required. Callers below correlate them (source is a
+                // vector::data() and bytes is size()*sizeof(T)) but a future
+                // caller could pass a null pointer with a non-zero size,
+                // which is UB in std::memcpy.
+                if (bytes != 0 && source != nullptr) {
                     std::memcpy(
                         packetScratch_.data() + offset,
                         source, bytes);
@@ -872,8 +877,17 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
         static_cast<std::size_t>(
             std::max(0, data.gradientStopCount)),
         DrawPathData::kMaxGradientStops);
+    // Only walk the stop table when we actually have one. `hasGradient`
+    // reflects `gradientType != None`, but the stop pointer can be null if
+    // the producer set a type without allocating stops via
+    // `writableGradientStops()`. Dereferencing would then be a null-pointer
+    // access. `hasShaderGradient()` already validates the pointer + count,
+    // so use it as the loop gate.
+    const bool uploadStopUniforms =
+        uploadGradientUniforms && data.hasShaderGradient()
+        && gradientStopData != nullptr;
     for (std::size_t i = 0;
-         uploadGradientUniforms && i < gradientUniformCount; ++i) {
+         uploadStopUniforms && i < gradientUniformCount; ++i) {
         drawProgram->setFloat(
             "uGradientStopPositions[" + std::to_string(i) + "]",
             gradientStopData->positions[i]);

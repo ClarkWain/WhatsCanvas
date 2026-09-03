@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0d3f2f">
+  <title>Spider Solitaire Web - WhatsCanvas</title>
+  <style>
+    :root {
+      --felt-deep: #0d3f2f;
+      --felt-mid: #166145;
+      --ink: #f5f4ec;
+      --plate: rgba(11, 30, 23, 0.8);
+      --plate-border: rgba(226, 240, 228, 0.26);
+      background:
+        radial-gradient(120vmax 80vmax at 50% 15%, #2a8a63 0%, #1b6d4e 38%, #0e4633 65%, #082b20 100%);
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+    }
+    body {
+      font-family: "Palatino Linotype", "Book Antiqua", Georgia, serif;
+      color: var(--ink);
+      background: transparent;
+    }
+    #spider-canvas {
+      position: fixed;
+      inset: 0;
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      height: 100dvh;
+      outline: 0;
+      border: 0;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    #hud {
+      position: fixed;
+      top: max(14px, env(safe-area-inset-top));
+      left: max(14px, env(safe-area-inset-left));
+      z-index: 2;
+      pointer-events: none;
+      padding: 9px 12px;
+      border: 1px solid var(--plate-border);
+      border-radius: 12px;
+      background: linear-gradient(180deg, rgba(27, 86, 63, 0.72), var(--plate));
+      backdrop-filter: blur(4px);
+      letter-spacing: 0.02em;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+    }
+    #hud strong {
+      display: block;
+      font-size: 13px;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+    #hud span {
+      display: block;
+      margin-top: 2px;
+      font-size: 12px;
+      opacity: 0.92;
+    }
+    #hud #hud-fps {
+      margin-top: 6px;
+      font-size: 11px;
+      opacity: 0.95;
+      font-weight: 700;
+    }
+    #status {
+      position: fixed;
+      inset: 50% auto auto 50%;
+      max-width: min(32rem, calc(100vw - 2rem));
+      transform: translate(-50%, -50%);
+      margin: 0;
+      padding: .72rem 1rem;
+      border: 1px solid rgba(236, 247, 238, 0.34);
+      border-radius: 11px;
+      color: #eff8f0;
+      background: rgba(11, 33, 25, 0.9);
+      text-align: center;
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.34);
+      z-index: 3;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="spider-canvas" width="400" height="800" aria-label="Spider Solitaire rendered by WhatsCanvas WebGL"></canvas>
+  <aside id="hud" aria-hidden="true">
+    <strong>Spider Solitaire Web</strong>
+    <span id="hud-keys">N/R: New | U: Undo | H: Hint | 1/2/4 or C: Suits</span>
+    <span id="hud-mode">1-suit | cache on | raster on | atlas off | touch off</span>
+    <span id="hud-fps">FPS --</span>
+  </aside>
+  <p id="status" role="status">Loading Spider Solitaire WebAssembly...</p>
+  <script>
+    var Module = {
+      canvas: document.getElementById('spider-canvas'),
+      printErr: function(message) {
+        console.error(message);
+        var status = document.getElementById('status');
+        if (status && !status.hidden) status.textContent = String(message);
+      }
+    };
+  </script>
+  {{{ SCRIPT }}}
+</body>
+</html>

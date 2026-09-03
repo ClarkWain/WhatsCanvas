@@ -57,7 +57,12 @@ std::vector<TextBreakToken> buildTextBreakTokens(const std::string &text, std::s
 std::string sanitizeTextToAscii(const std::string &text);
 float measureAsciiTextWidth(const std::string &asciiText, float scale, float letterSpacing);
 float measureAsciiTextHeight(const std::string &asciiText, float scale);
-float textBaselineOffset(Paint::TextBaseline baseline, float textHeight);
+/// Translate a public text anchor into the top-edge offset used by renderer
+/// geometry. `alphabeticBaseline` is the distance from the text box top to its
+/// first typographic baseline. Backends without richer line metrics may omit
+/// it; their em-box bottom remains the conservative alphabetic baseline.
+float textBaselineOffset(Paint::TextBaseline baseline, float textHeight,
+                         float alphabeticBaseline = -1.0f);
 std::vector<float> buildTextVertices(const std::string &asciiText, float x, float y, float scale,
                                      float letterSpacing = 0.0f);
 

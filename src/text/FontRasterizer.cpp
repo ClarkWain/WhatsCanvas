@@ -607,7 +607,10 @@ std::vector<unsigned char> rasterizeColrGlyphMask(
     }
 
     FT_Outline &outline = context.face->glyph->outline;
-    for (short index = 0; index < outline.n_points; ++index) {
+    // FreeType's `n_points` is `short` on classic builds and `unsigned short`
+    // on newer builds; use `int` so the loop counter is wide enough either
+    // way and the comparison stays defined.
+    for (int index = 0; index < outline.n_points; ++index) {
         const double x = static_cast<double>(outline.points[index].x);
         const double y = static_cast<double>(outline.points[index].y);
         const double transformedX = affine.xx * x + affine.xy * y + affine.dx;

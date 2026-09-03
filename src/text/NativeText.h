@@ -12,6 +12,7 @@ struct NativeTextMeasure
     bool valid = false;
     float width = 0.0f;
     float height = 0.0f;
+    float alphabeticBaseline = 0.0f;
     int pixelWidth = 0;
     int pixelHeight = 0;
 };

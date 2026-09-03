@@ -7,6 +7,7 @@ repo_root=$(CDPATH= cd -- "${script_dir}/../.." && pwd)
 data_root=${XDG_DATA_HOME:-${HOME}/.local/share}
 emsdk_root=${EMSDK_ROOT:-${data_root}/emsdk}
 build_dir=${1:-${repo_root}/out/wasm-web}
+target=${2:-WhatsCanvasWeb}
 
 if ! command -v emcc >/dev/null 2>&1; then
     if [ ! -f "${emsdk_root}/emsdk_env.sh" ]; then
@@ -41,6 +42,15 @@ emcmake cmake -S "${repo_root}" -B "${build_dir}" \
     -DWHATSCANVAS_ENABLE_OPENTYPE_SHAPING=ON \
     -DWHATSCANVAS_INSTALL=OFF \
     -DWHATSCANVAS_X11=OFF
-cmake --build "${build_dir}" --target WhatsCanvasWeb --parallel
+cmake --build "${build_dir}" --target "${target}" --parallel
 
-echo "Web build: ${build_dir}/platforms/wasm/web/index.html"
+case "${target}" in
+    SpiderSolitaireWeb)
+        output_file=spider.html
+        ;;
+    *)
+        output_file=index.html
+        ;;
+esac
+
+echo "Web build (${target}): ${build_dir}/platforms/wasm/web/${output_file}"
