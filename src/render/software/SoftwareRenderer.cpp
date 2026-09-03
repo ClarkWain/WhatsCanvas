@@ -790,6 +790,13 @@ GradientDesc makeGradientDesc(const DrawPathData &data)
     grad.stopCount = std::min(data.gradientStopCount, 8);
     const DrawPathGradientStops *stops =
         data.gradientStopData();
+    // Producers that set `gradientType`/`gradientStopCount` without also
+    // allocating the stop table via `writableGradientStops()` leave `stops`
+    // null. Drop the gradient rather than dereference through it.
+    if (stops == nullptr) {
+        grad.stopCount = 0;
+        return grad;
+    }
     for (int i = 0; i < grad.stopCount; ++i) {
         grad.stopPositions[i] = stops->positions[i];
         for (int c = 0; c < 4; ++c) {

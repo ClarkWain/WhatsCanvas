@@ -147,6 +147,153 @@ bool testFractionalTextStaysCrisp()
     return ok;
 }
 
+struct InkBounds
+{
+    int minX = std::numeric_limits<int>::max();
+    int minY = std::numeric_limits<int>::max();
+    int maxX = -1;
+    int maxY = -1;
+
+    bool valid() const { return maxX >= minX && maxY >= minY; }
+};
+
+InkBounds portableMiddleAlignedInkBounds(const FontFace &systemFont)
+{
+    constexpr int width = 240;
+    constexpr int height = 120;
+    constexpr float dpr = 2.0f;
+    constexpr float centerX = 60.0f;
+    constexpr float centerY = 30.0f;
+
+    auto canvas = Canvas::create(Canvas::Backend::Software, width, height);
+    if (!canvas || !canvas->initializeContext()
+        || !canvas->setTextBackend(Canvas::TextBackend::Portable)) {
+        return {};
+    }
+    canvas->setDevicePixelRatio(dpr);
+    canvas->registerFontFace(
+        testFace(systemFont, FontDescriptor("MiddleProbe", 400, FontSlant::NORMAL)));
+
+    canvas->beginFrame();
+    Paint background;
+    background.setColor(Color(255, 255, 255, 255));
+    background.setAntiAlias(false);
+    canvas->drawRect(RectF(0.0f, 0.0f, width / dpr, height / dpr), background);
+
+    Paint text;
+    text.setColor(Color(0, 0, 0, 255));
+    text.setFontFamily("MiddleProbe");
+    text.setTextSize(16.0f);
+    text.setFontWeight(400);
+    text.setTextAlign(Paint::TextAlign::CENTER);
+    text.setTextBaseline(Paint::TextBaseline::MIDDLE);
+    canvas->drawText("Success", centerX, centerY, text);
+    canvas->endFrame();
+
+    std::vector<unsigned char> pixels;
+    if (!canvas->readPixelsRGBA(pixels)
+        || pixels.size() != static_cast<std::size_t>(width) * height * 4u) {
+        return {};
+    }
+
+    InkBounds bounds;
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            const std::size_t offset = static_cast<std::size_t>(y * width + x) * 4u;
+            const int luma = (pixels[offset] * 30 + pixels[offset + 1] * 59
+                              + pixels[offset + 2] * 11) / 100;
+            if (luma >= 200) continue;
+            bounds.minX = std::min(bounds.minX, x);
+            bounds.minY = std::min(bounds.minY, y);
+            bounds.maxX = std::max(bounds.maxX, x);
+            bounds.maxY = std::max(bounds.maxY, y);
+        }
+    }
+    return bounds;
+}
+
+bool testPortableMiddleBaselineCentersVisibleText()
+{
+    const auto systemFont = findSystemFont();
+    if (!systemFont) {
+        std::cout << "Skipping portable middle-baseline test; no system font found."
+                  << std::endl;
+        return true;
+    }
+
+    const InkBounds bounds = portableMiddleAlignedInkBounds(*systemFont);
+    if (!expect(bounds.valid(), "portable middle-baseline probe should render text")) {
+        return false;
+    }
+
+    constexpr float expectedCenterY = 60.0f; // centerY 30 at DPR 2
+    const float actualCenterY = (bounds.minY + bounds.maxY) * 0.5f;
+    const float verticalError = std::abs(actualCenterY - expectedCenterY);
+    const bool ok = expect(
+        verticalError <= 3.0f,
+        "portable MIDDLE baseline should visually center non-descending text");
+    std::cout << "[TextPixelAlignmentTests] portable middle baseline: ink="
+              << bounds.minY << ".." << bounds.maxY
+              << " center=" << actualCenterY
+              << " expected=" << expectedCenterY << std::endl;
+    return ok;
+}
+
+// Native bitmap backends return an integer coverage texture plus fractional
+// layout metrics. At fractional DPR, two logical origins that resolve to the
+// same physical pixel must therefore produce the same framebuffer. If Canvas
+// uses the fractional metric extent with Linear sampling, the second render is
+// visibly softer and the frames differ even though both origins should snap to
+// the same device pixel.
+bool testNativeGrayscaleBitmapSnapsAtFractionalDpr()
+{
+    auto availability = Canvas::create(Canvas::Backend::Software, 4, 4);
+    if (!availability || !availability->initializeContext()
+        || !availability->setTextBackend(Canvas::TextBackend::DirectWrite,
+                                         Canvas::TextRenderMode::Grayscale)) {
+        std::cout << "Skipping native grayscale bitmap test; DirectWrite unavailable."
+                  << std::endl;
+        return true;
+    }
+
+    const auto render = [](float x) {
+        constexpr int w = 180;
+        constexpr int h = 64;
+        auto canvas = Canvas::create(Canvas::Backend::Software, w, h);
+        canvas->initializeContext();
+        canvas->setTextBackend(Canvas::TextBackend::DirectWrite,
+                               Canvas::TextRenderMode::Grayscale);
+        canvas->setDevicePixelRatio(1.25f);
+        canvas->beginFrame();
+        Paint bg;
+        bg.setStyle(Paint::Style::FILL);
+        bg.setColor(Color(255, 255, 255, 255));
+        bg.setAntiAlias(false);
+        canvas->drawRect(RectF(0.0f, 0.0f, 144.0f, 52.0f), bg);
+        Paint text;
+        text.setColor(Color(0, 0, 0, 255));
+        text.setFontFamily("Segoe UI");
+        text.setTextSize(13.0f);
+        text.setTextBaseline(Paint::TextBaseline::ALPHABETIC);
+        canvas->drawText("Native text", x, 32.0f, text);
+        canvas->endFrame();
+        std::vector<unsigned char> pixels;
+        canvas->readPixelsRGBA(pixels);
+        return pixels;
+    };
+
+    // 20.00 * 1.25 = 25.00 and 20.24 * 1.25 = 25.30: both round to device
+    // pixel 25 under the UI text snapping contract.
+    const auto integerOrigin = render(20.0f);
+    const auto fractionalOrigin = render(20.24f);
+    const bool ok = expect(!integerOrigin.empty()
+                               && integerOrigin == fractionalOrigin,
+                           "DirectWrite grayscale text at equivalent snapped origins should be pixel-identical");
+    std::cout << "[TextPixelAlignmentTests] native grayscale fractional DPR: "
+              << (ok ? "identical" : "different") << std::endl;
+    return ok;
+}
+
 // Count solidly-inked (near-black) pixels produced by black text rendered with
 // a given logical text size under a given uniform canvas scale, placed so the
 // on-screen size is the same for every (size, scale) pair.
@@ -674,6 +821,8 @@ bool testDecorationsCrossBackendConsistency()
 int main()
 {
     bool ok = testFractionalTextStaysCrisp();
+    ok = testPortableMiddleBaselineCentersVisibleText() && ok;
+    ok = testNativeGrayscaleBitmapSnapsAtFractionalDpr() && ok;
     ok = testScaledTextRasterizedAtDeviceResolution() && ok;
     ok = testDevicePixelRatioScalesAndStaysCrisp() && ok;
     ok = testSetMatrixPreservesDevicePixelRatio() && ok;

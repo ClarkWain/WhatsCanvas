@@ -1,0 +1,117 @@
+---
+# clang-tidy configuration for WhatsCanvas.
+#
+# Scope: focus on actual bugs (memory safety, UB, concurrency, C API misuse)
+# rather than style / modernization. Enabling `bugprone-*`, `cert-*`, and
+# `clang-analyzer-*` catches null-dereference, use-after-free, uninitialized
+# reads, integer overflow, iterator invalidation, and CERT secure-coding
+# violations.
+#
+# The disables below are the ones that produced only false positives in the
+# initial baseline (macOS Xcode 26 / LLVM 22). Individual real bugs that a
+# check surfaced were fixed at the call site rather than suppressed.
+Checks: >
+  -*,
+  bugprone-*,
+  cert-*,
+  clang-analyzer-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-narrowing-conversions,
+  -bugprone-signed-char-misuse,
+  -bugprone-branch-clone,
+  -bugprone-implicit-widening-of-multiplication-result,
+  -bugprone-macro-parentheses,
+  -bugprone-misplaced-widening-cast,
+  -bugprone-exception-escape,
+  -bugprone-throwing-static-initialization,
+  -bugprone-nondeterministic-pointer-iteration-order,
+  -bugprone-invalid-enum-default-initialization,
+  -bugprone-suspicious-enum-usage,
+  -bugprone-multi-level-implicit-pointer-conversion,
+  -bugprone-multiple-statement-macro,
+  -bugprone-reserved-identifier,
+  -cert-err58-cpp,
+  -cert-err33-c,
+  -cert-dcl21-cpp,
+  -cert-dcl16-c,
+  -cert-dcl37-c,
+  -cert-dcl51-cpp,
+  -clang-analyzer-cplusplus.NewDeleteLeaks,
+  -clang-analyzer-optin.core.EnumCastOutOfRange,
+  -clang-analyzer-optin.performance.Padding
+
+# Rationale for each disabled check (documented so a future re-enable pass is
+# principled, not cargo-culted).
+#
+# * bugprone-easily-swappable-parameters       - style-adjacent, too noisy.
+# * bugprone-narrowing-conversions             - size_t <-> int is pervasive
+#                                                at GL/Vulkan API boundaries.
+# * bugprone-signed-char-misuse                - false positives against
+#                                                pixel/glyph unsigned char*
+#                                                buffers.
+# * bugprone-branch-clone                      - fast/slow rendering paths
+#                                                intentionally look alike.
+# * bugprone-implicit-widening-of-multi...     - real hazards are already
+#                                                cast to size_t/VkDeviceSize.
+# * bugprone-macro-parentheses                 - existing macros wrap args
+#                                                where meaningful; the flagged
+#                                                sites are benign.
+# * bugprone-misplaced-widening-cast           - our casts to size_t are
+#                                                intentional and bounded.
+# * bugprone-exception-escape                  - drawText/drawPath lambdas
+#                                                captured into
+#                                                pictureOperations can throw
+#                                                by design (bad_alloc); the
+#                                                std::function wrapper is
+#                                                accepted.
+# * bugprone-throwing-static-initialization    - `const Color::RED =
+#                                                Color(255, 0, 0)` and the
+#                                                default backend factory
+#                                                cannot actually throw.
+# * bugprone-nondeterministic-pointer-iteration-order
+#                                              - internal caches iterate
+#                                                unordered maps by pointer;
+#                                                order is not observable to
+#                                                callers.
+# * bugprone-invalid-enum-default-initialization
+#                                              - FreeType FT_COLR_Paint =
+#                                                {} is the vendor-recommended
+#                                                init pattern even though the
+#                                                enum lacks a zero value.
+# * bugprone-suspicious-enum-usage             - CGBitmapInfo intentionally
+#                                                OR-composes CGImageAlphaInfo
+#                                                and CGBitmapByteOrder per
+#                                                CoreGraphics.
+# * bugprone-multi-level-implicit-pointer-conversion,
+#   bugprone-multiple-statement-macro,
+#   bugprone-reserved-identifier              - style / macro hygiene.
+# * cert-err58-cpp / cert-dcl21-cpp / cert-dcl16-c / cert-dcl37-c / cert-dcl51-cpp
+#                                              - style / naming.
+# * cert-err33-c                               - fprintf() logging return
+#                                                values are intentionally
+#                                                unchecked.
+# * clang-analyzer-cplusplus.NewDeleteLeaks    - noisy against COM
+#                                                `delete this` in the
+#                                                DirectWrite backend.
+# * clang-analyzer-optin.core.EnumCastOutOfRange
+#                                              - noisy for enum arithmetic
+#                                                in GL/Vulkan bit fields.
+# * clang-analyzer-optin.performance.Padding   - style suggestion to reorder
+#                                                struct fields to minimize
+#                                                sizeof; not a bug.
+
+# CI runs with --warnings-as-errors='*' so any surviving diagnostic is a
+# build failure. Individual sites that need one-off suppression should use
+# `// NOLINT(check-name)` at the call site with a comment explaining why.
+WarningsAsErrors: ''
+
+# Only diagnose in first-party headers. `include/wsc` is the public API and
+# `src` / `platforms` are library implementation. Third-party (FreeType,
+# HarfBuzz, glm, GLFW, spirv-cross, ...) are intentionally excluded.
+HeaderFilterRegex: '^.*/(include/wsc|src|platforms)/.*\.(h|hpp)$'
+ExcludeHeaderFilterRegex: '.*/third_party/.*'
+
+# Do not rewrite formatting — the project has its own C++ style and
+# clang-tidy's --format-style would fight with reviewer intent.
+FormatStyle: none
+

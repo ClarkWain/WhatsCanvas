@@ -225,6 +225,7 @@ jobs:
         run: >-
           cmake -S . -B build-sanitizers -DCMAKE_BUILD_TYPE=Debug
           -DWHATSCANVAS_BUILD_DEMO=OFF -DWHATSCANVAS_ENABLE_SCRIPT_TESTS=OFF
+          -DWHATSCANVAS_ENABLE_STDLIB_HARDENING=ON
           -DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer'
           -DCMAKE_CXX_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer'
           -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=address,undefined'
@@ -238,6 +239,43 @@ jobs:
           ASAN_OPTIONS: detect_leaks=1:strict_string_checks=1:check_initialization_order=1
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
         run: ctest --test-dir build-sanitizers -C Debug -L unit --output-on-failure
+
+  thread-sanitizer:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
+
+      - name: Configure TSan
+        # TSan is incompatible with ASan/MSan/UBSan; run it in its own job.
+        # Standard-library hardening is safe to combine (only affects
+        # bounds/iterator checks, no interceptors).
+        run: >-
+          cmake -S . -B build-tsan -DCMAKE_BUILD_TYPE=Debug
+          -DWHATSCANVAS_BUILD_DEMO=OFF -DWHATSCANVAS_ENABLE_SCRIPT_TESTS=OFF
+          -DWHATSCANVAS_ENABLE_STDLIB_HARDENING=ON
+          -DCMAKE_C_FLAGS='-fsanitize=thread -fno-omit-frame-pointer'
+          -DCMAKE_CXX_FLAGS='-fsanitize=thread -fno-omit-frame-pointer'
+          -DCMAKE_EXE_LINKER_FLAGS='-fsanitize=thread'
+          -DCMAKE_SHARED_LINKER_FLAGS='-fsanitize=thread'
+
+      - name: Build TSan targets
+        run: cmake --build build-tsan --config Debug -j 2
+
+      - name: Run TSan unit tests
+        # `history_size` grows the per-thread recorded event trace so reports
+        # include the full allocation site of a racing access. `halt_on_error`
+        # keeps CI logs focused on the first (root-cause) race.
+        env:
+          TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1:history_size=7
+        run: ctest --test-dir build-tsan -C Debug -L unit --output-on-failure
 
   fuzzing:
     runs-on: ubuntu-latest

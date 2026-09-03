@@ -70,6 +70,20 @@ namespace {
 // buffer is 16384 * 16384 * 4 == 1 GiB, which stays within size_t on 32-bit.
 constexpr int kMaxBitmapDimension = 16384;
 
+float firstAlphabeticBaseline(IDWriteTextLayout *layout, float fallback)
+{
+    if (layout == nullptr) return fallback;
+    UINT32 lineCount = 0;
+    (void)layout->GetLineMetrics(nullptr, 0, &lineCount);
+    if (lineCount == 0) return fallback;
+    std::vector<DWRITE_LINE_METRICS> lines(lineCount);
+    if (FAILED(layout->GetLineMetrics(lines.data(), lineCount, &lineCount))
+        || lineCount == 0 || !std::isfinite(lines.front().baseline)) {
+        return fallback;
+    }
+    return std::max(0.0f, lines.front().baseline);
+}
+
 // Convert UTF-8 to UTF-16 wstring (same logic as NativeText.cpp).
 std::wstring toWideString(const std::string &value)
 {
@@ -676,7 +690,13 @@ public:
         }
         DWRITE_TEXT_METRICS metrics;
         layout->GetMetrics(&metrics);
-        return {0.0f, 0.0f, metrics.width, metrics.height};
+        const float alphabeticBaseline =
+            firstAlphabeticBaseline(layout.Get(), metrics.height);
+        return {0.0f,
+                wsc::text::textBaselineOffset(
+                    paint.getTextBaseline(), metrics.height,
+                    alphabeticBaseline),
+                metrics.width, metrics.height};
     }
 
     TextMetrics measureTextMetrics(const std::string &text, const Paint &paint) const override
@@ -697,7 +717,15 @@ public:
         layout->GetMetrics(&metrics);
         m.width = metrics.width;
         m.height = metrics.height;
-        m.bounds = {0.0f, 0.0f, metrics.width, metrics.height};
+        const float alphabeticBaseline =
+            firstAlphabeticBaseline(layout.Get(), metrics.height);
+        m.bounds = {
+            0.0f,
+            wsc::text::textBaselineOffset(
+                paint.getTextBaseline(), metrics.height,
+                alphabeticBaseline),
+            metrics.width,
+            metrics.height};
 
         // Get font metrics for ascent/descent/lineGap.
         const std::wstring family = toWideString(paint.hasFontFamily() ? paint.getFontFamily()
@@ -776,7 +804,9 @@ public:
         }
         result.kind = TextRenderKind::Bitmap;
         result.drawX = alignedX;
-        result.drawY = y + wsc::text::textBaselineOffset(paint.getTextBaseline(), cached->totalHeight);
+        result.drawY = y + wsc::text::textBaselineOffset(
+            paint.getTextBaseline(), cached->totalHeight,
+            cached->alphabeticBaseline);
         result.width = cached->totalWidth;
         result.height = cached->totalHeight;
         result.bitmapWidth = cached->pixelWidth;
@@ -798,6 +828,7 @@ private:
     {
         float totalWidth = 0.0f;
         float totalHeight = 0.0f;
+        float alphabeticBaseline = 0.0f;
         int pixelWidth = 0;
         int pixelHeight = 0;
         bool clearType = false;
@@ -959,6 +990,8 @@ private:
         }
         out.totalWidth = totalWidth;
         out.totalHeight = totalHeight;
+        out.alphabeticBaseline =
+            firstAlphabeticBaseline(layout.Get(), totalHeight);
         out.pixelWidth = pixelWidth;
         out.pixelHeight = pixelHeight;
         out.clearType = effectiveRasterMode(paint) == DirectWriteRasterMode::ClearType;

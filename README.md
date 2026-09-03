@@ -4,7 +4,7 @@ English | [中文](README_zh.md)
 
 [![CI](https://github.com/ClarkWain/WhatsCanvas/actions/workflows/cross-platform-validation.yml/badge.svg)](https://github.com/ClarkWain/WhatsCanvas/actions/workflows/cross-platform-validation.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.0.0-informational.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.1.0-informational.svg)](CHANGELOG.md)
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C.svg)](CMakeLists.txt)
 [![Documentation](https://img.shields.io/badge/docs-online-success.svg)](https://clarkwain.github.io/WhatsCanvas/)
 
@@ -27,9 +27,9 @@ This project aims to bridge the gap between minimal drawing libraries (such as N
 | **Render Backends** | OpenGL, pure CPU Software; optional OpenGL ES, Vulkan, and Metal (macOS/iOS). The Web host compiles the OpenGL ES path to WebAssembly/WebGL 2; WebGPU is not yet implemented. |
 | **Platform Status** | Windows, Linux, and macOS run continuous builds and unit tests; release packages cover Windows x64, Linux x64, and macOS universal. Android has a three-ABI GLES sample and physical-device checkpoints. iOS has an in-repository Metal/CoreText host validated on simulator and hardware, including orientation, lifecycle, cold-start, API Validation, and 60 fps checkpoints. Web has an Emscripten/WebGL 2 host with automated browser lifecycle, DPR, context-restore, and visual-parity checks. |
 | **Text Capabilities** | Font discovery and fallback, CJK/RTL, UAX #9, line breaking and ellipsis, glyph atlas, COLR/CPAL v0 and common COLRv1 paint graphs; FreeType/HarfBuzz serve the portable path, with selectable DirectWrite on Windows and CoreText on Apple platforms. |
-| **Integration** | vcpkg overlay port, CMake `find_package`, `add_subdirectory`, or portable installation directories generated from source. |
+| **Integration** | CMake `find_package`, `add_subdirectory`, or portable installation directories generated from source. |
 | **Footprint** | Not header-only. Supports linking only against `WhatsCanvas::Software`, `::OpenGL`, `::OpenGLES`, or Apple-only `::Metal` based on backend; see [Footprint and Dependencies](#footprint-and-dependencies) for reference. |
-| **Maturity** | Current stable API line: `1.0.0`. Public API boundaries, cross-platform CI, pixel regression, package-consumer integration tests, and auditable performance baselines are in place; platform support remains subject to the documented compatibility boundaries. |
+| **Maturity** | Current stable API line: `1.1.0`. Public API boundaries, cross-platform CI, pixel regression, package-consumer integration tests, and auditable performance baselines are in place; platform support remains subject to the documented compatibility boundaries. |
 | **License** | MIT; components in `third_party/` follow their respective licenses. |
 
 **When to Choose WhatsCanvas?**
@@ -73,7 +73,7 @@ cmake_minimum_required(VERSION 3.16)
 project(MyApp LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
-find_package(WhatsCanvas 1.0.0 CONFIG REQUIRED)
+find_package(WhatsCanvas 1.1.0 CONFIG REQUIRED)
 
 add_executable(MyApp main.cpp)
 target_link_libraries(MyApp PRIVATE WhatsCanvas::Software)
@@ -101,7 +101,7 @@ For advanced features like in-window OpenGL, OpenGL ES, Vulkan, font registratio
 
 ### Using Precompiled Packages
 
-Tagged desktop release assets are named `whatscanvas-<platform>-release-<version>.zip`, e.g., `whatscanvas-win64-release-1.0.0.zip`. The desktop package layout is:
+Tagged desktop release assets are named `whatscanvas-<platform>-release-<version>.zip`, e.g., `whatscanvas-win64-release-1.1.0.zip`. The desktop package layout is:
 
 ```text
 include/wsc/                 Public headers
@@ -126,7 +126,7 @@ inputs but are not Release assets.
 The targets provided by the precompiled packages may differ across platforms. In practice, verify the required targets exist via CMake:
 
 ```cmake
-find_package(WhatsCanvas 1.0.0 CONFIG REQUIRED)
+find_package(WhatsCanvas 1.1.0 CONFIG REQUIRED)
 if (NOT TARGET WhatsCanvas::Software)
     message(FATAL_ERROR "This package does not contain the Software backend")
 endif()
@@ -147,37 +147,6 @@ The FreeType/HarfBuzz configuration applies to the GL-family targets; `WhatsCanv
 Windows packages are built with the VS 2022 toolchain. For production integration, match the platform, architecture, configuration, and C/C++ runtime; if a different target set or dependency combination is required, build from source.
 
 The exact build parameters for official packages are recorded in the [package-release workflow](.github/workflows/package-release.yml). A local `--package` build uses the defaults described below and therefore does not exactly reproduce the Windows official-package configuration.
-
-### vcpkg
-
-The repository ships a tested overlay port. vcpkg itself is a prerequisite and is not bundled with WhatsCanvas. For example, from a Windows Command Prompt opened in the WhatsCanvas checkout:
-
-```bat
-git clone https://github.com/microsoft/vcpkg.git ..\vcpkg
-..\vcpkg\bootstrap-vcpkg.bat
-..\vcpkg\vcpkg.exe install whatscanvas --overlay-ports=.\ports
-```
-
-If `vcpkg` is already on `PATH`, install the default OpenGL, Software, and text feature set with:
-
-```sh
-vcpkg install whatscanvas --overlay-ports=./ports
-```
-
-For a CPU-only build with no OpenGL, FreeType, or HarfBuzz dependency:
-
-```sh
-vcpkg install "whatscanvas[core,software]" --overlay-ports=./ports
-```
-
-Then configure your application with the vcpkg toolchain and consume the renderer you need:
-
-```cmake
-find_package(WhatsCanvas CONFIG REQUIRED COMPONENTS OpenGL)
-target_link_libraries(MyApp PRIVATE WhatsCanvas::OpenGL)
-```
-
-Use `COMPONENTS Software` and `WhatsCanvas::Software` for CPU-only rendering. The overlay is usable immediately from this repository; inclusion in the central vcpkg registry is a separate upstream review process.
 
 ### Building from Source
 
@@ -382,7 +351,7 @@ Risks to keep in mind:
 
 The repository includes a minimal starter, a package consumer, unified
 Software/OpenGL/Vulkan/Metal presentation hosts, a WebAssembly/WebGL 2 host,
-and two full games. Focused
+and three full games. Focused
 visual regression harnesses live under `tests/visual` rather than `examples`.
 
 <table>
@@ -392,11 +361,20 @@ visual regression harnesses live under `tests/visual` rather than `examples`.
 </tr>
 </table>
 
+[**Spider Solitaire**](examples/game/spider_solitaire) — A complete, image-free card game with mouse dragging, three difficulty levels, hints, undo, scoring, timing, vector-drawn suits, and procedural card backs.
+
 To build Tetris separately on Windows:
 
 ```bat
 cd examples\game\tetris
 build.bat --no-run
+```
+
+Spider Solitaire includes deterministic rule and pointer-interaction suites:
+
+```sh
+examples/game/spider_solitaire/desktop/build/SpiderSolitaire --self-test
+examples/game/spider_solitaire/desktop/build/SpiderSolitaire --play-test
 ```
 
 ## Verify Your Integration
