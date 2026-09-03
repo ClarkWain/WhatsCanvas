@@ -15,7 +15,7 @@ if errorlevel 1 goto fail
 call :run_example Racer "%ROOT_DIR%\examples\game\racer\build.bat"
 if errorlevel 1 goto fail
 
-call :run_example SpiderSolitaire "%ROOT_DIR%\examples\game\spider_solitaire\build.bat"
+call :run_example SpiderSolitaire "%ROOT_DIR%\examples\game\spider_solitaire\desktop\build.bat"
 if errorlevel 1 goto fail
 
 call :elapsed_ms EXAMPLES_START_MS TOTAL_MS
