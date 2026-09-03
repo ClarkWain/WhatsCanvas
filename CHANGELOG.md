@@ -9,6 +9,69 @@ For releases and downloadable artifacts, see the
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-04
+
+### Added
+- `Paint::TextBaseline::ALPHABETIC` selects the typographic alphabetic
+  baseline as the vertical text anchor, alongside the existing `TOP`,
+  `MIDDLE`, and `BOTTOM` modes. The value is additive and does not change
+  the interpretation of the previous three modes.
+- Native text measurement now reports `alphabeticBaseline` so callers can
+  align mixed-script layouts to the shared alphabetic baseline. The value is
+  filled by all three text backends (DirectWrite, CoreText, and the
+  portable FreeType/HarfBuzz path).
+- Canvas Spider Solitaire example under
+  `examples/game/spider_solitaire/`, with a shared portable core and
+  dedicated hosts for desktop, Android (smooth GPU renderer), and Web
+  (Emscripten/WebGL 2).
+
+### Changed
+- Bitmap glyph rendering across all three text backends now snaps
+  destination geometry to the pixel grid so integer-pixel strings stay
+  crisp regardless of subpixel origin. The public API surface is
+  unchanged; the effect is a rendering quality improvement.
+- Portable `BasicTextBackend` baseline layout was aligned with the
+  DirectWrite and CoreText backends. Text drawn through the portable path
+  now matches the platform-native backends within the documented pixel
+  tolerance for the shared regression scenes.
+
+### Fixed
+- Hardened classic C++ safety gaps across renderer, text, and canvas
+  surfaced by a full-library audit: bounded `DrawPoints`/`DrawLines` loops
+  against malformed input buffers, null-checked `CTLineGetGlyphRuns()`,
+  default-initialized `GLProgram::program_`, gated GL and Software
+  gradient uniform loops on `hasShaderGradient()`, and moved the
+  layer-stack entry out before `restoreLayer()` so a reallocating nested
+  `saveLayer` cannot dangle the reference. Baseline unit, text,
+  visual-parity, and viewport-standard suites remain green.
+- Cleared the clang-tidy first-party baseline to **0 diagnostics** (from
+  79) across `bugprone-*`, `cert-*`, and `clang-analyzer-*`, including a
+  latent `Canvas::drawPath` use-after-move on `contours` behind a
+  currently-unreachable `submitSimpleFill` false path.
+
+### Performance
+- No new performance claims for 1.1.0. The 0.9.0 saveLayer/backdrop
+  compile-result cache path remains the current baseline; existing
+  `Canvas::RenderStats` counters continue to report cache hit/miss and
+  fingerprint stability.
+
+### CI / Safety
+- Added a CodeQL C/C++ workflow, a ThreadSanitizer job, and
+  libc++/libstdc++ hardening (`_LIBCPP_HARDENING_MODE` and
+  `_GLIBCXX_ASSERTIONS`) to the cross-platform validation matrix.
+- Added an incremental clang-tidy job that runs on pull requests against
+  `master` and `1.1.0` and gates merges on a clean first-party baseline.
+- Documented the safety toolchain (clang-tidy baseline, sanitizers, and
+  hardening) in `CONTRIBUTING.md`.
+
+### Docs
+- Added a beginner tutorial series under `doc/tutorials/` covering
+  environment setup, basic shapes, `Paint`, `Path`, transforms, images,
+  text, layer filters, windowed presentation, multi-backend hosting, and
+  interactive Canvas performance.
+- Explained interactive Canvas performance and cache strategy in the
+  performance tutorial.
+
 ## [1.0.0] - 2026-08-24
 
 ### Added
