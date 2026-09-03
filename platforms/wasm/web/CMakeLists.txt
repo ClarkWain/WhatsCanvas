@@ -9,6 +9,7 @@ endif()
 
 set(_repo_root "${CMAKE_CURRENT_LIST_DIR}/../../..")
 set(_desktop_src "${_repo_root}/platforms/desktop/src")
+set(_spider_src "${_repo_root}/examples/game/spider_solitaire")
 
 add_executable(WhatsCanvasWeb
     "${CMAKE_CURRENT_LIST_DIR}/src/WebApp.cpp"
@@ -20,6 +21,24 @@ target_include_directories(WhatsCanvasWeb PRIVATE
 )
 
 target_link_libraries(WhatsCanvasWeb PRIVATE
+    WhatsCanvas::OpenGLES
+)
+
+add_executable(SpiderSolitaireWeb
+    "${_spider_src}/web/SpiderWebApp.cpp"
+    "${_spider_src}/common/SpiderGame.cpp"
+    "${_spider_src}/common/SpiderGameInput.cpp"
+    "${_spider_src}/common/SpiderGameLayout.cpp"
+    "${_spider_src}/common/SpiderBackground.cpp"
+    "${_spider_src}/common/SpiderGameRenderer.cpp"
+    "${_spider_src}/common/SpiderCardAtlas.cpp"
+)
+
+target_include_directories(SpiderSolitaireWeb PRIVATE
+    "${_spider_src}/common"
+)
+
+target_link_libraries(SpiderSolitaireWeb PRIVATE
     WhatsCanvas::OpenGLES
 )
 
@@ -35,8 +54,7 @@ foreach(_font IN ITEMS "${_latin_font}" "${_cjk_font}" "${_emoji_font}")
     endif()
 endforeach()
 
-target_link_options(WhatsCanvasWeb PRIVATE
-    "--shell-file=${CMAKE_CURRENT_LIST_DIR}/shell.html"
+set(_web_link_options
     "SHELL:--preload-file ${_latin_font}@/fonts/Roboto-Regular.ttf"
     "SHELL:--preload-file ${_cjk_font}@/fonts/Mplus1p-Regular.ttf"
     "SHELL:--preload-file ${_emoji_font}@/fonts/NotoColorEmoji.demo.subset.ttf"
@@ -51,7 +69,22 @@ target_link_options(WhatsCanvasWeb PRIVATE
     "$<$<CONFIG:Debug>:-sGL_ASSERTIONS=1>"
 )
 
+target_link_options(WhatsCanvasWeb PRIVATE
+    "--shell-file=${CMAKE_CURRENT_LIST_DIR}/shell.html"
+    ${_web_link_options}
+)
+
+target_link_options(SpiderSolitaireWeb PRIVATE
+    "--shell-file=${_spider_src}/web/shell.html"
+    ${_web_link_options}
+)
+
 set_target_properties(WhatsCanvasWeb PROPERTIES
     OUTPUT_NAME "index"
+    SUFFIX ".html"
+)
+
+set_target_properties(SpiderSolitaireWeb PROPERTIES
+    OUTPUT_NAME "spider"
     SUFFIX ".html"
 )

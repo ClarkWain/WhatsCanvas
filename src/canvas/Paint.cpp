@@ -28,10 +28,14 @@ Color::Color(int r, int g, int b, int a)
 }
 
 Color::Color(float r, float g, float b, float a)
-    : r_(static_cast<int>(std::clamp(r, 0.0f, 1.0f) * 255.0f + 0.5f)),
-      g_(static_cast<int>(std::clamp(g, 0.0f, 1.0f) * 255.0f + 0.5f)),
-      b_(static_cast<int>(std::clamp(b, 0.0f, 1.0f) * 255.0f + 0.5f)),
-      a_(static_cast<int>(std::clamp(a, 0.0f, 1.0f) * 255.0f + 0.5f))
+    // Round-nearest via std::lround. The classic `static_cast<int>(x + 0.5f)`
+    // shortcut is not equivalent for negative values, and while the clamped
+    // input rules that case out, `std::lround` communicates intent and is
+    // what clang-tidy expects.
+    : r_(static_cast<int>(std::lround(std::clamp(r, 0.0f, 1.0f) * 255.0f))),
+      g_(static_cast<int>(std::lround(std::clamp(g, 0.0f, 1.0f) * 255.0f))),
+      b_(static_cast<int>(std::lround(std::clamp(b, 0.0f, 1.0f) * 255.0f))),
+      a_(static_cast<int>(std::lround(std::clamp(a, 0.0f, 1.0f) * 255.0f)))
 {
 }
 

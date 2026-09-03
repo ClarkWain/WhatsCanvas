@@ -121,8 +121,10 @@ void DrawLinesProgram::draw(const RenderContext &context, const DrawLinesData &d
     float color[4] = {data.color[0], data.color[1], data.color[2], data.color[3]};
     GammaCorrect::srgbToLinear4(color);
 
-    // Process vertex data in batches
-    for (size_t i = 0; i < data.points.size(); i += 4) {
+    // Process vertex data in batches. Guard on `i + 3` so a `points`
+    // buffer whose size is not a multiple of four (from a malformed
+    // producer) cannot read past the end of the vector.
+    for (size_t i = 0; i + 3 < data.points.size(); i += 4) {
         float x1 = data.points[i];
         float y1 = data.points[i + 1];
         float x2 = data.points[i + 2];

@@ -1,0 +1,80 @@
+name: clang-tidy
+
+# Incremental clang-tidy: on a PR, run the checker only on first-party
+# source files touched by the PR. Full-tree tidy would be minutes-long and
+# swamp existing warnings; incremental keeps signal focused on the diff.
+
+on:
+  pull_request:
+    branches: [ master, 1.1.0 ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  incremental:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          # Need full history so we can diff against the PR's base commit.
+          fetch-depth: 0
+
+      - name: Install clang-tidy and build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-tidy libgl1-mesa-dev libxrandr-dev \
+            libxinerama-dev libxcursor-dev libxi-dev
+
+      - name: Configure
+        # Emit compile_commands.json so clang-tidy resolves each translation
+        # unit's include paths, defines, and language flags automatically.
+        run: >-
+          cmake -S . -B build-tidy -DCMAKE_BUILD_TYPE=Debug
+          -DWHATSCANVAS_BUILD_DEMO=OFF
+          -DWHATSCANVAS_ENABLE_SCRIPT_TESTS=OFF
+          -DWHATSCANVAS_BUILD_BENCHMARKS=OFF
+          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+      - name: Build (populates compile_commands + generated headers)
+        # We need CMake-generated headers (e.g. config headers) on disk so
+        # clang-tidy can find them. A `-j 2` full build is cheap on ubuntu-latest.
+        run: cmake --build build-tidy -j 2
+
+      - name: Enumerate first-party changed sources
+        id: files
+        # Restrict to compilation units (.cpp / .mm) under src/ and platforms/.
+        # `--diff-filter=AM` skips deleted files. `|| true` guards against an
+        # empty diff exiting grep with status 1.
+        run: |
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          echo "Diffing against $BASE_SHA"
+          git diff --name-only --diff-filter=AM "$BASE_SHA"...HEAD \
+            | { grep -E '^(src|platforms)/.*\.(cpp|mm)$' || true; } \
+            | tee changed.txt
+          if [ ! -s changed.txt ]; then
+            echo "no_files=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run clang-tidy on changed files
+        if: steps.files.outputs.no_files != 'true'
+        # `-p build-tidy` points clang-tidy at compile_commands.json so it
+        # inherits per-TU flags. Per-file mode keeps diagnostic output
+        # readable.
+        #
+        # `--warnings-as-errors='*'` upgrades every enabled diagnostic to a
+        # build failure. The baseline was cleaned on 1.1.0 (LLVM 22 / macOS
+        # Xcode 26); any regression is a real bug that should block the PR
+        # or be locally suppressed with a `// NOLINT(check-name)` comment
+        # accompanied by a rationale.
+        run: |
+          set -o pipefail
+          xargs -a changed.txt -d '\n' -I {} \
+            clang-tidy -p build-tidy --quiet --warnings-as-errors='*' {}

@@ -126,9 +126,10 @@ public:
     /// Vertical anchor of text relative to its draw position.
     enum class TextBaseline
     {
-        TOP,    ///< Y identifies the top of the text bounds (default).
-        MIDDLE, ///< Y identifies the vertical middle of the text bounds.
-        BOTTOM  ///< Y identifies the bottom of the text bounds.
+        TOP,        ///< Y identifies the top of the text bounds (default).
+        MIDDLE,     ///< Y identifies the vertical middle of the text bounds.
+        BOTTOM,     ///< Y identifies the bottom of the text bounds.
+        ALPHABETIC  ///< Y identifies the typographic alphabetic baseline.
     };
 
     /// Per-Paint text anti-aliasing mode override. `Default` inherits from the
