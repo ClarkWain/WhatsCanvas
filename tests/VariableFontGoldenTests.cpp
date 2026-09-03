@@ -11,8 +11,8 @@ namespace {
 
 constexpr int kWidth = 640;
 constexpr int kHeight = 96;
-constexpr std::uint64_t kNarrowHash = 8211557627910472001ull;
-constexpr std::uint64_t kWideHash = 8341808591449791857ull;
+constexpr std::uint64_t kNarrowHash = 6115633013732254017ull;
+constexpr std::uint64_t kWideHash = 8254425609265282417ull;
 
 struct Snapshot
 {
