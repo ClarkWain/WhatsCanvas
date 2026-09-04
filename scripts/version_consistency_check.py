@@ -27,11 +27,25 @@ def main() -> int:
     version_h = read("include/wsc/Version.h")
     readme = read("README.md")
     readme_zh = read("README_zh.md")
-    getting_started = read("doc/GETTING_STARTED_AS_LIBRARY.md")
+    getting_started = read("doc/public/getting-started/GETTING_STARTED_AS_LIBRARY.md")
     android_gradle = read("platforms/android/app/build.gradle")
-    android_integration = read("doc/ANDROID_INTEGRATION.md")
+    android_integration = read("doc/public/platforms/ANDROID_INTEGRATION.md")
+    public_index = read("doc/public/index.md")
     changelog = read("CHANGELOG.md")
     package_workflow = read(".github/workflows/package-release.yml")
+
+    versioned_public_docs = {
+        "tutorial overview": read("doc/public/tutorials/README.md"),
+        "tutorial overview (zh)": read("doc/public/tutorials/zh/README.md"),
+        "tutorial intro": read("doc/public/tutorials/00-whatscanvas-intro.md"),
+        "tutorial intro (zh)": read("doc/public/tutorials/zh/00-whatscanvas-intro.md"),
+        "tutorial setup": read("doc/public/tutorials/01-environment-setup.md"),
+        "tutorial setup (zh)": read("doc/public/tutorials/zh/01-environment-setup.md"),
+        "tutorial backends": read("doc/public/tutorials/10-multi-backend.md"),
+        "tutorial backends (zh)": read("doc/public/tutorials/zh/10-multi-backend.md"),
+        "tutorial platforms": read("doc/public/tutorials/12-cross-platform.md"),
+        "tutorial platforms (zh)": read("doc/public/tutorials/zh/12-cross-platform.md"),
+    }
 
     project_version = require(r"project\s*\(\s*WhatsCanvas\s+VERSION\s+([0-9]+\.[0-9]+\.[0-9]+)", cmake, "CMake project version")
     major, minor, patch = project_version.split(".")
@@ -79,6 +93,22 @@ def main() -> int:
 
     if re.search(r'\$version\s*=\s*"[0-9]+\.[0-9]+\.[0-9]+"', package_workflow):
         errors.append("package-release workflow hardcodes $version; derive it from CMakeLists.txt instead")
+
+    public_version_patterns = (
+        r"find_package\s*\(\s*WhatsCanvas\s+([0-9]+\.[0-9]+\.[0-9]+)",
+        r"whatscanvas-[a-z0-9-]+-release-([0-9]+\.[0-9]+\.[0-9]+)",
+        r"WhatsCanvas\s+([0-9]+\.[0-9]+\.[0-9]+)\+",
+    )
+    for label, text in versioned_public_docs.items():
+        for pattern in public_version_patterns:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                if match.group(1) != project_version:
+                    errors.append(
+                        f"{label}: expected public version {project_version}, got {match.group(1)}"
+                    )
+
+    if re.search(r"github\.com/ClarkWain/WhatsCanvas/releases/tag/v[0-9]", public_index):
+        errors.append("public docs index pins a release tag; link to the releases page instead")
 
     if errors:
         print("VERSION_CONSISTENCY_RESULT=FAIL")

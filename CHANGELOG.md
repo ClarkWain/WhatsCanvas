@@ -65,7 +65,7 @@ For releases and downloadable artifacts, see the
   hardening) in `CONTRIBUTING.md`.
 
 ### Docs
-- Added a beginner tutorial series under `doc/tutorials/` covering
+- Added a beginner tutorial series under `doc/public/tutorials/` covering
   environment setup, basic shapes, `Paint`, `Path`, transforms, images,
   text, layer filters, windowed presentation, multi-backend hosting, and
   interactive Canvas performance.
@@ -620,7 +620,7 @@ For releases and downloadable artifacts, see the
   weight/slant/spacing/locale styling, custom in-memory font registration and
   fallback chains, underline / strikethrough decorations, grayscale and
   ClearType raster modes, and `resolveFontFamilies` parity with the portable
-  backend. See [`doc/DIRECTWRITE_TEXT_BACKEND.md`](doc/DIRECTWRITE_TEXT_BACKEND.md).
+  backend. See [`doc/public/guides/text/DIRECTWRITE_TEXT_BACKEND.md`](doc/public/guides/text/DIRECTWRITE_TEXT_BACKEND.md).
 - **Per-`Paint` `TextRenderMode` override**: `Paint::setTextRenderMode(Auto |
   Grayscale | ClearType)` lets callers opt into ClearType per draw when the
   destination surface is known to be opaque and axis-aligned. The DirectWrite
@@ -663,7 +663,7 @@ For releases and downloadable artifacts, see the
   DirectWrite backend test's CJK line-break declaration.
 
 ### Docs
-- Refreshed `doc/DIRECTWRITE_DESIGN_REVIEW.md` with a status table mapping
+- Refreshed the DirectWrite design review (since retired) with a status table mapping
   each of the five original review issues to the PR(s) that closed it.
 - ADR-006 gained a Progress Log section (PR #42 / PR #44).
 
@@ -693,7 +693,7 @@ For releases and downloadable artifacts, see the
   helpers (`__std_min_element_f_` / `__std_max_element_f_`). Previously a package
   built on a newer CI toolchain failed to link on a consumer's older Visual
   Studio with `LNK2019`. The Windows packaging job is pinned to `windows-2022`,
-  and `doc/TROUBLESHOOTING.md` documents the symptom and fixes.
+  and `doc/public/getting-started/TROUBLESHOOTING.md` documents the symptom and fixes.
 
 ## [0.1.12] - 2026-07-08
 
@@ -712,7 +712,7 @@ For releases and downloadable artifacts, see the
   swapchain, validated under the Khronos validation layer). Plus GL/Vulkan
   wrap-external and `Canvas::vulkan*` interop accessors. Examples:
   `software_present`, `gl_present`, `vulkan_canvas_present`. See
-  `doc/windowed-presentation-design.md`.
+  `doc/internal/architecture/windowed-presentation.md`.
 - Built-in diagnostics/logging facility (`wsc/Log.h`): severity levels, an
   adjustable threshold (`Log::setLevel`), and a pluggable sink
   (`Log::setHandler`) so applications can route WhatsCanvas messages into their

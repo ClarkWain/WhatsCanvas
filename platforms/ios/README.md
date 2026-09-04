@@ -83,7 +83,7 @@ to produce a deterministic
 `Documents/feature_showcase-<viewport>-t1250.png` plus its JSON metadata. A
 live, non-fixed capture continues to use `Documents/screenshot.png`. The complete
 cross-platform capture contract is documented in
-[`../../doc/VISUAL_PARITY.md`](../../doc/VISUAL_PARITY.md).
+[`../../doc/public/validation/VISUAL_PARITY.md`](../../doc/public/validation/VISUAL_PARITY.md).
 
 The simulator capture matrix uses cold launches for every contracted sample in
 both orientations, preserves each frame with its crop metadata, and
