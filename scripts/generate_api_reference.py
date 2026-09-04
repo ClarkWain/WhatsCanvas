@@ -468,7 +468,7 @@ def generate(include_dir: Path) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--include-dir", default="include/wsc", type=Path)
-    parser.add_argument("--output", default="doc/API_REFERENCE.md", type=Path)
+    parser.add_argument("--output", default="doc/public/reference/API_REFERENCE.md", type=Path)
     parser.add_argument("--check", action="store_true", help="Fail if the output file is stale.")
     args = parser.parse_args()
 

@@ -1,0 +1,185 @@
+# Cross-platform visual parity
+
+WhatsCanvas treats visual parity as a tested contract rather than a manual
+screenshot review. Android, iOS, Desktop and Web must render the same scene
+content, orientation, animation time and logical content viewport before their
+pixels are compared.
+
+## Canonical content window
+
+Physical device screens cannot have one size. The primary comparable unit is a
+neutral, rotation-symmetric 2:1 design-space window:
+
+- Landscape: 800 x 400.
+- Portrait: 400 x 800.
+
+These numbers are not copied from a device or its system bars. They are round
+logical units with an exact reciprocal orientation, so a new device cannot
+silently redefine the contract. The catalog also registers 16:9 phone, 4:3
+tablet and 16:10 desktop layout standards. The former 393 x 759 / 786 x 377
+Android-derived pair is retained as `legacy_android` for historical regression
+only; it is not a primary pixel reference.
+
+The four-platform pixel matrix runs the primary `phone_2_1` standard. The
+additional standards are layout-conformance cases rendered by the deterministic
+Desktop Software host in CI. This separation keeps pixel comparisons stable
+while still detecting assumptions that only work at one phone aspect ratio.
+Run an auxiliary case with, for example,
+`WhatsCanvasDesktopHost --viewport-standard=tablet_4_3 --w=768 --h=1024`.
+
+Every host removes platform safe areas, aspect-fits this canonical canvas,
+centers it horizontally and anchors it to the usable top. The complete scene is
+scaled once. It never independently reflows cards, text, strokes or animation
+geometry. Extra host area is letterboxed with the scene background.
+
+The shared implementation is
+[`platforms/shared/scenes/CanonicalViewport.h`](../../../platforms/shared/scenes/CanonicalViewport.h).
+Any new host must use it rather than defining another viewport policy.
+
+## Scene contract
+
+[`tests/visual_parity/scenes.json`](../../../tests/visual_parity/scenes.json) is the
+validation registry. Every scene declares:
+
+- a stable scene id and contract version;
+- Android, iOS, Desktop and Web as required platforms;
+- portrait and landscape canonical sizes;
+- deterministic animation samples in seconds;
+- named comparison regions and their tolerance profile.
+
+The registry currently contains four scenes. `feature_showcase` samples 0.0,
+0.5, 1.25 and 2.0 seconds; each focused stress scene samples 1.25 seconds:
+
+- `text_stress`: fallback, emoji clusters, wrapping, baselines, glyph effects
+  and text on a path;
+- `geometry_stress`: even-odd holes, concave fills, nested clips, stroke joins,
+  dashes, subpixel geometry, arcs and negative scale;
+- `compositing_stress`: Porter-Duff cutouts, blend modes, backdrop glass,
+  inner shadow and layer alpha.
+
+New animation logic must be a pure function of the supplied elapsed time.
+Random, wall-clock and locale-dependent input must be seeded or supplied by
+the scene contract.
+
+Profiles are intentionally separated:
+
+- `graphics` catches path, clip, gradient, blend and transform drift;
+- `image_sampling` keeps a tight mean-error limit while allowing the
+  antialiased edge colors produced when a nearest-neighbor texture is captured
+  at different physical pixel densities;
+- `text` allows limited native rasterization differences while still catching
+  missing glyphs, wrapping and geometry changes;
+- `filters` allows small kernel/sampling differences while still rejecting a
+  missing filter, incorrect layer bounds or broad compositing change;
+- `layout` catches whole-card displacement and scaling regressions.
+
+The comparator searches a small neighboring-pixel radius before measuring a
+delta. This tolerates subpixel edge placement, but not a larger geometry shift.
+Threshold changes require a reason and evidence; they must not be raised merely
+to make a failing capture pass.
+The latest measured evidence and threshold rationale are recorded in
+The dated execution record is retained under `internal/validation/`; this page
+defines the current contract.
+
+Reference captures must use the canonical logical size with `DPR=3`, then be
+normalized by the comparator. Merely rendering a `1200 x 2400` DPR=1 canvas is
+not equivalent: text, image sampling, shadows and raster caches still take the
+1x path. For example, the portrait Software reference is generated with
+`--w=400 --h=800 --dpr=3`.
+
+## Capture identity and metadata
+
+The capture tree consumed by the matrix command is:
+
+```text
+captures/<platform>/<scene>/<viewport>/<sample>.png
+captures/<platform>/<scene>/<viewport>/<sample>.json   # when cropping is needed
+```
+
+PNG, binary PPM and PAM are supported without external Python dependencies.
+Device screenshots that include system UI or letterboxing must provide a JSON
+sidecar:
+
+```json
+{
+  "schema_version": 1,
+  "scene_id": "feature_showcase",
+  "viewport_id": "portrait",
+  "sample_id": "t1250",
+  "platform": "ios",
+  "backend": "metal",
+  "content_rect_pixels": [0, 186, 1206, 2329]
+}
+```
+
+`content_rect_pixels` is the exact canonical scene rectangle after safe-area
+layout and before normalization. The comparator rejects an aspect mismatch
+instead of guessing a crop.
+
+Desktop accepts `--time=<seconds>` for deterministic dumps and `--dpr=3` to
+match high-density mobile rasterization. Android accepts
+`capture_time_seconds` and `capture_scene_id` Activity extras. iOS accepts
+`--capture-time=<seconds>` and `--capture-scene=<id>` together with its opt-in
+`--capture-frames` switch. Web accepts `scene`, `time` and `dpr` query values.
+
+## Commands
+
+Validate the registry and comparator:
+
+```sh
+python3 tools/visual_parity/visual_parity.py validate \
+  --contract tests/visual_parity/scenes.json
+python3 tests/VisualParityToolTests.py
+```
+
+Compare one pair and write machine-readable results plus a heat map:
+
+```sh
+python3 tools/visual_parity/visual_parity.py compare \
+  --contract tests/visual_parity/scenes.json \
+  --scene feature_showcase --viewport landscape --sample t1250 \
+  --reference captures/desktop/feature_showcase/landscape/t1250.ppm \
+  --actual captures/android/feature_showcase/landscape/t1250.png \
+  --actual-metadata captures/android/feature_showcase/landscape/t1250.json \
+  --report out/visual-parity/android-landscape.json \
+  --diff out/visual-parity/android-landscape.pam
+```
+
+Run the complete required-platform matrix:
+
+```sh
+python3 tools/visual_parity/visual_parity.py matrix \
+  --contract tests/visual_parity/scenes.json \
+  --captures captures --reference-platform desktop \
+  --output out/visual-parity
+```
+
+## Validation layers
+
+1. Contract and comparator unit tests run on every change.
+2. Deterministic Software golden tests guard the reference rasterizer.
+3. OpenGL, OpenGL ES and Metal tests compare their backend against Software.
+4. The device matrix compares normalized Android, iOS, Desktop and Web captures.
+5. Lifecycle, rotation, cold start and background/foreground tests run outside
+   the pixel comparator, then capture the same deterministic scene again.
+6. Software layout-conformance tests render the registered phone, tablet and
+   desktop standards independently of the primary pixel matrix.
+
+Layers 1-3 are fast pull-request gates. The full device matrix should run on
+rendering pull requests, nightly, and before release. Missing required captures
+are failures, not skips, in the release job.
+
+## Adding a scene
+
+1. Put platform-independent drawing code under `platforms/shared/scenes/` and
+   use only the public `wsc::Canvas` API.
+2. Register the same stable id in every platform host.
+3. Add both canonical orientations and meaningful animation samples to
+   `scenes.json`.
+4. Define focused regions for every feature the scene is intended to cover.
+5. Generate a Software golden and backend parity test.
+6. Capture all required platforms and run the matrix.
+7. Document any intentional platform-specific region. Do not silently mask it.
+
+Platform branding can remain outside the strict graphics regions. Rendering
+content, geometry, timing and resource sampling cannot be platform-specific.

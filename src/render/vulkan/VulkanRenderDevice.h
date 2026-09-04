@@ -75,7 +75,7 @@ public:
 
     // On-screen presentation. Win32 Canvas presentation is integrated; other
     // native surface types and broader resize/device-loss coverage remain
-    // follow-ups. See doc/windowed-presentation-design.md.
+    // follow-ups. See doc/internal/architecture/windowed-presentation.md.
     bool supportsPresentation() const override;
     std::unique_ptr<ISwapchain> createSwapchain(const NativeSurface &surface,
                                                 const SwapchainConfig &config) override;

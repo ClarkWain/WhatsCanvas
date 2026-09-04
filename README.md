@@ -95,7 +95,7 @@ set "PATH=C:\path\to\whatscanvas\bin;%PATH%"
 build\Release\MyApp.exe
 ```
 
-For advanced features like in-window OpenGL, OpenGL ES, Vulkan, font registration, or host render targets, please refer directly to **[Using WhatsCanvas as a Library](doc/GETTING_STARTED_AS_LIBRARY.md)**. This guide covers the complete context lifecycle and provides standalone runnable consumer examples.
+For advanced features like in-window OpenGL, OpenGL ES, Vulkan, font registration, or host render targets, please refer directly to **[Using WhatsCanvas as a Library](doc/public/getting-started/GETTING_STARTED_AS_LIBRARY.md)**. This guide covers the complete context lifecycle and provides standalone runnable consumer examples.
 
 ## Get and Build
 
@@ -119,8 +119,8 @@ Mobile releases publish library SDKs rather than demo applications:
   XCFramework, public headers, an `arm64` device slice, and an
   `arm64`/`x86_64` simulator slice.
 
-See the [Android Integration Guide](doc/ANDROID_INTEGRATION.md) and
-[iOS Build Notes](doc/IOS_BUILD_NOTES.md). Demo APKs are built as CI validation
+See the [Android Integration Guide](doc/public/platforms/ANDROID_INTEGRATION.md) and
+[iOS Build Notes](doc/public/platforms/IOS_BUILD_NOTES.md). Demo APKs are built as CI validation
 inputs but are not Release assets.
 
 The targets provided by the precompiled packages may differ across platforms. In practice, verify the required targets exist via CMake:
@@ -253,7 +253,7 @@ Platform Validation Status:
 | iOS / Android | [iOS UIKit/Metal/CoreText sample](platforms/ios/README.md), iOS lifecycle UI test, [Android GLSurfaceView/JNI sample](platforms/android/README.md), and Android integration guide | The iOS host is simulator-validated in portrait/landscape, background/resume, and cold launch. Android builds three ABIs and has Pixel 3/Redmi K30 checkpoints. Both still require target-hardware validation before shipping. |
 | Web | [Emscripten/WebGL 2 host](platforms/wasm/README.md), headless-browser lifecycle/DPR/context-restore checks, and 14 visual-parity captures | Source build; no WebGPU backend or prebuilt release archive yet. |
 
-See [Android Integration](doc/ANDROID_INTEGRATION.md), [Cross-Platform Validation Matrix](doc/CROSS_PLATFORM_VALIDATION_MATRIX.md), [iOS Build Notes](doc/IOS_BUILD_NOTES.md), and [Vulkan Backend Status](doc/vulkan-backend-status.md) for detailed statuses.
+See [Android Integration](doc/public/platforms/ANDROID_INTEGRATION.md), [iOS Build Notes](doc/public/platforms/IOS_BUILD_NOTES.md), and [Vulkan Backend Status](doc/public/backends/vulkan-backend-status.md) for detailed public status. Maintainer evidence is retained under `doc/internal/validation/`.
 
 ## Capability Overview
 
@@ -284,7 +284,7 @@ Note that bi-directional text processing is more than script-level shaping. Scri
 
 ![WhatsCanvas font fallback, CJK, BiDi text, and text-on-path](images/text-rendering-showcase.png)
 
-Check the [Text Feature Matrix](doc/TEXT_FEATURE_MATRIX.md) and [Text Sharpness & HiDPI](doc/TEXT_SHARPNESS_AND_HIDPI.md) for the full feature matrix.
+Check the [Text Feature Matrix](doc/public/guides/text/TEXT_FEATURE_MATRIX.md) and [Text Sharpness & HiDPI](doc/public/guides/text/TEXT_SHARPNESS_AND_HIDPI.md) for the full feature matrix.
 
 ## Performance: Evidence and Applicability
 
@@ -302,9 +302,9 @@ Audit metadata: Windows 10, NVIDIA 560.94, MSVC 19.43, OpenGL 3.3; warms up 5 fr
 
 These numbers only reflect the specific hardware, driver, backend, and workload described above; they should not be extrapolated to other GPUs, the Software backend, the Vulkan backend, mobile devices, or your production environment. The repository keeps per-frame JSONL data, pixel-diff results, ABBA process pairing details, and 95% confidence intervals so the run can be audited and reproduced. Before making architectural decisions, re-run the matrix with workloads that are representative of your own use case.
 
-- [Full Methodology and Results](doc/PERFORMANCE_BENCHMARKS.md)
+- [Full Methodology and Results](doc/public/performance/PERFORMANCE_BENCHMARKS.md)
 - [NanoVG Parameter Matrix and Raw Baselines](benchmarks/baselines/nanovg-win-i7-8700-gtx1060/README.md)
-- [Cross-Library Benchmark Spec](doc/CROSS_LIBRARY_BENCHMARKS.md)
+- [Cross-Library Benchmark Spec](doc/public/performance/CROSS_LIBRARY_BENCHMARKS.md)
 
 ## Footprint and Dependencies
 
@@ -336,7 +336,7 @@ WhatsCanvas is more than just "able to draw pixels". The engineering and automat
 - Software golden-image baselines, filter parity across OpenGL/OpenGL ES/Vulkan/Metal, strict hash regressions, and fuzzy PPM regressions.
 - API reference freshness checks, release/version consistency checks, and package-consumer plus example-build checks.
 - Synchronous/asynchronous pixel readback, deterministic first-frame timing, render stats, resource tracking, and reproducible benchmarks.
-- Support boundaries for public headers and CMake targets are documented in [API Stability](doc/API_STABILITY.md); release history is in [CHANGELOG](CHANGELOG.md).
+- Support boundaries for public headers and CMake targets are documented in [API Stability](doc/public/reference/API_STABILITY.md); release history is in [CHANGELOG](CHANGELOG.md).
 
 Risks to keep in mind:
 
@@ -407,7 +407,7 @@ sh ./scripts/package_consumer_smoke.sh
 sh ./scripts/release_preflight.sh
 ```
 
-The pre-release preflight covers API references, versions, unit tests, and package consumers, but does not replace full GPU/visual regressions. Baseline update guidelines are detailed in [Regression Baseline Policy](doc/REGRESSION_BASELINES.md).
+The pre-release preflight covers API references, versions, unit tests, and package consumers, but does not replace full GPU/visual regressions. Baseline update guidelines are detailed in [Visual Regression and Baseline Policy](doc/public/validation/VISUAL_REGRESSION.md).
 
 ## Documentation Navigation
 
@@ -415,23 +415,22 @@ Start from the **[Online Documentation](https://clarkwain.github.io/WhatsCanvas/
 
 | Purpose | Documentation |
 | --- | --- |
-| First-time integration | [Using WhatsCanvas as a Library](doc/GETTING_STARTED_AS_LIBRARY.md) |
-| Android host integration | [Android Integration Guide](doc/ANDROID_INTEGRATION.md) |
-| Look up APIs | [Public API Reference](doc/API_REFERENCE.md) · [Visual API Gallery](doc/visual-api-gallery.md) |
-| Evaluate API stability | [API Stability](doc/API_STABILITY.md) · [CHANGELOG](CHANGELOG.md) |
-| Text and fonts | [Text Feature Matrix](doc/TEXT_FEATURE_MATRIX.md) · [Web / Async Font Integration](doc/WEB_FONT_INTEGRATION.md) · [Font Discovery Design](doc/WHATS_CANVAS_VS_FLUTTER_FONT_DISCOVERY.md) · [DirectWrite](doc/DIRECTWRITE_TEXT_BACKEND.md) |
-| Layer effects | [Image Filters](doc/IMAGE_FILTERS.md) · [Shadow Model](doc/SHADOW_MODEL.md) · [Blend Modes](doc/BLEND_MODE_AUDIT.md) |
-| Backends and platforms | [Vulkan Status](doc/vulkan-backend-status.md) · [Shader Portability](doc/SHADER_PORTABILITY.md) · [Troubleshooting](doc/TROUBLESHOOTING.md) |
-| Performance and validation | [Performance Benchmarks](doc/PERFORMANCE_BENCHMARKS.md) · [Visual Regression](doc/VISUAL_REGRESSION.md) |
-| Architecture & Contributing | [Architecture](doc/architecture/README.md) · [Contributing](CONTRIBUTING.md) |
+| First-time integration | [Using WhatsCanvas as a Library](doc/public/getting-started/GETTING_STARTED_AS_LIBRARY.md) |
+| Android host integration | [Android Integration Guide](doc/public/platforms/ANDROID_INTEGRATION.md) |
+| Look up APIs | [Public API Reference](doc/public/reference/API_REFERENCE.md) · [Visual API Gallery](doc/public/reference/visual-api-gallery.md) |
+| Evaluate API stability | [API Stability](doc/public/reference/API_STABILITY.md) · [CHANGELOG](CHANGELOG.md) |
+| Text and fonts | [Text Feature Matrix](doc/public/guides/text/TEXT_FEATURE_MATRIX.md) · [Web / Async Font Integration](doc/public/guides/text/WEB_FONT_INTEGRATION.md) · [DirectWrite](doc/public/guides/text/DIRECTWRITE_TEXT_BACKEND.md) |
+| Layer effects | [Image Filters](doc/public/guides/rendering/IMAGE_FILTERS.md) · [Shadow Model](doc/public/guides/rendering/SHADOW_MODEL.md) · [Blend Modes](doc/public/guides/rendering/BLEND_MODE_AUDIT.md) |
+| Backends and platforms | [Vulkan Status](doc/public/backends/vulkan-backend-status.md) · [Shader Portability](doc/public/backends/SHADER_PORTABILITY.md) · [Troubleshooting](doc/public/getting-started/TROUBLESHOOTING.md) |
+| Performance and validation | [Performance Benchmarks](doc/public/performance/PERFORMANCE_BENCHMARKS.md) · [Visual Regression](doc/public/validation/VISUAL_REGRESSION.md) |
+| Architecture & Contributing | [Maintainer Architecture](doc/internal/architecture/README.md) · [Contributing](CONTRIBUTING.md) |
 
 ## Roadmap
 
 WhatsCanvas is currently focused on cross-backend pixel consistency, text rendering quality, broader Vulkan, Web, and device coverage, and more reproducible performance benchmarks. Longer-term directions include WebGPU, prebuilt Web distribution, additional CBDT/CBLC bitmap formats, SBIX, SVG, and full COLRv1 compositing. These directions are still in planning and should not be treated as available features today.
 
-The concrete Must/Should/out-of-scope boundary for the first stable release is
-defined in the [1.0 Release Criteria](doc/RELEASE_1_0_CRITERIA.md). Long-term
-roadmap items outside that contract do not block 1.0.
+Completed release evidence is retained under `doc/archive/releases/`; current
+work is tracked through issues and the internal project backlog.
 
 ## License
 
