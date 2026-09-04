@@ -1,0 +1,24 @@
+# Maintainer Documentation
+
+This directory contains project-management and engineering evidence for
+maintainers. It is intentionally excluded from the published documentation
+site and is not part of the public product contract.
+
+- `backlog/` contains active, prioritized work that should eventually move to
+  issues or a project board.
+- `architecture/` contains the current maintainer decision records and design
+  boundaries.
+- `design-reviews/` contains dated readiness assessments, not current API
+  documentation.
+- `operations/` contains repeatable maintainer procedures.
+- `research/` contains unpublished educational prototypes and background
+  material that is not validated as current product documentation.
+- `validation/` contains dated execution records and working matrices; public
+  validation rules live in `../public/validation/`.
+
+Do not place credentials, private customer information, unpublished security
+findings, or other confidential material here. Files in this directory remain
+visible when the Git repository is public.
+
+See [`documentation-governance.md`](operations/documentation-governance.md) for
+the source-of-truth map, lifecycle rules, and required checks.

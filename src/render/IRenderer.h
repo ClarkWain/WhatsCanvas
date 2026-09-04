@@ -129,7 +129,7 @@ public:
     virtual void setGpuTimingEnabled(bool /*enabled*/) {}
 
     /// Whether this renderer's backend can present to an on-screen window.
-    /// Default false (offscreen-only). See doc/windowed-presentation-design.md.
+    /// Default false (offscreen-only). See doc/internal/architecture/windowed-presentation.md.
     virtual bool supportsPresentation() const { return false; }
 
     /// Create an on-screen presentation target for the given OS window, or

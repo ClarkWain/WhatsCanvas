@@ -8,13 +8,13 @@ $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $utf8NoBom = [Text.UTF8Encoding]::new($false)
 
 $examples = @(
-    @{ Source = 'examples/tutorials/chapter02_cards.cpp'; Doc = 'doc/tutorials/zh/02-basic-shapes.md'; Heading = '## 2.11 综合示例：绘制一组卡片' },
-    @{ Source = 'examples/tutorials/chapter03_buttons.cpp'; Doc = 'doc/tutorials/zh/03-paint-bindepth.md'; Heading = '## 3.12 综合示例：渐变按钮组' },
-    @{ Source = 'examples/tutorials/chapter04_gauge.cpp'; Doc = 'doc/tutorials/zh/04-path-bindcurves.md'; Heading = '## 4.10 综合示例：仪表盘' },
-    @{ Source = 'examples/tutorials/chapter05_flower.cpp'; Doc = 'doc/tutorials/zh/05-state-bindtransforms.md'; Heading = '## 5.10 综合示例：旋转的花朵' },
-    @{ Source = 'examples/tutorials/chapter06_gallery.cpp'; Doc = 'doc/tutorials/zh/06-image-bindrawing.md'; Heading = '## 6.11 综合示例：图片画廊' },
-    @{ Source = 'examples/tutorials/chapter07_chat.cpp'; Doc = 'doc/tutorials/zh/07-text-bindlayout.md'; Heading = '## 7.12 综合示例：聊天气泡' },
-    @{ Source = 'examples/tutorials/chapter08_filters.cpp'; Doc = 'doc/tutorials/zh/08-layer-filters.md'; Heading = '## 8.9 综合示例：iOS 风格通知面板' }
+    @{ Source = 'examples/tutorials/chapter02_cards.cpp'; Doc = 'doc/public/tutorials/zh/02-basic-shapes.md'; Heading = '## 2.11 综合示例：绘制一组卡片' },
+    @{ Source = 'examples/tutorials/chapter03_buttons.cpp'; Doc = 'doc/public/tutorials/zh/03-paint-bindepth.md'; Heading = '## 3.12 综合示例：渐变按钮组' },
+    @{ Source = 'examples/tutorials/chapter04_gauge.cpp'; Doc = 'doc/public/tutorials/zh/04-path-bindcurves.md'; Heading = '## 4.10 综合示例：仪表盘' },
+    @{ Source = 'examples/tutorials/chapter05_flower.cpp'; Doc = 'doc/public/tutorials/zh/05-state-bindtransforms.md'; Heading = '## 5.10 综合示例：旋转的花朵' },
+    @{ Source = 'examples/tutorials/chapter06_gallery.cpp'; Doc = 'doc/public/tutorials/zh/06-image-bindrawing.md'; Heading = '## 6.11 综合示例：图片画廊' },
+    @{ Source = 'examples/tutorials/chapter07_chat.cpp'; Doc = 'doc/public/tutorials/zh/07-text-bindlayout.md'; Heading = '## 7.12 综合示例：聊天气泡' },
+    @{ Source = 'examples/tutorials/chapter08_filters.cpp'; Doc = 'doc/public/tutorials/zh/08-layer-filters.md'; Heading = '## 8.9 综合示例：iOS 风格通知面板' }
 )
 
 $outOfSync = @()

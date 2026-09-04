@@ -763,7 +763,7 @@ public:
 	std::uint64_t computePixelsHashRGBA() const;
 
 	// Output target — where this canvas delivers rendered frames.
-	// See doc/windowed-presentation-design.md.
+	// See doc/internal/architecture/windowed-presentation.md.
 	/// `OutputTarget` describes the destination of each rendered frame:
 	/// - `OutputTarget::Offscreen()` for CPU readback or texture reuse;
 	/// - `OutputTarget::ToWindow()` for window presentation;

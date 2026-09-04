@@ -97,7 +97,7 @@ public:
 
     /// Whether this backend can present to an on-screen window (build a
     /// swapchain from a NativeSurface). Default false: the device is
-    /// offscreen-only. See doc/windowed-presentation-design.md.
+    /// offscreen-only. See doc/internal/architecture/windowed-presentation.md.
     virtual bool supportsPresentation() const { return false; }
 
     /// Create an on-screen presentation target for the given OS window. Returns

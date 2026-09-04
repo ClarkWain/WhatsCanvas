@@ -170,13 +170,13 @@ cmd /c scripts\release_preflight.bat
 
 It covers the checks most often missed:
 
-- **API reference freshness** — the generated `doc/API_REFERENCE.md` must match
+- **API reference freshness** — the generated `doc/public/reference/API_REFERENCE.md` must match
   the public headers. If you add or change anything in `include/wsc/`, regenerate:
   ```bat
   python scripts/generate_api_reference.py
   ```
 - **Version consistency** — the version in `CMakeLists.txt`, `include/wsc/Version.h`,
-  the `find_package` snippets in `README.md` and `doc/GETTING_STARTED_AS_LIBRARY.md`,
+  the `find_package` snippets in `README.md` and `doc/public/getting-started/GETTING_STARTED_AS_LIBRARY.md`,
   and the package workflow must all agree.
 - **Unit tests** and **package-consumer smoke**.
 
@@ -190,7 +190,7 @@ enabled — a Vulkan build gate.
   `.cpp` under `src/`, add it to the source list in
   `cmake/WhatsCanvasOpenGL.cmake` (and the software list if it is backend-neutral).
 - **Public API** lives in `include/wsc/`. Keep the surface small and documented;
-  see `doc/API_STABILITY.md` for the stability boundary.
+  see `doc/public/reference/API_STABILITY.md` for the stability boundary.
 - **The library owns no window/context and no file I/O** — keep that contract.
 - Match the surrounding code style; keep changes focused and reviewable.
 
@@ -202,7 +202,11 @@ enabled — a Vulkan build gate.
 - `tests/` — unit, integration, compile-contract, and visual-regression tests.
 - `benchmarks/` — core benchmarks.
 - `scripts/` — build/smoke/regression/validation scripts.
-- `doc/` — guides, matrices, ADRs; `mkdocs.yml` builds the docs site from it.
+- `doc/public/` — current user documentation; `mkdocs.yml` builds the site from it.
+- `doc/internal/` — maintainer architecture, active backlog, reviews, validation,
+  and operations. Follow the
+  [documentation governance policy](doc/internal/operations/documentation-governance.md).
+- `doc/archive/` — completed release evidence and implementation history.
 
 ## Pull requests
 

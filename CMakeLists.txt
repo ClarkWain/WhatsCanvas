@@ -72,7 +72,7 @@ if (MSVC)
     # built on a newer CI toolchain fails to link on a consumer's older VS
     # (LNK2019 __std_*_element_*). Forcing the scalar path keeps our compiled
     # objects free of these version-specific symbols, so the released binaries
-    # link against any VS 2022 STL. See doc/TROUBLESHOOTING.md.
+    # link against any VS 2022 STL. See doc/public/getting-started/TROUBLESHOOTING.md.
     add_compile_definitions(_USE_STD_VECTOR_ALGORITHMS=0)
 endif()
 
@@ -113,7 +113,7 @@ if (Python3_Interpreter_FOUND)
     add_custom_target(WhatsCanvasGenerateApiReference
         COMMAND ${Python3_EXECUTABLE} scripts/generate_api_reference.py
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-        COMMENT "Generating doc/API_REFERENCE.md from include/wsc"
+        COMMENT "Generating doc/public/reference/API_REFERENCE.md from include/wsc"
         VERBATIM
     )
     add_custom_target(WhatsCanvasCheckApiReference

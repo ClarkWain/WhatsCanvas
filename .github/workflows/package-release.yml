@@ -131,7 +131,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          body_path: doc/RELEASE_NOTES_1_0.md
+          body_path: doc/archive/releases/1.0/release-notes.md
           files: ${{ steps.archive.outputs.archive }}
 
   android-sdk:
@@ -196,7 +196,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          body_path: doc/RELEASE_NOTES_1_0.md
+          body_path: doc/archive/releases/1.0/release-notes.md
           files: ${{ steps.android_archive.outputs.artifact }}
 
   ios-sdk:
@@ -243,5 +243,5 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          body_path: doc/RELEASE_NOTES_1_0.md
+          body_path: doc/archive/releases/1.0/release-notes.md
           files: ${{ steps.ios_archive.outputs.artifact }}

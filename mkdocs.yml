@@ -8,7 +8,7 @@ copyright: Documentation built from the WhatsCanvas repository docs.
 # Reuse the existing repository docs in place (no duplication). Internal notes
 # are kept out of the site via exclude_docs below; the public pages are curated
 # in nav. Root-level images/ are staged into the site by mkdocs_hooks.py.
-docs_dir: doc
+docs_dir: doc/public
 
 theme:
   name: material
@@ -50,32 +50,22 @@ markdown_extensions:
 hooks:
   - mkdocs_hooks.py
 
-# Keep internal engineering notes (ADRs, TODO lists, roadmaps, regression logs)
-# and unlisted standalone HTML tutorials out of the published site. Curated HTML
-# labs may be published when they are explicitly linked from nav.
-exclude_docs: |
-  architecture/
-  anti_aliasing/
-  polyline/
-  Font Rendering Techniques/
-  *_TODO.md
-  CanvasEvaluation.md
-  CROSS_PLATFORM_VALIDATION_MATRIX.md
-  EFFECT_REGRESSION_MATRIX.md
-  REGRESSION_BASELINES.md
-  RELEASE_CHECKLIST.md
-  VISUAL_REGRESSION.md
-  vulkan-backend-roadmap.md
-  windowed-presentation-design.md
+# Several public pages intentionally link to source files and benchmark evidence
+# outside docs_dir. MkDocs cannot copy those targets, so report them as
+# informational while repository-level link checks validate the real paths.
+validation:
+  links:
+    not_found: info
+    unrecognized_links: info
 
 nav:
   - Home: index.md
-  - Interactive Internals Lab: canvas_internals/index.html
-  - Get Started: GETTING_STARTED_AS_LIBRARY.md
-  - Troubleshooting & FAQ: TROUBLESHOOTING.md
+  - Interactive Internals Lab: labs/canvas_internals/index.html
+  - Get Started: getting-started/GETTING_STARTED_AS_LIBRARY.md
+  - Troubleshooting & FAQ: getting-started/TROUBLESHOOTING.md
   - Reference:
-      - API Reference: API_REFERENCE.md
-      - API Stability: API_STABILITY.md
+      - API Reference: reference/API_REFERENCE.md
+      - API Stability: reference/API_STABILITY.md
   - Guides:
       - Tutorials:
           - Overview: tutorials/README.md
@@ -92,23 +82,46 @@ nav:
           - Multiple Backends: tutorials/10-multi-backend.md
           - Performance: tutorials/11-performance.md
           - Cross-platform: tutorials/12-cross-platform.md
-      - Visual API Gallery: visual-api-gallery.md
-      - Image Filters & Frosted Glass: IMAGE_FILTERS.md
-      - Text & Fonts: TEXT_FEATURE_MATRIX.md
-      - Web / Async Fonts: WEB_FONT_INTEGRATION.md
-      - Shadows: SHADOW_MODEL.md
-      - Blend Modes: BLEND_MODE_AUDIT.md
-      - Shader Portability: SHADER_PORTABILITY.md
-      - Android Integration: ANDROID_INTEGRATION.md
-      - Android Interactive Performance: ANDROID_INTERACTIVE_PERFORMANCE.md
-      - iOS Build Notes: IOS_BUILD_NOTES.md
+      - 中文教程:
+          - 目录: tutorials/zh/README.md
+          - 项目概览: tutorials/zh/00-whatscanvas-intro.md
+          - 环境搭建: tutorials/zh/01-environment-setup.md
+          - 基础图形: tutorials/zh/02-basic-shapes.md
+          - 画笔: tutorials/zh/03-paint-bindepth.md
+          - 路径与曲线: tutorials/zh/04-path-bindcurves.md
+          - 状态与变换: tutorials/zh/05-state-bindtransforms.md
+          - 图片绘制: tutorials/zh/06-image-bindrawing.md
+          - 文本排版: tutorials/zh/07-text-bindlayout.md
+          - 图层滤镜: tutorials/zh/08-layer-filters.md
+          - 窗口呈现: tutorials/zh/09-windowed-presentation.md
+          - 多后端: tutorials/zh/10-multi-backend.md
+          - 性能优化: tutorials/zh/11-performance.md
+          - 跨平台实战: tutorials/zh/12-cross-platform.md
+      - Visual API Gallery: reference/visual-api-gallery.md
+      - Image Filters & Frosted Glass: guides/rendering/IMAGE_FILTERS.md
+      - Text & Fonts: guides/text/TEXT_FEATURE_MATRIX.md
+      - Text Sharpness & HiDPI: guides/text/TEXT_SHARPNESS_AND_HIDPI.md
+      - DirectWrite Text: guides/text/DIRECTWRITE_TEXT_BACKEND.md
+      - Web / Async Fonts: guides/text/WEB_FONT_INTEGRATION.md
+      - Shadows: guides/rendering/SHADOW_MODEL.md
+      - Blend Modes: guides/rendering/BLEND_MODE_AUDIT.md
+      - Android Integration: platforms/ANDROID_INTEGRATION.md
+      - iOS Build Notes: platforms/IOS_BUILD_NOTES.md
   - Backends:
-      - Vulkan Status: vulkan-backend-status.md
+      - Vulkan Status: backends/vulkan-backend-status.md
+      - Shader Portability: backends/SHADER_PORTABILITY.md
   - Project:
-      - Performance Benchmarks: PERFORMANCE_BENCHMARKS.md
+      - Performance:
+          - Benchmarks: performance/PERFORMANCE_BENCHMARKS.md
+          - 性能基准: performance/PERFORMANCE_BENCHMARKS_zh.md
+          - Cross-Library Contract: performance/CROSS_LIBRARY_BENCHMARKS.md
+          - NanoVG Optimization Case Study: performance/NANOVG_PERFORMANCE_OPTIMIZATION.md
+          - Android Interactive Performance: performance/ANDROID_INTERACTIVE_PERFORMANCE.md
+      - Validation:
+          - Visual Regression & Baselines: validation/VISUAL_REGRESSION.md
+          - Cross-platform Visual Parity: validation/VISUAL_PARITY.md
       - WhatsCanvas 深度解析:
           - 目录: deep-dives/index.md
           - recordPicture: deep-dives/RECORD_PICTURE_DEEP_DIVE.md
-      - Retained Picture / Display List: RETAINED_PICTURE.md
-      - NanoVG Optimization Case Study: NANOVG_PERFORMANCE_OPTIMIZATION.md
-      - Memory Management: MEMORY_MANAGEMENT.md
+      - Retained Picture / Display List: guides/rendering/RETAINED_PICTURE.md
+      - Memory Management: guides/rendering/MEMORY_MANAGEMENT.md
