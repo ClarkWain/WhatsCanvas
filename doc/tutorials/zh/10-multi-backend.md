@@ -1,79 +1,77 @@
-# Chapter 10: Multiple Backends and Fallback
+# 第十章：多后端与 Fallback
 
-> Goal of this chapter: understand the WhatsCanvas multi-backend architecture, select and switch backends at runtime, build automatic downgrade strategies, and know the differences and caveats between backends.
-
-For the Chinese version, see [`zh/10-multi-backend.md`](./zh/10-multi-backend.md).
+> 本章目标：理解 WhatsCanvas 的多后端架构，学会在运行时选择和切换后端，实现自动降级策略，以及不同后端的差异与注意事项。
 
 ---
 
-## 10.1 Backend Overview
+## 10.1 后端概览
 
-WhatsCanvas supports 5 render backends:
+WhatsCanvas 支持 5 种渲染后端：
 
-| Backend | CMake Target | GPU Requirement | Typical Use |
-|---------|--------------|-----------------|-------------|
-| Software | `WhatsCanvas::Software` | None | Tests, CI, offscreen image generation, fallback |
-| OpenGL 3.3 Core | `WhatsCanvas::OpenGL` | A GL context | Primary desktop path |
-| OpenGL ES 3.0 | `WhatsCanvas::OpenGLES` | EGL / GLES | Mobile, WebGL |
-| Vulkan | Compiled into the OpenGL target | Vulkan SDK / driver | High-performance, low overhead |
+| 后端 | CMake Target | GPU 要求 | 典型用途 |
+|------|-------------|---------|---------|
+| Software | `WhatsCanvas::Software` | 无 | 测试、CI、离屏图片生成、fallback |
+| OpenGL 3.3 Core | `WhatsCanvas::OpenGL` | 需要 GL 上下文 | 桌面应用主力 |
+| OpenGL ES 3.0 | `WhatsCanvas::OpenGLES` | 需要 EGL/GLES | 移动端、WebGL |
+| Vulkan | 编入 OpenGL target | 需要 Vulkan SDK/驱动 | 高性能低开销 |
 | Metal | `WhatsCanvas::Metal` | Apple GPU | macOS / iOS |
 
 ---
 
-## 10.2 Static Selection: Decide at Compile Time
+## 10.2 静态选择：编译期决定
 
-Simplest option — link only the backend you need:
+最简单的方式——构建时只链接需要的后端：
 
 ```cmake
-# Software only (no GPU dependency)
-find_package(WhatsCanvas 1.1.0 CONFIG REQUIRED)
+# 只需要 Software（无 GPU 依赖）
+find_package(WhatsCanvas 1.0.0 CONFIG REQUIRED)
 target_link_libraries(MyApp PRIVATE WhatsCanvas::Software)
 ```
 
 ```cmake
-# Desktop app, OpenGL
+# 桌面应用，使用 OpenGL
 target_link_libraries(MyApp PRIVATE WhatsCanvas::OpenGL)
 ```
 
 ```cmake
-# Apple platform, Metal
+# Apple 平台，使用 Metal
 target_link_libraries(MyApp PRIVATE WhatsCanvas::Metal)
 ```
 
 ---
 
-## 10.3 Runtime Selection: Single Backend
+## 10.3 运行时选择：单后端创建
 
 ```cpp
 using Backend = wsc::Canvas::Backend;
 
-// Choose the backend explicitly
+// 明确指定后端
 auto canvas = wsc::Canvas::create(Backend::OpenGL, 800, 600);
 if (!canvas) {
-    // OpenGL is not available (no context, driver problems, ...)
+    // OpenGL 不可用（没有上下文、驱动问题等）
 }
 ```
 
 ---
 
-## 10.4 Automatic Downgrade: Backend Priority List
+## 10.4 自动降级：后端优先级列表
 
-WhatsCanvas can take a list of candidate backends and try them in priority order:
+WhatsCanvas 支持传入一组备选后端，按优先级依次尝试：
 
 ```cpp
 using Backend = wsc::Canvas::Backend;
 
-// Prefer Vulkan → Metal → OpenGL → Software
+// 优先 Vulkan → Metal → OpenGL → Software
 auto canvas = wsc::Canvas::create(
     {Backend::Vulkan, Backend::Metal, Backend::OpenGL, Backend::Software},
     800, 600);
 
 if (!canvas) {
-    // All backends failed (edge case)
+    // 所有后端都不可用（极端情况）
     return 1;
 }
 
-// Inspect which backend was actually used
+// 查看实际使用了哪个后端
 Backend actual = canvas->backend();
 switch (actual) {
     case Backend::Vulkan:   printf("Using Vulkan\n"); break;
@@ -86,50 +84,50 @@ switch (actual) {
 
 ---
 
-## 10.5 Backend Availability Probing
+## 10.5 后端可用性探测
 
-Check whether a backend is available before creating a Canvas:
+在创建 Canvas 之前检查后端是否可用：
 
 ```cpp
 if (wsc::Canvas::isBackendAvailable(Backend::Vulkan)) {
-    // Vulkan SDK and driver are ready
+    // Vulkan SDK 和驱动都就绪
 }
 
 if (wsc::Canvas::isBackendAvailable(Backend::Metal)) {
-    // Apple Metal is available
+    // Apple Metal 可用
 }
 
 if (wsc::Canvas::isBackendAvailable(Backend::OpenGL)) {
-    // Note: this only tests compile-time support; the GL context is still up to the app
+    // 注意：这只检查编译时支持，GL 上下文仍需应用创建
 }
 
-// Software is always available
+// Software 始终可用
 assert(wsc::Canvas::isBackendAvailable(Backend::Software));
 ```
 
 ---
 
-## 10.6 Context Requirements per Backend
+## 10.6 各后端的上下文要求
 
 ### Software
 
 ```cpp
-// No external dependency
+// 无任何外部依赖
 auto canvas = wsc::Canvas::create(Backend::Software, w, h);
-canvas->initializeContext();  // Always succeeds
+canvas->initializeContext();  // 总是成功
 ```
 
 ### OpenGL
 
 ```cpp
-// The app must have created and made a GL context current first
+// 应用必须先创建并激活 GL 上下文
 glfwMakeContextCurrent(window);
 
-// Then load GL function pointers
+// 然后加载 GL 函数指针
 wsc::Canvas::loadOpenGL(
     reinterpret_cast<wsc::Canvas::OpenGLProcAddress>(glfwGetProcAddress));
 
-// Create the Canvas (binds to the current GL context)
+// 创建 Canvas（绑定到当前 GL 上下文）
 auto canvas = wsc::Canvas::create(Backend::OpenGL, w, h);
 canvas->initializeContext();
 ```
@@ -137,19 +135,19 @@ canvas->initializeContext();
 ### OpenGL ES
 
 ```cpp
-// Similar to OpenGL, but the context is EGL / GLES
-// Android: obtained via GLSurfaceView
-// Web: created via Emscripten as a WebGL 2 context
+// 类似 OpenGL，但上下文是 EGL/GLES
+// Android: 通过 GLSurfaceView 获取
+// Web: 通过 Emscripten 创建 WebGL 2 上下文
 ```
 
 ### Vulkan
 
 ```cpp
-// Vulkan self-manages instance, device, and queue
+// Vulkan 自管理实例、设备、队列
 auto canvas = wsc::Canvas::create(Backend::Vulkan, w, h);
 canvas->initializeContext();
 
-// Vulkan objects are exposed for interop
+// 可获取 Vulkan 对象用于互操作
 void* instance = canvas->vulkanInstance();
 void* device = canvas->vulkanDevice();
 void* queue = canvas->vulkanQueue();
@@ -159,35 +157,35 @@ unsigned int queueFamily = canvas->vulkanQueueFamily();
 ### Metal
 
 ```cpp
-// Metal self-manages device and command queue
+// Metal 自管理设备和命令队列
 auto canvas = wsc::Canvas::create(Backend::Metal, w, h);
 canvas->initializeContext();
 
-// Metal objects are exposed for interop
+// 可获取 Metal 对象用于互操作
 void* device = canvas->metalDevice();        // id<MTLDevice>
 void* cmdQueue = canvas->metalCommandQueue(); // id<MTLCommandQueue>
 ```
 
 ---
 
-## 10.7 Trim Unused Backends at Build Time
+## 10.7 构建时按需裁剪
 
-Use CMake options to control which backends compile in, keeping the binary small:
+通过 CMake 选项控制编译哪些后端，减小最终体积：
 
 ```cmake
-# Minimal build: Software only
+# 最小构建：仅 Software
 set(WHATSCANVAS_BUILD_OPENGL OFF)
 set(WHATSCANVAS_BUILD_OPENGLES OFF)
 set(WHATSCANVAS_BUILD_METAL OFF)
 set(WHATSCANVAS_BUILD_SOFTWARE ON)
 set(WHATSCANVAS_ENABLE_VULKAN OFF)
 
-# Mobile build: OpenGL ES only
+# 移动端构建：仅 OpenGL ES
 set(WHATSCANVAS_BUILD_OPENGL OFF)
 set(WHATSCANVAS_BUILD_OPENGLES ON)
 set(WHATSCANVAS_BUILD_SOFTWARE OFF)
 
-# Standalone Metal build for Apple
+# Apple 独立 Metal 构建
 set(WHATSCANVAS_BUILD_OPENGL OFF)
 set(WHATSCANVAS_BUILD_METAL ON)
 set(WHATSCANVAS_BUILD_SOFTWARE OFF)
@@ -195,44 +193,43 @@ set(WHATSCANVAS_BUILD_SOFTWARE OFF)
 
 ---
 
-## 10.8 Backend Differences and Caveats
+## 10.8 后端差异与注意事项
 
-### Pixel Consistency
+### 像素一致性
 
-| Scenario | Notes |
-|----------|-------|
-| Software vs. Software | Deterministic (same input = same output) |
-| Software vs. GPU | Differences exist (float precision, AA implementation) |
-| GPU vs. GPU (different drivers) | May differ slightly |
+| 场景 | 说明 |
+|------|------|
+| Software vs Software | 确定性一致（相同输入 = 相同输出） |
+| Software vs GPU | 存在差异（浮点精度、AA 实现不同） |
+| GPU vs GPU（不同驱动） | 可能存在微小差异 |
 
-**Best practice**:
-- Use Software for pixel regression tests.
-- Use tolerance-based comparison for GPU regressions.
+**最佳实践**：
+- 像素回归测试使用 Software 后端
+- GPU 后端回归使用容差比较（tolerance）
 
-### Feature Differences
+### 功能差异
 
-| Feature | Software | OpenGL | Vulkan | Metal |
-|---------|:--------:|:------:|:------:|:-----:|
-| Basic shapes | All | All | All | All |
-| Layer filters | All | All | All | All |
-| Windowed presentation | Win32 only | All platforms | Win32 | macOS / iOS |
-| External textures | N/A | GL texture | Vulkan image | MTLTexture |
-| Async pixel readback | Sync-emulated | PBO async | Async | Async |
+| 功能 | Software | OpenGL | Vulkan | Metal |
+|------|:--------:|:------:|:------:|:-----:|
+| 基础图形 | 全部 | 全部 | 全部 | 全部 |
+| 图层滤镜 | 全部 | 全部 | 全部 | 全部 |
+| 窗口呈现 | 仅 Win32 | 全平台 | Win32 | macOS/iOS |
+| 外部纹理 | N/A | GL texture | Vulkan image | MTLTexture |
+| 异步像素回读 | 同步模拟 | PBO 异步 | 异步 | 异步 |
 
-### Thread Safety
+### 线程安全
 
 ```
-⚠️ Canvas is not thread-safe.
-Each Canvas instance must be used on the render thread that created it.
-Different Canvas instances can work independently on different threads
-(when the backend supports that).
+⚠️ Canvas 不是线程安全的。
+每个 Canvas 实例必须在创建它的渲染线程上使用。
+不同 Canvas 实例可以在不同线程上独立工作（前提是后端支持）。
 ```
 
 ---
 
-## 10.9 Practical Patterns for Conditional Backend Selection
+## 10.9 实用模式：条件后端选择
 
-### Pattern 1: Environment Variable Override
+### 模式一：环境变量覆盖
 
 ```cpp
 Backend selectBackend() {
@@ -243,7 +240,7 @@ Backend selectBackend() {
         if (strcmp(env, "gl") == 0)     return Backend::OpenGL;
         if (strcmp(env, "sw") == 0)     return Backend::Software;
     }
-    // Default: platform-preferred choice
+    // 默认：平台最优选择
 #if defined(__APPLE__)
     return Backend::Metal;
 #else
@@ -252,7 +249,7 @@ Backend selectBackend() {
 }
 ```
 
-### Pattern 2: Selection from a Config File
+### 模式二：配置文件选择
 
 ```cpp
 Backend backendFromConfig(const Config& cfg) {
@@ -264,16 +261,16 @@ Backend backendFromConfig(const Config& cfg) {
 }
 ```
 
-### Pattern 3: Performance Probe (Advanced)
+### 模式三：性能探测（高级）
 
 ```cpp
-// Create a tiny probe Canvas and measure one frame
+// 创建一个小的测试 Canvas，跑一帧测量时间
 auto probe = Canvas::create(Backend::Vulkan, 64, 64);
 if (probe && probe->initializeContext()) {
     probe->beginFrame();
     // ... draw simple content ...
     probe->endFrame();
-    // If it worked, use Vulkan
+    // 如果成功，采用 Vulkan
     probe.reset();
     return Backend::Vulkan;
 }
@@ -282,34 +279,34 @@ return Backend::OpenGL;
 
 ---
 
-## 10.10 Rendering to a GL Framebuffer (embed in an existing engine)
+## 10.10 渲染到 GL Framebuffer（嵌入到现有引擎）
 
-If your app already has a GL render pipeline, let WhatsCanvas render into an FBO:
+如果你的应用已经有 GL 渲染管线，可以让 WhatsCanvas 渲染到一个 FBO：
 
 ```cpp
 GLuint fbo;
 glGenFramebuffers(1, &fbo);
 glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-// ... configure color attachment ...
+// ... 配置 color attachment ...
 
 auto canvas = Canvas::create(Backend::OpenGL, 512, 512);
 canvas->initializeContext();
 canvas->setOutputTarget(OutputTarget::GLFramebuffer(fbo, 512, 512, false));
 
-// Render WhatsCanvas content into the FBO
+// 渲染 WhatsCanvas 内容到 FBO
 canvas->beginFrame();
-// ... draw ...
+// ... 绘制 ...
 canvas->endFrame();
 
-// Then use the FBO's color attachment as a texture in your main pipeline
+// 然后在主渲染管线中使用这个 FBO 的 color attachment 作为纹理
 ```
 
 ---
 
-## 10.11 Vulkan External Image Interop
+## 10.11 Vulkan 外部 Image 互操作
 
 ```cpp
-// Direct WhatsCanvas output into an external Vulkan image
+// 将 WhatsCanvas 渲染结果输出到外部 Vulkan image
 VkImage externalImage = ...;
 VkFormat format = VK_FORMAT_R8G8B8A8_UNORM;
 
@@ -317,14 +314,14 @@ canvas->setOutputTarget(
     OutputTarget::VulkanImageTarget(externalImage, format, w, h));
 
 canvas->beginFrame();
-// ... draw ...
+// ... 绘制 ...
 canvas->endFrame();
-// externalImage now contains the rendered result
+// externalImage 现在包含渲染结果
 ```
 
 ---
 
-## 10.12 Integrated Example: An Adaptive-Backend App Skeleton
+## 10.12 综合示例：自适应后端的应用框架
 
 ```cpp
 #include <wsc/wsc.h>
@@ -341,7 +338,7 @@ struct AppConfig {
 class App {
 public:
     bool initialize(const AppConfig& config) {
-        // Auto-select backend
+        // 自动选择后端
         if (config.preferredBackend == Canvas::Backend::Auto) {
             canvas_ = Canvas::create(
                 {Canvas::Backend::Metal, Canvas::Backend::Vulkan,
@@ -376,7 +373,7 @@ public:
 
 private:
     virtual void onDraw(Canvas& canvas) {
-        // Subclasses provide the actual drawing
+        // 子类实现具体绘制
         canvas.drawColor(Color(30, 30, 30));
     }
 
@@ -397,18 +394,18 @@ private:
 
 ---
 
-## 10.13 Summary
+## 10.13 小结
 
-This chapter covered:
+本章学习了：
 
-- [x] Characteristics and use cases of the 5 backends
-- [x] Compile-time (CMake target) and runtime selection
-- [x] Backend priority list and automatic downgrade
-- [x] Availability probing with `isBackendAvailable`
-- [x] Context requirements per backend
-- [x] Trimming unused backends at build time
-- [x] Pixel consistency and feature differences
-- [x] GL framebuffer and Vulkan image interop
-- [x] Practical patterns for backend selection
+- [x] 5 种后端的特性和适用场景
+- [x] 编译期选择（CMake target）和运行时选择
+- [x] 后端优先级列表与自动降级
+- [x] `isBackendAvailable` 可用性探测
+- [x] 各后端的上下文要求差异
+- [x] 构建时裁剪不需要的后端
+- [x] 像素一致性与功能差异
+- [x] GL Framebuffer 和 Vulkan Image 互操作
+- [x] 实用的后端选择模式
 
-**Next chapter**: [Performance Optimization](./11-performance.md) — Picture caching, quickReject, render stats, and other performance techniques.
+**下一章**：[性能优化](./11-performance.md) —— 学习 Picture 缓存、quickReject、渲染统计等性能优化技巧。
