@@ -1,6 +1,6 @@
 # Windowed Presentation & Backend Selection — Design Discussion
 
-Status: **Proposal / Discussion.** Core direction agreed; multiple slices landed.
+Status: **Accepted and implemented for the stable v1 platform hosts.**
 **Implemented & validated:** the backend-neutral scaffolding (§3–§6), a unified
 public `Canvas::setOutputTarget` (`Offscreen` / `OffscreenTexture` / `ToWindow` /
 `GLFramebuffer` / `VulkanImageTarget`) + `present` / `resizeOutput`,
@@ -8,14 +8,15 @@ public `Canvas::setOutputTarget` (`Offscreen` / `OffscreenTexture` / `ToWindow` 
 present (WGL; guarded GLX)**, **Vulkan windowed present** (present-ready
 instance/device + swapchain, blitting the rendered image into the acquired
 swapchain image; validated clean under the Khronos validation layer), and
-**wrap-external into a host GL framebuffer or VkImage**. **Not yet:** Metal/D3D
-swapchains and mobile surface lifecycle. Remaining API sketches are marked
-"sketch".
+**wrap-external into a host GL framebuffer or VkImage**. The iOS host presents
+through `CAMetalLayer` and the Android host owns its EGL/GLES surface lifecycle.
+Library-owned D3D presentation and Vulkan window surfaces beyond Win32 are
+optional extensions. Remaining API sketches are marked "sketch".
 
-This is the source of truth for the design rationale and remaining gaps around
-on-screen presentation across backends. The current consumer-facing contract is
+This is the source of truth for the design rationale, supported presentation
+paths, and optional platform expansions. The current consumer-facing contract is
 documented in [`GETTING_STARTED_AS_LIBRARY.md`](../../public/getting-started/GETTING_STARTED_AS_LIBRARY.md).
-Current Vulkan implementation status, including remaining presentation work,
+Current Vulkan implementation status, including optional presentation expansion,
 is tracked in [`vulkan-backend-status.md`](../../public/backends/vulkan-backend-status.md).
 
 > Reader note: this is a design discussion as well as a status record. Any
@@ -25,7 +26,7 @@ is tracked in [`vulkan-backend-status.md`](../../public/backends/vulkan-backend-
 > [`GETTING_STARTED_AS_LIBRARY.md`](../../public/getting-started/GETTING_STARTED_AS_LIBRARY.md):
 > `setOutputTarget(...)`, `beginFrame()`, `endFrame()`, and `present()`.
 
-## 1. Current state and remaining problem
+## 1. Current state and optional expansion areas
 
 WhatsCanvas now has a unified output-target API, but window presentation is
 still platform- and backend-specific:
@@ -38,7 +39,9 @@ still platform- and backend-specific:
   test.
 - **Software (CPU)** supports window blitting on Windows GDI and Linux/X11;
   otherwise it produces a CPU RGBA buffer for the host to display.
-- **Metal / D3D** do not exist (factory returns `nullptr`).
+- **Metal** supports `CAMetalLayer` presentation through the iOS host and the
+  standalone `WhatsCanvas::Metal` target.
+- **D3D** is not implemented and is not part of the stable v1 scope.
 - There is **no `setMode` / runtime backend switch**. The backend is fixed at
   `Canvas` construction, and `Canvas` is non-copyable.
 
@@ -258,8 +261,8 @@ plus an optional convenience layer.
 ## 11. Historical change inventory
 
 This inventory records the original implementation plan. The completed slices
-are summarized in §1 and §13; the remaining work is primarily platform and
-backend expansion.
+are summarized in §1 and §13; unimplemented entries are optional platform and
+backend expansion rather than stable-v1 requirements.
 
 - **A. Instance** — Vulkan: build a *present-ready* instance (surface extensions)
   behind a windowed mode flag; keep the headless path for offscreen.
@@ -308,8 +311,9 @@ backend expansion.
    Importing a *foreign* host device is a further step.
 4. ~~**OpenGL** host-owned thin-shell `ISwapchain`~~ **done** (WGL swap; GLX
    guarded/unverified) and **wrap-external into a host GL framebuffer** done.
-5. Future: **D3D / Metal** against the same interface; mobile surface-lifecycle
-   handling; verify the Linux X11/GLX paths.
+5. Optional: **D3D** against the same interface, additional library-owned
+   Vulkan surfaces, and broader Linux X11/GLX validation. Metal presentation
+   and the Android/iOS host lifecycle paths are implemented.
 
 ## 14. Open questions and resolved decisions
 
@@ -319,4 +323,6 @@ backend expansion.
   `WindowTarget` object.
 - Color-space / sRGB handling across swapchain formats vs the existing
   `setGammaCorrect` model.
-- Mobile surface-loss callback surface area (reuse `releaseResources` semantics?).
+- **Resolved for current hosts:** Android and iOS own their platform lifecycle
+  adapters and rebuild backend resources on surface/context recreation. A new
+  public callback is not required by the stable v1 contract.

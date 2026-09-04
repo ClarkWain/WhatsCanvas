@@ -34,17 +34,10 @@ def main() -> int:
     changelog = read("CHANGELOG.md")
     package_workflow = read(".github/workflows/package-release.yml")
 
+    public_docs_root = ROOT / "doc/public"
     versioned_public_docs = {
-        "tutorial overview": read("doc/public/tutorials/README.md"),
-        "tutorial overview (zh)": read("doc/public/tutorials/zh/README.md"),
-        "tutorial intro": read("doc/public/tutorials/00-whatscanvas-intro.md"),
-        "tutorial intro (zh)": read("doc/public/tutorials/zh/00-whatscanvas-intro.md"),
-        "tutorial setup": read("doc/public/tutorials/01-environment-setup.md"),
-        "tutorial setup (zh)": read("doc/public/tutorials/zh/01-environment-setup.md"),
-        "tutorial backends": read("doc/public/tutorials/10-multi-backend.md"),
-        "tutorial backends (zh)": read("doc/public/tutorials/zh/10-multi-backend.md"),
-        "tutorial platforms": read("doc/public/tutorials/12-cross-platform.md"),
-        "tutorial platforms (zh)": read("doc/public/tutorials/zh/12-cross-platform.md"),
+        path.relative_to(ROOT).as_posix(): path.read_text(encoding="utf-8")
+        for path in public_docs_root.rglob("*.md")
     }
 
     project_version = require(r"project\s*\(\s*WhatsCanvas\s+VERSION\s+([0-9]+\.[0-9]+\.[0-9]+)", cmake, "CMake project version")

@@ -34,7 +34,9 @@ The first concrete step is already in place:
 - blend/scissor/clip state application moved out of generic draw command helper functions into `RenderContext`, OpenGL texture lifecycle helpers are now centralized in `src/opengl/GLTextureUtils.*`, and offscreen render targets now provision stencil attachments for path-based clipping.
 - The first `clipPath` slice is now in place: rectangular path clips degenerate to scissor when possible, non-rect path clips precompute a mask at record time, repeated identical clip snapshots can reuse stencil state across adjacent command execution, stacked path clips accumulate through stencil counting, and clip stacks that exceed the current 8-bit stencil budget now fail closed instead of silently wrapping.
 
-This is an intermediate design, not the final backend model.
+This is the accepted stable-v1 backend model. A fuller resource family or
+render graph may be added later, but neither is required for the current public
+contract.
 
 The target direction is:
 
@@ -58,12 +60,12 @@ The target direction is:
 - Backend/resource implementation now also has a dedicated seam through `IRenderDevice`.
 - Offscreen layer targets now also have a backend-owned object boundary instead of ad-hoc framebuffer lifetime management inside one renderer function.
 - Non-rect clip masks now also have a backend-owned resource seam and can be cached on clip state instead of being rebuilt from copied raw arrays on every draw snapshot.
-- The remaining Canvas core is closer to a recording/composition layer than a GL state manager.
+- The Canvas core is now closer to a recording/composition layer than a GL state manager.
 - Repeated texture lifecycle code and repeated blend/scissor state setup now have single ownership points.
 
 ### Negative
 
-- The current split is `Canvas -> IRenderer -> IRenderDevice`, with an initial `IRenderTarget` resource seam, but it is still not yet a full render graph or broader device/resource family.
+- The current split is `Canvas -> IRenderer -> IRenderDevice`, with an `IRenderTarget` resource seam. A full render graph or broader device/resource family remains an optional internal expansion.
 - `ImageResource` is now an interface boundary with concrete OpenGL and Vulkan
   resources; it is not yet a complete device-owned resource family across all
   backends.
@@ -72,7 +74,7 @@ The target direction is:
   Vulkan uses its backend-owned analytic coverage-mask path; both enter through
   backend-owned clip resources rather than raw generic draw payloads.
 
-## Follow-up
+## Optional internal evolution
 
 1. Add backend-neutral graphics state and draw model types.
 2. Grow the first device/resource abstraction (`IRenderDevice`, `IRenderTarget`, clip resources) into fuller backend-owned resource families (`IImageResource`, reusable clip atlases/masks, ...).

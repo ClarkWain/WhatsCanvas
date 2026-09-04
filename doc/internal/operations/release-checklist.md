@@ -3,6 +3,13 @@
 > Maintainer procedure. Keep this version-neutral; store evidence tied to a
 > completed version under `doc/archive/releases/<version>/`.
 
+This is a recurring release procedure, not a list of unfinished product
+capabilities. The stable-v1 representative Android/iOS hardware target is
+complete; see
+[`mobile-hardware-signoff-2026-09.md`](../validation/mobile-hardware-signoff-2026-09.md).
+Repeat a hardware check when the release changes the corresponding platform
+path.
+
 This checklist keeps releases aligned with the project's current goal: a lightweight, embeddable Canvas-style 2D renderer with reliable packaging and validation.
 
 Every release must have objective evidence for its blocking criteria. Historical

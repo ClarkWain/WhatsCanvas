@@ -1,53 +1,42 @@
-# Active Product Capability Backlog
+# Optional Product Expansion Register
 
 Status reviewed: 2026-09-04.
 
-This file contains only unresolved product-level outcomes. Completed execution
-history lives in `doc/archive/implementation/core-capability-log.md`. Each item
-must receive an issue, owner, and target milestone before implementation starts.
+The stable v1 product scope is complete. Canvas drawing, text, desktop and
+mobile packaging, representative mobile hardware validation, and complex
+application usage are established. The mobile result is consolidated in
+[`mobile-hardware-signoff-2026-09.md`](../validation/mobile-hardware-signoff-2026-09.md).
 
-## P0 — Distribution completeness
+The proposals below do not represent missing v1 capabilities and do not have a
+release priority. Promote one to an active issue only after defining its user,
+owner, milestone, compatibility boundary, and acceptance evidence.
 
-- [ ] Define the supported Web distribution contract: `.wasm`, ES module,
-  TypeScript declarations, browser requirements, and versioning policy.
-  - Exit: a clean consumer downloads an official artifact and renders the
-    documented first frame without building WhatsCanvas from source.
-- [ ] Add release automation and a consumer smoke test for the Web artifact.
-  - Exit: CI builds, packages, installs, and runs the same artifact published by
-    a tagged release.
+## Web delivery options
 
-## P1 — Platform hardening
+- Publish a prebuilt Web artifact containing `.wasm`, an ES module loader,
+  browser requirements, version metadata, and licenses.
+- Add a clean-consumer smoke test that downloads and runs the exact Web
+  artifact attached to a release.
+- Add browser fetch and repaint/relayout glue around the existing remote-font
+  provider when a browser-facing product needs it.
+- Define a JavaScript/TypeScript Canvas API only if WhatsCanvas chooses to
+  support JavaScript consumers directly. The current C++ API and Web host do
+  not require that expansion.
 
-- [ ] Record target-hardware release sign-off for supported Android and iOS
-  configurations instead of relying only on emulator/simulator evidence.
-  - Exit: device, OS, GPU/backend, lifecycle, text, and visual-parity evidence
-    is stored in a dated validation record.
-- [ ] Extend Vulkan window presentation beyond the current Win32 path and cover
-  resize plus device-loss recovery.
-  - Exit: each claimed platform has an automated or explicitly documented
-    presentation gate.
-- [ ] Complete browser host glue for remote fonts and repaint/relayout
-  notification.
-  - Exit: the public Web-font guide has a runnable browser example and an
-    automated loading/failure test.
+## Backend options
 
-## P2 — Optional product expansion
+- Extend library-owned Vulkan window presentation beyond Win32 if a target
+  application needs it. Host-owned presentation and existing platform hosts
+  remain valid current integrations.
+- Evaluate WebGPU only after a concrete consumer demonstrates an advantage over
+  the validated WebGL 2 path that justifies another maintained backend.
 
-- [ ] Decide whether a JavaScript-facing Canvas API is a supported product
-  surface or only an example-layer convenience wrapper.
-  - Exit: an accepted API boundary and lifetime model exist before bindings are
-    published.
-- [ ] Evaluate WebGPU only after the WebGL 2 distribution and validation gates
-  are stable.
-  - Exit: a decision record compares maintenance cost, browser coverage, and
-    measurable product benefit.
+## Promotion rules
 
-## Backlog rules
-
-- Keep completed tasks out of this file; close their issue and record durable
-  behavior in public docs, tests, an architecture decision, or the changelog.
-- Do not treat a checkbox as authorization to expand the public API.
-- Every performance or rendering item needs a reproducible baseline and a
-  correctness gate before implementation.
-- Review this file at each release boundary and archive items that are no longer
-  aligned with the product direction.
+- Optional proposals do not reduce the completion status of the stable product.
+- A proposal becomes active work only through an issue or project milestone;
+  this file is not an implicit roadmap commitment.
+- Public API expansion requires an accepted boundary and lifetime model before
+  implementation.
+- Completed work belongs in tests, public documentation, an architecture
+  decision, release evidence, or the changelog rather than this register.

@@ -598,7 +598,7 @@ Validate at least:
 
 The source-level cross-platform gates remain relevant because geometry,
 anti-aliasing, text atlas, and command generation are shared by Android and
-other platforms. See `doc/CROSS_PLATFORM_VALIDATION_MATRIX.md` in the source
+other platforms. See `doc/internal/validation/cross-platform-matrix.md` in the source
 tree.
 
 ## Troubleshooting

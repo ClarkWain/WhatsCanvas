@@ -113,7 +113,8 @@ orientation or whose matching native first frame has not completed. Pass
 `--scene <id>` to recapture one scene during development.
 
 The sample includes density-aware touch interaction, lifecycle/context-loss
-handling, CI builds and lint, retained-scene diagnostics, and device checkpoints
-on Pixel 3 (Android 12) and Redmi K30 (Android 11/MIUI 12.5). Encoded-image use
-in this demo, managed-emulator instrumentation, broad OEM device coverage, and
-Vulkan presentation remain follow-up work.
+handling, CI builds and lint, retained-scene diagnostics, and completed device
+checkpoints on Pixel 3 (Android 12) and Redmi K30 (Android 11/MIUI 12.5).
+Encoded-image use in this demo, managed-emulator instrumentation, broader OEM
+coverage, and Vulkan presentation are optional extensions rather than missing
+stable-v1 requirements.

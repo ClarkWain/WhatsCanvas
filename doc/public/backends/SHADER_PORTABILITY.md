@@ -43,8 +43,13 @@ cmake --build build-gles-check --target WhatsCanvasOpenGLES --config Debug
 | SpriteBatch | Uses shared version directive. |
 | GaussianBlurProgram | Uses shared version directive with explicit `precision highp float` on both stages (blur math needs full precision). |
 
-## Remaining Runtime Validation
+## Runtime Validation Model
 
-The GLES build proves compile-time portability on the current host toolchain. Device-level runtime validation still belongs in Android/iOS smoke targets because shader compiler behavior can vary across mobile GPUs.
+The GLES build proves compile-time portability on the current host toolchain.
+Representative Android runtime validation is complete on Pixel 3 and Redmi K30,
+including a real Adreno precision regression. Because shader compiler behavior
+can vary across mobile GPUs, releases that change GLES shader source should
+repeat the relevant device smoke; this is regression policy, not an unfinished
+stable-v1 capability.
 
 For iOS host integration details, see [iOS Build Notes](../platforms/IOS_BUILD_NOTES.md).

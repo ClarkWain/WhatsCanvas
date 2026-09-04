@@ -144,3 +144,6 @@ The project is not trying to mirror every feature of large graphics engines. Sta
 - regression-friendly behavior
 
 Features that significantly expand scope, such as full document backends, advanced color-management systems, or a browser-grade text editing stack, should be evaluated as optional extensions rather than assumed core API.
+
+The stable v1 target described by this boundary is complete. Optional backend,
+format, platform, and tooling extensions do not reduce that completion status.

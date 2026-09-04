@@ -1369,19 +1369,19 @@ UI 和 2D 场景通常只有 transform、颜色、透明度或少量内容变化
 - 图片在三个规模、三种变化模式全部领先；这仍不代表任意纹理数、任意 shader 和任意 blend 序列；
 - `contract_text_latin` 在三个规模、三种变化模式全部领先；它只覆盖固定字体合同，不代表所有 script、fallback 和 shaping 组合；
 - Vulkan 已有同机八进程结果，但 NanoVG adapter 只有 OpenGL，不能把 Vulkan 2.809 / 0.367 / 2.964 ms 写成对 NanoVG 的同后端胜负；
-- Software 和 OpenGL ES 仍需要各自验证；
+- Software 和 OpenGL ES 不在这组 NanoVG GL3 对比范围内；如需发布对应后端的性能结论，应建立各自的同条件基线；
 - 复杂 path、stroke、gradient、clip、layer 和 filter 不一定命中 simple-fill/stable-topology 路径；
 - 当前 `geometry_stress` 每帧只改变水平平移，图形尺寸、类型、顺序和 topology 都稳定，不代表每帧任意变形；
 - 当前 62,984 个路径顶点刚好低于 65,536 单批上限；保持相同顶点密度扩展到 5000 个图形会拆成约三个批次，不能线性外推 2304 个图形的领先幅度；
-- 当前 runner 已发布 bootstrap 95% 置信区间，但仍需要更多硬件和驱动样本；
+- 当前 runner 已发布 bootstrap 95% 置信区间；更多硬件和驱动样本只能扩大结论适用范围，不影响这组基线已经完成；
 - 两端现在都把不透明全屏 src-over 绘制作为测量内的清屏语义；NanoVG 仅在测量区间外做 stencil 维护；
 - 文字场景允许 FreeType/HarfBuzz 与 stb/fontstash 的正常 shaping、kerning 和 rasterization 差异。
 
 因此文章描述的是一个真实、可重复、质量受控的场景优化过程，而不是营销式的库排名。
 
-## 14. 下一步
+## 14. 可选的后续实验
 
-几何 Pass 5 和后续跨后端提交证明 stable compiled packet 很有价值。Alpha8、glyph instancing、Vulkan compact solid upload 和 command-buffer reuse 已经完成第一步，接下来仍有以下工作。
+几何 Pass 5 和后续跨后端提交证明 stable compiled packet 很有价值。Alpha8、glyph instancing、Vulkan compact solid upload 和 command-buffer reuse 已达到本文设定的性能目标。以下想法不属于未完成任务；只有新的业务 workload 或回归数据再次定位到相应成本时，才值得启动。
 
 ### 14.1 文本
 

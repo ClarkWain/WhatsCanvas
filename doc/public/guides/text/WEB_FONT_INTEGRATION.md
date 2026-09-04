@@ -92,9 +92,9 @@ changing the fingerprint cancels the old provider state and gives any new
 attempt a different request token. When it is empty, re-registration remains
 conservative and always invalidates the source.
 
-## Browser adapter responsibilities
+## Optional browser adapter responsibilities
 
-The remaining platform layer should:
+A browser host that chooses to support remote Web fonts should:
 
 - ship a deterministic baseline font so first layout has stable metrics;
 - execute fetches with cancellation and persistent HTTP/browser caching;

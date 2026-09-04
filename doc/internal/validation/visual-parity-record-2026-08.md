@@ -7,6 +7,11 @@ This record captures problems found while running the complete Android, iOS,
 Desktop and Web matrix. It is separate from temporary task notes so the same
 failures can be recognized when more scenes or platforms are added.
 
+> Status update, 2026-09-04: this August run used Android emulator and iOS
+> simulator captures. Subsequent Android and iOS physical-device validation
+> completed the stable-v1 representative hardware target; see
+> [`mobile-hardware-signoff-2026-09.md`](mobile-hardware-signoff-2026-09.md).
+
 ## 2026-08-21 validation environment
 
 | Platform | Runtime | Backend | Capture DPR |
@@ -149,7 +154,9 @@ python3 tools/visual_parity/visual_parity.py matrix \
   --output out/visual-parity/matrix
 ```
 
-Simulator and headless-browser coverage is the development gate. A release
-still requires representative physical iOS GPUs, Android OEM devices, and more
-than one browser/GPU combination because their presentation and driver paths
-cannot be proven by these local simulators.
+Simulator and headless-browser coverage is the repeatable development gate.
+At the time of this August run, physical-device evidence was tracked
+separately. The later representative Android/iOS sign-off completes that v1
+requirement. Releases that change a platform-specific presentation or driver
+path should repeat the affected hardware check; broader hardware coverage is
+compatibility work rather than an open product requirement.
