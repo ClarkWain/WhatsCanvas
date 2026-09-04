@@ -1,29 +1,27 @@
-# Chapter 9: Windowed Presentation and Interaction
+# 第九章：窗口呈现与交互
 
-> Goal of this chapter: display rendered frames on a window using the OpenGL / Vulkan / Metal / Software backends, set up a frame loop, handle window resize, and process user input.
-
-For the Chinese version, see [`zh/09-windowed-presentation.md`](./zh/09-windowed-presentation.md).
+> 本章目标：学会使用 OpenGL/Vulkan/Metal/Software 后端将渲染结果显示到窗口，建立帧循环，处理窗口缩放和用户输入。
 
 ---
 
-## 9.1 From Offscreen to Windowed
+## 9.1 从离屏到窗口
 
-Earlier chapters used the Software backend for offscreen rendering. This chapter enters the "real-time rendering" territory — drawing every frame to a window on screen.
+前面的章节都使用 Software 后端进行离屏渲染。本章进入"实时渲染"领域——将每一帧绘制到屏幕窗口上。
 
-Key concepts for windowed presentation:
+窗口呈现的关键概念：
 
 ```
-Create window → Create Canvas → Set OutputTarget → Frame loop:
-    beginFrame() → draw → endFrame() → present()
+创建窗口 → 创建 Canvas → 设置 OutputTarget → 帧循环:
+    beginFrame() → 绘制 → endFrame() → present()
 ```
 
 ---
 
-## 9.2 OpenGL + GLFW Window (Most Common Setup)
+## 9.2 OpenGL + GLFW 窗口（最常见方案）
 
-GLFW is a cross-platform window and OpenGL context management library. Every WhatsCanvas desktop example uses it.
+GLFW 是一个跨平台的窗口和 OpenGL 上下文管理库，WhatsCanvas 的所有桌面示例都使用它。
 
-### Complete Example
+### 完整示例
 
 ```cpp
 #define GLFW_INCLUDE_NONE
@@ -42,37 +40,37 @@ using namespace wsc;
 
 int main()
 {
-    // 1. Initialize GLFW
+    // 1. 初始化 GLFW
     if (!glfwInit()) return 1;
 
-    // 2. Request an OpenGL version
+    // 2. 设置 OpenGL 版本要求
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_SAMPLES, 4);  // MSAA
 
-    // 3. Create the window
+    // 3. 创建窗口
     int width = 800, height = 600;
     GLFWwindow* window = glfwCreateWindow(width, height,
         "WhatsCanvas Window", nullptr, nullptr);
     if (!window) { glfwTerminate(); return 1; }
 
-    // 4. Set the OpenGL context
+    // 4. 设置 OpenGL 上下文
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1);  // VSync
 
-    // 5. Load OpenGL function pointers
+    // 5. 加载 OpenGL 函数指针
     if (!Canvas::loadOpenGL(
             reinterpret_cast<Canvas::OpenGLProcAddress>(glfwGetProcAddress))) {
         glfwTerminate();
         return 1;
     }
 
-    // 6. Create the Canvas
+    // 6. 创建 Canvas
     auto canvas = Canvas::create(Canvas::Backend::OpenGL, width, height);
     canvas->initializeContext();
 
-    // 7. Set the window as the output target (optional; lets Canvas manage the swap)
+    // 7. 设置窗口呈现目标（可选，用于 Canvas 自管理 swap）
     NativeSurface surface;
 #if defined(_WIN32)
     surface.platform = NativeSurface::Platform::Win32;
@@ -81,12 +79,12 @@ int main()
     bool useCanvasPresent = canvas->setOutputTarget(
         OutputTarget::ToWindow(surface));
 
-    // 8. Frame loop
+    // 8. 帧循环
     double startTime = glfwGetTime();
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
 
-        // Handle resize
+        // 处理窗口大小变化
         int fbw, fbh;
         glfwGetFramebufferSize(window, &fbw, &fbh);
         if (fbw != canvas->getWidth() || fbh != canvas->getHeight()) {
@@ -98,16 +96,16 @@ int main()
         float w = static_cast<float>(canvas->getWidth());
         float h = static_cast<float>(canvas->getHeight());
 
-        // Begin the frame
+        // 开始帧
         canvas->beginFrame();
 
-        // Background
+        // 绘制背景
         Paint bg;
         bg.setLinearGradient(0, 0, w, h,
             Color(24, 26, 34), Color(40, 44, 60));
         canvas->drawRect(RectF(0, 0, w, h), bg);
 
-        // Animated circle
+        // 动画圆形
         float cx = w * 0.5f + std::cos(t) * 150.0f;
         float cy = h * 0.5f + std::sin(t * 1.3f) * 100.0f;
         Paint circle;
@@ -117,7 +115,7 @@ int main()
         circle.setShadowLayer(20, 0, 8, Color(0, 0, 0, 120));
         canvas->drawCircle(cx, cy, 80, circle);
 
-        // Rotating rectangle
+        // 旋转矩形
         canvas->save();
         canvas->translate(w * 0.5f, h * 0.5f);
         canvas->rotate(t * 0.7f);
@@ -127,10 +125,10 @@ int main()
         canvas->drawRoundRect(RectF(-60, -40, 120, 80), 16, box);
         canvas->restore();
 
-        // End the frame
+        // 结束帧
         canvas->endFrame();
 
-        // Present
+        // 呈现
         if (useCanvasPresent) {
             canvas->present();
         } else {
@@ -146,27 +144,27 @@ int main()
 
 ---
 
-## 9.3 Vulkan Windowed Presentation
+## 9.3 Vulkan 窗口呈现
 
-The Vulkan backend fully self-manages rendering resources; no external GL context is required:
+Vulkan 后端完全自管理渲染资源，不需要外部 GL 上下文：
 
 ```cpp
-// Vulkan window: no GL
+// Vulkan 窗口：不使用 GL
 glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
 GLFWwindow* window = glfwCreateWindow(800, 600,
     "WhatsCanvas - Vulkan", nullptr, nullptr);
 
-// Check Vulkan availability
+// 检查 Vulkan 可用性
 if (!Canvas::isBackendAvailable(Canvas::Backend::Vulkan)) {
-    // fall back to another backend
+    // fallback 到其他后端
 }
 
-// Create the Vulkan Canvas
+// 创建 Vulkan Canvas
 auto canvas = Canvas::create(Canvas::Backend::Vulkan, 800, 600);
 canvas->initializeContext();
 
-// Set up window presentation
+// 设置窗口呈现
 NativeSurface surface;
 #if defined(_WIN32)
 surface.platform = NativeSurface::Platform::Win32;
@@ -174,11 +172,11 @@ surface.window = glfwGetWin32Window(window);
 #endif
 canvas->setOutputTarget(OutputTarget::ToWindow(surface));
 
-// The frame loop is identical to OpenGL
+// 帧循环与 OpenGL 完全一致
 while (!glfwWindowShouldClose(window)) {
     glfwPollEvents();
     canvas->beginFrame();
-    // ... draw ...
+    // ... 绘制 ...
     canvas->endFrame();
     canvas->present();
 }
@@ -186,10 +184,10 @@ while (!glfwWindowShouldClose(window)) {
 
 ---
 
-## 9.4 Metal Windowed Presentation (macOS)
+## 9.4 Metal 窗口呈现 (macOS)
 
 ```objcpp
-// macOS: use Metal + CAMetalLayer
+// macOS: 使用 Metal + CAMetalLayer
 glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
 GLFWwindow* window = glfwCreateWindow(800, 600,
@@ -198,7 +196,7 @@ GLFWwindow* window = glfwCreateWindow(800, 600,
 auto canvas = Canvas::create(Canvas::Backend::Metal, 800, 600);
 canvas->initializeContext();
 
-// Grab the NSWindow's contentView
+// 获取 NSWindow 的 contentView
 NSWindow* nsWindow = glfwGetCocoaWindow(window);
 NSView* contentView = nsWindow.contentView;
 contentView.wantsLayer = YES;
@@ -208,17 +206,17 @@ surface.platform = NativeSurface::Platform::Cocoa;
 surface.window = (__bridge void*)contentView;
 canvas->setOutputTarget(OutputTarget::ToWindow(surface));
 
-// Frame loop as above
+// 帧循环同上
 ```
 
 ---
 
-## 9.5 Software Windowed Presentation (Windows GDI)
+## 9.5 Software 窗口呈现 (Windows GDI)
 
-Pure CPU rendering can also present to a window (via a GDI blit):
+纯 CPU 渲染也可以显示到窗口（通过 GDI blit）：
 
 ```cpp
-glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);  // No GL context needed
+glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);  // 无需 GL 上下文
 
 auto canvas = Canvas::create(Canvas::Backend::Software, 800, 600);
 canvas->initializeContext();
@@ -228,45 +226,45 @@ surface.platform = NativeSurface::Platform::Win32;
 surface.window = glfwGetWin32Window(window);
 canvas->setOutputTarget(OutputTarget::ToWindow(surface));
 
-// Frame loop
+// 帧循环
 while (!glfwWindowShouldClose(window)) {
     glfwPollEvents();
     canvas->beginFrame();
-    // ... draw ...
+    // ... 绘制 ...
     canvas->endFrame();
     canvas->present();  // GDI blit
 }
 ```
 
-> **Note**: Software windowed presentation currently supports Windows only.
+> **注意**：Software 窗口呈现目前仅支持 Windows。
 
 ---
 
-## 9.6 OutputTarget Summary
+## 9.6 OutputTarget 类型汇总
 
 ```cpp
-// Offscreen rendering (default) — get pixels via readPixelsRGBA
+// 离屏渲染（默认）— 使用 readPixelsRGBA 获取结果
 OutputTarget::Offscreen();
 
-// Offscreen texture — result stored in a GPU texture
+// 离屏纹理 — 结果存在 GPU 纹理中
 OutputTarget::OffscreenTexture();
 
-// Windowed presentation — render to a window
+// 窗口呈现 — 渲染到窗口
 OutputTarget::ToWindow(surface, swapchainConfig);
 
-// Wrap an existing GL framebuffer
+// 包装现有 GL Framebuffer
 OutputTarget::GLFramebuffer(fbo, width, height, opaque);
 
-// Wrap a Vulkan image
+// 包装 Vulkan Image
 OutputTarget::VulkanImageTarget(vkImage, vkFormat, width, height);
 ```
 
 ---
 
-## 9.7 Handling Window Resize
+## 9.7 处理窗口大小变化
 
 ```cpp
-// Detect size changes in the frame loop
+// 在帧循环中检测大小变化
 int fbw, fbh;
 glfwGetFramebufferSize(window, &fbw, &fbh);
 float scaleX, scaleY;
@@ -276,7 +274,7 @@ const float dpr = scaleX > 0.0f ? scaleX : 1.0f;
 if (fbw != canvas->getWidth() || fbh != canvas->getHeight()
     || std::abs(dpr - canvas->devicePixelRatio()) > 0.001f) {
     canvas->setSize(fbw, fbh);
-    canvas->resizeOutput(fbw, fbh);  // Notify the swapchain
+    canvas->resizeOutput(fbw, fbh);  // 通知 swapchain 更新
     canvas->setDevicePixelRatio(dpr);
 
     const float logicalWidth = fbw / dpr;
@@ -287,11 +285,11 @@ if (fbw != canvas->getWidth() || fbh != canvas->getHeight()
 
 ---
 
-## 9.8 Handling User Input
+## 9.8 处理用户输入
 
-GLFW routes input events through callbacks. Combine them with WhatsCanvas hit-testing for interaction.
+GLFW 通过回调函数处理输入事件。配合 WhatsCanvas 的 hit-test 可以实现交互：
 
-### Keyboard Input
+### 键盘输入
 
 ```cpp
 void keyCallback(GLFWwindow* window, int key, int scancode,
@@ -303,17 +301,17 @@ void keyCallback(GLFWwindow* window, int key, int scancode,
                 glfwSetWindowShouldClose(window, true);
                 break;
             case GLFW_KEY_SPACE:
-                // Trigger some action
+                // 触发某个动作
                 break;
         }
     }
 }
 
-// Register the callback
+// 注册回调
 glfwSetKeyCallback(window, keyCallback);
 ```
 
-### Mouse Click + Path Hit-Testing
+### 鼠标点击 + Path Hit-Testing
 
 ```cpp
 struct AppState {
@@ -330,15 +328,15 @@ void mouseCallback(GLFWwindow* window, int button, int action, int mods)
 
         auto* state = static_cast<AppState*>(glfwGetWindowUserPointer(window));
 
-        // Use Path's hit-testing
+        // 使用 Path 的 hit-testing
         if (state->buttonPath.contains(mx, my)) {
-            // Button clicked!
+            // 按钮被点击！
         }
 
-        // Or use the Canvas hit-test (accounts for the current transform)
+        // 或使用 Canvas 的 hit-test（考虑变换）
         if (state->canvas->hitTestPathFill(
                 state->buttonPath, PointF(mx, my))) {
-            // Hit in the transformed coordinate space
+            // 在变换后的坐标系中命中
         }
     }
 }
@@ -356,39 +354,39 @@ glfwSetWindowUserPointer(window, &appState);
 
 ---
 
-## 9.9 HiDPI Support
+## 9.9 HiDPI 支持
 
 ```cpp
-// Content scale
+// 获取内容缩放比
 float scaleX, scaleY;
 glfwGetWindowContentScale(window, &scaleX, &scaleY);
 const float dpr = scaleX > 0.0f ? scaleX : 1.0f;
 
-// Framebuffer vs logical dimensions
-int fbW, fbH;       // Physical pixels
+// 帧缓冲尺寸 vs 逻辑尺寸
+int fbW, fbH;       // 物理像素
 glfwGetFramebufferSize(window, &fbW, &fbH);
 
-// Logical size = physical / DPR
+// 逻辑尺寸 = 物理尺寸 / DPR
 float logicalW = fbW / dpr;
 float logicalH = fbH / dpr;
 
-// Canvas uses the physical size
+// Canvas 使用物理尺寸
 canvas->setSize(fbW, fbH);
 canvas->setDevicePixelRatio(dpr);
-// Drawing code uses logical coordinates (Canvas scales internally by DPR)
+// 绘制代码使用逻辑坐标（Canvas 内部根据 DPR 缩放）
 ```
 
-`getWidth()` / `getHeight()` return the physical framebuffer size. Page layout should keep `logicalW` / `logicalH` around; after setting a DPR do not keep computing centers with the physical size. GLFW cursor callbacks report window content coordinates, usually already in the logical space; if your input source uses physical pixels, divide by the DPR before hit-testing.
+`getWidth()` / `getHeight()` 返回 framebuffer 的物理尺寸。页面布局应保存 `logicalW` / `logicalH`，不能在设置 DPR 后继续用物理尺寸计算居中位置。GLFW 光标回调给出窗口内容坐标，通常已经处于逻辑坐标系；如果输入来自物理像素坐标，则先除以 DPR 再做 hit-testing。
 
 ---
 
-## 9.10 Frame Rate Control and Performance Stats
+## 9.10 帧率控制与性能统计
 
 ### VSync
 
 ```cpp
-glfwSwapInterval(1);  // Enable VSync (cap at display refresh rate)
-glfwSwapInterval(0);  // Disable VSync (uncapped)
+glfwSwapInterval(1);  // 启用 VSync（限制到显示器刷新率）
+glfwSwapInterval(0);  // 关闭 VSync（尽可能快）
 ```
 
 ### SwapchainConfig
@@ -401,19 +399,19 @@ config.imageCount = 3;  // Triple buffering
 canvas->setOutputTarget(OutputTarget::ToWindow(surface, config));
 ```
 
-### Render Stats
+### 渲染统计
 
 ```cpp
 canvas->setGpuTimingEnabled(true);
 
-// Retrieve stats each frame
+// 每帧获取统计数据
 auto stats = canvas->getRenderStats();
-// stats contains frame time, draw call count, texture memory usage, ...
+// stats 包含帧时间、draw call 数量、纹理内存等信息
 ```
 
 ---
 
-## 9.11 Full Interactive Example: A Draggable Ball
+## 9.11 完整交互示例：可拖动的圆
 
 ```cpp
 #define GLFW_INCLUDE_NONE
@@ -480,20 +478,20 @@ int main() {
         canvas->beginFrame();
         canvas->drawColor(Color(245, 245, 245));
 
-        // Shadow
+        // 阴影
         canvas->drawBoxShadow(
             RectF(ball.x - ball.radius, ball.y - ball.radius,
                   ball.radius * 2, ball.radius * 2),
             ball.radius, 0, 16, 0, 6, Color(0, 0, 0, 60));
 
-        // Ball
+        // 球
         Paint p;
         p.setAntiAlias(true);
         p.setRadialGradient(ball.x - 10, ball.y - 10, ball.radius,
             Color(100, 200, 255), Color(30, 100, 200));
         canvas->drawCircle(ball.x, ball.y, ball.radius, p);
 
-        // Hint text
+        // 提示文字
         Paint text;
         text.setColor(Color(100, 100, 100));
         text.setTextSize(14.0f);
@@ -511,16 +509,16 @@ int main() {
 
 ---
 
-## 9.12 Summary
+## 9.12 小结
 
-This chapter covered:
+本章学习了：
 
-- [x] Window creation and frame loop with OpenGL + GLFW
-- [x] Vulkan / Metal / Software windowed presentation
-- [x] The OutputTarget variants
-- [x] Handling window resize
-- [x] User input (keyboard / mouse) + hit-testing
-- [x] HiDPI support
-- [x] Frame rate control and performance stats
+- [x] OpenGL + GLFW 窗口创建和帧循环
+- [x] Vulkan / Metal / Software 窗口呈现
+- [x] OutputTarget 的各种类型
+- [x] 窗口大小变化处理
+- [x] 用户输入（键盘/鼠标）+ Hit-Testing
+- [x] HiDPI 支持
+- [x] 帧率控制与性能统计
 
-**Next chapter**: [Multiple Backends and Fallback](./10-multi-backend.md) — backend selection strategies and runtime downgrade.
+**下一章**：[多后端与 Fallback](./10-multi-backend.md) —— 学习多后端切换策略和运行时降级。
