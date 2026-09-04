@@ -5,8 +5,13 @@ NVIDIA GeForce GTX 1060 3GB ·
 Enable with: `cmake -S . -B build -DWHATSCANVAS_ENABLE_VULKAN=ON` (Vulkan SDK
 required). Vulkan is compiled into the OpenGL package target and selected at
 runtime with `Canvas::Backend::Vulkan`. The completed milestone history is
-summarized below; architectural rationale lives in
-the internal ADR-006 backend-neutral command-layer decision record.
+summarized below; architectural rationale lives in the internal
+`doc/internal/architecture/command-layer.md` decision record.
+
+The stable v1 Vulkan scope is complete: offscreen rendering, the documented
+Canvas operations, filters, text, external images, and Win32 presentation are
+implemented and tested. The expansion areas later in this page are optional;
+they do not indicate that the Canvas or stable-v1 product scope is unfinished.
 
 ## What works today
 
@@ -54,9 +59,9 @@ All 12 required methods are implemented on Vulkan.
   `VulkanRenderDevice::nativeImageHandle` returns an owned texture's `VkImage`
   as a handle for round-tripping (``WhatsCanvasVulkanExternalImageTests``).
 
-## Known gaps and why
+## Optional expansion and validation areas
 
-- **Shared command layer still has room to grow**: Vulkan can replay real command
+- **Shared command layer can be converged further**: Vulkan can replay real command
   streams, and OpenGL uses the shared command encoder for offscreen snapshots.
   The remaining architecture work is moving more regular OpenGL flush paths onto
   the same primitive stream without regressing the production renderer.
@@ -109,28 +114,29 @@ All 12 required methods are implemented on Vulkan.
   fragment path (``WhatsCanvasVulkanClipCommandTests`` covers fills, text,
   points, gradient, and image).
 - **Analytic-AA feathering / multi-stop fragment gradients**: the coverage path
-  and fragment-evaluated multi-stop gradients are implemented. Remaining work is
-  broader representative-scene parity and device-specific hardening, not the
-  basic rendering mechanism.
+  and fragment-evaluated multi-stop gradients are implemented. Additional
+  representative scenes and device-specific hardening are optional coverage
+  expansion, not missing rendering mechanisms.
 - **Mipmapped image sampling**: ``createImageResourceFromImageData`` generates a
   full mip chain (blit) when requested, and ``DrawImageSampling::MipmapLinear``
   selects a trilinear sampler, matching the OpenGL mipmap path
   (``WhatsCanvasVulkanMipmapTests``).
-- **Glyph atlas text path needs broader scenes**: Vulkan can render glyph-atlas
+- **Glyph atlas text coverage can grow**: Vulkan can render glyph-atlas
   text quads through the sampled texture pipeline and validates dirty-rect atlas
   texture updates, but text shadows, clipped atlas text, and larger text
   pixel-parity scenes still need coverage.
 - **Not the default backend**: normal builds still default to OpenGL or OpenGLES.
-- **Cross-platform Canvas presentation is incomplete**: current Vulkan Canvas
-  window presentation is wired for Win32. Other native surface types and
-  broader resize/device-loss behavior remain future work.
-- **Larger Canvas validation scenes remain**: the visual parity smoke now covers
-  the core P0 Vulkan paths, but it should still grow into larger representative
-  Canvas scenes and more text / image-effect combinations.
-- **Native platform backends remain separate work**: Metal is still reserved, and
-  DirectWrite/CoreText are text-backend adapter slots rather than render backends.
+- **Vulkan presentation scope**: Canvas window presentation is implemented for
+  Win32. Other native Vulkan surface types and broader device-loss coverage are
+  optional platform extensions.
+- **Larger Canvas validation scenes are optional**: the visual-parity smoke
+  covers the stable-v1 Vulkan paths. More text and image-effect combinations
+  can be added when a target workload needs them.
+- **Other native backends**: Metal is implemented as a standalone render target
+  and powers the validated iOS host. DirectWrite and CoreText remain text
+  backend adapters; D3D rendering is not part of the stable v1 scope.
 
-## Next steps
+## Optional future work
 
 1. Expand representative Canvas-level validation scenes for Vulkan/OpenGL parity.
 2. Move the remaining arbitrary clipped textured-image fallback onto a

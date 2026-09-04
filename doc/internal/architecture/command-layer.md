@@ -2,8 +2,9 @@
 
 ## Status
 
-Accepted / implemented incrementally; regular OpenGL onscreen execution remains
-direct by design.
+Accepted and implemented for the stable v1 backend set. Regular OpenGL onscreen
+execution remains direct by design; further path convergence is optional
+internal refactoring.
 
 ## Context
 
@@ -25,9 +26,9 @@ stable while the shared primitive stream is hardened.
 ## Decision
 
 Introduce a backend-neutral draw representation that sits between command
-recording and backend execution. Commands will emit backend-neutral draw
-payloads; each backend (OpenGL and Vulkan today, with future D3D/WebGPU/Metal
-consumers) consumes those payloads and
+recording and backend execution. Commands emit backend-neutral draw payloads
+where the shared path is useful; OpenGL and Vulkan consume those payloads, and
+other backends may adopt them when that removes measured duplicate work. Each consumer
 translates them into its own API calls. Concretely:
 
 1. Define backend-neutral draw primitives (a small tagged set): solid/gradient
@@ -65,7 +66,7 @@ We adopt a phased path that starts like **B** and converges to **A**:
 This keeps the shipping OpenGL path working at every step and avoids a large,
 risky simultaneous rewrite.
 
-## Why Not Now (scope and risk)
+## Why the extraction is incremental
 
 Executing the full extraction in a single change would touch every `Draw*`
 command and the `RenderContext` execution path, with real regression risk to the
@@ -95,7 +96,7 @@ Vulkan `ctest -L vulkan` suite.
 - Some GL fast paths (e.g. direct stencil clip work) must be re-expressed as
   backend-neutral primitives without regressing OpenGL output.
 
-## Follow-up
+## Optional internal evolution
 
 1. Keep growing the backend-neutral primitive set from the existing `DrawData`
    shapes.

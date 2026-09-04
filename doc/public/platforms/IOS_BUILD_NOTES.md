@@ -85,5 +85,7 @@ xcodebuild test \
 ```
 
 A generic device compile uses `-sdk iphoneos -destination
-'generic/platform=iOS'`. Simulator checks do not replace final physical-device
-profiling, thermal, memory-pressure, signing, and distribution validation.
+'generic/platform=iOS'`. Representative physical-device validation for the
+stable v1 scope is complete on iPhone 12. Applications still own signing and
+distribution validation, and releases that change the iOS rendering or
+lifecycle paths should repeat physical profiling for the affected behavior.

@@ -73,9 +73,10 @@ xcodebuild test \
 ```
 
 The same scene has been validated on an iPhone 12 (A14, iOS 18.7.8) with Metal
-API Validation enabled in Debug and at 59.2–59.9 fps in Release. Simulator
-coverage remains the repeatable lifecycle gate; representative older and
-current physical GPUs are still required before production distribution.
+API Validation enabled in Debug and at 59.2–59.9 fps in Release. The stable v1
+representative-device target is complete. Simulator coverage remains the
+repeatable lifecycle gate; releases that change Metal presentation, CoreText,
+lifecycle, or frame scheduling should repeat the relevant physical-device run.
 
 Add `--capture-frames`, `--capture-time=1.25` and optionally
 `--capture-scene=text_stress` to the Scheme launch arguments

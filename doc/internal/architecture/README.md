@@ -4,6 +4,10 @@ This directory records the architectural boundaries that remain relevant to
 the current implementation. It is maintainer documentation, not part of the
 published product contract.
 
+The stable v1 product scope is complete. References to follow-up work in these
+records describe optional refactoring, backend convergence, or additional
+platform coverage; they are not open product-completion requirements.
+
 ## Core boundaries
 
 1. **Public API** — stable application-facing types live under `include/wsc/`.
@@ -55,8 +59,8 @@ The repeatable maintainer procedure lives in
   and raster backends.
 - [Backend-neutral command layer](command-layer.md) — shared draw
   representation used for cross-backend replay.
-- [Windowed presentation](windowed-presentation.md) — output-target and native
-  presentation design, including remaining platform gaps.
+- [Windowed presentation](windowed-presentation.md) — implemented output-target
+  and native presentation design, plus optional platform expansion areas.
 
 Historical Phase 0 module sketches and the original validation/packaging ADRs
 were retired after their lasting rules were absorbed here or into the current

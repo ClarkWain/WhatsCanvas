@@ -29,7 +29,7 @@ WhatsCanvas 的定位介于 NanoVG 这类基础绘制库和 Skia 这类大型图
 | **文本能力** | 字体发现和 fallback、CJK/RTL、UAX #9、换行与省略号、glyph atlas、COLR/CPAL v0；便携路径使用 FreeType/HarfBuzz，Windows 可选 DirectWrite，Apple 平台可选 CoreText。 |
 | **接入方式** | CMake `find_package`、`add_subdirectory`，或从源码生成可搬运的安装目录。 |
 | **体量** | 非 header-only。支持按后端仅链接 `WhatsCanvas::Software`、`::OpenGL`、`::OpenGLES` 或 Apple 平台的 `::Metal`；参考体量见[体量与依赖](#体量与依赖)。 |
-| **成熟度** | 当前稳定 API 版本为 `1.1.0`。仓库已经建立公开 API 边界、跨平台 CI、像素回归、package consumer 集成测试与可审计的性能基线；平台支持仍以文档中的兼容性边界为准。 |
+| **成熟度** | 当前稳定 API 版本为 `1.1.0`，已定义的稳定 v1 产品范围已经完成。仓库已经建立公开 API 边界、跨平台 CI、像素回归、package consumer 集成测试、代表性移动真机验收与可审计的性能基线。 |
 | **许可证** | MIT；`third_party/` 组件遵循各自许可证。 |
 
 **何时推荐使用 WhatsCanvas？**
@@ -226,7 +226,7 @@ cmake -S . -B build \
 | --- | --- | --- | --- | --- |
 | **Software** | `WhatsCanvas::Software` | 开启 | 无 GPU 或图形 API | 确定性 CPU 参考实现，适合 headless、测试、截图和 fallback。 |
 | **OpenGL 3.3 Core** | `WhatsCanvas::OpenGL` | 开启，主要跨平台 GL 路径 | 应用创建 GL 上下文并保持为当前上下文，提供 proc address | 桌面应用的主要 GL 渲染路径。 |
-| **OpenGL ES 3.0** | `WhatsCanvas::OpenGLES` | 关闭 | 宿主 EGL/GLES context | 独立 target；Linux Mesa 执行构建和滤镜像素门禁，移动设备仍需宿主侧验证。 |
+| **OpenGL ES 3.0** | `WhatsCanvas::OpenGLES` | 关闭 | 宿主 EGL/GLES context | 独立 target；Linux Mesa 执行构建和滤镜像素门禁，Android 宿主已完成 Pixel 3、Redmi K30 代表性真机检查。接入方仍需验证自己的宿主集成。 |
 | **Vulkan** | 编入 `WhatsCanvas::OpenGL` | 关闭 | 源码构建需 Vulkan SDK；运行需 loader、驱动和可用设备 | 默认离屏；Win32 支持 Canvas 窗口呈现，其他平台的窗口 surface 仍在完善。 |
 | **Metal** | 独立 `WhatsCanvas::Metal`，也可编入 `WhatsCanvas::OpenGL` | 独立 target 可选开启 | 支持 Metal 的 macOS/iOS/tvOS 设备 | 支持离屏渲染、外部 `MTLTexture` 互操作和 `CAMetalLayer` 窗口呈现，无需链接 OpenGL ES。 |
 
@@ -252,7 +252,7 @@ if (!canvas) {
 | Windows x64 | MSVC 单元测试、包消费、OpenGL/Software；发布矩阵可启用 GLES、Vulkan、FreeType、HarfBuzz | DirectWrite 文本后端可选；Vulkan 窗口呈现支持 Win32。 |
 | Linux x64 | GCC 构建、单元测试、OpenGL/GLES 滤镜像素门禁、包消费 | 自动化 GL 场景使用 Mesa/Xvfb；GLX 窗口呈现源码仍缺少持续验证。 |
 | macOS x86_64/arm64 | 单元测试、Metal 像素/契约门禁与 universal 发布包 | Metal 默认开启，支持离屏渲染和 `CAMetalLayer` 呈现；系统 OpenGL 仍可用。 |
-| iOS / Android | [iOS UIKit/Metal/CoreText 示例](platforms/ios/README.md)及生命周期 UI 测试、[Android GLSurfaceView/JNI 示例](platforms/android/README.md)与 Android 接入指南 | iOS 已在模拟器验证横竖屏、前后台与冷启动；Android 构建三个 ABI 并有 Pixel 3、Redmi K30 检查。发布前均需目标真机验证。 |
+| iOS / Android | [iOS UIKit/Metal/CoreText 示例](platforms/ios/README.md)及生命周期 UI 测试、[Android GLSurfaceView/JNI 示例](platforms/android/README.md)与 Android 接入指南 | 代表性真机验收已经完成：iPhone 12 覆盖 Metal/CoreText 展示、生命周期、API Validation 和 59.2–59.9 fps；Pixel 3、Redmi K30 覆盖 GLES 渲染、文本、生命周期与显示刷新率跟随。后续版本只有修改相关移动端路径时才需重新验收。 |
 | Web | [Emscripten/WebGL 2 宿主](platforms/wasm/README.md)、headless 浏览器生命周期/DPR/上下文恢复检查，以及 14 张视觉一致性截图 | 源码构建；尚无 WebGPU 后端和预编译 Web 发布包。 |
 
 公开状态详见 [Android 接入指南](doc/public/platforms/ANDROID_INTEGRATION.md)、[iOS Build Notes](doc/public/platforms/IOS_BUILD_NOTES.md) 和 [Vulkan Backend Status](doc/public/backends/vulkan-backend-status.md)。维护者验证记录保存在 `doc/internal/validation/`。
@@ -344,7 +344,7 @@ if (!canvas) {
 - 当前稳定 API 线为 `1.x`；公开 API 的破坏性变更保留到主版本升级，但升级前仍应阅读 CHANGELOG 并执行 package consumer 测试。
 - README 的能力表不保证所有 backend × platform 组合都具备相同能力；滤镜、文字和输出目标应查对应的 feature matrix，并验证项目的实际组合。
 - Vulkan 不是默认后端，跨平台窗口呈现和更大场景的像素覆盖仍在扩展。
-- Android Prefab AAR 已覆盖两个 Arm ABI 和 `x86_64`，Pixel 3、Redmi K30 覆盖渲染、字体、生命周期与帧率检查；广泛真机覆盖仍待补齐。iOS Metal/CoreText XCFramework 已覆盖模拟器和真机切片，应用接入、签名和分发仍由宿主负责。WebAssembly/WebGL 2 宿主采用源码构建并执行浏览器测试；WebGPU 和预编译 Web 发布包尚未提供。
+- Android Prefab AAR 已覆盖两个 Arm ABI 和 `x86_64`，Pixel 3、Redmi K30 已完成渲染、字体、生命周期与帧率检查。iOS Metal/CoreText XCFramework 已覆盖模拟器和真机切片，并在 iPhone 12 完成真机渲染检查。这些代表性验收不承诺覆盖所有系统、GPU 和宿主应用；应用接入、签名和分发仍由宿主负责。WebAssembly/WebGL 2 宿主采用源码构建并执行浏览器测试；WebGPU 和预编译 Web 发布包属于可选扩展。
 - 跨 GPU 的实时渲染结果可能受驱动影响；确定性基线应优先使用 Software，GPU 回归使用容差比较。
 - `Canvas` 应在其渲染 / 上下文线程内使用；当前公开文档不承诺同一实例的并发访问，也未定义跨 Canvas 共享图片、字体或外部纹理的跨线程约定。
 
@@ -427,10 +427,9 @@ sh ./scripts/release_preflight.sh
 
 ## 路线与边界
 
-WhatsCanvas 当前主要改进跨后端像素一致性、文本排版质量、更广泛的 Vulkan、Web 和设备覆盖，以及性能基准的可复现性。长期计划包括 WebGPU、预编译 Web 分发，以及更多 CBDT/CBLC bitmap 格式、SBIX、SVG 和完整 COLRv1 composite。这些能力仍在规划中，不应视为当前已经完整支持。
+WhatsCanvas 的稳定 v1 范围已经完成：Canvas API、文本系统、桌面与移动端发布包、代表性真机验收、像素门禁和性能基线均已建立。后续维护负责保持这些契约，并在相关实现变化时重新执行对应验证。WebGPU、预编译 Web 分发、更广的 Vulkan 窗口呈现、更多 CBDT/CBLC bitmap 格式、SBIX、SVG 与高级 COLRv1 composite 属于可选扩展，不是尚未完成的 v1 要求。
 
-已完成版本的发布证据保存在 `doc/archive/releases/`；当前工作通过 issue
-和内部项目 backlog 跟踪。
+已完成版本的发布证据保存在 `doc/archive/releases/`。已启动的工作通过带负责人和 milestone 的 issue 跟踪；内部登记表只保存非阻塞扩展候选，不表示 v1 尚未完成。
 
 ## 许可证
 

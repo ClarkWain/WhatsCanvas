@@ -1,6 +1,8 @@
 # WhatsCanvas Text Feature Matrix
 
-This matrix defines the production text surface for WhatsCanvas. It separates what is already supported, what has a stable contract, and what still needs a rendering backend implementation.
+This matrix defines the production text surface for WhatsCanvas. The stable v1
+text target is complete. The final section lists optional format expansions;
+those entries do not represent missing requirements for the current product.
 
 ## Current Support
 
@@ -21,7 +23,7 @@ This matrix defines the production text surface for WhatsCanvas. It separates wh
 | RGBA glyph atlas path | Supported | `GlyphAtlas`, text render results, and Canvas atlas upload can carry RGBA glyph pixels for color font layers and alpha-derived glyphs. |
 | Color font table detection | Contract supported | Font rasterizer utilities can detect COLR/CPAL, CBDT/CBLC, SBIX, and SVG OpenType tables as a backend capability probe before concrete glyph extraction. |
 | COLR/CPAL v0 glyph decoding | Supported | Portable font rasterization can decode COLR/CPAL v0 layer records, rasterize each layer outline, composite palette colors into RGBA glyph bitmaps, and upload them through the atlas path. |
-| CBDT/CBLC bitmap glyph decoding | Partial | Portable font rasterization supports CBLC v3 index format 1 with CBDT v3 image format 17 PNG records, including strike selection, metrics, scaling, RGBA atlas upload, and a deterministic bundled-font contract. Other index/image formats remain planned. |
+| CBDT/CBLC bitmap glyph decoding | Supported for the v1 target | Portable font rasterization supports the CBDT/CBLC 2.0 and 3.0 forms used by the validated Android environments: CBLC index format 1 with CBDT image format 17 PNG records, including strike selection, metrics, scaling, RGBA atlas upload, and a deterministic bundled-font contract. Additional formats are optional compatibility extensions. |
 | Shaped glyph run abstraction | Supported | Portable raster text uses shaped runs with source byte mapping, glyph indices, glyph advances, offsets, and letter spacing before atlas upload. |
 | Glyph-index rasterization path | Supported | Font rasterization can render by glyph index, which is required by real shaping outputs. |
 | Simple kerning | Supported | The portable simple shaping path applies registered-font glyph kerning pairs when OpenType shaping is not active. |
@@ -97,11 +99,11 @@ Common standardized tags include:
 This table is illustrative rather than exhaustive. Unknown four-byte tags are
 still forwarded and normally have no effect.
 
-## Planned Backend Work
+## Optional Format Extensions
 
 | Capability | Status | Intended Direction |
 | --- | --- | --- |
-| Additional color font formats | Planned | Add the remaining CBDT/CBLC index/image formats, SBIX, SVG, and advanced COLR paint/composite extraction on top of the existing RGBA glyph atlas path. |
+| Additional color font formats | Optional | Add more CBDT/CBLC index/image formats, SBIX, SVG, and advanced COLR paint/composite extraction if a target application requires them. The existing RGBA glyph atlas path already satisfies the stable v1 text target. |
 
 ## Acceptance Targets
 

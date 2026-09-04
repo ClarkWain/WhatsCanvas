@@ -29,7 +29,7 @@ This project aims to bridge the gap between minimal drawing libraries (such as N
 | **Text Capabilities** | Font discovery and fallback, CJK/RTL, UAX #9, line breaking and ellipsis, glyph atlas, COLR/CPAL v0 and common COLRv1 paint graphs; FreeType/HarfBuzz serve the portable path, with selectable DirectWrite on Windows and CoreText on Apple platforms. |
 | **Integration** | CMake `find_package`, `add_subdirectory`, or portable installation directories generated from source. |
 | **Footprint** | Not header-only. Supports linking only against `WhatsCanvas::Software`, `::OpenGL`, `::OpenGLES`, or Apple-only `::Metal` based on backend; see [Footprint and Dependencies](#footprint-and-dependencies) for reference. |
-| **Maturity** | Current stable API line: `1.1.0`. Public API boundaries, cross-platform CI, pixel regression, package-consumer integration tests, and auditable performance baselines are in place; platform support remains subject to the documented compatibility boundaries. |
+| **Maturity** | Current stable API line: `1.1.0`; the defined stable-v1 product scope is complete. Public API boundaries, cross-platform CI, pixel regression, package-consumer integration tests, representative mobile hardware validation, and auditable performance baselines are in place. |
 | **License** | MIT; components in `third_party/` follow their respective licenses. |
 
 **When to Choose WhatsCanvas?**
@@ -222,7 +222,7 @@ cmake -S . -B build \
 | --- | --- | --- | --- | --- |
 | **Software** | `WhatsCanvas::Software` | Enabled | No GPU or Graphics API | Deterministic CPU reference implementation, suitable for headless, tests, screenshots, and fallback. |
 | **OpenGL 3.3 Core** | `WhatsCanvas::OpenGL` | Enabled, primary cross-platform GL path | App creates the GL context and keeps it current, provides the proc address | Main GL rendering path for desktop applications. |
-| **OpenGL ES 3.0** | `WhatsCanvas::OpenGLES` | Disabled | Host EGL/GLES context | Independent target; Linux Mesa executes build and filter pixel gates; mobile devices require host-side verification. |
+| **OpenGL ES 3.0** | `WhatsCanvas::OpenGLES` | Disabled | Host EGL/GLES context | Independent target; Linux Mesa executes build and filter pixel gates, and the Android host has representative Pixel 3/Redmi K30 device checkpoints. Embedding applications remain responsible for their own host integration. |
 | **Vulkan** | Built into `WhatsCanvas::OpenGL` | Disabled | Vulkan SDK for source build; loader, driver, and device for running | Offscreen by default; Win32 supports Canvas window presentation; window surfaces for other platforms are still evolving. |
 | **Metal** | `WhatsCanvas::Metal` (standalone) or built into `WhatsCanvas::OpenGL` | Standalone target opt-in; OpenGL host enables it on Apple | Metal-capable macOS/iOS/tvOS device | Offscreen rendering, external `MTLTexture` interop, and `CAMetalLayer` presentation without linking OpenGL ES. |
 
@@ -250,7 +250,7 @@ Platform Validation Status:
 | Windows x64 | MSVC unit tests, package consumption, OpenGL/Software; release matrix can enable GLES, Vulkan, FreeType, HarfBuzz | DirectWrite text backend optional; Vulkan window presentation supports Win32. |
 | Linux x64 | GCC build, unit tests, OpenGL/GLES filter pixel gates, package consumption | Automated GL scenarios use Mesa/Xvfb; GLX window presentation from source lacks continuous verification. |
 | macOS x86_64/arm64 | Unit tests, Metal pixel/contract gates, and universal release packages | Metal is enabled by default and supports offscreen rendering plus `CAMetalLayer` presentation; system OpenGL remains available. |
-| iOS / Android | [iOS UIKit/Metal/CoreText sample](platforms/ios/README.md), iOS lifecycle UI test, [Android GLSurfaceView/JNI sample](platforms/android/README.md), and Android integration guide | The iOS host is simulator-validated in portrait/landscape, background/resume, and cold launch. Android builds three ABIs and has Pixel 3/Redmi K30 checkpoints. Both still require target-hardware validation before shipping. |
+| iOS / Android | [iOS UIKit/Metal/CoreText sample](platforms/ios/README.md), iOS lifecycle UI test, [Android GLSurfaceView/JNI sample](platforms/android/README.md), and Android integration guide | Representative hardware validation is complete: iPhone 12 covers Metal/CoreText presentation, lifecycle, API Validation, and 59.2–59.9 fps; Pixel 3 and Redmi K30 cover GLES rendering, text, lifecycle, and display-rate pacing. Revalidate affected paths for releases that change mobile behavior. |
 | Web | [Emscripten/WebGL 2 host](platforms/wasm/README.md), headless-browser lifecycle/DPR/context-restore checks, and 14 visual-parity captures | Source build; no WebGPU backend or prebuilt release archive yet. |
 
 See [Android Integration](doc/public/platforms/ANDROID_INTEGRATION.md), [iOS Build Notes](doc/public/platforms/IOS_BUILD_NOTES.md), and [Vulkan Backend Status](doc/public/backends/vulkan-backend-status.md) for detailed public status. Maintainer evidence is retained under `doc/internal/validation/`.
@@ -343,7 +343,7 @@ Risks to keep in mind:
 - The stable API line is now `1.x`; breaking public API changes are reserved for major releases, but read the CHANGELOG and run package-consumer tests before upgrading.
 - The capability tables in this README are not a parity guarantee for every backend × platform combination; consult the feature matrices for filters, text, and output targets, and validate the combination you actually use.
 - Vulkan is opt-in and not the default backend; cross-platform window presentation and broader pixel coverage are still being extended.
-- The Android Prefab AAR covers both Arm ABIs plus `x86_64`; Pixel 3 and Redmi K30 checkpoints cover rendering, fonts, lifecycle, and pacing, but broad device coverage remains open. The iOS Metal/CoreText XCFramework has simulator and device checkpoints, while host integration, signing, and distribution remain application-owned. The WebAssembly/WebGL 2 host is source-built and browser-tested; WebGPU and a prebuilt Web release archive are not yet available.
+- The Android Prefab AAR covers both Arm ABIs plus `x86_64`; Pixel 3 and Redmi K30 checkpoints cover rendering, fonts, lifecycle, and pacing. The iOS Metal/CoreText XCFramework and iPhone 12 checkpoint cover simulator/device delivery and physical rendering. These representative checks do not promise identical behavior on every OS, GPU, or host application. Host integration, signing, and distribution remain application-owned. The WebAssembly/WebGL 2 host is source-built and browser-tested; WebGPU and a prebuilt Web release archive are optional future product extensions.
 - Real-time GPU rendering results may vary with drivers; use Software as the deterministic baseline and use tolerance-based comparison for GPU regressions.
 - `Canvas` should be used from within its rendering / context thread; current public documentation does not promise concurrent access to a single instance, and no cross-thread contract is defined for sharing images, fonts, or external textures across Canvas instances.
 
@@ -427,10 +427,12 @@ Start from the **[Online Documentation](https://clarkwain.github.io/WhatsCanvas/
 
 ## Roadmap
 
-WhatsCanvas is currently focused on cross-backend pixel consistency, text rendering quality, broader Vulkan, Web, and device coverage, and more reproducible performance benchmarks. Longer-term directions include WebGPU, prebuilt Web distribution, additional CBDT/CBLC bitmap formats, SBIX, SVG, and full COLRv1 compositing. These directions are still in planning and should not be treated as available features today.
+The stable v1 scope is complete: the Canvas API, text system, desktop and mobile packages, representative device validation, pixel gates, and performance baselines are in place. Maintenance work preserves those contracts and reruns affected validation. WebGPU, prebuilt Web distribution, broader Vulkan presentation, additional CBDT/CBLC bitmap formats, SBIX, SVG, and advanced COLRv1 compositing are optional expansion proposals, not missing v1 requirements.
 
-Completed release evidence is retained under `doc/archive/releases/`; current
-work is tracked through issues and the internal project backlog.
+Completed release evidence is retained under `doc/archive/releases/`. Active
+work is tracked through issues with an owner and milestone; the internal
+registers contain non-blocking expansion candidates rather than unfinished v1
+requirements.
 
 ## License
 
