@@ -1,44 +1,42 @@
-# Chapter 3: Paint in Depth
+# 第三章：画笔 Paint 详解
 
-> Goal of this chapter: understand every attribute of `wsc::Paint` and learn to configure color, gradients, shadows, alpha, blend modes, sampling quality, and other drawing state.
-
-For the Chinese version, see [`zh/03-paint-bindepth.md`](./zh/03-paint-bindepth.md).
+> 本章目标：深入理解 `wsc::Paint` 的所有属性，掌握颜色、渐变、阴影、透明度、混合模式、采样质量等绘制状态的配置方法。
 
 ---
 
-## 3.1 The Paint Design Philosophy
+## 3.1 Paint 的设计哲学
 
-`Paint` is a value-type object that describes "how to draw":
+`Paint` 是一个值类型对象，描述"如何绘制"：
 
 ```cpp
-wsc::Paint paint;  // Default state: black, fill, no anti-aliasing
+wsc::Paint paint;  // 默认状态：黑色、填充、无抗锯齿
 ```
 
-It is not bound to any Canvas instance and can be created once and reused. Paint attributes fall into these categories:
+它不绑定任何 Canvas 实例，可以创建后多次复用。Paint 包含以下几类属性：
 
-| Category | Attributes |
-|----------|-----------|
-| Color | Solid color, linear gradient, radial gradient |
-| Style | Fill, stroke, fill + stroke |
-| Stroke | Width, cap, join |
-| Effects | Shadow, blend mode, color matrix |
-| Text | Text size, font family, weight, alignment, ... |
-| Path effects | Dash, corner rounding |
-| Image | Sampling quality, tile mode |
+| 类别 | 属性 |
+|------|------|
+| 颜色 | 纯色、线性渐变、径向渐变 |
+| 样式 | 填充、描边、填充+描边 |
+| 描边 | 宽度、线帽、线连接 |
+| 效果 | 阴影、混合模式、颜色矩阵 |
+| 文本 | 字号、字族、粗细、对齐等 |
+| 路径效果 | 虚线、圆角路径 |
+| 图片 | 采样质量、平铺模式 |
 
 ---
 
-## 3.2 Color
+## 3.2 颜色
 
-### Basic Color
+### 基础颜色
 
 ```cpp
 wsc::Paint paint;
 
-// Option 1: RGBA constructor (0–255)
+// 方式一：RGBA 构造（0~255）
 paint.setColor(wsc::Color(255, 100, 50, 255));
 
-// Option 2: predefined constants
+// 方式二：使用预定义常量
 paint.setColor(wsc::Color::WHITE);
 paint.setColor(wsc::Color::BLACK);
 paint.setColor(wsc::Color::RED);
@@ -46,21 +44,21 @@ paint.setColor(wsc::Color::GREEN);
 paint.setColor(wsc::Color::BLUE);
 ```
 
-### Alpha
+### 透明度
 
 ```cpp
-// Set alpha independently (0–255)
-paint.setAlpha(128);  // 50% transparent
+// 独立设置 alpha（0~255）
+paint.setAlpha(128);  // 50% 透明
 
-// Or specify it in the Color constructor
+// 也可以在 Color 构造时指定
 paint.setColor(wsc::Color(66, 133, 244, 180));  // A=180
 ```
 
 ---
 
-## 3.3 Gradients
+## 3.3 渐变
 
-### Linear Gradient (Two Colors)
+### 线性渐变（两色）
 
 ```cpp
 wsc::Paint paint;
@@ -68,34 +66,34 @@ paint.setAntiAlias(true);
 
 // setLinearGradient(x1, y1, x2, y2, startColor, endColor)
 paint.setLinearGradient(
-    0, 0,           // Start point
-    200, 200,       // End point
-    wsc::Color(66, 133, 244, 255),   // Start color: blue
-    wsc::Color(15, 157, 88, 255)     // End color: green
+    0, 0,           // 起点
+    200, 200,       // 终点
+    wsc::Color(66, 133, 244, 255),   // 起始色：蓝
+    wsc::Color(15, 157, 88, 255)     // 结束色：绿
 );
 
 canvas->drawRoundRect(wsc::RectF(50, 50, 200, 200), 20, paint);
 ```
 
-### Linear Gradient (Multiple Color Stops)
+### 线性渐变（多色停靠点）
 
 ```cpp
 wsc::Paint paint;
 paint.setAntiAlias(true);
 
-// Use a ColorStop array to place multiple colors
+// 使用 ColorStop 数组定义多个颜色位置
 paint.setLinearGradient(0, 0, 300, 0, {
-    {0.0f, wsc::Color(255, 0, 0, 255)},     // Red
-    {0.3f, wsc::Color(255, 165, 0, 255)},   // Orange
-    {0.5f, wsc::Color(255, 255, 0, 255)},   // Yellow
-    {0.7f, wsc::Color(0, 128, 0, 255)},     // Green
-    {1.0f, wsc::Color(0, 0, 255, 255)},     // Blue
+    {0.0f, wsc::Color(255, 0, 0, 255)},     // 红
+    {0.3f, wsc::Color(255, 165, 0, 255)},   // 橙
+    {0.5f, wsc::Color(255, 255, 0, 255)},   // 黄
+    {0.7f, wsc::Color(0, 128, 0, 255)},     // 绿
+    {1.0f, wsc::Color(0, 0, 255, 255)},     // 蓝
 });
 
 canvas->drawRect(wsc::RectF(20, 150, 360, 60), paint);
 ```
 
-### Radial Gradient
+### 径向渐变
 
 ```cpp
 wsc::Paint paint;
@@ -103,10 +101,10 @@ paint.setAntiAlias(true);
 
 // setRadialGradient(centerX, centerY, radius, innerColor, outerColor)
 paint.setRadialGradient(
-    200, 200,       // Center
-    120,            // Radius
-    wsc::Color(255, 255, 255, 255),  // Inner: white
-    wsc::Color(33, 150, 243, 255)    // Outer: blue
+    200, 200,       // 圆心
+    120,            // 半径
+    wsc::Color(255, 255, 255, 255),  // 中心：白色
+    wsc::Color(33, 150, 243, 255)    // 边缘：蓝色
 );
 
 canvas->drawCircle(200, 200, 120, paint);
@@ -114,52 +112,52 @@ canvas->drawCircle(200, 200, 120, paint);
 
 ---
 
-## 3.4 Stroke Attributes
+## 3.4 描边属性
 
-### Stroke Width
+### 描边宽度
 
 ```cpp
 wsc::Paint paint;
 paint.setStyle(wsc::Paint::Style::STROKE);
-paint.setStrokeWidth(5.0f);  // 5 pixels wide
+paint.setStrokeWidth(5.0f);  // 5 像素宽
 paint.setColor(wsc::Color(33, 33, 33, 255));
 ```
 
-### Line Cap (StrokeCap)
+### 线帽 (StrokeCap)
 
-Controls the shape at the ends of line segments:
+控制线段端点的形状：
 
 ```cpp
-// BUTT   — Butt cap, no extension past the endpoint (default)
+// BUTT   ——  平头，不超出端点（默认）
 paint.setStrokeCap(wsc::Paint::StrokeCap::BUTT);
 
-// ROUND  — Round cap, extends by half the stroke width
+// ROUND  ——  圆头，超出半径等于线宽的一半
 paint.setStrokeCap(wsc::Paint::StrokeCap::ROUND);
 
-// SQUARE — Square cap, extends by half the stroke width
+// SQUARE ——  方头，超出长度等于线宽的一半
 paint.setStrokeCap(wsc::Paint::StrokeCap::SQUARE);
 ```
 
-### Line Join (StrokeJoin)
+### 线连接 (StrokeJoin)
 
-Controls the shape at path corners:
+控制路径拐角处的形状：
 
 ```cpp
-// MITER — Miter (default)
+// MITER ——  尖角（默认）
 paint.setStrokeJoin(wsc::Paint::StrokeJoin::MITER);
 
-// ROUND — Round
+// ROUND ——  圆角
 paint.setStrokeJoin(wsc::Paint::StrokeJoin::ROUND);
 
-// BEVEL — Bevel
+// BEVEL ——  斜切
 paint.setStrokeJoin(wsc::Paint::StrokeJoin::BEVEL);
 ```
 
 ---
 
-## 3.5 Shadow
+## 3.5 阴影
 
-Paint-level shadows attach to every shape you draw:
+Paint 级别的阴影会附着在绘制的每个图形上：
 
 ```cpp
 wsc::Paint paint;
@@ -168,58 +166,58 @@ paint.setAntiAlias(true);
 
 // setShadowLayer(blurRadius, offsetX, offsetY, shadowColor)
 paint.setShadowLayer(
-    12.0f,                            // Blur radius
-    4.0f,                             // X offset
-    6.0f,                             // Y offset
-    wsc::Color(0, 0, 0, 100)         // Shadow color
+    12.0f,                            // 模糊半径
+    4.0f,                             // X 偏移
+    6.0f,                             // Y 偏移
+    wsc::Color(0, 0, 0, 100)         // 阴影颜色
 );
 
 canvas->drawRoundRect(wsc::RectF(80, 80, 200, 150), 16, paint);
 ```
 
-> **Note**: Paint shadow vs. `drawBoxShadow`
-> - `setShadowLayer` applies to any shape (circle, path, ...)
-> - `drawBoxShadow` only draws a rectangle / rounded rectangle shadow but can be used stand-alone
+> **注意**：Paint 阴影 vs `drawBoxShadow`
+> - `setShadowLayer`：对任何形状（圆、路径等）都生效
+> - `drawBoxShadow`：仅绘制矩形/圆角矩形阴影，但可单独使用
 
 ---
 
-## 3.6 Blend Modes
+## 3.6 混合模式（Blend Mode）
 
-Blend modes control how newly drawn content combines with existing content:
+混合模式控制新绘制内容如何与已有内容叠合：
 
 ```cpp
-paint.setBlendMode(wsc::Paint::BlendMode::SRC_OVER);  // Default: standard over
+paint.setBlendMode(wsc::Paint::BlendMode::SRC_OVER);  // 默认：标准覆盖
 ```
 
-WhatsCanvas supports 14 blend modes:
+WhatsCanvas 支持 14 种混合模式：
 
-| Mode | Effect |
-|------|--------|
-| `SRC_OVER` | Standard alpha compositing (default) |
-| `SRC` | Fully replace the destination |
-| `DST_OVER` | Draw below the destination |
-| `SRC_IN` | Keep only where source overlaps destination |
-| `DST_IN` | Keep only where destination overlaps source |
-| `SRC_OUT` | Keep only where source does not overlap destination |
-| `DST_OUT` | Remove destination where source overlaps |
-| `SRC_ATOP` | Draw above destination but clipped to it |
-| `DST_ATOP` | Destination visible only inside the source area |
-| `XOR` | Keep only non-overlapping parts |
-| `MULTIPLY` | Multiply colors (darken) |
-| `SCREEN` | Invert, multiply, then invert (brighten) |
-| `OVERLAY` | Combination of Multiply / Screen |
-| `DARKEN` | Take the darker value |
+| 模式 | 效果说明 |
+|------|---------|
+| `SRC_OVER` | 标准 Alpha 合成（默认） |
+| `SRC` | 完全替换目标 |
+| `DST_OVER` | 在目标之下绘制 |
+| `SRC_IN` | 只保留与目标重叠部分 |
+| `DST_IN` | 目标只保留与源重叠部分 |
+| `SRC_OUT` | 只保留不与目标重叠的部分 |
+| `DST_OUT` | 目标去除与源重叠的部分 |
+| `SRC_ATOP` | 在目标上方绘制，但不超出目标 |
+| `DST_ATOP` | 目标显示在源区域内 |
+| `XOR` | 只保留不重叠的部分 |
+| `MULTIPLY` | 颜色相乘（变暗） |
+| `SCREEN` | 颜色反相相乘再反相（变亮） |
+| `OVERLAY` | Multiply/Screen 组合 |
+| `DARKEN` | 取较暗值 |
 
-### Example: Text as a Mask
+### 示例：遮罩文字效果
 
 ```cpp
-// Draw a gradient background first
+// 先画一个渐变背景
 wsc::Paint gradientBg;
 gradientBg.setLinearGradient(0, 0, 400, 0,
     wsc::Color(255, 0, 128, 255), wsc::Color(0, 128, 255, 255));
 canvas->drawRect(wsc::RectF(0, 0, 400, 200), gradientBg);
 
-// Use DST_IN so subsequent drawing acts as a mask
+// 使用 DST_IN 模式让后续绘制作为遮罩
 wsc::Paint maskPaint;
 maskPaint.setColor(wsc::Color(255, 255, 255, 255));
 maskPaint.setBlendMode(wsc::Paint::BlendMode::DST_IN);
@@ -230,27 +228,27 @@ canvas->drawText("HELLO", 40, 130, maskPaint);
 
 ---
 
-## 3.7 Anti-Aliasing
+## 3.7 抗锯齿
 
 ```cpp
 wsc::Paint paint;
 
-// On: smooth edges, best for slanted lines, curves, and circles
+// 开启：边缘平滑，适用于斜线、曲线、圆形
 paint.setAntiAlias(true);
 
-// Off: pixel-precise, best for pixel-aligned rectangles
+// 关闭：像素级精确，适用于对齐像素的矩形
 paint.setAntiAlias(false);
 ```
 
-**Best practice**:
-- Always enable when drawing curves, slanted lines, and circles
-- Disable for rectangles aligned to pixel boundaries to get sharper edges
+**最佳实践**：
+- 绘制曲线、斜线、圆形时始终开启
+- 对齐像素边界的矩形可以关闭以获得更锐利的边缘
 
 ---
 
-## 3.8 Path Effects
+## 3.8 路径效果
 
-### Dashed Lines
+### 虚线
 
 ```cpp
 wsc::Paint dashPaint;
@@ -258,74 +256,74 @@ dashPaint.setStyle(wsc::Paint::Style::STROKE);
 dashPaint.setStrokeWidth(3.0f);
 dashPaint.setColor(wsc::Color(33, 33, 33, 255));
 
-// setDashPathEffect({segment length, gap length, ...}, phase)
+// setDashPathEffect({线段长度, 间隔长度, ...}, phase)
 dashPaint.setDashPathEffect({10.0f, 5.0f}, 0.0f);
 
 canvas->drawLine(50, 100, 350, 100, dashPaint);
 ```
 
-Complex dash patterns:
+复杂虚线模式：
 
 ```cpp
-// long-short-long-short pattern
+// 长-短-长-短 模式
 dashPaint.setDashPathEffect({20.0f, 5.0f, 5.0f, 5.0f}, 0.0f);
 ```
 
-### Corner Path Effect
+### 圆角路径效果
 
-Automatically rounds sharp path corners:
+将路径的尖角自动变为圆角：
 
 ```cpp
 wsc::Paint cornerPaint;
 cornerPaint.setStyle(wsc::Paint::Style::STROKE);
 cornerPaint.setStrokeWidth(3.0f);
-cornerPaint.setCornerPathEffect(12.0f);  // 12px rounding radius
+cornerPaint.setCornerPathEffect(12.0f);  // 圆角半径 12px
 ```
 
 ---
 
-## 3.9 Image Sampling Quality
+## 3.9 图片采样质量
 
-When drawing scaled images, the sampling quality balances visual result and performance:
+绘制缩放图片时，采样质量决定了视觉效果和性能的平衡：
 
 ```cpp
 wsc::Paint imgPaint;
 
-// NEAREST: nearest-neighbor, pixel-art style, fastest
+// NEAREST: 最近邻，像素风格，最快
 imgPaint.setImageSampling(wsc::Paint::ImageSampling::NEAREST);
 
-// LINEAR: bilinear interpolation, smooth (default)
+// LINEAR: 双线性插值，平滑（默认）
 imgPaint.setImageSampling(wsc::Paint::ImageSampling::LINEAR);
 
-// MIPMAP_LINEAR: linear interpolation with mipmaps, best quality for downscaling
+// MIPMAP_LINEAR: 带 Mipmap 的线性插值，缩小时最佳质量
 imgPaint.setImageSampling(wsc::Paint::ImageSampling::MIPMAP_LINEAR);
 ```
 
 ---
 
-## 3.10 Image Tile Mode
+## 3.10 图片平铺模式
 
 ```cpp
 wsc::Paint tilePaint;
 
-// CLAMP: extend edge pixels (default)
+// CLAMP: 边缘像素延伸（默认）
 tilePaint.setImageTileMode(wsc::Paint::ImageTileMode::CLAMP);
 
-// REPEAT: repeat / tile
+// REPEAT: 重复平铺
 tilePaint.setImageTileMode(wsc::Paint::ImageTileMode::REPEAT);
 
-// MIRROR: mirrored repeat
+// MIRROR: 镜像重复
 tilePaint.setImageTileMode(wsc::Paint::ImageTileMode::MIRROR);
 ```
 
 ---
 
-## 3.11 Color Matrix
+## 3.11 颜色矩阵
 
-The color matrix is a 4×5 float array that applies a linear transform to pixels:
+颜色矩阵是一个 4x5 的浮点数组，可以对像素进行线性变换：
 
 ```cpp
-// Grayscale matrix
+// 灰度化矩阵
 float grayscale[20] = {
     0.2126f, 0.7152f, 0.0722f, 0, 0,  // R
     0.2126f, 0.7152f, 0.0722f, 0, 0,  // G
@@ -339,11 +337,11 @@ paint.setColorMatrix(grayscale);
 
 ---
 
-## 3.12 Integrated Example: Gradient Buttons
+## 3.12 综合示例：渐变按钮组
 
-![Three gradient buttons with shadow and stroke effects](./images/chapter03_buttons.png){ width="480" }
+![三种渐变按钮及其阴影和描边效果](./images/chapter03_buttons.png){ width="480" }
 
-The key point: the example outputs 960 × 480 physical pixels; with DPR 2 the drawing code uses a 480 × 240 logical coordinate space, and the doc renders the image at 480 pixels wide. Each button combines a linear gradient, a colored shadow, and a one-physical-pixel-wide highlight stroke. The code below matches the [compilable source](https://github.com/ClarkWain/WhatsCanvas/blob/main/examples/tutorials/chapter03_buttons.cpp) that produced the picture.
+效果重点：示例输出 960 × 480 个物理像素，设置 DPR 2 后使用 480 × 240 的逻辑坐标，并在文档中按 480 像素宽展示。同一个按钮同时使用线性渐变、彩色阴影和一个物理像素宽的高光描边。下方代码与生成图片的[可编译源码](https://github.com/ClarkWain/WhatsCanvas/blob/main/examples/tutorials/chapter03_buttons.cpp)相同。
 
 <!-- BEGIN GENERATED EXAMPLE: examples/tutorials/chapter03_buttons.cpp -->
 ```cpp
@@ -353,8 +351,8 @@ The key point: the example outputs 960 × 480 physical pixels; with DPR 2 the dr
 
 int main()
 {
-    // 1. Output 960x480 physical pixels using a 480x240 logical coordinate layout.
-    // The doc renders the picture at 480 px wide, so DPR=2 preserves crisp edges.
+    // 1. 输出 960x480 物理像素，使用 480x240 的逻辑坐标布局。
+    // 文档按 480 像素宽展示图片，因此 DPR=2 可以保留清晰边缘。
     constexpr int kPhysicalWidth = 960;
     constexpr int kPhysicalHeight = 480;
     constexpr float kDpr = 2.0f;
@@ -369,7 +367,7 @@ int main()
     for (const auto &face : wsc::FontSystem::defaultSystemFontFaces()) canvas->registerFontFace(face);
     canvas->setFontFallbackChain(wsc::FontSystem::defaultFallbackChain());
 
-    // 2. Draw the page background and title.
+    // 2. 绘制页面背景和标题。
     canvas->beginFrame();
     wsc::Paint background;
     background.setLinearGradient(0, 0, kLogicalWidth, kLogicalHeight,
@@ -391,7 +389,7 @@ int main()
     canvas->drawText("Gradient, shadow and stroke in one compact example",
                      kLogicalWidth / 2, 57, subtitle);
 
-    // 3. Describe three buttons as data; keep one copy of the drawing logic.
+    // 3. 用数据描述三个按钮，绘制逻辑只保留一份。
     struct Button {
         float x;
         wsc::Color top;
@@ -405,9 +403,9 @@ int main()
         {315, wsc::Color(255, 112, 126, 255), wsc::Color(224, 70, 91, 255), "Danger", "High contrast"},
     };
 
-    // 4. Draw the card, the button, and the caption one by one.
+    // 4. 逐个绘制卡片、按钮和说明文字。
     for (const auto &button : buttons) {
-        // White supporting card.
+        // 白色承载卡片。
         const wsc::RectF card(button.x, 80, 130, 110);
         canvas->drawBoxShadow(card, 12, 0, 11, 0, 4, wsc::Color(35, 49, 83, 24));
         wsc::Paint cardPaint;
@@ -415,7 +413,7 @@ int main()
         cardPaint.setAntiAlias(true);
         canvas->drawRoundRect(card, 12, cardPaint);
 
-        // Gradient button plus same-hue shadow.
+        // 渐变按钮及同色系阴影。
         const wsc::RectF buttonRect(button.x + 15, 105, 100, 38);
         wsc::Paint fill;
         fill.setLinearGradient(button.x, 105, button.x, 143, button.top, button.bottom);
@@ -425,7 +423,7 @@ int main()
                                        button.bottom.getB(), 78));
         canvas->drawRoundRect(buttonRect, 9, fill);
 
-        // 0.5 logical units maps to one physical pixel when DPR=2.
+        // 0.5 个逻辑单位在 DPR=2 时对应一个物理像素。
         wsc::Paint shine;
         shine.setStyle(wsc::Paint::Style::STROKE);
         shine.setStrokeWidth(0.5f);
@@ -433,7 +431,7 @@ int main()
         shine.setAntiAlias(true);
         canvas->drawRoundRect(buttonRect, 9, shine);
 
-        // Button label and Paint-feature caption.
+        // 按钮标题和 Paint 特性说明。
         wsc::Paint label;
         label.setColor(wsc::Color(255, 255, 255, 255));
         label.setTextSize(16.0f);
@@ -449,7 +447,7 @@ int main()
         canvas->drawText(button.caption, button.x + 65, 166, caption);
     }
 
-    // 5. End the frame first, then save the pixels; all drawing must happen before endFrame.
+    // 5. 先结束当前帧，再保存像素；所有绘制必须发生在 endFrame 之前。
     canvas->endFrame();
     return canvas->savePixelsPPM("chapter03_buttons.ppm") ? 0 : 2;
 }
@@ -458,18 +456,18 @@ int main()
 
 ---
 
-## 3.13 Summary
+## 3.13 小结
 
-This chapter covered every Paint attribute category:
+本章学习了 Paint 的全部属性类别：
 
-- [x] Color and alpha
-- [x] Linear and radial gradients (with multi-stop support)
-- [x] Stroke attributes: width, cap, join
-- [x] Shadow layer (`setShadowLayer`)
-- [x] The 14 blend modes
-- [x] Anti-aliasing toggle
-- [x] Path effects: dashes and rounded corners
-- [x] Image sampling and tile modes
-- [x] Color matrix transforms
+- [x] 颜色设置与透明度
+- [x] 线性渐变与径向渐变（支持多色停靠点）
+- [x] 描边属性：宽度、线帽、线连接
+- [x] 阴影层 (`setShadowLayer`)
+- [x] 14 种混合模式
+- [x] 抗锯齿开关
+- [x] 路径效果：虚线、圆角
+- [x] 图片采样与平铺模式
+- [x] 颜色矩阵变换
 
-**Next chapter**: [Path and Curves](./04-path-bindcurves.md) — build complex geometry and Bezier curves with Path.
+**下一章**：[路径 Path 与曲线](./04-path-bindcurves.md) —— 学习使用 Path 构建复杂几何形状和贝塞尔曲线。

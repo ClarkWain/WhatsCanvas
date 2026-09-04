@@ -89,4 +89,4 @@ cd platforms/android/spider
 5. 保留像素或截图回归，确保性能提升不是通过少画、降质或改变布局获得。
 6. 分别测试冷启动、首次交互和预热后的稳定交互。
 
-可运行的实现与脚本位于 `platforms/android/spider`。通用 API 选择见[性能优化教程](tutorials/11-performance.md)，常见症状见[故障排查与 FAQ](TROUBLESHOOTING.md#performance-and-animation)。
+可运行的实现与脚本位于 `platforms/android/spider`。通用 API 选择见[性能优化教程](tutorials/zh/11-performance.md)，常见症状见[故障排查与 FAQ](TROUBLESHOOTING.md#performance-and-animation)。

@@ -1,91 +1,89 @@
-# Chapter 5: State Stack and Transforms
+# 第五章：状态栈与变换
 
-> Goal of this chapter: understand the Canvas state management model (save/restore), master translate/scale/rotate transforms, and use rectangle and path clipping.
-
-For the Chinese version, see [`zh/05-state-bindtransforms.md`](./zh/05-state-bindtransforms.md).
+> 本章目标：理解 Canvas 的状态管理机制（save/restore），掌握平移、缩放、旋转等坐标变换，以及矩形和路径裁剪。
 
 ---
 
-## 5.1 The Canvas State Stack
+## 5.1 Canvas 状态栈
 
-Canvas maintains an internal state stack. Each call to `save()` pushes the current state (transform matrix and clip region) onto the stack; `restore()` pops it and restores the previous state.
+Canvas 内部维护一个状态栈。每次调用 `save()` 会将当前状态（变换矩阵、裁剪区域）压入栈中；调用 `restore()` 会弹出并恢复之前的状态。
 
 ```
-save()    → save the current state
-  ↓  change transform / clip
-  ↓  draw content
-restore() → restore to before save()
+save()    → 保存当前状态
+  ↓  修改变换/裁剪
+  ↓  绘制内容
+restore() → 恢复到 save 之前的状态
 ```
 
-This is the core mechanism for keeping drawing operations from interfering with each other.
+这是避免绘制操作相互干扰的核心机制。
 
 ```cpp
 canvas->save();
 
-// Transform and draw inside the saved state
+// 在保存的状态下做变换和绘制
 canvas->translate(100, 100);
 canvas->drawRect(wsc::RectF(0, 0, 50, 50), paint);
 
-canvas->restore();  // The transform is undone
+canvas->restore();  // 变换被撤销
 
-// Coordinate system is back to original
-canvas->drawRect(wsc::RectF(0, 0, 50, 50), paint);  // Top-left corner
+// 此处坐标系恢复原样
+canvas->drawRect(wsc::RectF(0, 0, 50, 50), paint);  // 左上角
 ```
 
-### Nested save
+### 嵌套 save
 
 ```cpp
 canvas->save();            // saveCount = 1
     canvas->translate(50, 0);
     canvas->save();        // saveCount = 2
         canvas->translate(0, 50);
-        // Now the offset is (50, 50)
-    canvas->restore();     // Back to offset (50, 0)
-canvas->restore();         // Back to no offset
+        // 此时偏移 (50, 50)
+    canvas->restore();     // 恢复到偏移 (50, 0)
+canvas->restore();         // 恢复到无偏移
 ```
 
 ### restoreToCount
 
-Restore to a specific save level in one call:
+可以一次恢复到指定的保存层级：
 
 ```cpp
-int count = canvas->save();     // Record the save point
+int count = canvas->save();     // 记录保存点
 canvas->save();
 canvas->save();
-// ... multiple operations ...
-canvas->restoreToCount(count);  // Return to the initial level
+// ... 多层操作 ...
+canvas->restoreToCount(count);  // 一次回到最初
 ```
 
 ---
 
-## 5.2 translate
+## 5.2 平移 (translate)
 
-Move the coordinate origin to a new position:
+将坐标原点移动到新位置：
 
 ```cpp
 canvas->save();
 canvas->translate(150, 100);
 
-// Draw with (150, 100) as the origin
+// 以 (150, 100) 为原点绘制
 wsc::Paint paint;
 paint.setColor(wsc::Color(66, 133, 244, 255));
-canvas->drawRect(wsc::RectF(0, 0, 100, 80), paint);  // Actual position (150, 100)
+canvas->drawRect(wsc::RectF(0, 0, 100, 80), paint);  // 实际位置 (150, 100)
 
 canvas->restore();
 ```
 
 ---
 
-## 5.3 scale
+## 5.3 缩放 (scale)
 
-Scale around the current origin:
+以当前原点为中心进行缩放：
 
 ```cpp
 canvas->save();
-canvas->translate(200, 200);  // Move to the canvas center first
-canvas->scale(2.0f, 2.0f);   // 2x zoom
+canvas->translate(200, 200);  // 先移动到画布中心
+canvas->scale(2.0f, 2.0f);   // 放大 2 倍
 
-// Draw a "logical" 50x50 rectangle; it renders as 100x100
+// 绘制一个"逻辑上"50x50 的矩形，实际渲染为 100x100
 wsc::Paint paint;
 paint.setColor(wsc::Color(76, 175, 80, 255));
 canvas->drawRect(wsc::RectF(-25, -25, 50, 50), paint);
@@ -93,28 +91,28 @@ canvas->drawRect(wsc::RectF(-25, -25, 50, 50), paint);
 canvas->restore();
 ```
 
-### Mirroring
+### 镜像翻转
 
 ```cpp
-// Horizontal flip
+// 水平翻转
 canvas->scale(-1.0f, 1.0f);
 
-// Vertical flip
+// 垂直翻转
 canvas->scale(1.0f, -1.0f);
 ```
 
 ---
 
-## 5.4 rotate
+## 5.4 旋转 (rotate)
 
-Rotate around the current origin. Angle is in **radians**:
+以当前原点为中心旋转，角度单位为**弧度**：
 
 ```cpp
 float pi = 3.14159265f;
 
 canvas->save();
-canvas->translate(200, 200);       // Move to the rotation center
-canvas->rotate(pi / 4.0f);        // Rotate 45°
+canvas->translate(200, 200);       // 移到旋转中心
+canvas->rotate(pi / 4.0f);        // 旋转 45°
 
 wsc::Paint paint;
 paint.setColor(wsc::Color(255, 152, 0, 255));
@@ -124,26 +122,26 @@ canvas->drawRect(wsc::RectF(-60, -60, 120, 120), paint);
 canvas->restore();
 ```
 
-> **Key technique**: Rotation is always around the current origin. To rotate around a specific point:
-> 1. `translate(cx, cy)` — move to the rotation center
-> 2. `rotate(angle)` — rotate
-> 3. `translate(-cx, -cy)` — move back (or draw with the center as the origin directly)
+> **关键技巧**：旋转总是绕当前原点。如果要绕某个点旋转：
+> 1. `translate(cx, cy)` — 移到旋转中心
+> 2. `rotate(angle)` — 旋转
+> 3. `translate(-cx, -cy)` — 移回（或直接以中心为原点绘制）
 
 ---
 
-## 5.5 Composing Transforms
+## 5.5 变换组合
 
-Transforms **accumulate in call order**. Different orders yield different results:
+变换是**按调用顺序累积**的。顺序不同，结果不同：
 
 ```cpp
-// Translate then rotate
+// 先平移再旋转
 canvas->save();
 canvas->translate(200, 200);
 canvas->rotate(pi / 6);
 canvas->drawRect(wsc::RectF(-40, -40, 80, 80), paint);
 canvas->restore();
 
-// Rotate then translate (different result!)
+// 先旋转再平移（结果不同！）
 canvas->save();
 canvas->rotate(pi / 6);
 canvas->translate(200, 200);
@@ -151,40 +149,40 @@ canvas->drawRect(wsc::RectF(-40, -40, 80, 80), paint);
 canvas->restore();
 ```
 
-### Matrix operations
+### 矩阵操作
 
-For more complex transforms you can manipulate the matrix directly:
+对于更复杂的变换，可以直接操作矩阵：
 
 ```cpp
-// Get the current matrix
+// 获取当前矩阵
 wsc::Matrix4 mat = canvas->getMatrix();
 
-// Set a custom matrix
+// 设置自定义矩阵
 canvas->setMatrix(customMatrix);
 
-// Reset to identity
+// 重置为单位矩阵
 canvas->resetMatrix();
 
-// Concatenate (right-multiply) another matrix
+// 连接（右乘）矩阵
 canvas->concat(additionalMatrix);
 ```
 
 ---
 
-## 5.6 Coordinate Mapping
+## 5.6 坐标映射
 
-Map a point from local coordinates to device coordinates (or vice versa):
+将点从局部坐标映射到设备坐标（或反向）：
 
 ```cpp
 canvas->save();
 canvas->translate(100, 50);
 canvas->scale(2.0f, 2.0f);
 
-// Forward: local → device
+// 正向映射：局部坐标 → 设备坐标
 wsc::PointF devicePt = canvas->mapPoint(wsc::PointF(10, 20));
 // devicePt = (100 + 10*2, 50 + 20*2) = (120, 90)
 
-// Inverse: device → local (for click hit-testing)
+// 反向映射：设备坐标 → 局部坐标（用于处理点击事件）
 wsc::PointF localPt;
 canvas->inverseMapPoint(wsc::PointF(120, 90), localPt);
 // localPt = (10, 20)
@@ -194,54 +192,54 @@ canvas->restore();
 
 ---
 
-## 5.7 Clipping
+## 5.7 裁剪 (Clip)
 
-A clip restricts the visible region for subsequent drawing. Content outside the clip is not rendered.
+裁剪限制了后续绘制的可见区域。超出裁剪区域的内容不会被渲染。
 
-### Rectangle Clip
+### 矩形裁剪
 
 ```cpp
 canvas->save();
 
-// Set the clip region
+// 设置裁剪区域
 canvas->clipRect(wsc::RectF(50, 50, 200, 200));
 
-// This circle is clipped to the part inside the rectangle
+// 这个圆会被裁剪为矩形内的部分
 wsc::Paint paint;
 paint.setColor(wsc::Color(244, 67, 54, 255));
 paint.setAntiAlias(true);
 canvas->drawCircle(150, 150, 120, paint);
 
-canvas->restore();  // The clip is restored too
+canvas->restore();  // 裁剪区域也被恢复
 ```
 
-### Path Clip
+### 路径裁剪
 
-Use any path as the clip region:
+使用任意路径作为裁剪区域：
 
 ```cpp
 canvas->save();
 
-// Circular clip
+// 圆形裁剪区域
 wsc::Path clipCircle;
 clipCircle.addCircle(200, 200, 100);
 canvas->clipPath(clipCircle);
 
-// Draw image or complex content inside the circle
+// 在圆形区域内绘制图片或复杂内容
 canvas->drawRect(wsc::RectF(0, 0, 400, 400), gradientPaint);
 
 canvas->restore();
 ```
 
-### Clips Accumulate
+### 裁剪的累积特性
 
-Multiple clips are **intersected** (the region only gets smaller):
+多次裁剪会取**交集**（区域越来越小）：
 
 ```cpp
 canvas->save();
 canvas->clipRect(wsc::RectF(50, 50, 200, 200));
 canvas->clipRect(wsc::RectF(100, 100, 200, 200));
-// Final clip = intersection of the two rectangles = (100, 100, 150, 150)
+// 最终裁剪区域 = 两个矩形的交集 = (100, 100, 150, 150)
 canvas->restore();
 ```
 
@@ -249,12 +247,12 @@ canvas->restore();
 
 ## 5.8 Quick Reject
 
-In a heavy drawing loop, `quickReject` lets you quickly test whether a region is fully outside the clip and skip drawing it:
+在大量绘制操作中，`quickReject` 可以快速判断某个区域是否完全在裁剪区域之外，从而跳过不必要的绘制：
 
 ```cpp
 canvas->clipRect(wsc::RectF(0, 0, 200, 200));
 
-// Quick test: skip drawing when the rectangle is entirely outside the clip
+// 快速判断：如果完全在裁剪区外就跳过
 if (!canvas->quickReject(wsc::RectF(300, 300, 100, 100))) {
     canvas->drawRect(wsc::RectF(300, 300, 100, 100), paint);
 }
@@ -262,9 +260,9 @@ if (!canvas->quickReject(wsc::RectF(300, 300, 100, 100))) {
 
 ---
 
-## 5.9 Device Pixel Ratio (DPR)
+## 5.9 设备像素比（DPR）
 
-DPR is not an ordinary content scale. The Canvas is still created in physical pixels; DPR acts as a root transform that maps logical coordinates onto the framebuffer:
+DPR 不是普通的内容缩放。Canvas 仍以物理像素创建，DPR 作为根变换把逻辑坐标映射到 framebuffer：
 
 ```cpp
 int framebufferWidth = 720;
@@ -281,25 +279,25 @@ float logicalWidth = framebufferWidth / dpr;    // 360
 float logicalHeight = framebufferHeight / dpr;  // 410
 ```
 
-Drawing `RectF(0, 0, 100, 40)` after this occupies 100 × 40 logical units and outputs 200 × 80 physical pixels. Text is also rasterized directly at the target resolution using the current DPR; there is no need to draw a low-resolution bitmap first and then scale it up.
+此后绘制 `RectF(0, 0, 100, 40)` 会占用 100 × 40 个逻辑单位，并输出为 200 × 80 个物理像素。文字也按当前 DPR 直接在目标分辨率栅格化，不需要先画一张低分辨率位图再放大。
 
-Note the following behaviors:
+需要注意以下行为：
 
-- `Canvas::create`, `setSize`, `getWidth`, and `getHeight` operate in physical pixels.
-- Drawing coordinates, stroke widths, and `Paint::setTextSize` use logical units.
-- `setDevicePixelRatio` resets the current matrix to the new DPR root transform; call it before any application-level `translate`, `scale`, or `rotate`.
-- `resetMatrix()` clears only application transforms; the DPR is preserved.
-- Do not additionally call `canvas->scale(dpr, dpr)`, or geometry and text will be scaled twice.
+- `Canvas::create`、`setSize`、`getWidth` 和 `getHeight` 使用物理像素。
+- 绘制坐标、描边宽度和 `Paint::setTextSize` 使用逻辑单位。
+- `setDevicePixelRatio` 会把当前矩阵重置为新的 DPR 根变换，应在业务 `translate`、`scale`、`rotate` 之前调用。
+- `resetMatrix()` 只清除业务变换，不会丢失 DPR。
+- 不要再执行 `canvas->scale(dpr, dpr)`，否则几何和文字都会重复缩放。
 
-When the window size or display scale changes, update the physical size, the DPR, and the logical layout size together. Convert click or touch coordinates into the same logical coordinate space before hit-testing.
+窗口尺寸或显示器缩放发生变化时，应一起更新物理尺寸、DPR 和逻辑布局尺寸。点击或触摸坐标也要转换到相同的逻辑坐标系后再做 hit-testing。
 
 ---
 
-## 5.10 Integrated Example: A Rotating Flower
+## 5.10 综合示例：旋转的花朵
 
-![A ten-petal flower composed with rotation transforms](./images/chapter05_flower.png)
+![使用旋转变换组合的十瓣花朵](./images/chapter05_flower.png)
 
-The key point: each petal is drawn in a local coordinate frame; `save`, `translate`, `rotate`, and `restore` arrange the petals around a shared center. Two guide circles are kept in the image as visual hints for the rotation radii. The code below matches the [compilable source](https://github.com/ClarkWain/WhatsCanvas/blob/main/examples/tutorials/chapter05_flower.cpp) that produced the picture.
+效果重点：每片花瓣都在局部坐标系中绘制，通过 `save`、`translate`、`rotate` 和 `restore` 围绕同一中心排列。辅助圆保留在效果图中，用来提示旋转半径。下方代码与生成图片的[可编译源码](https://github.com/ClarkWain/WhatsCanvas/blob/main/examples/tutorials/chapter05_flower.cpp)相同。
 
 <!-- BEGIN GENERATED EXAMPLE: examples/tutorials/chapter05_flower.cpp -->
 ```cpp
@@ -310,7 +308,7 @@ The key point: each petal is drawn in a local coordinate frame; `save`, `transla
 
 int main()
 {
-    // 1. Create the offscreen canvas and define shared geometry for the flower.
+    // 1. 创建离屏画布并定义花朵的共享几何数据。
     auto canvas = wsc::Canvas::create(wsc::Canvas::Backend::Software, 720, 720);
     if (!canvas || !canvas->initializeContext()) return 1;
 
@@ -324,7 +322,7 @@ int main()
         wsc::Color(91, 151, 217, 238), wsc::Color(91, 177, 197, 238),
     };
 
-    // 2. Draw the background and two guide circles that mark the rotation radii.
+    // 2. 绘制背景和两条辅助圆，辅助圆用于说明旋转半径。
     canvas->beginFrame();
     wsc::Paint background;
     background.setLinearGradient(0, 0, 720, 720,
@@ -339,7 +337,7 @@ int main()
     canvas->drawCircle(cx, cy, 205, guide);
     canvas->drawCircle(cx, cy, 92, guide);
 
-    // 3. Draw the stem and leaves below the petals first.
+    // 3. 先绘制位于花瓣下方的茎和叶子。
     wsc::Paint stem;
     stem.setStyle(wsc::Paint::Style::STROKE);
     stem.setStrokeWidth(18.0f);
@@ -364,7 +362,7 @@ int main()
     canvas->drawOval(wsc::RectF(-85, -12, 110, 48), leaf);
     canvas->restore();
 
-    // 4. Each petal is drawn in the same local coordinate frame; only the canvas rotation changes.
+    // 4. 每片花瓣都在相同局部坐标中绘制，只改变画布旋转角度。
     for (int i = 0; i < petalCount; ++i) {
         canvas->save();
         canvas->translate(cx, cy);
@@ -377,7 +375,7 @@ int main()
         canvas->restore();
     }
 
-    // 5. Draw the center circle last so it hides the petal overlap area.
+    // 5. 中心圆最后绘制，用来遮住花瓣交叠处。
     wsc::Paint center;
     center.setRadialGradient(cx - 20, cy - 20, 78,
         wsc::Color(255, 232, 104, 255), wsc::Color(240, 176, 52, 255));
@@ -391,7 +389,7 @@ int main()
         canvas->drawCircle(cx + std::cos(a) * 34, cy + std::sin(a) * 34, 4, seed);
     }
 
-    // 6. Submit and save the result.
+    // 6. 提交并保存结果图。
     canvas->endFrame();
     return canvas->savePixelsPPM("chapter05_flower.ppm") ? 0 : 2;
 }
@@ -400,17 +398,17 @@ int main()
 
 ---
 
-## 5.11 Summary
+## 5.11 小结
 
-This chapter covered:
+本章学习了：
 
-- [x] The save/restore state stack
-- [x] translate, scale, rotate
-- [x] Order dependence when composing transforms
-- [x] Direct matrix manipulation
-- [x] Coordinate mapping (forward and inverse)
-- [x] Rectangle and path clipping
-- [x] The Quick Reject optimization
-- [x] Device Pixel Ratio
+- [x] save/restore 状态栈机制
+- [x] 平移 (translate)、缩放 (scale)、旋转 (rotate)
+- [x] 变换的组合顺序与效果
+- [x] 矩阵直接操作
+- [x] 坐标映射（正向和反向）
+- [x] 矩形裁剪和路径裁剪
+- [x] Quick Reject 优化
+- [x] 设备像素比
 
-**Next chapter**: [Image Drawing](./06-image-bindrawing.md) — loading, drawing, and transforming images.
+**下一章**：[图片绘制](./06-image-bindrawing.md) —— 学习加载、绘制和变换图片。

@@ -1,55 +1,57 @@
-# 第一章：环境搭建与第一帧
+# Chapter 1: Environment Setup and First Frame
 
-> 本章目标：从零开始配置 WhatsCanvas 开发环境，编写第一个程序，离屏渲染一帧并输出图片文件。
+> Goal of this chapter: set up a WhatsCanvas development environment from scratch, write a first program, render one offscreen frame, and write out an image file.
 
----
-
-## 1.1 WhatsCanvas 是什么
-
-WhatsCanvas 是一个 C++17 编写的 2D 渲染库，定位介于 NanoVG（轻量但功能有限）和 Skia（强大但体量庞大）之间。它提供类似 HTML Canvas 的 API 风格：
-
-- **Canvas** —— 绘制表面，管理帧的开始/结束
-- **Paint** —— 画笔属性（颜色、渐变、描边等）
-- **Path** —— 2D 几何路径
-
-支持 5 种渲染后端：Software（纯 CPU）、OpenGL、OpenGL ES、Vulkan、Metal。
+For the Chinese version, see [`zh/01-environment-setup.md`](./zh/01-environment-setup.md).
 
 ---
 
-## 1.2 获取 WhatsCanvas
+## 1.1 What Is WhatsCanvas?
 
-有三种主要方式：
+WhatsCanvas is a C++17 2D rendering library that sits between NanoVG (lightweight but limited) and Skia (powerful but large). It ships an HTML-Canvas-like API:
 
-### 方式一：GitHub Release 预编译包（推荐新手）
+- **Canvas** — Drawing surface, manages frame begin/end
+- **Paint** — Paint attributes (color, gradient, stroke, ...)
+- **Path** — 2D geometric path
 
-从 [Releases](https://github.com/ClarkWain/WhatsCanvas/releases) 下载对应平台的包：
+It supports 5 render backends: Software (pure CPU), OpenGL, OpenGL ES, Vulkan, and Metal.
 
-**桌面端：**
+---
 
-- Windows: `whatscanvas-win64-release-1.0.0.zip`
-- Linux: `whatscanvas-linux-x64-release-1.0.0.zip`
-- macOS: `whatscanvas-macos-universal-release-1.0.0.zip`
+## 1.2 Getting WhatsCanvas
 
-桌面包解压后目录结构：
+There are three main options:
+
+### Option 1: Precompiled GitHub Release Package (Recommended for Newcomers)
+
+Download a package for your platform from [Releases](https://github.com/ClarkWain/WhatsCanvas/releases):
+
+**Desktop:**
+
+- Windows: `whatscanvas-win64-release-1.1.0.zip`
+- Linux: `whatscanvas-linux-x64-release-1.1.0.zip`
+- macOS: `whatscanvas-macos-universal-release-1.1.0.zip`
+
+Desktop package layout after extraction:
 
 ```
-whatscanvas-win64-release-1.0.0/
-├── include/wsc/          # 头文件
-├── lib/                  # 静态/动态库
-├── bin/                  # DLL（Windows shared 构建）
-└── lib/cmake/WhatsCanvas/ # CMake 配置文件
+whatscanvas-win64-release-1.1.0/
+├── include/wsc/          # Headers
+├── lib/                  # Static / shared libraries
+├── bin/                  # DLLs (Windows shared builds)
+└── lib/cmake/WhatsCanvas/ # CMake config files
 ```
 
-**移动端：**
+**Mobile:**
 
-- Android: `whatscanvas-android-release-1.0.0.aar`
-  - Prefab AAR，内含公开头文件和 `armeabi-v7a`、`arm64-v8a`、`x86_64` 三套 OpenGL ES 库
-  - 通过 Gradle 引入，详见 [Android 接入指南](../ANDROID_INTEGRATION.md)
-- iOS: `whatscanvas-ios-release-1.0.0.zip`
-  - 静态 Metal/CoreText XCFramework，包含 `arm64` 真机切片和 `arm64`/`x86_64` 模拟器切片
-  - 拖入 Xcode 项目 Frameworks 使用，详见 [iOS Build Notes](../IOS_BUILD_NOTES.md)
+- Android: `whatscanvas-android-release-1.1.0.aar`
+  - Prefab AAR containing public headers and OpenGL ES libraries for `armeabi-v7a`, `arm64-v8a`, and `x86_64`
+  - Consume via Gradle; see the [Android Integration Guide](../ANDROID_INTEGRATION.md)
+- iOS: `whatscanvas-ios-release-1.1.0.zip`
+  - Static Metal/CoreText XCFramework with an `arm64` device slice and an `arm64`/`x86_64` simulator slice
+  - Drag it into the Frameworks group of your Xcode project; see the [iOS Build Notes](../IOS_BUILD_NOTES.md)
 
-### 方式二：从源码构建
+### Option 2: Build from Source
 
 ```bash
 git clone --recursive https://github.com/ClarkWain/WhatsCanvas.git
@@ -62,13 +64,13 @@ build.bat --release --package --no-run
 sh ./build.sh --release --package --no-run
 ```
 
-构建完成后，安装包位于 `out/package/Release/`。
+After the build finishes, the install tree is under `out/package/Release/`.
 
 ---
 
-## 1.3 创建第一个项目
+## 1.3 Create Your First Project
 
-创建如下项目结构：
+Create the following project layout:
 
 ```
 my_first_wsc/
@@ -85,8 +87,8 @@ project(MyFirstWSC LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# 查找 WhatsCanvas
-find_package(WhatsCanvas 1.0.0 CONFIG REQUIRED)
+# Find WhatsCanvas
+find_package(WhatsCanvas 1.1.0 CONFIG REQUIRED)
 
 add_executable(MyFirstWSC main.cpp)
 target_link_libraries(MyFirstWSC PRIVATE WhatsCanvas::Software)
@@ -99,51 +101,51 @@ target_link_libraries(MyFirstWSC PRIVATE WhatsCanvas::Software)
 
 int main()
 {
-    // 1. 创建 Canvas：使用 Software 后端，大小 256x256
+    // 1. Create a Canvas: Software backend, 256x256
     auto canvas = wsc::Canvas::create(wsc::Canvas::Backend::Software, 256, 256);
     if (!canvas || !canvas->initializeContext()) {
         return 1;
     }
 
-    // 2. 开始一帧
+    // 2. Begin a frame
     canvas->beginFrame();
 
-    // 3. 创建画笔：蓝色填充
+    // 3. Configure a paint: blue fill
     wsc::Paint fill;
     fill.setColor(wsc::Color(40, 120, 240, 255));  // RGBA
     fill.setAntiAlias(true);
 
-    // 4. 绘制圆角矩形
+    // 4. Draw a rounded rectangle
     canvas->drawRoundRect(wsc::RectF(40, 40, 176, 176), 24.0f, fill);
 
-    // 5. 结束帧
+    // 5. End the frame
     canvas->endFrame();
 
-    // 6. 输出到 PPM 文件
+    // 6. Write out to a PPM file
     return canvas->savePixelsPPM("first.ppm") ? 0 : 1;
 }
 ```
 
 ---
 
-## 1.4 编译与运行
+## 1.4 Build and Run
 
 ```bash
-# 配置（将 CMAKE_PREFIX_PATH 指向你的 WhatsCanvas 安装目录）
+# Configure (point CMAKE_PREFIX_PATH at your WhatsCanvas install)
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_PREFIX_PATH=/path/to/whatscanvas-win64-release-1.0.0
+  -DCMAKE_PREFIX_PATH=/path/to/whatscanvas-win64-release-1.1.0
 
-# 编译
+# Build
 cmake --build build --config Release
 
-# 运行
+# Run
 ./build/Release/MyFirstWSC    # Windows
 ./build/MyFirstWSC            # Linux/macOS
 ```
 
-运行后当前目录会生成 `first.ppm`，用支持 PPM 格式的图片查看器打开即可看到一个蓝色圆角矩形。
+Running the executable produces `first.ppm` in the current directory; open it with any viewer that supports PPM to see a blue rounded rectangle.
 
-> **提示**：Windows 上如果使用的是 shared 构建的预编译包，运行前需将 `bin/` 目录加入 PATH，或将 DLL 复制到 exe 旁边：
+> **Tip**: On Windows, if you use a shared-build precompiled package, prepend the `bin/` directory to `PATH` before running, or copy the DLLs next to the executable:
 > ```bat
 > set "PATH=C:\path\to\whatscanvas\bin;%PATH%"
 > build\Release\MyFirstWSC.exe
@@ -151,54 +153,54 @@ cmake --build build --config Release
 
 ---
 
-## 1.5 代码解析
+## 1.5 Code Walkthrough
 
-让我们逐行理解这 24 行代码：
+Let us go through the 24 lines one by one:
 
-| 步骤 | 代码 | 说明 |
-|:----:|------|------|
-| 1 | `Canvas::create(Backend::Software, 256, 256)` | 创建一个 256x256 的离屏 Canvas，使用纯 CPU 渲染 |
-| 2 | `canvas->initializeContext()` | 初始化渲染上下文（Software 后端无需 GPU） |
-| 3 | `canvas->beginFrame()` | 开始录制一帧的绘制命令 |
-| 4 | `fill.setColor(...)` | 设置画笔颜色为蓝色 (R=40, G=120, B=240, A=255) |
-| 5 | `fill.setAntiAlias(true)` | 启用抗锯齿，边缘更平滑 |
-| 6 | `drawRoundRect(RectF, radius, paint)` | 绘制圆角矩形，圆角半径 24px |
-| 7 | `canvas->endFrame()` | 结束帧，执行所有绘制命令 |
-| 8 | `savePixelsPPM("first.ppm")` | 将像素回读并保存为 PPM 格式 |
+| Step | Code | Explanation |
+|:----:|------|-------------|
+| 1 | `Canvas::create(Backend::Software, 256, 256)` | Create an offscreen 256x256 Canvas rendered on the CPU |
+| 2 | `canvas->initializeContext()` | Initialize the render context (no GPU required for Software) |
+| 3 | `canvas->beginFrame()` | Start recording draw commands for a frame |
+| 4 | `fill.setColor(...)` | Set paint color to blue (R=40, G=120, B=240, A=255) |
+| 5 | `fill.setAntiAlias(true)` | Enable anti-aliasing for smoother edges |
+| 6 | `drawRoundRect(RectF, radius, paint)` | Draw a rounded rectangle with a 24px corner radius |
+| 7 | `canvas->endFrame()` | End the frame and execute all draw commands |
+| 8 | `savePixelsPPM("first.ppm")` | Read pixels back and save as PPM |
 
-### 帧的生命周期
+### Frame Lifecycle
 
-WhatsCanvas 的绘制遵循 **帧循环** 模式：
+WhatsCanvas drawing follows a **frame loop** pattern:
 
 ```
-beginFrame() → 绘制命令 → endFrame() → [present() 或 readPixels()]
+beginFrame() → draw commands → endFrame() → [present() or readPixels()]
 ```
 
-- **离屏渲染**（本章）：`endFrame()` 之后用 `savePixelsPPM()` 或 `readPixelsRGBA()` 获取像素
-- **窗口渲染**（第 9 章）：`endFrame()` 之后调用 `present()` 显示到屏幕
+- **Offscreen rendering** (this chapter): after `endFrame()`, call `savePixelsPPM()` or `readPixelsRGBA()` to obtain the pixels
+- **Windowed rendering** (Chapter 9): after `endFrame()`, call `present()` to display on screen
 
 ---
 
-## 1.6 关于 Software 后端
+## 1.6 About the Software Backend
 
-Software 后端是 WhatsCanvas 的 CPU 参考实现：
+The Software backend is the CPU reference implementation of WhatsCanvas:
 
-- **无需 GPU**：不依赖 OpenGL / Vulkan / Metal
-- **确定性输出**：相同输入在不同机器上产生相同像素
-- **适用场景**：单元测试、CI 环境、离屏图片生成、截图对比
-- **限制**：性能低于 GPU 后端，不适合实时渲染大量内容
+- **No GPU required**: no dependency on OpenGL / Vulkan / Metal
+- **Deterministic output**: identical input produces identical pixels across machines
+- **Use cases**: unit tests, CI environments, offscreen image generation, screenshot comparison
+- **Limitation**: slower than GPU backends, not suitable for real-time rendering of large scenes
 
-对于学习和验证来说，Software 后端是最佳起点。
+For learning and validation, the Software backend is the best starting point.
 
 ---
 
-## 1.7 小结
+## 1.7 Summary
 
-本章完成了：
+This chapter covered:
 
-- [x] 了解 WhatsCanvas 的定位和核心概念
-- [x] 获取并配置 WhatsCanvas 库
-- [x] 编写第一个程序并成功渲染
-- [x] 理解帧生命周期
+- [x] Understanding what WhatsCanvas is and its core concepts
+- [x] Getting and configuring the WhatsCanvas library
+- [x] Writing your first program and rendering successfully
+- [x] The frame lifecycle
 
-**下一章**：[基础图形绘制](./02-basic-shapes.md) —— 学习绘制矩形、圆、线段等各种基础图形。
+**Next chapter**: [Basic Shape Drawing](./02-basic-shapes.md) — learn to draw rectangles, circles, lines, and other primitives.

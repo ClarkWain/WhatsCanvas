@@ -1,14 +1,12 @@
-# Chapter 2: Basic Shape Drawing
+# 第二章：基础图形绘制
 
-> Goal of this chapter: master every basic shape drawing API WhatsCanvas offers, including rectangles, rounded rectangles, circles, ovals, arcs, lines, polygons, and shadows.
-
-For the Chinese version, see [`zh/02-basic-shapes.md`](./zh/02-basic-shapes.md).
+> 本章目标：掌握 WhatsCanvas 提供的所有基础图形绘制 API，包括矩形、圆角矩形、圆、椭圆、弧形、线段、多边形和阴影。
 
 ---
 
-## 2.1 Preparation
+## 2.1 准备工作
 
-Every example in this chapter is based on the following template:
+本章所有示例基于以下模板：
 
 ```cpp
 #include <wsc/wsc.h>
@@ -20,7 +18,7 @@ int main()
 
     canvas->beginFrame();
 
-    // === Drawing code goes here ===
+    // === 绘制代码写在这里 ===
 
     canvas->endFrame();
     canvas->savePixelsPPM("output.ppm");
@@ -28,13 +26,13 @@ int main()
 }
 ```
 
-Subsequent examples show only the "drawing code" section.
+后续示例仅展示"绘制代码"部分。
 
 ---
 
-## 2.2 Coordinate System
+## 2.2 坐标系
 
-WhatsCanvas uses a **top-left origin** coordinate system:
+WhatsCanvas 使用 **左上角为原点** 的坐标系：
 
 ```
 (0,0) ────────────→ X+
@@ -45,23 +43,23 @@ WhatsCanvas uses a **top-left origin** coordinate system:
   Y+
 ```
 
-`RectF` is constructed as `RectF(x, y, width, height)`: top-left position plus width and height.
+`RectF` 的构造方式为 `RectF(x, y, width, height)`，表示左上角坐标 + 宽高。
 
 ---
 
-## 2.3 Rectangles
+## 2.3 矩形
 
-### Filled Rectangle
+### 填充矩形
 
 ```cpp
 wsc::Paint fill;
 fill.setColor(wsc::Color(66, 133, 244, 255));  // Google Blue
-fill.setStyle(wsc::Paint::Style::FILL);          // FILL is the default
+fill.setStyle(wsc::Paint::Style::FILL);          // 默认就是 FILL
 
 canvas->drawRect(wsc::RectF(50, 50, 120, 80), fill);
 ```
 
-### Stroked Rectangle
+### 描边矩形
 
 ```cpp
 wsc::Paint stroke;
@@ -72,38 +70,38 @@ stroke.setStrokeWidth(3.0f);
 canvas->drawRect(wsc::RectF(50, 50, 120, 80), stroke);
 ```
 
-### Fill + Stroke
+### 填充 + 描边
 
 ```cpp
 wsc::Paint both;
-both.setColor(wsc::Color(244, 180, 0, 255));     // Fill color: gold
+both.setColor(wsc::Color(244, 180, 0, 255));     // 填充色：金色
 both.setStyle(wsc::Paint::Style::FILL_AND_STROKE);
 both.setStrokeWidth(2.0f);
-both.setStrokeColor(wsc::Color(100, 100, 100, 255)); // Stroke color: gray
+both.setStrokeColor(wsc::Color(100, 100, 100, 255)); // 描边色：灰色
 
 canvas->drawRect(wsc::RectF(50, 50, 120, 80), both);
 ```
 
 ---
 
-## 2.4 Rounded Rectangles
+## 2.4 圆角矩形
 
 ```cpp
 wsc::Paint paint;
 paint.setColor(wsc::Color(15, 157, 88, 255));
 paint.setAntiAlias(true);
 
-// Uniform corner radius
+// 统一圆角半径
 canvas->drawRoundRect(wsc::RectF(50, 50, 200, 120), 16.0f, paint);
 ```
 
-Corner radius values:
-- `radius = 0` is equivalent to a plain rectangle
-- `radius = min(width, height) / 2` is equivalent to a pill shape
+圆角半径的取值：
+- `radius = 0` 等价于普通矩形
+- `radius = min(width, height) / 2` 等价于胶囊形
 
 ---
 
-## 2.5 Circles
+## 2.5 圆形
 
 ```cpp
 wsc::Paint paint;
@@ -116,20 +114,20 @@ canvas->drawCircle(200.0f, 200.0f, 80.0f, paint);
 
 ---
 
-## 2.6 Ovals
+## 2.6 椭圆
 
 ```cpp
 wsc::Paint paint;
 paint.setColor(wsc::Color(156, 39, 176, 255));
 paint.setAntiAlias(true);
 
-// drawOval(bounds, paint) — bounds is the oval's bounding rectangle
+// drawOval(bounds, paint) —— bounds 是椭圆的外接矩形
 canvas->drawOval(wsc::RectF(80, 120, 240, 160), paint);
 ```
 
 ---
 
-## 2.7 Arcs
+## 2.7 弧形
 
 ```cpp
 wsc::Paint paint;
@@ -139,16 +137,16 @@ paint.setStyle(wsc::Paint::Style::STROKE);
 paint.setStrokeWidth(4.0f);
 
 // drawArc(bounds, startAngleRad, sweepAngleRad, useCenter, paint)
-// bounds:         bounding rectangle of the ellipse
-// startAngleRad:  starting angle in radians (0 = 3 o'clock direction)
-// sweepAngleRad:  swept angle
-// useCenter:      true connects the center (pie slice); false draws only the arc
+// bounds: 椭圆外接矩形
+// startAngleRad: 起始角度（弧度，0 = 3 点钟方向）
+// sweepAngleRad: 扫过的角度
+// useCenter: true 时连接圆心（扇形），false 时只画弧线
 
 float pi = 3.14159265f;
 canvas->drawArc(wsc::RectF(50, 50, 200, 200), 0, pi * 1.5f, false, paint);
 ```
 
-### Filled Pie Slice
+### 填充扇形
 
 ```cpp
 wsc::Paint piePaint;
@@ -160,7 +158,7 @@ canvas->drawArc(wsc::RectF(50, 50, 200, 200), 0, pi * 0.75f, true, piePaint);
 
 ---
 
-## 2.8 Lines
+## 2.8 线段
 
 ```cpp
 wsc::Paint linePaint;
@@ -172,24 +170,24 @@ linePaint.setAntiAlias(true);
 canvas->drawLine(50, 50, 350, 200, linePaint);
 ```
 
-### Line Cap Styles
+### 线帽样式
 
 ```cpp
-linePaint.setStrokeCap(wsc::Paint::StrokeCap::BUTT);   // Butt cap (default)
-linePaint.setStrokeCap(wsc::Paint::StrokeCap::ROUND);  // Round cap
-linePaint.setStrokeCap(wsc::Paint::StrokeCap::SQUARE); // Square cap (extends past the endpoint)
+linePaint.setStrokeCap(wsc::Paint::StrokeCap::BUTT);   // 平头（默认）
+linePaint.setStrokeCap(wsc::Paint::StrokeCap::ROUND);  // 圆头
+linePaint.setStrokeCap(wsc::Paint::StrokeCap::SQUARE); // 方头（超出端点）
 ```
 
 ---
 
-## 2.9 Polygons
+## 2.9 多边形
 
 ```cpp
 wsc::Paint polyPaint;
 polyPaint.setColor(wsc::Color(63, 81, 181, 200));
 polyPaint.setAntiAlias(true);
 
-// Define vertices
+// 定义顶点
 std::vector<wsc::PointF> points = {
     {200, 50},
     {350, 150},
@@ -203,23 +201,23 @@ canvas->drawPolygon(points.data(), points.size(), polyPaint);
 
 ---
 
-## 2.10 Box Shadow
+## 2.10 盒阴影（Box Shadow）
 
-Similar to CSS `box-shadow`, draws a shadow for a rectangular area:
+类似 CSS 的 `box-shadow`，为矩形区域绘制阴影：
 
 ```cpp
 // drawBoxShadow(rect, cornerRadius, spread, blur, offsetX, offsetY, color)
 canvas->drawBoxShadow(
-    wsc::RectF(100, 100, 200, 150),  // Rectangle
-    12.0f,                            // Corner radius
-    0.0f,                             // Spread
-    20.0f,                            // Blur radius
-    4.0f,                             // X offset
-    8.0f,                             // Y offset
-    wsc::Color(0, 0, 0, 80)          // Shadow color (semi-transparent black)
+    wsc::RectF(100, 100, 200, 150),  // 矩形区域
+    12.0f,                            // 圆角
+    0.0f,                             // spread（扩展）
+    20.0f,                            // blur（模糊半径）
+    4.0f,                             // X 偏移
+    8.0f,                             // Y 偏移
+    wsc::Color(0, 0, 0, 80)          // 阴影颜色（半透明黑）
 );
 
-// Draw the card body above the shadow
+// 在阴影之上绘制卡片本体
 wsc::Paint cardPaint;
 cardPaint.setColor(wsc::Color(255, 255, 255, 255));
 canvas->drawRoundRect(wsc::RectF(100, 100, 200, 150), 12.0f, cardPaint);
@@ -227,11 +225,11 @@ canvas->drawRoundRect(wsc::RectF(100, 100, 200, 150), 12.0f, cardPaint);
 
 ---
 
-## 2.11 Integrated Example: A Set of Cards
+## 2.11 综合示例：绘制一组卡片
 
-![Three dashboard cards composed from basic shapes](./images/chapter02_cards.png)
+![三张由基础图形组合而成的仪表卡片](./images/chapter02_cards.png)
 
-The key point: the cards use only rounded rectangles, circles, lines, and box shadows — no image assets. The code below matches the [compilable source](https://github.com/ClarkWain/WhatsCanvas/blob/main/examples/tutorials/chapter02_cards.cpp) that produced the picture.
+效果重点：卡片只使用圆角矩形、圆形、线段和盒阴影组合，没有依赖图片素材。下方代码与生成图片的[可编译源码](https://github.com/ClarkWain/WhatsCanvas/blob/main/examples/tutorials/chapter02_cards.cpp)相同。
 
 <!-- BEGIN GENERATED EXAMPLE: examples/tutorials/chapter02_cards.cpp -->
 ```cpp
@@ -240,17 +238,17 @@ The key point: the cards use only rounded rectangles, circles, lines, and box sh
 
 int main()
 {
-    // 1. Create an offscreen canvas. The sample image is produced directly by the Software backend.
+    // 1. 创建离屏画布。示例图片由 Software 后端直接输出。
     auto canvas = wsc::Canvas::create(wsc::Canvas::Backend::Software, 960, 540);
     if (!canvas || !canvas->initializeContext()) return 1;
     canvas->beginFrame();
 
-    // 2. Draw a uniform light background.
+    // 2. 绘制统一的浅色背景。
     wsc::Paint background;
     background.setColor(wsc::Color(244, 247, 252, 255));
     canvas->drawRect(wsc::RectF(0, 0, 960, 540), background);
 
-    // 3. Each card varies only in accent color and progress value; the layout stays the same.
+    // 3. 每张卡片只改变强调色和进度值，布局保持一致。
     struct Card {
         float x;
         wsc::Color accent;
@@ -262,11 +260,11 @@ int main()
         {640.0f, wsc::Color(28, 167, 132, 255), 0.88f},
     };
 
-    // 4. Compose rounded rectangles, circles, and shadows into a complete card.
+    // 4. 组合圆角矩形、圆形和阴影，构成完整卡片。
     for (const auto &card : cards) {
         const wsc::RectF bounds(card.x, 90, 260, 360);
 
-        // Card surface and top accent region.
+        // 卡片表面与顶部强调色区域。
         canvas->drawBoxShadow(bounds, 22, 0, 24, 0, 10, wsc::Color(30, 45, 80, 34));
 
         wsc::Paint surface;
@@ -280,7 +278,7 @@ int main()
         canvas->drawRoundRect(wsc::RectF(card.x, 90, 260, 96), 22.0f, header);
         canvas->drawRect(wsc::RectF(card.x, 150, 260, 36), header);
 
-        // Avatar placeholder and two title placeholders.
+        // 头像占位和两行标题占位。
         wsc::Paint icon;
         icon.setColor(wsc::Color(255, 255, 255, 52));
         icon.setAntiAlias(true);
@@ -296,21 +294,21 @@ int main()
         highlight.setColor(wsc::Color(255, 255, 255, 110));
         canvas->drawRoundRect(wsc::RectF(card.x + 84, 145, 82, 8), 4, highlight);
 
-        // Body skeleton lines.
+        // 正文骨架线。
         wsc::Paint skeleton;
         skeleton.setColor(wsc::Color(220, 226, 238, 255));
         canvas->drawRoundRect(wsc::RectF(card.x + 28, 222, 178, 12), 6, skeleton);
         canvas->drawRoundRect(wsc::RectF(card.x + 28, 250, 136, 10), 5, skeleton);
         canvas->drawRoundRect(wsc::RectF(card.x + 28, 278, 194, 10), 5, skeleton);
 
-        // Progress bar.
+        // 进度条。
         wsc::Paint track;
         track.setColor(wsc::Color(231, 235, 244, 255));
         canvas->drawRoundRect(wsc::RectF(card.x + 28, 332, 204, 12), 6, track);
         track.setColor(card.accent);
         canvas->drawRoundRect(wsc::RectF(card.x + 28, 332, 204 * card.progress, 12), 6, track);
 
-        // Footer status badge.
+        // 底部状态标签。
         wsc::Paint badge;
         badge.setColor(wsc::Color(
             card.accent.getR(), card.accent.getG(), card.accent.getB(), 28));
@@ -321,7 +319,7 @@ int main()
         canvas->drawRoundRect(wsc::RectF(card.x + 60, 393, 36, 8), 4, badge);
     }
 
-    // 5. Submit the draw commands and save the picture that matches the tutorial.
+    // 5. 提交绘制命令并保存与教程对应的结果图。
     canvas->endFrame();
     return canvas->savePixelsPPM("chapter02_cards.ppm") ? 0 : 2;
 }
@@ -330,31 +328,31 @@ int main()
 
 ---
 
-## 2.12 API Cheat Sheet
+## 2.12 API 速查表
 
-| Method | Arguments | Description |
-|--------|-----------|-------------|
-| `drawRect` | `(RectF, Paint)` | Rectangle |
-| `drawRoundRect` | `(RectF, radius, Paint)` | Rounded rectangle |
-| `drawCircle` | `(cx, cy, r, Paint)` | Circle |
-| `drawOval` | `(RectF, Paint)` | Oval (bounding rectangle) |
-| `drawArc` | `(RectF, start, sweep, center, Paint)` | Arc / pie |
-| `drawLine` | `(x1, y1, x2, y2, Paint)` | Line segment |
-| `drawPolygon` | `(points, count, Paint)` | Polygon |
-| `drawBoxShadow` | `(RectF, radius, spread, blur, dx, dy, Color)` | Box shadow |
+| 方法 | 参数 | 说明 |
+|------|------|------|
+| `drawRect` | `(RectF, Paint)` | 矩形 |
+| `drawRoundRect` | `(RectF, radius, Paint)` | 圆角矩形 |
+| `drawCircle` | `(cx, cy, r, Paint)` | 圆 |
+| `drawOval` | `(RectF, Paint)` | 椭圆（外接矩形） |
+| `drawArc` | `(RectF, start, sweep, center, Paint)` | 弧/扇 |
+| `drawLine` | `(x1, y1, x2, y2, Paint)` | 线段 |
+| `drawPolygon` | `(points, count, Paint)` | 多边形 |
+| `drawBoxShadow` | `(RectF, radius, spread, blur, dx, dy, Color)` | 盒阴影 |
 
 ---
 
-## 2.13 Summary
+## 2.13 小结
 
-This chapter covered:
+本章学习了：
 
-- [x] The WhatsCanvas coordinate system (origin at top-left, X to the right, Y downward)
-- [x] Drawing rectangles (filled / stroked / filled + stroked)
-- [x] Drawing rounded rectangles
-- [x] Drawing circles, ovals, arcs / pie slices
-- [x] Drawing line segments and line cap styles
-- [x] Drawing polygons
-- [x] Simulating card visuals with box shadows
+- [x] WhatsCanvas 的坐标系（左上角原点，X 向右，Y 向下）
+- [x] 绘制矩形（填充/描边/填充+描边）
+- [x] 绘制圆角矩形
+- [x] 绘制圆、椭圆、弧形/扇形
+- [x] 绘制线段及线帽样式
+- [x] 绘制多边形
+- [x] 使用盒阴影模拟卡片效果
 
-**Next chapter**: [Paint in Depth](./03-paint-bindepth.md) — a deep dive into color, gradients, shadows, blend modes, and other Paint attributes.
+**下一章**：[画笔 Paint 详解](./03-paint-bindepth.md) —— 深入学习颜色、渐变、阴影、混合模式等 Paint 属性。
