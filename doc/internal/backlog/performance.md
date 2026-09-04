@@ -1,55 +1,57 @@
-# Active Performance Backlog
+# Optional Performance Improvement Register
 
 Status reviewed: 2026-09-04.
 
-Verified historical measurements and completed optimization passes live in
-`doc/archive/implementation/performance-optimization-log.md`. Public methodology
-and current published results live in
+There is no open performance blocker for the stable v1 scope. The published
+quality-matched matrix reports 26 WhatsCanvas wins, 0 losses, and 1 tie against
+NanoVG, with all 27 pixel-quality checks passing. Android and Spider Solitaire
+device measurements also meet their recorded targets.
+
+Verified results and completed optimization passes live in
+[`performance-optimization-log.md`](../../archive/implementation/performance-optimization-log.md).
+The public methodology and current claims live in
 [`PERFORMANCE_BENCHMARKS.md`](../../public/performance/PERFORMANCE_BENCHMARKS.md).
 
-Every item below must preserve pixel validation and be measured on the same
-machine, driver, scene parameters, warmup, and sample profile as its baseline.
+The items below are investigation candidates, not prioritized work. Start one
+only when a reproducible production workload or benchmark identifies the
+corresponding cost.
 
-## P0 — Remove known CPU scaling costs
+## CPU scaling candidates
 
-- [ ] Replace linear LRU maintenance and repeated face identifiers with O(1)
+- Replace linear LRU maintenance and repeated face identifiers with O(1)
   bookkeeping and interned identity.
-- [ ] Introduce a frame arena before publishing allocator high-water metrics.
-- [ ] Preserve semantic Rect, RRect, Circle, Oval, GlyphRun, and Image commands
-  long enough to avoid unnecessary generic path expansion.
-- [ ] Use indexed convex fills and indexed contour AA strips, keeping generic
-  path tessellation as the complex-shape fallback.
+- Evaluate a frame arena if allocation profiles show material frame-time or
+  retained-capacity cost.
+- Preserve semantic Rect, RRect, Circle, Oval, GlyphRun, and Image commands
+  longer when profiling shows generic path expansion is significant.
+- Evaluate indexed convex fills and indexed contour AA strips for workloads
+  where tessellation remains measurable.
 
-Exit: the targeted scene improves outside the confidence interval, pixel gates
-remain green, and memory/high-water metrics do not regress materially.
+## Backend convergence candidates
 
-## P1 — Converge backend compilation
+- Share compiled draw packets among OpenGL, Vulkan, and Software where doing so
+  removes measured duplicate work without weakening backend-specific paths.
+- Preserve clip, layer, filter, blend, target, and snapshot barriers in any
+  shared packet representation.
+- Retain shaped GlyphRun/TextBlob data in Picture operations if text recording
+  appears in a measured hot path.
+- Reduce cold first-raster latency after genuine context loss when a target
+  application reports it as a user-visible problem.
 
-- [ ] Make OpenGL, Vulkan, and Software consume the same compiled draw packets
-  where their semantics match.
-- [ ] Preserve strict clip, layer, filter, blend, target, and snapshot barriers
-  while sharing packets.
-- [ ] Retain shaped GlyphRun/TextBlob data in Picture text operations.
-- [ ] Reduce cold first-raster latency after genuine context loss.
+## Measurement refinements
 
-Exit: backend parity scenes remain within tolerance and the change removes a
-measured duplicate compilation or upload cost.
+- Split simple Latin kerning from full OpenType shaping when a benchmark needs
+  to attribute those costs separately.
+- Replace hand-tuned text thresholds with foreground-region metrics when the
+  new metric is validated against the existing quality contract.
+- Consider parallel frame compilation only after a production trace shows the
+  stable single-threaded packet path is a bottleneck.
 
-## P2 — Improve benchmark decision quality
+## Promotion rules
 
-- [ ] Split simple Latin kerning from full OpenType shaping in text benchmarks.
-- [ ] Replace hand-tuned text thresholds with foreground-region metrics defined
-  by the benchmark contract.
-- [ ] Consider parallel frame compilation only after the single-threaded packet
-  path is measured and stable.
-
-Exit: the benchmark contract states what each scene isolates, reports raw data
-and confidence intervals, and cannot improve by silently reducing visual work.
-
-## Backlog rules
-
-- Link each started item to an issue and record baseline, hypothesis, owner, and
-  acceptance threshold.
-- Move completed narrative into the archived optimization log or a focused case
-  study; do not accumulate completed checkboxes here.
-- Reject optimizations that win only by changing scene content or quality.
+- Every started investigation needs a baseline, hypothesis, owner, target
+  workload, and acceptance threshold.
+- An optimization must improve outside the confidence interval while pixel and
+  memory gates remain green.
+- Do not prioritize work solely because it appears in this register, and do not
+  reopen completed performance goals without new evidence.

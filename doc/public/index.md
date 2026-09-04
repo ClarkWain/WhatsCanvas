@@ -52,7 +52,7 @@ int main()
 Add it to your build:
 
 ```cmake
-find_package(WhatsCanvas 0.2.0 CONFIG REQUIRED)
+find_package(WhatsCanvas 1.1.0 CONFIG REQUIRED)
 target_link_libraries(MyApp PRIVATE WhatsCanvas::OpenGL)   # or ::Software / ::OpenGLES
 ```
 

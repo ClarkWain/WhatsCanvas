@@ -16,8 +16,10 @@ environment metadata instead of presenting one favorable FPS number.
 The complete-frame suite is the primary public benchmark. The smaller targets
 remain useful when a frame regression needs to be localized.
 
-Maintainers track active bottleneck analysis, prioritized work, and quantitative
-acceptance targets in `doc/internal/backlog/performance.md`.
+Maintainers keep non-blocking investigation candidates in
+`doc/internal/backlog/performance.md`. There is no open performance blocker for
+the stable v1 scope; a candidate becomes active only when new measurements
+identify a relevant regression or production bottleneck.
 
 A checked-in [Windows i7-8700 / GTX 1060 reference run](../../../benchmarks/baselines/cross-library-nanovg-windows-i7-8700-gtx1060/README.md)
 demonstrates the complete report format and preserves all raw JSONL records.
@@ -577,6 +579,12 @@ python3 scripts/compare_performance.py \
 ```
 
 ## Cross-library comparisons
+
+This section is chronological. Early tables preserve the baseline and each
+optimization pass; references to a “remaining gap” describe that intermediate
+revision. The current matrix at the end of the sequence is the authoritative
+result: 26 WhatsCanvas wins, 0 NanoVG wins, 1 inconclusive cell, and 27/27
+quality gates passing.
 
 The executable
 [`cross_library_benchmark.py`](../../../scripts/cross_library_benchmark.py) runner and

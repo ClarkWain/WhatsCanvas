@@ -85,7 +85,7 @@ The `examples/game/*` samples (Tetris and Racer) use exactly this
 pattern: they lay the scene out in logical design units and set the device pixel
 ratio from the window content scale.
 
-## Not yet: gamma-correct text edges
+## Optional policy: gamma-correct text edges
 
 Text anti-aliasing is currently blended in sRGB space, which makes AA edges a
 little heavier than a gamma-correct blend would. Gamma-correct rendering is

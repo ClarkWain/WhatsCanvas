@@ -37,8 +37,10 @@ is validation-only and is not a release asset.
   management are outside the 1.0 contract.
 - Binary compatibility is limited to each official package's documented
   compiler/runtime, SDK, architecture, configuration, and dependency set.
-- Repeat Android/iOS device testing was deferred by the maintainer based on
-  prior multi-device testing and will continue after 1.0 as usage warrants.
+- Repeat Android/iOS device testing was deferred for the 1.0 tag based on prior
+  multi-device testing. Subsequent representative hardware validation completed
+  the stable-v1 target; see
+  [`mobile-hardware-signoff-2026-09.md`](../../../internal/validation/mobile-hardware-signoff-2026-09.md).
 
 See [`CHANGELOG.md`](../../../../CHANGELOG.md), the current maintainer
 [`release checklist`](../../../internal/operations/release-checklist.md), and

@@ -203,7 +203,7 @@ enabled — a Vulkan build gate.
 - `benchmarks/` — core benchmarks.
 - `scripts/` — build/smoke/regression/validation scripts.
 - `doc/public/` — current user documentation; `mkdocs.yml` builds the site from it.
-- `doc/internal/` — maintainer architecture, active backlog, reviews, validation,
+- `doc/internal/` — maintainer architecture, optional-work registers, reviews, validation,
   and operations. Follow the
   [documentation governance policy](doc/internal/operations/documentation-governance.md).
 - `doc/archive/` — completed release evidence and implementation history.

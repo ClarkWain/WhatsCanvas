@@ -11,7 +11,7 @@ published MkDocs site.
 | User behavior, setup, API, platform support | `doc/public/` | Current; reviewed with every affected release |
 | Public API declarations | `include/wsc/` and generated API reference | Generated; never hand-edit the reference |
 | Durable engineering decisions | `doc/internal/architecture/` | Keep while the decision still shapes the implementation |
-| Active product or performance work | `doc/internal/backlog/` | Unresolved outcomes only |
+| Optional product or performance candidates | `doc/internal/backlog/` | Non-blocking ideas; active work belongs in an issue with an owner and milestone |
 | Dated reviews and validation evidence | `doc/internal/design-reviews/`, `doc/internal/validation/` | Snapshot; include a date and scope |
 | Completed release and implementation history | `doc/archive/` | Immutable except for link repair or factual annotation |
 
@@ -20,10 +20,10 @@ published MkDocs site.
 1. Start uncertain analysis as a dated design review.
 2. Promote durable accepted rules into an architecture document.
 3. Put user-visible behavior in public documentation before claiming support.
-4. Track unfinished work as an issue and, when useful, summarize the active
-   outcome in the internal backlog.
-5. On completion, remove the backlog checkbox and preserve only evidence that
-   helps reproduce a result or understand a decision.
+4. Track active work as an issue with an owner and milestone. Keep the internal
+   registers for non-blocking candidates that have not been promoted.
+5. On completion, close the issue and preserve only evidence that helps
+   reproduce a result or understand a decision.
 6. Archive superseded release records and long implementation narratives; do
    not leave them in current guides.
 
@@ -33,7 +33,7 @@ published MkDocs site.
   API reference.
 - Platform/backend support change: update the public support matrix and dated
   validation evidence.
-- Release: review public versions, package examples, active backlog, release
+- Release: review public versions, package examples, promoted issues, release
   checklist, and navigation.
 - Architecture reversal: update or replace the decision record and explain the
   replacement; do not silently leave conflicting accepted documents.

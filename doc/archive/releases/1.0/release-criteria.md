@@ -4,6 +4,11 @@ This document defines the release boundary for WhatsCanvas 1.0. Only the
 **Must Have** items block the `v1.0.0` tag. The broader roadmap remains useful,
 but it is not the 1.0 acceptance checklist.
 
+> Historical status note: repeat device testing was explicitly deferred for the
+> 1.0 tag. Subsequent representative Android/iOS hardware validation completed
+> the stable-v1 target; see
+> [`mobile-hardware-signoff-2026-09.md`](../../../internal/validation/mobile-hardware-signoff-2026-09.md).
+
 ## 1.0 Product Contract
 
 WhatsCanvas 1.0 is a C++17, embeddable, Canvas-style 2D rendering library with:
