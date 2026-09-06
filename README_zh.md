@@ -351,7 +351,7 @@ if (!canvas) {
 ## 示例
 
 仓库包含最小入门项目、package consumer、统一目录下的
-Software/OpenGL/Vulkan/Metal presentation 宿主，以及三个游戏示例。专项视觉回归程序归档在
+Software/OpenGL/Vulkan/Metal presentation 宿主，以及四个游戏示例。专项视觉回归程序归档在
 `tests/visual`，不再放在 `examples` 中。
 
 <table>
@@ -362,6 +362,8 @@ Software/OpenGL/Vulkan/Metal presentation 宿主，以及三个游戏示例。�
 </table>
 
 [**蜘蛛纸牌**](examples/game/spider_solitaire) — 完整、无图片素材的纸牌游戏，支持鼠标拖拽、三档难度、提示、撤销、计分、计时、矢量花色与程序化牌背。
+
+[**中國象棋**](examples/game/xiangqi) — 桌面人機象棋，繁體介面、Canvas 繪製的深木棋盤與雕刻棋子、三檔 AI、悔棋、Image 圖集快取，以及自動可玩性／效能驗證。
 
 Windows 单独构建 Tetris：
 

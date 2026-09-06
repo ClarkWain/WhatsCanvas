@@ -363,6 +363,8 @@ visual regression harnesses live under `tests/visual` rather than `examples`.
 
 [**Spider Solitaire**](examples/game/spider_solitaire) — A complete, image-free card game with mouse dragging, three difficulty levels, hints, undo, scoring, timing, vector-drawn suits, and procedural card backs.
 
+[**Xiangqi**](examples/game/xiangqi) — Desktop Chinese chess with Canvas-drawn wood and carved pieces, Traditional Chinese UI, three AI levels, undo, image-atlas rendering, and automated playability/performance validation.
+
 To build Tetris separately on Windows:
 
 ```bat
