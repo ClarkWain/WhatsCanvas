@@ -13,6 +13,7 @@
 class Command;
 struct DrawImageBatchData;
 struct DrawImageBatchQuad;
+struct DrawImageData;
 
 struct OffscreenRenderRequest
 {
@@ -40,6 +41,8 @@ public:
     virtual void abandonBackend() { finalizeBackend(); }
     virtual void setViewport(int width, int height) = 0;
     virtual void submit(std::unique_ptr<Command> &&command) = 0;
+    // Append without allocating a command when the last image is compatible.
+    virtual bool tryAppendImage(const DrawImageData &) { return false; }
     virtual void recordCommandClone(
         std::size_t /*payloadBytes*/,
         bool /*pathCommand*/) {}

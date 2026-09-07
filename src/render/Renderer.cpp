@@ -149,6 +149,89 @@ void reorderIndependentPathRuns(
     finishSegment();
 }
 
+bool independentPrimitiveBounds(const Command &command, wsc::render::PathDeviceBounds &bounds)
+{
+    const auto affine = [](const glm::mat4 &m) {
+        return m[0][2] == 0 && m[0][3] == 0 && m[1][2] == 0 && m[1][3] == 0
+            && m[2][0] == 0 && m[2][1] == 0 && m[2][2] == 1 && m[2][3] == 0
+            && m[3][2] == 0 && m[3][3] == 1;
+    };
+    if (command.type() == Command::Type::Path) {
+        const auto &d = static_cast<const DrawPathCommand &>(command).data();
+        if (d.blendMode != DrawBlendMode::SrcOver || !affine(d.transform)
+            || !wsc::render::getReorderablePathBounds(d, bounds)) return false;
+    } else {
+        bounds = {std::numeric_limits<float>::max(), std::numeric_limits<float>::max(),
+                  std::numeric_limits<float>::lowest(), std::numeric_limits<float>::lowest()};
+        const auto include = [&](float x, float y, float w, float h, const glm::mat4 &m) {
+            for (auto p : {glm::vec4(x,y,0,1), glm::vec4(x+w,y,0,1),
+                           glm::vec4(x+w,y+h,0,1), glm::vec4(x,y+h,0,1)}) {
+                p = m * p;
+                if (!std::isfinite(p.x) || !std::isfinite(p.y)) return false;
+                bounds.left = std::min(bounds.left, p.x); bounds.right = std::max(bounds.right, p.x);
+                bounds.top = std::min(bounds.top, p.y); bounds.bottom = std::max(bounds.bottom, p.y);
+            }
+            return true;
+        };
+        if (command.type() == Command::Type::Image) {
+            const auto &d = static_cast<const DrawImageCommand &>(command).data();
+            if (d.blendMode != DrawBlendMode::SrcOver || d.scissor.enabled || d.clipMask.hasPaths()
+                || d.hasColorMatrix || d.hasShaderGradient() || d.clearTypeMask || !affine(d.transform)
+                || !include(d.x,d.y,d.width,d.height,d.transform)) return false;
+        } else if (command.type() == Command::Type::ImageBatch) {
+            const auto &d = static_cast<const DrawImageBatchCommand &>(command).data();
+            if (d.blendMode != DrawBlendMode::SrcOver || d.scissor.enabled || d.clipMask.hasPaths()
+                || !affine(d.transform) || d.quads.empty()) return false;
+            for (const auto &q : d.quads)
+                if (!include(q.x,q.y,q.width,q.height,d.transform)) return false;
+        } else return false;
+    }
+    // Geometry already includes AA expansion; keep an additional device-pixel
+    // guard so touching edges and numerical boundary cases never reorder.
+    bounds.left -= 1; bounds.top -= 1; bounds.right += 1; bounds.bottom += 1;
+    return bounds.right > bounds.left && bounds.bottom > bounds.top;
+}
+
+void groupIndependentPrimitives(std::vector<std::unique_ptr<Command>> &commands)
+{
+    if (commands.size() < 8) return;
+    int previous = 0, transitions = 0;
+    for (const auto &command : commands) {
+        const auto type = command->type();
+        const int kind = type == Command::Type::Path ? 1
+            : (type == Command::Type::Image || type == Command::Type::ImageBatch ? 2 : 0);
+        if (previous && kind && previous != kind) ++transitions;
+        previous = kind;
+    }
+    // Bounds work only pays off in a genuinely interleaved stream. A background
+    // followed by one image run already has few state changes; leave it alone.
+    if (transitions < 4) return;
+    constexpr std::size_t limit = 64;
+    std::array<wsc::render::PathDeviceBounds, limit> bounds;
+    std::size_t begin = 0, size = 0;
+    bool images = false, paths = false;
+    const auto finish = [&]() {
+        if (size >= 8 && images && paths) {
+            std::stable_partition(commands.begin() + begin, commands.begin() + begin + size,
+                [](const auto &c) { return c->type() != Command::Type::Path; });
+        }
+        size = 0; images = paths = false;
+    };
+    for (std::size_t i = 0; i < commands.size(); ++i) {
+        wsc::render::PathDeviceBounds b;
+        if (!independentPrimitiveBounds(*commands[i], b)) { finish(); continue; }
+        bool overlap = false;
+        for (std::size_t j = 0; j < size; ++j)
+            if (wsc::render::pathDeviceBoundsOverlap(bounds[j], b)) { overlap = true; break; }
+        if (overlap || size == limit) finish();
+        if (size == 0) begin = i;
+        bounds[size++] = b;
+        paths |= commands[i]->type() == Command::Type::Path;
+        images |= commands[i]->type() != Command::Type::Path;
+    }
+    finish();
+}
+
 void resetPathBatchState(
     const DrawPathData &source, DrawPathData &target)
 {
@@ -381,17 +464,60 @@ void Renderer::recordCommandClone(
     stats_.payloadCopyBytes += payloadBytes;
 }
 
+bool Renderer::tryAppendImage(const DrawImageData &data)
+{
+    const auto eligible = [](const DrawImageData &d) {
+        return d.imageResource && !d.scissor.enabled && !d.clipMask.hasPaths()
+            && !d.hasColorMatrix && !d.hasShaderGradient() && !d.hasRoundedCorners()
+            && !d.clearTypeMask && d.sampling == DrawImageSampling::Linear
+            && d.tileMode == DrawImageTileMode::Clamp;
+    };
+    if (commands_.size() <= imageBatchAppendFloor_ || !eligible(data)) return false;
+    const auto type = commands_.back()->type();
+    if (type != Command::Type::Image && type != Command::Type::ImageBatch) return false;
+    DrawImageBatchData batch;
+    batch.imageResource = data.imageResource;
+    batch.transform = data.transform;
+    batch.blendMode = data.blendMode;
+    std::copy_n(data.tintColor, 4, batch.tintColor);
+    batch.alpha = data.alpha;
+    const auto quad = [](const DrawImageData &d) {
+        DrawImageBatchQuad q;
+        q.x = d.x; q.y = d.y; q.width = d.width; q.height = d.height;
+        q.u0 = d.u0; q.v0 = d.v0; q.u1 = d.u1; q.v1 = d.v1;
+        return q;
+    };
+    if (type == Command::Type::ImageBatch) {
+        if (auto *target = tryGetImageBatchAppendTarget(batch, 1)) {
+            target->push_back(quad(data));
+            return true;
+        }
+        return false;
+    }
+    const auto &previous = static_cast<DrawImageCommand *>(commands_.back().get())->data();
+    if (!eligible(previous) || previous.imageResource != data.imageResource
+        || previous.transform != data.transform || previous.blendMode != data.blendMode
+        || previous.alpha != data.alpha
+        || !std::equal(std::begin(previous.tintColor), std::end(previous.tintColor), std::begin(data.tintColor)))
+        return false;
+    // Promote only repeated textures. Isolated images remain Image commands,
+    // so the existing multi-texture batching path is preserved. Float tint and
+    // alpha are stored per batch rather than quantized into packed RGBA8.
+    batch.quads.reserve(8);
+    batch.quads.push_back(quad(previous));
+    batch.quads.push_back(quad(data));
+    commands_.back() = std::make_unique<DrawImageBatchCommand>(std::move(batch));
+    ++stats_.commandObjectCount;
+    ++stats_.commandAllocationCount;
+    return true;
+}
+
 bool Renderer::tryAppendImageBatch(
     DrawImageBatchData &batch)
 {
     if (commands_.size() <= imageBatchAppendFloor_
         || batch.quads.empty()
         || batch.scissor.enabled || batch.clipMask.hasPaths()
-        || batch.tintColor[0] != 1.0f
-        || batch.tintColor[1] != 1.0f
-        || batch.tintColor[2] != 1.0f
-        || batch.tintColor[3] != 1.0f
-        || batch.alpha != 1.0f
         || commands_.back()->type() != Command::Type::ImageBatch) {
         return false;
     }
@@ -403,11 +529,8 @@ bool Renderer::tryAppendImageBatch(
         || previous.clipMask.hasPaths()
         || previous.blendMode != batch.blendMode
         || previous.transform != batch.transform
-        || previous.tintColor[0] != 1.0f
-        || previous.tintColor[1] != 1.0f
-        || previous.tintColor[2] != 1.0f
-        || previous.tintColor[3] != 1.0f
-        || previous.alpha != 1.0f) {
+        || !std::equal(std::begin(previous.tintColor), std::end(previous.tintColor), std::begin(batch.tintColor))
+        || previous.alpha != batch.alpha) {
         return false;
     }
     previous.quads.insert(
@@ -424,11 +547,6 @@ std::vector<DrawImageBatchQuad> *Renderer::tryGetImageBatchAppendTarget(
     if (commands_.size() <= imageBatchAppendFloor_
         || additionalQuadCount == 0
         || batch.scissor.enabled || batch.clipMask.hasPaths()
-        || batch.tintColor[0] != 1.0f
-        || batch.tintColor[1] != 1.0f
-        || batch.tintColor[2] != 1.0f
-        || batch.tintColor[3] != 1.0f
-        || batch.alpha != 1.0f
         || commands_.back()->type() != Command::Type::ImageBatch) {
         return nullptr;
     }
@@ -440,11 +558,8 @@ std::vector<DrawImageBatchQuad> *Renderer::tryGetImageBatchAppendTarget(
         || previous.clipMask.hasPaths()
         || previous.blendMode != batch.blendMode
         || previous.transform != batch.transform
-        || previous.tintColor[0] != 1.0f
-        || previous.tintColor[1] != 1.0f
-        || previous.tintColor[2] != 1.0f
-        || previous.tintColor[3] != 1.0f
-        || previous.alpha != 1.0f) {
+        || !std::equal(std::begin(previous.tintColor), std::end(previous.tintColor), std::begin(batch.tintColor))
+        || previous.alpha != batch.alpha) {
         return nullptr;
     }
 
@@ -795,6 +910,7 @@ void Renderer::flush()
     if (spriteBatch_) {
         spriteBatch_->beginFrame();
     }
+    if (queuedPathVertexCount > 0) groupIndependentPrimitives(commands_);
     reorderIndependentPathRuns(commands_);
     std::size_t pathBatchCacheIndex = 0;
 
@@ -827,198 +943,107 @@ void Renderer::flush()
         if (commands_[i]->type() != Command::Type::Path) {
             pathProgram->endBatch();
         }
-        if (commands_[i]->type() == Command::Type::ImageBatch) {
-            const auto &first =
-                static_cast<DrawImageBatchCommand *>(
-                    commands_[i].get())->data();
-            if (isSpriteBatchCompatible(
-                    first, first.imageResource, first.blendMode)) {
-                if (!spriteBatch_) {
-                    spriteBatch_ = std::make_unique<SpriteBatch>();
+        if (commands_[i]->type() == Command::Type::Image
+            || commands_[i]->type() == Command::Type::ImageBatch) {
+            const auto textureOf = [](const Command *command) -> SharedImageResource {
+                return command->type() == Command::Type::Image
+                    ? static_cast<const DrawImageCommand *>(command)->data().imageResource
+                    : static_cast<const DrawImageBatchCommand *>(command)->data().imageResource;
+            };
+            const auto blendOf = [](const Command *command) {
+                return command->type() == Command::Type::Image
+                    ? static_cast<const DrawImageCommand *>(command)->data().blendMode
+                    : static_cast<const DrawImageBatchCommand *>(command)->data().blendMode;
+            };
+            const DrawBlendMode blend = blendOf(commands_[i].get());
+            const auto compatible = [&](const Command *command) {
+                if (command->type() == Command::Type::Image) {
+                    const auto &d = static_cast<const DrawImageCommand *>(command)->data();
+                    return !d.clearTypeMask && isSpriteBatchCompatible(d, blend);
                 }
+                if (command->type() == Command::Type::ImageBatch) {
+                    const auto &d = static_cast<const DrawImageBatchCommand *>(command)->data();
+                    return isSpriteBatchCompatible(d, d.imageResource, blend);
+                }
+                return false;
+            };
+            if (compatible(commands_[i].get())) {
+                if (!spriteBatch_) spriteBatch_ = std::make_unique<SpriteBatch>();
                 spriteBatch_->clear();
-                spriteBatch_->setTexture(first.imageResource);
-                // GLES 3 and desktop GL can both reconstruct a plain image
-                // quad from one instance. Rotated/sheared transforms retain
-                // the expanded path because two bounds corners cannot encode
-                // the other transformed corners.
-                const bool compactGlyphBatch =
-                    first.transform[0][1] == 0.0f
-                    && first.transform[1][0] == 0.0f;
-
+                const auto firstTexture = textureOf(commands_[i].get());
+                bool instanced = true;
+                bool textureLimit = false;
                 std::size_t j = i;
-                while (j < commands_.size()
-                       && commands_[j]->type()
-                           == Command::Type::ImageBatch) {
-                    const auto &batch =
-                        static_cast<DrawImageBatchCommand *>(
-                            commands_[j].get())->data();
-                    if (!isSpriteBatchCompatible(
-                            batch, first.imageResource,
-                            first.blendMode)) {
+                // One ordered image span, regardless of recording granularity.
+                // A,B or A,A,B,B must retain the same multi-texture batching.
+                for (; j < commands_.size() && compatible(commands_[j].get()); ++j) {
+                    const auto *command = commands_[j].get();
+                    const auto resource = textureOf(command);
+                    if (spriteBatch_->addTexture(resource) < 0) {
+                        textureLimit = true;
                         break;
                     }
-                    if (compactGlyphBatch
-                        && (batch.transform[0][1] != 0.0f
-                            || batch.transform[1][0] != 0.0f)) {
-                        break;
+                    if (resource != firstTexture) instanced = false;
+                    if (command->type() == Command::Type::Image) {
+                        const auto &d = static_cast<const DrawImageCommand *>(command)->data();
+                        if (d.hasRoundedCorners() || d.transform[0][1] != 0.0f || d.transform[1][0] != 0.0f)
+                            instanced = false;
+                    } else {
+                        const auto &d = static_cast<const DrawImageBatchCommand *>(command)->data();
+                        if (d.transform[0][1] != 0.0f || d.transform[1][0] != 0.0f) instanced = false;
                     }
-                    float tintColor[4] = {
-                        batch.tintColor[0],
-                        batch.tintColor[1],
-                        batch.tintColor[2],
-                        batch.tintColor[3] * batch.alpha
-                    };
-                    std::uint32_t cachedPackedTint = 0u;
-                    float cachedTint[4] = {};
-                    bool hasCachedTint = false;
-                    for (const DrawImageBatchQuad &quad : batch.quads) {
-                        if (!hasCachedTint
-                            || cachedPackedTint
-                                != quad.packedTint) {
-                            cachedPackedTint = quad.packedTint;
-                            cachedTint[0] = static_cast<float>(
-                                quad.packedTint & 0xffu)
-                                / 255.0f * tintColor[0];
-                            cachedTint[1] = static_cast<float>(
-                                (quad.packedTint >> 8u) & 0xffu)
-                                / 255.0f * tintColor[1];
-                            cachedTint[2] = static_cast<float>(
-                                (quad.packedTint >> 16u) & 0xffu)
-                                / 255.0f * tintColor[2];
-                            cachedTint[3] = static_cast<float>(
-                                (quad.packedTint >> 24u) & 0xffu)
-                                / 255.0f * tintColor[3];
-                            GammaCorrect::srgbToLinear4(cachedTint);
-                            hasCachedTint = true;
-                        }
-                        if (compactGlyphBatch) {
-                            spriteBatch_->addInstance(
-                                quad.x, quad.y,
-                                quad.width, quad.height,
-                                quad.u0, quad.v0,
-                                quad.u1, quad.v1,
-                                cachedTint[0], cachedTint[1],
-                                cachedTint[2], cachedTint[3],
-                                batch.transform);
-                        } else {
-                            spriteBatch_->add(
-                                quad.x, quad.y,
-                                quad.width, quad.height,
-                                quad.u0, quad.v0,
-                                quad.u1, quad.v1,
-                                cachedTint[0], cachedTint[1],
-                                cachedTint[2], cachedTint[3],
-                                batch.transform);
+                }
+                if (instanced) spriteBatch_->setTexture(firstTexture);
+                const auto addQuad = [&](float x, float y, float w, float h,
+                                         float u0, float v0, float u1, float v1,
+                                         float *tint, const glm::mat4 &transform,
+                                         float radius, int slot) {
+                    GammaCorrect::srgbToLinear4(tint);
+                    if (instanced) {
+                        spriteBatch_->addInstance(x, y, w, h, u0, v0, u1, v1,
+                            tint[0], tint[1], tint[2], tint[3], transform);
+                    } else {
+                        spriteBatch_->add(x, y, w, h, u0, v0, u1, v1,
+                            tint[0], tint[1], tint[2], tint[3], transform, radius, slot);
+                    }
+                };
+                for (std::size_t k = i; k < j; ++k) {
+                    const auto *command = commands_[k].get();
+                    const int slot = instanced ? 0 : spriteBatch_->addTexture(textureOf(command));
+                    if (command->type() == Command::Type::Image) {
+                        const auto &d = static_cast<const DrawImageCommand *>(command)->data();
+                        float tint[] = {d.tintColor[0], d.tintColor[1], d.tintColor[2], d.tintColor[3] * d.alpha};
+                        addQuad(d.x, d.y, d.width, d.height, d.u0, d.v0, d.u1, d.v1, tint, d.transform, d.roundedRadius, slot);
+                    } else {
+                        const auto &d = static_cast<const DrawImageBatchCommand *>(command)->data();
+                        for (const auto &q : d.quads) {
+                            float tint[] = {
+                                float(q.packedTint & 0xffu) / 255.0f * d.tintColor[0],
+                                float((q.packedTint >> 8u) & 0xffu) / 255.0f * d.tintColor[1],
+                                float((q.packedTint >> 16u) & 0xffu) / 255.0f * d.tintColor[2],
+                                float((q.packedTint >> 24u) & 0xffu) / 255.0f * (d.tintColor[3] * d.alpha)};
+                            addQuad(q.x, q.y, q.width, q.height, q.u0, q.v0, q.u1, q.v1, tint, d.transform, 0.0f, slot);
                         }
                     }
-                    stats_.payloadCopyBytes +=
-                        batch.quads.size()
-                        * (compactGlyphBatch ? 12u : 56u)
-                        * sizeof(float);
-                    ++j;
                 }
                 if (j < commands_.size()) {
-                    if (commands_[j]->type()
-                        != Command::Type::ImageBatch) {
+                    if (textureLimit) ++stats_.batchBreakTextureLimitCount;
+                    else if (commands_[j]->type() != Command::Type::Image && commands_[j]->type() != Command::Type::ImageBatch)
                         ++stats_.batchBreakCommandTypeCount;
-                    } else {
-                        ++stats_.batchBreakStateCount;
-                    }
+                    else ++stats_.batchBreakStateCount;
                 }
-
-                if (!spriteBatch_->empty()) {
-                    const std::size_t spriteCount =
-                        spriteBatch_->spriteCount();
-                    stats_.imageBatchQuadCount += spriteCount;
-                    if (compactGlyphBatch) {
-                        stats_.imageBatchInstancedQuadCount += spriteCount;
-                    }
-                    stats_.imageBatchUploadBytes += spriteCount
-                        * (compactGlyphBatch ? 12u : 56u)
-                        * sizeof(float);
-                    spriteBatch_->flush(context_, first.blendMode);
+                const auto count = spriteBatch_->spriteCount();
+                stats_.imageBatchQuadCount += count;
+                if (instanced) stats_.imageBatchInstancedQuadCount += count;
+                stats_.imageBatchUploadBytes += count * (instanced ? 12u : 56u) * sizeof(float);
+                stats_.payloadCopyBytes += count * (instanced ? 12u : 56u) * sizeof(float);
+                if (count > 0) {
+                    spriteBatch_->flush(context_, blend);
                     ++stats_.drawCallCount;
-                    if (spriteCount > 1) {
-                        ++stats_.mergedBatchCount;
-                    }
-                    i = j;
-                    continue;
+                    if (count > 1) ++stats_.mergedBatchCount;
                 }
-            }
-        }
-
-        if (commands_[i]->type() == Command::Type::Image) {
-            auto *imageCmd = static_cast<DrawImageCommand *>(commands_[i].get());
-            const auto &first = imageCmd->data();
-            if (isSpriteBatchCompatible(
-                    first, first.blendMode)) {
-                if (!spriteBatch_) {
-                    spriteBatch_ =
-                        std::make_unique<SpriteBatch>();
-                }
-                spriteBatch_->clear();
-
-                std::size_t j = i;
-                bool imageStateBreak = false;
-                bool imageTextureBreak = false;
-                while (j < commands_.size()
-                       && commands_[j]->type()
-                           == Command::Type::Image) {
-                    const auto &data =
-                        static_cast<DrawImageCommand *>(
-                            commands_[j].get())->data();
-                    if (!isSpriteBatchCompatible(
-                            data, first.blendMode)) {
-                        imageStateBreak = true;
-                        break;
-                    }
-                    const int textureSlot =
-                        spriteBatch_->addTexture(
-                            data.imageResource);
-                    if (textureSlot < 0) {
-                        imageTextureBreak = true;
-                        break;
-                    }
-                    float tintColor[4] = {
-                        data.tintColor[0],
-                        data.tintColor[1],
-                        data.tintColor[2],
-                        data.tintColor[3] * data.alpha
-                    };
-                    GammaCorrect::srgbToLinear4(tintColor);
-                    spriteBatch_->add(
-                        data.x, data.y,
-                        data.width, data.height,
-                        data.u0, data.v0,
-                        data.u1, data.v1,
-                        tintColor[0], tintColor[1],
-                        tintColor[2], tintColor[3],
-                        data.transform, data.roundedRadius,
-                        textureSlot);
-                    stats_.payloadCopyBytes +=
-                        56u * sizeof(float);
-                    ++j;
-                }
-                if (j < commands_.size()
-                    && commands_[j]->type()
-                        != Command::Type::Image) {
-                    ++stats_.batchBreakCommandTypeCount;
-                } else if (imageTextureBreak) {
-                    ++stats_.batchBreakTextureLimitCount;
-                } else if (imageStateBreak) {
-                    ++stats_.batchBreakStateCount;
-                }
-
-                if (j > i) {
-                    spriteBatch_->flush(context_, first.blendMode);
-                    ++stats_.drawCallCount;
-                    if (j > i + 1) {
-                        ++stats_.mergedBatchCount;
-                    }
-                    i = j;
-                    continue;
-                }
+                i = j;
+                continue;
             }
         }
 

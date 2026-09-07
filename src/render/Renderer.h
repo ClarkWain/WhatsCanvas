@@ -33,6 +33,7 @@ public:
 
     void setViewport(int width, int height) override;
     void submit(std::unique_ptr<Command> &&command) override;
+    bool tryAppendImage(const DrawImageData &data) override;
     void recordCommandClone(
         std::size_t payloadBytes,
         bool pathCommand) override;

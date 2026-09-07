@@ -4,6 +4,15 @@ This directory is the top-level home for WhatsCanvas validation beyond ad-hoc lo
 
 ## Current Entry Points
 
+- `WhatsCanvasImageRectsTests`: 16 exact OpenGL/software bulk-versus-scalar
+  pixel comparisons covering source clipping, negative destination sizes,
+  alpha/tint, sampling/color-matrix fallback, clipping, transforms, layers,
+  and Picture recording.
+- `WhatsCanvasRenderSubmissionTests`: six first-use native text entry paths,
+  valid uploads after unrelated GL errors, rejected invalid uploads, and
+  instanced image pixels against a clipped reference. Both new tests require
+  a real OpenGL 3.3 context and fail explicitly if it cannot be created.
+
 - `tests/compile/FeatureSnippets.cpp`: compile-only public API snippets.
 - `tests/integration/vulkan_present/`: low-level Vulkan surface and swapchain
   validation kept separate from user-facing examples.

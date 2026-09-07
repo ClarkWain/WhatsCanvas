@@ -1,6 +1,7 @@
 #include "GLProgram.h"
 #include <atomic>
 #include <chrono>
+#include <cstring>
 #include <utility>
 #include "core/LogInternal.h"
 
@@ -236,44 +237,58 @@ GLuint GLProgram::compileShader(GLenum type, const std::string &source)
     return shader;
 }
 
-GLint GLProgram::uniformLocation(const std::string &name)
+GLint GLProgram::changedUniform(const std::string &name, const void *value,
+                               std::size_t size, bool integer)
 {
-    const auto found = uniformLocations_.find(name);
-    if (found != uniformLocations_.end()) {
-        return found->second;
+    auto inserted = uniformLocations_.try_emplace(name);
+    auto &state = inserted.first->second;
+    if (inserted.second) {
+        state.location = glGetUniformLocation(program_, name.c_str());
     }
-    const GLint location = glGetUniformLocation(program_, name.c_str());
-    uniformLocations_.emplace(name, location);
-    return location;
+    if (state.location < 0 || (state.size == size && state.integer == integer
+        && std::memcmp(state.value.data(), value, size) == 0)) {
+        return -1;
+    }
+    // Uniforms belong to the program, not the current GL binding. The program
+    // owns all setters; linking, unloading and context loss clear this cache.
+    std::memcpy(state.value.data(), value, size);
+    state.size = size;
+    state.integer = integer;
+    return state.location;
 }
 
 void GLProgram::setFloat(const std::string &name, float value)
 {
-    glUniform1f(uniformLocation(name), value);
+    const GLint location = changedUniform(name, &value, sizeof(value));
+    if (location >= 0) glUniform1f(location, value);
 }
 
 void GLProgram::setInt(const std::string &name, int value)
 {
-    glUniform1i(uniformLocation(name), value);
+    const GLint location = changedUniform(name, &value, sizeof(value), true);
+    if (location >= 0) glUniform1i(location, value);
 }
 
 void GLProgram::setVec2(const std::string &name, const glm::vec2 &value)
 {
-    glUniform2fv(uniformLocation(name), 1, &value[0]);
+    const GLint location = changedUniform(name, &value[0], sizeof(float) * 2);
+    if (location >= 0) glUniform2fv(location, 1, &value[0]);
 }
 
 void GLProgram::setVec3(const std::string &name, const glm::vec3 &value)
 {
-    glUniform3fv(uniformLocation(name), 1, &value[0]);
+    const GLint location = changedUniform(name, &value[0], sizeof(float) * 3);
+    if (location >= 0) glUniform3fv(location, 1, &value[0]);
 }
 
 void GLProgram::setVec4(const std::string &name, const glm::vec4 &value)
 {
-    glUniform4fv(uniformLocation(name), 1, &value[0]);
+    const GLint location = changedUniform(name, &value[0], sizeof(float) * 4);
+    if (location >= 0) glUniform4fv(location, 1, &value[0]);
 }
 
 void GLProgram::setMat4(const std::string &name, const glm::mat4 &value)
 {
-    glUniformMatrix4fv(
-        uniformLocation(name), 1, GL_FALSE, &value[0][0]);
+    const GLint location = changedUniform(name, &value[0][0], sizeof(float) * 16);
+    if (location >= 0) glUniformMatrix4fv(location, 1, GL_FALSE, &value[0][0]);
 }
