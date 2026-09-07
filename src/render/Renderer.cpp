@@ -275,7 +275,6 @@ bool isSpriteBatchCompatible(
         && !data.hasShaderGradient()
         && data.sampling == DrawImageSampling::Linear
         && data.tileMode == DrawImageTileMode::Clamp
-        && !data.scissor.enabled
         && !data.clipMask.hasPaths()
         && (!data.hasRoundedCorners()
             || (nearlyEqual(data.u0, 0.0f)
@@ -292,7 +291,6 @@ bool isSpriteBatchCompatible(
     return data.imageResource == texture
         && data.imageResource
         && data.imageResource->isValid()
-        && !data.scissor.enabled
         && !data.clipMask.hasPaths()
         && data.blendMode == blendMode;
 }
@@ -1020,19 +1018,46 @@ void Renderer::flush()
                     ? static_cast<const DrawImageCommand *>(command)->data().blendMode
                     : static_cast<const DrawImageBatchCommand *>(command)->data().blendMode;
             };
+            const auto scissorOf = [](const Command *command) -> const ScissorState & {
+                return command->type() == Command::Type::Image
+                    ? static_cast<const DrawImageCommand *>(command)->data().scissor
+                    : static_cast<const DrawImageBatchCommand *>(command)->data().scissor;
+            };
+            const ScissorState scissor = scissorOf(commands_[i].get());
+            // Keep the new clipped run single-texture. Combining large
+            // composited layers through the multi-sampler shader can cost
+            // more than independent draws; preserve that existing path.
+            const auto clippedTexture = scissor.enabled ? textureOf(commands_[i].get()) : SharedImageResource{};
+            const auto sameScissor = [&](const ScissorState &other) {
+                return scissor.enabled == other.enabled && (!scissor.enabled
+                    || (scissor.x == other.x && scissor.y == other.y
+                        && scissor.width == other.width && scissor.height == other.height));
+            };
             const DrawBlendMode blend = blendOf(commands_[i].get());
             const auto compatible = [&](const Command *command) {
                 if (command->type() == Command::Type::Image) {
                     const auto &d = static_cast<const DrawImageCommand *>(command)->data();
-                    return !d.clearTypeMask && isSpriteBatchCompatible(d, blend);
+                    return !d.clearTypeMask && sameScissor(d.scissor)
+                        && (!scissor.enabled || d.imageResource == clippedTexture)
+                        && isSpriteBatchCompatible(d, blend);
                 }
                 if (command->type() == Command::Type::ImageBatch) {
                     const auto &d = static_cast<const DrawImageBatchCommand *>(command)->data();
-                    return isSpriteBatchCompatible(d, d.imageResource, blend);
+                    return sameScissor(d.scissor)
+                        && (!scissor.enabled || d.imageResource == clippedTexture)
+                        && isSpriteBatchCompatible(d, d.imageResource, blend);
                 }
                 return false;
             };
-            if (compatible(commands_[i].get())) {
+            bool batchable = compatible(commands_[i].get());
+            if (batchable && scissor.enabled) {
+                // A clipped singleton has nothing to batch. In particular,
+                // leave standalone layer composites on their original path.
+                const bool multipleQuads = commands_[i]->type() == Command::Type::ImageBatch
+                    && static_cast<const DrawImageBatchCommand *>(commands_[i].get())->data().quads.size() > 1;
+                batchable = multipleQuads || (i + 1 < commands_.size() && compatible(commands_[i + 1].get()));
+            }
+            if (batchable) {
                 if (!spriteBatch_) spriteBatch_ = std::make_unique<SpriteBatch>();
                 spriteBatch_->clear();
                 const auto firstTexture = textureOf(commands_[i].get());
@@ -1103,7 +1128,7 @@ void Renderer::flush()
                 stats_.imageBatchUploadBytes += count * (instanced ? 12u : 56u) * sizeof(float);
                 stats_.payloadCopyBytes += count * (instanced ? 12u : 56u) * sizeof(float);
                 if (count > 0) {
-                    spriteBatch_->flush(context_, blend);
+                    spriteBatch_->flush(context_, blend, &scissor);
                     ++stats_.drawCallCount;
                     if (count > 1) ++stats_.mergedBatchCount;
                 }

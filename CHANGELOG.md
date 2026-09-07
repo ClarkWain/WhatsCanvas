@@ -15,6 +15,9 @@ For releases and downloadable artifacts, see the
   recording retain scalar drawing semantics.
 
 ### Changed
+- Batch consecutive images sharing an exact rectangular scissor and texture.
+  Keep clip masks, different scissors/textures, and clipped singletons on their
+  existing paths; preserve ordering and layer boundaries.
 - Reuse exact CPU clip AA meshes across frames and translations with bounded
   storage; include their bytes and hits in AA cache diagnostics.
 - Write bulk image rectangles directly into renderer-owned command storage.

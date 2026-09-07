@@ -104,6 +104,29 @@ int main() {
             canvas->releaseResources();
             require(canvas->getRenderStats().aaCacheSize == 0, "clip AA cache must release with canvas resources");
         }
+        // Exact scissor state is shared only by contiguous compatible
+        // images. Alternating rectangles and singletons keep their barriers.
+        {
+            auto canvas = wsc::Canvas::create(wsc::Canvas::Backend::OpenGL, 256, 96);
+            require(canvas && canvas->initializeContext(), "scissor batching canvas");
+            wsc::Image image;
+            require(canvas->loadImageFromRGBA(image, std::vector<unsigned char>(16 * 16 * 4, 255), 16, 16), "scissor image");
+            wsc::Paint paint;
+            paint.setColor(wsc::Color(.31f, .51f, .71f, .41f));
+            for (int mode = 0; mode < 3; ++mode) {
+                canvas->beginFrame();
+                const int count = mode == 2 ? 1 : 3;
+                for (int i = 0; i < count; ++i) {
+                    canvas->save();
+                    canvas->clipRect(wsc::RectF(10.3f + (mode == 1 ? (i % 2) * 17 : 0), 5.7f, 171.2f, 61.1f));
+                    canvas->drawImage(image, wsc::RectF(0, 0, 16, 16), wsc::RectF(i * 13, 8, 71, 57), paint);
+                    canvas->restore();
+                }
+                canvas->endFrame(); glFinish();
+                const auto stats = canvas->getRenderStats();
+                require(stats.drawCallCount == (mode == 1 ? 3u : 1u), "scissor batching draw count/barrier");
+            }
+        }
         std::cout << "PASS: 48 GL/software bulk/scalar pixel comparisons across reused frames, fallback and Picture recording\n";
     } catch (const std::exception &e) { std::cerr << e.what() << '\n'; return 1; }
 }

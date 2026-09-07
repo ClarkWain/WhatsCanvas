@@ -126,7 +126,7 @@ void SpriteBatch::addInstance(
         r, g, b, a});
 }
 
-void SpriteBatch::flush(RenderContext &context, DrawBlendMode blendMode)
+void SpriteBatch::flush(RenderContext &context, DrawBlendMode blendMode, const ScissorState *scissor)
 {
     const bool instanced = !instanceData_.empty();
     if (empty()
@@ -144,10 +144,10 @@ void SpriteBatch::flush(RenderContext &context, DrawBlendMode blendMode)
         return;
     }
 
-    // SpriteBatch currently batches only unclipped images. Apply state
-    // explicitly instead of inheriting GL state left by the previous command.
+    // The entire ordered run has one exact scissor. Apply it explicitly;
+    // arbitrary clip masks still execute through the full image path.
     context.applyBlendMode(blendMode);
-    context.applyClipState(ScissorState{}, ClipMaskState{});
+    context.applyClipState(scissor ? *scissor : ScissorState{}, ClipMaskState{});
 
     if (boundProgram_ != activeProgram) {
         endBatch();
