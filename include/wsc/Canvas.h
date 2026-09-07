@@ -427,6 +427,13 @@ public:
 
 	void drawImage(const Image &image, const RectF &src, const RectF &dst, const Paint &paint);
 
+	struct ImageRect { RectF source, destination; };
+	/// Ordered atlas/sprite rectangles with one image, paint and canvas state.
+	/// Equivalent to drawImage for each pair, including source clamping and
+	/// destination normalization. Input is consumed before returning. Complex
+	/// sampling/paint and Picture recording use the scalar implementation.
+	void drawImageRects(const Image &image, const ImageRect *rects, std::size_t count, const Paint &paint);
+
 	/// Fit an image into `dst`; custom alignment values are clamped to [0,1].
 	void drawImageFit(const Image &image, const RectF &dst, ImageFit fit, const Paint &paint);
 

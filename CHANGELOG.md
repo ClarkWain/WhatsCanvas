@@ -9,6 +9,27 @@ For releases and downloadable artifacts, see the
 
 ## [Unreleased]
 
+### Added
+- `Canvas::drawImageRects` submits ordered source/destination rectangles with
+  shared image and paint state. Complex sampling, color matrices, and Picture
+  recording retain scalar drawing semantics.
+
+### Changed
+- Initialize native text backends on first text use, allowing image/path-only
+  clients to avoid unused font discovery.
+- Merge compatible images during command recording and compile ordered image
+  spans through the existing instanced or multi-texture submission paths.
+- Group strictly disjoint image/path runs to reduce program switches while
+  retaining overlap, clip, layer, blend, and target ordering barriers.
+- Orphan full stream-buffer uploads, avoid redundant program uniform updates,
+  and reuse known framebuffer state within owned render passes.
+- Cache exact OpenGL clip coverage with an eight-entry, 8 MiB R8 pixel budget
+  and working-set admission to avoid allocation churn on animated clips.
+
+### Fixed
+- Do not attribute unrelated sticky OpenGL errors to a valid RGBA image upload;
+  invalid uploads still fail.
+
 ## [1.1.0] - 2026-09-04
 
 ### Added

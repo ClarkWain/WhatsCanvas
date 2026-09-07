@@ -1,5 +1,6 @@
 #include "ClipCoverageProgram.h"
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -145,6 +146,17 @@ void ClipCoverageProgram::release(bool abandon)
     if (!initialized_) {
         return;
     }
+    for (auto &entry : maskCache_) {
+        if (!abandon) {
+            glDeleteFramebuffers(1, &entry.framebuffer);
+            glDeleteTextures(1, &entry.texture);
+        }
+    }
+    maskCache_.clear();
+    maskCacheBytes_ = 0;
+    maskCacheClock_ = 0;
+    recentMaskRequests_.clear();
+    admitCurrentMask_ = false;
     if (abandon && coverageProgram_) coverageProgram_->abandonVolatile();
     delete coverageProgram_;
     coverageProgram_ = nullptr;
@@ -237,6 +249,72 @@ bool ClipCoverageProgram::ensureTargets(
     targetWidth_ = width;
     targetHeight_ = height;
     return true;
+}
+
+GLuint ClipCoverageProgram::findCachedMask(
+    std::uint64_t key, const ClipMaskState &clips, int width, int height)
+{
+    // Admit only masks reused within the cache's working-set capacity. One-off
+    // animated geometry or alternating sizes must not allocate/evict eight
+    // full targets per frame. All misses still use the existing scratch target.
+    constexpr std::size_t budget = 8u * 1024u * 1024u;
+    const std::size_t capacity = width > 0 && height > 0
+        && static_cast<std::size_t>(width) <= budget / static_cast<std::size_t>(height)
+        ? std::min<std::size_t>(8u, budget / (static_cast<std::size_t>(width) * height)) : 0u;
+    while (recentMaskRequests_.size() > capacity) recentMaskRequests_.erase(recentMaskRequests_.begin());
+    const auto recent = std::find(recentMaskRequests_.begin(), recentMaskRequests_.end(), key);
+    admitCurrentMask_ = recent != recentMaskRequests_.end();
+    if (admitCurrentMask_) recentMaskRequests_.erase(recent);
+    else if (capacity && recentMaskRequests_.size() >= capacity) recentMaskRequests_.erase(recentMaskRequests_.begin());
+    if (capacity) recentMaskRequests_.push_back(key);
+    for (auto &entry : maskCache_) {
+        if (entry.key != key || entry.width != width || entry.height != height
+            || entry.clips.resources.size() != clips.resources.size()) continue;
+        bool equal = true;
+        for (std::size_t i = 0; i < clips.resources.size(); ++i) {
+            const auto &a = clips.resources[i];
+            const auto &b = entry.clips.resources[i];
+            if (a != b && (!a || !b || !a->sameCoverage(*b))) {
+                equal = false;
+                break;
+            }
+        }
+        if (equal) {
+            entry.used = ++maskCacheClock_;
+            return entry.texture;
+        }
+    }
+    return 0;
+}
+
+void ClipCoverageProgram::cacheAccumulator(
+    std::uint64_t key, const ClipMaskState &clips, int width, int height)
+{
+    constexpr std::size_t budget = 8u * 1024u * 1024u;
+    if (!admitCurrentMask_ || width <= 0 || height <= 0 || accumulatorTexture_ == 0
+        || static_cast<std::size_t>(width) > budget / static_cast<std::size_t>(height)) return;
+    const std::size_t bytes = static_cast<std::size_t>(width) * height;
+    CachedMask entry{key, ++maskCacheClock_, clips, width, height,
+                     accumulatorTexture_, accumulatorFbo_};
+    accumulatorTexture_ = accumulatorFbo_ = 0;
+    while (!maskCache_.empty()
+           && (maskCache_.size() >= 8u || maskCacheBytes_ + bytes > budget)) {
+        auto oldest = std::min_element(maskCache_.begin(), maskCache_.end(),
+            [](const CachedMask &a, const CachedMask &b) { return a.used < b.used; });
+        maskCacheBytes_ -= static_cast<std::size_t>(oldest->width) * oldest->height;
+        if (accumulatorTexture_ == 0 && oldest->width == width && oldest->height == height) {
+            // Recycle an evicted target on misses; animated clipping does not
+            // allocate a new GL texture every frame once the cache is full.
+            accumulatorTexture_ = oldest->texture;
+            accumulatorFbo_ = oldest->framebuffer;
+        } else {
+            glDeleteFramebuffers(1, &oldest->framebuffer);
+            glDeleteTextures(1, &oldest->texture);
+        }
+        maskCache_.erase(oldest);
+    }
+    maskCacheBytes_ += bytes;
+    maskCache_.push_back(std::move(entry));
 }
 
 void ClipCoverageProgram::beginSingleClipLayer(int width, int height)

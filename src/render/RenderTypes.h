@@ -50,6 +50,9 @@ public:
     virtual ~ClipMaskResource() = default;
 
     virtual bool isValid() const = 0;
+    /// Exact coverage identity for bounded render caches. Unknown backends
+    /// conservatively match only the same immutable resource instance.
+    virtual bool sameCoverage(const ClipMaskResource &other) const { return this == &other; }
     virtual void apply(const RenderContext &context, const ScissorState &scissor, std::size_t clipIndex) const = 0;
 };
 

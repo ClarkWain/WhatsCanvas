@@ -74,4 +74,9 @@ private:
     mutable bool hasClipMaskKey_ = false;
     mutable std::uint64_t lastClipMaskKey_ = 0;
     mutable bool clipMaskActive_ = false;
+    // Valid only while this RenderContext owns the current render pass.
+    // resetRenderState() invalidates after host GL calls or target changes.
+    mutable bool hasFramebufferState_ = false;
+    mutable int framebuffer_ = 0;
+    mutable int viewport_[4] = {};
 };

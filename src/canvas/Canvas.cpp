@@ -3380,6 +3380,14 @@ struct Canvas::Impl
     }
 
     bool ensureRendererInitialized();
+    bool ensureTextBackend()
+    {
+        // Image/path-only clients need no font discovery or text backend.
+        if (!textBackend) {
+            textBackend = wsc::text::createBasicTextBackend();
+        }
+        return textBackend != nullptr;
+    }
     void releaseResources();
     void finalizeRenderer();
     void abandonRenderer();
@@ -3782,7 +3790,7 @@ std::uint64_t Canvas::Impl::retainedStateFingerprint() const
 }
 
 Canvas::Canvas(std::unique_ptr<IRenderer> renderer)
-    : impl_(std::make_unique<Impl>(std::move(renderer), wsc::text::createBasicTextBackend()))
+    : impl_(std::make_unique<Impl>(std::move(renderer), nullptr))
 {
     registerCanvasInstance(this);
 }
@@ -5779,7 +5787,49 @@ void Canvas::drawImage(const Image &image, const RectF &src, const RectF &dst, c
     data.clipMask = impl_->makeCurrentClipMaskState();
     applyImageColorMatrix(paint, data);
 
+    if (impl_->renderer->tryAppendImage(data)) {
+        return;
+    }
     impl_->renderer->submit(std::make_unique<DrawImageCommand>(data));
+}
+
+void Canvas::drawImageRects(const Image &image, const ImageRect *rects,
+                          std::size_t count, const Paint &paint)
+{
+    if (!rects || count == 0) return;
+    if (impl_->recordingPicture || paint.hasColorMatrix()
+        || paint.getImageSampling() != Paint::ImageSampling::LINEAR
+        || paint.getImageTileMode() != Paint::ImageTileMode::CLAMP) {
+        for (std::size_t i = 0; i < count; ++i)
+            drawImage(image, rects[i].source, rects[i].destination, paint);
+        return;
+    }
+    const auto resource = image.getImageResource();
+    if (!resource || !resource->isValid() || image.getWidth() <= 0 || image.getHeight() <= 0) return;
+    DrawImageBatchData batch;
+    batch.imageResource = resource;
+    const Color tint = paint.getColor();
+    batch.tintColor[0] = tint.r(); batch.tintColor[1] = tint.g(); batch.tintColor[2] = tint.b();
+    batch.alpha = std::clamp(tint.a() * paint.getAlphaF(), 0.0f, 1.0f);
+    batch.transform = impl_->currentState().matrix;
+    batch.scissor = impl_->makeCurrentScissorState();
+    batch.clipMask = impl_->makeCurrentClipMaskState();
+    batch.blendMode = toDrawBlendMode(paint.getBlendMode());
+    const float invWidth = 1.0f / image.getWidth(), invHeight = 1.0f / image.getHeight();
+    batch.quads.reserve(count);
+    for (std::size_t i = 0; i < count; ++i) {
+        const auto src = clampSourceRect(rects[i].source, image.getWidth(), image.getHeight());
+        const auto dst = normalizeRect(rects[i].destination);
+        if (src.getWidth() <= 0 || src.getHeight() <= 0 || dst.getWidth() <= 0 || dst.getHeight() <= 0) continue;
+        DrawImageBatchQuad q;
+        q.x = dst.getX(); q.y = dst.getY(); q.width = dst.getWidth(); q.height = dst.getHeight();
+        q.u0 = src.getX() * invWidth; q.v0 = src.getY() * invHeight;
+        q.u1 = (src.getX() + src.getWidth()) * invWidth;
+        q.v1 = (src.getY() + src.getHeight()) * invHeight;
+        batch.quads.push_back(q);
+    }
+    if (!batch.quads.empty() && !impl_->renderer->tryAppendImageBatch(batch))
+        impl_->renderer->submit(std::make_unique<DrawImageBatchCommand>(std::move(batch)));
 }
 
 void Canvas::drawImageSnapshot(
@@ -6314,7 +6364,7 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
             });
         return;
     }
-    if (!impl_->textBackend) {
+    if (!impl_->ensureTextBackend()) {
         return;
     }
     const auto textBackendStart = std::chrono::steady_clock::now();
@@ -7051,7 +7101,7 @@ void Canvas::drawTextOnPath(const std::string &text, const Path &path, float hOf
 
 float Canvas::measureText(const std::string &text, const Paint &paint) const
 {
-    if (!impl_->textBackend) {
+    if (!impl_->ensureTextBackend()) {
         return 0.0f;
     }
 
@@ -7060,7 +7110,7 @@ float Canvas::measureText(const std::string &text, const Paint &paint) const
 
 RectF Canvas::measureTextBounds(const std::string &text, const Paint &paint) const
 {
-    if (!impl_->textBackend) {
+    if (!impl_->ensureTextBackend()) {
         return RectF();
     }
 
@@ -7070,7 +7120,7 @@ RectF Canvas::measureTextBounds(const std::string &text, const Paint &paint) con
 Canvas::TextMetrics Canvas::measureTextMetrics(const std::string &text, const Paint &paint) const
 {
     TextMetrics metrics;
-    if (!impl_->textBackend) {
+    if (!impl_->ensureTextBackend()) {
         return metrics;
     }
 
@@ -7089,7 +7139,7 @@ Canvas::TextMetrics Canvas::measureTextMetrics(const std::string &text, const Pa
 
 bool Canvas::registerFontFace(const FontFace &face)
 {
-    const bool registered = impl_->textBackend != nullptr
+    const bool registered = impl_->ensureTextBackend()
         && impl_->textBackend->registerFontFace(face);
     if (registered) {
         ++impl_->retainedContentGeneration;
@@ -7099,7 +7149,7 @@ bool Canvas::registerFontFace(const FontFace &face)
 
 bool Canvas::addFontProvider(std::shared_ptr<FontProvider> provider)
 {
-    const bool added = impl_->textBackend != nullptr
+    const bool added = impl_->ensureTextBackend()
         && impl_->textBackend->addFontProvider(std::move(provider));
     if (added) {
         ++impl_->retainedContentGeneration;
@@ -7109,7 +7159,7 @@ bool Canvas::addFontProvider(std::shared_ptr<FontProvider> provider)
 
 bool Canvas::refreshSystemFonts()
 {
-    const bool refreshed = impl_->textBackend != nullptr
+    const bool refreshed = impl_->ensureTextBackend()
         && impl_->textBackend->refreshSystemFonts();
     if (refreshed) {
         ++impl_->retainedContentGeneration;
@@ -7119,7 +7169,7 @@ bool Canvas::refreshSystemFonts()
 
 bool Canvas::setFontFallbackChain(const FontFallbackChain &chain)
 {
-    const bool changed = impl_->textBackend != nullptr
+    const bool changed = impl_->ensureTextBackend()
         && impl_->textBackend->setFontFallbackChain(chain);
     if (changed) {
         ++impl_->retainedContentGeneration;

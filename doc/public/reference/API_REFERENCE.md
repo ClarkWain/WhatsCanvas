@@ -643,6 +643,15 @@ destination rectangles scale it; source rectangles use image-pixel
 coordinates. Invalid/backend-incompatible images draw nothing. Paint
 color tints the image, so use Color::WHITE for original colors.
 
+#### `drawImageRects`
+
+- `void drawImageRects(const Image &image, const ImageRect *rects, std::size_t count, const Paint &paint);`
+
+Ordered atlas/sprite rectangles with one image, paint and canvas state.
+Equivalent to drawImage for each pair, including source clamping and
+destination normalization. Input is consumed before returning. Complex
+sampling/paint and Picture recording use the scalar implementation.
+
 #### `drawImageFit`
 
 - `void drawImageFit(const Image &image, const RectF &dst, ImageFit fit, const Paint &paint);`
