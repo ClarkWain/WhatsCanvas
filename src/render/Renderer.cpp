@@ -326,6 +326,8 @@ std::size_t Renderer::stagingCapacityBytes() const
 {
     std::size_t bytes = commands_.capacity()
         * sizeof(std::unique_ptr<Command>);
+    bytes += imageBatchPoolBytes_ + imageBatchPool_.capacity()
+        * sizeof(std::unique_ptr<DrawImageBatchCommand>);
     for (const auto &command : commands_) {
         if (command != nullptr
             && command->type() == Command::Type::ImageBatch) {
@@ -397,6 +399,9 @@ void Renderer::finalizeBackend()
     mainTargetHeight_ = 0;
 
     device_->finalizeBackend();
+    imageBatchPool_.clear();
+    imageBatchPoolBytes_ = 0;
+    hasReusableImageBatches_ = false;
     backendInitialized_ = false;
 }
 
@@ -423,6 +428,9 @@ void Renderer::abandonBackend()
     imageBatchAppendFloor_ = 0;
     pathBatchCaches_.clear();
     stats_.reset();
+    imageBatchPool_.clear();
+    imageBatchPoolBytes_ = 0;
+    hasReusableImageBatches_ = false;
     backendInitialized_ = false;
 }
 
@@ -576,6 +584,37 @@ std::vector<DrawImageBatchQuad> *Renderer::tryGetImageBatchAppendTarget(
     return &previous.quads;
 }
 
+std::vector<DrawImageBatchQuad> *Renderer::acquireImageBatch(
+    const DrawImageBatchData &state, std::size_t count)
+{
+    if (count == 0 || !state.quads.empty()) return nullptr;
+    if (auto *target = tryGetImageBatchAppendTarget(state, count)) return target;
+    // Allocate bookkeeping during recording, never while clear() releases
+    // commands (which also runs during Canvas destruction).
+    if (imageBatchPool_.capacity() < 128) imageBatchPool_.reserve(128);
+    std::unique_ptr<DrawImageBatchCommand> command;
+    if (!imageBatchPool_.empty()) {
+        command = std::move(imageBatchPool_.back());
+        imageBatchPool_.pop_back();
+        imageBatchPoolBytes_ -= sizeof(DrawImageBatchCommand)
+            + command->data().quads.capacity() * sizeof(DrawImageBatchQuad);
+        auto storage = std::move(command->data().quads);
+        command->data() = state;
+        command->data().quads = std::move(storage);
+        ++stats_.commandPoolReuseCount;
+    } else {
+        command = std::make_unique<DrawImageBatchCommand>(state);
+        ++stats_.commandAllocationCount;
+    }
+    auto *target = &command->data().quads;
+    target->reserve(count);
+    command->enableStorageReuse();
+    hasReusableImageBatches_ = true;
+    ++stats_.commandObjectCount;
+    commands_.push_back(std::move(command));
+    return target;
+}
+
 size_t Renderer::commandCount() const
 {
     // Canvas uses this value to mark layer command ranges. Prevent subsequent
@@ -603,6 +642,9 @@ std::vector<std::unique_ptr<Command>> Renderer::takeCommandsFrom(size_t index)
 void Renderer::appendCommands(std::vector<std::unique_ptr<Command>> &&commands)
 {
     for (auto &command : commands) {
+        if (command && command->type() == Command::Type::ImageBatch
+            && static_cast<DrawImageBatchCommand *>(command.get())->reusableStorage())
+            hasReusableImageBatches_ = true;
         commands_.push_back(std::move(command));
     }
     imageBatchAppendFloor_ = commands_.size();
@@ -819,6 +861,29 @@ void Renderer::resetRenderState()
 
 void Renderer::clear()
 {
+    constexpr std::size_t budget = 8u * 1024u * 1024u;
+    if (hasReusableImageBatches_) {
+        for (auto &command : commands_) {
+            if (!command || command->type() != Command::Type::ImageBatch) continue;
+            auto *batch = static_cast<DrawImageBatchCommand *>(command.get());
+            if (!batch->reusableStorage()) continue;
+            const auto bytes = sizeof(DrawImageBatchCommand)
+                + batch->data().quads.capacity() * sizeof(DrawImageBatchQuad);
+            if (imageBatchPool_.size() >= imageBatchPool_.capacity()
+                || bytes > budget - imageBatchPoolBytes_) continue;
+            // Keep just quad capacity. Resource destruction and state lifetimes
+            // remain identical to destroying the original recorded command.
+            auto storage = std::move(batch->data().quads);
+            storage.clear();
+            batch->data() = DrawImageBatchData{};
+            batch->data().quads = std::move(storage);
+            std::unique_ptr<DrawImageBatchCommand> reusable(
+                static_cast<DrawImageBatchCommand *>(command.release()));
+            imageBatchPool_.push_back(std::move(reusable));
+            imageBatchPoolBytes_ += bytes;
+        }
+    }
+    hasReusableImageBatches_ = false;
     commands_.clear();
     imageBatchAppendFloor_ = 0;
 }

@@ -251,11 +251,68 @@ bool testFilterStatsAccumulateAndReset()
     return ok;
 }
 
+bool testReusableImageStorageOwnershipAndLimits()
+{
+    Renderer renderer(std::make_unique<FakeRenderDevice>());
+    DrawImageBatchData state;
+    auto source = std::make_shared<FakeImageResource>();
+    std::weak_ptr<ImageResource> weak = source;
+    state.imageResource = source;
+    auto *first = renderer.acquireImageBatch(state, 2);
+    if (!expect(first != nullptr, "recording storage available")) return false;
+    first->push_back(DrawImageBatchQuad{});
+    const auto boundary = renderer.commandCount();
+    auto *second = renderer.acquireImageBatch(state, 1);
+    second->push_back(DrawImageBatchQuad{});
+    second->back().x = 9;
+    bool ok = expect(renderer.commandCount() == 2, "observed layer range prevents append");
+    auto taken = renderer.takeCommandsFrom(boundary);
+    renderer.clear();
+    source.reset(); state.imageResource.reset();
+    ok = expect(!weak.expired(), "taken commands retain image ownership") && ok;
+    ok = expect(static_cast<DrawImageBatchCommand *>(taken.front().get())->data().quads.front().x == 9,
+                "clearing renderer does not mutate taken payload") && ok;
+    renderer.appendCommands(std::move(taken));
+    renderer.clear();
+    ok = expect(weak.expired(), "pooled storage retains no image resource") && ok;
+
+    state.imageResource = std::make_shared<FakeImageResource>();
+    state.alpha = .31f;
+    renderer.resetFrameStats();
+    auto *reused = renderer.acquireImageBatch(state, 4);
+    ok = expect(reused && reused->empty(), "reused payload starts empty") && ok;
+    ok = expect(renderer.frameStats().commandAllocationCount == 0
+                    && renderer.frameStats().commandPoolReuseCount == 1,
+                "warm batch reuses command allocation") && ok;
+    ok = expect(static_cast<const DrawImageBatchCommand *>(renderer.commandAt(0))->data().alpha == .31f,
+                "reused command receives new state") && ok;
+    renderer.clear();
+    for (int round = 0; round < 2; ++round) {
+        renderer.resetFrameStats();
+        for (int i = 0; i < 130; ++i) {
+            renderer.acquireImageBatch(state, 1)->push_back(DrawImageBatchQuad{});
+            renderer.commandCount(); // Explicit command range boundary.
+        }
+        if (round == 1) ok = expect(renderer.frameStats().commandPoolReuseCount == 128
+                                      && renderer.frameStats().commandAllocationCount == 2,
+                                  "pool retains at most 128 commands") && ok;
+        renderer.clear();
+    }
+    Renderer large(std::make_unique<FakeRenderDevice>());
+    large.acquireImageBatch(state, 300000)->push_back(DrawImageBatchQuad{});
+    large.clear(); large.resetFrameStats();
+    large.acquireImageBatch(state, 1)->push_back(DrawImageBatchQuad{});
+    ok = expect(large.frameStats().commandPoolReuseCount == 0,
+                "oversized payload is not retained by 8 MiB pool") && ok;
+    return ok;
+}
+
 } // namespace
 
 int main()
 {
     bool ok = true;
+    ok = testReusableImageStorageOwnershipAndLimits() && ok;
     ok = testDefaultStatsAreReadable() && ok;
     ok = testOffscreenStatsCountCommandsAndDraws() && ok;
     ok = testFilterStatsAccumulateAndReset() && ok;

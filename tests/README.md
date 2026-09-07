@@ -4,10 +4,14 @@ This directory is the top-level home for WhatsCanvas validation beyond ad-hoc lo
 
 ## Current Entry Points
 
-- `WhatsCanvasImageRectsTests`: 16 exact OpenGL/software bulk-versus-scalar
+- `WhatsCanvasRenderStatsTests` also checks image batch pool reuse, layer range
+  boundaries, transferred command ownership, texture release, entry and byte limits.
+
+- `WhatsCanvasImageRectsTests`: 48 exact OpenGL/software bulk-versus-scalar
   pixel comparisons covering source clipping, negative destination sizes,
   alpha/tint, sampling/color-matrix fallback, clipping, transforms, layers,
-  and Picture recording.
+  and Picture recording across reused frames. Also checks clip AA cache
+  translation reuse, scale invalidation, capacity and resource release.
 - `WhatsCanvasRenderSubmissionTests`: six first-use native text entry paths,
   valid uploads after unrelated GL errors, rejected invalid uploads, and
   instanced image pixels against a clipped reference. Both new tests require
