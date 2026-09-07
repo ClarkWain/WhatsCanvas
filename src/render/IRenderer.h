@@ -61,6 +61,11 @@ public:
     {
         return nullptr;
     }
+    // Returns empty/reusable renderer-owned storage, or appends to the last
+    // compatible batch. Producers must fill it before making another call.
+    // Backends without recording storage may return null for scalar staging.
+    virtual std::vector<DrawImageBatchQuad> *acquireImageBatch(
+        const DrawImageBatchData &, std::size_t) { return nullptr; }
     virtual size_t commandCount() const = 0;
     virtual std::vector<std::unique_ptr<Command>> takeCommandsFrom(size_t index) = 0;
     /// Read-only peek used by cache prototypes (currently: pre-layer command

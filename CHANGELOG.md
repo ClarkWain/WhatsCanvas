@@ -15,6 +15,12 @@ For releases and downloadable artifacts, see the
   recording retain scalar drawing semantics.
 
 ### Changed
+- Reuse exact CPU clip AA meshes across frames and translations with bounded
+  storage; include their bytes and hits in AA cache diagnostics.
+- Write bulk image rectangles directly into renderer-owned command storage.
+  Reuse up to 128 command/payload allocations within 8 MiB; release image and
+  clip owners at the original command lifetime boundary. Ordinary image
+  recording does not pay for this pool.
 - Initialize native text backends on first text use, allowing image/path-only
   clients to avoid unused font discovery.
 - Merge compatible images during command recording and compile ordered image

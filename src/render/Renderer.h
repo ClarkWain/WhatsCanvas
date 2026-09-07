@@ -15,6 +15,7 @@
 // Forward declaration for backend type enum.
 enum class RenderBackendType;
 class SpriteBatch;
+class DrawImageBatchCommand;
 
 class Renderer : public IRenderer
 {
@@ -42,6 +43,8 @@ public:
     std::vector<DrawImageBatchQuad> *tryGetImageBatchAppendTarget(
         const DrawImageBatchData &batch,
         std::size_t additionalQuadCount) override;
+    std::vector<DrawImageBatchQuad> *acquireImageBatch(
+        const DrawImageBatchData &state, std::size_t count) override;
     size_t commandCount() const override;
     std::vector<std::unique_ptr<Command>> takeCommandsFrom(size_t index) override;
     const Command *commandAt(size_t index) const override
@@ -99,6 +102,10 @@ private:
     bool flushViaDeviceCommands();
 
     std::vector<std::unique_ptr<Command>> commands_;
+    // Storage only: released image/clip owners never stay in this pool.
+    std::vector<std::unique_ptr<DrawImageBatchCommand>> imageBatchPool_;
+    std::size_t imageBatchPoolBytes_ = 0;
+    bool hasReusableImageBatches_ = false;
     // Commands at or before this index belong to an already-observed recording
     // scope (for example, the parent of a saveLayer boundary).
     mutable std::size_t imageBatchAppendFloor_ = 0;

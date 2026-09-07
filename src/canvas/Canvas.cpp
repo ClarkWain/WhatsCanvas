@@ -3501,6 +3501,21 @@ struct Canvas::Impl
     // a 64-entry limit caused deterministic eviction churn in dense geometry.
     wsc::render::LruCache<SharedAAExpandedMesh> fillAaCache{
         256, 8u * 1024u * 1024u};
+    // Clip AA uses the same local geometry at different translations. Retain
+    // only CPU meshes; renderer resources and coverage targets keep their own
+    // context/target lifetimes. Exact source comparison guards hash collisions.
+    struct ClipAaMesh {
+        std::vector<float> source;
+        std::vector<float> points;
+        std::vector<float> coverage;
+        float fringe = 0.0f;
+        std::size_t residentBytes() const {
+            return sizeof(ClipAaMesh) + sizeof(float)
+                * (source.capacity() + points.capacity() + coverage.capacity());
+        }
+    };
+    mutable wsc::render::LruCache<ClipAaMesh> clipAaCache{
+        128, 8u * 1024u * 1024u};
     // Retains transform-independent stroke meshes for the same reason.
     wsc::render::LruCache<std::vector<detail::Vec2>> strokeTessellationCache{
         256, 8u * 1024u * 1024u};
@@ -4297,6 +4312,7 @@ void Canvas::Impl::releaseResources()
     layerStack.clear();
     fillTessellationCache.clear();
     fillAaCache.clear();
+    clipAaCache.clear();
     strokeTessellationCache.clear();
     strokeAaCache.clear();
     glyphAtlasImageResource.reset();
@@ -4731,11 +4747,11 @@ Canvas::RenderStats Canvas::getRenderStats() const
     stats.tessellationCacheSize = impl_->fillTessellationCache.size();
     stats.tessellationCacheBytes =
         impl_->fillTessellationCache.residentBytes()
-        + impl_->fillAaCache.residentBytes();
-    stats.aaCacheHits = impl_->fillAaCache.hitCount();
-    stats.aaCacheMisses = impl_->fillAaCache.missCount();
-    stats.aaCacheSize = impl_->fillAaCache.size();
-    stats.aaCacheBytes = impl_->fillAaCache.residentBytes();
+        + impl_->fillAaCache.residentBytes() + impl_->clipAaCache.residentBytes();
+    stats.aaCacheHits = impl_->fillAaCache.hitCount() + impl_->clipAaCache.hitCount();
+    stats.aaCacheMisses = impl_->fillAaCache.missCount() + impl_->clipAaCache.missCount();
+    stats.aaCacheSize = impl_->fillAaCache.size() + impl_->clipAaCache.size();
+    stats.aaCacheBytes = impl_->fillAaCache.residentBytes() + impl_->clipAaCache.residentBytes();
     stats.simpleFillPrimitiveCount = impl_->simpleFillPrimitiveCount;
     stats.simpleFillGeometryCpuTimeNs =
         impl_->simpleFillGeometryCpuTimeNs;
@@ -5816,17 +5832,21 @@ void Canvas::drawImageRects(const Image &image, const ImageRect *rects,
     batch.clipMask = impl_->makeCurrentClipMaskState();
     batch.blendMode = toDrawBlendMode(paint.getBlendMode());
     const float invWidth = 1.0f / image.getWidth(), invHeight = 1.0f / image.getHeight();
-    batch.quads.reserve(count);
+    std::vector<DrawImageBatchQuad> *target = nullptr;
     for (std::size_t i = 0; i < count; ++i) {
         const auto src = clampSourceRect(rects[i].source, image.getWidth(), image.getHeight());
         const auto dst = normalizeRect(rects[i].destination);
         if (src.getWidth() <= 0 || src.getHeight() <= 0 || dst.getWidth() <= 0 || dst.getHeight() <= 0) continue;
+        if (!target) {
+            target = impl_->renderer->acquireImageBatch(batch, count);
+            if (!target) { batch.quads.reserve(count); target = &batch.quads; }
+        }
         DrawImageBatchQuad q;
         q.x = dst.getX(); q.y = dst.getY(); q.width = dst.getWidth(); q.height = dst.getHeight();
         q.u0 = src.getX() * invWidth; q.v0 = src.getY() * invHeight;
         q.u1 = (src.getX() + src.getWidth()) * invWidth;
         q.v1 = (src.getY() + src.getHeight()) * invHeight;
-        batch.quads.push_back(q);
+        target->push_back(q);
     }
     if (!batch.quads.empty() && !impl_->renderer->tryAppendImageBatch(batch))
         impl_->renderer->submit(std::make_unique<DrawImageBatchCommand>(std::move(batch)));
@@ -8434,15 +8454,37 @@ ClipMaskState Canvas::Impl::makeCurrentClipMaskState() const
                 // Expand the fill triangulation with an analytic-AA fringe so the
                 // clip mask has smooth edges. Done once per clip and cached in the
                 // mask (the fill triangles are replaced by the expanded mesh).
-                std::vector<detail::Vec2> tris;
-                tris.reserve(clipPath.mask.points.size() / 2);
-                for (std::size_t i = 0; i + 1 < clipPath.mask.points.size(); i += 2) {
-                    tris.emplace_back(clipPath.mask.points[i], clipPath.mask.points[i + 1]);
+                const float fringe = computeLocalFringe(clipPath.mask.transform);
+                std::uint64_t key = kFnvOffsetBasis;
+                hashFloat(key, fringe);
+                for (float point : clipPath.mask.points) hashFloat(key, point);
+                const auto *cached = clipAaCache.find(key);
+                if (cached && cached->fringe == fringe
+                    && cached->source == clipPath.mask.points) {
+                    clipPath.mask.points = cached->points;
+                    clipPath.mask.coverage = cached->coverage;
+                } else {
+                    std::vector<detail::Vec2> tris;
+                    tris.reserve(clipPath.mask.points.size() / 2);
+                    for (std::size_t i = 0; i + 1 < clipPath.mask.points.size(); i += 2)
+                        tris.emplace_back(clipPath.mask.points[i], clipPath.mask.points[i + 1]);
+                    AAExpandedMesh aa = expandTrianglesWithAA(tris, fringe, false);
+                    ClipAaMesh mesh;
+                    mesh.fringe = fringe;
+                    mesh.source = std::move(clipPath.mask.points);
+                    mesh.points = flattenPoints(aa.vertices);
+                    mesh.coverage = std::move(aa.coverage);
+                    // LruCache permits a single oversized entry by design;
+                    // clipping must instead obey a strict additional budget.
+                    if (mesh.residentBytes() <= clipAaCache.byteCapacity()) {
+                        const auto &stored = clipAaCache.insert(key, std::move(mesh));
+                        clipPath.mask.points = stored.points;
+                        clipPath.mask.coverage = stored.coverage;
+                    } else {
+                        clipPath.mask.points = std::move(mesh.points);
+                        clipPath.mask.coverage = std::move(mesh.coverage);
+                    }
                 }
-                AAExpandedMesh aa = expandTrianglesWithAA(
-                    tris, computeLocalFringe(clipPath.mask.transform), false);
-                clipPath.mask.points = flattenPoints(aa.vertices);
-                clipPath.mask.coverage = std::move(aa.coverage);
             }
 
             clipPath.resource = renderer->createClipMaskResource(clipPath.mask);
@@ -8496,6 +8538,7 @@ void Canvas::beginFrame()
     impl_->simpleFillSubmitCpuTimeNs = 0;
     impl_->fillTessellationCache.beginEpoch();
     impl_->fillAaCache.beginEpoch();
+    impl_->clipAaCache.beginEpoch();
     impl_->strokeTessellationCache.beginEpoch();
     impl_->strokeAaCache.beginEpoch();
     impl_->layerStack.clear();
