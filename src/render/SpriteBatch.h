@@ -8,6 +8,7 @@
 #include <glm/glm.hpp>
 
 class RenderContext;
+struct ScissorState;
 class ImageResource;
 class GLProgram;
 enum class DrawBlendMode;
@@ -68,7 +69,7 @@ public:
                      const glm::mat4 &transform = glm::mat4(1.0f));
 
     /// Submit all accumulated sprites as a single draw call.
-    void flush(RenderContext &context, DrawBlendMode blendMode);
+    void flush(RenderContext &context, DrawBlendMode blendMode, const ScissorState *scissor = nullptr);
 
     /// Clear the accumulated vertex data without drawing.
     void clear();
