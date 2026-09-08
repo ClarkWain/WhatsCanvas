@@ -310,6 +310,14 @@ public:
 
     float getTextSize() const;
 
+    /// Blur each glyph's coverage mask before compositing text. Radius is in
+    /// logical text units, scaled with text, independent of color
+    /// and opacity. Zero disables it. Portable alpha glyphs cache the result;
+    /// unsupported/color glyphs and large radii fall back to a filtered layer.
+    /// Overlapping glyphs may differ from blurring the already-composited run.
+    void setTextMaskBlur(float radius);
+    float getTextMaskBlur() const;
+
     /// Preferred UTF-8 font family. Resolution uses registered/provider/system
     /// faces and the Canvas fallback chain; an empty family selects defaults.
     void setFontFamily(const std::string &family);
@@ -487,6 +495,7 @@ private:
     int alpha_ = 255;
     float strokeWidth_ = 1.0f;
     float textSize_ = 16.0f;
+    float textMaskBlur_ = 0.0f;
     std::string fontFamily_;
     int fontWeight_ = 400;
     FontSlant fontSlant_ = FontSlant::NORMAL;

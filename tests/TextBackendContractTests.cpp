@@ -80,6 +80,86 @@ Paint makeTextPaint()
     return paint;
 }
 
+bool sameTextMetrics(const wsc::text::TextMetrics &a, const wsc::text::TextMetrics &b)
+{
+    return a.width == b.width && a.height == b.height && a.top == b.top && a.bottom == b.bottom
+        && a.ascent == b.ascent && a.descent == b.descent && a.lineGap == b.lineGap
+        && a.lineHeight == b.lineHeight && a.bounds.getX() == b.bounds.getX()
+        && a.bounds.getY() == b.bounds.getY() && a.bounds.getWidth() == b.bounds.getWidth()
+        && a.bounds.getHeight() == b.bounds.getHeight();
+}
+
+bool testTextCacheKeysPreserveSmallSpacingChanges()
+{
+    const auto makeBackend = []() {
+        auto backend = wsc::text::createPortableTextBackend();
+        backend->registerFontFace(wsc::FontFace::fromFile(
+            wsc::FontDescriptor("PreciseKey"), WHATSCANVAS_TEST_VARIABLE_FONT));
+        return backend;
+    };
+    auto reused = makeBackend(), fresh = makeBackend();
+    Paint paint; paint.setFontFamily("PreciseKey"); paint.setTextSize(1.0f);
+    paint.setLetterSpacing(0.0000001f);
+    const std::string text = "AAAAAAAA";
+    const auto old = reused->renderText(text, 0, 0, paint);
+    paint.setLetterSpacing(0.0000004f);
+    const auto expected = fresh->renderText(text, 0, 0, paint);
+    const auto actual = reused->renderText(text, 0, 0, paint);
+    return expect(old.width != expected.width,
+                  "precision fixture must have a measurable spacing difference")
+        && expect(actual.width == expected.width,
+                  "cache keys must not round distinct letter spacings to the same decimal string");
+}
+
+bool testPortableTextMetricsCache()
+{
+    const auto makeBackend = []() {
+        auto backend = wsc::text::createPortableTextBackend();
+        backend->registerFontFace(wsc::FontFace::fromFile(
+            wsc::FontDescriptor("Metrics"), WHATSCANVAS_TEST_VARIABLE_FONT));
+        return backend;
+    };
+    auto backend = makeBackend();
+    Paint paint; paint.setFontFamily("Metrics"); paint.setTextSize(24);
+    const std::string text = "Mg AV fi";
+    const auto first = backend->measureTextMetrics(text, paint);
+    backend->resetRenderStats();
+    paint.setColor(Color(100, 20, 80, 90)); paint.setTextMaskBlur(5);
+    const auto repeated = backend->measureTextMetrics(text, paint);
+    bool ok = expect(sameTextMetrics(first, repeated)
+        && backend->renderStats().shapeCacheHits == 0,
+        "repeat/color/blur changes must reuse complete metrics without repeating bounds work");
+    const auto compareFresh = [&](const std::string &input, const Paint &state) {
+        auto fresh = makeBackend();
+        return expect(sameTextMetrics(backend->measureTextMetrics(input, state),
+                                      fresh->measureTextMetrics(input, state)),
+                      "cached metrics must match a fresh backend for each layout state");
+    };
+    paint.setTextSize(39); ok = compareFresh(text, paint) && ok;
+    paint.setLetterSpacing(2); ok = compareFresh(text, paint) && ok;
+    paint.setFontWeight(700); ok = compareFresh(text, paint) && ok;
+    paint.setFontSlant(wsc::FontSlant::ITALIC); ok = compareFresh(text, paint) && ok;
+    paint.setTextAlign(Paint::TextAlign::RIGHT); ok = compareFresh(text, paint) && ok;
+    paint.setTextBaseline(Paint::TextBaseline::TOP); ok = compareFresh(text, paint) && ok;
+    paint.setFontVariation("wdth", 150); ok = compareFresh(text, paint) && ok;
+    paint.setFontVariation("wdth", 50); ok = compareFresh(text, paint) && ok;
+    paint.setTextLocale("ar"); ok = compareFresh(text, paint) && ok;
+    ok = compareFresh("different text", paint) && ok;
+    for (int i=0; i<300; ++i) backend->measureTextMetrics(std::to_string(i), paint);
+    ok = compareFresh(text, paint) && ok; // eviction must only affect cost
+    paint.setFontFamily("LateMetrics");
+    (void)backend->measureTextMetrics(text, paint);
+    backend->registerFontFace(wsc::FontFace::fromFile(
+        wsc::FontDescriptor("LateMetrics"), WHATSCANVAS_TEST_VARIABLE_FONT));
+    auto fresh = makeBackend();
+    fresh->registerFontFace(wsc::FontFace::fromFile(
+        wsc::FontDescriptor("LateMetrics"), WHATSCANVAS_TEST_VARIABLE_FONT));
+    ok = expect(sameTextMetrics(backend->measureTextMetrics(text, paint),
+                               fresh->measureTextMetrics(text, paint)),
+                "font registration must invalidate previously cached fallback metrics") && ok;
+    return ok;
+}
+
 bool testFontRegistrationAndFallback()
 {
     std::unique_ptr<wsc::text::ITextBackend> backend = wsc::text::createBasicTextBackend();
@@ -167,6 +247,7 @@ bool testRemoteProviderReachesPortableBackendAfterHostCompletion()
                     && provider->state(source.font.sourceId)
                         == wsc::RemoteFontState::QUEUED,
                 "first glyph lookup should enqueue host work without blocking") && ok;
+    (void)backend->measureTextMetrics("\xC3\xA9", paint);
     const auto requests = provider->takeDownloadRequests();
     ok = expect(requests.size() == 1
                     && requests.front().sourceId == source.font.sourceId,
@@ -178,6 +259,11 @@ bool testRemoteProviderReachesPortableBackendAfterHostCompletion()
     ok = expect(backend->hasGlyphForCodepoint(0x00E9, paint)
                     && backend->measureTextWidth("Async font \xC3\xA9", paint) > 0.0f,
                 "provider generation changes should bypass cached misses and shape the remote face") && ok;
+    auto fresh = wsc::text::createPortableTextBackend();
+    fresh->addFontProvider(provider);
+    ok = expect(sameTextMetrics(backend->measureTextMetrics("\xC3\xA9", paint),
+                               fresh->measureTextMetrics("\xC3\xA9", paint)),
+                "remote provider generation must invalidate cached missing-font metrics") && ok;
     return ok;
 }
 
@@ -491,6 +577,74 @@ bool testPaintVariableFontOverridesReachLayoutAndAtlas()
         backend->renderText("Hamburgefontsiv", 0.0f, 0.0f, wide);
     ok = expect(wideCached.atlasDirtyRects.empty(),
                 "repeating the same axis instance should hit the atlas cache") && ok;
+    return ok;
+}
+
+bool testBlurredGlyphSurvivesAtlasGrowth()
+{
+    const auto face = findSystemFontFace();
+    if (!face) return false;
+    const auto makeBackend = [&]() {
+        auto backend = wsc::text::createPortableTextBackend();
+        backend->registerFontFace(testFace(*face, wsc::FontDescriptor("BlurGrowth")));
+        return backend;
+    };
+    auto warm = makeBackend(), fresh = makeBackend();
+    Paint paint; paint.setFontFamily("BlurGrowth"); paint.setTextSize(180); paint.setTextMaskBlur(12);
+    warm->renderText("A", 0, 0, paint);
+    const std::string text = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+    const auto snapshot = [](const wsc::text::TextRenderResult &result) {
+        std::vector<unsigned char> pixels;
+        if (result.glyphAtlasQuads.empty()) return pixels;
+        const auto &q = result.glyphAtlasQuads.front();
+        const auto &alpha = result.atlasAlphaPixelsView ? *result.atlasAlphaPixelsView : result.atlasAlphaPixels;
+        const int x = int(std::lround(q.u0 * result.atlasWidth)), y = int(std::lround(q.v0 * result.atlasHeight));
+        const int width = int(std::lround(q.width)), height = int(std::lround(q.height));
+        if (x < 0 || y < 0 || x+width > result.atlasWidth || y+height > result.atlasHeight) return pixels;
+        for (int row=0; row<height; ++row) {
+            const auto start=alpha.begin()+static_cast<std::ptrdiff_t>((y+row)*result.atlasWidth+x);
+            pixels.insert(pixels.end(), start, start+width);
+        }
+        return pixels;
+    };
+    const auto reused = snapshot(warm->renderText(text, 0, 0, paint));
+    const auto reference = snapshot(fresh->renderText(text, 0, 0, paint));
+    return expect(!reference.empty() && reused == reference,
+                  "an already cached blurred glyph must survive atlas growth with fresh UVs");
+}
+
+bool testPortableGlyphMaskBlurCache()
+{
+    const auto systemFont = findSystemFontFace();
+    if (!systemFont) { std::cerr << "No font for glyph mask blur test\n"; return false; }
+    auto backend = wsc::text::createPortableTextBackend();
+    if (!backend->registerFontFace(testFace(*systemFont, wsc::FontDescriptor("MaskBlur")))) return false;
+    Paint paint; paint.setFontFamily("MaskBlur"); paint.setTextSize(24);
+    const float width = backend->measureTextWidth("AB", paint);
+    paint.setTextMaskBlur(3);
+    const auto cold = backend->renderText("AB", 0, 0, paint);
+    bool ok = expect(cold.textMaskBlurApplied && cold.kind == wsc::text::TextRenderKind::GlyphAtlas,
+                     "portable alpha text must apply mask blur in the atlas");
+    ok = expect(backend->measureTextWidth("AB", paint) == width, "blur must not change layout width") && ok;
+    backend->resetRenderStats();
+    paint.setColor(Color(12, 90, 160, 100));
+    const auto dynamic = backend->renderText("BA", 19, 7, paint);
+    const auto stats = backend->renderStats();
+    ok = expect(dynamic.textMaskBlurApplied && stats.rasterizationCount == 0 && stats.atlasMisses == 0,
+                "changing string order, color and position must reuse per-glyph masks") && ok;
+    paint.setTextMaskBlur(6);
+    const auto wider = backend->renderText("AB", 0, 0, paint);
+    ok = expect(!cold.glyphAtlasQuads.empty() && !wider.glyphAtlasQuads.empty()
+        && wider.glyphAtlasQuads[0].width > cold.glyphAtlasQuads[0].width,
+                "different radii must use distinct halo geometry") && ok;
+    paint.setTextMaskBlur(0);
+    const auto sharp = backend->renderText("AB", 0, 0, paint);
+    ok = expect(!sharp.textMaskBlurApplied && !sharp.glyphAtlasQuads.empty()
+        && sharp.glyphAtlasQuads[0].width < cold.glyphAtlasQuads[0].width,
+                "switching blur off must restore sharp glyphs") && ok;
+    paint.setTextMaskBlur(65);
+    ok = expect(!backend->renderText("AB", 0, 0, paint).textMaskBlurApplied,
+                "oversized masks must request Canvas layer fallback") && ok;
     return ok;
 }
 
@@ -1263,7 +1417,9 @@ bool testWindowsNativeTextPreservesClearTypeCoverage()
 
 int main()
 {
-    const bool ok = testFontRegistrationAndFallback()
+    const bool ok = testTextCacheKeysPreserveSmallSpacingChanges()
+        && testPortableTextMetricsCache()
+        && testFontRegistrationAndFallback()
         && testLazyProviderReachesPortableBackend()
         && testRemoteProviderReachesPortableBackendAfterHostCompletion()
         && testFontRefreshPreservesExplicitRegistrations()
@@ -1278,6 +1434,8 @@ int main()
         && testPortableBackendSkipsZeroWidthBreak()
         && testPortableBackendUsesGlyphAtlasForRegisteredFont()
         && testPaintVariableFontOverridesReachLayoutAndAtlas()
+        && testBlurredGlyphSurvivesAtlasGrowth()
+        && testPortableGlyphMaskBlurCache()
         && testPortableGlyphLayoutCacheIsPositionIndependent()
         && testPortableGlyphLayoutViewAvoidsOwningCopy()
         && testPortableGlyphAtlasCacheKeepsFontFacesDistinct()

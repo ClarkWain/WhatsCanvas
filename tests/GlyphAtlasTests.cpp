@@ -1,4 +1,5 @@
 #include "text/GlyphAtlas.h"
+#include "text/GlyphMaskBlur.h"
 
 #include <iostream>
 #include <string>
@@ -308,11 +309,49 @@ bool testRepeatedContextLossAndAtlasPressure()
     return ok;
 }
 
+bool testGlyphMaskBlurConvolutionAndIdentity()
+{
+    auto bitmap = makeBitmap(3, 3, 0);
+    bitmap.alphaPixels[4] = 255;
+    const auto original = bitmap;
+    const int radius = 2, pad = radius + 1;
+    bool ok = expect(wsc::text::blurGlyphMask(bitmap, radius), "alpha mask should blur");
+    const auto kernel = wsc::render::computeGaussianKernel(float(radius));
+    ok = expect(bitmap.advanceX == original.advanceX && bitmap.bearingX == original.bearingX - pad
+        && bitmap.bearingY == original.bearingY - pad, "blur must preserve advance and expand bearings") && ok;
+    for (int y = 0; y < bitmap.height; ++y) for (int x = 0; x < bitmap.width; ++x) {
+        const int dx = std::abs(x - pad - 1), dy = std::abs(y - pad - 1);
+        const long expected = dx <= radius && dy <= radius
+            ? std::lround(255 * kernel.weights[dx] * kernel.weights[dy]) : 0;
+        ok = expect(std::abs(int(bitmap.alphaPixels[y * bitmap.width + x]) - expected) <= 1,
+                    "impulse response must match the separable Gaussian") && ok;
+    }
+    auto empty = makeBitmap(0, 0, 0);
+    ok = expect(wsc::text::blurGlyphMask(empty, 5) && empty.width == 0 && empty.alphaPixels.empty(),
+                "advance-only glyphs must not allocate a halo") && ok;
+    auto color = makeColorBitmap(2, 2, 255, 0, 0, 255);
+    ok = expect(!wsc::text::blurGlyphMask(color, 3), "color masks must request the general fallback") && ok;
+    ok = expect(!wsc::text::blurGlyphMask(bitmap, 65), "large effects must request bounded fallback") && ok;
+    wsc::text::GlyphAtlas atlas(64, 64);
+    auto key = makeKey('A');
+    atlas.uploadGlyph(key, original);
+    key.maskBlurRadius = radius;
+    atlas.uploadGlyph(key, bitmap);
+    ok = expect(atlas.stats().glyphCount == 2 && atlas.find(key)->width == bitmap.width,
+                "sharp and blurred variants must not alias") && ok;
+    key.maskBlurRadius = radius + 1;
+    ok = expect(atlas.find(key) == nullptr, "different blur radii must not alias") && ok;
+    atlas.onContextLost(); atlas.onContextRestored();
+    ok = expect(atlas.find(key) == nullptr && atlas.stats().glyphCount == 0,
+                "blurred glyphs must follow normal atlas invalidation") && ok;
+    return ok;
+}
+
 } // namespace
 
 int main()
 {
-    bool ok = true;
+    bool ok = testGlyphMaskBlurConvolutionAndIdentity();
     ok = testUploadAndFind() && ok;
     ok = testDuplicateUploadHitsCache() && ok;
     ok = testCollectionFacesUseDistinctCacheEntries() && ok;

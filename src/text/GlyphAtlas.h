@@ -28,6 +28,7 @@ struct GlyphKey
     FontSlant slant = FontSlant::NORMAL;
     int faceIndex = 0;
     std::string fontIdentity;
+    int maskBlurRadius = 0;
 
     bool operator==(const GlyphKey &other) const;
 };

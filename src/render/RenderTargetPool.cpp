@@ -12,10 +12,10 @@ std::size_t RenderTargetPool::estimateBytes(int width, int height)
     const std::size_t w = static_cast<std::size_t>(width);
     const std::size_t h = static_cast<std::size_t>(height);
     if (w > std::numeric_limits<std::size_t>::max() / h
-        || w * h > std::numeric_limits<std::size_t>::max() / kEstimatedBytesPerPixel) {
+        || w * h > (std::numeric_limits<std::size_t>::max() - kEstimatedTargetOverheadBytes) / kEstimatedBytesPerPixel) {
         return std::numeric_limits<std::size_t>::max();
     }
-    return w * h * kEstimatedBytesPerPixel;
+    return kEstimatedTargetOverheadBytes + w * h * kEstimatedBytesPerPixel;
 }
 
 std::unique_ptr<IRenderTarget> RenderTargetPool::acquire(int width, int height)

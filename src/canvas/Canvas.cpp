@@ -6406,6 +6406,7 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
                 textRasterScale = scale;
                 Paint scaledPaint = paint;
                 scaledPaint.setTextSize(effectivePx);
+                scaledPaint.setTextMaskBlur(paint.getTextMaskBlur() * scale);
                 if (std::isfinite(paint.getLetterSpacing())) {
                     scaledPaint.setLetterSpacing(paint.getLetterSpacing() * scale);
                 }
@@ -6424,6 +6425,22 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
         impl_->retainedPictureRasterTextBackendCpuTimeNs +=
             static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
                 std::chrono::steady_clock::now() - textBackendStart).count());
+    }
+    if (paint.getTextMaskBlur() > 0.0f
+        && (!renderedText.textMaskBlurApplied || paint.getStyle() != Paint::Style::FILL
+            || paint.hasShadowLayer())) {
+        Paint plain = paint;
+        plain.setTextMaskBlur(0.0f);
+        const RectF bounds = measureTextBounds(text, plain);
+        const float pad = paint.getTextMaskBlur() + std::max(0.0f, paint.getStrokeWidth()) + 2.0f;
+        LayerOptions options;
+        options.setImageFilter(ImageFilter::blur(paint.getTextMaskBlur()
+            * effectiveTransformScale(impl_->currentState().matrix)));
+        saveLayer(RectF(x + bounds.getX() - pad, y + bounds.getY() - pad,
+                        bounds.getWidth() + 2 * pad, bounds.getHeight() + 2 * pad), Paint(), options);
+        struct RestoreLayer { Canvas *canvas; ~RestoreLayer() { canvas->restore(); } } restoreLayer{this};
+        drawText(text, x, y, plain);
+        return;
     }
     if (renderedText.kind == wsc::text::TextRenderKind::None) {
         return;
@@ -6489,14 +6506,15 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
                                          bool useFillShader = false,
                                          bool preserveColorGlyphs = false) {
             const bool simpleBatch =
-                !scissor.enabled && !clipMask.hasPaths()
-                && (!useFillShader
+                (!useFillShader
                     || (!paint.hasLinearGradient()
                         && !paint.hasRadialGradient()));
             if (simpleBatch) {
                 DrawImageBatchData batch;
                 batch.imageResource = imageResource;
                 batch.transform = transform;
+                batch.scissor = scissor;
+                batch.clipMask = clipMask;
                 batch.blendMode =
                     toDrawBlendMode(paint.getBlendMode());
                 const auto appendQuads = [&](auto &destination) {
@@ -6522,7 +6540,7 @@ void Canvas::drawText(const std::string &text, float x, float y, const Paint &pa
                     });
                 };
                 if (auto *appendTarget =
-                        impl_->renderer->tryGetImageBatchAppendTarget(
+                        impl_->renderer->acquireImageBatch(
                             batch, atlasQuadSource->size())) {
                     appendQuads(*appendTarget);
                     return;

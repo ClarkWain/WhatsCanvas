@@ -149,7 +149,8 @@ bool testPoolEnforcesByteBudget()
 {
     FakeRenderDevice device;
     const std::size_t oneTargetBytes =
-        16u * 16u * RenderTargetPool::kEstimatedBytesPerPixel;
+        RenderTargetPool::kEstimatedTargetOverheadBytes
+        + 16u * 16u * RenderTargetPool::kEstimatedBytesPerPixel;
     RenderTargetPool pool(&device, oneTargetBytes * 2u, 8u);
 
     pool.release(pool.acquire(16, 16));
@@ -179,6 +180,34 @@ bool testPoolRejectsOversizedTarget()
                   "oversized rejection should be observable");
 }
 
+bool testSmallLayerWorkingSetStaysResident()
+{
+    FakeRenderDevice device;
+    RenderTargetPool pool(&device);
+    // More than twelve distinct layers, all comfortably inside the byte
+    // budget. Keep their images alive until a deferred frame has consumed them.
+    for (int frame = 0; frame < 3; ++frame) {
+        std::vector<SharedImageResource> deferred;
+        for (int layer = 0; layer < 24; ++layer) {
+            auto target = pool.acquire(32 + layer, 16);
+            deferred.push_back(target->getImageResource());
+            pool.release(std::move(target));
+            pool.expire();
+        }
+    }
+    return expect(device.createdCount == 24, "small stable layers must not reallocate every frame")
+        && expect(pool.evictionCount() == 0, "a working set within budget should remain resident")
+        && expect(pool.pooledBytes() <= pool.maxPooledBytes(), "reuse must respect the memory budget");
+}
+
+bool testExplicitTargetLimitStillApplies()
+{
+    FakeRenderDevice device;
+    RenderTargetPool pool(&device, RenderTargetPool::kDefaultMaxPooledBytes, 2u);
+    for (int size = 16; size < 20; ++size) pool.release(pool.acquire(size, size));
+    return expect(pool.pooledCount() == 2, "callers can still request an explicit object-count limit");
+}
+
 } // namespace
 
 int main()
@@ -187,6 +216,8 @@ int main()
         && testPoolExpiresIdleTargets()
         && testPoolDoesNotOverwriteReferencedImage()
         && testPoolEnforcesByteBudget()
-        && testPoolRejectsOversizedTarget();
+        && testPoolRejectsOversizedTarget()
+        && testSmallLayerWorkingSetStaysResident()
+        && testExplicitTargetLimitStillApplies();
     return ok ? EXIT_SUCCESS : EXIT_FAILURE;
 }

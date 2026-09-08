@@ -484,11 +484,23 @@ public:
     std::uint64_t resolutionGeneration(const std::string &preferredFamily) const
     {
         std::uint64_t hash = generation_;
-        const std::vector<std::string> families = resolveFamilies(preferredFamily);
-        for (const std::string &family : families) {
+        const auto appendFamily = [&](const std::string &family) {
             for (const auto &provider : providers_) {
                 hash ^= provider->generationForFamily(family)
                     + 0x9e3779b97f4a7c15ULL + (hash << 6U) + (hash >> 2U);
+            }
+        };
+        // Visit the existing chain in exactly resolveFamilies() order without
+        // allocating/copying a vector on every cache lookup. Provider generations
+        // are still queried live, including asynchronous font completion.
+        if (!preferredFamily.empty()) {
+            const auto found = fallbackChains_.find(canonicalFontFamilyName(preferredFamily));
+            if (found != fallbackChains_.end()) {
+                const auto &chain = found->second;
+                if (!chain.primaryFamily().empty()) appendFamily(chain.primaryFamily());
+                for (const auto &family : chain.fallbackFamilies()) appendFamily(family);
+            } else {
+                appendFamily(displayFamily(preferredFamily));
             }
         }
         return hash == 0 ? 1 : hash;

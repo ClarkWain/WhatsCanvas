@@ -19,7 +19,8 @@ bool GlyphKey::operator==(const GlyphKey &other) const
         && weight == other.weight
         && slant == other.slant
         && faceIndex == other.faceIndex
-        && fontIdentity == other.fontIdentity;
+        && fontIdentity == other.fontIdentity
+        && maskBlurRadius == other.maskBlurRadius;
 }
 
 std::size_t GlyphKeyHasher::operator()(const GlyphKey &key) const
@@ -36,6 +37,7 @@ std::size_t GlyphKeyHasher::operator()(const GlyphKey &key) const
     combine(std::hash<int>{}(static_cast<int>(key.slant)));
     combine(std::hash<int>{}(key.faceIndex));
     combine(std::hash<std::string>{}(key.fontIdentity));
+    combine(std::hash<int>{}(key.maskBlurRadius));
     return seed;
 }
 
