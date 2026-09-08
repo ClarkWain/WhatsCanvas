@@ -19,7 +19,13 @@ class RenderTargetPool
 {
 public:
     static constexpr std::size_t kDefaultMaxPooledBytes = 32u * 1024u * 1024u;
-    static constexpr std::size_t kDefaultMaxPooledTargets = 12u;
+    // Budget small targets by memory as well as pixels. A fixed twelve-object
+    // limit thrashed even when the working set used only a fraction of 32 MiB.
+    // Include a conservative per-target allocation/metadata allowance so a
+    // workload of tiny targets cannot retain an unbounded number of objects.
+    static constexpr std::size_t kEstimatedTargetOverheadBytes = 4096u;
+    static constexpr std::size_t kDefaultMaxPooledTargets =
+        kDefaultMaxPooledBytes / kEstimatedTargetOverheadBytes;
     static constexpr std::size_t kEstimatedBytesPerPixel = 8u;
     static constexpr int kDefaultMaxIdleCycles = 64;
 

@@ -237,6 +237,10 @@ void Paint::setStrokeMiterLimit(float limit)
 float Paint::getStrokeMiterLimit() const { return strokeMiterLimit_; }
 void Paint::setTextSize(float size) { textSize_ = size; }
 float Paint::getTextSize() const { return textSize_; }
+void Paint::setTextMaskBlur(float radius) {
+    textMaskBlur_ = std::isfinite(radius) && radius > 0.0f ? radius : 0.0f;
+}
+float Paint::getTextMaskBlur() const { return textMaskBlur_; }
 void Paint::setFontFamily(const std::string &family) { fontFamily_ = family; }
 void Paint::setFont(const std::string &family) { setFontFamily(family); }
 const std::string &Paint::getFontFamily() const { return fontFamily_; }

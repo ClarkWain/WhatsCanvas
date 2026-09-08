@@ -2292,6 +2292,16 @@ Set the miter length/stroke-width limit; clamped to at least 1.
 
 Text size in logical units for drawText/drawTextBox. Must be positive.
 
+#### `setTextMaskBlur`
+
+- `void setTextMaskBlur(float radius);`
+
+Blur each glyph's coverage mask before compositing text. Radius is in
+logical text units, scaled with text, independent of color
+and opacity. Zero disables it. Portable alpha glyphs cache the result;
+unsupported/color glyphs and large radii fall back to a filtered layer.
+Overlapping glyphs may differ from blurring the already-composited run.
+
 #### `setFontFamily`
 
 - `void setFontFamily(const std::string &family);`
@@ -2476,6 +2486,7 @@ Straightforward accessors, value operations, and overloads:
 - `float getStrokeWidth() const;`
 - `float getStrokeMiterLimit() const;`
 - `float getTextSize() const;`
+- `float getTextMaskBlur() const;`
 - `void setFont(const std::string &family);`
 - `const std::string &getFontFamily() const;`
 - `const std::string &getFont() const;`
