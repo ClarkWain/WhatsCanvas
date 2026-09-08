@@ -101,6 +101,26 @@ wsc::RectF dst(50, 50, 300, 200);
 canvas->drawImage(image, src, dst, paint);
 ```
 
+### Ordered atlas rectangles (unreleased)
+
+Available on the `1.2.0` development branch, not in the `v1.1.0` package.
+With an already loaded image atlas at least 64 by 32 pixels and an existing
+`imagePaint`, submit several regions using one image, paint and canvas state:
+
+```cpp
+wsc::Canvas::ImageRect rects[] = {
+    {wsc::RectF(0, 0, 32, 32), wsc::RectF(20, 20, 48, 48)},
+    {wsc::RectF(32, 0, 32, 32), wsc::RectF(80, 20, 48, 48)}
+};
+canvas->drawImageRects(atlas, rects, 2, imagePaint);
+```
+
+The output follows the input order, including overlap, source clamping and
+destination normalization. The call consumes the rectangle array before it
+returns, but GPU execution may finish later. Complex sampling, color matrices
+and Picture recording fall back to individual `drawImage` calls. This reduces
+repeated submission work; it does not guarantee a single GPU draw call.
+
 ---
 
 ## 6.4 Fit Modes (ImageFit)
@@ -396,6 +416,7 @@ int main()
 | `drawImage(img, x, y, paint)` | Draw at native size |
 | `drawImage(img, dst, paint)` | Stretch to a region |
 | `drawImage(img, src, dst, paint)` | Map a source region to a destination |
+| `drawImageRects(img, rects, count, paint)` | Ordered atlas regions (unreleased) |
 | `drawImageFit(img, dst, fit, paint)` | CONTAIN / COVER / FILL |
 | `drawImageRounded(img, dst, r, paint)` | Rounded image |
 | `drawImageCircle(img, center, r, paint)` | Circular image |

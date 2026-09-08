@@ -118,6 +118,13 @@ For the 1.x release line:
   Cross-compiler, cross-STL, cross-NDK/CRT, or custom-build ABI compatibility is
   outside the contract; source compatibility is the portable boundary.
 
+The unreleased `1.2.0` development branch adds `Canvas::drawImageRects` and
+`Paint::setTextMaskBlur` / `getTextMaskBlur`. Existing calls and the default
+unblurred text behavior are retained. These APIs are not in the `v1.1.0`
+package. `Paint` also gains stored state: rebuild the library and consumers
+against matching headers rather than mixing development headers with an older
+binary. This addition does not establish an ABI guarantee between custom builds.
+
 When changing stable public API:
 
 - Prefer additive changes.

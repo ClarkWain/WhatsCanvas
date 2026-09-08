@@ -61,6 +61,20 @@ those entries do not represent missing requirements for the current product.
 | Raster text fallback diagnostics | Contract supported | Raster shaping, face resolution, glyph rasterization, atlas upload, and atlas retry failures add coalesced diagnostics before falling back to alternate text rendering. |
 | Missing glyph render hooks | Contract supported | Geometry fallback render results expose missing glyph codepoints and source ranges. |
 
+## Unreleased additions
+
+The `1.2.0` development branch adds `Paint::setTextMaskBlur` for explicit glyph
+coverage-mask blur. Portable alpha glyphs cache the result independently of
+color and position, with filtered-layer fallback for unsupported cases. It is
+disabled by default and is distinct from whole-run blur and `setShadowLayer`.
+See the [text effects tutorial](../../tutorials/07-text-bindlayout.md#glyph-coverage-mask-blur-unreleased)
+for an example and overlap semantics. This API is not in the `v1.1.0` package.
+
+Portable text metrics also use bounded caches with exact keys and live font
+provider generations. Canvas creates its default text backend on the first
+text measurement, rendering or font-configuration operation. Image/path-only
+use can avoid initialization; cold text use still pays that cost.
+
 ## OpenType Feature Controls
 
 `Paint::setFontFeature(tag, value)` does not use a fixed feature whitelist. It

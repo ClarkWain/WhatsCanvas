@@ -10,11 +10,21 @@ For releases and downloadable artifacts, see the
 ## [Unreleased]
 
 ### Added
+- `Paint::setTextMaskBlur` and `getTextMaskBlur` expose an opt-in, color-independent
+  glyph coverage-mask blur. Portable alpha glyphs reuse cached masks; unsupported
+  cases use a filtered layer. The default is zero, and overlapping glyphs can
+  differ from blurring a composited text run.
 - `Canvas::drawImageRects` submits ordered source/destination rectangles with
   shared image and paint state. Complex sampling, color matrices, and Picture
   recording retain scalar drawing semantics.
 
 ### Changed
+- Cache portable text metrics with bounded storage and exact binary keys; retain
+  live family/provider generations so font changes invalidate affected entries.
+- Traverse existing fallback chains when querying font generations, avoiding a
+  temporary family vector and its string copies.
+- Specialize Gaussian shader loops for their active sample count, and include
+  estimated per-target allocation overhead in render-target pool budgets.
 - Batch consecutive images sharing an exact rectangular scissor and texture.
   Keep clip masks, different scissors/textures, and clipped singletons on their
   existing paths; preserve ordering and layer boundaries.
@@ -36,6 +46,8 @@ For releases and downloadable artifacts, see the
   and working-set admission to avoid allocation churn on animated clips.
 
 ### Fixed
+- Re-resolve glyph atlas entries after growth or repacking, including cached
+  blurred glyphs, so upload retries do not reuse stale texture coordinates.
 - Do not attribute unrelated sticky OpenGL errors to a valid RGBA image upload;
   invalid uploads still fail.
 
