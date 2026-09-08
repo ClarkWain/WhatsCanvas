@@ -28,6 +28,22 @@ cross-library ranking. That historical run used the former 960 x 540,
 11-scene matrix, so it documents earlier work but is not dimension-compatible
 with the current 1080p suite.
 
+## Cold text use and reusable glyph effects
+
+On the unreleased development branch, Canvas defers its default text backend
+until the first text or font-configuration operation. Measure construction
+through the first completed text draw as a cold-use interval; moving font
+discovery out of the constructor is not a steady-frame speedup for text clients.
+Report warm frames separately, along with font registration, layout, glyph
+rasterization, uploads and cache-hit state where available.
+
+`Paint::setTextMaskBlur` explicitly requests per-glyph coverage blur and can
+reuse cached alpha masks across colors and positions. Compare the same effect
+and include cold cache misses and memory use. Do not substitute it for an
+existing whole-layer blur in a benchmark: overlapping glyphs can produce
+different pixels. No new device timing or cross-library ranking is claimed by
+these documentation updates.
+
 ## Verified hotspot optimization
 
 The checked-in reference run also exposed two genuine hotspots: rounded images

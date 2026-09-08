@@ -315,6 +315,36 @@ shadowText.setShadowLayer(6.0f, 2.0f, 3.0f, wsc::Color(0, 0, 0, 150));
 canvas->drawText("Shadow Text", 50, 100, shadowText);
 ```
 
+### 字形覆盖度遮罩模糊（未发布）
+
+此接口位于 `1.2.0` 开发分支，`v1.1.0` 安装包尚不包含它。
+`setTextMaskBlur(radius)` 先柔化每个字形的覆盖度遮罩，再应用文字颜色。
+遮罩记录透明程度，不记录最终 RGB 颜色。因此，同一字形、字体设置和
+模糊半径下，换颜色或换位置可以复用已有遮罩。
+
+例如，先画一份偏移的模糊文字，再画清晰正文，组成柔和的文字阴影：
+
+```cpp
+wsc::Paint text;
+text.setTextSize(48.0f);
+text.setTextMaskBlur(3.0f);
+text.setColor(wsc::Color(0, 0, 0, 120));
+canvas->drawText("Soft text", 42, 82, text);
+
+text.setTextMaskBlur(0.0f);
+text.setColor(wsc::Color(40, 100, 230, 255));
+canvas->drawText("Soft text", 40, 80, text);
+```
+
+第二次绘制需要显式调用：遮罩模糊本身不会自动增加清晰正文或阴影偏移。
+默认半径为零；负数和非有限值会关闭效果。半径按逻辑文字单位指定，随文字缩放。
+排版宽度不变，但可见的模糊边缘可能超出原本未模糊的文字包围盒。
+
+可移植文字后端会缓存透明度字形的模糊遮罩，其栅格模糊半径会取整到像素。
+大半径、彩色字形及其他不支持的组合会回退到滤镜图层。
+逐字形模糊与整段文字先合成再模糊可能不同，尤其是字形重叠处。
+如果需要的是整个图层的模糊效果，应继续使用 `saveLayer` 配合图像滤镜。
+
 ---
 
 ## 7.8 Text on Path

@@ -319,6 +319,39 @@ shadowText.setShadowLayer(6.0f, 2.0f, 3.0f, wsc::Color(0, 0, 0, 150));
 canvas->drawText("Shadow Text", 50, 100, shadowText);
 ```
 
+### Glyph coverage-mask blur (unreleased)
+
+Available on the `1.2.0` development branch, not in the `v1.1.0` package.
+`setTextMaskBlur(radius)` softens each glyph's coverage mask before applying the
+text color. The mask records opacity rather than final RGB values. It can be
+reused when the same glyph, font settings and blur radius are drawn with another
+color or at another position.
+
+For a soft text shadow, draw an offset blurred copy followed by sharp text:
+
+```cpp
+wsc::Paint text;
+text.setTextSize(48.0f);
+text.setTextMaskBlur(3.0f);
+text.setColor(wsc::Color(0, 0, 0, 120));
+canvas->drawText("Soft text", 42, 82, text);
+
+text.setTextMaskBlur(0.0f);
+text.setColor(wsc::Color(40, 100, 230, 255));
+canvas->drawText("Soft text", 40, 80, text);
+```
+
+The second draw is explicit: mask blur alone does not add a sharp foreground
+or a shadow offset. Its default is zero; negative and non-finite values disable
+it. The radius uses logical text units and scales with text. Layout width is
+unchanged, but the visible halo can extend outside the unblurred bounds.
+
+The portable alpha-glyph path caches blurred masks; its raster blur radius is
+rounded to a whole pixel. Large radii, color glyphs and other unsupported
+combinations use a filtered-layer fallback. Per-glyph blur can differ from
+blurring an already-composited text run, especially where glyphs overlap. Keep
+`saveLayer` with an image filter when whole-layer blur is the intended effect.
+
 ---
 
 ## 7.8 Text on Path

@@ -99,6 +99,25 @@ wsc::RectF dst(50, 50, 300, 200);
 canvas->drawImage(image, src, dst, paint);
 ```
 
+### 按顺序批量绘制图集区域（未发布）
+
+此接口位于 `1.2.0` 开发分支，`v1.1.0` 安装包尚不包含它。
+假设已加载至少 64 × 32 像素的图集 `atlas`，并准备好了 `imagePaint`，
+可以用相同的图片、画笔和画布状态一次提交多个区域：
+
+```cpp
+wsc::Canvas::ImageRect rects[] = {
+    {wsc::RectF(0, 0, 32, 32), wsc::RectF(20, 20, 48, 48)},
+    {wsc::RectF(32, 0, 32, 32), wsc::RectF(80, 20, 48, 48)}
+};
+canvas->drawImageRects(atlas, rects, 2, imagePaint);
+```
+
+输出保留输入顺序，包括重叠关系、源区域裁切和目标矩形规范化。
+调用返回前已读取完矩形数组，但 GPU 可能稍后才完成绘制。
+复杂采样、颜色矩阵和 Picture 录制会回退到逐个调用 `drawImage`。
+它减少重复提交工作，并不保证任何情况下都只有一次 GPU 绘制调用。
+
 ---
 
 ## 6.4 适应模式 (ImageFit)
@@ -394,6 +413,7 @@ int main()
 | `drawImage(img, x, y, paint)` | 原始尺寸绘制 |
 | `drawImage(img, dst, paint)` | 拉伸到目标区域 |
 | `drawImage(img, src, dst, paint)` | 源区域映射到目标 |
+| `drawImageRects(img, rects, count, paint)` | 按顺序批量绘制图集区域（未发布） |
 | `drawImageFit(img, dst, fit, paint)` | CONTAIN/COVER/FILL |
 | `drawImageRounded(img, dst, r, paint)` | 圆角图片 |
 | `drawImageCircle(img, center, r, paint)` | 圆形图片 |
