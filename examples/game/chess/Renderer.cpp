@@ -1,4 +1,5 @@
 #include "Renderer.h"
+#include "PieceArt.h"
 #include <wsc/FontSystem.h>
 #include <wsc/Path.h>
 #include <algorithm>
@@ -7,12 +8,15 @@
 #include <filesystem>
 #include <stdexcept>
 
-namespace xiangqi {
+namespace chess {
 namespace {
 using namespace wsc;
-// Walnut, brass, boxwood and cinnabar: a small shared material palette.
-const Color Ink(43, 29, 21), Muted(177, 155, 119), Red(144, 37, 24), Gold(211, 171, 101);
-const Color Ivory(245, 229, 196), Panel(42, 30, 23);
+// Walnut, brass and slate: warm walnut belongs only to the board itself.
+// Ambient UI (sidebar, muted text, state chips) uses a cool graphite palette
+// so the deep-green desk and the ivory-and-walnut board stay as the only
+// warm surfaces on screen.
+const Color Ink(43, 29, 21), Muted(155, 168, 178), Red(144, 37, 24), Gold(211, 171, 101);
+const Color Ivory(245, 229, 196), Panel(28, 34, 38);
 Paint fill(Color color) { Paint p; p.setColor(color); return p; }
 Paint stroke(Color color, float width) {
     auto p = fill(color); p.setStyle(Paint::Style::STROKE); p.setStrokeWidth(width); return p;
@@ -21,7 +25,7 @@ void text(Canvas& c, const std::string& label, float x, float y, float size, Col
           bool center = false, bool carved = false) {
     Paint p = fill(color);
     p.setTextSize(size);
-    p.setFontFamily(carved ? "Xiangqi Carved" : "Xiangqi UI");
+    p.setFontFamily(carved ? "Chess Carved" : "Chess UI");
     p.setFontWeight(carved ? 400 : 500);
     p.setTextBaseline(Paint::TextBaseline::MIDDLE);
     if (center) p.setTextAlign(Paint::TextAlign::CENTER);
@@ -34,16 +38,16 @@ void line(Canvas& c, float x1, float y1, float x2, float y2, Color color, float 
     c.drawLine(x1, y1, x2, y2, stroke(color, width));
 }
 void button(Canvas& c, Rect r, const std::string& label, bool active = false, bool enabled = true) {
-    round(c, {r.x, r.y + 3, r.w, r.h}, 6, Color(10, 6, 3, 100));
+    round(c, {r.x, r.y + 3, r.w, r.h}, 6, Color(6, 10, 12, 100));
     Paint surface;
     surface.setLinearGradient(r.x, r.y, r.x, r.y + r.h,
-        active ? Color(227, 190, 123) : Color(65, 47, 34),
-        active ? Color(182, 137, 70) : Color(46, 33, 25));
+        active ? Color(227, 190, 123) : Color(52, 62, 70),
+        active ? Color(182, 137, 70)  : Color(34, 42, 48));
     c.drawRoundRect(RectF(r.x, r.y, r.w, r.h), 6, surface);
     c.drawRoundRect(RectF(r.x + 0.5f, r.y + 0.5f, r.w - 1, r.h - 1), 6,
-                    stroke(active ? Color(245, 216, 163, 160) : Color(161, 126, 76, 80), 1));
+                    stroke(active ? Color(245, 216, 163, 160) : Color(160, 178, 190, 70), 1));
     text(c, label, r.x + r.w / 2, r.y + r.h / 2, 18,
-         !enabled ? Color(130, 111, 87) : active ? Ink : Ivory, true);
+         !enabled ? Color(110, 122, 132) : active ? Ink : Ivory, true);
 }
 void fonts(Canvas& c) {
     for (const auto& face : FontSystem::defaultSystemFontFaces()) c.registerFontFace(face);
@@ -60,9 +64,9 @@ void fonts(Canvas& c) {
         chain.addFallbackFamily(FontSystem::kDefaultPrimaryFamily);
         c.setFontFallbackChain(chain);
     };
-    registerFirst("Xiangqi UI", {"C:/Windows/Fonts/msjh.ttc", "/System/Library/Fonts/PingFang.ttc",
+    registerFirst("Chess UI", {"C:/Windows/Fonts/msjh.ttc", "/System/Library/Fonts/PingFang.ttc",
                                "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"});
-    registerFirst("Xiangqi Carved", {"C:/Windows/Fonts/simkai.ttf", "/System/Library/Fonts/Supplemental/Kaiti.ttc",
+    registerFirst("Chess Carved", {"C:/Windows/Fonts/simkai.ttf", "/System/Library/Fonts/Supplemental/Kaiti.ttc",
                                    "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc"});
 }
 void bake(Canvas& target, Image& image, int width, int height, int scale,
@@ -83,21 +87,23 @@ void bake(Canvas& target, Image& image, int width, int height, int scale,
 }
 void background(Canvas& c) {
     Paint room;
-    room.setLinearGradient(0, 0, 1120, 820, Color(47, 34, 26), Color(20, 16, 13));
+    // European club feel: dark billiards-green leather deskpad instead of warm oriental wood.
+    room.setLinearGradient(0, 0, 1120, 820, Color(30, 46, 38), Color(11, 20, 17));
     c.drawRect(RectF(0, 0, 1120, 820), room);
     // Subtle table grain is generated deterministically, never loaded from a bitmap.
     for (int y = 0; y < 820; y += 4) {
         Path grain; grain.moveTo(0, static_cast<float>(y));
         grain.cubicTo(320, y + std::sin(y * 0.1f) * 8, 710, y - 8.0f, 1120, y + 3.0f);
-        c.drawPath(grain, stroke(Color(185, 125, 70, y % 12 == 0 ? 12 : 5), 0.6f));
+        c.drawPath(grain, stroke(Color(150, 190, 165, y % 12 == 0 ? 14 : 5), 0.6f));
     }
-    round(c, {38, 28, 46, 48}, 4, Color(121, 35, 24));
-    c.drawRoundRect(RectF(42, 32, 38, 40), 2, stroke(Color(233, 180, 119, 140), 1));
-    text(c, "弈", 61, 51, 33, Ivory, true, true);
-    text(c, "中国象棋", 107, 48, 38, Ivory, false, true);
-    text(c, "楚河汉界  ·  方寸之间", 110, 82, 13, Muted);
-    text(c, "人 机 对 弈", 934, 44, 17, Gold);
-    text(c, "XIANGQI  /  WHATSCANVAS", 896, 72, 10, Muted);
+    // Cool graphite monogram plate instead of the red seal-of-chess.
+    round(c, {38, 28, 46, 48}, 4, Color(36, 44, 42));
+    c.drawRoundRect(RectF(42, 32, 38, 40), 2, stroke(Color(233, 180, 119, 160), 1));
+    text(c, "K", 61, 52, 27, Gold, true, true);
+    text(c, "Chess", 107, 48, 38, Ivory, false, true);
+    text(c, "64 SQUARES  ·  HUMAN vs AI", 110, 82, 12, Muted);
+    text(c, "H U M A N   v s   A I", 934, 44, 15, Gold);
+    text(c, "CHESS  /  WHATSCANVAS", 896, 72, 10, Muted);
 
     for (int i = 5; i >= 1; --i)
         round(c, {36.0f - i, 110.0f + i, 628.0f + i * 2, 658.0f + i * 2}, 17, Color(0, 0, 0, 13));
@@ -120,120 +126,111 @@ void background(Canvas& c) {
     }
     c.restore();
     constexpr float x = layout::BoardX, y = layout::BoardY, s = layout::Cell;
-    const Color grid(61, 34, 18);
-    // A fine lower highlight makes the recessed playing lines read as engraving.
-    for (int r = 0; r < 10; ++r)
-        line(c, x, y + r * s + 1, x + 8 * s, y + r * s + 1, Color(230, 177, 107, 100), 1);
-    for (int r = 0; r < 10; ++r) line(c, x, y + r * s, x + 8 * s, y + r * s, grid, r == 0 || r == 9 ? 1.8f : 1.1f);
-    for (int f = 0; f < 9; ++f) {
-        line(c, x + f * s, y, x + f * s, y + 4 * s, grid, 1.1f);
-        line(c, x + f * s, y + 5 * s, x + f * s, y + 9 * s, grid, 1.1f);
-        if (f == 0 || f == 8) line(c, x + f * s, y + 4 * s, x + f * s, y + 5 * s, grid, 1.8f);
+    for (int rank = 0; rank < 8; ++rank) for (int file = 0; file < 8; ++file) {
+        const bool light = (rank + file) % 2 == 0;
+        const float left = x + file * s - s / 2, top = y + rank * s - s / 2;
+        Paint tile;
+        tile.setLinearGradient(left, top, left + s, top + s,
+            light ? Color(224, 206, 167) : Color(97, 66, 45),
+            light ? Color(202, 178, 136) : Color(72, 48, 33));
+        c.drawRect(RectF(left, top, s, s), tile);
+        for (int row = 3; row < 72; row += 7)
+            line(c, left + 1, top + row, left + s - 1, top + row,
+                 light ? Color(115, 74, 40, 12) : Color(236, 184, 108, 10), 0.7f);
     }
-    for (int r : {0, 7}) {
-        line(c, x + 3 * s, y + r * s, x + 5 * s, y + (r + 2) * s, grid);
-        line(c, x + 5 * s, y + r * s, x + 3 * s, y + (r + 2) * s, grid);
+    c.drawRect(RectF(x - s / 2, y - s / 2, 8 * s, 8 * s), stroke(Color(31, 20, 13), 2));
+    // Coordinate labels live OUTSIDE the walnut margin, floating on the dark
+    // green desk. That gives them a high-contrast background (no wood grain
+    // to fight) and stops the letters from overlapping the board edge.
+    const Color coordFace(240, 232, 210);
+    for (int file = 0; file < 8; ++file) {
+        const std::string letter(1, static_cast<char>('a' + file));
+        text(c, letter, x + file * s, 96,  15, coordFace, true);
+        text(c, letter, x + file * s, 764, 15, coordFace, true);
     }
-    for (int r : {2, 3, 6, 7}) for (int f = 0; f < 9; ++f) {
-        if ((r == 2 || r == 7) ? (f != 1 && f != 7) : f % 2 != 0) continue;
-        const float cx = x + f * s, cy = y + r * s;
-        for (int dx : {-1, 1}) for (int dy : {-1, 1}) {
-            if (f + dx < 0 || f + dx > 8) continue;
-            line(c, cx + dx * 5, cy + dy * 12, cx + dx * 5, cy + dy * 5, grid);
-            line(c, cx + dx * 5, cy + dy * 5, cx + dx * 12, cy + dy * 5, grid);
-        }
+    for (int rank = 0; rank < 8; ++rank) {
+        const std::string number = std::to_string(8 - rank);
+        text(c, number, 26,  y + rank * s, 15, coordFace, true);
+        text(c, number, 674, y + rank * s, 15, coordFace, true);
     }
-    // "楚河汉界" (Chu River / Han Border): standard board label; keep it in
-    // simplified form so the whole UI reads as simplified Chinese apart from
-    // the historical piece glyphs.
-    text(c, "楚 河", x + 2 * s, y + 4.5f * s + 1, 32, Color(216, 165, 98), true, true);
-    text(c, "汉 界", x + 6 * s, y + 4.5f * s + 1, 32, Color(216, 165, 98), true, true);
-    text(c, "楚 河", x + 2 * s, y + 4.5f * s, 32, grid, true, true);
-    text(c, "汉 界", x + 6 * s, y + 4.5f * s, 32, grid, true, true);
-    for (int f = 0; f < 9; ++f)
-        text(c, std::string(1, static_cast<char>('A' + f)), x + f * s, 122, 9, Color(238, 194, 125), true);
-    for (int r = 0; r < 10; ++r)
-        text(c, std::to_string(r + 1), 60, y + r * s, 9, Color(238, 194, 125), true);
-    c.drawCircle(302, 797, 4, fill(Color(183, 67, 43)));
-    text(c, "你执红先行", 319, 797, 14, Ivory);
+    c.drawCircle(302, 797, 4, fill(Ivory));
+    text(c, "You play White  ·  Move first", 319, 797, 14, Ivory);
     round(c, {708, 106, 362, 662}, 12, Color(0, 0, 0, 65));
     round(c, {708, 102, 362, 662}, 12, Panel);
-    c.drawRoundRect(RectF(708.5f, 102.5f, 361, 661), 12, stroke(Color(156, 113, 68, 75), 1));
-    text(c, "静观棋势，落子有度。", 889, 797, 14, Muted, true, true);
+    c.drawRoundRect(RectF(708.5f, 102.5f, 361, 661), 12, stroke(Color(120, 140, 155, 55), 1));
+    text(c, "Think first.  Play once.", 889, 797, 14, Muted, true, true);
 }
 void atlas(Canvas& c) {
-    // Logical 64px cells have transparent padding; all 14 sprites share one texture.
-    for (int side = 0; side < 2; ++side) for (int kind = 1; kind <= 7; ++kind) {
-        const float x = (kind - 1) * 64.0f + 32, y = side * 64.0f + 30;
-        c.drawCircle(x + 1, y + 5, 28, fill(Color(24, 10, 3, 35)));
-        c.drawCircle(x + 1, y + 4, 27, fill(Color(24, 10, 3, 65)));
-        c.drawCircle(x, y + 3, 26.5f, fill(Color(88, 47, 21)));
-        c.drawCircle(x, y + 1.5f, 26.5f, fill(Color(168, 112, 54)));
-        Paint face;
-        face.setLinearGradient(x - 18, y - 26, x + 14, y + 26, Color(255, 229, 173), Color(203, 153, 84));
-        c.drawCircle(x, y, 26, face);
-        c.drawCircle(x, y - 0.4f, 25.2f, stroke(Color(255, 240, 194, 200), 1.1f));
-        c.drawCircle(x, y + 0.5f, 22.4f, stroke(Color(255, 231, 180, 190), 1.4f));
-        c.drawCircle(x, y - 0.2f, 22.4f, stroke(Color(109, 64, 27, 180), 1));
-        const Color color = side == 0 ? Red : Ink;
-        const char* label = pieceName({static_cast<Kind>(kind), side == 0 ? Side::Red : Side::Black});
-        text(c, label, x + 0.4f, y + 0.5f, 41, Color(255, 233, 187), true, true);
-        text(c, label, x, y - 0.5f, 41, color, true, true);
-    }
+    for (int side = 0; side < 2; ++side) for (int kind = 1; kind <= 6; ++kind)
+        drawPieceArt(c, {static_cast<Kind>(kind), side == 0 ? Side::White : Side::Black},
+                     (kind - 1) * 64.0f, side * 64.0f);
 }
 void effects(Canvas& c) {
     // Shared Image sprites for all per-frame effects; no glyph shaping, blur
     // filters or concentric geometry is submitted during the animation itself.
     for (int r = 50; r >= 44; --r)
         c.drawCircle(64, 64, static_cast<float>(r), stroke(Color(255, 212, 121, (r == 46 ? 210 : 15)), 2));
-    const char* labels[] = {"将  军", "红方胜", "黑方胜", "和  棋", "悔  棋"};
+    const char* labels[] = {"CHECK", "WHITE WINS", "BLACK WINS", "DRAW", "UNDO"};
     for (int i = 0; i < 5; ++i) {
         const float x = (i % 3) * 256.0f, y = 128 + (i / 3) * 112.0f;
         round(c, {x + 5, y + 8, 246, 96}, 10, Color(0, 0, 0, 70));
-        round(c, {x + 8, y + 4, 240, 92}, 8, Color(45, 25, 17, 245));
+        round(c, {x + 8, y + 4, 240, 92}, 8, Color(25, 32, 36, 245));
         c.drawRoundRect(RectF(x + 13, y + 9, 230, 82), 5, stroke(Gold, 1.2f));
-        text(c, labels[i], x + 128, y + 47, 39, i == 0 ? Color(247, 145, 91) : Ivory, true, true);
+        text(c, labels[i], x + 128, y + 47, i == 0 ? 34 : 28, i == 0 ? Color(247, 145, 91) : Ivory, true, true);
     }
 }
 void sidebar(Canvas& c, const Game& game) {
     const auto& match = game.match();
     c.drawRect(RectF(720, 116, 338, 634), fill(Panel));
-    text(c, "本局对局", 736, 145, 27, Ivory, false, true);
-    c.drawCircle(742, 184, 4.5f, fill(Color(188, 74, 48)));
-    text(c, "红方 · 你", 756, 184, 15, Ivory);
-    c.drawCircle(949, 184, 4.5f, fill(Color(222, 197, 152)));
-    text(c, "黑方 · AI", 963, 184, 15, Ivory);
-    round(c, {732, 207, 314, 46}, 5, match.checked() ? Color(83, 37, 26) : Color(55, 42, 28));
+    text(c, "Current Match", 736, 145, 25, Ivory, false, true);
+    c.drawCircle(742, 184, 4.5f, fill(Ivory));
+    text(c, "White  ·  You", 756, 184, 15, Ivory);
+    c.drawCircle(949, 184, 4.5f, fill(Color(38, 31, 24)));
+    c.drawCircle(949, 184, 4.5f, stroke(Gold, 1));
+    text(c, "Black  ·  AI", 963, 184, 15, Ivory);
+    round(c, {732, 207, 314, 46}, 5, match.checked() ? Color(83, 37, 26) : Color(38, 48, 58));
     c.drawRect(RectF(732, 213, 3, 34), fill(match.checked() ? Color(211, 90, 56) : Gold));
     text(c, game.status(), 889, 230, 20, match.checked() ? Color(255, 190, 150) : Gold, true);
     for (int i = 0; i < 3; ++i) button(c, layout::DifficultyButtons[i], difficultyName(static_cast<Difficulty>(i)), static_cast<int>(match.difficulty()) == i);
-    const char* descriptions[] = {"随手过招，从容入门。", "多想一步，稳中求胜。", "步步推演，落子无悔。"};
-    text(c, descriptions[static_cast<int>(match.difficulty())], 889, 352, 16, Muted, true);
-    line(c, 736, 380, 1042, 380, Color(160, 124, 76, 70));
-    text(c, "回合", 736, 409, 13, Muted);
+    const char* descriptions[] = {
+        "Casual pace  ·  friendly for beginners.",
+        "Balanced play  ·  weighs attack and defense.",
+        "Deep search  ·  full-board planning."};
+    text(c, descriptions[static_cast<int>(match.difficulty())], 889, 352, 14, Muted, true);
+    line(c, 736, 380, 1042, 380, Color(155, 175, 190, 55));
+    text(c, "MOVE", 736, 409, 12, Muted);
     text(c, std::to_string(match.moves().size() / 2 + 1), 736, 447, 38, Ivory);
-    line(c, 879, 405, 879, 462, Color(160, 124, 76, 60));
-    text(c, "最后一步", 908, 409, 13, Muted);
+    line(c, 879, 405, 879, 462, Color(155, 175, 190, 45));
+    text(c, "LAST MOVE", 908, 409, 12, Muted);
     if (!match.moves().empty()) {
         const Move last = match.moves().back();
         const Piece piece = match.position().board[last.to];
-        const std::string from = std::string(1, static_cast<char>('A' + fileOf(last.from))) + std::to_string(rankOf(last.from) + 1);
-        const std::string to = std::string(1, static_cast<char>('A' + fileOf(last.to))) + std::to_string(rankOf(last.to) + 1);
-        text(c, std::string(piece.side == Side::Red ? "红" : "黑") + pieceName(piece), 908, 444, 21, Ivory);
-        text(c, from + " → " + to, 971, 446, 13, Gold);
-    } else text(c, "尚未落子", 908, 446, 19, Muted);
-    line(c, 736, 481, 1042, 481, Color(160, 124, 76, 70));
-    text(c, "选中红棋，再点高亮位置落子。", 736, 513, 16, Ivory);
-    text(c, "圆点可走  ·  圆环可吃  ·  金框为上一步", 736, 541, 13, Muted);
-    button(c, layout::Undo, match.difficulty() == Difficulty::Hard ? "困难不可悔" : "悔棋   U", false, game.canUndo());
-    button(c, layout::Restart, "重新开局   N", true);
-    if (game.dialog()) {
-        text(c, std::string("以「") + difficultyName(game.pendingDifficulty()) + "」重新开局？", 889, 687, 14, Gold, true);
-        button(c, layout::Confirm, "确认", true);
-        button(c, layout::Cancel, "继续本局");
+        const std::string from = std::string(1, static_cast<char>('a' + fileOf(last.from))) + std::to_string(8 - rankOf(last.from));
+        const std::string to = std::string(1, static_cast<char>('a' + fileOf(last.to))) + std::to_string(8 - rankOf(last.to));
+        text(c, std::string(piece.side == Side::White ? "White " : "Black ") + pieceName(piece), 908, 444, 19, Ivory);
+        text(c, from + "  →  " + to, 974, 446, 12, Gold);
+    } else text(c, "No moves yet", 908, 446, 17, Muted);
+    line(c, 736, 481, 1042, 481, Color(155, 175, 190, 55));
+    if (game.promoting()) {
+        text(c, "Choose a promotion piece   ·   Esc to cancel", 736, 502, 14, Ivory);
+        const char* labels[] = {"Queen  Q", "Rook  R", "Bishop  B", "Knight  N"};
+        for (int i = 0; i < 4; ++i) button(c, layout::Promotion[i], labels[i]);
     } else {
-        text(c, "1 / 2 / 3 切换难度    Esc 取消选中", 889, 708, 12, Muted, true);
-        text(c, "无子可走判负 · 三次重复局面判和", 889, 736, 12, Muted, true);
+        text(c, "Click a white piece, then a highlighted square.", 736, 513, 14, Ivory);
+        text(c, "Dot to move   ·   Ring to capture   ·   Gold = last move", 736, 541, 11, Muted);
+    }
+    button(c, layout::Undo, match.difficulty() == Difficulty::Hard ? "Undo (Hard mode)" : "Undo    U", false, game.canUndo());
+    button(c, layout::Restart, "New game    N", true);
+    if (game.dialog()) {
+        text(c, std::string("Start a new game on \"") + difficultyName(game.pendingDifficulty()) + "\"?", 889, 687, 13, Gold, true);
+        button(c, layout::Confirm, "Confirm", true);
+        button(c, layout::Cancel, "Keep playing");
+    } else if (match.drawClaim().available() && match.outcome() == Outcome::Playing && !game.thinking() && !game.boardBusy() && !game.promoting()) {
+        button(c, layout::Claim, "Claim draw    D");
+        if (match.drawClaim().intended.valid()) text(c, "by planned move " + moveUci(match.drawClaim().intended), 889, 746, 10, Muted, true);
+    } else {
+        text(c, "1 / 2 / 3 difficulty     Esc to deselect", 889, 708, 12, Muted, true);
+        text(c, "Stalemate = draw  ·  Castling  ·  Promotion", 889, 736, 11, Muted, true);
     }
 }
 } // namespace
@@ -243,7 +240,7 @@ void Renderer::prepare(wsc::Canvas& canvas, const Game& game, float pixelScale) 
     const int scale = pixelScale > 1.15f ? 2 : 1;
     if (scale != cacheScale_) {
         bake(canvas, background_, 1120, 820, scale, background);
-        bake(canvas, pieces_, 448, 128, 2, atlas);
+        bake(canvas, pieces_, 384, 128, 2, atlas);
         cacheScale_ = scale;
         sidebarScratch_.reset();
         panelRevision_ = 0;
@@ -304,7 +301,7 @@ void Renderer::draw(wsc::Canvas& c, const Game& game, float width, float height,
     };
     auto drawPiece = [&](Piece piece, float x, float y, float alpha = 1) {
         const float sx = (static_cast<int>(piece.kind) - 1) * 128.0f;
-        const float sy = piece.side == Side::Red ? 0.0f : 128.0f;
+        const float sy = piece.side == Side::White ? 0.0f : 128.0f;
         auto paint = fill(Color::WHITE); paint.setAlpha(alpha);
         c.drawImage(pieces_, RectF(sx, sy, 128, 128),
                     RectF(x - 32, y - 30, 64, 64), paint);
@@ -312,12 +309,12 @@ void Renderer::draw(wsc::Canvas& c, const Game& game, float width, float height,
     const int hoverSquare = !game.thinking() && !game.boardBusy() && !game.dialog()
                           ? layout::hitSquare(pointerX_, pointerY_) : -1;
     const float selectionIn = motion::smooth(motion::unit((now - selectedAt_) / 0.16));
-    for (int s = 0; s < 90; ++s) {
+    for (int s = 0; s < 64; ++s) {
         const Piece piece = shown.board[s];
-        const float target = s == game.selected() ? 1.0f : s == hoverSquare && piece.side == Side::Red ? 0.28f : 0;
+        const float target = s == game.selected() ? 1.0f : s == hoverSquare && piece.side == Side::White ? 0.28f : 0;
         focus_[s] += (target - focus_[s]) * blend;
         if (focus_[s] < 0.002f) focus_[s] = 0;
-        if (!piece || (step && (s == step->move.to || (step->reverse && s == step->move.from)))) continue;
+        if (!piece || (step && (s == step->move.to || s == step->companion.to || (step->reverse && s == step->victim)))) continue;
         auto [x, y] = xy(s);
         float alpha = 1;
         if (transition.kind == TransitionKind::Opening && transition.active(now)) {
@@ -333,15 +330,26 @@ void Renderer::draw(wsc::Canvas& c, const Game& game, float width, float height,
             ? std::pair<float, float>{layout::BoardX + step->startFile * layout::Cell, layout::BoardY + step->startRank * layout::Cell}
             : xy(step->move.from);
         const auto to = xy(step->move.to);
-        const Piece captured = step->reverse ? step->after.board[step->move.from] : step->before.board[step->move.to];
+        const Piece captured = step->captured;
         if (captured) {
             const float alpha = step->reverse ? step->restoredAlpha + (1 - step->restoredAlpha) * sample.travel : 1 - sample.landing;
-            const auto at = step->reverse ? xy(step->move.from) : to;
+            const auto at = xy(step->victim);
             drawPiece(captured, at.first, at.second, alpha);
         }
         const float x = from.first + (to.first - from.first) * sample.travel;
         const float y = from.second + (to.second - from.second) * sample.travel;
-        drawPiece(step->before.board[step->move.from], x, y);
+        const Piece before = step->before.board[step->move.from], after = step->after.board[step->move.to];
+        if (before.kind != after.kind && sample.travel >= 1) {
+            drawPiece(before, x, y, 1 - sample.landing);
+            drawPiece(after, x, y, sample.landing);
+        } else drawPiece(before, x, y);
+        if (step->companion.valid()) {
+            auto rookFrom = xy(step->companion.from);
+            if (step->companionStartFile >= 0) rookFrom.first = layout::BoardX + step->companionStartFile * layout::Cell;
+            const auto rookTo = xy(step->companion.to);
+            drawPiece(step->before.board[step->companion.from], rookFrom.first + (rookTo.first - rookFrom.first) * sample.travel,
+                      rookFrom.second + (rookTo.second - rookFrom.second) * sample.travel);
+        }
         if (sample.travel >= 1) halo(x, y, 41, (1 - sample.landing) * 0.65f);
     }
     if (game.selected() >= 0) {
@@ -350,11 +358,12 @@ void Renderer::draw(wsc::Canvas& c, const Game& game, float width, float height,
     }
     for (int s : game.destinations()) {
         auto [x, y] = xy(s);
-        if (p.board[s]) c.drawCircle(x, y, 29, stroke(Color(180, 49, 28, static_cast<int>(230 * selectionIn)), 2.8f));
+        if (p.board[s] || (game.selected() >= 0 && capturedSquare(p, {game.selected(), s}) >= 0))
+            c.drawCircle(x, y, 29, stroke(Color(180, 49, 28, static_cast<int>(230 * selectionIn)), 2.8f));
         else c.drawCircle(x, y, 5, fill(Color(51, 29, 15, static_cast<int>(180 * selectionIn))));
     }
-    if (match.checked() && !moving) for (int s = 0; s < 90; ++s)
-        if (p.board[s].kind == Kind::General && p.board[s].side == p.turn) {
+    if (match.checked() && !moving) for (int s = 0; s < 64; ++s)
+        if (p.board[s].kind == Kind::King && p.board[s].side == p.turn) {
             auto [x, y] = xy(s);
             halo(x, y, 43, 0.7f + 0.2f * std::sin(static_cast<float>(now - transition.started) * 5));
         }
@@ -368,7 +377,7 @@ void Renderer::draw(wsc::Canvas& c, const Game& game, float width, float height,
     float bannerAlpha = 0;
     if (!moving && afterMove >= 0) {
         if (match.outcome() != Outcome::Playing) {
-            banner = match.outcome() == Outcome::RedWins ? 1 : match.outcome() == Outcome::BlackWins ? 2 : 3;
+            banner = match.outcome() == Outcome::WhiteWins ? 1 : match.outcome() == Outcome::BlackWins ? 2 : 3;
             bannerAlpha = motion::smooth(motion::unit(afterMove / 0.25));
         } else if (match.checked() && afterMove < 1.15) {
             banner = 0; bannerAlpha = std::min(motion::unit(afterMove / 0.18), motion::unit((1.15 - afterMove) / 0.25));
@@ -382,11 +391,11 @@ void Renderer::draw(wsc::Canvas& c, const Game& game, float width, float height,
         c.drawCircle(869.0f + i * 20, 265.0f, 2.2f, fill(Color(211, 171, 101, static_cast<int>(210 * pulse))));
     }
     const int control = game.controlAt(pointerX_, pointerY_);
-    for (int i = 0; i < 7; ++i) {
+    for (int i = 0; i < 12; ++i) {
         hover_[i] += ((control == i ? 1.0f : 0.0f) - hover_[i]) * blend;
         if (hover_[i] < 0.005f) continue;
         const Rect r = i < 3 ? layout::DifficultyButtons[i] : i == 3 ? layout::Undo : i == 4 ? layout::Restart
-                                                                             : i == 5 ? layout::Confirm : layout::Cancel;
+                      : i == 5 ? layout::Confirm : i == 6 ? layout::Cancel : i < 11 ? layout::Promotion[i - 7] : layout::Claim;
         c.drawRoundRect(RectF(r.x, r.y, r.w, r.h), 6,
                         fill(Color(pressed_ && control == i ? 0 : 255, pressed_ && control == i ? 0 : 239,
                                    pressed_ && control == i ? 0 : 205, static_cast<int>(hover_[i] * (pressed_ ? 55 : 42)))));
@@ -395,4 +404,4 @@ void Renderer::draw(wsc::Canvas& c, const Game& game, float width, float height,
     }
     c.restore();
 }
-} // namespace xiangqi
+} // namespace chess
