@@ -2,7 +2,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace xiangqi {
+namespace chess {
 Match::Match(Difficulty difficulty, Position position) : difficulty_(difficulty), history_{position} { adjudicate(); }
 void Match::reset(Difficulty difficulty) { *this = Match(difficulty); }
 
@@ -11,10 +11,29 @@ void Match::adjudicate() {
     checked_ = inCheck(p, p.turn);
     legal_ = legalMoves(p);
     outcome_ = Outcome::Playing;
-    if (legal_.empty()) outcome_ = p.turn == Side::Red ? Outcome::BlackWins : Outcome::RedWins;
-    else if (std::count_if(history_.begin(), history_.end(), [&](const Position& old) { return p.sameBoard(old); }) >= 3)
-        outcome_ = Outcome::RepetitionDraw;
-    else if (p.quietPlies >= 120) outcome_ = Outcome::QuietDraw;
+    claim_ = {};
+    auto occurrences = [&](const Position& position) {
+        return std::count_if(history_.begin(), history_.end(), [&](const Position& old) { return position.sameBoard(old); });
+    };
+    if (legal_.empty()) outcome_ = !checked_ ? Outcome::Stalemate : p.turn == Side::White ? Outcome::BlackWins : Outcome::WhiteWins;
+    else if (insufficientMaterial(p)) outcome_ = Outcome::MaterialDraw;
+    else if (occurrences(p) >= 5) outcome_ = Outcome::RepetitionDraw;
+    else if (p.quietPlies >= 150) outcome_ = Outcome::QuietDraw;
+    if (outcome_ != Outcome::Playing) return;
+    if (occurrences(p) >= 3) claim_ = {Outcome::RepetitionDraw, {}};
+    else if (p.quietPlies >= 100) claim_ = {Outcome::QuietDraw, {}};
+    else if (history_.size() >= 5 || p.quietPlies >= 99) {
+        for (Move move : legal_) {
+            const auto next = p.after(move);
+            if (occurrences(next) >= 2) { claim_ = {Outcome::RepetitionDraw, move}; break; }
+            if (next.quietPlies >= 100) { claim_ = {Outcome::QuietDraw, move}; break; }
+        }
+    }
+}
+bool Match::claimDraw() {
+    if (outcome_ != Outcome::Playing || !claim_.available()) return false;
+    outcome_ = claim_.reason;
+    return true;
 }
 
 bool Match::play(Move move) {
@@ -31,7 +50,7 @@ bool Match::undo() {
     do {
         history_.pop_back();
         moves_.pop_back();
-    } while (!moves_.empty() && position().turn != Side::Red);
+    } while (!moves_.empty() && position().turn != Side::White);
     adjudicate();
     return true;
 }
@@ -39,9 +58,9 @@ bool Match::undo() {
 int layout::hitSquare(float x, float y) {
     const int file = static_cast<int>(std::round((x - BoardX) / Cell));
     const int rank = static_cast<int>(std::round((y - BoardY) / Cell));
-    if (file < 0 || file > 8 || rank < 0 || rank > 9) return -1;
+    if (file < 0 || file > 7 || rank < 0 || rank > 7) return -1;
     const float dx = x - (BoardX + file * Cell), dy = y - (BoardY + rank * Cell);
-    return dx * dx + dy * dy <= 29 * 29 ? square(file, rank) : -1;
+    return std::abs(dx) <= Cell / 2 && std::abs(dy) <= Cell / 2 ? square(file, rank) : -1;
 }
 layout::Viewport layout::Viewport::fit(float width, float height) {
     const float scale = std::max(0.01f, std::min(width / Width, height / Height));
@@ -69,6 +88,7 @@ void Game::startNewGame(Difficulty difficulty) {
     match_.reset(difficulty);
     clearSelection();
     pendingDifficulty_ = -1;
+    promotionMove_ = {};
     lastSearch_ = {};
     transition_ = {transition_.serial + 1, TransitionKind::Opening, now(), {}};
     transitionPending_ = false;
@@ -81,15 +101,15 @@ void Game::requestNewGame(Difficulty difficulty) {
     else { pendingDifficulty_ = static_cast<int>(difficulty); clearSelection(); ++revision_; }
 }
 void Game::confirmNewGame() { if (dialog()) startNewGame(pendingDifficulty()); }
-void Game::cancelDialog() { if (dialog()) { pendingDifficulty_ = -1; ++revision_; } }
+void Game::cancelDialog() { cancelPromotion(); if (dialog()) { pendingDifficulty_ = -1; ++revision_; } }
 void Game::undo() {
     if (dialog() || !canUndo()) return;
     invalidateSearch();
-    const std::size_t count = std::min(match_.moves().size(), match_.position().turn == Side::Red ? std::size_t(2) : std::size_t(1));
+    const std::size_t count = std::min(match_.moves().size(), match_.position().turn == Side::White ? std::size_t(2) : std::size_t(1));
     Transition reverse{transition_.serial + 1, TransitionKind::Undo, now(), {}};
     for (std::size_t i = 0; i < count; ++i) {
         const Move m = match_.moves()[match_.moves().size() - 1 - i];
-        reverse.steps.push_back({match_.positionBefore(i), match_.positionBefore(i + 1), {m.to, m.from}, true});
+        reverse.steps.push_back(makeStep(match_.positionBefore(i), match_.positionBefore(i + 1), {m.to, m.from}, true));
     }
     if (transition_.kind == TransitionKind::Move && transition_.active(now()) && !reverse.steps.empty()) {
         const auto sample = transition_.sample(now());
@@ -98,6 +118,10 @@ void Game::undo() {
         first.startFile = fileOf(move.from) + (fileOf(move.to) - fileOf(move.from)) * sample.travel;
         first.startRank = rankOf(move.from) + (rankOf(move.to) - rankOf(move.from)) * sample.travel;
         first.restoredAlpha = 1 - sample.landing;
+        if (first.companion.valid()) {
+            const auto companion = transition_.steps[sample.step].companion;
+            first.companionStartFile = fileOf(companion.from) + (fileOf(companion.to) - fileOf(companion.from)) * sample.travel;
+        }
     }
     match_.undo();
     transition_ = std::move(reverse);
@@ -106,6 +130,10 @@ void Game::undo() {
     ++revision_;
 }
 void Game::click(float x, float y) {
+    if (promoting()) {
+        for (int i = 0; i < 4; ++i) if (layout::Promotion[i].contains(x, y)) choosePromotion(layout::Promotions[i]);
+        return;
+    }
     if (dialog()) {
         if (layout::Confirm.contains(x, y)) confirmNewGame();
         else if (layout::Cancel.contains(x, y)) cancelDialog();
@@ -117,10 +145,14 @@ void Game::click(float x, float y) {
     }
     if (layout::Undo.contains(x, y)) { undo(); return; }
     if (layout::Restart.contains(x, y)) { requestNewGame(match_.difficulty()); return; }
+    if (layout::Claim.contains(x, y)) { claimDraw(); return; }
     if (thinking() || boardBusy() || match_.outcome() != Outcome::Playing) return;
     const int s = layout::hitSquare(x, y);
     if (s < 0 || s == selected_) { clearSelection(); return; }
     if (selected_ >= 0 && std::find(destinations_.begin(), destinations_.end(), s) != destinations_.end()) {
+        if (match_.position().board[selected_].kind == Kind::Pawn && rankOf(s) == 0) {
+            promotionMove_ = {selected_, s}; ++revision_; return;
+        }
         animateMove({selected_, s});
         replyAt_ = now() + motion::ReplyDelay;
         clearSelection();
@@ -128,23 +160,41 @@ void Game::click(float x, float y) {
         return;
     }
     const Piece piece = match_.position().board[s];
-    if (selected_ >= 0 && (!piece || piece.side != Side::Red)) {
+    if (selected_ >= 0 && (!piece || piece.side != Side::White)) {
         rejectionTime_ = now(); rejectedSquare_ = s;
         return;
     }
     clearSelection();
-    if (piece && piece.side == Side::Red) {
+    if (piece && piece.side == Side::White) {
         selected_ = s;
-        for (Move m : match_.available()) if (m.from == s) destinations_.push_back(m.to);
+        for (Move m : match_.available()) if (m.from == s && std::find(destinations_.begin(), destinations_.end(), m.to) == destinations_.end()) destinations_.push_back(m.to);
     }
+}
+void Game::choosePromotion(Kind kind) {
+    if (!promoting()) return;
+    Move move = promotionMove_; move.promotion = kind;
+    if (!isLegal(match_.position(), move)) return;
+    animateMove(move); promotionMove_ = {}; clearSelection();
+    replyAt_ = now() + motion::ReplyDelay; ++revision_;
+}
+void Game::cancelPromotion() {
+    if (promoting()) { promotionMove_ = {}; clearSelection(); ++revision_; }
+}
+void Game::claimDraw() {
+    if (promoting() || dialog() || boardBusy() || match_.position().turn != Side::White) return;
+    if (match_.claimDraw()) { invalidateSearch(); clearSelection(); ++revision_; }
 }
 void Game::animateMove(Move move) {
     const Position before = match_.position();
     if (!match_.play(move)) return;
-    transition_ = {transition_.serial + 1, TransitionKind::Move, now(), {{before, match_.position(), move, false}}};
+    transition_ = {transition_.serial + 1, TransitionKind::Move, now(), {makeStep(before, match_.position(), move)}};
     transitionPending_ = true;
 }
 int Game::controlAt(float x, float y) const {
+    if (promoting()) {
+        for (int i = 0; i < 4; ++i) if (layout::Promotion[i].contains(x, y)) return 7 + i;
+        return -1;
+    }
     if (dialog()) {
         if (layout::Confirm.contains(x, y)) return 5;
         if (layout::Cancel.contains(x, y)) return 6;
@@ -153,6 +203,8 @@ int Game::controlAt(float x, float y) const {
     for (int i = 0; i < 3; ++i) if (layout::DifficultyButtons[i].contains(x, y)) return i;
     if (layout::Undo.contains(x, y) && canUndo()) return 3;
     if (layout::Restart.contains(x, y)) return 4;
+    if (layout::Claim.contains(x, y) && match_.drawClaim().available() && !thinking() && !boardBusy()
+        && match_.outcome() == Outcome::Playing) return 11;
     return -1;
 }
 void Game::beginPresentation() {
@@ -164,6 +216,9 @@ void Game::beginPresentation() {
 }
 void Game::update() {
     if (transitionPending_ && !transition_.active(now())) { transitionPending_ = false; ++revision_; }
+    if (thinking() && !dialog() && !boardBusy() && now() >= replyAt_ && match_.drawClaim().available()) {
+        match_.claimDraw(); invalidateSearch(); ++revision_;
+    }
     if (job_.valid()) {
         if (job_.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready || dialog()) return;
         if (jobGeneration_ == generation_ && (now() < replyAt_ || boardBusy())) return;
@@ -187,21 +242,24 @@ void Game::update() {
     }
 }
 std::string Game::status() const {
+    if (promoting()) return "Choose a promotion piece";
     if (boardBusy()) {
-        if (transition_.kind == TransitionKind::Undo) return "正在悔棋…";
-        return match_.position().turn == Side::Black ? "红方落子…" : "黑方落子…";
+        if (transition_.kind == TransitionKind::Undo) return "Undoing move\u2026";
+        return match_.position().turn == Side::Black ? "White is moving\u2026" : "Black is moving\u2026";
     }
     switch (match_.outcome()) {
-    case Outcome::RedWins: return "你赢了 · 红方胜";
-    case Outcome::BlackWins: return "对局结束 · 黑方胜";
-    case Outcome::RepetitionDraw: return "和棋 · 三次重复局面";
-    case Outcome::QuietDraw: return "和棋 · 60 回合无进展";
+    case Outcome::WhiteWins: return "Checkmate  \u00b7  White wins";
+    case Outcome::BlackWins: return "Checkmate  \u00b7  Black wins";
+    case Outcome::Stalemate: return "Draw  \u00b7  Stalemate";
+    case Outcome::MaterialDraw: return "Draw  \u00b7  Insufficient material";
+    case Outcome::RepetitionDraw: return "Draw  \u00b7  Threefold repetition";
+    case Outcome::QuietDraw: return "Draw  \u00b7  Fifty-move rule";
     default:
-        if (thinking()) return match_.checked() ? "黑方被将军 · AI 思考中" : "AI 正在思考…";
-        return match_.checked() ? "你被将军 · 请应将" : "轮到你走棋";
+        if (thinking()) return match_.checked() ? "Black in check  \u00b7  AI thinking" : "AI is thinking\u2026";
+        return match_.checked() ? "Check  \u00b7  You must respond" : "Your move";
     }
 }
 const char* difficultyName(Difficulty d) {
-    switch (d) { case Difficulty::Easy: return "简单"; case Difficulty::Medium: return "中等"; default: return "困难"; }
+    switch (d) { case Difficulty::Easy: return "Easy"; case Difficulty::Medium: return "Medium"; default: return "Hard"; }
 }
-} // namespace xiangqi
+} // namespace chess
