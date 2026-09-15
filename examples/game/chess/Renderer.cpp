@@ -25,7 +25,9 @@ void text(Canvas& c, const std::string& label, float x, float y, float size, Col
           bool center = false, bool carved = false) {
     Paint p = fill(color);
     p.setTextSize(size);
-    p.setFontFamily(carved ? "Chess Carved" : "Chess UI");
+    // Use the cross-platform default system aliases instead of hardcoded
+    // Windows/macOS font file paths, which are not present on all machines.
+    p.setFontFamily(carved ? FontSystem::kDefaultSerifFamily : FontSystem::kDefaultPrimaryFamily);
     p.setFontWeight(carved ? 400 : 500);
     p.setTextBaseline(Paint::TextBaseline::MIDDLE);
     if (center) p.setTextAlign(Paint::TextAlign::CENTER);
@@ -50,24 +52,11 @@ void button(Canvas& c, Rect r, const std::string& label, bool active = false, bo
          !enabled ? Color(110, 122, 132) : active ? Ink : Ivory, true);
 }
 void fonts(Canvas& c) {
+    // Register the real installed font faces and then bind the app to the
+    // portable default fallback chain. This avoids hardcoded Windows/macOS font
+    // file paths, which are the root cause of the cross-platform mismatch.
     for (const auto& face : FontSystem::defaultSystemFontFaces()) c.registerFontFace(face);
     c.setFontFallbackChain(FontSystem::defaultFallbackChain());
-    // Use installed fonts only; every glyph is still drawn by Canvas. Traditional
-    // Chinese UI and calligraphic piece faces have independent fallback families.
-    auto registerFirst = [&](const char* family, std::initializer_list<const char*> paths) {
-        for (const char* path : paths) if (std::filesystem::exists(path)) {
-            c.registerFontFace(FontFace::fromFile(FontDescriptor(family, 400), path));
-            break;
-        }
-        FontFallbackChain chain(family);
-        chain.addFallbackFamily(FontSystem::kDefaultCjkFamily);
-        chain.addFallbackFamily(FontSystem::kDefaultPrimaryFamily);
-        c.setFontFallbackChain(chain);
-    };
-    registerFirst("Chess UI", {"C:/Windows/Fonts/msjh.ttc", "/System/Library/Fonts/PingFang.ttc",
-                               "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"});
-    registerFirst("Chess Carved", {"C:/Windows/Fonts/simkai.ttf", "/System/Library/Fonts/Supplemental/Kaiti.ttc",
-                                   "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc"});
 }
 void bake(Canvas& target, Image& image, int width, int height, int scale,
           const std::function<void(Canvas&)>& paint) {
