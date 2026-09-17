@@ -36,6 +36,8 @@ public:
             throw GLContextUnavailable("OpenGL 3.3 context unavailable");
         }
         glfwMakeContextCurrent(window_);
+        // A created context with missing entry points is a loader/integration
+        // failure, not an unavailable-context skip.
         if (!wsc::Canvas::loadOpenGL(
                 reinterpret_cast<wsc::Canvas::OpenGLProcAddress>(glfwGetProcAddress))) {
             glfwDestroyWindow(window_);

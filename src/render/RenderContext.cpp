@@ -1,5 +1,7 @@
 #include "render/RenderContext.h"
 
+#include <algorithm>
+
 #include <glad/glad.h>
 
 #include "command/DrawData.h"
