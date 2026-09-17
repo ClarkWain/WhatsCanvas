@@ -66,7 +66,7 @@ cmake_minimum_required(VERSION 3.16)
 project(MyApp LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
-find_package(WhatsCanvas 1.1.0 CONFIG REQUIRED)
+find_package(WhatsCanvas 1.2.0 CONFIG REQUIRED)
 
 add_executable(MyApp main.cpp)
 target_link_libraries(MyApp PRIVATE WhatsCanvas::Software)
@@ -344,7 +344,7 @@ WhatsCanvas offers several integration paths to fit different engineering workfl
 ### Option 1: Precompiled GitHub Release Package
 
 ```bash
-# Download whatscanvas-win64-release-1.1.0.zip
+# Download whatscanvas-win64-release-1.2.0.zip
 # Extract and point CMAKE_PREFIX_PATH at the install directory
 cmake -S . -B build -DCMAKE_PREFIX_PATH=/path/to/whatscanvas
 ```

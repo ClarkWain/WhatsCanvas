@@ -9,7 +9,11 @@ For releases and downloadable artifacts, see the
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-17
+
 ### Added
+- Desktop chess and Chinese chess examples with AI opponents, move animations,
+  and cross-platform font fallback.
 - `Paint::setTextMaskBlur` and `getTextMaskBlur` expose an opt-in, color-independent
   glyph coverage-mask blur. Portable alpha glyphs reuse cached masks; unsupported
   cases use a filtered layer. The default is zero, and overlapping glyphs can
@@ -46,6 +50,11 @@ For releases and downloadable artifacts, see the
   and working-set admission to avoid allocation churn on animated clips.
 
 ### Fixed
+- Correct OpenGL/OpenGL ES clip-mask coordinates during cropped offscreen
+  rendering, restoring tinted overlapping frosted-glass panels (issue #100).
+- Gate offset clip masks with analytic pixel checks for overlapping solid,
+  gradient and image layers, nested layers, and return to the main target in
+  both OpenGL and OpenGL ES parity tests.
 - Re-resolve glyph atlas entries after growth or repacking, including cached
   blurred glyphs, so upload retries do not reuse stale texture coordinates.
 - Do not attribute unrelated sticky OpenGL errors to a valid RGBA image upload;

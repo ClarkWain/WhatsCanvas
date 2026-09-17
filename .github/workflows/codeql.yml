@@ -2,9 +2,9 @@ name: codeql
 
 on:
   push:
-    branches: [ master, 1.1.0 ]
+    branches: [ master, 1.1.0, 1.2.0 ]
   pull_request:
-    branches: [ master, 1.1.0 ]
+    branches: [ master, 1.1.0, 1.2.0 ]
   schedule:
     # Weekly full scan even without changes so newly published CodeQL queries
     # find pre-existing patterns.

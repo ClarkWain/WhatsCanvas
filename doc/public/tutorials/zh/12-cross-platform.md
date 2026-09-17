@@ -47,7 +47,7 @@ app/
 │       ├── native_renderer.cpp
 │       └── scene.cpp / scene.h
 └── libs/
-    └── whatscanvas-android-release-1.1.0.aar
+    └── whatscanvas-android-release-1.2.0.aar
 ```
 
 ### Gradle 配置
@@ -63,7 +63,7 @@ android {
 }
 
 dependencies {
-    implementation files('libs/whatscanvas-android-release-1.1.0.aar')
+    implementation files('libs/whatscanvas-android-release-1.2.0.aar')
 }
 ```
 

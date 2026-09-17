@@ -99,9 +99,9 @@ wsc::RectF dst(50, 50, 300, 200);
 canvas->drawImage(image, src, dst, paint);
 ```
 
-### 按顺序批量绘制图集区域（未发布）
+### 按顺序批量绘制图集区域（自 1.2.0 起）
 
-此接口位于 `1.2.0` 开发分支，`v1.1.0` 安装包尚不包含它。
+此接口自 WhatsCanvas 1.2.0 起提供。
 假设已加载至少 64 × 32 像素的图集 `atlas`，并准备好了 `imagePaint`，
 可以用相同的图片、画笔和画布状态一次提交多个区域：
 
@@ -413,7 +413,7 @@ int main()
 | `drawImage(img, x, y, paint)` | 原始尺寸绘制 |
 | `drawImage(img, dst, paint)` | 拉伸到目标区域 |
 | `drawImage(img, src, dst, paint)` | 源区域映射到目标 |
-| `drawImageRects(img, rects, count, paint)` | 按顺序批量绘制图集区域（未发布） |
+| `drawImageRects(img, rects, count, paint)` | 按顺序批量绘制图集区域（自 1.2.0 起） |
 | `drawImageFit(img, dst, fit, paint)` | CONTAIN/COVER/FILL |
 | `drawImageRounded(img, dst, r, paint)` | 圆角图片 |
 | `drawImageCircle(img, center, r, paint)` | 圆形图片 |

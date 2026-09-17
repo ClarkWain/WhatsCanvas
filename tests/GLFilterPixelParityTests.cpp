@@ -142,6 +142,143 @@ struct GLTarget
     }
 };
 
+// Analytic colors on a uniform background isolate clip-coordinate failures
+// from differences between CPU/GPU blur kernels. This runs in both the GL and
+// GLES parity gates, where CI requires a real context instead of accepting SKIP.
+bool checkClipMaskOffsets(wsc::Canvas &canvas)
+{
+    wsc::Paint background;
+    background.setColor(wsc::Color(20, 40, 60, 255));
+    wsc::Paint composite;
+    composite.setColor(wsc::Color(255, 255, 255, 255));
+    wsc::LayerOptions blur;
+    blur.setBackdropFilter(wsc::ImageFilter::blur(3.0f));
+    const wsc::Color colors[] = {
+        wsc::Color(220, 40, 60, 128), wsc::Color(20, 220, 60, 128)
+    };
+    const unsigned char imagePixels[2][4] = {
+        {220, 40, 60, 128}, {20, 220, 60, 128}
+    };
+    wsc::Image images[2];
+    for (int i = 0; i < 2; ++i) {
+        if (!canvas.loadImageFromRGBA(images[i], imagePixels[i], 1, 1)) {
+            return false;
+        }
+    }
+    const wsc::RectF panels[] = {
+        wsc::RectF(24, 18, 104, 68), wsc::RectF(80, 48, 88, 64)
+    };
+    std::vector<unsigned char> pixels;
+    bool passed = true;
+    int checks = 0;
+    auto read = [&]() {
+        pixels.clear();
+        const bool ok = canvas.readPixelsRGBA(pixels)
+            && pixels.size() == kCompositeParityWidth * kCompositeParityHeight * 4u;
+        if (!ok) {
+            std::cerr << "CLIP_OFFSET_REGRESSION backend=" << kBackendName
+                      << " status=FAIL reason=readback\n";
+        }
+        return ok;
+    };
+    auto check = [&](const char *scene, int x, int y, int r, int g, int b) {
+        ++checks;
+        const auto *pixel = &pixels[(y * kCompositeParityWidth + x) * 4u];
+        if (std::abs(int(pixel[0]) - r) > 3
+            || std::abs(int(pixel[1]) - g) > 3
+            || std::abs(int(pixel[2]) - b) > 3 || pixel[3] != 255) {
+            std::cerr << "CLIP_OFFSET_REGRESSION backend=" << kBackendName
+                      << " status=FAIL scene=" << scene << " x=" << x << " y=" << y
+                      << " actual=" << int(pixel[0]) << ',' << int(pixel[1])
+                      << ',' << int(pixel[2]) << ',' << int(pixel[3])
+                      << " expected=" << r << ',' << g << ',' << b << ",255\n";
+            passed = false;
+        }
+    };
+    auto clip = [&](const wsc::RectF &bounds) {
+        wsc::Path path;
+        path.addRoundRect(bounds, 10.0f);
+        canvas.clipPath(path);
+    };
+    auto drawOnMainTarget = [&]() {
+        canvas.save();
+        const wsc::RectF bounds(4, 98, 20, 26);
+        clip(bounds);
+        wsc::Paint paint;
+        paint.setColor(wsc::Color(10, 210, 30, 255));
+        canvas.drawRect(bounds, paint);
+        canvas.restore();
+    };
+
+    // Exercise filled paths, gradient paths and sampled images. Each later
+    // backdrop also replays the earlier clipped composite at a new offset.
+    for (int mode = 0; mode < 3; ++mode) {
+        const char *scene = mode == 0 ? "solid" : mode == 1 ? "gradient" : "image";
+        canvas.beginFrame();
+        canvas.drawRect(wsc::RectF(0, 0, kCompositeParityWidth, kCompositeParityHeight), background);
+        for (int i = 0; i < 2; ++i) {
+            canvas.save();
+            clip(panels[i]);
+            canvas.saveLayer(panels[i], composite, blur);
+            wsc::Paint tint;
+            tint.setColor(colors[i]);
+            if (mode == 2) {
+                canvas.drawImage(images[i], panels[i], composite);
+            } else {
+                if (mode == 1) {
+                    tint.setLinearGradient(0, 0, 192, 128, colors[i], colors[i]);
+                }
+                canvas.drawRect(panels[i], tint);
+            }
+            canvas.restore();
+            canvas.restore();
+        }
+        drawOnMainTarget();
+        canvas.endFrame();
+        if (!read()) return false;
+        check(scene, 40, 36, 120, 40, 60);
+        check(scene, 60, 68, 120, 40, 60);
+        check(scene, 100, 65, 70, 130, 60);
+        check(scene, 150, 96, 20, 130, 60);
+        check(scene, 24, 18, 20, 40, 60); // Outside the first rounded corner.
+        check(scene, 80, 48, 120, 40, 60); // Second corner preserves first panel.
+        check(scene, 180, 120, 20, 40, 60);
+        check(scene, 14, 111, 10, 210, 30); // Offset must return to zero.
+    }
+
+    // Nested layers use absolute canvas coordinates, not accumulated offsets.
+    canvas.beginFrame();
+    canvas.drawRect(wsc::RectF(0, 0, kCompositeParityWidth, kCompositeParityHeight), background);
+    canvas.save();
+    const wsc::RectF outer(44, 26, 100, 76);
+    clip(outer);
+    canvas.saveLayer(outer, composite);
+    wsc::Paint red;
+    red.setColor(wsc::Color(220, 40, 60, 255));
+    canvas.drawRect(outer, red);
+    canvas.save();
+    const wsc::RectF inner(62, 44, 52, 34);
+    clip(inner);
+    canvas.saveLayer(inner, composite);
+    canvas.drawImage(images[1], inner, composite);
+    canvas.restore();
+    canvas.restore();
+    canvas.restore();
+    canvas.restore();
+    drawOnMainTarget();
+    canvas.endFrame();
+    if (!read()) return false;
+    check("nested", 88, 61, 120, 130, 60);
+    check("nested", 54, 64, 220, 40, 60);
+    check("nested", 130, 64, 220, 40, 60);
+    check("nested", 44, 26, 20, 40, 60);
+    check("nested", 14, 111, 10, 210, 30);
+    std::cout << "CLIP_OFFSET_REGRESSION backend=" << kBackendName
+              << " status=" << (passed ? "PASS" : "FAIL")
+              << " checks=" << checks << '\n';
+    return passed;
+}
+
 } // namespace
 
 int main()
@@ -283,6 +420,9 @@ int main()
                   << " status=FAIL reason=render_or_readback\n";
     }
 
+    if (rendered) {
+        passed = checkClipMaskOffsets(*canvas) && passed;
+    }
     canvas.reset();
     target.destroy();
     glfwDestroyWindow(window);
