@@ -1,9 +1,10 @@
 # WhatsCanvas 1.2.0 validation record
 
 Release candidate rendering/library sources: `ecadb7d9747ad29356fdf646fe3d04f2235783f9`.
-The release integration carries the same source tree plus the CodeQL reporting
-configuration and this evidence record. Release and PR workflow results must
-also be checked on the final integration/tag commits.
+The release integration carries that candidate plus CodeQL reporting and
+clang-tidy toolchain configuration, a direct standard-library header include,
+clarified GL test documentation, and this evidence record. Release and PR
+workflow results must also be checked on the final integration/tag commits.
 
 ## Automated checks
 
