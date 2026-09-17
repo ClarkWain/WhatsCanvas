@@ -1,6 +1,6 @@
 # Metal API Validation 覆盖说明
 
-本文记录 WhatsCanvas Metal backend 的验证范围、测试入口和仍需真机覆盖的边界。“全部 API”在这里指项目实际暴露和调用的 Metal backend API，不是 Apple Metal SDK 中与本项目无关的全部接口。
+本文记录 WhatsCanvas Metal backend 的验证范围、测试入口，以及哪些改动需要重新执行真机检查。“全部 API”在这里指项目实际暴露和调用的 Metal backend API，不是 Apple Metal SDK 中与本项目无关的全部接口。稳定 v1 的代表性真机验收已经完成。
 
 ## 当前结论
 
@@ -59,7 +59,7 @@ Metal API Validation 只能检查实际执行过的 API 调用，不能证明所
 - 特定 GPU family 的硬件/驱动缺陷和性能退化。
 - App Store Release 环境中的调度、温控、内存压力和长时间运行问题。
 
-这些分支保留错误检查和安全返回；发布前仍需至少一台较老 GPU 和一台当前 GPU 真机跑 Release 场景。API Validation 不应在正式 Release 包中常开，因为它有明显调试开销。
+这些分支保留错误检查和安全返回。稳定 v1 已在 iPhone 12（A14）完成代表性真机验收；涉及 Metal shader、资源绑定、展示、CoreText 或生命周期的后续版本，应重新执行真机 Release 场景。扩大到更多 GPU 代际属于兼容性增强，不是当前能力缺口。API Validation 不应在正式 Release 包中常开，因为它有明显调试开销。
 
 ## 新增 Metal 能力时的门禁要求
 

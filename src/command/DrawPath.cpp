@@ -205,7 +205,7 @@ void DrawPathProgram::initialize(bool commonProgram)
                 outColor.a *= clamp(vCoverage, 0.0, 1.0);
             }
             if (uClipEnabled != 0) {
-                outColor.a *= texture(uClipMask, gl_FragCoord.xy / uClipViewport).r;
+                outColor.a *= clipMaskCoverage();
             }
             FragColor = outColor;
         }
@@ -315,7 +315,7 @@ void DrawPathProgram::initialize(bool commonProgram)
                 outColor.a *= clamp(vCoverage, 0.0, 1.0);
             }
             if (uClipEnabled != 0) {
-                outColor.a *= texture(uClipMask, gl_FragCoord.xy / uClipViewport).r;
+                outColor.a *= clipMaskCoverage();
             }
             FragColor = outColor;
         }
@@ -806,6 +806,12 @@ void DrawPathProgram::draw(const RenderContext &context, const DrawPathData &dat
             clipViewportWidth_ = context.getWidth();
             clipViewportHeight_ = context.getHeight();
         }
+        // Offscreen replay translates viewport and scissor together. Let the
+        // GLProgram cache track this per-program value, including return to 0.
+        drawProgram->setVec2(
+            "uClipOffset",
+            glm::vec2(static_cast<float>(context.getScissorOffsetX()),
+                      static_cast<float>(context.getScissorOffsetY())));
     }
     const int gradientType = static_cast<int>(data.gradientType);
     if (gradientType_ != gradientType) {

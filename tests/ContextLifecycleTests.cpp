@@ -1,4 +1,5 @@
 #include <wsc/CanvasStats.h>
+#include <wsc/FontSystem.h>
 
 #include "wsc/wsc.h"
 
@@ -76,6 +77,21 @@ public:
     {
         commands.push_back(std::move(command));
     }
+
+    std::vector<DrawImageBatchQuad> *acquireImageBatch(
+        const DrawImageBatchData &state, std::size_t count) override
+    {
+        if (!captureAcquiredBatches) return nullptr;
+        ++acquiredBatches;
+        auto command = std::make_unique<DrawImageBatchCommand>(state);
+        auto *quads = &command->data().quads;
+        quads->reserve(count);
+        commands.push_back(std::move(command));
+        return quads;
+    }
+
+    bool captureAcquiredBatches = false;
+    int acquiredBatches = 0;
 
     size_t commandCount() const override { return commands.size(); }
 
@@ -532,6 +548,79 @@ bool testGeometryTextFallbackKeepsLogicalCoordinatesAtHighDpi()
     return ok;
 }
 
+bool testAtlasTextUsesBatchAcquisitionAndPreservesClips()
+{
+    const auto faces = wsc::FontSystem::discoverInstalledFontFaces();
+    if (faces.empty()) {
+        std::cout << "Skipping atlas text batch test; no system font found.\n";
+        return true;
+    }
+    const auto *face = &faces.front();
+    for (const auto &candidate : faces) {
+        if (candidate.family() == "Arial" || candidate.family() == "DejaVu Sans") {
+            face = &candidate;
+            break;
+        }
+    }
+    bool ok = true;
+    for (int clipMode = 0; clipMode < 3; ++clipMode) {
+        for (bool acquire : {false, true}) {
+            auto renderer = std::make_unique<FakeRenderer>();
+            auto *raw = renderer.get();
+            raw->captureAcquiredBatches = acquire;
+            auto canvas = wsc::CanvasLifecycleTestAccess::create(std::move(renderer));
+            canvas->setSize(200, 200);
+            canvas->initializeContext();
+            canvas->setTextBackend(wsc::Canvas::TextBackend::Portable);
+            canvas->registerFontFace(wsc::FontFace::fromFile(
+                wsc::FontDescriptor("BatchFont"), face->path(), face->faceIndex()));
+            if (clipMode >= 1) canvas->clipRect(wsc::RectF(10, 20, 140, 120));
+            if (clipMode == 2) {
+                wsc::Path clip;
+                clip.moveTo(40, 20); clip.lineTo(170, 60); clip.lineTo(90, 180); clip.close();
+                canvas->clipPath(clip);
+            }
+            wsc::Paint paint;
+            paint.setFontFamily("BatchFont"); paint.setTextSize(24);
+            paint.setColor(wsc::Color(80, 120, 160, 180));
+            canvas->drawText("Atlas", 5, 30, paint);
+            const auto *command = raw->commands.empty() ? nullptr
+                : dynamic_cast<const DrawImageBatchCommand *>(raw->commands.back().get());
+            ok = expect(command && raw->commands.size() == 1,
+                        "plain atlas text should remain one batch even when clipped") && ok;
+            ok = expect(raw->acquiredBatches == (acquire ? 1 : 0),
+                        "text should use the acquisition entry point when supported") && ok;
+            if (!command) continue;
+            const auto batch = command->data();
+            ok = expect(batch.quads.size() == 5, "batch must contain all glyphs in order") && ok;
+            for (const auto &quad : batch.quads) {
+                ok = expect(quad.packedTint == (80u | (120u << 8u) | (160u << 16u) | (180u << 24u)),
+                            "batch must preserve each glyph's color and alpha") && ok;
+            }
+            wsc::Image image;
+            const std::vector<unsigned char> white(16, 255);
+            image.loadFromRGBA(*canvas, white, 2, 2);
+            raw->clear();
+            canvas->drawImage(image, wsc::RectF(0, 0, 2, 2), wsc::RectF(0, 0, 20, 20), paint);
+            const auto *reference = raw->commands.empty() ? nullptr
+                : dynamic_cast<const DrawImageCommand *>(raw->commands.back().get());
+            ok = expect(reference != nullptr, "reference image must capture current draw state") && ok;
+            if (!reference) continue;
+            const auto &state = reference->data();
+            ok = expect(batch.scissor.enabled == state.scissor.enabled
+                        && batch.scissor.x == state.scissor.x && batch.scissor.y == state.scissor.y
+                        && batch.scissor.width == state.scissor.width && batch.scissor.height == state.scissor.height
+                        && batch.clipMask.resources == state.clipMask.resources
+                        && batch.clipMask.fingerprint == state.clipMask.fingerprint
+                        && batch.transform == state.transform && batch.blendMode == state.blendMode,
+                        "text batch must preserve the same clipping and transform as a regular image") && ok;
+            ok = expect(clipMode < 1 || batch.scissor.enabled, "rectangle clip must not be discarded") && ok;
+            ok = expect(clipMode != 2 || batch.clipMask.hasPaths(), "AA path clip must not be discarded") && ok;
+        }
+    }
+    return ok;
+}
+
 bool testClipPathBuildsAntiAliasedCoverageMask()
 {
     auto renderer = std::make_unique<FakeRenderer>();
@@ -889,6 +978,7 @@ int main()
     ok = testStrokeGaussianShadowQueuesShadowCommand() && ok;
     ok = testGeometryTextGaussianShadowQueuesShadowCommand() && ok;
     ok = testGeometryTextFallbackKeepsLogicalCoordinatesAtHighDpi() && ok;
+    ok = testAtlasTextUsesBatchAcquisitionAndPreservesClips() && ok;
     ok = testClipPathBuildsAntiAliasedCoverageMask() && ok;
     ok = testGradientQueuesShaderDescriptor() && ok;
     ok = testUniformRoundedImageUsesNativeCoverage() && ok;

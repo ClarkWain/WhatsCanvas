@@ -3,7 +3,7 @@
 The reusable explanation of the 1 FPS drag regression, cache architecture,
 animation choices, native Android Canvas comparison, and final device results
 is published in
-[`doc/ANDROID_INTERACTIVE_PERFORMANCE.md`](../../../doc/ANDROID_INTERACTIVE_PERFORMANCE.md).
+[`doc/public/performance/ANDROID_INTERACTIVE_PERFORMANCE.md`](../../../../doc/public/performance/ANDROID_INTERACTIVE_PERFORMANCE.md).
 This file is the operational guide for reproducing this module's measurements.
 
 The benchmark uses one physical gesture to cover all three expensive states:

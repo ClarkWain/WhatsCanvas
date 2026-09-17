@@ -13,6 +13,7 @@
 class Command;
 struct DrawImageBatchData;
 struct DrawImageBatchQuad;
+struct DrawImageData;
 
 struct OffscreenRenderRequest
 {
@@ -40,6 +41,8 @@ public:
     virtual void abandonBackend() { finalizeBackend(); }
     virtual void setViewport(int width, int height) = 0;
     virtual void submit(std::unique_ptr<Command> &&command) = 0;
+    // Append without allocating a command when the last image is compatible.
+    virtual bool tryAppendImage(const DrawImageData &) { return false; }
     virtual void recordCommandClone(
         std::size_t /*payloadBytes*/,
         bool /*pathCommand*/) {}
@@ -58,6 +61,11 @@ public:
     {
         return nullptr;
     }
+    // Returns empty/reusable renderer-owned storage, or appends to the last
+    // compatible batch. Producers must fill it before making another call.
+    // Backends without recording storage may return null for scalar staging.
+    virtual std::vector<DrawImageBatchQuad> *acquireImageBatch(
+        const DrawImageBatchData &, std::size_t) { return nullptr; }
     virtual size_t commandCount() const = 0;
     virtual std::vector<std::unique_ptr<Command>> takeCommandsFrom(size_t index) = 0;
     /// Read-only peek used by cache prototypes (currently: pre-layer command
@@ -129,7 +137,7 @@ public:
     virtual void setGpuTimingEnabled(bool /*enabled*/) {}
 
     /// Whether this renderer's backend can present to an on-screen window.
-    /// Default false (offscreen-only). See doc/windowed-presentation-design.md.
+    /// Default false (offscreen-only). See doc/internal/architecture/windowed-presentation.md.
     virtual bool supportsPresentation() const { return false; }
 
     /// Create an on-screen presentation target for the given OS window, or

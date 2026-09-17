@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/ClarkWain/WhatsCanvas/actions/workflows/cross-platform-validation.yml/badge.svg)](https://github.com/ClarkWain/WhatsCanvas/actions/workflows/cross-platform-validation.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.1.0-informational.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.2.0-informational.svg)](CHANGELOG.md)
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C.svg)](CMakeLists.txt)
 [![Documentation](https://img.shields.io/badge/docs-online-success.svg)](https://clarkwain.github.io/WhatsCanvas/)
 
@@ -29,7 +29,7 @@ WhatsCanvas 的定位介于 NanoVG 这类基础绘制库和 Skia 这类大型图
 | **文本能力** | 字体发现和 fallback、CJK/RTL、UAX #9、换行与省略号、glyph atlas、COLR/CPAL v0；便携路径使用 FreeType/HarfBuzz，Windows 可选 DirectWrite，Apple 平台可选 CoreText。 |
 | **接入方式** | CMake `find_package`、`add_subdirectory`，或从源码生成可搬运的安装目录。 |
 | **体量** | 非 header-only。支持按后端仅链接 `WhatsCanvas::Software`、`::OpenGL`、`::OpenGLES` 或 Apple 平台的 `::Metal`；参考体量见[体量与依赖](#体量与依赖)。 |
-| **成熟度** | 当前稳定 API 版本为 `1.1.0`。仓库已经建立公开 API 边界、跨平台 CI、像素回归、package consumer 集成测试与可审计的性能基线；平台支持仍以文档中的兼容性边界为准。 |
+| **成熟度** | 当前稳定 API 版本为 `1.2.0`，已定义的稳定 v1 产品范围已经完成。仓库已经建立公开 API 边界、跨平台 CI、像素回归、package consumer 集成测试、代表性移动真机验收与可审计的性能基线。 |
 | **许可证** | MIT；`third_party/` 组件遵循各自许可证。 |
 
 **何时推荐使用 WhatsCanvas？**
@@ -73,7 +73,7 @@ cmake_minimum_required(VERSION 3.16)
 project(MyApp LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
-find_package(WhatsCanvas 1.1.0 CONFIG REQUIRED)
+find_package(WhatsCanvas 1.2.0 CONFIG REQUIRED)
 
 add_executable(MyApp main.cpp)
 target_link_libraries(MyApp PRIVATE WhatsCanvas::Software)
@@ -95,13 +95,13 @@ set "PATH=C:\path\to\whatscanvas\bin;%PATH%"
 build\Release\MyApp.exe
 ```
 
-若需使用窗口内 OpenGL、OpenGL ES、Vulkan、字体注册或宿主 render target 等进阶功能，请查阅 **[Using WhatsCanvas as a Library](doc/GETTING_STARTED_AS_LIBRARY.md)**。该指南说明上下文的创建、使用与销毁，并提供可独立运行的 consumer 示例。
+若需使用窗口内 OpenGL、OpenGL ES、Vulkan、字体注册或宿主 render target 等进阶功能，请查阅 **[Using WhatsCanvas as a Library](doc/public/getting-started/GETTING_STARTED_AS_LIBRARY.md)**。该指南说明上下文的创建、使用与销毁，并提供可独立运行的 consumer 示例。
 
 ## 获取与构建
 
 ### 使用发布包
 
-桌面端 GitHub Release 包名为 `whatscanvas-<platform>-release-<version>.zip`，例如 `whatscanvas-win64-release-1.1.0.zip`。桌面包目录布局如下：
+桌面端 GitHub Release 包名为 `whatscanvas-<platform>-release-<version>.zip`，例如 `whatscanvas-win64-release-1.2.0.zip`。桌面包目录布局如下：
 
 ```text
 include/wsc/                 公开头文件
@@ -117,13 +117,13 @@ lib/cmake/WhatsCanvas/       find_package 配置
 - iOS：`whatscanvas-ios-release-<version>.zip`，内含静态 Metal/CoreText
   XCFramework、公开头文件、`arm64` 真机切片和 `arm64`/`x86_64` 模拟器切片。
 
-详见 [Android 接入指南](doc/ANDROID_INTEGRATION.md)与
-[iOS Build Notes](doc/IOS_BUILD_NOTES.md)。演示 APK 仍在 CI 中构建验证，但不上传到 Release。
+详见 [Android 接入指南](doc/public/platforms/ANDROID_INTEGRATION.md)与
+[iOS Build Notes](doc/public/platforms/IOS_BUILD_NOTES.md)。演示 APK 仍在 CI 中构建验证，但不上传到 Release。
 
 各平台预编译包所包含的 target 可能有所差异。实际使用时，建议通过 CMake 显式校验所需 target 是否存在：
 
 ```cmake
-find_package(WhatsCanvas 1.1.0 CONFIG REQUIRED)
+find_package(WhatsCanvas 1.2.0 CONFIG REQUIRED)
 if (NOT TARGET WhatsCanvas::Software)
     message(FATAL_ERROR "This package does not contain the Software backend")
 endif()
@@ -226,7 +226,7 @@ cmake -S . -B build \
 | --- | --- | --- | --- | --- |
 | **Software** | `WhatsCanvas::Software` | 开启 | 无 GPU 或图形 API | 确定性 CPU 参考实现，适合 headless、测试、截图和 fallback。 |
 | **OpenGL 3.3 Core** | `WhatsCanvas::OpenGL` | 开启，主要跨平台 GL 路径 | 应用创建 GL 上下文并保持为当前上下文，提供 proc address | 桌面应用的主要 GL 渲染路径。 |
-| **OpenGL ES 3.0** | `WhatsCanvas::OpenGLES` | 关闭 | 宿主 EGL/GLES context | 独立 target；Linux Mesa 执行构建和滤镜像素门禁，移动设备仍需宿主侧验证。 |
+| **OpenGL ES 3.0** | `WhatsCanvas::OpenGLES` | 关闭 | 宿主 EGL/GLES context | 独立 target；Linux Mesa 执行构建和滤镜像素门禁，Android 宿主已完成 Pixel 3、Redmi K30 代表性真机检查。接入方仍需验证自己的宿主集成。 |
 | **Vulkan** | 编入 `WhatsCanvas::OpenGL` | 关闭 | 源码构建需 Vulkan SDK；运行需 loader、驱动和可用设备 | 默认离屏；Win32 支持 Canvas 窗口呈现，其他平台的窗口 surface 仍在完善。 |
 | **Metal** | 独立 `WhatsCanvas::Metal`，也可编入 `WhatsCanvas::OpenGL` | 独立 target 可选开启 | 支持 Metal 的 macOS/iOS/tvOS 设备 | 支持离屏渲染、外部 `MTLTexture` 互操作和 `CAMetalLayer` 窗口呈现，无需链接 OpenGL ES。 |
 
@@ -252,10 +252,10 @@ if (!canvas) {
 | Windows x64 | MSVC 单元测试、包消费、OpenGL/Software；发布矩阵可启用 GLES、Vulkan、FreeType、HarfBuzz | DirectWrite 文本后端可选；Vulkan 窗口呈现支持 Win32。 |
 | Linux x64 | GCC 构建、单元测试、OpenGL/GLES 滤镜像素门禁、包消费 | 自动化 GL 场景使用 Mesa/Xvfb；GLX 窗口呈现源码仍缺少持续验证。 |
 | macOS x86_64/arm64 | 单元测试、Metal 像素/契约门禁与 universal 发布包 | Metal 默认开启，支持离屏渲染和 `CAMetalLayer` 呈现；系统 OpenGL 仍可用。 |
-| iOS / Android | [iOS UIKit/Metal/CoreText 示例](platforms/ios/README.md)及生命周期 UI 测试、[Android GLSurfaceView/JNI 示例](platforms/android/README.md)与 Android 接入指南 | iOS 已在模拟器验证横竖屏、前后台与冷启动；Android 构建三个 ABI 并有 Pixel 3、Redmi K30 检查。发布前均需目标真机验证。 |
+| iOS / Android | [iOS UIKit/Metal/CoreText 示例](platforms/ios/README.md)及生命周期 UI 测试、[Android GLSurfaceView/JNI 示例](platforms/android/README.md)与 Android 接入指南 | 代表性真机验收已经完成：iPhone 12 覆盖 Metal/CoreText 展示、生命周期、API Validation 和 59.2–59.9 fps；Pixel 3、Redmi K30 覆盖 GLES 渲染、文本、生命周期与显示刷新率跟随。后续版本只有修改相关移动端路径时才需重新验收。 |
 | Web | [Emscripten/WebGL 2 宿主](platforms/wasm/README.md)、headless 浏览器生命周期/DPR/上下文恢复检查，以及 14 张视觉一致性截图 | 源码构建；尚无 WebGPU 后端和预编译 Web 发布包。 |
 
-详细状态见 [Android 接入指南](doc/ANDROID_INTEGRATION.md)、[Cross-Platform Validation Matrix](doc/CROSS_PLATFORM_VALIDATION_MATRIX.md)、[iOS Build Notes](doc/IOS_BUILD_NOTES.md) 和 [Vulkan Backend Status](doc/vulkan-backend-status.md)。
+公开状态详见 [Android 接入指南](doc/public/platforms/ANDROID_INTEGRATION.md)、[iOS Build Notes](doc/public/platforms/IOS_BUILD_NOTES.md) 和 [Vulkan Backend Status](doc/public/backends/vulkan-backend-status.md)。维护者验证记录保存在 `doc/internal/validation/`。
 
 ## 能力概览
 
@@ -285,7 +285,7 @@ if (!canvas) {
 
 ![WhatsCanvas 字体 fallback、CJK、双向文本与 text-on-path](images/text-rendering-showcase.png)
 
-各项文本能力的支持状态见 [Text Feature Matrix](doc/TEXT_FEATURE_MATRIX.md) 与 [Text Sharpness & HiDPI](doc/TEXT_SHARPNESS_AND_HIDPI.md)。
+各项文本能力的支持状态见 [Text Feature Matrix](doc/public/guides/text/TEXT_FEATURE_MATRIX.md) 与 [Text Sharpness & HiDPI](doc/public/guides/text/TEXT_SHARPNESS_AND_HIDPI.md)。
 
 ## 性能数据与适用范围
 
@@ -303,9 +303,9 @@ if (!canvas) {
 
 以上数据仅反映特定硬件、驱动、后端与工作负载下的表现，不宜外推到其他 GPU、Software 后端、Vulkan 后端、移动设备或你的生产环境。仓库内保留了逐帧的 JSONL 明细、像素残差、ABBA 进程配对以及 95% 置信区间等原始数据，方便审计与复现。选型前，建议使用与业务贴近的 workload 自行复测。
 
-- [完整方法与结果](doc/PERFORMANCE_BENCHMARKS.md)
+- [完整方法与结果](doc/public/performance/PERFORMANCE_BENCHMARKS.md)
 - [NanoVG 参数矩阵与原始基线](benchmarks/baselines/nanovg-win-i7-8700-gtx1060/README.md)
-- [跨库 benchmark 规范](doc/CROSS_LIBRARY_BENCHMARKS.md)
+- [跨库 benchmark 规范](doc/public/performance/CROSS_LIBRARY_BENCHMARKS.md)
 
 ## 体量与依赖
 
@@ -337,21 +337,21 @@ if (!canvas) {
 - Software golden image 基线、OpenGL/OpenGL ES/Vulkan/Metal 滤镜结果对齐、严格 hash 回归与模糊 PPM 回归。
 - 公开 API 参考文档时效性、版本一致性、package consumer 与示例构建检查。
 - 同步/异步像素回读、确定性首帧时序、render stats、资源统计和可复现 benchmark。
-- 公开头文件与 CMake target 的支持边界记录在 [API Stability](doc/API_STABILITY.md)，发布记录见 [CHANGELOG](CHANGELOG.md)。
+- 公开头文件与 CMake target 的支持边界记录在 [API Stability](doc/public/reference/API_STABILITY.md)，发布记录见 [CHANGELOG](CHANGELOG.md)。
 
 已知风险：
 
 - 当前稳定 API 线为 `1.x`；公开 API 的破坏性变更保留到主版本升级，但升级前仍应阅读 CHANGELOG 并执行 package consumer 测试。
 - README 的能力表不保证所有 backend × platform 组合都具备相同能力；滤镜、文字和输出目标应查对应的 feature matrix，并验证项目的实际组合。
 - Vulkan 不是默认后端，跨平台窗口呈现和更大场景的像素覆盖仍在扩展。
-- Android Prefab AAR 已覆盖两个 Arm ABI 和 `x86_64`，Pixel 3、Redmi K30 覆盖渲染、字体、生命周期与帧率检查；广泛真机覆盖仍待补齐。iOS Metal/CoreText XCFramework 已覆盖模拟器和真机切片，应用接入、签名和分发仍由宿主负责。WebAssembly/WebGL 2 宿主采用源码构建并执行浏览器测试；WebGPU 和预编译 Web 发布包尚未提供。
+- Android Prefab AAR 已覆盖两个 Arm ABI 和 `x86_64`，Pixel 3、Redmi K30 已完成渲染、字体、生命周期与帧率检查。iOS Metal/CoreText XCFramework 已覆盖模拟器和真机切片，并在 iPhone 12 完成真机渲染检查。这些代表性验收不承诺覆盖所有系统、GPU 和宿主应用；应用接入、签名和分发仍由宿主负责。WebAssembly/WebGL 2 宿主采用源码构建并执行浏览器测试；WebGPU 和预编译 Web 发布包属于可选扩展。
 - 跨 GPU 的实时渲染结果可能受驱动影响；确定性基线应优先使用 Software，GPU 回归使用容差比较。
 - `Canvas` 应在其渲染 / 上下文线程内使用；当前公开文档不承诺同一实例的并发访问，也未定义跨 Canvas 共享图片、字体或外部纹理的跨线程约定。
 
 ## 示例
 
 仓库包含最小入门项目、package consumer、统一目录下的
-Software/OpenGL/Vulkan/Metal presentation 宿主，以及三个游戏示例。专项视觉回归程序归档在
+Software/OpenGL/Vulkan/Metal presentation 宿主，以及四个游戏示例。专项视觉回归程序归档在
 `tests/visual`，不再放在 `examples` 中。
 
 <table>
@@ -362,6 +362,8 @@ Software/OpenGL/Vulkan/Metal presentation 宿主，以及三个游戏示例。�
 </table>
 
 [**蜘蛛纸牌**](examples/game/spider_solitaire) — 完整、无图片素材的纸牌游戏，支持鼠标拖拽、三档难度、提示、撤销、计分、计时、矢量花色与程序化牌背。
+
+[**中國象棋**](examples/game/xiangqi) — 桌面人機象棋，繁體介面、Canvas 繪製的深木棋盤與雕刻棋子、三檔 AI、悔棋、Image 圖集快取，以及自動可玩性／效能驗證。
 
 Windows 单独构建 Tetris：
 
@@ -407,7 +409,7 @@ sh ./scripts/package_consumer_smoke.sh
 sh ./scripts/release_preflight.sh
 ```
 
-发版预检覆盖 API reference、版本、单元测试和 package consumer，但不替代全部 GPU/视觉回归测试。基线更新规则见 [Regression Baseline Policy](doc/REGRESSION_BASELINES.md)。
+发版预检覆盖 API reference、版本、单元测试和 package consumer，但不替代全部 GPU/视觉回归测试。基线更新规则见 [视觉回归与基线规范](doc/public/validation/VISUAL_REGRESSION.md)。
 
 ## 文档导航
 
@@ -415,22 +417,21 @@ sh ./scripts/release_preflight.sh
 
 | 目的 | 文档 |
 | --- | --- |
-| 首次接入 | [Using WhatsCanvas as a Library](doc/GETTING_STARTED_AS_LIBRARY.md) |
-| Android 宿主接入 | [Android Integration Guide](doc/ANDROID_INTEGRATION.md) |
-| 查找 API | [Public API Reference](doc/API_REFERENCE.md) · [Visual API Gallery](doc/visual-api-gallery.md) |
-| 评估 API 稳定性 | [API Stability](doc/API_STABILITY.md) · [CHANGELOG](CHANGELOG.md) |
-| 文本和字体 | [Text Feature Matrix](doc/TEXT_FEATURE_MATRIX.md) · [Web / Async Font Integration](doc/WEB_FONT_INTEGRATION.md) · [Font Discovery Design](doc/WHATS_CANVAS_VS_FLUTTER_FONT_DISCOVERY.md) · [DirectWrite](doc/DIRECTWRITE_TEXT_BACKEND.md) |
-| 图层效果 | [Image Filters](doc/IMAGE_FILTERS.md) · [Shadow Model](doc/SHADOW_MODEL.md) · [Blend Modes](doc/BLEND_MODE_AUDIT.md) |
-| 后端与平台 | [Vulkan Status](doc/vulkan-backend-status.md) · [Shader Portability](doc/SHADER_PORTABILITY.md) · [Troubleshooting](doc/TROUBLESHOOTING.md) |
-| 性能和验证 | [Performance Benchmarks](doc/PERFORMANCE_BENCHMARKS.md) · [Visual Regression](doc/VISUAL_REGRESSION.md) |
-| 架构与贡献 | [Architecture](doc/architecture/README.md) · [Contributing](CONTRIBUTING.md) |
+| 首次接入 | [Using WhatsCanvas as a Library](doc/public/getting-started/GETTING_STARTED_AS_LIBRARY.md) |
+| Android 宿主接入 | [Android Integration Guide](doc/public/platforms/ANDROID_INTEGRATION.md) |
+| 查找 API | [Public API Reference](doc/public/reference/API_REFERENCE.md) · [Visual API Gallery](doc/public/reference/visual-api-gallery.md) |
+| 评估 API 稳定性 | [API Stability](doc/public/reference/API_STABILITY.md) · [CHANGELOG](CHANGELOG.md) |
+| 文本和字体 | [Text Feature Matrix](doc/public/guides/text/TEXT_FEATURE_MATRIX.md) · [Web / Async Font Integration](doc/public/guides/text/WEB_FONT_INTEGRATION.md) · [DirectWrite](doc/public/guides/text/DIRECTWRITE_TEXT_BACKEND.md) |
+| 图层效果 | [Image Filters](doc/public/guides/rendering/IMAGE_FILTERS.md) · [Shadow Model](doc/public/guides/rendering/SHADOW_MODEL.md) · [Blend Modes](doc/public/guides/rendering/BLEND_MODE_AUDIT.md) |
+| 后端与平台 | [Vulkan Status](doc/public/backends/vulkan-backend-status.md) · [Shader Portability](doc/public/backends/SHADER_PORTABILITY.md) · [Troubleshooting](doc/public/getting-started/TROUBLESHOOTING.md) |
+| 性能和验证 | [Performance Benchmarks](doc/public/performance/PERFORMANCE_BENCHMARKS.md) · [Visual Regression](doc/public/validation/VISUAL_REGRESSION.md) |
+| 架构与贡献 | [维护者架构说明](doc/internal/architecture/README.md) · [Contributing](CONTRIBUTING.md) |
 
 ## 路线与边界
 
-WhatsCanvas 当前主要改进跨后端像素一致性、文本排版质量、更广泛的 Vulkan、Web 和设备覆盖，以及性能基准的可复现性。长期计划包括 WebGPU、预编译 Web 分发，以及更多 CBDT/CBLC bitmap 格式、SBIX、SVG 和完整 COLRv1 composite。这些能力仍在规划中，不应视为当前已经完整支持。
+WhatsCanvas 的稳定 v1 范围已经完成：Canvas API、文本系统、桌面与移动端发布包、代表性真机验收、像素门禁和性能基线均已建立。后续维护负责保持这些契约，并在相关实现变化时重新执行对应验证。WebGPU、预编译 Web 分发、更广的 Vulkan 窗口呈现、更多 CBDT/CBLC bitmap 格式、SBIX、SVG 与高级 COLRv1 composite 属于可选扩展，不是尚未完成的 v1 要求。
 
-首个稳定版明确的 Must/Should/非目标边界见
-[1.0 发布标准](doc/RELEASE_1_0_CRITERIA.md)。契约之外的长期路线图项目不阻塞 1.0。
+已完成版本的发布证据保存在 `doc/archive/releases/`。已启动的工作通过带负责人和 milestone 的 issue 跟踪；内部登记表只保存非阻塞扩展候选，不表示 v1 尚未完成。
 
 ## 许可证
 

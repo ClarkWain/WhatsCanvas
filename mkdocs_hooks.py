@@ -1,6 +1,6 @@
 """MkDocs hook: stage repository ``images/`` into the built site.
 
-The published docs live in ``doc/`` (``docs_dir``), but the visual assets
+The published docs live in ``doc/public/`` (``docs_dir``), but the visual assets
 (comparison renders, the architecture diagram, game screenshots) live in the
 repository-root ``images/`` folder so they can be shared with the README. This
 hook adds those image files to the MkDocs file collection under the same
