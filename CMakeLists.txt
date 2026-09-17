@@ -1080,7 +1080,9 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
                 -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:${_submission_target}>
                 -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake)
-        set_tests_properties(${_submission_target} PROPERTIES LABELS "unit;render;opengl")
+        set_tests_properties(${_submission_target} PROPERTIES
+            LABELS "unit;render;opengl"
+            SKIP_REGULAR_EXPRESSION "SKIP: OpenGL context:")
     endforeach()
 
     add_executable(WhatsCanvasOpenGLMultiTextureBatchTests

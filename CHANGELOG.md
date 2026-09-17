@@ -11,6 +11,12 @@ For releases and downloadable artifacts, see the
 
 ## [1.2.0] - 2026-09-17
 
+### Platform validation
+- Release Linux font-discovery configuration after enumeration without changing
+  the host's process-global Fontconfig configuration.
+- Provide display/font dependencies for Linux CI, distinguish unavailable GL
+  contexts on hosted runners, and require GL coverage in Linux validation.
+
 ### Added
 - Desktop chess and Chinese chess examples with AI opponents, move animations,
   and cross-platform font fallback.
