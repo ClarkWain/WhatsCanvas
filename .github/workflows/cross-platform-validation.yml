@@ -168,6 +168,9 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # The legacy 'tools' package is no longer in the SDK repository.
+          packages: platform-tools
 
       - name: Install pinned Android toolchain
         run: sdkmanager 'platforms;android-33' 'build-tools;33.0.1' 'ndk;21.4.7075529' 'cmake;3.18.1'
