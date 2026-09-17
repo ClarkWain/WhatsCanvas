@@ -14,8 +14,10 @@ This directory is the top-level home for WhatsCanvas validation beyond ad-hoc lo
   translation reuse, scale invalidation, capacity and resource release.
 - `WhatsCanvasRenderSubmissionTests`: six first-use native text entry paths,
   valid uploads after unrelated GL errors, rejected invalid uploads, and
-  instanced image pixels against a clipped reference. Both new tests require
-  a real OpenGL 3.3 context and fail explicitly if it cannot be created.
+  instanced image pixels against a clipped reference. Their GL checks require
+  a real OpenGL 3.3 context. An unavailable context is reported as SKIP by
+  default and is a failure when `WHATSCANVAS_REQUIRE_GL_CONTEXT=1`, as in the
+  Linux CI gates. A function-loader failure after context creation always fails.
 
 - `tests/compile/FeatureSnippets.cpp`: compile-only public API snippets.
 - `tests/integration/vulkan_present/`: low-level Vulkan surface and swapchain
