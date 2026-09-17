@@ -30,7 +30,7 @@ with the current 1080p suite.
 
 ## Cold text use and reusable glyph effects
 
-On the unreleased development branch, Canvas defers its default text backend
+Since 1.2.0, Canvas defers its default text backend
 until the first text or font-configuration operation. Measure construction
 through the first completed text draw as a cold-use interval; moving font
 discovery out of the constructor is not a steady-frame speedup for text clients.

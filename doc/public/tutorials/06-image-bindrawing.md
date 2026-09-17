@@ -101,9 +101,9 @@ wsc::RectF dst(50, 50, 300, 200);
 canvas->drawImage(image, src, dst, paint);
 ```
 
-### Ordered atlas rectangles (unreleased)
+### Ordered atlas rectangles (since 1.2.0)
 
-Available on the `1.2.0` development branch, not in the `v1.1.0` package.
+Available since WhatsCanvas 1.2.0.
 With an already loaded image atlas at least 64 by 32 pixels and an existing
 `imagePaint`, submit several regions using one image, paint and canvas state:
 
@@ -416,7 +416,7 @@ int main()
 | `drawImage(img, x, y, paint)` | Draw at native size |
 | `drawImage(img, dst, paint)` | Stretch to a region |
 | `drawImage(img, src, dst, paint)` | Map a source region to a destination |
-| `drawImageRects(img, rects, count, paint)` | Ordered atlas regions (unreleased) |
+| `drawImageRects(img, rects, count, paint)` | Ordered atlas regions (since 1.2.0) |
 | `drawImageFit(img, dst, fit, paint)` | CONTAIN / COVER / FILL |
 | `drawImageRounded(img, dst, r, paint)` | Rounded image |
 | `drawImageCircle(img, center, r, paint)` | Circular image |

@@ -319,9 +319,9 @@ shadowText.setShadowLayer(6.0f, 2.0f, 3.0f, wsc::Color(0, 0, 0, 150));
 canvas->drawText("Shadow Text", 50, 100, shadowText);
 ```
 
-### Glyph coverage-mask blur (unreleased)
+### Glyph coverage-mask blur (since 1.2.0)
 
-Available on the `1.2.0` development branch, not in the `v1.1.0` package.
+Available since WhatsCanvas 1.2.0.
 `setTextMaskBlur(radius)` softens each glyph's coverage mask before applying the
 text color. The mask records opacity rather than final RGB values. It can be
 reused when the same glyph, font settings and blur radius are drawn with another

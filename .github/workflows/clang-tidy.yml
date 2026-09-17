@@ -6,7 +6,7 @@ name: clang-tidy
 
 on:
   pull_request:
-    branches: [ master, 1.1.0 ]
+    branches: [ master, 1.1.0, 1.2.0 ]
 
 permissions:
   contents: read

@@ -61,13 +61,13 @@ those entries do not represent missing requirements for the current product.
 | Raster text fallback diagnostics | Contract supported | Raster shaping, face resolution, glyph rasterization, atlas upload, and atlas retry failures add coalesced diagnostics before falling back to alternate text rendering. |
 | Missing glyph render hooks | Contract supported | Geometry fallback render results expose missing glyph codepoints and source ranges. |
 
-## Unreleased additions
+## Additions in 1.2.0
 
-The `1.2.0` development branch adds `Paint::setTextMaskBlur` for explicit glyph
+WhatsCanvas `1.2.0` adds `Paint::setTextMaskBlur` for explicit glyph
 coverage-mask blur. Portable alpha glyphs cache the result independently of
 color and position, with filtered-layer fallback for unsupported cases. It is
 disabled by default and is distinct from whole-run blur and `setShadowLayer`.
-See the [text effects tutorial](../../tutorials/07-text-bindlayout.md#glyph-coverage-mask-blur-unreleased)
+See the [text effects tutorial](../../tutorials/07-text-bindlayout.md#glyph-coverage-mask-blur-since-120)
 for an example and overlap semantics. This API is not in the `v1.1.0` package.
 
 Portable text metrics also use bounded caches with exact keys and live font

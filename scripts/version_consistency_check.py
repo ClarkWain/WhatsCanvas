@@ -87,6 +87,17 @@ def main() -> int:
     if re.search(r'\$version\s*=\s*"[0-9]+\.[0-9]+\.[0-9]+"', package_workflow):
         errors.append("package-release workflow hardcodes $version; derive it from CMakeLists.txt instead")
 
+    release_notes_paths = set(re.findall(r"^\s+body_path:\s*(\S+)\s*$", package_workflow, re.MULTILINE))
+    for notes_path in release_notes_paths:
+        notes_file = ROOT / notes_path
+        if not notes_file.is_file():
+            errors.append(f"package-release notes do not exist: {notes_path}")
+        elif not re.search(
+            rf"^# WhatsCanvas {re.escape(project_version)}\s*$",
+            notes_file.read_text(encoding="utf-8"), re.MULTILINE,
+        ):
+            errors.append(f"{notes_path}: release notes must identify WhatsCanvas {project_version}")
+
     public_version_patterns = (
         r"find_package\s*\(\s*WhatsCanvas\s+([0-9]+\.[0-9]+\.[0-9]+)",
         r"whatscanvas-[a-z0-9-]+-release-([0-9]+\.[0-9]+\.[0-9]+)",

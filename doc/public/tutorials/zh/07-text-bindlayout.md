@@ -315,9 +315,9 @@ shadowText.setShadowLayer(6.0f, 2.0f, 3.0f, wsc::Color(0, 0, 0, 150));
 canvas->drawText("Shadow Text", 50, 100, shadowText);
 ```
 
-### 字形覆盖度遮罩模糊（未发布）
+### 字形覆盖度遮罩模糊（自 1.2.0 起）
 
-此接口位于 `1.2.0` 开发分支，`v1.1.0` 安装包尚不包含它。
+此接口自 WhatsCanvas 1.2.0 起提供。
 `setTextMaskBlur(radius)` 先柔化每个字形的覆盖度遮罩，再应用文字颜色。
 遮罩记录透明程度，不记录最终 RGB 颜色。因此，同一字形、字体设置和
 模糊半径下，换颜色或换位置可以复用已有遮罩。
