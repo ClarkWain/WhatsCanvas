@@ -31,10 +31,19 @@ HarfBuzz pre-context concern and its call-site assessment. The current
 `src/text/HarfBuzzTextShaper.cpp` still passes an owned normalized UTF-8 buffer,
 offset zero, and the full buffer length to `hb_buffer_add_utf8`.
 
-On this review date, GitHub's global-advisory API returned HTTP 404 for both
-`GHSA-q4gc-p4hh-3765` and `GHSA-xvjr-f2r9-c7ww`, which were cited by that
-historical audit. Their current affected ranges and remediation status could
-not be independently confirmed. A 404 is not evidence that an advisory was
-resolved or that the dependency has no vulnerabilities. Do not reuse the
-historical audit as a fresh security clearance; retain this uncertainty for
-maintainer review before tagging.
+The global-advisory API initially returned HTTP 404 for the two historical
+IDs. Follow-up against the upstream repository advisory pages resolved this
+uncertainty; a global API 404 alone is not a security result.
+
+- [GHSA-q4gc-p4hh-3765](https://github.com/harfbuzz/harfbuzz/security/advisories/GHSA-q4gc-p4hh-3765)
+  identifies versions before 14.0.0 as affected and 14.0.0 as patched.
+  The pinned HarfBuzz 14.2.1 includes upstream bounds-check fix
+  `c34dd6e24bd76591e423807616b2b8412d4a5df1`.
+- [GHSA-xvjr-f2r9-c7ww](https://github.com/harfbuzz/harfbuzz/security/advisories/GHSA-xvjr-f2r9-c7ww)
+  lists an affected range before 12.3.0. Independently of the version metadata,
+  the pin includes upstream fix `1265ff8d990284f04d8768f35b0e20ae5f60daae`.
+
+Both fixes were verified as ancestors of the exact pinned commit with
+`git merge-base --is-ancestor`. No dependency update is required for these two
+specific findings. This review does not claim that all possible dependency
+vulnerabilities have been ruled out.
