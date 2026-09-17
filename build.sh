@@ -28,6 +28,13 @@ for arg in "$@"; do
     esac
 done
 
+# Package configuration disables demo and test targets. Keep it in a separate
+# CMake tree so running a package gate cannot make a later smoke test lose the
+# WhatsCanvasDemo target through cached options.
+if [ "$PACKAGE" -eq 1 ]; then
+    BUILD_DIR="$ROOT_DIR/build-package"
+fi
+
 PACKAGE_DIR="$ROOT_DIR/out/package/$CONFIG"
 
 if ! command -v cmake >/dev/null 2>&1; then
@@ -54,6 +61,8 @@ if [ "$PACKAGE" -eq 1 ]; then
     # executable targets to keep the package build lean and avoid linking
     # internal-only helpers against shared-library exports.
     PACKAGE_CMAKE_ARGS="$PACKAGE_CMAKE_ARGS -DBUILD_TESTING=OFF -DWHATSCANVAS_BUILD_DEMO=OFF -DWHATSCANVAS_BUILD_BENCHMARKS=OFF"
+else
+    PACKAGE_CMAKE_ARGS="$PACKAGE_CMAKE_ARGS -DWHATSCANVAS_BUILD_DEMO=ON"
 fi
 if [ "$BUILD_SHARED" -eq 1 ]; then
     PACKAGE_CMAKE_ARGS="$PACKAGE_CMAKE_ARGS -DBUILD_SHARED_LIBS=ON"

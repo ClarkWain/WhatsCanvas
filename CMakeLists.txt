@@ -54,8 +54,8 @@ set_property(CACHE WHATSCANVAS_X11 PROPERTY STRINGS AUTO ON OFF)
 if (NOT WHATSCANVAS_X11 MATCHES "^(AUTO|ON|OFF)$")
     message(FATAL_ERROR "WHATSCANVAS_X11 must be AUTO, ON, or OFF (got '${WHATSCANVAS_X11}').")
 endif()
-set(WHATSCANVAS_DEFAULT_SMOKE_HASH "2808591959994190122" CACHE STRING "Default local smoke hash for regression ctest registration.")
-set(WHATSCANVAS_CLIP_SMOKE_HASH "7173893163224947210" CACHE STRING "Default local clip-path smoke hash for regression ctest registration.")
+set(WHATSCANVAS_DEFAULT_SMOKE_HASH "9862191092520609134" CACHE STRING "Default local smoke hash for regression ctest registration.")
+set(WHATSCANVAS_CLIP_SMOKE_HASH "10630383327616444847" CACHE STRING "Default local clip-path smoke hash for regression ctest registration.")
 
 if (MSVC)
     # All source files are UTF-8.  Pin the source/execution charset instead of
