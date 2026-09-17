@@ -2,9 +2,9 @@ name: codeql
 
 on:
   push:
-    branches: [ master, 1.1.0 ]
+    branches: [ master, 1.1.0, 1.2.0 ]
   pull_request:
-    branches: [ master, 1.1.0 ]
+    branches: [ master, 1.1.0, 1.2.0 ]
   schedule:
     # Weekly full scan even without changes so newly published CodeQL queries
     # find pre-existing patterns.
@@ -58,4 +58,21 @@ jobs:
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
         with:
+          category: "/language:${{ matrix.language }}"
+          output: sarif-results
+          upload: failure-only
+
+      # Manual C++ builds still analyze bundled dependencies. Filter report
+      # locations after analysis, preserving first-party findings and diagnostics.
+      - name: Exclude third-party findings
+        uses: advanced-security/filter-sarif@2da736ff05ef065cb2894ac6892e47b5eac2c3c0 # v1.1
+        with:
+          patterns: '-third_party/**'
+          input: sarif-results/cpp.sarif
+          output: sarif-results/cpp.sarif
+
+      - name: Upload first-party CodeQL results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: sarif-results/cpp.sarif
           category: "/language:${{ matrix.language }}"

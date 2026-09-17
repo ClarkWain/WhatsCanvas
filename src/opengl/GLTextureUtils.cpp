@@ -103,6 +103,10 @@ bool updateTextureRGBA(TextureHandle handle, int x, int y, int width, int height
         return false;
     }
 
+    // GL errors are sticky and may belong to the embedding application's
+    // previous operation. Only attribute errors from this upload to its result.
+    while (glGetError() != GL_NO_ERROR) {}
+
     GLint previousTexture = 0;
     GLint previousUnpackAlignment = 4;
     glGetIntegerv(GL_TEXTURE_BINDING_2D, &previousTexture);

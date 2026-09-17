@@ -4,7 +4,7 @@ English | [中文](README_zh.md)
 
 [![CI](https://github.com/ClarkWain/WhatsCanvas/actions/workflows/cross-platform-validation.yml/badge.svg)](https://github.com/ClarkWain/WhatsCanvas/actions/workflows/cross-platform-validation.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.1.0-informational.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.2.0-informational.svg)](CHANGELOG.md)
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C.svg)](CMakeLists.txt)
 [![Documentation](https://img.shields.io/badge/docs-online-success.svg)](https://clarkwain.github.io/WhatsCanvas/)
 
@@ -29,7 +29,7 @@ This project aims to bridge the gap between minimal drawing libraries (such as N
 | **Text Capabilities** | Font discovery and fallback, CJK/RTL, UAX #9, line breaking and ellipsis, glyph atlas, COLR/CPAL v0 and common COLRv1 paint graphs; FreeType/HarfBuzz serve the portable path, with selectable DirectWrite on Windows and CoreText on Apple platforms. |
 | **Integration** | CMake `find_package`, `add_subdirectory`, or portable installation directories generated from source. |
 | **Footprint** | Not header-only. Supports linking only against `WhatsCanvas::Software`, `::OpenGL`, `::OpenGLES`, or Apple-only `::Metal` based on backend; see [Footprint and Dependencies](#footprint-and-dependencies) for reference. |
-| **Maturity** | Current stable API line: `1.1.0`. Public API boundaries, cross-platform CI, pixel regression, package-consumer integration tests, and auditable performance baselines are in place; platform support remains subject to the documented compatibility boundaries. |
+| **Maturity** | Current stable API line: `1.2.0`; the defined stable-v1 product scope is complete. Public API boundaries, cross-platform CI, pixel regression, package-consumer integration tests, representative mobile hardware validation, and auditable performance baselines are in place. |
 | **License** | MIT; components in `third_party/` follow their respective licenses. |
 
 **When to Choose WhatsCanvas?**
@@ -73,7 +73,7 @@ cmake_minimum_required(VERSION 3.16)
 project(MyApp LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
-find_package(WhatsCanvas 1.1.0 CONFIG REQUIRED)
+find_package(WhatsCanvas 1.2.0 CONFIG REQUIRED)
 
 add_executable(MyApp main.cpp)
 target_link_libraries(MyApp PRIVATE WhatsCanvas::Software)
@@ -95,13 +95,13 @@ set "PATH=C:\path\to\whatscanvas\bin;%PATH%"
 build\Release\MyApp.exe
 ```
 
-For advanced features like in-window OpenGL, OpenGL ES, Vulkan, font registration, or host render targets, please refer directly to **[Using WhatsCanvas as a Library](doc/GETTING_STARTED_AS_LIBRARY.md)**. This guide covers the complete context lifecycle and provides standalone runnable consumer examples.
+For advanced features like in-window OpenGL, OpenGL ES, Vulkan, font registration, or host render targets, please refer directly to **[Using WhatsCanvas as a Library](doc/public/getting-started/GETTING_STARTED_AS_LIBRARY.md)**. This guide covers the complete context lifecycle and provides standalone runnable consumer examples.
 
 ## Get and Build
 
 ### Using Precompiled Packages
 
-Tagged desktop release assets are named `whatscanvas-<platform>-release-<version>.zip`, e.g., `whatscanvas-win64-release-1.1.0.zip`. The desktop package layout is:
+Tagged desktop release assets are named `whatscanvas-<platform>-release-<version>.zip`, e.g., `whatscanvas-win64-release-1.2.0.zip`. The desktop package layout is:
 
 ```text
 include/wsc/                 Public headers
@@ -119,14 +119,14 @@ Mobile releases publish library SDKs rather than demo applications:
   XCFramework, public headers, an `arm64` device slice, and an
   `arm64`/`x86_64` simulator slice.
 
-See the [Android Integration Guide](doc/ANDROID_INTEGRATION.md) and
-[iOS Build Notes](doc/IOS_BUILD_NOTES.md). Demo APKs are built as CI validation
+See the [Android Integration Guide](doc/public/platforms/ANDROID_INTEGRATION.md) and
+[iOS Build Notes](doc/public/platforms/IOS_BUILD_NOTES.md). Demo APKs are built as CI validation
 inputs but are not Release assets.
 
 The targets provided by the precompiled packages may differ across platforms. In practice, verify the required targets exist via CMake:
 
 ```cmake
-find_package(WhatsCanvas 1.1.0 CONFIG REQUIRED)
+find_package(WhatsCanvas 1.2.0 CONFIG REQUIRED)
 if (NOT TARGET WhatsCanvas::Software)
     message(FATAL_ERROR "This package does not contain the Software backend")
 endif()
@@ -222,7 +222,7 @@ cmake -S . -B build \
 | --- | --- | --- | --- | --- |
 | **Software** | `WhatsCanvas::Software` | Enabled | No GPU or Graphics API | Deterministic CPU reference implementation, suitable for headless, tests, screenshots, and fallback. |
 | **OpenGL 3.3 Core** | `WhatsCanvas::OpenGL` | Enabled, primary cross-platform GL path | App creates the GL context and keeps it current, provides the proc address | Main GL rendering path for desktop applications. |
-| **OpenGL ES 3.0** | `WhatsCanvas::OpenGLES` | Disabled | Host EGL/GLES context | Independent target; Linux Mesa executes build and filter pixel gates; mobile devices require host-side verification. |
+| **OpenGL ES 3.0** | `WhatsCanvas::OpenGLES` | Disabled | Host EGL/GLES context | Independent target; Linux Mesa executes build and filter pixel gates, and the Android host has representative Pixel 3/Redmi K30 device checkpoints. Embedding applications remain responsible for their own host integration. |
 | **Vulkan** | Built into `WhatsCanvas::OpenGL` | Disabled | Vulkan SDK for source build; loader, driver, and device for running | Offscreen by default; Win32 supports Canvas window presentation; window surfaces for other platforms are still evolving. |
 | **Metal** | `WhatsCanvas::Metal` (standalone) or built into `WhatsCanvas::OpenGL` | Standalone target opt-in; OpenGL host enables it on Apple | Metal-capable macOS/iOS/tvOS device | Offscreen rendering, external `MTLTexture` interop, and `CAMetalLayer` presentation without linking OpenGL ES. |
 
@@ -250,10 +250,10 @@ Platform Validation Status:
 | Windows x64 | MSVC unit tests, package consumption, OpenGL/Software; release matrix can enable GLES, Vulkan, FreeType, HarfBuzz | DirectWrite text backend optional; Vulkan window presentation supports Win32. |
 | Linux x64 | GCC build, unit tests, OpenGL/GLES filter pixel gates, package consumption | Automated GL scenarios use Mesa/Xvfb; GLX window presentation from source lacks continuous verification. |
 | macOS x86_64/arm64 | Unit tests, Metal pixel/contract gates, and universal release packages | Metal is enabled by default and supports offscreen rendering plus `CAMetalLayer` presentation; system OpenGL remains available. |
-| iOS / Android | [iOS UIKit/Metal/CoreText sample](platforms/ios/README.md), iOS lifecycle UI test, [Android GLSurfaceView/JNI sample](platforms/android/README.md), and Android integration guide | The iOS host is simulator-validated in portrait/landscape, background/resume, and cold launch. Android builds three ABIs and has Pixel 3/Redmi K30 checkpoints. Both still require target-hardware validation before shipping. |
+| iOS / Android | [iOS UIKit/Metal/CoreText sample](platforms/ios/README.md), iOS lifecycle UI test, [Android GLSurfaceView/JNI sample](platforms/android/README.md), and Android integration guide | Representative hardware validation is complete: iPhone 12 covers Metal/CoreText presentation, lifecycle, API Validation, and 59.2–59.9 fps; Pixel 3 and Redmi K30 cover GLES rendering, text, lifecycle, and display-rate pacing. Revalidate affected paths for releases that change mobile behavior. |
 | Web | [Emscripten/WebGL 2 host](platforms/wasm/README.md), headless-browser lifecycle/DPR/context-restore checks, and 14 visual-parity captures | Source build; no WebGPU backend or prebuilt release archive yet. |
 
-See [Android Integration](doc/ANDROID_INTEGRATION.md), [Cross-Platform Validation Matrix](doc/CROSS_PLATFORM_VALIDATION_MATRIX.md), [iOS Build Notes](doc/IOS_BUILD_NOTES.md), and [Vulkan Backend Status](doc/vulkan-backend-status.md) for detailed statuses.
+See [Android Integration](doc/public/platforms/ANDROID_INTEGRATION.md), [iOS Build Notes](doc/public/platforms/IOS_BUILD_NOTES.md), and [Vulkan Backend Status](doc/public/backends/vulkan-backend-status.md) for detailed public status. Maintainer evidence is retained under `doc/internal/validation/`.
 
 ## Capability Overview
 
@@ -284,7 +284,7 @@ Note that bi-directional text processing is more than script-level shaping. Scri
 
 ![WhatsCanvas font fallback, CJK, BiDi text, and text-on-path](images/text-rendering-showcase.png)
 
-Check the [Text Feature Matrix](doc/TEXT_FEATURE_MATRIX.md) and [Text Sharpness & HiDPI](doc/TEXT_SHARPNESS_AND_HIDPI.md) for the full feature matrix.
+Check the [Text Feature Matrix](doc/public/guides/text/TEXT_FEATURE_MATRIX.md) and [Text Sharpness & HiDPI](doc/public/guides/text/TEXT_SHARPNESS_AND_HIDPI.md) for the full feature matrix.
 
 ## Performance: Evidence and Applicability
 
@@ -302,9 +302,9 @@ Audit metadata: Windows 10, NVIDIA 560.94, MSVC 19.43, OpenGL 3.3; warms up 5 fr
 
 These numbers only reflect the specific hardware, driver, backend, and workload described above; they should not be extrapolated to other GPUs, the Software backend, the Vulkan backend, mobile devices, or your production environment. The repository keeps per-frame JSONL data, pixel-diff results, ABBA process pairing details, and 95% confidence intervals so the run can be audited and reproduced. Before making architectural decisions, re-run the matrix with workloads that are representative of your own use case.
 
-- [Full Methodology and Results](doc/PERFORMANCE_BENCHMARKS.md)
+- [Full Methodology and Results](doc/public/performance/PERFORMANCE_BENCHMARKS.md)
 - [NanoVG Parameter Matrix and Raw Baselines](benchmarks/baselines/nanovg-win-i7-8700-gtx1060/README.md)
-- [Cross-Library Benchmark Spec](doc/CROSS_LIBRARY_BENCHMARKS.md)
+- [Cross-Library Benchmark Spec](doc/public/performance/CROSS_LIBRARY_BENCHMARKS.md)
 
 ## Footprint and Dependencies
 
@@ -336,14 +336,14 @@ WhatsCanvas is more than just "able to draw pixels". The engineering and automat
 - Software golden-image baselines, filter parity across OpenGL/OpenGL ES/Vulkan/Metal, strict hash regressions, and fuzzy PPM regressions.
 - API reference freshness checks, release/version consistency checks, and package-consumer plus example-build checks.
 - Synchronous/asynchronous pixel readback, deterministic first-frame timing, render stats, resource tracking, and reproducible benchmarks.
-- Support boundaries for public headers and CMake targets are documented in [API Stability](doc/API_STABILITY.md); release history is in [CHANGELOG](CHANGELOG.md).
+- Support boundaries for public headers and CMake targets are documented in [API Stability](doc/public/reference/API_STABILITY.md); release history is in [CHANGELOG](CHANGELOG.md).
 
 Risks to keep in mind:
 
 - The stable API line is now `1.x`; breaking public API changes are reserved for major releases, but read the CHANGELOG and run package-consumer tests before upgrading.
 - The capability tables in this README are not a parity guarantee for every backend × platform combination; consult the feature matrices for filters, text, and output targets, and validate the combination you actually use.
 - Vulkan is opt-in and not the default backend; cross-platform window presentation and broader pixel coverage are still being extended.
-- The Android Prefab AAR covers both Arm ABIs plus `x86_64`; Pixel 3 and Redmi K30 checkpoints cover rendering, fonts, lifecycle, and pacing, but broad device coverage remains open. The iOS Metal/CoreText XCFramework has simulator and device checkpoints, while host integration, signing, and distribution remain application-owned. The WebAssembly/WebGL 2 host is source-built and browser-tested; WebGPU and a prebuilt Web release archive are not yet available.
+- The Android Prefab AAR covers both Arm ABIs plus `x86_64`; Pixel 3 and Redmi K30 checkpoints cover rendering, fonts, lifecycle, and pacing. The iOS Metal/CoreText XCFramework and iPhone 12 checkpoint cover simulator/device delivery and physical rendering. These representative checks do not promise identical behavior on every OS, GPU, or host application. Host integration, signing, and distribution remain application-owned. The WebAssembly/WebGL 2 host is source-built and browser-tested; WebGPU and a prebuilt Web release archive are optional future product extensions.
 - Real-time GPU rendering results may vary with drivers; use Software as the deterministic baseline and use tolerance-based comparison for GPU regressions.
 - `Canvas` should be used from within its rendering / context thread; current public documentation does not promise concurrent access to a single instance, and no cross-thread contract is defined for sharing images, fonts, or external textures across Canvas instances.
 
@@ -362,6 +362,8 @@ visual regression harnesses live under `tests/visual` rather than `examples`.
 </table>
 
 [**Spider Solitaire**](examples/game/spider_solitaire) — A complete, image-free card game with mouse dragging, three difficulty levels, hints, undo, scoring, timing, vector-drawn suits, and procedural card backs.
+
+[**Xiangqi**](examples/game/xiangqi) — Desktop Chinese chess with Canvas-drawn wood and carved pieces, Traditional Chinese UI, three AI levels, undo, image-atlas rendering, and automated playability/performance validation.
 
 To build Tetris separately on Windows:
 
@@ -407,7 +409,7 @@ sh ./scripts/package_consumer_smoke.sh
 sh ./scripts/release_preflight.sh
 ```
 
-The pre-release preflight covers API references, versions, unit tests, and package consumers, but does not replace full GPU/visual regressions. Baseline update guidelines are detailed in [Regression Baseline Policy](doc/REGRESSION_BASELINES.md).
+The pre-release preflight covers API references, versions, unit tests, and package consumers, but does not replace full GPU/visual regressions. Baseline update guidelines are detailed in [Visual Regression and Baseline Policy](doc/public/validation/VISUAL_REGRESSION.md).
 
 ## Documentation Navigation
 
@@ -415,23 +417,24 @@ Start from the **[Online Documentation](https://clarkwain.github.io/WhatsCanvas/
 
 | Purpose | Documentation |
 | --- | --- |
-| First-time integration | [Using WhatsCanvas as a Library](doc/GETTING_STARTED_AS_LIBRARY.md) |
-| Android host integration | [Android Integration Guide](doc/ANDROID_INTEGRATION.md) |
-| Look up APIs | [Public API Reference](doc/API_REFERENCE.md) · [Visual API Gallery](doc/visual-api-gallery.md) |
-| Evaluate API stability | [API Stability](doc/API_STABILITY.md) · [CHANGELOG](CHANGELOG.md) |
-| Text and fonts | [Text Feature Matrix](doc/TEXT_FEATURE_MATRIX.md) · [Web / Async Font Integration](doc/WEB_FONT_INTEGRATION.md) · [Font Discovery Design](doc/WHATS_CANVAS_VS_FLUTTER_FONT_DISCOVERY.md) · [DirectWrite](doc/DIRECTWRITE_TEXT_BACKEND.md) |
-| Layer effects | [Image Filters](doc/IMAGE_FILTERS.md) · [Shadow Model](doc/SHADOW_MODEL.md) · [Blend Modes](doc/BLEND_MODE_AUDIT.md) |
-| Backends and platforms | [Vulkan Status](doc/vulkan-backend-status.md) · [Shader Portability](doc/SHADER_PORTABILITY.md) · [Troubleshooting](doc/TROUBLESHOOTING.md) |
-| Performance and validation | [Performance Benchmarks](doc/PERFORMANCE_BENCHMARKS.md) · [Visual Regression](doc/VISUAL_REGRESSION.md) |
-| Architecture & Contributing | [Architecture](doc/architecture/README.md) · [Contributing](CONTRIBUTING.md) |
+| First-time integration | [Using WhatsCanvas as a Library](doc/public/getting-started/GETTING_STARTED_AS_LIBRARY.md) |
+| Android host integration | [Android Integration Guide](doc/public/platforms/ANDROID_INTEGRATION.md) |
+| Look up APIs | [Public API Reference](doc/public/reference/API_REFERENCE.md) · [Visual API Gallery](doc/public/reference/visual-api-gallery.md) |
+| Evaluate API stability | [API Stability](doc/public/reference/API_STABILITY.md) · [CHANGELOG](CHANGELOG.md) |
+| Text and fonts | [Text Feature Matrix](doc/public/guides/text/TEXT_FEATURE_MATRIX.md) · [Web / Async Font Integration](doc/public/guides/text/WEB_FONT_INTEGRATION.md) · [DirectWrite](doc/public/guides/text/DIRECTWRITE_TEXT_BACKEND.md) |
+| Layer effects | [Image Filters](doc/public/guides/rendering/IMAGE_FILTERS.md) · [Shadow Model](doc/public/guides/rendering/SHADOW_MODEL.md) · [Blend Modes](doc/public/guides/rendering/BLEND_MODE_AUDIT.md) |
+| Backends and platforms | [Vulkan Status](doc/public/backends/vulkan-backend-status.md) · [Shader Portability](doc/public/backends/SHADER_PORTABILITY.md) · [Troubleshooting](doc/public/getting-started/TROUBLESHOOTING.md) |
+| Performance and validation | [Performance Benchmarks](doc/public/performance/PERFORMANCE_BENCHMARKS.md) · [Visual Regression](doc/public/validation/VISUAL_REGRESSION.md) |
+| Architecture & Contributing | [Maintainer Architecture](doc/internal/architecture/README.md) · [Contributing](CONTRIBUTING.md) |
 
 ## Roadmap
 
-WhatsCanvas is currently focused on cross-backend pixel consistency, text rendering quality, broader Vulkan, Web, and device coverage, and more reproducible performance benchmarks. Longer-term directions include WebGPU, prebuilt Web distribution, additional CBDT/CBLC bitmap formats, SBIX, SVG, and full COLRv1 compositing. These directions are still in planning and should not be treated as available features today.
+The stable v1 scope is complete: the Canvas API, text system, desktop and mobile packages, representative device validation, pixel gates, and performance baselines are in place. Maintenance work preserves those contracts and reruns affected validation. WebGPU, prebuilt Web distribution, broader Vulkan presentation, additional CBDT/CBLC bitmap formats, SBIX, SVG, and advanced COLRv1 compositing are optional expansion proposals, not missing v1 requirements.
 
-The concrete Must/Should/out-of-scope boundary for the first stable release is
-defined in the [1.0 Release Criteria](doc/RELEASE_1_0_CRITERIA.md). Long-term
-roadmap items outside that contract do not block 1.0.
+Completed release evidence is retained under `doc/archive/releases/`. Active
+work is tracked through issues with an owner and milestone; the internal
+registers contain non-blocking expansion candidates rather than unfinished v1
+requirements.
 
 ## License
 

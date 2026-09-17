@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vector>
+#include "render/RenderTypes.h"
 
 #include <glad/glad.h>
 #include <glm/glm.hpp>
@@ -67,6 +68,8 @@ public:
     void multiplyLayerIntoAccumulator(int width, int height);
 
     GLuint accumulatorTexture() const { return accumulatorTexture_; }
+    GLuint findCachedMask(std::uint64_t key, const ClipMaskState &clips, int width, int height);
+    void cacheAccumulator(std::uint64_t key, const ClipMaskState &clips, int width, int height);
 
 private:
     ClipCoverageProgram() = default;
@@ -95,6 +98,19 @@ private:
     int targetHeight_ = 0;
 
     bool initialized_ = false;
+    struct CachedMask {
+        std::uint64_t key = 0, used = 0;
+        ClipMaskState clips;
+        int width = 0, height = 0;
+        GLuint texture = 0, framebuffer = 0;
+    };
+    // R8 coverage only: at most 8 masks and 8 MiB, plus the existing scratch
+    // targets. Entries retain exact immutable geometry to reject hash collisions.
+    std::vector<CachedMask> maskCache_;
+    std::size_t maskCacheBytes_ = 0;
+    std::uint64_t maskCacheClock_ = 0;
+    std::vector<std::uint64_t> recentMaskRequests_;
+    bool admitCurrentMask_ = false;
 };
 
 } // namespace wsc::opengl

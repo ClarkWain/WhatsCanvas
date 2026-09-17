@@ -275,6 +275,11 @@ void GaussianBlurProgram::release(bool abandon)
         delete imageProgram_;
         imageProgram_ = nullptr;
     }
+    for (auto &variant : imageVariants_) {
+        if (abandon) variant.program->abandonVolatile();
+        delete variant.program;
+    }
+    imageVariants_.clear();
     if (vbo_ != 0) {
         if (!abandon) glDeleteBuffers(1, &vbo_);
         vbo_ = 0;
@@ -360,6 +365,39 @@ void GaussianBlurProgram::ensureImageProgram()
     }
 }
 
+GLProgram *GaussianBlurProgram::imageBlurVariant(int samples, bool premultiplied,
+                                                   bool resampleStraight)
+{
+    const int key = samples * 4 + (premultiplied ? 2 : 0) + (resampleStraight ? 1 : 0);
+    for (const auto &variant : imageVariants_) {
+        if (variant.key == key) return variant.program;
+    }
+    // Bound program memory. Uncommon additional configurations retain the
+    // general shader, with the same kernel and alpha semantics.
+    if (imageVariants_.size() >= 16u) {
+        ensureImageProgram();
+        return imageProgram_;
+    }
+    std::string source = imageFragmentSource_;
+    const auto specialize = [&](const char *name, int value) {
+        const std::string uniform = std::string("uniform int ") + name + ";";
+        const auto at = source.find(uniform);
+        if (at != std::string::npos) source.replace(at, uniform.size(),
+            std::string("const int ") + name + " = " + std::to_string(value) + ";");
+    };
+    // These are properties of the pass, not of individual pixels. Exposing
+    // them to the compiler removes unreachable texture sampling paths and
+    // makes the convolution loop's exact trip count statically known.
+    specialize("uMode", 2);
+    specialize("uRadius", samples);
+    specialize("uSourcePremultiplied", premultiplied ? 1 : 0);
+    specialize("uResampleStraightAlpha", resampleStraight ? 1 : 0);
+    auto *program = new GLProgram(("gaussian_blur_image_" + std::to_string(key)).c_str(),
+                                  vertexSource_, source);
+    imageVariants_.push_back({key, program});
+    return program;
+}
+
 void GaussianBlurProgram::blurPass(GLuint srcTexture, GLuint dstFramebuffer, int width, int height,
                                    const glm::vec2 &direction, const wsc::render::GaussianKernel &kernel)
 {
@@ -390,10 +428,33 @@ void GaussianBlurProgram::blurPassImpl(GLuint srcTexture, GLuint dstFramebuffer,
     if (!initialized_) {
         return;
     }
+    // A premultiplied sample can combine neighboring Gaussian taps through
+    // bilinear interpolation without changing the convolution. Straight-alpha
+    // inputs must be premultiplied per discrete sample first, so they retain
+    // the unpaired path.
+    const bool canPairLinearSamples = mode == 0
+        || (sourcePremultiplied && !resampleStraightAlpha);
+    std::array<float, kMaxRadius + 1> weights{};
+    std::array<float, kMaxRadius + 1> offsets{};
+    int tapCount = 0;
+    if (canPairLinearSamples) {
+        tapCount = wsc::render::packGaussianKernelForLinearSampling(
+            kernel, weights.data(), offsets.data(), kMaxRadius + 1);
+    } else {
+        const int radius = std::min(kernel.radius(), kMaxRadius);
+        for (int tap = 0; tap <= radius; ++tap) {
+            weights[static_cast<std::size_t>(tap)] =
+                kernel.weights[static_cast<std::size_t>(tap)];
+            offsets[static_cast<std::size_t>(tap)] =
+                static_cast<float>(tap);
+        }
+        tapCount = radius + 1;
+    }
+    const int sampleCount = std::max(0, std::min(tapCount - 1, kMaxRadius));
+
     GLProgram *activeProgram = program_;
     if (mode == 2) {
-        ensureImageProgram();
-        activeProgram = imageProgram_;
+        activeProgram = imageBlurVariant(sampleCount, sourcePremultiplied, resampleStraightAlpha);
     }
     if (activeProgram == nullptr) {
         return;
@@ -419,29 +480,6 @@ void GaussianBlurProgram::blurPassImpl(GLuint srcTexture, GLuint dstFramebuffer,
     activeProgram->setFloat("uGrain", grain);
     activeProgram->setVec2("uDirection", direction);
 
-    // A premultiplied sample can combine neighboring Gaussian taps through
-    // bilinear interpolation without changing the convolution. Straight-alpha
-    // inputs must be premultiplied per discrete sample first, so they retain
-    // the unpaired path.
-    const bool canPairLinearSamples = mode == 0
-        || (sourcePremultiplied && !resampleStraightAlpha);
-    std::array<float, kMaxRadius + 1> weights{};
-    std::array<float, kMaxRadius + 1> offsets{};
-    int tapCount = 0;
-    if (canPairLinearSamples) {
-        tapCount = wsc::render::packGaussianKernelForLinearSampling(
-            kernel, weights.data(), offsets.data(), kMaxRadius + 1);
-    } else {
-        const int radius = std::min(kernel.radius(), kMaxRadius);
-        for (int tap = 0; tap <= radius; ++tap) {
-            weights[static_cast<std::size_t>(tap)] =
-                kernel.weights[static_cast<std::size_t>(tap)];
-            offsets[static_cast<std::size_t>(tap)] =
-                static_cast<float>(tap);
-        }
-        tapCount = radius + 1;
-    }
-    const int sampleCount = std::max(0, std::min(tapCount - 1, kMaxRadius));
     activeProgram->setInt("uRadius", sampleCount);
     for (int i = 0; i <= sampleCount; ++i) {
         activeProgram->setVec2(

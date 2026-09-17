@@ -21,7 +21,23 @@ inline const char *clipMaskFragmentUniforms()
 {
     return "uniform sampler2D uClipMask;\n"
            "uniform int uClipEnabled;\n"
-           "uniform vec2 uClipViewport;\n";
+           // The mask covers the full canvas. Offscreen replay translates the
+           // viewport, so framebuffer coordinates must be translated back.
+           // Explicit GLES precision also preserves DrawPath's highp math when
+           // this helper is declared before that shader's precision statement.
+#if defined(WHATSCANVAS_OPENGL_ES)
+           "uniform highp vec2 uClipViewport;\n"
+           "uniform highp vec2 uClipOffset;\n"
+           "highp float clipMaskCoverage() {\n"
+           "    highp vec2 position = gl_FragCoord.xy - uClipOffset;\n"
+#else
+           "uniform vec2 uClipViewport;\n"
+           "uniform vec2 uClipOffset;\n"
+           "float clipMaskCoverage() {\n"
+           "    vec2 position = gl_FragCoord.xy - uClipOffset;\n"
+#endif
+           "    return texture(uClipMask, position / uClipViewport).r;\n"
+           "}\n";
 }
 
 } // namespace wsc::opengl

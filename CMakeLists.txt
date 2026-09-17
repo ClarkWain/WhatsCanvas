@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(WhatsCanvas VERSION 1.1.0 LANGUAGES C CXX)
+project(WhatsCanvas VERSION 1.2.0 LANGUAGES C CXX)
 
 include(CTest)
 include(GNUInstallDirs)
@@ -54,8 +54,8 @@ set_property(CACHE WHATSCANVAS_X11 PROPERTY STRINGS AUTO ON OFF)
 if (NOT WHATSCANVAS_X11 MATCHES "^(AUTO|ON|OFF)$")
     message(FATAL_ERROR "WHATSCANVAS_X11 must be AUTO, ON, or OFF (got '${WHATSCANVAS_X11}').")
 endif()
-set(WHATSCANVAS_DEFAULT_SMOKE_HASH "2808591959994190122" CACHE STRING "Default local smoke hash for regression ctest registration.")
-set(WHATSCANVAS_CLIP_SMOKE_HASH "7173893163224947210" CACHE STRING "Default local clip-path smoke hash for regression ctest registration.")
+set(WHATSCANVAS_DEFAULT_SMOKE_HASH "9862191092520609134" CACHE STRING "Default local smoke hash for regression ctest registration.")
+set(WHATSCANVAS_CLIP_SMOKE_HASH "10630383327616444847" CACHE STRING "Default local clip-path smoke hash for regression ctest registration.")
 
 if (MSVC)
     # All source files are UTF-8.  Pin the source/execution charset instead of
@@ -72,7 +72,7 @@ if (MSVC)
     # built on a newer CI toolchain fails to link on a consumer's older VS
     # (LNK2019 __std_*_element_*). Forcing the scalar path keeps our compiled
     # objects free of these version-specific symbols, so the released binaries
-    # link against any VS 2022 STL. See doc/TROUBLESHOOTING.md.
+    # link against any VS 2022 STL. See doc/public/getting-started/TROUBLESHOOTING.md.
     add_compile_definitions(_USE_STD_VECTOR_ALGORITHMS=0)
 endif()
 
@@ -113,7 +113,7 @@ if (Python3_Interpreter_FOUND)
     add_custom_target(WhatsCanvasGenerateApiReference
         COMMAND ${Python3_EXECUTABLE} scripts/generate_api_reference.py
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-        COMMENT "Generating doc/API_REFERENCE.md from include/wsc"
+        COMMENT "Generating doc/public/reference/API_REFERENCE.md from include/wsc"
         VERBATIM
     )
     add_custom_target(WhatsCanvasCheckApiReference
@@ -1064,6 +1064,26 @@ if (BUILD_TESTING AND TARGET WhatsCanvasOpenGL)
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake
     )
     set_tests_properties(WhatsCanvasBatchMergeTests PROPERTIES LABELS "unit;diagnostics")
+
+    # Ordered bulk images and submission optimizations must preserve pixels.
+    foreach(_submission_test ImageRectsTests RenderSubmissionTests)
+        set(_submission_target WhatsCanvas${_submission_test})
+        add_executable(${_submission_target} tests/${_submission_test}.cpp)
+        target_include_directories(${_submission_target} PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/third_party/glad/include")
+        target_link_libraries(${_submission_target} PRIVATE WhatsCanvasOpenGL WhatsCanvasGLM)
+        whatscanvas_link_gl_app(${_submission_target} ${CMAKE_CURRENT_SOURCE_DIR})
+        add_test(NAME ${_submission_target}
+            COMMAND ${CMAKE_COMMAND}
+                -DWHATSCANVAS_TEST_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}
+                -DWHATSCANVAS_TEST_TARGET=${_submission_target}
+                -DWHATSCANVAS_TEST_EXECUTABLE=$<TARGET_FILE:${_submission_target}>
+                -DWHATSCANVAS_TEST_CONFIG=$<CONFIG>
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunBuiltExecutableTest.cmake)
+        set_tests_properties(${_submission_target} PROPERTIES
+            LABELS "unit;render;opengl"
+            SKIP_REGULAR_EXPRESSION "SKIP: OpenGL context:")
+    endforeach()
 
     add_executable(WhatsCanvasOpenGLMultiTextureBatchTests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/OpenGLMultiTextureBatchTests.cpp"

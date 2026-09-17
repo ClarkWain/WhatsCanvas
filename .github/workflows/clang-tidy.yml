@@ -6,7 +6,7 @@ name: clang-tidy
 
 on:
   pull_request:
-    branches: [ master, 1.1.0 ]
+    branches: [ master, 1.1.0, 1.2.0 ]
 
 permissions:
   contents: read
@@ -30,8 +30,16 @@ jobs:
       - name: Install clang-tidy and build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang-tidy libgl1-mesa-dev libxrandr-dev \
+          sudo apt-get install -y clang-tidy-19 libgl1-mesa-dev libxrandr-dev \
             libxinerama-dev libxcursor-dev libxi-dev
+
+      - name: Parse clang-tidy configuration
+        # ExcludeHeaderFilterRegex requires LLVM 19 or newer.
+        # Some disabled checks are from newer LLVM versions; parsing keeps
+        # those harmless exclusions while rejecting unsupported config keys.
+        run: |
+          clang-tidy-19 --version
+          clang-tidy-19 --config-file=.clang-tidy --dump-config > /dev/null
 
       - name: Configure
         # Emit compile_commands.json so clang-tidy resolves each translation
@@ -77,4 +85,4 @@ jobs:
         run: |
           set -o pipefail
           xargs -a changed.txt -d '\n' -I {} \
-            clang-tidy -p build-tidy --quiet --warnings-as-errors='*' {}
+            clang-tidy-19 -p build-tidy --quiet --warnings-as-errors='*' {}

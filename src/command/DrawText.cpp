@@ -127,7 +127,7 @@ void DrawTextProgram::initialize()
                 outColor = sampleGradient(t);
             }
             if (uClipEnabled != 0) {
-                outColor.a *= texture(uClipMask, gl_FragCoord.xy / uClipViewport).r;
+                outColor.a *= clipMaskCoverage();
             }
             FragColor = outColor;
         }

@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <array>
 #include <glad/glad.h>
 #include <string>
 #include <stdexcept>
@@ -65,9 +66,16 @@ private:
     std::string geometrySrc_;
     std::string debugLabel_;
     std::uint64_t currentCompileCpuTimeNs_ = 0;
-    std::unordered_map<std::string, GLint> uniformLocations_;
+    struct UniformState {
+        GLint location = -1;
+        std::array<unsigned char, sizeof(float) * 16> value{};
+        std::size_t size = 0;
+        bool integer = false;
+    };
+    std::unordered_map<std::string, UniformState> uniformLocations_;
     GLuint compileShader(GLenum type, const std::string& source);
-    GLint uniformLocation(const std::string& name);
+    GLint changedUniform(const std::string& name, const void *value,
+                         std::size_t size, bool integer = false);
     void linkProgram(GLuint vertexShader, GLuint fragmentShader, GLuint geometryShader = 0);
     void checkCompileErrors(GLuint shader, const std::string& type);
     void checkLinkErrors();

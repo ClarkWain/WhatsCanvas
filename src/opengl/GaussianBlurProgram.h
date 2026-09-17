@@ -3,6 +3,7 @@
 #include <glad/glad.h>
 #include <glm/glm.hpp>
 #include <string>
+#include <vector>
 
 #include "render/GaussianKernel.h"
 
@@ -82,6 +83,7 @@ private:
 
     void drawQuad();
     void ensureImageProgram();
+    GLProgram *imageBlurVariant(int samples, bool premultiplied, bool resampleStraight);
     void blurPassImpl(GLuint srcTexture, GLuint dstFramebuffer, int width, int height,
                       const glm::vec2 &direction, const wsc::render::GaussianKernel &kernel,
                       int mode, bool decal, float saturation, float brightness,
@@ -94,6 +96,8 @@ private:
 
     GLProgram *program_ = nullptr;
     GLProgram *imageProgram_ = nullptr;
+    struct ImageVariant { int key; GLProgram *program; };
+    std::vector<ImageVariant> imageVariants_;
     std::string vertexSource_;
     std::string imageFragmentSource_;
     GLuint vao_ = 0;

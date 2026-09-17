@@ -44,6 +44,6 @@ Run the deterministic rules suite without opening a window:
 
 The Android port includes deterministic drag profiling and a native Android
 Canvas control renderer. See the
-[interactive performance case study](../../../doc/ANDROID_INTERACTIVE_PERFORMANCE.md)
+[interactive performance case study](../../../doc/public/performance/ANDROID_INTERACTIVE_PERFORMANCE.md)
 for the 1 FPS regression, shared card-atlas design, animation review, and final
 device measurements.

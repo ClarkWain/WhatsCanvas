@@ -15,5 +15,5 @@ C++/Objective-C++ code, and link these Apple frameworks:
 - UIKit
 
 The application owns its `MTLDevice`, presentation surface, lifecycle, and code
-signing. See `platforms/ios/README.md` and `doc/IOS_BUILD_NOTES.md` in the source
+signing. See `platforms/ios/README.md` and `doc/public/platforms/IOS_BUILD_NOTES.md` in the source
 repository for the complete integration contract.

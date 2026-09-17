@@ -21,6 +21,11 @@ void applyClipMaskUniforms(GLProgram *program, const RenderContext &context)
     program->setVec2("uClipViewport",
                      glm::vec2(static_cast<float>(context.getWidth()),
                                static_cast<float>(context.getHeight())));
+    // Canvas offscreen requests use the same translation for viewport and
+    // scissor; subtract it when sampling the full-canvas coverage mask.
+    program->setVec2("uClipOffset",
+                     glm::vec2(static_cast<float>(context.getScissorOffsetX()),
+                               static_cast<float>(context.getScissorOffsetY())));
 }
 
 } // namespace wsc::opengl

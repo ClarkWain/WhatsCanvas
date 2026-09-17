@@ -56,7 +56,7 @@ void DrawPointsProgram::initialize()
         {
             vec4 outColor = color;
             if (uClipEnabled != 0) {
-                outColor.a *= texture(uClipMask, gl_FragCoord.xy / uClipViewport).r;
+                outColor.a *= clipMaskCoverage();
             }
             FragColor = outColor;
         }

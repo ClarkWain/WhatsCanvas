@@ -62,6 +62,7 @@ struct TextRenderResult
     };
 
     TextRenderKind kind = TextRenderKind::None;
+    bool textMaskBlurApplied = false;
     float drawX = 0.0f;
     float drawY = 0.0f;
     float width = 0.0f;

@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - master
+      - 1.2.0
   pull_request:
   workflow_dispatch:
 
@@ -73,7 +74,8 @@ jobs:
         if: runner.os == 'Linux'
         env:
           WHATSCANVAS_REQUIRE_SYSTEM_FONT_DISCOVERY: "1"
-        run: ctest --test-dir ${{ matrix.build_dir }} -C Debug -L unit --output-on-failure
+          WHATSCANVAS_REQUIRE_GL_CONTEXT: "1"
+        run: xvfb-run -a ctest --test-dir ${{ matrix.build_dir }} -C Debug -L unit --output-on-failure
 
       # Desktop platform host: builds WhatsCanvasDesktopHost and renders one
       # feature_showcase frame to PPM through the dependency-free Software
@@ -167,6 +169,9 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # The legacy 'tools' package is no longer in the SDK repository.
+          packages: platform-tools
 
       - name: Install pinned Android toolchain
         run: sdkmanager 'platforms;android-33' 'build-tools;33.0.1' 'ndk;21.4.7075529' 'cmake;3.18.1'
@@ -219,7 +224,8 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
+          sudo apt-get install -y libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+                                  xvfb pkg-config libfontconfig1-dev fonts-dejavu-core fonts-noto-core
 
       - name: Configure ASan and UBSan
         run: >-
@@ -238,7 +244,8 @@ jobs:
         env:
           ASAN_OPTIONS: detect_leaks=1:strict_string_checks=1:check_initialization_order=1
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
-        run: ctest --test-dir build-sanitizers -C Debug -L unit --output-on-failure
+          WHATSCANVAS_REQUIRE_GL_CONTEXT: "1"
+        run: xvfb-run -a ctest --test-dir build-sanitizers -C Debug -L unit --output-on-failure
 
   thread-sanitizer:
     runs-on: ubuntu-latest
@@ -251,7 +258,8 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
+          sudo apt-get install -y libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+                                  xvfb pkg-config libfontconfig1-dev fonts-dejavu-core fonts-noto-core
 
       - name: Configure TSan
         # TSan is incompatible with ASan/MSan/UBSan; run it in its own job.
@@ -275,7 +283,11 @@ jobs:
         # keeps CI logs focused on the first (root-cause) race.
         env:
           TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1:history_size=7
-        run: ctest --test-dir build-tsan -C Debug -L unit --output-on-failure
+          # Avoid uninstrumented llvmpipe worker synchronization in TSan.
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          GALLIUM_DRIVER: softpipe
+          WHATSCANVAS_REQUIRE_GL_CONTEXT: "1"
+        run: xvfb-run -a ctest --test-dir build-tsan -C Debug -L unit --output-on-failure
 
   fuzzing:
     runs-on: ubuntu-latest
