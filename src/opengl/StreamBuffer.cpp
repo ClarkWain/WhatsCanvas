@@ -88,14 +88,13 @@ GLuint StreamBuffer::upload(const float *data, std::size_t floatCount)
         while (byteCount > capacityBytes_) {
             capacityBytes_ *= GROW_FACTOR;
         }
-        glBindBuffer(target_, buffer_);
-        glBufferData(target_,
-                     static_cast<GLsizeiptr>(capacityBytes_),
-                     nullptr,
-                     GL_DYNAMIC_DRAW);
     }
 
     glBindBuffer(target_, buffer_);
+    // upload() replaces offset zero, unlike uploadRange(). Give it fresh
+    // storage so queued draws can keep consuming their previous contents.
+    glBufferData(target_, static_cast<GLsizeiptr>(capacityBytes_), nullptr, GL_STREAM_DRAW);
+    writeOffsetBytes_ = byteCount;
     glBufferSubData(target_, 0,
                     static_cast<GLsizeiptr>(byteCount),
                     data);

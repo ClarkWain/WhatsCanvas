@@ -197,7 +197,7 @@ void DrawImageProgram::initialize(bool commonProgram)
                 vec3 coverage =
                     texColor.rgb * paintColor.a * uAlpha * roundedCoverage;
                 if (uClipEnabled != 0) {
-                    coverage *= texture(uClipMask, gl_FragCoord.xy / uClipViewport).r;
+                    coverage *= clipMaskCoverage();
                 }
                 FragColor = vec4(paintColor.rgb * coverage, 0.0);
 #if !defined(WHATSCANVAS_OPENGL_ES)
@@ -220,7 +220,7 @@ void DrawImageProgram::initialize(bool commonProgram)
                 }
                 #endif
                 if (uClipEnabled != 0) {
-                    color.a *= texture(uClipMask, gl_FragCoord.xy / uClipViewport).r;
+                    color.a *= clipMaskCoverage();
                 }
                 FragColor = color;
 #if !defined(WHATSCANVAS_OPENGL_ES)
@@ -238,7 +238,7 @@ void DrawImageProgram::initialize(bool commonProgram)
             }
             #endif
             if (uClipEnabled != 0) {
-                color.a *= texture(uClipMask, gl_FragCoord.xy / uClipViewport).r;
+                color.a *= clipMaskCoverage();
             }
             FragColor = color;
         }

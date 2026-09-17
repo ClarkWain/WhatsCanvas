@@ -4,6 +4,19 @@ This directory is the top-level home for WhatsCanvas validation beyond ad-hoc lo
 
 ## Current Entry Points
 
+- `WhatsCanvasRenderStatsTests` also checks image batch pool reuse, layer range
+  boundaries, transferred command ownership, texture release, entry and byte limits.
+
+- `WhatsCanvasImageRectsTests`: 48 exact OpenGL/software bulk-versus-scalar
+  pixel comparisons covering source clipping, negative destination sizes,
+  alpha/tint, sampling/color-matrix fallback, clipping, transforms, layers,
+  and Picture recording across reused frames. Also checks clip AA cache
+  translation reuse, scale invalidation, capacity and resource release.
+- `WhatsCanvasRenderSubmissionTests`: six first-use native text entry paths,
+  valid uploads after unrelated GL errors, rejected invalid uploads, and
+  instanced image pixels against a clipped reference. Both new tests require
+  a real OpenGL 3.3 context and fail explicitly if it cannot be created.
+
 - `tests/compile/FeatureSnippets.cpp`: compile-only public API snippets.
 - `tests/integration/vulkan_present/`: low-level Vulkan surface and swapchain
   validation kept separate from user-facing examples.
@@ -124,8 +137,8 @@ This directory is the top-level home for WhatsCanvas validation beyond ad-hoc lo
 - `scripts/regression_smoke.bat` / `scripts/regression_smoke.sh`: strict local pixel-baseline gate.
 - `scripts/text_pixel_regression.bat` / `scripts/text_pixel_regression.sh`: font-only pixel regression for the `font-regression` and `text-showcase` scenes against `tests/baselines/text/*.ppm`; set `WHATSCANVAS_UPDATE_TEXT_BASELINES=1` to refresh baselines, or `WHATSCANVAS_TEXT_REGRESSION_SCENES=font-regression` to narrow the scene list locally.
 - `scripts/compare_ppm_fuzzy.py`: binary P6 PPM comparison helper for driver-sensitive visual baselines.
-- `scripts/api_reference_check.bat` / `scripts/api_reference_check.sh`: verifies that `doc/API_REFERENCE.md` matches the current `include/wsc/` public headers.
-- `cmake --build build --target WhatsCanvasGenerateApiReference`: refreshes `doc/API_REFERENCE.md` from `include/wsc/` after public header changes.
+- `scripts/api_reference_check.bat` / `scripts/api_reference_check.sh`: verifies that `doc/public/reference/API_REFERENCE.md` matches the current `include/wsc/` public headers.
+- `cmake --build build --target WhatsCanvasGenerateApiReference`: refreshes `doc/public/reference/API_REFERENCE.md` from `include/wsc/` after public header changes.
 - `cmake --build build --target WhatsCanvasCheckApiReference`: checks generated API reference freshness through the configured Python interpreter.
 - `scripts/version_consistency_check.bat` / `scripts/version_consistency_check.sh`: verifies version declarations are synchronized across CMake, public headers, docs, and release packaging.
 - `cmake --build build --target WhatsCanvasCheckVersionConsistency`: checks release metadata consistency through the configured Python interpreter.

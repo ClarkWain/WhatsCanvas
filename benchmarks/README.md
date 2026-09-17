@@ -35,7 +35,7 @@ PROFILE=standard BACKENDS="software opengl vulkan" \
   ./scripts/run_performance_suite.sh
 ```
 
-See [Performance Benchmarks](../doc/PERFORMANCE_BENCHMARKS.md) for the scene
+See [Performance Benchmarks](../doc/public/performance/PERFORMANCE_BENCHMARKS.md) for the scene
 matrix, metric definitions, `--summary` report generation, revision comparison,
 and publication rules.
 

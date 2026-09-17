@@ -136,6 +136,13 @@ void RenderContext::applyClipState(const ScissorState &scissor, const ClipMaskSt
 
     auto *program = wsc::opengl::ClipCoverageProgram::getInstance();
     program->initialize();
+    if (const GLuint cached = program->findCachedMask(clipKey, clipMask, width, height)) {
+        bindClipMaskTexture(cached);
+        applyScissorState(scissor);
+        clipMaskActive_ = true;
+        rememberClipMask(clipKey);
+        return;
+    }
     std::size_t validClipCount = 0;
     const SharedClipMaskResource *singleClip = nullptr;
     for (const auto &clipResource : clipMask.resources) {
@@ -157,10 +164,15 @@ void RenderContext::applyClipState(const ScissorState &scissor, const ClipMaskSt
 
     // Build the anti-aliased clip coverage mask off-screen. Save and restore the
     // caller's framebuffer/viewport so the subsequent draw targets the frame.
-    GLint previousFramebuffer = 0;
-    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &previousFramebuffer);
-    GLint previousViewport[4] = {0, 0, 0, 0};
-    glGetIntegerv(GL_VIEWPORT, previousViewport);
+    // Repeated glGet calls between draws can drain the driver's command queue.
+    // Clip passes restore this exact target; keep it until state is invalidated.
+    if (!hasFramebufferState_) {
+        glGetIntegerv(GL_FRAMEBUFFER_BINDING, &framebuffer_);
+        glGetIntegerv(GL_VIEWPORT, viewport_);
+        hasFramebufferState_ = true;
+    }
+    const GLint previousFramebuffer = framebuffer_;
+    const GLint previousViewport[4] = {viewport_[0], viewport_[1], viewport_[2], viewport_[3]};
 
     if (singleClipFastPath) {
         program->beginSingleClipLayer(width, height);
@@ -180,11 +192,16 @@ void RenderContext::applyClipState(const ScissorState &scissor, const ClipMaskSt
     glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(previousFramebuffer));
     glViewport(previousViewport[0], previousViewport[1], previousViewport[2], previousViewport[3]);
     glBlendEquation(GL_FUNC_ADD);
-    bindClipMaskTexture(program->accumulatorTexture());
+    const GLuint completedMask = program->accumulatorTexture();
+    program->cacheAccumulator(clipKey, clipMask, width, height);
+    bindClipMaskTexture(completedMask);
 
     // The off-screen passes changed GL state directly, so drop the cached state
     // and re-establish scissor; the following applyBlendMode/draw re-issue theirs.
     resetRenderState();
+    framebuffer_ = previousFramebuffer;
+    std::copy_n(previousViewport, 4, viewport_);
+    hasFramebufferState_ = true;
     applyScissorState(scissor);
     clipMaskActive_ = true;
     rememberClipMask(clipKey);
@@ -382,6 +399,7 @@ void RenderContext::invalidateImageBinding() const
 
 void RenderContext::resetRenderState() const
 {
+    hasFramebufferState_ = false;
     if (scissorEnabled_) {
         glDisable(GL_SCISSOR_TEST);
         scissorEnabled_ = false;

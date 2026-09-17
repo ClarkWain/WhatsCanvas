@@ -1,6 +1,7 @@
 #include <wsc/FontSystem.h>
 
 #include "text/BasicTextBackend.h"
+#include "text/GlyphMaskBlur.h"
 
 #include <algorithm>
 #include <chrono>
@@ -78,6 +79,20 @@ wsc::FontFace applyPaintFontVariations(const wsc::FontFace &face,
         (void)effective.setVariationCoordinate(coordinate.tag, coordinate.value);
     }
     return effective;
+}
+
+// Exact in-process keys: no decimal formatting, delimiter ambiguity, or
+// heap allocation for each intermediate field.
+template <typename T>
+void appendTextKeyValue(std::string &key, T value)
+{
+    key.append(reinterpret_cast<const char *>(&value), sizeof(value));
+}
+
+void appendTextKeyString(std::string &key, const std::string &value)
+{
+    appendTextKeyValue(key, static_cast<std::uint64_t>(value.size()));
+    key.append(value);
 }
 
 void appendPaintFontVariations(std::string &key, const Paint &paint)
@@ -501,6 +516,16 @@ public:
         if (const auto *native = nativeBackend()) {
             return native->measureTextMetrics(text, paint);
         }
+        const std::string key = textMetricsCacheKey(text, paint);
+        // Bound both entry count and retained key size, including arbitrary text.
+        const bool cacheable = key.size() <= 4096;
+        if (cacheable) {
+            if (const auto *cached = textMetricsCache_.find(key)) return *cached;
+        }
+        const auto cacheResult = [&](const wsc::text::TextMetrics &value) {
+            if (cacheable) textMetricsCache_.insert(key, value);
+            return value;
+        };
         wsc::text::TextMetrics metrics;
         metrics.bounds = measureTextBounds(text, paint);
         metrics.width = metrics.bounds.getWidth();
@@ -514,7 +539,7 @@ public:
         const std::string normalizedText = wsc::text::normalizeUtf8ForText(text);
         if (normalizedText.empty() || paint.getTextSize() <= 0.0f
             || (!paint.hasFontFamily() && !fontResolver_.hasFamily(wsc::FontSystem::kDefaultPrimaryFamily))) {
-            return metrics;
+            return cacheResult(metrics);
         }
 
         for (const wsc::text::BidiRun &bidiRun : wsc::text::segmentBidiRuns(normalizedText)) {
@@ -542,11 +567,11 @@ public:
                 metrics.bottom = metrics.descent;
                 metrics.height = metrics.bottom - metrics.top;
                 metrics.bounds = RectF(left, metrics.top, metrics.width, metrics.height);
-                return metrics;
+                return cacheResult(metrics);
             }
         }
 
-        return metrics;
+        return cacheResult(metrics);
     }
 
     TextRenderResult renderText(const std::string &text, float x, float y, const Paint &paint) const override
@@ -579,7 +604,7 @@ private:
 
         if (auto atlasResult = renderRasterizedText(normalizedText, x, y, paint,
                                                     allowLayoutView)) {
-            return *atlasResult;
+            return std::move(*atlasResult);
         }
 
 #ifdef _WIN32
@@ -979,6 +1004,10 @@ private:
                                                          const Paint &paint,
                                                          bool allowLayoutView) const
     {
+        // Bound per-glyph work and atlas growth. Canvas handles unsupported
+        // cases through its general filtered-layer path, preserving output.
+        if (paint.getTextMaskBlur() > wsc::text::kMaxGlyphMaskBlurRadius) return TextRenderResult{};
+        const int maskBlur = static_cast<int>(std::lround(paint.getTextMaskBlur()));
         const auto layoutCacheStart = CpuClock::now();
         const std::string layoutCacheKey =
             rasterLayoutCacheKey(normalizedText, paint);
@@ -990,6 +1019,7 @@ private:
             ++renderStats_.layoutCacheHits;
             TextRenderResult result;
             result.kind = TextRenderKind::GlyphAtlas;
+            result.textMaskBlurApplied = maskBlur > 0;
             result.drawX = x + cached->drawXOffset;
             result.drawY = y + cached->drawYOffset;
             result.width = cached->width;
@@ -1045,6 +1075,7 @@ private:
 
         TextRenderResult result;
         result.kind = TextRenderKind::GlyphAtlas;
+            result.textMaskBlurApplied = maskBlur > 0;
         result.drawX = x + drawXOffset;
         result.drawY = y + drawYOffset;
         result.width = shapedRun->width;
@@ -1085,6 +1116,7 @@ private:
             cachedKey.codepoint = glyph.codepoint;
             cachedKey.glyphIndex = glyph.glyphIndex;
             cachedKey.pixelSize = paint.getTextSize();
+            cachedKey.maskBlurRadius = maskBlur;
             cachedKey.format = wsc::text::GlyphBitmapFormat::Alpha;
             cachedKey.weight = effectiveFace.weight();
             cachedKey.slant = effectiveFace.slant();
@@ -1095,6 +1127,7 @@ private:
                 cachedKey.format = wsc::text::GlyphBitmapFormat::RGBA;
                 cached = glyphAtlas_.find(cachedKey);
             }
+            if (cached != nullptr && maskBlur > 0 && cachedKey.format == wsc::text::GlyphBitmapFormat::RGBA) return TextRenderResult{};
             if (cached != nullptr) {
                 renderStats_.glyphCacheLookupCpuTimeNs +=
                     elapsedCpuTimeNs(glyphLookupStart);
@@ -1116,8 +1149,6 @@ private:
             auto rasterized = glyph.glyphIndex > 0
                 ? rasterizer_.rasterizeGlyphIndex(effectiveFace, glyph.glyphIndex, glyph.codepoint, paint.getTextSize())
                 : rasterizer_.rasterizeGlyph(effectiveFace, glyph.codepoint, paint.getTextSize());
-            renderStats_.glyphRasterCpuTimeNs +=
-                elapsedCpuTimeNs(rasterStart);
             if (!rasterized) {
                 addDiagnosticOnce(wsc::text::TextBackendDiagnostic::Severity::Warning,
                                   "raster-glyph#" + face->family() + "#" + std::to_string(glyph.codepoint)
@@ -1128,6 +1159,11 @@ private:
                 return std::nullopt;
             }
 
+            if (maskBlur > 0) {
+                if (!wsc::text::blurGlyphMask(rasterized->bitmap, maskBlur)) return TextRenderResult{};
+                rasterized->key.maskBlurRadius = maskBlur;
+            }
+            renderStats_.glyphRasterCpuTimeNs += elapsedCpuTimeNs(rasterStart);
             pendingGlyphs.push_back(
                 {glyph, std::move(rasterized->key),
                  std::move(rasterized->bitmap), std::nullopt});
@@ -1142,23 +1178,39 @@ private:
             bool usedRasterGlyph = false;
             bool restartUpload = false;
 
-            for (const PendingGlyphDraw &pending : pendingGlyphs) {
+            for (PendingGlyphDraw &pending : pendingGlyphs) {
                 if (usedRasterGlyph) {
                     penX += spacing;
                 }
 
                 if (pending.cachedEntry || pending.bitmap) {
                     const std::uint64_t generationBeforeUpload = glyphAtlas_.stats().generation;
-                    const auto entry = pending.cachedEntry
-                        ? pending.cachedEntry
-                        : [&]() {
-                            const auto uploadStart = CpuClock::now();
-                            auto uploaded = glyphAtlas_.uploadGlyph(
-                                pending.key, *pending.bitmap);
-                            renderStats_.atlasUploadCpuTimeNs +=
-                                elapsedCpuTimeNs(uploadStart);
-                            return uploaded;
-                        }();
+                    const auto entry = [&]() -> std::optional<wsc::text::GlyphAtlasEntry> {
+                        // Uploading a later glyph can grow/repack the atlas.
+                        // Re-resolve every cached entry on retries instead of
+                        // reusing the UV snapshot from the lookup phase.
+                        if (const auto *resident = glyphAtlas_.find(pending.key)) return *resident;
+                        if (!pending.bitmap) {
+                            const auto *face = pending.glyph.fontFace ? pending.glyph.fontFace
+                                : findRasterFaceForCodepoint(pending.glyph.codepoint, paint);
+                            if (!face) return std::nullopt;
+                            const auto effectiveFace = applyPaintFontVariations(*face, paint);
+                            ++renderStats_.rasterizationCount;
+                            const auto start = CpuClock::now();
+                            auto regenerated = pending.glyph.glyphIndex > 0
+                                ? rasterizer_.rasterizeGlyphIndex(effectiveFace, pending.glyph.glyphIndex,
+                                      pending.glyph.codepoint, paint.getTextSize())
+                                : rasterizer_.rasterizeGlyph(effectiveFace, pending.glyph.codepoint, paint.getTextSize());
+                            if (!regenerated || (maskBlur > 0
+                                && !wsc::text::blurGlyphMask(regenerated->bitmap, maskBlur))) return std::nullopt;
+                            renderStats_.glyphRasterCpuTimeNs += elapsedCpuTimeNs(start);
+                            pending.bitmap = std::move(regenerated->bitmap);
+                        }
+                        const auto uploadStart = CpuClock::now();
+                        auto uploaded = glyphAtlas_.uploadGlyph(pending.key, *pending.bitmap);
+                        renderStats_.atlasUploadCpuTimeNs += elapsedCpuTimeNs(uploadStart);
+                        return uploaded;
+                    }();
                     if (!entry) {
                         addDiagnosticOnce(wsc::text::TextBackendDiagnostic::Severity::Warning,
                                           "atlas-upload#" + std::to_string(pending.glyph.codepoint),
@@ -1465,57 +1517,73 @@ private:
 
     std::string rasterShapeCacheKey(const std::string &text, const Paint &paint) const
     {
-        const std::string resolutionFamily = paint.hasFontFamily()
-            ? paint.getFontFamily() : wsc::FontSystem::kDefaultPrimaryFamily;
-        std::string key = text + '\x1f' + paint.getFontFamily() + '\x1f' + std::to_string(paint.getTextSize()) + '\x1f'
-               + std::to_string(paint.getLetterSpacing()) + '\x1f' + std::to_string(paint.getFontWeight()) + '\x1f'
-               + std::to_string(static_cast<int>(paint.getFontSlant())) + '\x1f'
-               + paint.getTextLocale() + '\x1f'
-               + std::to_string(fontResolver_.resolutionGeneration(
-                   resolutionFamily));
-        for (const Paint::FontFeature &feature : paint.getFontFeatures()) {
-            key += '\x1e' + feature.tag + '=' + std::to_string(feature.value);
+        std::string key;
+        key.reserve(text.size() + paint.getFontFamily().size() + 128);
+        appendTextKeyString(key, text);
+        appendTextKeyString(key, paint.getFontFamily());
+        appendTextKeyValue(key, paint.getTextSize());
+        appendTextKeyValue(key, paint.getLetterSpacing());
+        appendTextKeyValue(key, paint.getFontWeight());
+        appendTextKeyValue(key, paint.getFontSlant());
+        appendTextKeyString(key, paint.getTextLocale());
+        appendTextKeyValue(key, fontResolver_.resolutionGeneration(paint.hasFontFamily()
+            ? paint.getFontFamily() : wsc::FontSystem::kDefaultPrimaryFamily));
+        appendTextKeyValue(key, static_cast<std::uint64_t>(paint.getFontFeatures().size()));
+        for (const auto &feature : paint.getFontFeatures()) {
+            appendTextKeyString(key, feature.tag);
+            appendTextKeyValue(key, feature.value);
         }
-        appendPaintFontVariations(key, paint);
+        appendTextKeyValue(key, static_cast<std::uint64_t>(paint.getFontVariations().size()));
+        for (const auto &variation : paint.getFontVariations()) {
+            appendTextKeyString(key, variation.tag);
+            appendTextKeyValue(key, variation.value);
+        }
         return key;
     }
 
-    std::string rasterLayoutCacheKey(
-        const std::string &text, const Paint &paint)
-        const
+    std::string textMetricsCacheKey(const std::string &text, const Paint &paint) const
     {
-        return rasterShapeCacheKey(text, paint) + '\x1f'
-            + std::to_string(static_cast<int>(paint.getTextAlign()))
-            + '\x1f'
-            + std::to_string(static_cast<int>(paint.getTextBaseline()));
+        auto key = rasterShapeCacheKey(text, paint);
+        appendTextKeyValue(key, paint.getTextAlign());
+        appendTextKeyValue(key, paint.getTextBaseline());
+        return key;
+    }
+
+    std::string rasterLayoutCacheKey(const std::string &text, const Paint &paint) const
+    {
+        auto key = textMetricsCacheKey(text, paint);
+        appendTextKeyValue(key, static_cast<int>(std::lround(paint.getTextMaskBlur())));
+        return key;
     }
 
     std::string rasterFaceCacheKey(std::uint32_t codepoint, const Paint &paint) const
     {
-        const std::string resolutionFamily = paint.hasFontFamily()
-            ? paint.getFontFamily() : wsc::FontSystem::kDefaultPrimaryFamily;
-        return paint.getFontFamily() + '\x1f' + std::to_string(codepoint) + '\x1f'
-               + std::to_string(paint.getFontWeight()) + '\x1f'
-               + std::to_string(static_cast<int>(paint.getFontSlant())) + '\x1f'
-               + paint.getTextLocale() + '\x1f'
-               + std::to_string(fontResolver_.resolutionGeneration(
-                   resolutionFamily));
+        std::string key;
+        key.reserve(paint.getFontFamily().size() + paint.getTextLocale().size() + 48);
+        appendTextKeyString(key, paint.getFontFamily());
+        appendTextKeyValue(key, codepoint);
+        appendTextKeyValue(key, paint.getFontWeight());
+        appendTextKeyValue(key, paint.getFontSlant());
+        appendTextKeyString(key, paint.getTextLocale());
+        appendTextKeyValue(key, fontResolver_.resolutionGeneration(paint.hasFontFamily()
+            ? paint.getFontFamily() : wsc::FontSystem::kDefaultPrimaryFamily));
+        return key;
     }
 
-    std::string rasterClusterFaceCacheKey(
-        const std::vector<std::uint32_t> &codepoints,
-        const Paint &paint) const
+    std::string rasterClusterFaceCacheKey(const std::vector<std::uint32_t> &codepoints,
+                                         const Paint &paint) const
     {
-        std::string key = "cluster";
-        for (std::uint32_t codepoint : codepoints) {
-            key += '\x1e' + std::to_string(codepoint);
-        }
-        key += '\x1f' + rasterFaceCacheKey(0u, paint);
+        // Distinguish cluster keys from single-codepoint keys even for arbitrary
+        // family strings. Both share rasterFaceCache_.
+        std::string key = rasterFaceCacheKey(0u, paint);
+        appendTextKeyValue(key, static_cast<std::uint64_t>(codepoints.size()));
+        for (auto codepoint : codepoints) appendTextKeyValue(key, codepoint);
         return key;
     }
 
     void clearRasterCaches()
     {
+        textMetricsCache_.clear();
         rasterShapeCache_.clear();
         rasterLayoutCache_.clear();
         rasterFaceCache_.clear();
@@ -1593,6 +1661,7 @@ private:
     mutable std::vector<wsc::text::TextBackendDiagnostic> diagnostics_;
     mutable std::unordered_set<std::string> diagnosticKeys_;
     mutable std::unordered_set<std::string> missingGlyphDiagnosticKeys_;
+    mutable wsc::render::LruCache<wsc::text::TextMetrics, std::string> textMetricsCache_{256};
     mutable wsc::text::TextRenderStats renderStats_;
 };
 

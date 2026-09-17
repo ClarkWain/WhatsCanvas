@@ -126,6 +126,13 @@ public:
         return !points_.empty();
     }
 
+    bool sameCoverage(const ClipMaskResource &other) const override
+    {
+        const auto *clip = dynamic_cast<const OpenGLClipMaskResource *>(&other);
+        return clip && points_ == clip->points_ && coverage_ == clip->coverage_
+            && transform_ == clip->transform_;
+    }
+
     void apply(const RenderContext &context, const ScissorState &scissor, std::size_t clipIndex) const override
     {
         (void)scissor;

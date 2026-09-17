@@ -14,6 +14,10 @@ int main()
     paint.setAntiAlias(true);
     paint.setTextSize(18.0f);
     paint.setFontFamily("Inter");
+    paint.setTextMaskBlur(2.0f);
+    if (paint.getTextMaskBlur() != 2.0f) {
+        return 8;
+    }
 
     wsc::Path path;
     path.moveTo(0.0f, 0.0f);
@@ -84,6 +88,9 @@ int main()
         || remoteRequests.front().sourceId != remoteSource.font.sourceId) {
         return 7;
     }
+    // Also link the APIs introduced in 1.2.0 against the installed library.
+    wsc::Image image;
+    canvas.drawImageRects(image, nullptr, 0, paint);
     (void)canvas.getWidth();
     (void)paint;
     (void)path;

@@ -9,6 +9,63 @@ For releases and downloadable artifacts, see the
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-17
+
+### Platform validation
+- Release Linux font-discovery configuration after enumeration without changing
+  the host's process-global Fontconfig configuration.
+- Provide display/font dependencies for Linux CI, distinguish unavailable GL
+  contexts on hosted runners, and require GL coverage in Linux validation.
+
+### Added
+- Desktop chess and Chinese chess examples with AI opponents, move animations,
+  and cross-platform font fallback.
+- `Paint::setTextMaskBlur` and `getTextMaskBlur` expose an opt-in, color-independent
+  glyph coverage-mask blur. Portable alpha glyphs reuse cached masks; unsupported
+  cases use a filtered layer. The default is zero, and overlapping glyphs can
+  differ from blurring a composited text run.
+- `Canvas::drawImageRects` submits ordered source/destination rectangles with
+  shared image and paint state. Complex sampling, color matrices, and Picture
+  recording retain scalar drawing semantics.
+
+### Changed
+- Cache portable text metrics with bounded storage and exact binary keys; retain
+  live family/provider generations so font changes invalidate affected entries.
+- Traverse existing fallback chains when querying font generations, avoiding a
+  temporary family vector and its string copies.
+- Specialize Gaussian shader loops for their active sample count, and include
+  estimated per-target allocation overhead in render-target pool budgets.
+- Batch consecutive images sharing an exact rectangular scissor and texture.
+  Keep clip masks, different scissors/textures, and clipped singletons on their
+  existing paths; preserve ordering and layer boundaries.
+- Reuse exact CPU clip AA meshes across frames and translations with bounded
+  storage; include their bytes and hits in AA cache diagnostics.
+- Write bulk image rectangles directly into renderer-owned command storage.
+  Reuse up to 128 command/payload allocations within 8 MiB; release image and
+  clip owners at the original command lifetime boundary. Ordinary image
+  recording does not pay for this pool.
+- Initialize native text backends on first text use, allowing image/path-only
+  clients to avoid unused font discovery.
+- Merge compatible images during command recording and compile ordered image
+  spans through the existing instanced or multi-texture submission paths.
+- Group strictly disjoint image/path runs to reduce program switches while
+  retaining overlap, clip, layer, blend, and target ordering barriers.
+- Orphan full stream-buffer uploads, avoid redundant program uniform updates,
+  and reuse known framebuffer state within owned render passes.
+- Cache exact OpenGL clip coverage with an eight-entry, 8 MiB R8 pixel budget
+  and working-set admission to avoid allocation churn on animated clips.
+
+### Fixed
+- Correct OpenGL/OpenGL ES clip-mask coordinates during cropped offscreen
+  rendering, restoring tinted overlapping frosted-glass panels (issue #100).
+- Gate offset clip masks with analytic pixel checks for overlapping solid,
+  gradient and image layers, nested layers, and return to the main target in
+  both OpenGL and OpenGL ES parity tests.
+- Re-resolve glyph atlas entries after growth or repacking, including cached
+  blurred glyphs, so upload retries do not reuse stale texture coordinates.
+- Do not attribute unrelated sticky OpenGL errors to a valid RGBA image upload;
+  invalid uploads still fail.
+
 ## [1.1.0] - 2026-09-04
 
 ### Added
@@ -65,7 +122,7 @@ For releases and downloadable artifacts, see the
   hardening) in `CONTRIBUTING.md`.
 
 ### Docs
-- Added a beginner tutorial series under `doc/tutorials/` covering
+- Added a beginner tutorial series under `doc/public/tutorials/` covering
   environment setup, basic shapes, `Paint`, `Path`, transforms, images,
   text, layer filters, windowed presentation, multi-backend hosting, and
   interactive Canvas performance.
@@ -620,7 +677,7 @@ For releases and downloadable artifacts, see the
   weight/slant/spacing/locale styling, custom in-memory font registration and
   fallback chains, underline / strikethrough decorations, grayscale and
   ClearType raster modes, and `resolveFontFamilies` parity with the portable
-  backend. See [`doc/DIRECTWRITE_TEXT_BACKEND.md`](doc/DIRECTWRITE_TEXT_BACKEND.md).
+  backend. See [`doc/public/guides/text/DIRECTWRITE_TEXT_BACKEND.md`](doc/public/guides/text/DIRECTWRITE_TEXT_BACKEND.md).
 - **Per-`Paint` `TextRenderMode` override**: `Paint::setTextRenderMode(Auto |
   Grayscale | ClearType)` lets callers opt into ClearType per draw when the
   destination surface is known to be opaque and axis-aligned. The DirectWrite
@@ -663,7 +720,7 @@ For releases and downloadable artifacts, see the
   DirectWrite backend test's CJK line-break declaration.
 
 ### Docs
-- Refreshed `doc/DIRECTWRITE_DESIGN_REVIEW.md` with a status table mapping
+- Refreshed the DirectWrite design review (since retired) with a status table mapping
   each of the five original review issues to the PR(s) that closed it.
 - ADR-006 gained a Progress Log section (PR #42 / PR #44).
 
@@ -693,7 +750,7 @@ For releases and downloadable artifacts, see the
   helpers (`__std_min_element_f_` / `__std_max_element_f_`). Previously a package
   built on a newer CI toolchain failed to link on a consumer's older Visual
   Studio with `LNK2019`. The Windows packaging job is pinned to `windows-2022`,
-  and `doc/TROUBLESHOOTING.md` documents the symptom and fixes.
+  and `doc/public/getting-started/TROUBLESHOOTING.md` documents the symptom and fixes.
 
 ## [0.1.12] - 2026-07-08
 
@@ -712,7 +769,7 @@ For releases and downloadable artifacts, see the
   swapchain, validated under the Khronos validation layer). Plus GL/Vulkan
   wrap-external and `Canvas::vulkan*` interop accessors. Examples:
   `software_present`, `gl_present`, `vulkan_canvas_present`. See
-  `doc/windowed-presentation-design.md`.
+  `doc/internal/architecture/windowed-presentation.md`.
 - Built-in diagnostics/logging facility (`wsc/Log.h`): severity levels, an
   adjustable threshold (`Log::setLevel`), and a pluggable sink
   (`Log::setHandler`) so applications can route WhatsCanvas messages into their

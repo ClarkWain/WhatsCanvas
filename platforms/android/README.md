@@ -10,18 +10,18 @@ Picture, then draws only the animated overlays each frame. This mirrors
 Flutter's DisplayList + RepaintBoundary/RasterCache split while keeping GPU
 resources out of the retained core object. The cache is context-keyed, bounded
 by a per-Canvas byte budget, and purged before orderly context teardown. See the
-[Retained Picture guide](../../doc/RETAINED_PICTURE.md) for current image/layer
+[Retained Picture guide](../../doc/public/guides/rendering/RETAINED_PICTURE.md) for current image/layer
 limitations.
 
 This README is the runnable sample's quick-start. For the production embedding
 contract, JNI ownership, GL-thread lifecycle, fonts, orientation, validation,
 and troubleshooting, see the
-[Android Integration Guide](../../doc/ANDROID_INTEGRATION.md).
+[Android Integration Guide](../../doc/public/platforms/ANDROID_INTEGRATION.md).
 
 ## Toolchain
 
-The initial toolchain is aligned with the known-good GPUMark Android
-configuration while keeping the sample independent of any machine-local path:
+The sample uses the following Android toolchain versions and remains
+independent of machine-local paths:
 
 | Component | Version |
 | --- | --- |
@@ -99,7 +99,7 @@ adb shell am start -S -n com.whatscanvas.demo/.MainActivity \
 ```
 
 The cross-platform capture layout, metadata and comparison workflow are in
-[`../../doc/VISUAL_PARITY.md`](../../doc/VISUAL_PARITY.md).
+[`../../doc/public/validation/VISUAL_PARITY.md`](../../doc/public/validation/VISUAL_PARITY.md).
 To generate the complete portrait/landscape, four-time-sample capture set on a
 running emulator, build the Debug APK and run:
 
@@ -113,7 +113,8 @@ orientation or whose matching native first frame has not completed. Pass
 `--scene <id>` to recapture one scene during development.
 
 The sample includes density-aware touch interaction, lifecycle/context-loss
-handling, CI builds and lint, retained-scene diagnostics, and device checkpoints
-on Pixel 3 (Android 12) and Redmi K30 (Android 11/MIUI 12.5). Encoded-image use
-in this demo, managed-emulator instrumentation, broad OEM device coverage, and
-Vulkan presentation remain follow-up work.
+handling, CI builds and lint, retained-scene diagnostics, and completed device
+checkpoints on Pixel 3 (Android 12) and Redmi K30 (Android 11/MIUI 12.5).
+Encoded-image use in this demo, managed-emulator instrumentation, broader OEM
+coverage, and Vulkan presentation are optional extensions rather than missing
+stable-v1 requirements.

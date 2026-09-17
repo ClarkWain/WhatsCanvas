@@ -109,9 +109,12 @@ public:
     void execute(RenderContext &context) override;
     DrawImageBatchData &data() { return data_; }
     const DrawImageBatchData &data() const { return data_; }
+    void enableStorageReuse() { reusableStorage_ = true; }
+    bool reusableStorage() const { return reusableStorage_; }
 
 private:
     DrawImageBatchData data_;
+    bool reusableStorage_ = false;
 };
 
 class DrawTextCommand : public Command
