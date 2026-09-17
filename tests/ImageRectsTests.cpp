@@ -128,5 +128,6 @@ int main() {
             }
         }
         std::cout << "PASS: 48 GL/software bulk/scalar pixel comparisons across reused frames, fallback and Picture recording\n";
-    } catch (const std::exception &e) { std::cerr << e.what() << '\n'; return 1; }
+    } catch (const GLContextUnavailable &e) { return e.report(); }
+      catch (const std::exception &e) { std::cerr << e.what() << '\n'; return 1; }
 }

@@ -17,6 +17,8 @@ rendering in the OpenGL backends.
 
 ## Rendering and correctness
 
+- Release the owned Linux font-discovery configuration after enumeration,
+  avoiding process-global Fontconfig allocations in embedded use.
 - Fix incorrect clipping and missing tint in overlapping frosted-glass panels
   on OpenGL/OpenGL ES (issue #100). Clip-mask sampling now compensates for the
   cropped offscreen viewport origin.

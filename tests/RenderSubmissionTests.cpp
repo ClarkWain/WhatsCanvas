@@ -83,6 +83,8 @@ int main() {
 
         std::cout << "PASS: stale GL error, invalid upload and instanced image reference\n";
         return 0;
+    } catch (const GLContextUnavailable &error) {
+        return error.report();
     } catch (const std::exception &error) {
         std::cerr << error.what() << '\n';
         return 1;

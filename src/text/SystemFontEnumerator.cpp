@@ -14,6 +14,7 @@
 #include <cstring>
 #include <initializer_list>
 #include <limits>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -390,12 +391,16 @@ int fontconfigWeightToCss(int weight)
 std::vector<DiscoveredFontFace> discoverFontconfig()
 {
     std::vector<DiscoveredFontFace> out;
-    if (!FcInit()) return out;
+    // Own the enumeration configuration instead of installing a process-global
+    // default that an embeddable library cannot safely finalize for its host.
+    const std::unique_ptr<FcConfig, decltype(&FcConfigDestroy)> config(
+        FcInitLoadConfigAndFonts(), &FcConfigDestroy);
+    if (!config) return out;
 
     FcPattern *pattern = FcPatternCreate();
     FcObjectSet *objectSet = FcObjectSetBuild(FC_FAMILY, FC_FILE, FC_INDEX, FC_WEIGHT, FC_SLANT,
                                               static_cast<char *>(nullptr));
-    FcFontSet *fontSet = FcFontList(nullptr, pattern, objectSet);
+    FcFontSet *fontSet = FcFontList(config.get(), pattern, objectSet);
     if (fontSet != nullptr) {
         for (int i = 0; i < fontSet->nfont; ++i) {
             FcPattern *entry = fontSet->fonts[i];

@@ -74,6 +74,7 @@ jobs:
         if: runner.os == 'Linux'
         env:
           WHATSCANVAS_REQUIRE_SYSTEM_FONT_DISCOVERY: "1"
+          WHATSCANVAS_REQUIRE_GL_CONTEXT: "1"
         run: xvfb-run -a ctest --test-dir ${{ matrix.build_dir }} -C Debug -L unit --output-on-failure
 
       # Desktop platform host: builds WhatsCanvasDesktopHost and renders one
@@ -243,6 +244,7 @@ jobs:
         env:
           ASAN_OPTIONS: detect_leaks=1:strict_string_checks=1:check_initialization_order=1
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+          WHATSCANVAS_REQUIRE_GL_CONTEXT: "1"
         run: xvfb-run -a ctest --test-dir build-sanitizers -C Debug -L unit --output-on-failure
 
   thread-sanitizer:
@@ -281,6 +283,10 @@ jobs:
         # keeps CI logs focused on the first (root-cause) race.
         env:
           TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1:history_size=7
+          # Avoid uninstrumented llvmpipe worker synchronization in TSan.
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          GALLIUM_DRIVER: softpipe
+          WHATSCANVAS_REQUIRE_GL_CONTEXT: "1"
         run: xvfb-run -a ctest --test-dir build-tsan -C Debug -L unit --output-on-failure
 
   fuzzing:
