@@ -145,6 +145,10 @@ pack on every push, on every PR, and weekly at 06:00 UTC Monday. Findings
 appear on the repository Security tab. No local reproduction is needed
 before pushing; treat the Security tab as authoritative.
 
+Findings located under `third_party/` are filtered from the uploaded SARIF
+report. First-party findings and analysis/build failures remain visible; the
+manual C++ analysis still includes dependencies for cross-boundary data flow.
+
 ### Fuzzing
 
 `.github/workflows/cross-platform-validation.yml` runs the
