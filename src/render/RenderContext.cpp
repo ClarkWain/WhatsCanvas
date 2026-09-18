@@ -136,6 +136,22 @@ void RenderContext::applyClipState(const ScissorState &scissor, const ClipMaskSt
         return;
     }
 
+    // Save the GL state that the downstream draw expects to still be current
+    // when applyClipState returns. This must happen BEFORE any clip-coverage
+    // machinery runs — ClipCoverageProgram::initialize() ends with
+    // glBindVertexArray(0), and later steps switch GLProgram, so reads after
+    // that point capture the polluted state instead of the caller's.
+    // Downstream draw programs (see DrawPathProgram::draw) cache their own
+    // active-program/VAO bookkeeping and skip glUseProgram/glBindVertexArray
+    // when they think the value is unchanged. Without this save/restore, the
+    // second path draw in a batch runs against GL program 0 / VAO 0 and
+    // triggers GL_INVALID_OPERATION on the first uniform upload and
+    // vertex-attribute setup, silently producing empty output.
+    GLint previousProgram = 0;
+    GLint previousVertexArray = 0;
+    glGetIntegerv(GL_CURRENT_PROGRAM, &previousProgram);
+    glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &previousVertexArray);
+
     auto *program = wsc::opengl::ClipCoverageProgram::getInstance();
     program->initialize();
     if (const GLuint cached = program->findCachedMask(clipKey, clipMask, width, height)) {
@@ -143,6 +159,11 @@ void RenderContext::applyClipState(const ScissorState &scissor, const ClipMaskSt
         applyScissorState(scissor);
         clipMaskActive_ = true;
         rememberClipMask(clipKey);
+        // The cache lookup still ran ClipCoverageProgram::initialize() which
+        // may have unbound the caller's VAO; restore it so the next draw
+        // does not blow up on glVertexAttribPointer.
+        glUseProgram(static_cast<GLuint>(previousProgram));
+        glBindVertexArray(static_cast<GLuint>(previousVertexArray));
         return;
     }
     std::size_t validClipCount = 0;
@@ -161,6 +182,10 @@ void RenderContext::applyClipState(const ScissorState &scissor, const ClipMaskSt
         clipMaskActive_ = false;
         clearClipMask();
         applyScissorState(scissor);
+        // Same VAO/program restore as above — ensureTargets can leave state
+        // altered even when it returns false.
+        glUseProgram(static_cast<GLuint>(previousProgram));
+        glBindVertexArray(static_cast<GLuint>(previousVertexArray));
         return;
     }
 
@@ -204,6 +229,12 @@ void RenderContext::applyClipState(const ScissorState &scissor, const ClipMaskSt
     framebuffer_ = previousFramebuffer;
     std::copy_n(previousViewport, 4, viewport_);
     hasFramebufferState_ = true;
+    // Restore the GLProgram and VAO that the caller had bound. See the
+    // save-block above for the full explanation; the downstream draw
+    // program's cached "active program / VAO" bookkeeping is only valid if
+    // the real GL state matches what it thinks it left behind.
+    glUseProgram(static_cast<GLuint>(previousProgram));
+    glBindVertexArray(static_cast<GLuint>(previousVertexArray));
     applyScissorState(scissor);
     clipMaskActive_ = true;
     rememberClipMask(clipKey);

@@ -329,9 +329,13 @@ void DrawPathProgram::initialize(bool commonProgram)
 #if !defined(WHATSCANVAS_OPENGL_ES)
     // Samplers of different types must never alias the same texture unit,
     // even when the branch that samples them is disabled. Mesa validates
-    // this at draw time, so reserve stable units up front.
+    // this at draw time, so reserve stable units up front. uClipMask
+    // (sampler2D) is set here for the same reason: leaving it at the
+    // default (unit 0) makes it collide with anything else the caller may
+    // have bound to unit 0 as a non-2D texture between draws.
     requestedProgram->setInt("uGradientStops", 1);
     requestedProgram->setInt("uDrawParameters", 2);
+    requestedProgram->setInt("uClipMask", 3);
 #endif
 
     if (!initialized_) {
