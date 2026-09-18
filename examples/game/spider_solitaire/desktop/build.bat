@@ -21,6 +21,16 @@ shift
 goto parse_args
 
 :args_done
+rem Drop a CMakeCache.txt whose CMAKE_HOME_DIRECTORY points at a different
+rem checkout (moving the repo between drives etc.). Prevents the smoke test
+rem from failing with 'source ... does not match ... used to generate cache'.
+if exist "%BUILD%\CMakeCache.txt" (
+  findstr /R /C:"^CMAKE_HOME_DIRECTORY:INTERNAL=" "%BUILD%\CMakeCache.txt" | findstr /I /C:"%ROOT:\=/%" >nul 2>&1
+  if errorlevel 1 (
+    echo Stale CMakeCache.txt detected in "%BUILD%"; wiping.
+    rmdir /S /Q "%BUILD%"
+  )
+)
 cmake -S "%ROOT%" -B "%BUILD%" -DCMAKE_BUILD_TYPE=%CONFIG%
 if errorlevel 1 exit /b 1
 cmake --build "%BUILD%" --config %CONFIG% --target SpiderSolitaire

@@ -30,6 +30,17 @@ if [ -d "$ROOT_DIR/.git" ] && command -v git >/dev/null 2>&1; then
     git -C "$ROOT_DIR" submodule update --init --recursive
 fi
 
+# Drop a CMakeCache.txt whose CMAKE_HOME_DIRECTORY points at a different
+# checkout. Prevents 'source ... does not match ... used to generate cache'
+# when the repo is moved between paths (drives, /mnt/... etc.).
+if [ -f "$BUILD_DIR/CMakeCache.txt" ]; then
+    cached=$(sed -n 's/^CMAKE_HOME_DIRECTORY:INTERNAL=//p' "$BUILD_DIR/CMakeCache.txt" | head -n 1 || true)
+    if [ -n "$cached" ] && [ "$cached" != "$ROOT_DIR" ]; then
+        echo "[0.5/3] Stale CMakeCache.txt (points at $cached); wiping."
+        rm -rf "$BUILD_DIR"
+    fi
+fi
+
 echo "[1/3] Configuring..."
 cmake -S "$ROOT_DIR" -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE="$CONFIG" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
