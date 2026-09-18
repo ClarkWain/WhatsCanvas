@@ -198,20 +198,80 @@
             </div>
             <div class="info-stack">
               <div class="formula">
-                <span class="label">边函数（Edge Function）</span>
-                <span class="math">edge(A, B, P) = (B.x - A.x)(P.y - A.y)
-                - (B.y - A.y)(P.x - A.x)
-点 P 在 AB 边内侧 ⇔ edge(A,B,P) 同号
-点 P 在三角形内 ⇔ 3 个边函数同号</span>
-                <p class="explain">这是 Juan Pineda 1988 年提出的"parallel algorithm"，所有 CPU 光栅器和 GPU 硬件光栅器都是这个思路。</p>
+                <span class="label">先直觉：边函数在算什么</span>
+                <span class="math">从 A 到 B 画一条有向线段，
+把点 P 放到线段左边 → edge &gt; 0
+把点 P 放到线段右边 → edge &lt; 0
+点 P 正好在线段上 → edge = 0</span>
+                <p class="explain">这就是"从 A 走到 B 时，P 在你的左手边还是右手边"。三角形有 3 条有向边（A→B, B→C, C→A），如果 P 在这 3 条边都在"同一侧"，那 P 一定在三角形里面。</p>
               </div>
               <div class="formula">
+                <span class="label">再看公式</span>
+                <span class="math">edge(A, B, P) =
+   (B.x − A.x) × (P.y − A.y)
+ − (B.y − A.y) × (P.x − A.x)</span>
+                <p class="explain">前半 <code>(B.x−A.x)</code> 和 <code>(B.y−A.y)</code> 是"A→B 这条向量的分量"；后半 <code>(P.y−A.y)</code> 和 <code>(P.x−A.x)</code> 是"A→P 这条向量的分量"。整个式子就是<strong>两个二维向量的叉积</strong>——叉积告诉你右手系里旋转的方向，也顺便告诉你 P 在 AB 的哪一侧。</p>
+              </div>
+              <div class="formula">
+                <span class="label">一个具体例子</span>
+                <span class="math">A = (0, 0),  B = (4, 0),  P = (2, 1)
+
+edge(A, B, P)
+ = (4−0) × (1−0)  −  (0−0) × (2−0)
+ = 4 × 1  −  0 × 2
+ = 4          → 正数，P 在 A→B 的"上方"（y-down 系里就是上边）
+</span>
+                <p class="explain">如果把 P 换成 <code>(2, −1)</code>，结果就是 −4（P 在 A→B 的下边）。数字的<strong>绝对值</strong>是"两个向量张成的平行四边形面积"——这也是它同时能算面积的原因。</p>
+              </div>
+              <div class="formula">
+                <span class="label">3 个边函数同号 ⇔ 在三角形内</span>
+                <span class="math">对 A, B, C 这 3 个顶点按逆时针顺序：
+  e0 = edge(B, C, P)
+  e1 = edge(C, A, P)
+  e2 = edge(A, B, P)
+若 e0, e1, e2 都 ≥ 0 → P 在三角形内
+若有一个 &lt; 0            → P 在外面</span>
+                <p class="explain">直觉上：把三角形三条边都当"墙"，你从每堵墙的哪一侧看到 P？如果 3 堵墙都从"内侧"看到 P，P 就一定在屋里；只要有 1 堵墙从"外侧"看到 P，P 就在屋外。这也是为什么这个方法叫"parallel edge algorithm"——3 条边可以完全独立地判断，不需要维护"扫描线到边缘的进出状态"。</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- 01b · barycentric explainer -->
+          <div class="section-grid" style="margin-top: 22px;">
+            <div class="demo-panel">
+              <canvas id="baryCanvas" width="640" height="360"></canvas>
+              <p class="canvas-caption">移动鼠标到三角形里，看 3 个"重心坐标"如何变化。它们分别是"P 离 3 个顶点各有多近"的权重。3 个数加起来永远等于 1；在顶点处会有 1 个是 1、另外两个是 0；在三角形中心 3 个都是 1/3。</p>
+            </div>
+            <div class="info-stack">
+              <div class="formula">
                 <span class="label">重心坐标（Barycentric）</span>
-                <span class="math">b0 = edge(v1,v2,P) / area
-b1 = edge(v2,v0,P) / area
-b2 = edge(v0,v1,P) / area
-b0 + b1 + b2 = 1 （P 在三角形内时全为正）</span>
-                <p class="explain">这些系数用于插值顶点颜色、UV、覆盖度（coverage）。<code>src/render/software/SoftwareRenderer.cpp</code> 里的 <code>rasterizeTriangles</code> 就是这样一行一行、一个像素一个像素地算出来。</p>
+                <span class="math">b0 = edge(v1, v2, P) / area
+b1 = edge(v2, v0, P) / area
+b2 = edge(v0, v1, P) / area
+
+     area = edge(v0, v1, v2)   ← 三角形面积 × 2
+     b0 + b1 + b2 = 1 （恒等）</span>
+                <p class="explain">你已经知道 <code>edge(v1, v2, P)</code> 是"v1→v2 这条边和 P 组成的小三角形"的 2 倍面积。所以 <code>b0 = 那个小三角形面积 / 三角形总面积</code>——这就是"P 相对 v0 的权重"（因为对面的边 v1v2 张成的小三角形越大，说明 P 离 v0 越近）。</p>
+              </div>
+              <div class="formula">
+                <span class="label">它有什么用？"三合一插值器"</span>
+                <span class="math">任何在顶点定义的属性 X（颜色、纹理坐标、覆盖度）：
+X(P) = b0 × X(v0) + b1 × X(v1) + b2 × X(v2)
+
+举个例子：
+  v0 红色 (255, 0, 0)
+  v1 绿色 (0, 255, 0)
+  v2 蓝色 (0, 0, 255)
+  P 在中心 (b0=b1=b2=1/3)
+  → 颜色 = (85, 85, 85) 灰色</span>
+                <p class="explain">这就是 GPU 从顶点数据"渐变"到像素的秘密。GLSL 里 <code>varying</code> / <code>in</code> 变量自动做这个插值，你不需要显式写重心坐标，硬件光栅器把它塞进去。抗锯齿的 coverage 也是同样办法：3 个顶点各有一个 <code>float coverage</code>（内部三角形都是 1.0，fringe 三角形是 1.0 或 0.0），barycentric 插值出来就是每个像素的 alpha 系数。</p>
+              </div>
+              <div class="trace-item">
+                <strong>联结：</strong>你会发现"边函数"和"重心坐标"其实是同一件事的两种视角——
+                <br>
+                <em>边函数</em> 回答"在里面吗"（符号）；
+                <em>重心坐标</em> 回答"离每个顶点多近"（比例）。
+                它们的分子都是同一批 <code>edge()</code> 计算的结果——CPU 光栅器算一遍就都拿到了。
               </div>
             </div>
           </div>
@@ -589,6 +649,124 @@ private:
       }
       scaleSlider.addEventListener('input', draw);
       showEdge.addEventListener('change', draw);
+      draw();
+    })();
+
+    // ------------ 01b · barycentric interactive ------------
+    (function () {
+      const canvas = document.getElementById('baryCanvas');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      const v0 = { x: 100, y: 300 };
+      const v1 = { x: 340, y: 60 };
+      const v2 = { x: 560, y: 300 };
+
+      function edge(ax, ay, bx, by, px, py) {
+        return (bx - ax) * (py - ay) - (by - ay) * (px - ax);
+      }
+      const area = edge(v0.x, v0.y, v1.x, v1.y, v2.x, v2.y);
+
+      let mouse = { x: 340, y: 220 };
+      canvas.addEventListener('mousemove', (ev) => {
+        const rect = canvas.getBoundingClientRect();
+        // Convert to canvas pixel space (canvas may be CSS-scaled).
+        mouse = {
+          x: (ev.clientX - rect.left) * (canvas.width / rect.width),
+          y: (ev.clientY - rect.top) * (canvas.height / rect.height)
+        };
+        draw();
+      });
+
+      function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // barycentric
+        const P = mouse;
+        const b0 = edge(v1.x, v1.y, v2.x, v2.y, P.x, P.y) / area;
+        const b1 = edge(v2.x, v2.y, v0.x, v0.y, P.x, P.y) / area;
+        const b2 = edge(v0.x, v0.y, v1.x, v1.y, P.x, P.y) / area;
+        const inside = b0 >= 0 && b1 >= 0 && b2 >= 0;
+
+        // Fill triangle with interpolated color (v0=red, v1=green, v2=blue).
+        // We do this by sampling on a coarse grid so the interior shows the
+        // interpolation intuitively; final triangle outline drawn on top.
+        const step = 8;
+        for (let y = 40; y < canvas.height - 20; y += step) {
+          for (let x = 40; x < canvas.width - 20; x += step) {
+            const w0 = edge(v1.x, v1.y, v2.x, v2.y, x, y) / area;
+            const w1 = edge(v2.x, v2.y, v0.x, v0.y, x, y) / area;
+            const w2 = edge(v0.x, v0.y, v1.x, v1.y, x, y) / area;
+            if (w0 < 0 || w1 < 0 || w2 < 0) continue;
+            const r = Math.round(w0 * 220 + w1 * 40  + w2 * 40);
+            const g = Math.round(w0 * 60  + w1 * 200 + w2 * 60);
+            const b = Math.round(w0 * 60  + w1 * 60  + w2 * 220);
+            ctx.fillStyle = `rgba(${r}, ${g}, ${b}, 0.65)`;
+            ctx.fillRect(x, y, step, step);
+          }
+        }
+
+        // Triangle outline
+        ctx.strokeStyle = '#182024'; ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(v0.x, v0.y); ctx.lineTo(v1.x, v1.y); ctx.lineTo(v2.x, v2.y); ctx.closePath();
+        ctx.stroke();
+
+        // Vertex labels with color swatches (matches interpolation colors)
+        const labels = [
+          { p: v0, name: 'v0', color: '#dc3232' },
+          { p: v1, name: 'v1', color: '#28a828' },
+          { p: v2, name: 'v2', color: '#3232dc' }
+        ];
+        labels.forEach(({ p, name, color }) => {
+          ctx.fillStyle = color;
+          ctx.beginPath(); ctx.arc(p.x, p.y, 6, 0, Math.PI * 2); ctx.fill();
+          ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+          ctx.fillStyle = '#182024';
+          ctx.font = '700 13px "Aptos", "Segoe UI", sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(name, p.x, p.y - 12);
+        });
+
+        // P marker
+        if (inside) {
+          ctx.fillStyle = '#182024';
+          ctx.beginPath(); ctx.arc(P.x, P.y, 5, 0, Math.PI * 2); ctx.fill();
+          ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+          // Draw thin sub-triangles from P to each edge to visualise b0/b1/b2 areas
+          const drawSub = (a, b, color) => {
+            ctx.beginPath();
+            ctx.moveTo(P.x, P.y); ctx.lineTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.closePath();
+            ctx.strokeStyle = color; ctx.lineWidth = 1.2;
+            ctx.setLineDash([4, 3]); ctx.stroke(); ctx.setLineDash([]);
+          };
+          drawSub(v1, v2, '#dc3232'); // sub-tri opposite v0 → b0
+          drawSub(v2, v0, '#28a828'); // sub-tri opposite v1 → b1
+          drawSub(v0, v1, '#3232dc'); // sub-tri opposite v2 → b2
+        }
+
+        // Readout panel
+        ctx.textAlign = 'left';
+        const boxX = 12, boxY = 12, boxW = 220, boxH = 76;
+        ctx.fillStyle = 'rgba(255, 251, 245, 0.94)';
+        ctx.fillRect(boxX, boxY, boxW, boxH);
+        ctx.strokeStyle = 'rgba(23, 33, 38, 0.16)';
+        ctx.strokeRect(boxX, boxY, boxW, boxH);
+        ctx.fillStyle = '#182024';
+        ctx.font = '600 12px "Aptos", "Segoe UI", sans-serif';
+        ctx.fillText(inside ? 'P 在三角形内' : 'P 在三角形外', boxX + 10, boxY + 18);
+        ctx.font = '500 12px "Cascadia Code", "Consolas", monospace';
+        const rows = [
+          ['b0 (v0 权重)', b0, '#dc3232'],
+          ['b1 (v1 权重)', b1, '#28a828'],
+          ['b2 (v2 权重)', b2, '#3232dc']
+        ];
+        rows.forEach(([name, val, color], i) => {
+          const y = boxY + 34 + i * 14;
+          ctx.fillStyle = color;
+          ctx.fillRect(boxX + 10, y - 8, 8, 8);
+          ctx.fillStyle = '#182024';
+          ctx.fillText(`${name} = ${val.toFixed(3)}`, boxX + 24, y);
+        });
+      }
       draw();
     })();
 
