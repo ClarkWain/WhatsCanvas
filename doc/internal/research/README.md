@@ -7,6 +7,10 @@ of the public product documentation.
 - `offscreen-rendering/` — standalone off-screen rendering tutorial prototype
   covering `OutputTarget`, Software vs OpenGL backend stacks, UI caching, and
   cross-library comparisons.
+- `rasterization-and-caching/` — standalone tutorial prototype covering the
+  edge-function / barycentric CPU rasterizer, analytic coverage, and how the
+  tessellation / glyph-atlas / render-target / picture caches trade compute
+  cost for memory footprint.
 - `polyline2d/` — standalone polyline tessellation tutorial prototype.
 - `font-rendering-techniques/` — background material on font formats, shaping,
   rasterization, GPU text, and the WhatsCanvas text stack.

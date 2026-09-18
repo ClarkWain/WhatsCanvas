@@ -1,0 +1,910 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>栅格化与缓存原理互动教学</title>
+  <style>
+    :root {
+      --bg: #f4efe6;
+      --bg-accent: #efe0ca;
+      --panel: rgba(255, 251, 245, 0.9);
+      --ink: #172126;
+      --muted: #5c6a70;
+      --line: rgba(23, 33, 38, 0.12);
+      --accent: #0e7c86;
+      --accent-soft: rgba(14, 124, 134, 0.12);
+      --accent-strong: #c25a1b;
+      --success: #2f7d32;
+      --shadow: 0 20px 60px rgba(40, 27, 11, 0.12);
+      --radius: 24px;
+      --radius-sm: 16px;
+      --mono: "Cascadia Code", "Consolas", monospace;
+      --sans: "Aptos", "Segoe UI Variable", "Segoe UI", sans-serif;
+      --display: "Bahnschrift", "Trebuchet MS", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: var(--sans);
+      color: var(--ink);
+      line-height: 1.72;
+      background:
+        radial-gradient(circle at bottom left, rgba(47, 125, 50, 0.12), transparent 30%),
+        linear-gradient(180deg, #fbf6eb 0%, var(--bg) 100%);
+    }
+    a { color: var(--accent); }
+    .page { width: min(1320px, calc(100% - 32px)); margin: 24px auto 80px; position: relative; z-index: 1; }
+
+    .hero, .section, .card, .code-card, .method-card, .timeline-step, .metric-card {
+      border: 1px solid rgba(23, 33, 38, 0.08);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      -webkit-backdrop-filter: blur(12px);
+      backdrop-filter: blur(12px);
+    }
+
+    .hero { padding: 28px; overflow: hidden; position: relative; }
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: auto -70px -90px auto;
+      width: 280px;
+      height: 280px;
+      background: radial-gradient(circle, rgba(47, 125, 50, 0.18), transparent 70%);
+      pointer-events: none;
+    }
+    .eyebrow {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 8px 12px; border-radius: 999px;
+      background: var(--accent-soft); color: var(--accent);
+      font-size: 0.84rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+    }
+    h1 { font-family: var(--display); font-size: clamp(1.6rem, 2.2vw + 0.4rem, 2.4rem); margin: 12px 0 6px; color: var(--ink); }
+    h2 { font-family: var(--display); font-size: 1.32rem; margin: 0 0 6px; color: var(--ink); }
+    h3 { font-family: var(--display); font-size: 1.05rem; margin: 0 0 8px; color: var(--ink); }
+    p { margin: 0 0 12px; color: var(--muted); }
+    .lead { margin-top: 16px; font-size: 1.08rem; max-width: 66ch; color: #28333a; }
+
+    .hero-grid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(300px, 0.7fr); gap: 20px; align-items: start; }
+    .hero-points { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
+    .hero-point { padding: 14px; border-radius: 18px; background: rgba(255, 255, 255, 0.78); border: 1px solid rgba(23, 33, 38, 0.08); }
+    .hero-point strong { display: block; margin-bottom: 4px; color: var(--ink); }
+    .summary-card { padding: 18px; border-radius: var(--radius-sm); background: rgba(255, 255, 255, 0.84); border: 1px solid rgba(23, 33, 38, 0.08); }
+    .summary-card ul { margin: 10px 0 0 18px; padding: 0; color: var(--muted); }
+    .summary-card li { margin-bottom: 6px; }
+
+    .layout { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 22px; margin-top: 22px; }
+    .content { display: grid; gap: 22px; }
+    .section { padding: 24px; }
+    .section-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 16px; }
+    .section-tag { padding: 7px 12px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 0.88rem; font-weight: 700; }
+    .section-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr); gap: 18px; align-items: start; }
+
+    .demo-panel, .method-panel, .formula, .code-card, .timeline-step, .metric-card { padding: 16px 18px; border-radius: var(--radius-sm); background: rgba(255, 255, 255, 0.82); border: 1px solid rgba(23, 33, 38, 0.08); }
+    .demo-panel canvas { width: 100%; height: auto; display: block; border-radius: 16px; background: linear-gradient(180deg, #fefdf8, #f6eddc); border: 1px solid rgba(23, 33, 38, 0.08); }
+    .canvas-caption { margin-top: 10px; color: var(--muted); font-size: 0.92rem; }
+
+    .controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 12px 0 10px; }
+    .pill { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 999px; cursor: pointer; background: #fff; border: 1px solid rgba(23, 33, 38, 0.1); transition: 140ms ease; user-select: none; }
+    .pill.active { color: white; background: var(--accent); border-color: var(--accent); }
+    .pill input[type="range"] { accent-color: var(--accent); }
+
+    .formula .label { display: block; margin-bottom: 8px; color: var(--accent); font-weight: 700; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.04em; }
+    .formula .math { font-family: "Cambria Math", "Times New Roman", serif; font-size: 1.06rem; white-space: pre-wrap; color: var(--ink); }
+    .formula .explain { margin-top: 8px; color: #465158; }
+
+    .toc { position: sticky; top: 14px; align-self: start; padding: 18px; border-radius: 22px; background: rgba(255, 252, 246, 0.9); border: 1px solid rgba(23, 33, 38, 0.08); box-shadow: 0 14px 40px rgba(43, 31, 18, 0.08); }
+    .toc h3 { margin-bottom: 10px; }
+    .toc a { display: block; padding: 7px 9px; margin: 4px 0; text-decoration: none; border-radius: 12px; color: var(--muted); }
+    .toc a:hover, .toc a:focus-visible { background: var(--accent-soft); color: var(--accent); outline: none; }
+    .toc .note { margin-top: 10px; font-size: 0.86rem; color: var(--muted); }
+
+    .trace-list { display: grid; gap: 10px; margin-top: 12px; }
+    .trace-item { padding: 10px 12px; border-radius: 12px; background: rgba(255, 255, 255, 0.74); border: 1px solid rgba(23, 33, 38, 0.08); color: var(--muted); }
+    .trace-item strong { color: var(--ink); }
+    .info-stack { display: grid; gap: 12px; }
+
+    .method-grid { display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 14px; }
+    .method-grid .metric-card { cursor: pointer; transition: transform 120ms ease, box-shadow 120ms ease; }
+    .method-grid .metric-card:hover { transform: translateY(-2px); }
+    .method-grid .metric-card.active { border-color: rgba(14, 124, 134, 0.4); box-shadow: 0 12px 30px rgba(14, 124, 134, 0.12); }
+    .method-grid .metric-card p { margin: 6px 0 0; }
+
+    .method-card { margin-top: 12px; padding: 20px 22px; }
+    .method-card h3 { margin-top: 0; }
+    .method-card p { margin: 0 0 10px; }
+    .method-card .pros, .method-card .cons { margin: 8px 0 12px 20px; padding: 0; color: var(--muted); }
+    .method-card .pros li, .method-card .cons li { margin-bottom: 4px; }
+    .method-card strong { color: var(--ink); }
+    .method-card strong + ul { margin-top: 6px; }
+
+    .mini-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-top: 12px; }
+    .mini-grid .metric-card p { margin: 6px 0 0; }
+
+    .code-card pre { margin: 10px 0 0; padding: 12px; overflow-x: auto; background: #182024; color: #f8f7f3; border-radius: 12px; font-family: var(--mono); font-size: 0.92rem; line-height: 1.5; }
+    .code-card .note { margin-top: 10px; color: var(--muted); font-size: 0.92rem; }
+
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 0.78rem; font-weight: 700; margin-right: 4px; }
+    .badge.warn { background: rgba(194, 90, 27, 0.14); color: var(--accent-strong); }
+    .badge.ok   { background: rgba(47, 125, 50, 0.12); color: var(--success); }
+
+    /* metrics table for cache demo */
+    .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.94rem; margin-top: 10px; }
+    .stats-grid .stat { padding: 8px 10px; border-radius: 10px; background: rgba(255, 255, 255, 0.72); border: 1px solid rgba(23, 33, 38, 0.08); }
+    .stats-grid .stat strong { color: var(--ink); display: block; font-size: 1rem; }
+
+    @media (max-width: 960px) {
+      .hero-grid, .section-grid, .layout { grid-template-columns: minmax(0, 1fr); }
+      .toc { position: static; }
+      .method-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="hero">
+      <div class="hero-grid">
+        <div>
+          <div class="eyebrow">互动教学 · 栅格化与缓存</div>
+          <h1>三角形怎么变成像素？谁在偷偷帮我们省下这一步？</h1>
+          <p class="lead">2D 图形库从一堆 <code>drawRect / drawPath</code> 命令走到"屏幕上的像素"其实要过两道关：先做<strong>栅格化</strong>（决定"哪些像素被覆盖，覆盖多少"），再做各种<strong>缓存</strong>（避免每帧都从头算一遍）。这个教程会带你看清：栅格化到底怎么算、Software 与 OpenGL 后端各自把栅格化放在哪儿、WhatsCanvas 里有哪些缓存（tessellation、glyph atlas、render target pool、picture cache），以及它们分别在解决什么问题。</p>
+          <div class="hero-points">
+            <div class="hero-point">
+              <strong>1. 先算像素</strong>
+              栅格化 = 判定每个像素是否在几何图形内 + 它被覆盖多少。
+            </div>
+            <div class="hero-point">
+              <strong>2. 再省算</strong>
+              缓存不改结果，只改"要不要再算一次"。命中一次省下的往往是几百条命令。
+            </div>
+          </div>
+        </div>
+        <div class="summary-card">
+          <h3>这页要带你掌握的 5 件事</h3>
+          <ul>
+            <li>栅格化的 3 种做法：扫描线、边函数（Edge Function）、GPU 三角形装配。</li>
+            <li>WhatsCanvas 里 CPU 光栅器怎么写：三角形 barycentric + top-left 规则。</li>
+            <li>为什么 GPU 后端要靠 <code>LruCache</code> 缓存 tessellation 结果。</li>
+            <li>Glyph Atlas、RenderTargetPool、Picture Cache 各自解决哪种"重复计算"。</li>
+            <li>什么时候该主动加缓存、什么时候缓存反而更慢。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <div class="layout">
+      <div class="content">
+
+        <!-- 01 · 栅格化本质 -->
+        <section class="section" id="what">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">01 · 先看本质</div>
+              <h2>三角形是怎么"落到像素网格"上的？</h2>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <div class="controls">
+                <label class="pill" for="triScale">网格粒度：<strong id="triScaleVal">32×</strong></label>
+                <input id="triScale" type="range" min="8" max="64" step="4" value="32">
+                <label class="pill"><input type="checkbox" id="triShowEdge" checked> 显示边函数</label>
+              </div>
+              <canvas id="triCanvas" width="640" height="400"></canvas>
+              <p class="canvas-caption">对一个 CPU 光栅器来说，处理三角形的核心就是 3 个"边函数"：<code>edge(A,B,P) = (B.x-A.x)(P.y-A.y) - (B.y-A.y)(P.x-A.x)</code>。三个边函数同号 → 像素在三角形内；靠近 0 → 刚好在边界。上图把每个像素分类为"内 / 外 / 边界"，你可以调节网格粒度，看粒度变粗时锯齿如何变得明显。</p>
+            </div>
+            <div class="info-stack">
+              <div class="formula">
+                <span class="label">边函数（Edge Function）</span>
+                <span class="math">edge(A, B, P) = (B.x - A.x)(P.y - A.y)
+                - (B.y - A.y)(P.x - A.x)
+点 P 在 AB 边内侧 ⇔ edge(A,B,P) 同号
+点 P 在三角形内 ⇔ 3 个边函数同号</span>
+                <p class="explain">这是 Juan Pineda 1988 年提出的"parallel algorithm"，所有 CPU 光栅器和 GPU 硬件光栅器都是这个思路。</p>
+              </div>
+              <div class="formula">
+                <span class="label">重心坐标（Barycentric）</span>
+                <span class="math">b0 = edge(v1,v2,P) / area
+b1 = edge(v2,v0,P) / area
+b2 = edge(v0,v1,P) / area
+b0 + b1 + b2 = 1 （P 在三角形内时全为正）</span>
+                <p class="explain">这些系数用于插值顶点颜色、UV、覆盖度（coverage）。<code>src/render/software/SoftwareRenderer.cpp</code> 里的 <code>rasterizeTriangles</code> 就是这样一行一行、一个像素一个像素地算出来。</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 02 · 3 种做法 -->
+        <section class="section" id="methods">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">02 · 3 种做法</div>
+              <h2>扫描线、边函数、GPU 三角形装配的取舍</h2>
+            </div>
+          </div>
+          <div class="method-grid">
+            <div class="metric-card active" data-method="scanline">
+              <strong>扫描线（Scanline）</strong>
+              <p>逐行处理：对每一条扫描线求出多边形的进入/退出 x 坐标，中间平面填充。</p>
+            </div>
+            <div class="metric-card" data-method="edge">
+              <strong>边函数（Edge Function）</strong>
+              <p>逐像素判定：每个像素代入 3 个边函数，同号 → 在内。适合并行，易 SIMD 化。</p>
+            </div>
+            <div class="metric-card" data-method="gpu">
+              <strong>GPU 硬件装配</strong>
+              <p>顶点着色器输出的裁剪空间三角形，交给固定管线的光栅化硬件，一个 fragment shader 一个像素。</p>
+            </div>
+          </div>
+          <div class="method-card" id="methodDetail">
+            <h3 id="methodTitle">扫描线（Scanline）</h3>
+            <p id="methodBody">最经典的 CPU 光栅化算法，尤其适合任意封闭多边形（不只是三角形）。对每条水平线维护 Active Edge Table，找到进入 / 退出多边形的 x 坐标，然后填中间。stb_truetype 等字体光栅器还在用它的变体。</p>
+            <strong>优点</strong>
+            <ul class="pros" id="methodPros"></ul>
+            <strong>缺点</strong>
+            <ul class="cons" id="methodCons"></ul>
+          </div>
+        </section>
+
+        <!-- 03 · 覆盖度与 AA -->
+        <section class="section" id="coverage">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">03 · 覆盖度</div>
+              <h2>"是否在内"不够，还要"覆盖了多少"</h2>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <div class="controls">
+                <label class="pill" for="covMode">
+                  模式：
+                  <select id="covMode" style="border:none; background:transparent; font-weight:600; color: var(--accent);">
+                    <option value="binary">二值判定</option>
+                    <option value="ssaa">4×4 子采样</option>
+                    <option value="analytic" selected>解析式覆盖度 (fringe)</option>
+                  </select>
+                </label>
+                <label class="pill" for="covScale">缩放：<strong id="covScaleVal">24×</strong></label>
+                <input id="covScale" type="range" min="12" max="48" step="4" value="24">
+              </div>
+              <canvas id="covCanvas" width="640" height="360"></canvas>
+              <p class="canvas-caption">同一个三角形，用三种"覆盖度"方式渲染：二值判定（0/1 硬边）、4×4 子采样、解析式覆盖度（沿边缘生成 1 像素羽化带 + 顶点覆盖度插值）。WhatsCanvas 走的是第三种——参见 <code>src/canvas/Canvas.cpp: expandTrianglesWithAA</code>。</p>
+            </div>
+            <div class="info-stack">
+              <div class="formula">
+                <span class="label">为什么 WhatsCanvas 选解析式</span>
+                <span class="math">SSAA / MSAA 需要 4-8 倍带宽；
+后处理 AA 需要额外的 pass；
+解析式 = "几何再多长出一带，顶点带 coverage" —
+不吃采样成本，Software / GL / Vulkan / Metal 后端全部同一路径。</span>
+                <p class="explain">Software 里 coverage 直接在 <code>rasterizeTriangles</code> 里用 barycentric 插值；GL 里传成一个顶点属性，在 fragment shader 里乘 alpha。</p>
+              </div>
+              <div class="trace-item">
+                <strong>相关代码：</strong>
+                <code>src/canvas/Canvas.cpp: expandTrianglesWithAA</code> 沿轮廓扩边生成 fringe 三角形；
+                <code>src/opengl/ClipCoverageProgram.cpp</code> 用同样思路生成裁剪路径的 R8 掩码；
+                <code>src/render/software/SoftwareRenderer.cpp: rasterizeCoverageTriangles</code> 是 CPU 版本，缺 per-vertex coverage 时 fallback 到 1.0（<em>本仓库 1.2.1 修复了 OpenGL 端漏掉这个 fallback 的 bug</em>）。
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 04 · 缓存分类 -->
+        <section class="section" id="cache-types">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">04 · 缓存分类</div>
+              <h2>WhatsCanvas 里的 4 层缓存各自解决什么</h2>
+            </div>
+          </div>
+          <div class="method-grid">
+            <div class="metric-card active" data-cache="tess">
+              <strong>① Tessellation Cache</strong>
+              <p>把 path → 三角形列表这一步的结果缓存。反复画同一个圆角矩形时省下三角化。</p>
+            </div>
+            <div class="metric-card" data-cache="atlas">
+              <strong>② Glyph Atlas</strong>
+              <p>字体光栅化很贵。把常用字形烘到一张纹理里，绘制变成"贴几张四边形"。</p>
+            </div>
+            <div class="metric-card" data-cache="rtp">
+              <strong>③ Render Target Pool</strong>
+              <p>saveLayer / 离屏合成需要一次性大量创建 FBO+纹理。池化它们，避免频繁 GL 申请。</p>
+            </div>
+            <div class="metric-card" data-cache="pic">
+              <strong>④ Picture Cache</strong>
+              <p>把一段"很少变的绘制命令"录成 Picture 一次性栅格化到纹理，之后每帧只贴一次。</p>
+            </div>
+          </div>
+          <div class="method-card" id="cacheDetail">
+            <h3 id="cacheTitle">① Tessellation Cache</h3>
+            <p id="cacheBody">路径先要拆成三角形才能给光栅器。这一步在 CPU 上做一次很便宜（微秒级），但一秒 60 帧 × 上百个形状 × 反复重画同一个形状 = 每秒几万次三角化，成本就上来了。<code>LruCache&lt;FillTriangles&gt;</code>（<code>src/render/LruCache.h</code>）按 hash(path shape) 做键，命中就复用；容量按<strong>条目数</strong>和<strong>常驻字节</strong>两条边同时约束，避免"某一次超大 path 撑爆缓存"。</p>
+            <strong>命中时省下</strong>
+            <ul class="pros" id="cachePros"></ul>
+            <strong>失效条件</strong>
+            <ul class="cons" id="cacheCons"></ul>
+          </div>
+        </section>
+
+        <!-- 05 · 交互 benchmark -->
+        <section class="section" id="cache-bench">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">05 · 交互 benchmark</div>
+              <h2>把缓存关掉再打开，看 fps / 每帧工作量的变化</h2>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <div class="controls">
+                <label class="pill"><input type="checkbox" id="benchTess" checked>Tessellation cache</label>
+                <label class="pill"><input type="checkbox" id="benchAtlas" checked>Glyph atlas</label>
+                <label class="pill"><input type="checkbox" id="benchPic" checked>Picture cache</label>
+                <label class="pill" for="benchShapes">形状数量：<strong id="benchShapesVal">240</strong></label>
+                <input id="benchShapes" type="range" min="40" max="800" step="20" value="240">
+              </div>
+              <canvas id="benchCanvas" width="640" height="360"></canvas>
+              <div class="stats-grid">
+                <div class="stat">tessellation 计算次数 <strong id="statTess">—</strong></div>
+                <div class="stat">glyph 光栅化次数 <strong id="statGlyph">—</strong></div>
+                <div class="stat">Picture blit 次数 <strong id="statPic">—</strong></div>
+                <div class="stat">每帧总工作单位 <strong id="statWork">—</strong></div>
+              </div>
+              <p class="canvas-caption">把三个缓存分别关闭 / 打开，看"每帧总工作单位"如何变化：一次 tessellation ≈ 3 单位，一次 glyph 光栅 ≈ 5 单位，一次纹理 blit ≈ 1 单位。真实数字取决于形状、字号、GPU 性能，但相对关系是稳定的。</p>
+            </div>
+            <div class="info-stack">
+              <div class="formula">
+                <span class="label">经验公式</span>
+                <span class="math">缓存收益 ≈
+  ( 命中率 × 单次命中省下的工作 ) − 缓存自身开销
+
+  单次命中省下的工作 = 原始计算成本
+  缓存开销 = hash 计算 + LRU 更新 + 内存 footprint</span>
+                <p class="explain">这就是为什么"只跑一次的 path"或"每次都不一样的动画路径"不适合走缓存——命中率太低，反倒被 hash 拖慢。</p>
+              </div>
+              <div class="trace-item">
+                <strong>观察：</strong>把形状数量拉到 800，关掉 tessellation cache，看看每帧总工作单位怎么冲高；再打开它，工作单位立刻下降到 <em>命中率 × 原开销</em> 的水平。
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 06 · WhatsCanvas 里的实现 -->
+        <section class="section" id="repo">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">06 · WhatsCanvas 内部</div>
+              <h2>三段真实代码：LRU、RenderTargetPool、Software 光栅</h2>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="code-card">
+              <p><strong>1. LruCache 双约束（条目数 + 字节数）</strong> —— <code>src/render/LruCache.h</code></p>
+              <pre>template &lt;typename Value, typename Key = std::uint64_t&gt;
+class LruCache {
+  const Value *find(const Key &amp;key);   // 命中时 splice 到最新
+  const Value &amp;insert(Key key, Value v); // 超预算 → evictOldest
+private:
+  std::size_t maxEntries_;
+  std::size_t maxResidentBytes_;
+  std::list&lt;Entry&gt; order_;              // 头新，尾旧
+  std::unordered_map&lt;Key, iter&gt; index_;
+  std::size_t residentBytes_ = 0;
+  std::size_t hitCount_ = 0, missCount_ = 0;
+};</pre>
+              <p>典型用户：<code>fillTessellationCache</code>、<code>clipAaCache</code>、<code>fillAaCache</code>，键都是 path 或几何形状的 FNV hash。</p>
+
+              <p style="margin-top: 14px;"><strong>2. RenderTargetPool 复用离屏 FBO</strong> —— <code>src/render/RenderTargetPool.h</code></p>
+              <pre>class RenderTargetPool {
+  std::unique_ptr&lt;IRenderTarget&gt; acquire(int w, int h);
+  void release(std::unique_ptr&lt;IRenderTarget&gt; target);
+  void expire(int maxIdleCycles = 64);
+  static constexpr size_t kDefaultMaxPooledBytes = 32u * 1024u * 1024u;
+};</pre>
+              <p>预算 32 MiB + 每 target 4 KiB 开销估算。<code>saveLayer</code> 频繁进出时不再每次都申请纹理。</p>
+
+              <p style="margin-top: 14px;"><strong>3. CPU 光栅化的核心循环</strong> —— <code>src/render/software/SoftwareRenderer.cpp</code></p>
+              <pre>for (int py = minY; py &lt;= maxY; ++py) {
+  for (int px = minX; px &lt;= maxX; ++px) {
+    const float sx = px + 0.5f, sy = py + 0.5f;
+    const float e0 = edge(v1.x, v1.y, v2.x, v2.y, sx, sy);
+    const float e1 = edge(v2.x, v2.y, v0.x, v0.y, sx, sy);
+    const float e2 = edge(v0.x, v0.y, v1.x, v1.y, sx, sy);
+    const bool in0 = e0 &gt; 0 || (e0 == 0 &amp;&amp; tl0);  // top-left rule
+    // 3 个都在内 → 用 barycentric 插值 coverage / color
+  }
+}</pre>
+              <p class="note">top-left 规则保证共享边缘的两个三角形恰好由其中一个覆盖。同一条边永远不会被 blend 两次。</p>
+            </div>
+            <div class="info-stack">
+              <div class="timeline-step">
+                <strong>1. 命中一次省下多少？</strong>
+                Tessellation cache 命中 ≈ 省 40-200 μs（复杂 path）；Glyph atlas 命中 ≈ 省一次 FreeType/DirectWrite bitmap 光栅 ≈ 100-800 μs；Picture cache 命中 ≈ 省几十至上千条命令的完整重放。
+              </div>
+              <div class="timeline-step">
+                <strong>2. 命中率怎么看？</strong>
+                <code>LruCache</code> 自带 <code>hitCount_</code> / <code>missCount_</code> / <code>evictionCount_</code>，通过 <code>CanvasStats</code> 曝光。命中率长期低于 30% 时说明缓存边界没选对（key 太宽 / 太窄），要看 hash 里带没带上必要维度。
+              </div>
+              <div class="timeline-step">
+                <strong>3. 缓存的失效器</strong>
+                动画参数变化（每帧不同 path） / 尺寸变化（每次缩放都是新 hash） / 显示器 DPR 切换 / 主动 <code>clear()</code>。同时字体大小上升 1 个 pixel 也会让 glyph atlas 完全 miss。
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 07 · 主流库对比 -->
+        <section class="section" id="libraries">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">07 · 主流 2D 图形库怎么做</div>
+              <h2>Skia、Cairo、Qt、浏览器 Canvas 各自的栅格化 + 缓存策略</h2>
+            </div>
+          </div>
+          <div class="mini-grid">
+            <div class="metric-card">
+              <strong>Skia</strong>
+              <p>CPU 侧 <code>SkAAAnalyticEdge</code> 解析式覆盖度；GPU 侧走"triangulation + coverage"或 stencil-and-cover。Glyph 走 <code>SkGlyphCache</code>，路径三角化结果按 GPU device 侧的 GrPathCache 缓存。</p>
+            </div>
+            <div class="metric-card">
+              <strong>Cairo</strong>
+              <p>典型的扫描线 + 覆盖度（AA_DEFAULT / AA_BEST 走软件抗锯齿）。缓存较轻，主要用 <code>cairo_glyph_t</code> 内部字形缓存，绘制路径本身没有强 shape 缓存。</p>
+            </div>
+            <div class="metric-card">
+              <strong>Qt / QPainter</strong>
+              <p>软件后端走扫描线；OpenGL 后端 <code>QOpenGLPaintEngine</code> 用 stencil-fill 或 triangulation。文字通过 <code>QTextureGlyphCache</code>。QML 场景图有"批处理 + 层"两级缓存。</p>
+            </div>
+            <div class="metric-card">
+              <strong>浏览器 Canvas 2D</strong>
+              <p>Chrome/Safari 底下都跑 Skia。字体走各自平台的 glyph rasterizer + atlas。用户几乎接触不到"缓存开关"，但 <code>ctx.drawImage(anotherCanvas, ...)</code> 就是最典型的"用户主动做 picture cache"。</p>
+            </div>
+          </div>
+          <div class="trace-list">
+            <div class="trace-item"><strong>共同点：</strong>所有主流库都同时依赖<em>几何缓存</em>（tessellation 或 coverage）+ <em>纹理缓存</em>（glyph atlas），因为这两类计算最容易在动画里重复。</div>
+            <div class="trace-item"><strong>不同点：</strong>抽象层次不一样。Skia 提供 <code>Grcache</code> / <code>Picture</code> 给用户手动缓存；Qt/Cairo 只做内部缓存；浏览器 Canvas 让用户显式用 <code>OffscreenCanvas</code> 或多个 canvas 层管理。</div>
+          </div>
+        </section>
+
+        <!-- 08 · 选型建议 -->
+        <section class="section" id="takeaway">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">08 · 你可以怎么判断</div>
+              <h2>什么时候值得给一个绘制加缓存</h2>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="info-stack">
+              <div class="timeline-step"><strong>命中率 &gt; 70% 才有意义</strong><span class="badge ok">推荐</span> 反复出现的 UI 元素（按钮、图标、卡片背景、图表格线）、每帧都需要重画但形状不变的部分。这类命中率往往 &gt; 90%，收益最直接。</div>
+              <div class="timeline-step"><strong>命中率 30-70% 视情况</strong><span class="badge">看开销</span> 缓动动画、少量参数变化的形状。要看 hash key 是否合理——把非本质字段带进 key 会让命中率崩到 10%。</div>
+              <div class="timeline-step"><strong>命中率 &lt; 30% 不要用</strong><span class="badge warn">避免</span> 完全随机形状、每帧尺寸都不同的元素、只出现一次的复杂 path。hash + 内存开销会超过原本的计算成本。</div>
+              <div class="timeline-step"><strong>灰色地带：saveLayer + filter</strong><span class="badge">谨慎</span> 每个 <code>saveLayer</code> 都会去 <code>RenderTargetPool</code> 拿一张同规模纹理。频繁进出层且尺寸抖动会击穿池；配合 <code>expire(maxIdleCycles)</code> 才能真正回收。</div>
+            </div>
+            <div class="formula">
+              <span class="label">一句话总结</span>
+              <span class="math">栅格化 = 每一像素都要算的"必修课"；
+缓存 = 让重复的路径可以跳课。
+关键在于"命中率"和"单次命中省下的工作"，
+两个都要够高，缓存才值得存在。</span>
+              <p class="explain">Software 后端的核心是逐像素 barycentric + top-left；GPU 后端的核心是 tessellation + 顶点属性 + 硬件光栅。缓存并不改变这条路径，只是让它<em>少走几次</em>。</p>
+            </div>
+          </div>
+        </section>
+
+      </div>
+
+      <aside class="toc">
+        <h3>目录</h3>
+        <a href="#what">1. 栅格化本质</a>
+        <a href="#methods">2. 3 种做法</a>
+        <a href="#coverage">3. 覆盖度与 AA</a>
+        <a href="#cache-types">4. 缓存分类</a>
+        <a href="#cache-bench">5. 交互 benchmark</a>
+        <a href="#repo">6. WhatsCanvas 内部</a>
+        <a href="#libraries">7. 主流库做法</a>
+        <a href="#takeaway">8. 选型建议</a>
+        <p class="note">要看具体代码，可以对照 <code>src/render/software/SoftwareRenderer.cpp</code>、<code>src/render/LruCache.h</code>、<code>src/render/RenderTargetPool.h</code>、<code>src/canvas/Canvas.cpp: expandTrianglesWithAA</code>。</p>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    // ------------ 01 · triangle edge-function grid ------------
+    (function () {
+      const canvas = document.getElementById('triCanvas');
+      const ctx = canvas.getContext('2d');
+      const scaleSlider = document.getElementById('triScale');
+      const scaleLabel = document.getElementById('triScaleVal');
+      const showEdge = document.getElementById('triShowEdge');
+
+      const A = { x: 90,  y: 320 };
+      const B = { x: 400, y: 60  };
+      const C = { x: 590, y: 300 };
+
+      function edge(ax, ay, bx, by, px, py) {
+        return (bx - ax) * (py - ay) - (by - ay) * (px - ax);
+      }
+
+      function draw() {
+        const grid = parseInt(scaleSlider.value, 10);
+        scaleLabel.textContent = grid + '×';
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // Rasterize cells
+        for (let cy = 0; cy < canvas.height; cy += grid) {
+          for (let cx = 0; cx < canvas.width; cx += grid) {
+            const px = cx + grid / 2;
+            const py = cy + grid / 2;
+            const e0 = edge(B.x, B.y, C.x, C.y, px, py);
+            const e1 = edge(C.x, C.y, A.x, A.y, px, py);
+            const e2 = edge(A.x, A.y, B.x, B.y, px, py);
+            const inside = e0 >= 0 && e1 >= 0 && e2 >= 0;
+            const nearEdge = Math.min(Math.abs(e0), Math.abs(e1), Math.abs(e2)) < grid * 40;
+            if (inside && nearEdge) {
+              ctx.fillStyle = 'rgba(194, 90, 27, 0.35)';
+            } else if (inside) {
+              ctx.fillStyle = 'rgba(14, 124, 134, 0.28)';
+            } else if (nearEdge) {
+              ctx.fillStyle = 'rgba(23, 33, 38, 0.06)';
+            } else {
+              continue;
+            }
+            ctx.fillRect(cx, cy, grid, grid);
+          }
+        }
+        // Grid overlay
+        ctx.strokeStyle = 'rgba(23, 33, 38, 0.10)';
+        ctx.lineWidth = 1;
+        for (let x = 0; x <= canvas.width; x += grid) {
+          ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+        }
+        for (let y = 0; y <= canvas.height; y += grid) {
+          ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+        }
+        // True triangle outline
+        ctx.strokeStyle = '#182024';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.lineTo(C.x, C.y); ctx.closePath();
+        ctx.stroke();
+        // Vertex labels
+        ctx.fillStyle = '#182024';
+        ctx.font = '600 13px "Aptos", "Segoe UI", sans-serif';
+        [{p:A,name:'A'},{p:B,name:'B'},{p:C,name:'C'}].forEach(({p, name}) => {
+          ctx.beginPath(); ctx.fillStyle = '#c25a1b'; ctx.arc(p.x, p.y, 4, 0, Math.PI*2); ctx.fill();
+          ctx.fillStyle = '#182024';
+          ctx.fillText(name, p.x + 6, p.y - 6);
+        });
+        // Legend
+        if (showEdge.checked) {
+          ctx.font = '600 12px "Aptos", "Segoe UI", sans-serif';
+          const legendY = 20;
+          ctx.fillStyle = 'rgba(14, 124, 134, 0.28)'; ctx.fillRect(12, legendY, 18, 12);
+          ctx.fillStyle = '#182024'; ctx.fillText('内部（3 条边函数同号）', 36, legendY + 10);
+          ctx.fillStyle = 'rgba(194, 90, 27, 0.35)'; ctx.fillRect(12, legendY + 22, 18, 12);
+          ctx.fillStyle = '#182024'; ctx.fillText('靠近边界（可能只被部分覆盖）', 36, legendY + 32);
+        }
+      }
+      scaleSlider.addEventListener('input', draw);
+      showEdge.addEventListener('change', draw);
+      draw();
+    })();
+
+    // ------------ 02 · rasterization methods ------------
+    (function () {
+      const methods = {
+        scanline: {
+          title: '扫描线（Scanline）',
+          body: '最经典的 CPU 光栅化算法，尤其适合任意封闭多边形（不只是三角形）。对每条水平线维护 Active Edge Table，找到进入 / 退出多边形的 x 坐标，然后填中间。stb_truetype、cairo、老 GDI 都用这个思路。',
+          pros: ['天然处理任意封闭多边形，不用先三角化', '内存访问模式友好（一整行连续写）', '硬件实现门槛低——早期 GPU 也是扫描线'],
+          cons: ['难以并行到 GPU：行之间是串行依赖', '性能取决于多边形复杂度而非像素数', 'AA 要另做（子采样 / 分析式）']
+        },
+        edge: {
+          title: '边函数（Edge Function）',
+          body: '现代 CPU + GPU 都在用的算法：对三角形的 3 条边算一个"到该点的有符号面积"，3 个都同号则像素在内。逐像素独立 → 完全可并行。SIMD、GPU 硬件、tile-based renderer 全部围绕这个思路展开。',
+          pros: ['逐像素独立 → SIMD/GPU 天然并行', 'barycentric 直接插值任意属性（color, coverage, uv）', 'top-left 规则可精确定义共享边归属，不重不漏'],
+          cons: ['需要先把几何拆成三角形', '大三角形 bbox 里空白像素也要遍历（可用 tile 优化）']
+        },
+        gpu: {
+          title: 'GPU 硬件装配',
+          body: '你把三个顶点交给 GPU，硬件 rasterizer 自己算 barycentric、发射 fragment shader 到每个覆盖到的像素。你只需要关心 vertex/fragment shader 和顶点属性布局。WhatsCanvas 的 OpenGL / Vulkan / Metal 后端都是这条路。',
+          pros: ['吞吐量高得离谱：GPU 一秒能覆盖几十亿像素', 'fragment shader 完全接管颜色 / 覆盖度 / blend 逻辑', '支持 MSAA / 硬件抗锯齿的一切基础设施'],
+          cons: ['要维护 vertex/index buffer、shader、uniform、texture 单元的整套 GL 状态', '小三角形还是有 setup 开销（driver 决定）', '每次 draw call 有固定成本，需要合并批次']
+        }
+      };
+      const grid = document.querySelectorAll('.method-grid .metric-card[data-method]');
+      const title = document.getElementById('methodTitle');
+      const body = document.getElementById('methodBody');
+      const pros = document.getElementById('methodPros');
+      const cons = document.getElementById('methodCons');
+      function apply(name) {
+        const m = methods[name];
+        title.textContent = m.title;
+        body.textContent = m.body;
+        pros.innerHTML = m.pros.map(t => `<li>${t}</li>`).join('');
+        cons.innerHTML = m.cons.map(t => `<li>${t}</li>`).join('');
+        grid.forEach(c => c.classList.toggle('active', c.dataset.method === name));
+      }
+      grid.forEach(c => c.addEventListener('click', () => apply(c.dataset.method)));
+      apply('scanline');
+    })();
+
+    // ------------ 03 · coverage visualisation ------------
+    (function () {
+      const canvas = document.getElementById('covCanvas');
+      const ctx = canvas.getContext('2d');
+      const modeSel = document.getElementById('covMode');
+      const scale = document.getElementById('covScale');
+      const scaleVal = document.getElementById('covScaleVal');
+
+      const A = { x: 100, y: 300 };
+      const B = { x: 380, y: 60 };
+      const C = { x: 560, y: 260 };
+
+      function edge(ax, ay, bx, by, px, py) {
+        return (bx - ax) * (py - ay) - (by - ay) * (px - ax);
+      }
+      function pointInTri(px, py) {
+        const e0 = edge(B.x, B.y, C.x, C.y, px, py);
+        const e1 = edge(C.x, C.y, A.x, A.y, px, py);
+        const e2 = edge(A.x, A.y, B.x, B.y, px, py);
+        return e0 >= 0 && e1 >= 0 && e2 >= 0;
+      }
+      function coverageBinary(cx, cy, s) { return pointInTri(cx + s / 2, cy + s / 2) ? 1 : 0; }
+      function coverageSSAA(cx, cy, s) {
+        let hit = 0;
+        for (let i = 0; i < 4; ++i) for (let j = 0; j < 4; ++j) {
+          if (pointInTri(cx + (i + 0.5) * s / 4, cy + (j + 0.5) * s / 4)) hit++;
+        }
+        return hit / 16;
+      }
+      function distanceToEdge(px, py) {
+        const edges = [[B, C], [C, A], [A, B]];
+        let minD = Infinity;
+        for (const [p1, p2] of edges) {
+          const dx = p2.x - p1.x, dy = p2.y - p1.y;
+          const len = Math.sqrt(dx * dx + dy * dy);
+          const d = Math.abs((p2.x - p1.x) * (p1.y - py) - (p1.x - px) * (p2.y - p1.y)) / len;
+          if (d < minD) minD = d;
+        }
+        return minD;
+      }
+      function coverageAnalytic(cx, cy, s) {
+        const px = cx + s / 2, py = cy + s / 2;
+        const inside = pointInTri(px, py);
+        const d = distanceToEdge(px, py);
+        const feather = Math.max(s * 0.35, 4);
+        if (d > feather) return inside ? 1 : 0;
+        // Ramp from 1 (deep interior) to 0 (outside) over feather band
+        const ramp = 0.5 + (inside ? 1 : -1) * (d / feather) * 0.5;
+        return Math.max(0, Math.min(1, ramp));
+      }
+      function draw() {
+        const s = parseInt(scale.value, 10);
+        const mode = modeSel.value;
+        scaleVal.textContent = s + '×';
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        for (let cy = 0; cy < canvas.height; cy += s) {
+          for (let cx = 0; cx < canvas.width; cx += s) {
+            let cov = 0;
+            if (mode === 'binary') cov = coverageBinary(cx, cy, s);
+            else if (mode === 'ssaa') cov = coverageSSAA(cx, cy, s);
+            else cov = coverageAnalytic(cx, cy, s);
+            if (cov <= 0) continue;
+            ctx.fillStyle = `rgba(14, 124, 134, ${(0.15 + cov * 0.65).toFixed(3)})`;
+            ctx.fillRect(cx, cy, s, s);
+          }
+        }
+        // outline
+        ctx.strokeStyle = '#182024'; ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.lineTo(C.x, C.y); ctx.closePath();
+        ctx.stroke();
+        // caption
+        ctx.font = '600 12px "Aptos", "Segoe UI", sans-serif';
+        ctx.fillStyle = '#182024';
+        const labels = {binary: '模式：二值判定（硬边）', ssaa: '模式：4×4 子采样', analytic: '模式：解析式覆盖度（fringe）'};
+        ctx.fillText(labels[mode], 14, 22);
+      }
+      modeSel.addEventListener('change', draw);
+      scale.addEventListener('input', draw);
+      draw();
+    })();
+
+    // ------------ 04 · cache category selector ------------
+    (function () {
+      const caches = {
+        tess: {
+          title: '① Tessellation Cache',
+          body: '路径先要拆成三角形才能给光栅器。这一步在 CPU 上做一次很便宜（微秒级），但一秒 60 帧 × 上百个形状 × 反复重画同一个形状 = 每秒几万次三角化，成本就上来了。LruCache<FillTriangles>（src/render/LruCache.h）按 hash(path shape) 做键，命中就复用；容量按条目数和常驻字节两条边同时约束。',
+          pros: ['一次三角化，可无限次复用', '缓存字节可控（LruCache 双约束）', '同一形状的填充和裁剪共享一份三角形'],
+          cons: ['形状每帧变化 → 命中率归零', 'transform 会不会入 key 是设计决策——不入 key 更省，但要保证网格与 transform 无关']
+        },
+        atlas: {
+          title: '② Glyph Atlas',
+          body: '把常用字形（例如"你我他的"这几十个字）事先光栅化，装在一张大纹理（atlas）里。绘制文字时不再调用 FreeType/DirectWrite，而是从 atlas 里取子矩形贴上去。字符是文字渲染最"高频重复"的单位——完全就是缓存的天堂。',
+          pros: ['字形光栅化只跑一次（≈几百 μs 一个字）', '同一字体 + 字号 + 字形唯一 → 命中率 90%+', 'GPU 后端下变成一次纹理采样，快到几乎"免费"'],
+          cons: ['atlas 大小有限，冷门字形要换页', '字号变了就要重新光栅（相同字符不同字号是两条独立条目）', 'sub-pixel 位置策略选错会造成 miss 风暴']
+        },
+        rtp: {
+          title: '③ Render Target Pool',
+          body: 'saveLayer 每次都要一张同规模纹理 + 一个 FBO。频繁进出层就会频繁 glGenFramebuffers / glGenTextures，driver 层面代价可观。RenderTargetPool 按尺寸桶把释放的 target 缓存起来，下次 acquire(w, h) 直接复用。',
+          pros: ['saveLayer 密集场景（backdrop blur、复杂 UI）省 driver 往返', 'expire(maxIdleCycles) 能自动回收长期不用的池条目', '预算 32 MiB 上限 → 不会无节制吃内存'],
+          cons: ['尺寸抖动（尤其 resize 动画）会击穿池：每次 acquire 都是新桶', '池自身也占内存，静态 UI 反而不需要它']
+        },
+        pic: {
+          title: '④ Picture Cache',
+          body: 'wsc::Picture 是"命令录制"。把一段"很少变的绘制"（比如整个背景、一张复杂图表）录进 Picture，运行时用 canvas.drawPictureRasterized(picture) 把它一次栅格化到一张纹理，之后每帧只是"贴一张纹理"。这是最粗粒度、也是最高收益的缓存。',
+          pros: ['把上千条命令降到 1 次纹理 blit', 'Picture 可以在多个 Canvas 之间共享（同 renderer）', '和 saveLayer + 背景层的组合非常自然'],
+          cons: ['需要用户主动录制 → 侵入现有渲染代码', '内部有一次变化就要重新录 + 重新光栅', '大画布 Picture 的纹理占内存']
+        }
+      };
+      const grid = document.querySelectorAll('.method-grid .metric-card[data-cache]');
+      const title = document.getElementById('cacheTitle');
+      const body = document.getElementById('cacheBody');
+      const pros = document.getElementById('cachePros');
+      const cons = document.getElementById('cacheCons');
+      function apply(name) {
+        const m = caches[name];
+        title.textContent = m.title;
+        body.textContent = m.body;
+        pros.innerHTML = m.pros.map(t => `<li>${t}</li>`).join('');
+        cons.innerHTML = m.cons.map(t => `<li>${t}</li>`).join('');
+        grid.forEach(c => c.classList.toggle('active', c.dataset.cache === name));
+      }
+      grid.forEach(c => c.addEventListener('click', () => apply(c.dataset.cache)));
+      apply('tess');
+    })();
+
+    // ------------ 05 · cache benchmark ------------
+    (function () {
+      const canvas = document.getElementById('benchCanvas');
+      const ctx = canvas.getContext('2d');
+      const cbTess  = document.getElementById('benchTess');
+      const cbAtlas = document.getElementById('benchAtlas');
+      const cbPic   = document.getElementById('benchPic');
+      const shapes  = document.getElementById('benchShapes');
+      const shapesVal = document.getElementById('benchShapesVal');
+      const statTess = document.getElementById('statTess');
+      const statGlyph = document.getElementById('statGlyph');
+      const statPic  = document.getElementById('statPic');
+      const statWork = document.getElementById('statWork');
+
+      // Pretend Picture (background rasterization) — an offscreen canvas.
+      const picture = document.createElement('canvas');
+      picture.width = canvas.width;
+      picture.height = canvas.height;
+      let pictureValid = false;
+
+      // Fake "already tessellated" cache — always allocated shapes count.
+      let tessCacheEntries = 0;
+      const TESS_CACHE_CAP = 96;
+
+      let atlasSize = 0;
+      const ATLAS_CAP = 24; // 24 unique glyphs cached
+      let phase = 0;
+
+      function renderPicture(nShapes) {
+        const p = picture.getContext('2d');
+        p.fillStyle = '#f6eddc';
+        p.fillRect(0, 0, picture.width, picture.height);
+        p.strokeStyle = 'rgba(23, 33, 38, 0.10)';
+        for (let x = 0; x <= picture.width; x += 20) {
+          p.beginPath(); p.moveTo(x, 0); p.lineTo(x, picture.height); p.stroke();
+        }
+        for (let y = 0; y <= picture.height; y += 20) {
+          p.beginPath(); p.moveTo(0, y); p.lineTo(picture.width, y); p.stroke();
+        }
+        // A pile of decorative rects (this represents "the picture")
+        for (let i = 0; i < nShapes; ++i) {
+          const x = (i * 43) % picture.width;
+          const y = (i * 61) % picture.height;
+          p.fillStyle = `hsl(${(i * 21) % 360}, 55%, 78%)`;
+          p.fillRect(x, y, 20, 12);
+        }
+        pictureValid = true;
+      }
+
+      function stepFrame(dt) {
+        phase += dt * 0.001;
+        const nShapes = parseInt(shapes.value, 10);
+        shapesVal.textContent = nShapes;
+
+        let tessCalls = 0, glyphCalls = 0, picCalls = 0;
+
+        // 1. Background: picture cache or full replay
+        if (cbPic.checked) {
+          if (!pictureValid) renderPicture(nShapes);
+          ctx.drawImage(picture, 0, 0);
+          picCalls = 1;
+        } else {
+          // Full replay every frame
+          pictureValid = false;
+          ctx.fillStyle = '#f6eddc';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.strokeStyle = 'rgba(23, 33, 38, 0.10)';
+          for (let x = 0; x <= canvas.width; x += 20) {
+            ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+          }
+          for (let y = 0; y <= canvas.height; y += 20) {
+            ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+          }
+          for (let i = 0; i < nShapes; ++i) {
+            const x = (i * 43) % canvas.width;
+            const y = (i * 61) % canvas.height;
+            ctx.fillStyle = `hsl(${(i * 21) % 360}, 55%, 78%)`;
+            ctx.fillRect(x, y, 20, 12);
+            // Each shape needs tessellation unless cached
+            if (cbTess.checked && tessCacheEntries < TESS_CACHE_CAP) {
+              tessCacheEntries++;
+              tessCalls++;              // seed miss
+            } else if (!cbTess.checked) {
+              tessCalls++;              // no cache → every frame recomputes
+            }
+            // else: cache hit → 0 tess calls
+          }
+        }
+
+        // 2. Animated foreground: 6 rotating rects always need tessellation
+        for (let i = 0; i < 6; ++i) {
+          const cx = canvas.width * 0.5 + Math.cos(phase + i * 1.05) * 200;
+          const cy = canvas.height * 0.5 + Math.sin(phase * 1.4 + i * 0.9) * 100;
+          ctx.save();
+          ctx.translate(cx, cy);
+          ctx.rotate(phase * 0.6 + i);
+          ctx.fillStyle = `hsl(${(i * 60 + phase * 60) % 360}, 65%, 55%)`;
+          ctx.fillRect(-16, -10, 32, 20);
+          ctx.restore();
+          // These rotating shapes always miss the shape cache (rotation baked in)
+          tessCalls++;
+        }
+
+        // 3. Text overlay — 12 glyphs total (imagine "FPS: 60  ms/frame: 16")
+        const label = `frame=${(phase * 1000 | 0)} shapes=${nShapes}`;
+        for (let i = 0; i < label.length; ++i) {
+          if (cbAtlas.checked && atlasSize < ATLAS_CAP) {
+            atlasSize++;
+            glyphCalls++;   // seed
+          } else if (!cbAtlas.checked) {
+            glyphCalls++;   // no atlas → every char rasterizes every frame
+          }
+        }
+        ctx.font = '600 14px "Aptos", "Segoe UI", sans-serif';
+        ctx.fillStyle = 'rgba(255, 251, 245, 0.9)';
+        ctx.fillRect(10, canvas.height - 34, 320, 26);
+        ctx.strokeStyle = 'rgba(23, 33, 38, 0.14)';
+        ctx.strokeRect(10, canvas.height - 34, 320, 26);
+        ctx.fillStyle = '#182024';
+        ctx.fillText(label, 20, canvas.height - 17);
+
+        // Compute weighted work
+        const work = tessCalls * 3 + glyphCalls * 5 + picCalls * 1
+                     + (cbPic.checked ? 0 : 1); // per-frame overhead unit
+        statTess.textContent = tessCalls;
+        statGlyph.textContent = glyphCalls;
+        statPic.textContent = picCalls;
+        statWork.textContent = work;
+      }
+
+      // Reset caches when toggles change
+      function invalidateAll() {
+        tessCacheEntries = 0;
+        atlasSize = 0;
+        pictureValid = false;
+      }
+      [cbTess, cbAtlas, cbPic].forEach(cb => cb.addEventListener('change', invalidateAll));
+      shapes.addEventListener('input', invalidateAll);
+
+      let last = performance.now();
+      function loop(now) {
+        const dt = now - last; last = now;
+        stepFrame(dt);
+        requestAnimationFrame(loop);
+      }
+      requestAnimationFrame(loop);
+    })();
+  </script>
+</body>
+</html>
