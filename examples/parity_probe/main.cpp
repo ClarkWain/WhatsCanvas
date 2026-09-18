@@ -567,6 +567,167 @@ void sceneTransformStack(wsc::Canvas &c)
     }
 }
 
+// ---- D: additional combination scenes surfaced during 1.2.1 debugging ----
+
+void sceneClipPathRect(wsc::Canvas &c)
+{
+    // clipPath with an AA rect path (goes through the mask pipeline instead
+    // of the axis-aligned fast path), then draws a gradient rect.
+    c.drawColor(wsc::Color::WHITE);
+    c.save();
+    wsc::Path clip;
+    clip.moveTo(50.0f, 40.0f);
+    clip.lineTo(206.0f, 40.0f);
+    clip.lineTo(206.0f, 216.0f);
+    clip.lineTo(50.0f, 216.0f);
+    clip.close();
+    c.clipPath(clip);
+    wsc::Paint p;
+    p.setAntiAlias(true);
+    p.setLinearGradient(0.0f, 0.0f, 256.0f, 256.0f,
+                        wsc::Color(200, 60, 60, 255),
+                        wsc::Color(40, 60, 200, 255));
+    c.drawRect(wsc::RectF(0.0f, 0.0f, 256.0f, 256.0f), p);
+    c.restore();
+}
+
+void sceneClipPathStar(wsc::Canvas &c)
+{
+    c.drawColor(wsc::Color::WHITE);
+    wsc::Path star;
+    const float cx = 128.0f, cy = 128.0f;
+    for (int i = 0; i < 10; ++i) {
+        const float ang = -1.5707963f + i * 3.14159265f / 5.0f;
+        const float r = (i % 2 == 0) ? 100.0f : 46.0f;
+        const float x = cx + std::cos(ang) * r;
+        const float y = cy + std::sin(ang) * r;
+        if (i == 0) star.moveTo(x, y); else star.lineTo(x, y);
+    }
+    star.close();
+    c.save();
+    c.clipPath(star);
+    wsc::Paint p;
+    p.setAntiAlias(true);
+    p.setLinearGradient(0.0f, 0.0f, 256.0f, 256.0f,
+                        wsc::Color(200, 60, 60, 255),
+                        wsc::Color(40, 60, 200, 255));
+    c.drawRect(wsc::RectF(0.0f, 0.0f, 256.0f, 256.0f), p);
+    c.restore();
+}
+
+void sceneClipPathTwice(wsc::Canvas &c)
+{
+    // Nested clipPath (intersection of two paths), then fill.
+    c.drawColor(wsc::Color::WHITE);
+    c.save();
+    wsc::Path a;
+    a.addCircle(96.0f, 128.0f, 90.0f);
+    c.clipPath(a);
+    wsc::Path b;
+    b.addCircle(160.0f, 128.0f, 90.0f);
+    c.clipPath(b);
+    wsc::Paint p;
+    p.setAntiAlias(true);
+    p.setColor(wsc::Color(40, 160, 240, 255));
+    c.drawRect(wsc::RectF(0.0f, 0.0f, 256.0f, 256.0f), p);
+    c.restore();
+}
+
+void sceneClipPathThenSaveLayer(wsc::Canvas &c)
+{
+    // clipPath + saveLayer + inner draws (exercises the composited layer +
+    // mask pipeline together).
+    c.drawColor(wsc::Color::WHITE);
+    c.save();
+    wsc::Path clip;
+    clip.addCircle(128.0f, 128.0f, 96.0f);
+    c.clipPath(clip);
+    wsc::Paint layerPaint;
+    layerPaint.setAlpha(180);
+    c.saveLayer(wsc::RectF(0.0f, 0.0f, 256.0f, 256.0f), layerPaint);
+    wsc::Paint a; a.setAntiAlias(true); a.setColor(wsc::Color(255, 60, 60, 255));
+    c.drawCircle(96.0f, 128.0f, 60.0f, a);
+    wsc::Paint b; b.setAntiAlias(true); b.setColor(wsc::Color(60, 60, 255, 255));
+    c.drawCircle(160.0f, 128.0f, 60.0f, b);
+    c.restore();
+    c.restore();
+}
+
+void sceneClipPathTransformed(wsc::Canvas &c)
+{
+    // Rotated + scaled clipPath. Exercises the non-axis-aligned mask
+    // triangulation and the transform passthrough on the clip pipeline.
+    c.drawColor(wsc::Color::WHITE);
+    c.save();
+    c.translate(128.0f, 128.0f);
+    c.rotate(0.5f);
+    c.scale(1.2f, 0.7f);
+    wsc::Path clip;
+    clip.addRoundRect(wsc::RectF(-70.0f, -70.0f, 140.0f, 140.0f), 20.0f);
+    c.clipPath(clip);
+    wsc::Paint p;
+    p.setAntiAlias(true);
+    p.setLinearGradient(-100.0f, -100.0f, 100.0f, 100.0f,
+                        wsc::Color(255, 200, 60, 255),
+                        wsc::Color(60, 90, 220, 255));
+    c.drawRect(wsc::RectF(-200.0f, -200.0f, 400.0f, 400.0f), p);
+    c.restore();
+}
+
+void sceneNestedSaveLayerBlur(wsc::Canvas &c)
+{
+    // Nested saveLayer with blur inside a colored parent layer.
+    c.drawColor(wsc::Color(240, 240, 245, 255));
+    wsc::Paint outer;
+    outer.setAlpha(220);
+    c.saveLayer(wsc::RectF(16.0f, 16.0f, 224.0f, 224.0f), outer);
+    wsc::Paint bg;
+    bg.setAntiAlias(false);
+    bg.setColor(wsc::Color(255, 255, 255, 255));
+    c.drawRect(wsc::RectF(16.0f, 16.0f, 224.0f, 224.0f), bg);
+    wsc::Paint blurPaint;
+    wsc::LayerOptions blurOpt;
+    blurOpt.setImageFilter(wsc::ImageFilter::blur(4.0f, 4.0f));
+    c.saveLayer(wsc::RectF(48.0f, 48.0f, 160.0f, 160.0f), blurPaint, blurOpt);
+    wsc::Paint circ; circ.setAntiAlias(true);
+    circ.setColor(wsc::Color(220, 60, 80, 255));
+    c.drawCircle(96.0f, 100.0f, 44.0f, circ);
+    circ.setColor(wsc::Color(60, 120, 220, 255));
+    c.drawCircle(160.0f, 148.0f, 44.0f, circ);
+    c.restore();
+    c.restore();
+}
+
+void sceneShadowOnClippedRect(wsc::Canvas &c)
+{
+    // Shadow + clipRect together, checking that the shadow blur respects the
+    // scissor / clip on both backends.
+    c.drawColor(wsc::Color(240, 240, 245, 255));
+    c.save();
+    c.clipRect(wsc::RectF(40.0f, 40.0f, 176.0f, 176.0f));
+    wsc::Paint p;
+    p.setAntiAlias(true);
+    p.setColor(wsc::Color(255, 255, 255, 255));
+    p.setShadowLayer(10.0f, 0.0f, 6.0f, wsc::Color(0, 0, 0, 140));
+    c.drawRoundRect(wsc::RectF(56.0f, 56.0f, 144.0f, 144.0f), 16.0f, p);
+    c.restore();
+}
+
+void sceneManyOverlappingRects(wsc::Canvas &c)
+{
+    // Many overlapping AA rects with SRC_OVER to stress batching under a
+    // shared blend/scissor state.
+    c.drawColor(wsc::Color::WHITE);
+    for (int i = 0; i < 12; ++i) {
+        wsc::Paint p;
+        p.setAntiAlias(true);
+        p.setColor(wsc::Color(20 + i * 16, 60, 220 - i * 16, 160));
+        const float x = 20.0f + i * 8.0f;
+        const float y = 20.0f + i * 12.0f;
+        c.drawRect(wsc::RectF(x, y, 180.0f, 60.0f), p);
+    }
+}
+
 std::vector<Scene> buildScenes()
 {
     return {
@@ -588,8 +749,16 @@ std::vector<Scene> buildScenes()
         {"box_shadow", sceneBoxShadow, "drawBoxShadow"},
         {"clip_rect", sceneClipRect, "clipRect + gradient"},
         {"clip_path_circle", sceneClipPathCircle, "clipPath circle + gradient"},
+        {"clip_path_rect", sceneClipPathRect, "clipPath rect + gradient"},
+        {"clip_path_star", sceneClipPathStar, "clipPath star + gradient"},
+        {"clip_path_twice", sceneClipPathTwice, "two nested clipPaths + fill"},
+        {"clip_path_then_saveLayer", sceneClipPathThenSaveLayer, "clipPath + saveLayer + inner draws"},
+        {"clip_path_transformed", sceneClipPathTransformed, "rotated/scaled clipPath + gradient"},
         {"nested_clip_xform", sceneNestedClipTransform, "clip + rotate + scale"},
         {"save_layer_alpha", sceneSaveLayerAlpha, "saveLayer with alpha=128"},
+        {"nested_saveLayer_blur", sceneNestedSaveLayerBlur, "outer alpha layer + inner blur layer"},
+        {"shadow_on_clipped_rect", sceneShadowOnClippedRect, "shadow drawn inside clipRect"},
+        {"many_overlapping_rects", sceneManyOverlappingRects, "12 overlapping AA rects, tests batching"},
         {"blend_src_over",  [](wsc::Canvas &c){ sceneBlend(c, wsc::Paint::BlendMode::SRC_OVER); }, "SRC_OVER"},
         {"blend_multiply",  [](wsc::Canvas &c){ sceneBlend(c, wsc::Paint::BlendMode::MULTIPLY); }, "MULTIPLY"},
         {"blend_screen",    [](wsc::Canvas &c){ sceneBlend(c, wsc::Paint::BlendMode::SCREEN); }, "SCREEN"},
