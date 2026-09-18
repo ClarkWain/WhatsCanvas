@@ -278,9 +278,13 @@
     .method-grid .metric-card.active { border-color: rgba(14, 124, 134, 0.4); box-shadow: 0 12px 30px rgba(14, 124, 134, 0.12); }
     .method-grid .metric-card p { margin: 6px 0 0; }
 
-    .method-card { margin-top: 12px; }
-    .method-card .pros, .method-card .cons { margin: 8px 0 0 18px; color: var(--muted); }
+    .method-card { margin-top: 12px; padding: 20px 22px; }
+    .method-card h3 { margin-top: 0; }
+    .method-card p { margin: 0 0 10px; }
+    .method-card .pros, .method-card .cons { margin: 8px 0 12px 20px; padding: 0; color: var(--muted); }
+    .method-card .pros li, .method-card .cons li { margin-bottom: 4px; }
     .method-card strong { color: var(--ink); }
+    .method-card strong + ul { margin-top: 6px; }
 
     .mini-grid {
       display: grid;
