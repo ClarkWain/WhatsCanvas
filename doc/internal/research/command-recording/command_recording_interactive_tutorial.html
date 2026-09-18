@@ -1,0 +1,948 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>命令录制原理与实现互动教学</title>
+  <style>
+    :root {
+      --bg: #f4efe6;
+      --bg-accent: #efe0ca;
+      --panel: rgba(255, 251, 245, 0.9);
+      --ink: #172126;
+      --muted: #5c6a70;
+      --line: rgba(23, 33, 38, 0.12);
+      --accent: #7a4bd6;
+      --accent-soft: rgba(122, 75, 214, 0.14);
+      --accent-strong: #c25a1b;
+      --success: #2f7d32;
+      --shadow: 0 20px 60px rgba(40, 27, 11, 0.12);
+      --radius: 24px;
+      --radius-sm: 16px;
+      --mono: "Cascadia Code", "Consolas", monospace;
+      --sans: "Aptos", "Segoe UI Variable", "Segoe UI", sans-serif;
+      --display: "Bahnschrift", "Trebuchet MS", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: var(--sans);
+      color: var(--ink);
+      line-height: 1.72;
+      background:
+        radial-gradient(circle at top left, rgba(122, 75, 214, 0.14), transparent 30%),
+        linear-gradient(180deg, #fbf6eb 0%, var(--bg) 100%);
+    }
+    a { color: var(--accent); }
+    .page { width: min(1320px, calc(100% - 32px)); margin: 24px auto 80px; position: relative; z-index: 1; }
+
+    .hero, .section, .card, .code-card, .method-card, .timeline-step, .metric-card {
+      border: 1px solid rgba(23, 33, 38, 0.08);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      -webkit-backdrop-filter: blur(12px);
+      backdrop-filter: blur(12px);
+    }
+    .hero { padding: 28px; overflow: hidden; position: relative; }
+    .hero::after {
+      content: ""; position: absolute; inset: auto -70px -90px auto;
+      width: 280px; height: 280px;
+      background: radial-gradient(circle, rgba(122, 75, 214, 0.18), transparent 70%);
+      pointer-events: none;
+    }
+    .eyebrow {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 8px 12px; border-radius: 999px;
+      background: var(--accent-soft); color: var(--accent);
+      font-size: 0.84rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+    }
+    h1 { font-family: var(--display); font-size: clamp(1.6rem, 2.2vw + 0.4rem, 2.4rem); margin: 12px 0 6px; color: var(--ink); }
+    h2 { font-family: var(--display); font-size: 1.32rem; margin: 0 0 6px; color: var(--ink); }
+    h3 { font-family: var(--display); font-size: 1.05rem; margin: 0 0 8px; color: var(--ink); }
+    p { margin: 0 0 12px; color: var(--muted); }
+    .lead { margin-top: 16px; font-size: 1.08rem; max-width: 66ch; color: #28333a; }
+
+    .hero-grid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(300px, 0.7fr); gap: 20px; align-items: start; }
+    .hero-points { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
+    .hero-point { padding: 14px; border-radius: 18px; background: rgba(255, 255, 255, 0.78); border: 1px solid rgba(23, 33, 38, 0.08); }
+    .hero-point strong { display: block; margin-bottom: 4px; color: var(--ink); }
+    .summary-card { padding: 18px; border-radius: var(--radius-sm); background: rgba(255, 255, 255, 0.84); border: 1px solid rgba(23, 33, 38, 0.08); }
+    .summary-card ul { margin: 10px 0 0 18px; padding: 0; color: var(--muted); }
+    .summary-card li { margin-bottom: 6px; }
+
+    .layout { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 22px; margin-top: 22px; }
+    .content { display: grid; gap: 22px; }
+    .section { padding: 24px; }
+    .section-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 16px; }
+    .section-tag { padding: 7px 12px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 0.88rem; font-weight: 700; }
+    .section-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr); gap: 18px; align-items: start; }
+
+    .demo-panel, .method-panel, .formula, .code-card, .timeline-step, .metric-card { padding: 16px 18px; border-radius: var(--radius-sm); background: rgba(255, 255, 255, 0.82); border: 1px solid rgba(23, 33, 38, 0.08); }
+    .demo-panel canvas { width: 100%; height: auto; display: block; border-radius: 16px; background: linear-gradient(180deg, #fefdf8, #f6eddc); border: 1px solid rgba(23, 33, 38, 0.08); }
+    .canvas-caption { margin-top: 10px; color: var(--muted); font-size: 0.92rem; }
+
+    .controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 12px 0 10px; }
+    .pill { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 999px; cursor: pointer; background: #fff; border: 1px solid rgba(23, 33, 38, 0.1); transition: 140ms ease; user-select: none; }
+    .pill.active { color: white; background: var(--accent); border-color: var(--accent); }
+    .pill input[type="range"] { accent-color: var(--accent); }
+
+    .formula .label { display: block; margin-bottom: 8px; color: var(--accent); font-weight: 700; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.04em; }
+    .formula .math { font-family: "Cambria Math", "Times New Roman", serif; font-size: 1.06rem; white-space: pre-wrap; color: var(--ink); }
+    .formula .explain { margin-top: 8px; color: #465158; }
+
+    .toc { position: sticky; top: 14px; align-self: start; padding: 18px; border-radius: 22px; background: rgba(255, 252, 246, 0.9); border: 1px solid rgba(23, 33, 38, 0.08); box-shadow: 0 14px 40px rgba(43, 31, 18, 0.08); }
+    .toc h3 { margin-bottom: 10px; }
+    .toc a { display: block; padding: 7px 9px; margin: 4px 0; text-decoration: none; border-radius: 12px; color: var(--muted); }
+    .toc a:hover, .toc a:focus-visible { background: var(--accent-soft); color: var(--accent); outline: none; }
+    .toc .note { margin-top: 10px; font-size: 0.86rem; color: var(--muted); }
+
+    .trace-list { display: grid; gap: 10px; margin-top: 12px; }
+    .trace-item { padding: 10px 12px; border-radius: 12px; background: rgba(255, 255, 255, 0.74); border: 1px solid rgba(23, 33, 38, 0.08); color: var(--muted); }
+    .trace-item strong { color: var(--ink); }
+    .info-stack { display: grid; gap: 12px; }
+
+    .method-grid { display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 14px; }
+    .method-grid .metric-card { cursor: pointer; transition: transform 120ms ease, box-shadow 120ms ease; }
+    .method-grid .metric-card:hover { transform: translateY(-2px); }
+    .method-grid .metric-card.active { border-color: rgba(122, 75, 214, 0.4); box-shadow: 0 12px 30px rgba(122, 75, 214, 0.14); }
+    .method-grid .metric-card p { margin: 6px 0 0; }
+
+    .method-card { margin-top: 12px; padding: 20px 22px; }
+    .method-card h3 { margin-top: 0; }
+    .method-card p { margin: 0 0 10px; }
+    .method-card .pros, .method-card .cons { margin: 8px 0 12px 20px; padding: 0; color: var(--muted); }
+    .method-card .pros li, .method-card .cons li { margin-bottom: 4px; }
+    .method-card strong { color: var(--ink); }
+    .method-card strong + ul { margin-top: 6px; }
+
+    .mini-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-top: 12px; }
+    .mini-grid .metric-card p { margin: 6px 0 0; }
+
+    .code-card pre { margin: 10px 0 0; padding: 12px; overflow-x: auto; background: #182024; color: #f8f7f3; border-radius: 12px; font-family: var(--mono); font-size: 0.92rem; line-height: 1.5; }
+    .code-card .note { margin-top: 10px; color: var(--muted); font-size: 0.92rem; }
+
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 0.78rem; font-weight: 700; margin-right: 4px; }
+    .badge.warn { background: rgba(194, 90, 27, 0.14); color: var(--accent-strong); }
+    .badge.ok   { background: rgba(47, 125, 50, 0.12); color: var(--success); }
+
+    /* command-list demo styles */
+    .cmd-log {
+      max-height: 240px;
+      overflow-y: auto;
+      padding: 10px 12px;
+      background: rgba(24, 32, 36, 0.92);
+      border-radius: 12px;
+      font-family: var(--mono);
+      font-size: 0.88rem;
+      color: #e4e0d4;
+      line-height: 1.55;
+      margin-top: 10px;
+    }
+    .cmd-log .op { color: #d3b3ff; font-weight: 700; }
+    .cmd-log .arg { color: #f8dcaa; }
+    .cmd-log .hint { color: #7f8790; }
+
+    .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.94rem; margin-top: 10px; }
+    .stats-grid .stat { padding: 8px 10px; border-radius: 10px; background: rgba(255, 255, 255, 0.72); border: 1px solid rgba(23, 33, 38, 0.08); }
+    .stats-grid .stat strong { color: var(--ink); display: block; font-size: 1rem; }
+
+    @media (max-width: 960px) {
+      .hero-grid, .section-grid, .layout { grid-template-columns: minmax(0, 1fr); }
+      .toc { position: static; }
+      .method-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="hero">
+      <div class="hero-grid">
+        <div>
+          <div class="eyebrow">互动教学 · 命令录制 (Picture / DisplayList)</div>
+          <h1><code>canvas.drawXxx(...)</code> 到底是"现在画"，还是"先记下来"？</h1>
+          <p class="lead">图形库里有一个反直觉的事实：你调用 <code>canvas.drawRect(...)</code> 时，通常<strong>不会</strong>立刻画到显存 —— 它只是把这条命令追加进一份"命令列表"。等到 <code>endFrame()</code> 或者你显式重放时才真正提交给后端。这份可暂存、可重放、可跨帧、可跨线程搬运的中间物，就是<strong>命令录制</strong>（在 Skia 里叫 <code>SkPicture</code>，在 Flutter 里叫 Picture，在 Chrome 里叫 DisplayList）。它是"UI 缓存 / RepaintBoundary / 树差分渲染"这一整套优化的基石。</p>
+          <div class="hero-points">
+            <div class="hero-point">
+              <strong>1. 立即模式的假象</strong>
+              你写的每一行 <code>drawXxx</code> 看起来像立刻画到屏幕，实际上都是"追加一条命令"。
+            </div>
+            <div class="hero-point">
+              <strong>2. 命令列表能做的事</strong>
+              可倒放、可裁剪、可合并、可提前分析（如"这里有多少条命令"）、可跨线程转发。
+            </div>
+          </div>
+        </div>
+        <div class="summary-card">
+          <h3>这页要带你掌握的 5 件事</h3>
+          <ul>
+            <li>为什么 2D 图形库都爱把 <code>drawXxx</code> 写成"追加命令 + 稍后回放"。</li>
+            <li>WhatsCanvas 的 <code>Picture</code>：录制哪些能录、哪些拒录（<code>saveLayer</code> / DPR 变更被拒）。</li>
+            <li><code>drawPicture</code> vs <code>drawPictureRasterized</code>：一个直接回放命令，一个先烘到纹理。</li>
+            <li>Skia SkPicture、Cairo recording surface、Chrome DisplayList、Flutter Picture 的对齐。</li>
+            <li>什么内容适合录、什么内容一录就跌坑。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <div class="layout">
+      <div class="content">
+
+        <!-- 01 · immediate vs retained -->
+        <section class="section" id="what">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">01 · 先看差别</div>
+              <h2>立即模式 vs 保留模式，同一段代码走两条时间线</h2>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <div class="controls">
+                <label class="pill"><input type="radio" name="model" value="immediate" checked> 立即模式（Immediate）</label>
+                <label class="pill"><input type="radio" name="model" value="retained"> 保留模式（Retained）</label>
+              </div>
+              <canvas id="pipeCanvas" width="640" height="380"></canvas>
+              <p class="canvas-caption">同样是一段 <code>canvas.drawRect(); canvas.drawCircle(); canvas.drawText();</code>，立即模式是"每一句都直达后端"；保留模式是"每一句都进入命令队列"，直到你按 endFrame / 重放才交给后端。切换单选按钮，看这两条流水线的差别。</p>
+            </div>
+            <div class="info-stack">
+              <div class="formula">
+                <span class="label">先看直觉</span>
+                <span class="math">写 UI 的时候你看到的：
+  canvas.drawRect(...);   → 屏幕出现矩形？
+
+现实中的库大多是：
+  canvas.drawRect(...);   → cmdList.push_back(DrawRect{...})
+  canvas.endFrame();      → renderer.execute(cmdList)</span>
+                <p class="explain">"看起来像立刻画，其实是排队"是一次<strong>抽象</strong>。它让你用简单的 API 表达"我要画什么"，同时给库留出优化空间：合并、重排、缓存、跨线程。</p>
+              </div>
+              <div class="formula">
+                <span class="label">为什么要"稍后"处理</span>
+                <span class="math">1. 合批 (batching)   →  N 条 drawRect 合成 1 次 drawArrays
+2. 重排 (reorder)    →  同 blend mode 的凑一起，减状态切换
+3. 缓存 (cache)      →  同一段命令流可以打成 Picture 反复贴
+4. 分析 (analyse)    →  提前知道"这一帧一共 N 条 draw"</span>
+                <p class="explain">这就是 Skia / WhatsCanvas / QPainter GL 后端做的事：绘制 API 长得像 Immediate，内部实现是 Retained + 提交时优化。</p>
+              </div>
+              <div class="formula">
+                <span class="label">"命令录制"是把这个内部产物变成一等公民</span>
+                <span class="math">大多数库把命令列表藏起来。
+一旦暴露给用户，就变成了 Picture / DisplayList：
+  ▪ 可反复 replay 到不同 Canvas
+  ▪ 可序列化到磁盘、传给别的线程
+  ▪ 可用它做"UI 局部重画"（RepaintBoundary）</span>
+                <p class="explain">Flutter 的整个渲染 tree 就是由 Picture 组成的；Chrome DevTools 的"paint layer flashing"看到的一个个色块，本质上是"这些区域各自一份 DisplayList"。</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 02 · 3 kinds of retained -->
+        <section class="section" id="kinds">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">02 · 3 种"保留形态"</div>
+              <h2>命令录制其实有 3 个层次，各自解决不同问题</h2>
+            </div>
+          </div>
+          <div class="method-grid">
+            <div class="metric-card active" data-kind="framecmd">
+              <strong>① 帧内命令列表</strong>
+              <p>只在一帧内暂存，<code>endFrame</code> 时提交给后端。用户看不见。</p>
+            </div>
+            <div class="metric-card" data-kind="picture">
+              <strong>② Picture / DisplayList</strong>
+              <p>用户可见的、可重放的命令包，跨帧存在。可以传给另一个 Canvas。</p>
+            </div>
+            <div class="metric-card" data-kind="picraster">
+              <strong>③ Picture + 光栅缓存</strong>
+              <p>Picture 第一次执行时烘成一张纹理，之后每帧是"贴一张纹理"。</p>
+            </div>
+          </div>
+          <div class="method-card" id="kindDetail">
+            <h3 id="kindTitle">① 帧内命令列表</h3>
+            <p id="kindBody">这是几乎所有 2D 图形库都有的第一层。<code>canvas.drawRect(...)</code> 在这里就是"往一个 std::vector&lt;Command&gt; 里 push"。endFrame() 时 Renderer 遍历这份列表，做合批 / 重排 / 提交。你以为的立即模式其实是这一层在给你演戏。</p>
+            <strong>做得到的事</strong>
+            <ul class="pros" id="kindPros"></ul>
+            <strong>做不到的事</strong>
+            <ul class="cons" id="kindCons"></ul>
+          </div>
+        </section>
+
+        <!-- 03 · live command capture -->
+        <section class="section" id="capture">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">03 · 你的命令流长什么样</div>
+              <h2>点右边的按钮"画东西"，左边实时打印录制到的命令</h2>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <canvas id="captureCanvas" width="640" height="240"></canvas>
+              <div id="cmdLog" class="cmd-log"></div>
+              <p class="canvas-caption">右侧点击按钮时，左侧 canvas 不会立刻画。命令都进入下方"命令流"日志。按"submit (endFrame)"才真正执行。这个模拟对应 <code>src/render/DrawList.h</code> / <code>src/render/CommandDrawListEncoder.h</code>：Canvas 层把语义化命令记下来，Renderer 层再把它们编译成一批 GPU draw call。</p>
+            </div>
+            <div class="info-stack">
+              <div class="controls" style="flex-direction: column; align-items: stretch; gap: 8px;">
+                <button id="btnRect"   class="pill" style="justify-content: center;">📐 drawRect</button>
+                <button id="btnCircle" class="pill" style="justify-content: center;">⚪ drawCircle</button>
+                <button id="btnText"   class="pill" style="justify-content: center;">A drawText</button>
+                <button id="btnPath"   class="pill" style="justify-content: center;">✏ drawPath</button>
+                <button id="btnSaveXform" class="pill" style="justify-content: center;">↺ save + rotate + drawRect + restore</button>
+                <button id="btnSubmit" class="pill active" style="justify-content: center; margin-top: 6px;">🚀 endFrame() 提交</button>
+                <button id="btnClear"  class="pill" style="justify-content: center;">🗑 清空缓冲</button>
+              </div>
+              <div class="stats-grid">
+                <div class="stat">缓冲中命令数 <strong id="statPending">0</strong></div>
+                <div class="stat">已提交总数 <strong id="statSubmitted">0</strong></div>
+              </div>
+              <div class="trace-item">
+                <strong>观察：</strong>你会看到"save / rotate / drawRect / restore"这组是<strong>4 条独立的命令</strong>，不是一个语义原子。Renderer 内部会看到全部 4 条，并可以在合适时刻合并优化。这也是为什么"命令列表"比"保存 UI 树"更贴近 GPU。
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 04 · Picture API -->
+        <section class="section" id="picture">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">04 · WhatsCanvas Picture</div>
+              <h2>用户可见的命令包：<code>recordPicture</code> / <code>drawPicture</code> / <code>drawPictureRasterized</code></h2>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="code-card">
+              <p>public API 在 <code>include/wsc/Canvas.h</code> 和 <code>include/wsc/Picture.h</code>：</p>
+              <pre>// 1. 把一段绘制录成 Picture
+auto picture = canvas.recordPicture([](wsc::Canvas &amp;c) {
+    wsc::Paint p; p.setAntiAlias(true);
+    p.setColor(wsc::Color(40, 120, 240, 255));
+    c.drawRoundRect(wsc::RectF(20, 20, 200, 120), 12.0f, p);
+    // ...几百条命令都可以录进去...
+});
+
+// 2. 直接重放（每帧都要重新走一遍命令）
+canvas.drawPicture(*picture);
+
+// 3. 或走光栅缓存：第一次烘成纹理，之后每帧只 blit
+canvas.drawPictureRasterized(*picture);
+
+// 4. 配置光栅缓存字节预算（0 = 禁用）
+canvas.setRetainedPictureRasterCacheBudgetBytes(16 * 1024 * 1024);</pre>
+              <p><strong>规则细节</strong>（写在 <code>include/wsc/Picture.h</code> 顶部注释）：</p>
+              <pre>// Picture ONLY owns CPU-side drawing inputs.
+// 不占用 GPU 纹理 / command buffer，可以在 context 重建后照样 replay。
+//
+// recordPicture 的 recorder callback 是同步执行的。
+// 依赖后端状态的操作会拒绝录制：
+//   ✘ saveLayer         （需要一张后端纹理）
+//   ✘ 变更 DPR         （改变了坐标空间基线）
+// 一旦这些出现在 recorder 里，recordPicture 返回空 shared_ptr。</pre>
+              <p class="note">这几条限制并非"图省事"，而是保证 Picture "backend-neutral": 一份录出来的 Picture 可以放到 Software 后端 replay，也可以放到 OpenGL / Vulkan 后端 replay，结果一致。</p>
+            </div>
+            <div class="info-stack">
+              <div class="method-card">
+                <strong><span class="badge">drawPicture</span> 直接重放</strong>
+                <p>把 Picture 里存的所有命令<strong>逐条重新提交</strong>给当前帧的 Renderer。适合"命令不多、但形状可能每帧微调"（如可缩放的图表）。</p>
+              </div>
+              <div class="method-card">
+                <strong><span class="badge">drawPictureRasterized</span> 光栅缓存</strong>
+                <p>首帧：把 Picture 烘成一张离屏纹理并缓存。后续帧：只 <code>drawImage</code> 那张纹理。适合<em>大量命令、内容基本不变</em>的场景（背景层、静态图表）。<br>
+                内部走 <code>setRetainedPictureRasterCacheBudgetBytes</code> 定的字节预算，超预算就 LRU 淘汰。</p>
+              </div>
+              <div class="method-card">
+                <strong><span class="badge warn">不能录</span> saveLayer</strong>
+                <p>要一张后端纹理，破坏 backend-neutral 承诺。想在录制里达到"分组透明"的效果，就把这段单独抽出来，用父 Canvas 上的 <code>saveLayer</code> 包住 <code>drawPicture</code>。</p>
+              </div>
+              <div class="method-card">
+                <strong><span class="badge warn">不能录</span> setDevicePixelRatio</strong>
+                <p>会改变逻辑单位到物理像素的映射。录出来一份 DPR=2 的 Picture，放到 DPR=3 的 Canvas 上就完全对不齐。要按 DPR 分别录制。</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 05 · benchmark -->
+        <section class="section" id="bench">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">05 · 交互 benchmark</div>
+              <h2>三种模式：不录、drawPicture、drawPictureRasterized</h2>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <div class="controls">
+                <label class="pill"><input type="radio" name="mode" value="no" checked> 不用 Picture（每帧重画）</label>
+                <label class="pill"><input type="radio" name="mode" value="pic"> drawPicture（重放命令）</label>
+                <label class="pill"><input type="radio" name="mode" value="raster"> drawPictureRasterized（缓存）</label>
+                <label class="pill" for="benchN">背景形状数：<strong id="benchNVal">400</strong></label>
+                <input id="benchN" type="range" min="40" max="1200" step="20" value="400">
+              </div>
+              <canvas id="benchCanvas" width="640" height="320"></canvas>
+              <div class="stats-grid">
+                <div class="stat">每帧后端命令数 <strong id="statBackendCmds">—</strong></div>
+                <div class="stat">每帧后端上传字节 <strong id="statBytes">—</strong></div>
+                <div class="stat">FPS 近似 <strong id="statFps">—</strong></div>
+                <div class="stat">Picture 缓存字节 <strong id="statCache">—</strong></div>
+              </div>
+              <p class="canvas-caption">同一场景（一堆固定背景 + 一些动画物体）用 3 种方式画。观察"每帧后端命令数"如何变化：不录 = 全部命令都要重传；drawPicture = 命令数不变，但 Canvas 层省了各种 hash + state 检查；drawPictureRasterized = 每帧只 1 次纹理 blit + 少量动画命令。</p>
+            </div>
+            <div class="info-stack">
+              <div class="formula">
+                <span class="label">收益怎么看</span>
+                <span class="math">不录 (immediate)     ≈  基线
+drawPicture         ≈  基线 × 0.6~0.9   （省的是 Canvas 层的开销）
+drawPictureRasterized ≈  1 次 blit + Δ  （省的是所有底层绘制）</span>
+                <p class="explain">"Δ"是那些不能录进 Picture 的部分（动画层、saveLayer 等）。所以 rasterized 收益上限 = "静态命令 / 总命令" 的比例。静态越多，收益越大。</p>
+              </div>
+              <div class="trace-item">
+                <strong>坑：</strong>只有极少变化就整块重烘 Picture 缓存，是错的方案 —— 它是设计给"完全不变"的层。<em>局部变化频繁</em>时要把变化的部分拆到父 Canvas 里画，静态部分留在 Picture 内。
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 06 · WhatsCanvas 内部 -->
+        <section class="section" id="internal">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">06 · WhatsCanvas 内部</div>
+              <h2>三段真实代码：Picture、DrawList、Command 编码器</h2>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="code-card">
+              <p><strong>1. Picture 是 CPU-only 的命令快照</strong> —— <code>include/wsc/Picture.h</code></p>
+              <pre>class WSC_API Picture final {
+public:
+    std::size_t operationCount() const;
+    bool empty() const { return operationCount() == 0; }
+private:
+    friend class Canvas;
+    struct Impl;                          // pimpl —— 内部才知道命令类型
+    explicit Picture(std::unique_ptr&lt;Impl&gt;);
+    std::unique_ptr&lt;Impl&gt; impl_;
+    // 拷贝/移动都 delete —— Picture 是共享的不可变值，
+    // 用 std::shared_ptr&lt;const Picture&gt; 传递。
+};</pre>
+
+              <p style="margin-top: 14px;"><strong>2. 每一帧的命令流是一个 std::vector&lt;Command&gt;</strong> —— <code>src/render/DrawList.h</code></p>
+              <pre>// 简化的形态：
+struct DrawList {
+    std::vector&lt;PrimitivePacket&gt; primitives;   // 编码后的 draw call
+    std::vector&lt;UniformBlob&gt;    uniformStorage; // 打包好的 uniforms
+    // 其他: index buffer、纹理绑定表、scissor / clip 状态...
+};
+
+// 每次 endFrame:
+//   1) 前端: 把 std::vector&lt;Command&gt; 编码成 DrawList
+//   2) 后端: 把 DrawList 转成 backend-specific 提交</pre>
+
+              <p style="margin-top: 14px;"><strong>3. 从 Canvas 命令到 DrawList 的编码器</strong> —— <code>src/render/CommandDrawListEncoder.h</code></p>
+              <pre>class CommandDrawListEncoder {
+public:
+    // 输入: Canvas.commands_（std::vector&lt;std::unique_ptr&lt;Command&gt;&gt;）
+    // 输出: DrawList，可直接喂给 RenderDevice
+    DrawList encode(const std::vector&lt;std::unique_ptr&lt;Command&gt;&gt; &amp;commands,
+                    const EncodeRequest &amp;request);
+    // request 里带上 canvasWidth/canvasHeight/createClipMaskTexture 等
+};</pre>
+              <p class="note">这就是"内部命令列表"到"backend-ready DrawList"的桥。合批、重排、mask 提交都发生在这里。</p>
+            </div>
+            <div class="info-stack">
+              <div class="timeline-step">
+                <strong>1. Canvas 层：语义化命令</strong>
+                <code>DrawPathCommand{data}</code>、<code>DrawImageCommand{data}</code>、<code>DrawTextCommand{data}</code>——它们记录"你想画什么"，不关心怎么变成 GPU draw call。
+              </div>
+              <div class="timeline-step">
+                <strong>2. Renderer 层：编码 + 合批</strong>
+                <code>CommandDrawListEncoder</code> 会把连续多条 <code>DrawPathCommand</code>（相同 blend / clip / paint）合并成一个 <code>PrimitivePacket</code>，把 image draw 集中到 <code>SpriteBatch</code>。
+              </div>
+              <div class="timeline-step">
+                <strong>3. Backend 层：真正提交</strong>
+                <code>OpenGLRenderDevice::executeDrawList</code>（或 Vulkan / Metal 对应实现）把 DrawList 变成一组 <code>glBindBuffer + glUseProgram + glDrawElements</code>。
+              </div>
+              <div class="trace-item">
+                <strong>Picture 到底是在哪一层？</strong> 在 Canvas 层的<em>上游</em>。<code>recordPicture</code> 用一个"影子 Canvas"接住 recorder 的所有 <code>drawXxx</code>，把它们打包放进 <code>Picture::Impl</code>。<code>drawPicture(picture)</code> 时相当于"把影子里的操作 flush 到真的 Canvas 上"，再走一次完整 encode → execute。
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 07 · 主流库 -->
+        <section class="section" id="libraries">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">07 · 主流做法</div>
+              <h2>Skia、Cairo、Chrome、Flutter、Qt 里对应的东西</h2>
+            </div>
+          </div>
+          <div class="mini-grid">
+            <div class="metric-card">
+              <strong>Skia</strong>
+              <p><code>SkPicture</code> + <code>SkPictureRecorder</code>。可 <code>serialize()</code> 到二进制传输，也可以 <code>approximateOpCount()</code> 提前分析。<code>SkPictureShader</code> 甚至能把 Picture 当着色器用。</p>
+            </div>
+            <div class="metric-card">
+              <strong>Cairo</strong>
+              <p><code>cairo_recording_surface_create</code>：所有 <code>cairo_*</code> 命令都可以录到一个 <code>cairo_surface_t</code> 里，之后 <code>cairo_set_source_surface</code> 回放。是最早引入"命令录制"的 2D 库之一。</p>
+            </div>
+            <div class="metric-card">
+              <strong>Chrome DisplayList</strong>
+              <p>Blink 把每个 layer 的绘制命令录成 <code>PaintOpBuffer</code>（内部叫 <em>display item list</em>），由 compositor 决定何时 rasterize。开发者工具里的 "paint flashing" 显示的就是这些。</p>
+            </div>
+            <div class="metric-card">
+              <strong>Flutter Picture</strong>
+              <p>Flutter 的整个渲染管线就建立在 <code>ui.Picture</code> 上。<code>PictureRecorder</code> → 一份 Picture → <code>SceneBuilder.addPicture()</code> 塞进场景。<code>RepaintBoundary</code> widget 决定"这里另起一份 Picture 供缓存"。</p>
+            </div>
+            <div class="metric-card">
+              <strong>Qt QPicture</strong>
+              <p>QPainter 的 <code>QPicture</code> 是一份可序列化到 <em>QPictureFormat</em> 的绘制脚本。QML 场景图（<code>QSGRenderNode</code>）则是更贴近 GPU 的 retained scene，功能更全但抽象更高。</p>
+            </div>
+            <div class="metric-card">
+              <strong>浏览器 Canvas 2D</strong>
+              <p>W3C API 没有直接暴露 Picture，但你可以自己拿一个 <code>&lt;canvas&gt;</code> 当"录制器"：先画一遍，再 <code>drawImage(thatCanvas, ...)</code> 到别的 canvas 上——这就是最土的"用户级 Picture"。</p>
+            </div>
+          </div>
+          <div class="trace-list">
+            <div class="trace-item"><strong>共同点：</strong>所有库都区分"发出命令"和"执行命令"两个阶段。命令录制就是把这个内部阶段变成用户可持有的一等对象。</div>
+            <div class="trace-item"><strong>不同点：</strong>WhatsCanvas 的 Picture 是<em>严格 backend-neutral</em>——不能录 <code>saveLayer</code>。Skia SkPicture 允许 saveLayer，但代价是重放时必须绑定一个特定 GPU context。WhatsCanvas 的取舍偏"简单可靠"。</div>
+          </div>
+        </section>
+
+        <!-- 08 · 建议 -->
+        <section class="section" id="takeaway">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">08 · 你可以怎么判断</div>
+              <h2>什么时候该录 Picture、什么时候不该录</h2>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="info-stack">
+              <div class="timeline-step"><strong>命令数多、内容不变</strong><span class="badge ok">推荐 drawPictureRasterized</span> 静态背景、地图瓦片、复杂图表的底层。<em>每帧 1 次 blit</em> 代替上千条 draw。收益最直接。</div>
+              <div class="timeline-step"><strong>命令数多、内容频繁变</strong><span class="badge">看情况</span> 每帧全变没意义（缓存 miss 100%）；但如果只是<em>颜色 / 位置</em>变、结构不变，可以拆成"结构 Picture + 主 Canvas 每帧调 setTransform / drawImage"。</div>
+              <div class="timeline-step"><strong>需要合成透明层 / 滤镜</strong><span class="badge warn">避免直接录</span> Picture 里不能录 saveLayer。正确姿势：Picture 只录"层内的绘制"，saveLayer 留在父 Canvas 里包住 <code>drawPicture</code>。</div>
+              <div class="timeline-step"><strong>要跨线程 / 跨进程搬运</strong><span class="badge ok">推荐 recordPicture</span> Picture 只吃 CPU 内存，可以在线程 A 录、线程 B replay（同 Renderer/context）。Flutter 就是这么做多线程渲染的。</div>
+              <div class="timeline-step"><strong>只画几十条命令、每帧都不同</strong><span class="badge warn">不要录</span> Picture 本身有分配 + 遍历成本，收益抹平后还倒亏。留在普通 Canvas 上直接画即可。</div>
+            </div>
+            <div class="formula">
+              <span class="label">一句话总结</span>
+              <span class="math">命令录制 = 把"绘制"和"执行"两个阶段解耦，
+让绘制的<strong>结果</strong>（不是像素，而是命令流）
+可以被存起来、算作值、跨线程搬运。
+
+命令流上的每一次优化（合批 / 重排 / 缓存 / 跨帧复用）
+都比"每次到达 GPU 才优化"更早、更便宜。</span>
+              <p class="explain">这条原则贯穿 Skia、Flutter、Chrome、WhatsCanvas。理解了"命令录制"，你就理解了现代 2D 渲染管线里"为什么这么多层"。</p>
+            </div>
+          </div>
+        </section>
+
+      </div>
+
+      <aside class="toc">
+        <h3>目录</h3>
+        <a href="#what">1. 立即 vs 保留</a>
+        <a href="#kinds">2. 3 种保留形态</a>
+        <a href="#capture">3. 命令流实操</a>
+        <a href="#picture">4. Picture API</a>
+        <a href="#bench">5. 交互 benchmark</a>
+        <a href="#internal">6. WhatsCanvas 内部</a>
+        <a href="#libraries">7. 主流库对比</a>
+        <a href="#takeaway">8. 选型建议</a>
+        <p class="note">要看具体代码，对照 <code>include/wsc/Picture.h</code>、<code>include/wsc/Canvas.h</code>（recordPicture / drawPicture / drawPictureRasterized）、<code>src/render/DrawList.h</code>、<code>src/render/CommandDrawListEncoder.h</code>。</p>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    // ------------ 01 · immediate vs retained pipeline ------------
+    (function () {
+      const canvas = document.getElementById('pipeCanvas');
+      const ctx = canvas.getContext('2d');
+      const radios = document.querySelectorAll('input[name="model"]');
+
+      function box(x, y, w, h, fill, stroke, text, sub) {
+        ctx.fillStyle = fill;
+        ctx.strokeStyle = stroke;
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(x, y, w, h, 12); else ctx.rect(x, y, w, h);
+        ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#182024';
+        ctx.font = '600 14px "Aptos", "Segoe UI", sans-serif';
+        ctx.textBaseline = 'middle'; ctx.textAlign = 'center';
+        if (sub) {
+          ctx.fillText(text, x + w / 2, y + h / 2 - 8);
+          ctx.font = '400 12px "Cascadia Code", monospace';
+          ctx.fillStyle = '#5c6a70';
+          ctx.fillText(sub, x + w / 2, y + h / 2 + 10);
+        } else {
+          ctx.fillText(text, x + w / 2, y + h / 2);
+        }
+      }
+      function arrow(x1, y1, x2, y2, color, dash) {
+        ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 2;
+        if (dash) ctx.setLineDash(dash); else ctx.setLineDash([]);
+        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+        ctx.setLineDash([]);
+        const ang = Math.atan2(y2 - y1, x2 - x1);
+        ctx.beginPath();
+        ctx.moveTo(x2, y2);
+        ctx.lineTo(x2 - 10 * Math.cos(ang - 0.35), y2 - 10 * Math.sin(ang - 0.35));
+        ctx.lineTo(x2 - 10 * Math.cos(ang + 0.35), y2 - 10 * Math.sin(ang + 0.35));
+        ctx.closePath(); ctx.fill();
+      }
+
+      function draw() {
+        const mode = document.querySelector('input[name="model"]:checked').value;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Three drawXxx calls on the left
+        box(20, 30,  180, 44, '#eee7fb', '#7a4bd6', 'drawRect(...)',   'user code line 1');
+        box(20, 100, 180, 44, '#eee7fb', '#7a4bd6', 'drawCircle(...)', 'user code line 2');
+        box(20, 170, 180, 44, '#eee7fb', '#7a4bd6', 'drawText(...)',   'user code line 3');
+        box(20, 250, 180, 44, '#f6f1e6', '#2f7d32', 'endFrame()',      'user code line 4');
+
+        if (mode === 'immediate') {
+          box(260, 30,  180, 44, '#fdefe0', '#c25a1b', 'GL/Vulkan submit', 'draw goes NOW');
+          box(260, 100, 180, 44, '#fdefe0', '#c25a1b', 'GL/Vulkan submit', 'draw goes NOW');
+          box(260, 170, 180, 44, '#fdefe0', '#c25a1b', 'GL/Vulkan submit', 'draw goes NOW');
+          box(260, 250, 180, 44, '#fff2c6', '#8b6a1b', '(nothing)', 'already all sent');
+          arrow(200, 52,  258, 52,  '#5c6a70');
+          arrow(200, 122, 258, 122, '#5c6a70');
+          arrow(200, 192, 258, 192, '#5c6a70');
+          arrow(200, 272, 258, 272, '#5c6a70', [3, 3]);
+
+          box(480, 30,  140, 264, '#eef4ee', '#2f7d32', 'GPU 处理', '3 次独立 draw call\n无合批空间');
+        } else {
+          // Retained: all three go into a queue
+          box(260, 30,  180, 214, '#fbe9f0', '#a02a58', 'CmdList (frame-scoped)', 'std::vector<Command>');
+          arrow(200, 52,  258, 52,  '#5c6a70', [4, 4]);
+          arrow(200, 122, 258, 122, '#5c6a70', [4, 4]);
+          arrow(200, 192, 258, 192, '#5c6a70', [4, 4]);
+          arrow(200, 272, 258, 272, '#5c6a70');
+
+          box(480, 30,  140, 214, '#fdefe0', '#c25a1b', 'Encoder', '合批 + 重排\n生成 DrawList');
+          arrow(440, 137, 478, 137, '#5c6a70');
+
+          box(480, 260, 140, 44, '#eef4ee', '#2f7d32', 'GPU 提交', '1 次批量 submit');
+          arrow(550, 244, 550, 258, '#5c6a70');
+        }
+      }
+      radios.forEach(r => r.addEventListener('change', draw));
+      draw();
+    })();
+
+    // ------------ 02 · 3 kinds of retained ------------
+    (function () {
+      const kinds = {
+        framecmd: {
+          title: '① 帧内命令列表',
+          body: '这是几乎所有 2D 图形库都有的第一层。canvas.drawRect(...) 在这里就是"往一个 std::vector<Command> 里 push"。endFrame() 时 Renderer 遍历这份列表，做合批 / 重排 / 提交。你以为的立即模式其实是这一层在给你演戏。',
+          pros: ['合批 draw call：连续同状态的 draw 合成一次 GPU 提交', '状态排序：把同 blend / 同 texture 的 draw 凑一起，减切换', '提前统计：可以查"这一帧一共 N 条 draw"'],
+          cons: ['一帧结束就销毁，不能跨帧复用', '对用户不可见 —— 不能拿来做"UI 缓存"']
+        },
+        picture: {
+          title: '② Picture / DisplayList',
+          body: '把"帧内命令列表"变成用户可持有的对象。你显式 recordPicture([]) 打包一段命令，之后可以在多个 Canvas / 多帧里 replay。Skia 的 SkPicture、Cairo 的 recording surface、Flutter 的 Picture 都是这一层。',
+          pros: ['跨帧复用：录一次可以画上千次', '跨线程搬运：一份 CPU 数据，怎么传都行', '内容可分析：能算 op count 决定要不要缓存', '和 backend 解耦：同一个 Picture 可放 SW / GL / Vulkan replay'],
+          cons: ['命令数量 × 每帧仍然是原始成本 —— 只是省了 Canvas 层的额外 hash / state 检查', 'Replay 时还是要 encode → execute，不能直接跳到"贴纹理"']
+        },
+        picraster: {
+          title: '③ Picture + 光栅缓存',
+          body: '给 Picture 加上一次性栅格化的策略：首帧把整份命令流画到一张离屏纹理里存起来，后续帧只 drawImage 那张纹理。WhatsCanvas 的 drawPictureRasterized 就是这条路。这是"命令录制"能给出的最激进的优化。',
+          pros: ['每帧后端命令数下降到 1（一次 blit）', 'GPU 无所谓命令复杂度，只关心贴纹理', '可以按字节预算 LRU 淘汰，控制显存'],
+          cons: ['纹理占显存：Picture 大 → 缓存大', '内容一变就要重烘 —— 频繁变化反而更慢', '需要"整块内容长时间稳定"的场景才成立']
+        }
+      };
+      const grid = document.querySelectorAll('.method-grid .metric-card[data-kind]');
+      const title = document.getElementById('kindTitle');
+      const body = document.getElementById('kindBody');
+      const pros = document.getElementById('kindPros');
+      const cons = document.getElementById('kindCons');
+      function apply(name) {
+        const m = kinds[name];
+        title.textContent = m.title;
+        body.textContent = m.body;
+        pros.innerHTML = m.pros.map(t => `<li>${t}</li>`).join('');
+        cons.innerHTML = m.cons.map(t => `<li>${t}</li>`).join('');
+        grid.forEach(c => c.classList.toggle('active', c.dataset.kind === name));
+      }
+      grid.forEach(c => c.addEventListener('click', () => apply(c.dataset.kind)));
+      apply('framecmd');
+    })();
+
+    // ------------ 03 · live command capture ------------
+    (function () {
+      const canvas = document.getElementById('captureCanvas');
+      const ctx = canvas.getContext('2d');
+      const log = document.getElementById('cmdLog');
+      const pendingEl = document.getElementById('statPending');
+      const submittedEl = document.getElementById('statSubmitted');
+      const btns = {
+        rect: document.getElementById('btnRect'),
+        circle: document.getElementById('btnCircle'),
+        text: document.getElementById('btnText'),
+        path: document.getElementById('btnPath'),
+        savexform: document.getElementById('btnSaveXform'),
+        submit: document.getElementById('btnSubmit'),
+        clear: document.getElementById('btnClear')
+      };
+      let pending = [];  // pending commands (not yet flushed to canvas)
+      let submitted = 0;
+      let counter = 0;
+
+      function fmtOp(name, args) {
+        const argsHtml = Object.entries(args).map(([k, v]) => {
+          return `<span class="arg">${k}</span>=${v}`;
+        }).join(' ');
+        return `[${(++counter).toString().padStart(3, '0')}] <span class="op">${name}</span>(${argsHtml})`;
+      }
+      function push(name, args, exec, cost) {
+        pending.push({ name, args, exec, cost: cost || 1 });
+        const line = document.createElement('div');
+        line.innerHTML = fmtOp(name, args) + ` <span class="hint">→ 缓冲</span>`;
+        log.appendChild(line);
+        log.scrollTop = log.scrollHeight;
+        pendingEl.textContent = pending.length;
+      }
+      function clearFrame() {
+        ctx.fillStyle = '#fefdf8';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+      function submitAll() {
+        if (pending.length === 0) {
+          const line = document.createElement('div');
+          line.innerHTML = `<span class="hint">// endFrame() 但缓冲为空，什么都不发生</span>`;
+          log.appendChild(line);
+          log.scrollTop = log.scrollHeight;
+          return;
+        }
+        const n = pending.length;
+        clearFrame();
+        pending.forEach(cmd => cmd.exec(ctx));
+        submitted += n;
+        submittedEl.textContent = submitted;
+        pending = [];
+        pendingEl.textContent = 0;
+        const line = document.createElement('div');
+        line.innerHTML = `<span class="op">endFrame()</span> <span class="hint">→ 一次性提交 ${n} 条命令到后端</span>`;
+        log.appendChild(line);
+        log.scrollTop = log.scrollHeight;
+      }
+      function clearBuf() {
+        pending = [];
+        pendingEl.textContent = 0;
+        const line = document.createElement('div');
+        line.innerHTML = `<span class="hint">// 缓冲已清空（未提交的命令被丢弃）</span>`;
+        log.appendChild(line);
+        log.scrollTop = log.scrollHeight;
+      }
+
+      btns.rect.addEventListener('click', () => {
+        const x = 20 + Math.random() * (canvas.width - 100);
+        const y = 20 + Math.random() * (canvas.height - 80);
+        const w = 40 + Math.random() * 60;
+        const h = 30 + Math.random() * 40;
+        const hue = (Math.random() * 360) | 0;
+        push('drawRect', { x: x.toFixed(0), y: y.toFixed(0), w: w.toFixed(0), h: h.toFixed(0) }, (c) => {
+          c.fillStyle = `hsl(${hue}, 60%, 55%)`;
+          c.fillRect(x, y, w, h);
+        });
+      });
+      btns.circle.addEventListener('click', () => {
+        const cx = 20 + Math.random() * (canvas.width - 40);
+        const cy = 20 + Math.random() * (canvas.height - 40);
+        const r = 12 + Math.random() * 24;
+        const hue = (Math.random() * 360) | 0;
+        push('drawCircle', { cx: cx.toFixed(0), cy: cy.toFixed(0), r: r.toFixed(0) }, (c) => {
+          c.fillStyle = `hsl(${hue}, 65%, 50%)`;
+          c.beginPath(); c.arc(cx, cy, r, 0, Math.PI * 2); c.fill();
+        });
+      });
+      btns.text.addEventListener('click', () => {
+        const x = 20 + Math.random() * (canvas.width - 100);
+        const y = 40 + Math.random() * (canvas.height - 60);
+        push('drawText', { text: '"WhatsCanvas"', x: x.toFixed(0), y: y.toFixed(0) }, (c) => {
+          c.fillStyle = '#182024';
+          c.font = '700 16px "Aptos", sans-serif';
+          c.fillText('WhatsCanvas', x, y);
+        });
+      });
+      btns.path.addEventListener('click', () => {
+        const cx = 40 + Math.random() * (canvas.width - 80);
+        const cy = 40 + Math.random() * (canvas.height - 80);
+        const r = 24 + Math.random() * 20;
+        const hue = (Math.random() * 360) | 0;
+        push('drawPath', { hint: 'star_5point', cx: cx.toFixed(0), cy: cy.toFixed(0) }, (c) => {
+          c.fillStyle = `hsl(${hue}, 65%, 55%)`;
+          c.beginPath();
+          for (let i = 0; i < 10; ++i) {
+            const ang = -Math.PI / 2 + i * Math.PI / 5;
+            const rr = i % 2 === 0 ? r : r * 0.45;
+            const x = cx + Math.cos(ang) * rr;
+            const y = cy + Math.sin(ang) * rr;
+            if (i === 0) c.moveTo(x, y); else c.lineTo(x, y);
+          }
+          c.closePath(); c.fill();
+        });
+      });
+      btns.savexform.addEventListener('click', () => {
+        const cx = 60 + Math.random() * (canvas.width - 120);
+        const cy = 40 + Math.random() * (canvas.height - 80);
+        const angle = (Math.random() * 360) | 0;
+        const hue = (Math.random() * 360) | 0;
+        // 4 separate commands
+        push('save', {}, (c) => c.save());
+        push('translate', { dx: cx.toFixed(0), dy: cy.toFixed(0) }, (c) => c.translate(cx, cy));
+        push('rotate', { deg: angle }, (c) => c.rotate(angle * Math.PI / 180));
+        push('drawRect', { x: -20, y: -12, w: 40, h: 24 }, (c) => {
+          c.fillStyle = `hsl(${hue}, 65%, 55%)`;
+          c.fillRect(-20, -12, 40, 24);
+        });
+        push('restore', {}, (c) => c.restore());
+      });
+      btns.submit.addEventListener('click', submitAll);
+      btns.clear.addEventListener('click', clearBuf);
+      clearFrame();
+    })();
+
+    // ------------ 05 · picture benchmark ------------
+    (function () {
+      const canvas = document.getElementById('benchCanvas');
+      const ctx = canvas.getContext('2d');
+      const shapes = document.getElementById('benchN');
+      const shapesVal = document.getElementById('benchNVal');
+      const backendCmdsEl = document.getElementById('statBackendCmds');
+      const bytesEl = document.getElementById('statBytes');
+      const fpsEl = document.getElementById('statFps');
+      const cacheEl = document.getElementById('statCache');
+
+      // Two offscreens used to simulate the Picture layer.
+      const picture = document.createElement('canvas');
+      picture.width = canvas.width;
+      picture.height = canvas.height;
+      let pictureValid = false; // "已录制"
+      let cacheTexValid = false; // "已烘成纹理"
+      let cacheBytes = 0;
+
+      function renderBackground(target, n) {
+        target.fillStyle = '#f6eddc';
+        target.fillRect(0, 0, canvas.width, canvas.height);
+        target.strokeStyle = 'rgba(23, 33, 38, 0.10)';
+        for (let x = 0; x <= canvas.width; x += 20) {
+          target.beginPath(); target.moveTo(x, 0); target.lineTo(x, canvas.height); target.stroke();
+        }
+        for (let y = 0; y <= canvas.height; y += 20) {
+          target.beginPath(); target.moveTo(0, y); target.lineTo(canvas.width, y); target.stroke();
+        }
+        for (let i = 0; i < n; ++i) {
+          const x = (i * 37) % canvas.width;
+          const y = (i * 53) % canvas.height;
+          target.fillStyle = `hsl(${(i * 17) % 360}, 55%, 78%)`;
+          target.fillRect(x, y, 22, 12);
+        }
+      }
+
+      let phase = 0;
+      let last = performance.now();
+      let frameStart = performance.now();
+      let frames = 0;
+      let fps = 0;
+
+      function step() {
+        const now = performance.now();
+        const dt = now - frameStart; frameStart = now;
+        phase += dt * 0.001;
+
+        const mode = document.querySelector('input[name="mode"]:checked').value;
+        const n = parseInt(shapes.value, 10);
+        shapesVal.textContent = n;
+
+        // On mode change or n change, invalidate.
+        // (simple: invalidate always when mode/n differs from last snapshot)
+        if (window.__lastMode !== mode || window.__lastN !== n) {
+          pictureValid = false;
+          cacheTexValid = false;
+          cacheBytes = 0;
+          window.__lastMode = mode;
+          window.__lastN = n;
+        }
+
+        let backendCmds = 0;
+        let bytes = 0;
+
+        if (mode === 'no') {
+          // Immediate: replay all background commands every frame.
+          renderBackground(ctx, n);
+          // Each shape counted as 1 command; grid lines counted too.
+          backendCmds = 2 + (canvas.width / 20 + canvas.height / 20) + n;
+          bytes = backendCmds * 48; // pretend 48 bytes per submitted command
+        } else if (mode === 'pic') {
+          if (!pictureValid) {
+            renderBackground(picture, n);
+            pictureValid = true;
+          }
+          // drawPicture: replay commands from Picture buffer.
+          // In this simulation we still copy the offscreen once (visual identical),
+          // but the backend still sees N commands. Canvas layer save is ~30% overhead.
+          ctx.drawImage(picture, 0, 0);
+          backendCmds = 2 + (canvas.width / 20 + canvas.height / 20) + n;
+          bytes = backendCmds * 48 * 0.7; // 30% savings from encoder side
+        } else {
+          // drawPictureRasterized: bake once, blit forever.
+          if (!cacheTexValid) {
+            renderBackground(picture, n);
+            cacheTexValid = true;
+            cacheBytes = canvas.width * canvas.height * 4; // RGBA8
+          }
+          ctx.drawImage(picture, 0, 0);
+          backendCmds = 1;
+          bytes = 0;
+        }
+
+        // Animated foreground: 5 rotating circles, always live (not in Picture).
+        for (let i = 0; i < 5; ++i) {
+          const cx = canvas.width * 0.5 + Math.cos(phase + i * 1.1) * 200;
+          const cy = canvas.height * 0.5 + Math.sin(phase * 1.3 + i * 0.7) * 80;
+          ctx.beginPath();
+          ctx.fillStyle = `hsl(${(i * 62 + phase * 50) % 360}, 70%, 55%)`;
+          ctx.arc(cx, cy, 22, 0, Math.PI * 2);
+          ctx.fill();
+          backendCmds += 2;
+        }
+
+        // Overlay label
+        ctx.fillStyle = 'rgba(255, 251, 245, 0.9)';
+        ctx.fillRect(10, canvas.height - 34, 260, 26);
+        ctx.strokeStyle = 'rgba(23, 33, 38, 0.14)';
+        ctx.strokeRect(10, canvas.height - 34, 260, 26);
+        ctx.fillStyle = '#182024';
+        ctx.font = '600 12px "Aptos", "Segoe UI", sans-serif';
+        const modeName = { no: 'no-cache', pic: 'drawPicture', raster: 'drawPictureRasterized' }[mode];
+        ctx.fillText(`mode=${modeName}  backend cmds=${backendCmds}`, 20, canvas.height - 17);
+
+        backendCmdsEl.textContent = backendCmds;
+        bytesEl.textContent = (bytes / 1024).toFixed(1) + ' KiB';
+        cacheEl.textContent = cacheBytes ? (cacheBytes / 1024).toFixed(1) + ' KiB' : '—';
+
+        frames++;
+        if (now - last >= 500) {
+          fps = frames * 1000 / (now - last);
+          fpsEl.textContent = fps.toFixed(0);
+          frames = 0;
+          last = now;
+        }
+        requestAnimationFrame(step);
+      }
+      requestAnimationFrame(step);
+    })();
+  </script>
+</body>
+</html>

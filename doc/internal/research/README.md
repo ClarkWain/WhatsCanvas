@@ -4,6 +4,11 @@ These materials support engineering exploration but are not maintained as part
 of the public product documentation.
 
 - `anti-aliasing/` — standalone anti-aliasing tutorial prototype.
+- `command-recording/` — standalone command recording (Picture / DisplayList)
+  tutorial prototype covering immediate vs retained rendering, `recordPicture`
+  / `drawPicture` / `drawPictureRasterized`, and cross-library comparisons
+  (Skia SkPicture, Cairo recording surface, Chrome DisplayList, Flutter
+  Picture).
 - `offscreen-rendering/` — standalone off-screen rendering tutorial prototype
   covering `OutputTarget`, Software vs OpenGL backend stacks, UI caching, and
   cross-library comparisons.
