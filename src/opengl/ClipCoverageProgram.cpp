@@ -370,16 +370,24 @@ void ClipCoverageProgram::drawCoverage(
     const glm::mat4 &transform, int width, int height)
 {
     const std::size_t vertexCount = points.size() / 2;
-    if (vertexCount < 3 || coverage.size() < vertexCount) {
+    if (vertexCount < 3) {
         return;
     }
+    // The Software backend falls back to a coverage of 1.0 when the mask
+    // carries no per-vertex coverage (see rasterizeCoverageTriangles). Mirror
+    // that behaviour here so a clipPath built without an analytic-AA fringe
+    // (Canvas::Impl::makeCurrentClipMaskState only populates coverage on
+    // first use and any code path that skips that step produces a
+    // points-only mask) still lights up a valid clip region instead of
+    // clearing every fragment to zero.
+    const bool hasCoverage = coverage.size() >= vertexCount;
 
     std::vector<float> interleaved;
     interleaved.reserve(vertexCount * 3);
     for (std::size_t i = 0; i < vertexCount; ++i) {
         interleaved.push_back(points[i * 2 + 0]);
         interleaved.push_back(points[i * 2 + 1]);
-        interleaved.push_back(coverage[i]);
+        interleaved.push_back(hasCoverage ? coverage[i] : 1.0f);
     }
 
     coverageProgram_->use();
