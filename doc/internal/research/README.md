@@ -8,6 +8,11 @@ of the public product documentation.
   alpha, all 12 Porter-Duff modes, the three separable modes
   (MULTIPLY / SCREEN / ADD), how each maps to `glBlendFuncSeparate`,
   and cross-library comparisons.
+- `canvas-math/` — standalone tutorial prototype covering the math used
+  inside 2D graphics libraries: 2D vectors (dot / cross products),
+  homogeneous 3×3 / 4×4 matrices, cubic Bezier curves + de Casteljau +
+  flatten, linear / radial gradient parameterization, signed distance
+  fields (SDF), and barycentric interpolation.
 - `command-recording/` — standalone command recording (Picture / DisplayList)
   tutorial prototype covering immediate vs retained rendering, `recordPicture`
   / `drawPicture` / `drawPictureRasterized`, and cross-library comparisons
