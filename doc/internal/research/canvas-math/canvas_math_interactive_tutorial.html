@@ -483,11 +483,462 @@ X(P) = b0 × X0 + b1 × X1 + b2 × X2
           </div>
         </section>
 
-        <!-- 07 · 主流库对比 -->
+        <!-- 07 · 颜色空间 & Gamma -->
+        <section class="section" id="gamma">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">07 · 颜色 & Gamma</div>
+              <h2>为什么 <code>0.5</code> 灰不是"中间灰"，直到你走 linear 空间</h2>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <canvas id="gammaCanvas" width="640" height="240"></canvas>
+              <p class="canvas-caption">上排是 sRGB 空间的均匀渐变（大多数图形 API 默认行为）——你会看到中间跳过了很多"应该是灰色"的过渡；下排是先转到 linear 空间做插值、再转回 sRGB 的结果。<strong>物理上正确</strong>的中间灰应该看起来"更暗"，因为人眼对暗部更敏感。</p>
+            </div>
+            <div class="info-stack">
+              <div class="formula">
+                <span class="label">sRGB → Linear 的转换</span>
+                <span class="math">// 简化近似 (gamma 2.2)
+linear = sRGB^2.2
+
+// 精确 IEC 61966-2-1 定义
+if (sRGB ≤ 0.04045)
+    linear = sRGB / 12.92
+else
+    linear = ((sRGB + 0.055) / 1.055)^2.4</span>
+                <p class="explain">监视器发光 ≈ 输入信号^2.2（历史 CRT 特性沿用至今）。<strong>sRGB 值不是线性的亮度</strong>——把 <code>0.5</code> 直接当"一半亮度"是错的。</p>
+              </div>
+              <div class="formula">
+                <span class="label">正确的颜色混合：先 → linear</span>
+                <span class="math">// 错的做法（大多数 Canvas API 默认）
+mid_srgb = (color_a_srgb + color_b_srgb) / 2
+
+// 对的做法（物理正确）
+a_lin = sRGB_to_linear(color_a_srgb)
+b_lin = sRGB_to_linear(color_b_srgb)
+mid_lin = (a_lin + b_lin) / 2
+mid_srgb = linear_to_sRGB(mid_lin)</span>
+                <p class="explain">红 → 绿 渐变尤其明显。sRGB 直接混合中间是浑浊的褐黄；linear 混合中间会有明亮的黄。WhatsCanvas 通过 <code>GammaCorrect::enabled()</code> + <code>GL_FRAMEBUFFER_SRGB</code> 支持这个选项。</p>
+              </div>
+              <div class="trace-item">
+                <strong>什么时候必须走 linear：</strong>渐变、透明度合成、光照计算、模糊（尤其阴影）、色彩纠正 LUT。<br>
+                <strong>什么时候不必：</strong>纯 UI 图标、复制像素、text glyph（那些通常已经 gamma-corrected，改反而错）。
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 08 · 3D 投影 -->
+        <section class="section" id="projection">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">08 · 3D 投影矩阵</div>
+              <h2>4×4 矩阵 + 齐次除法 = 从 3D 世界到 2D 屏幕</h2>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <div class="controls">
+                <label class="pill" for="fov">FOV：<strong id="fovVal">60°</strong></label>
+                <input id="fov" type="range" min="20" max="120" value="60">
+                <label class="pill" for="camDist">相机距离：<strong id="camDistVal">4.0</strong></label>
+                <input id="camDist" type="range" min="20" max="120" value="40">
+              </div>
+              <canvas id="projCanvas" width="640" height="320"></canvas>
+              <p class="canvas-caption">拖动画面看一个旋转的立方体从 3D 世界投影到 2D 屏幕。红色是"齐次除法"的作用——距离摄像机越远的顶点被 w 除得越小，看起来就"缩得越厉害"，这就是透视。FOV 变大 = "广角"，FOV 变小 = "长焦"。</p>
+            </div>
+            <div class="info-stack">
+              <div class="formula">
+                <span class="label">3D → 2D 完整流水线</span>
+                <span class="math">点 P (x, y, z, 1)
+  ↓ Model      · 物体的变换矩阵
+  ↓ View       · 相机的逆矩阵
+  ↓ Projection · 透视 / 正交投影
+点 P' (x', y', z', w')  ← 齐次坐标
+  ↓ 齐次除法 (÷ w')
+  → (x'/w', y'/w', z'/w')       ← NDC 空间 [-1, 1]
+  → 视口变换                     ← 屏幕像素</span>
+                <p class="explain">这就是"MVP 矩阵"名字的由来 —— Model × View × Projection。GPU 的 vertex shader 主要就在做这条流水线的前 4 步。</p>
+              </div>
+              <div class="formula">
+                <span class="label">透视投影矩阵</span>
+                <span class="math">f = 1 / tan(FOV / 2)
+aspect = width / height
+
+[ f/aspect   0      0                0   ]
+[ 0          f      0                0   ]
+[ 0          0      (n+f)/(n-f)      2nf/(n-f) ]
+[ 0          0      −1               0   ]</span>
+                <p class="explain">最后一行 <code>[0, 0, −1, 0]</code> 是关键。乘完之后 <code>w' = −z</code>——离摄像机越远（z 越负），w' 越大，除完后 x/y 越小，看起来就越"远"。这就是 <strong>透视缩短</strong>。</p>
+              </div>
+              <div class="formula">
+                <span class="label">正交投影（Orthographic）</span>
+                <span class="math">glm::ortho(left, right, bottom, top)
+
+对每个点：
+  x' = 2(x − left) / (right − left) − 1
+  y' = 2(y − bottom) / (top − bottom) − 1
+  w' = 1     ← 保持不变
+
+没有齐次除法，也就没有透视缩短。</span>
+                <p class="explain">2D 图形库全部用正交投影，包括 WhatsCanvas。<code>DrawPathProgram::draw</code> 里的 <code>glm::ortho(0, width, height, 0)</code> 就是它——把画布像素坐标直接映射到 NDC。</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 09 · easing -->
+        <section class="section" id="easing">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">09 · 插值曲线</div>
+              <h2>动画的灵魂：从 <code>lerp</code> 到 <code>smoothstep</code> 到 <code>ease-in-out</code></h2>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <div class="controls">
+                <label class="pill"><input type="radio" name="easing" value="linear" checked> linear</label>
+                <label class="pill"><input type="radio" name="easing" value="smoothstep"> smoothstep</label>
+                <label class="pill"><input type="radio" name="easing" value="smootherstep"> smootherstep</label>
+                <label class="pill"><input type="radio" name="easing" value="easeInOutCubic"> ease-in-out cubic</label>
+                <label class="pill"><input type="radio" name="easing" value="easeOutBack"> ease-out back (超调)</label>
+                <label class="pill"><input type="radio" name="easing" value="easeOutBounce"> ease-out bounce</label>
+              </div>
+              <canvas id="easeCanvas" width="640" height="340"></canvas>
+              <p class="canvas-caption">上：不同 easing 函数在 [0,1] 上的曲线形状。下：一个小球用当前 easing 函数做 A → B 位置动画（点画布重启动画）。<strong>体会：linear 看起来"机械"，smoothstep 看起来"自然"，bounce/back 提供动感。</strong></p>
+            </div>
+            <div class="info-stack">
+              <div class="formula">
+                <span class="label">lerp：所有 easing 的基石</span>
+                <span class="math">lerp(a, b, t) = a + (b − a) × t
+             = (1 − t) × a + t × b
+
+t = 0 → a
+t = 1 → b
+t = 0.5 → 中点</span>
+                <p class="explain">所有渐变、动画、混合、插值都基于它。GLSL 里的 <code>mix(a, b, t)</code> 就是 lerp。</p>
+              </div>
+              <div class="formula">
+                <span class="label">smoothstep：3 次 Hermite 曲线</span>
+                <span class="math">smoothstep(t) = t² × (3 − 2t)
+  t = 0    → 0
+  t = 1    → 1
+  t = 0.5  → 0.5
+  在两端"减速"——导数在 0 和 1 处 = 0
+
+smootherstep(t) = t³ × (6t² − 15t + 10)
+  更平滑的 5 次多项式（Perlin 用它）</span>
+                <p class="explain">用途：抗锯齿边缘（<a href="#distance">05 · SDF</a> 里的 <code>smoothstep(-0.5, 0.5, sdf)</code>）、渐变边界柔化、程序化纹理。</p>
+              </div>
+              <div class="formula">
+                <span class="label">Cubic Bezier easing</span>
+                <span class="math">CSS 里的 cubic-bezier(x1, y1, x2, y2)：
+  P₀ = (0, 0)
+  P₁ = (x1, y1)   ← 控制点
+  P₂ = (x2, y2)   ← 控制点
+  P₃ = (1, 1)
+
+  就是 3 次 Bezier 曲线（同 03）
+  只是把 t 映射到 y 值当作 easing 曲线</span>
+                <p class="explain">这就是 CSS transitions / SVG SMIL / Flutter Curves 底下的东西。回到 <a href="#bezier">03 · Bezier</a>——你已经会画它了。</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 10 · trig & polar -->
+        <section class="section" id="trig">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">10 · 三角学 & 极坐标</div>
+              <h2>旋转、粒子、罗盘的通用工具：<code>sin/cos</code> + <code>atan2</code></h2>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <canvas id="trigCanvas" width="640" height="300"></canvas>
+              <p class="canvas-caption">左：单位圆 + 一个旋转点，实时显示 sin/cos。中：极坐标（r, θ）到笛卡尔 (x, y) 的转换——n 个花瓣的花朵。右：把 30 个粒子在圆周上均匀分布 = <code>angle_i = 2π × i / N</code> 的应用。</p>
+            </div>
+            <div class="info-stack">
+              <div class="formula">
+                <span class="label">笛卡尔 ↔ 极坐标</span>
+                <span class="math">笛卡尔 (x, y) → 极坐标 (r, θ)：
+  r = sqrt(x² + y²)
+  θ = atan2(y, x)
+
+极坐标 (r, θ) → 笛卡尔 (x, y)：
+  x = r × cos(θ)
+  y = r × sin(θ)</span>
+                <p class="explain">"极坐标 gradient"就是这个思路：中心到当前像素的方向角 θ 对应一个色轮上的颜色。</p>
+              </div>
+              <div class="formula">
+                <span class="label">粒子/花瓣分布：均匀角度</span>
+                <span class="math">for i in 0..N:
+    θ_i = 2π × i / N
+    x_i = cx + r × cos(θ_i)
+    y_i = cy + r × sin(θ_i)</span>
+                <p class="explain">粒子系统、圆形菜单、雷达图、饼图、钟表、n-边形——全部用这一个模式。</p>
+              </div>
+              <div class="formula">
+                <span class="label">atan2 vs atan</span>
+                <span class="math">atan(y / x)  → 只知道 y/x 比值，
+                返回 [−π/2, π/2]，不能区分象限
+
+atan2(y, x)  → 输入 y 和 x 两个数，
+                返回 [−π, π]，正确区分 4 个象限</span>
+                <p class="explain">写图形代码几乎永远用 atan2，不用 atan。前者能正确处理 x=0 和不同象限。</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 11 · convolution -->
+        <section class="section" id="convolution">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">11 · 卷积</div>
+              <h2>图像滤镜的通用工具：一个 kernel 决定一切效果</h2>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <div class="controls">
+                <label class="pill"><input type="radio" name="kernel" value="identity" checked> identity（原图）</label>
+                <label class="pill"><input type="radio" name="kernel" value="box"> box blur</label>
+                <label class="pill"><input type="radio" name="kernel" value="gauss"> Gaussian blur</label>
+                <label class="pill"><input type="radio" name="kernel" value="sharpen"> sharpen</label>
+                <label class="pill"><input type="radio" name="kernel" value="edge"> edge detect (Sobel)</label>
+                <label class="pill"><input type="radio" name="kernel" value="emboss"> emboss</label>
+              </div>
+              <canvas id="convCanvas" width="640" height="220"></canvas>
+              <p class="canvas-caption">左：源图（几何图案）。中：所选的 3×3 kernel。右：卷积结果。<strong>同一个数学操作</strong>（每像素 = 邻居 × 权重求和）产生所有这些效果，只是权重矩阵不同。</p>
+            </div>
+            <div class="info-stack">
+              <div class="formula">
+                <span class="label">离散 2D 卷积</span>
+                <span class="math">output[x, y] = Σᵢ Σⱼ  kernel[i, j] × input[x+i, y+j]
+
+其中 (i, j) 在 kernel 的作用域内循环。
+kernel 通常是 3×3、5×5 或更大的奇数方阵。</span>
+                <p class="explain">"每个像素"变成了"邻居们的加权和"。<em>权重决定了效果</em>：全 1/9 = 模糊；正负交替 = 边缘检测；中心大 + 周围负 = 锐化。</p>
+              </div>
+              <div class="formula">
+                <span class="label">常见 kernel</span>
+                <span class="math">Box blur (3×3):
+  1/9 × ⎡1 1 1⎤    Gaussian σ=1 (3×3):
+        ⎣1 1 1⎦    1/16 × ⎡1 2 1⎤
+        ⎣1 1 1⎦             ⎣2 4 2⎦
+                          ⎣1 2 1⎦
+
+Sharpen:                Sobel-X (边缘):
+   ⎡ 0 −1  0 ⎤            ⎡ −1  0  1 ⎤
+   ⎣−1  5 −1 ⎦            ⎣ −2  0  2 ⎦
+   ⎣ 0 −1  0 ⎦            ⎣ −1  0  1 ⎦</span>
+                <p class="explain">Gaussian 是"归一化的钟形分布"离散化。它在滤镜（<a href="../offscreen-rendering/offscreen_rendering_interactive_tutorial.html">离屏渲染</a> 里提到过）里是模糊的黄金标准，因为它可以拆成 <em>可分离</em> 的两次 1D 卷积（省算量）。</p>
+              </div>
+              <div class="formula">
+                <span class="label">可分离性（Separable）</span>
+                <span class="math">2D Gaussian = 1D Gaussian × 1D Gaussian
+所以 N×N 卷积可以拆成两次 N 次 1D 卷积：
+  N² 次乘法  →  2N 次乘法
+
+3×3 kernel: 9 → 6，节省 33%
+5×5 kernel: 25 → 10，节省 60%
+9×9 kernel: 81 → 18，节省 78%</span>
+                <p class="explain">这就是 WhatsCanvas <code>GaussianBlurProgram</code> 两 pass 实现的原因——一次横向、一次纵向。</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 12 · sampling -->
+        <section class="section" id="sampling">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">12 · 采样与走样</div>
+              <h2>为什么图片缩小会有 moire？—— 香农定理不饶人</h2>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <div class="controls">
+                <label class="pill" for="sampScale">缩放：<strong id="sampScaleVal">1.0×</strong></label>
+                <input id="sampScale" type="range" min="10" max="200" value="100">
+                <label class="pill"><input type="radio" name="samp" value="nearest" checked> Nearest</label>
+                <label class="pill"><input type="radio" name="samp" value="bilinear"> Bilinear</label>
+              </div>
+              <canvas id="sampCanvas" width="640" height="240"></canvas>
+              <p class="canvas-caption">缩小同一张棋盘图。Nearest 采样（最近邻）会出现 <em>moire 干涉纹</em>——高频细节在低采样率下"混叠"；Bilinear（双线性插值）不会消除 moire 但会更柔和。<strong>真正解决 moire 要靠 mipmap 或 anisotropic filter。</strong></p>
+            </div>
+            <div class="info-stack">
+              <div class="formula">
+                <span class="label">Nyquist–Shannon 定理</span>
+                <span class="math">要正确重建一个信号，
+采样频率必须 ≥ 信号最高频率 × 2
+
+违反 → aliasing（走样）：
+  高频"折叠"回低频，
+  变成新的、假的信号（moire）</span>
+                <p class="explain">图像里的"频率"是"变化速度"。棋盘格 = 高频；纯色 = 低频。缩小图片 = 降采样率 → 高频细节没法被表示 → aliasing。</p>
+              </div>
+              <div class="formula">
+                <span class="label">Bilinear：4 个邻居加权平均</span>
+                <span class="math">tex_x = 采样点在源图的 x 坐标（可能小数）
+tex_y = 采样点在源图的 y 坐标
+
+x0 = floor(tex_x), fx = tex_x − x0
+y0 = floor(tex_y), fy = tex_y − y0
+
+C00 = image[x0, y0]      C10 = image[x0+1, y0]
+C01 = image[x0, y0+1]    C11 = image[x0+1, y0+1]
+
+top    = lerp(C00, C10, fx)
+bottom = lerp(C01, C11, fx)
+result = lerp(top, bottom, fy)</span>
+                <p class="explain">3 次 lerp。GPU 的 <code>texture2D</code> 里如果 filter = <code>LINEAR</code>，硬件替你做的就是这个。</p>
+              </div>
+              <div class="formula">
+                <span class="label">Mipmap：预算好的多层降采样金字塔</span>
+                <span class="math">Level 0 : 原图 (1024×1024)
+Level 1 : 512×512   ← 每 2×2 平均
+Level 2 : 256×256
+...
+Level 10: 1×1
+
+采样时选合适的 level（根据 screen-space 覆盖度），
+再做 trilinear（在两个相邻 level 之间也 lerp）。</span>
+                <p class="explain">缩得越小选越靠上的 level。这是消除 moire 的<strong>正确方法</strong>，但代价是 1.33× 内存（几何级数和）。WhatsCanvas 的 <code>ImageSampling::MIPMAP_LINEAR</code> 就是它。</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 13 · lighting -->
+        <section class="section" id="lighting">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">13 · 光照数学</div>
+              <h2>Lambertian + Phong：3D 里的两条基础光照公式</h2>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <div class="controls">
+                <label class="pill" for="lightAng">光源角度：<strong id="lightAngVal">45°</strong></label>
+                <input id="lightAng" type="range" min="0" max="360" value="45">
+                <label class="pill" for="specPow">specular 指数：<strong id="specPowVal">32</strong></label>
+                <input id="specPow" type="range" min="1" max="128" value="32">
+              </div>
+              <canvas id="lightCanvas" width="640" height="300"></canvas>
+              <p class="canvas-caption">一个球体在旋转光源下的阴影。左：只有 diffuse (Lambertian) — 表面看起来"哑光"。中：加上 specular (Phong) — 表面出现高光反射，看起来"有光泽"。右：光源方向指示器。</p>
+            </div>
+            <div class="info-stack">
+              <div class="formula">
+                <span class="label">Lambertian（漫反射）</span>
+                <span class="math">I_diffuse = max(0, N · L) × I_light × color
+
+N : 表面法向量（单位向量）
+L : 指向光源的向量（单位向量）
+N · L : 两个单位向量的点积 = cos(夹角)
+  N · L = 1  → 正面对光（最亮）
+  N · L = 0  → 表面平行光线（暗）
+  N · L < 0  → 光在背面（clamp 到 0）</span>
+                <p class="explain">这就是"点积 = cos 夹角"最经典的用途。光线从法线方向来 → 全亮；斜着来 → 按 cos(θ) 变暗。</p>
+              </div>
+              <div class="formula">
+                <span class="label">Phong specular（镜面反射）</span>
+                <span class="math">R = reflect(−L, N)   // L 的反射向量
+V : 指向摄像机的方向
+
+I_specular = max(0, R · V)^shininess × I_light
+
+shininess 越大 → 高光越小越锐利
+  8   → 塑料
+  32  → 抛光金属
+  128 → 镜面</span>
+                <p class="explain">又是点积！<code>R · V</code> 的 <code>shininess</code> 次幂让高光集中在"完美镜面反射方向"附近。Phong 1975 年的博士论文。</p>
+              </div>
+              <div class="formula">
+                <span class="label">完整 Phong 光照模型</span>
+                <span class="math">I = I_ambient + I_diffuse + I_specular
+
+I_ambient  : 环境光（常数，模拟四面反射的散光）
+I_diffuse  : 表面漫反射（Lambertian）
+I_specular : 表面镜面反射（Phong）</span>
+                <p class="explain">3D 图形学的 hello world。现代 PBR (Physically-Based Rendering) 用更复杂的模型，但直觉全在这三项里。</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 14 · precision -->
+        <section class="section" id="precision">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">14 · 数值精度</div>
+              <h2>浮点数是骗子：为什么 <code>0.1 + 0.2 ≠ 0.3</code></h2>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <canvas id="precCanvas" width="640" height="260"></canvas>
+              <p class="canvas-caption">左：float32（GPU 默认）的"齿轮"——每个可表示的数之间有一定间距。当你把两个大的数相减，间距被暴露出来。中：<code>0.1 + 0.2</code> 的字面结果（<code>0.30000000000000004</code>）。右：在渲染里最常见的踩坑：远处顶点的 z 值分辨率崩溃（zfighting）。</p>
+            </div>
+            <div class="info-stack">
+              <div class="formula">
+                <span class="label">float32 精度</span>
+                <span class="math">32 位 = 1 符号 + 8 指数 + 23 尾数
+可表示的相邻数间距 ≈ 值 × 2⁻²³
+  在 1.0 附近：间距 ≈ 1.19e−7
+  在 10.0 附近：间距 ≈ 1.19e−6
+  在 1e6 附近：间距 ≈ 0.12   ← 已经很大！</span>
+                <p class="explain">远处的顶点 z 值分辨率崩溃 → z-fighting（两个物体表面在深度测试里争斗）。GPU 的解决办法：reverse-Z + logarithmic depth。</p>
+              </div>
+              <div class="formula">
+                <span class="label">别用 == 比较浮点</span>
+                <span class="math">// 错
+if (a == b) { ... }
+
+// 相对精度
+if (abs(a − b) &lt; max(abs(a), abs(b)) × 1e−6) { ... }
+
+// 绝对精度（对小数字有效）
+if (abs(a − b) &lt; 1e−7) { ... }
+
+// 混合（推荐）
+if (abs(a − b) &lt; max(abs(a), abs(b), 1) × 1e−6) { ... }</span>
+                <p class="explain">写光栅器时，"面积 ≈ 0"要用 <code>fabs(area) &lt; 1e-7</code>——WhatsCanvas <code>rasterizeTriangles</code> 里就是这么写的。</p>
+              </div>
+              <div class="formula">
+                <span class="label">GLSL 精度限定</span>
+                <span class="math">// 桌面 GL：默认 highp (float32)
+uniform vec2 pos;
+
+// GLES / WebGL 2：
+precision mediump float;   // float16, 快，坐标容易崩
+precision highp float;     // float32, 慢，正确
+                            // 手机 GPU 上有的 mediump 只是 float10 → 更糟
+</span>
+                <p class="explain">"手机上显示对但桌面上错"这类 bug 常常是 mediump 惹的祸。<em>屏幕坐标 uniforms、深度、时间</em>永远用 highp。</p>
+              </div>
+              <div class="trace-item">
+                <strong>典型踩坑：</strong>
+                <br>• 圆的边缘看起来"抖"：距离用 float32 算，本身有噪声。要么半径大一点，要么用 SDF。
+                <br>• 阴影"贴不上"（Peter-Panning）：float32 深度不够，光源附近偏移几个像素。
+                <br>• 大世界 z-fighting：可以在 shader 里做 <code>gl_Position.z = log(...)</code>。
+                <br>• accumulate 时精度丢失：改用双精度 CPU 累加，最后一次转 float32 上传。
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 15 · 主流库对比 -->
         <section class="section" id="libraries">
           <div class="section-head">
             <div>
-              <div class="section-tag">07 · 主流库怎么用这些数学</div>
+              <div class="section-tag">15 · 主流库怎么用这些数学</div>
               <h2>WhatsCanvas / Skia / Cairo / Qt / 浏览器 Canvas 各自的选择</h2>
             </div>
           </div>
@@ -527,7 +978,7 @@ X(P) = b0 × X0 + b1 × X1 + b2 × X2
         <section class="section" id="takeaway">
           <div class="section-head">
             <div>
-              <div class="section-tag">08 · 学习建议</div>
+              <div class="section-tag">16 · 学习建议</div>
               <h2>如果你想深入，从哪儿看起？</h2>
             </div>
           </div>
@@ -560,9 +1011,17 @@ X(P) = b0 × X0 + b1 × X1 + b2 × X2
         <a href="#gradient">4. 渐变的参数化</a>
         <a href="#distance">5. 距离场 (SDF)</a>
         <a href="#bary">6. 重心坐标</a>
-        <a href="#libraries">7. 主流库怎么做</a>
-        <a href="#takeaway">8. 学习建议</a>
-        <p class="note">相关代码：<code>src/canvas/Matrix.h</code>、<code>src/canvas/Path.cpp</code>、<code>src/canvas/StrokeTessellator.cpp</code>、<code>src/render/software/SoftwareRenderer.cpp: rasterizeTriangles</code>。</p>
+        <a href="#gamma">7. 颜色 & Gamma</a>
+        <a href="#projection">8. 3D 投影矩阵</a>
+        <a href="#easing">9. 插值曲线</a>
+        <a href="#trig">10. 三角学 & 极坐标</a>
+        <a href="#convolution">11. 卷积</a>
+        <a href="#sampling">12. 采样与走样</a>
+        <a href="#lighting">13. 光照数学</a>
+        <a href="#precision">14. 数值精度</a>
+        <a href="#libraries">15. 主流库怎么做</a>
+        <a href="#takeaway">16. 学习建议</a>
+        <p class="note">相关代码：<code>src/canvas/Matrix.h</code>、<code>src/canvas/Path.cpp</code>、<code>src/render/software/SoftwareRenderer.cpp: rasterizeTriangles</code>、<code>src/opengl/GaussianBlurProgram.cpp</code>、<code>src/render/GammaCorrect.h</code>。</p>
       </aside>
     </div>
   </div>
@@ -1116,6 +1575,610 @@ X(P) = b0 × X0 + b1 × X1 + b2 × X2
       }
       makeDraggable(canvas, [v0, v1, v2, P], redraw);
       redraw();
+    })();
+
+    // ============ 07 · gamma ============
+    (function () {
+      const canvas = document.getElementById('gammaCanvas');
+      const ctx = canvas.getContext('2d');
+      function sRGBtoLin(c) { return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
+      function linToSRGB(l) { return l <= 0.0031308 ? l * 12.92 : 1.055 * Math.pow(l, 1 / 2.4) - 0.055; }
+      function redraw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const stops = [[220, 60, 60], [40, 200, 60], [60, 100, 220]]; // red → green → blue
+        function interpSRGB(t) {
+          const seg = t < 0.5 ? 0 : 1;
+          const u = seg === 0 ? t * 2 : (t - 0.5) * 2;
+          const a = stops[seg], b = stops[seg + 1];
+          return [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u];
+        }
+        function interpLinear(t) {
+          const seg = t < 0.5 ? 0 : 1;
+          const u = seg === 0 ? t * 2 : (t - 0.5) * 2;
+          const a = stops[seg].map(x => sRGBtoLin(x / 255));
+          const b = stops[seg + 1].map(x => sRGBtoLin(x / 255));
+          return [
+            linToSRGB(a[0] + (b[0] - a[0]) * u) * 255,
+            linToSRGB(a[1] + (b[1] - a[1]) * u) * 255,
+            linToSRGB(a[2] + (b[2] - a[2]) * u) * 255
+          ];
+        }
+        // Top row: sRGB naive interpolation
+        for (let x = 0; x < canvas.width; ++x) {
+          const t = x / (canvas.width - 1);
+          const c = interpSRGB(t);
+          ctx.fillStyle = `rgb(${c[0] | 0}, ${c[1] | 0}, ${c[2] | 0})`;
+          ctx.fillRect(x, 40, 1, 60);
+        }
+        // Bottom row: linear-space interpolation
+        for (let x = 0; x < canvas.width; ++x) {
+          const t = x / (canvas.width - 1);
+          const c = interpLinear(t);
+          ctx.fillStyle = `rgb(${c[0] | 0}, ${c[1] | 0}, ${c[2] | 0})`;
+          ctx.fillRect(x, 150, 1, 60);
+        }
+        ctx.fillStyle = '#182024';
+        ctx.font = '700 14px "Aptos", sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText('❌ sRGB 直接插值（默认，"过渡浑浊"）', 12, 30);
+        ctx.fillText('✅ 先转 linear、插值、再转回 sRGB（物理正确）', 12, 140);
+        ctx.font = '600 12px "Aptos", sans-serif';
+        ctx.fillStyle = '#5c6a70';
+        ctx.textAlign = 'center';
+        ctx.fillText('注意红→绿的中段：上方浑黄，下方鲜黄', canvas.width / 2, 232);
+      }
+      redraw();
+    })();
+
+    // ============ 08 · projection ============
+    (function () {
+      const canvas = document.getElementById('projCanvas');
+      const ctx = canvas.getContext('2d');
+      const fov = document.getElementById('fov');
+      const fovVal = document.getElementById('fovVal');
+      const camDist = document.getElementById('camDist');
+      const camDistVal = document.getElementById('camDistVal');
+      // Cube vertices in local space
+      const verts = [];
+      for (let i = 0; i < 8; ++i) {
+        verts.push({
+          x: (i & 1) ? 1 : -1,
+          y: (i & 2) ? 1 : -1,
+          z: (i & 4) ? 1 : -1
+        });
+      }
+      const edges = [[0,1],[1,3],[3,2],[2,0], [4,5],[5,7],[7,6],[6,4], [0,4],[1,5],[3,7],[2,6]];
+      let angle = 0;
+      function redraw(dt) {
+        angle += dt * 0.0007;
+        const fovDeg = +fov.value;
+        fovVal.textContent = fovDeg + '°';
+        const dist = +camDist.value / 10;
+        camDistVal.textContent = dist.toFixed(1);
+        const f = 1 / Math.tan(fovDeg * Math.PI / 360);
+        const aspect = canvas.width / canvas.height;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // Rotate + translate + project each vertex
+        const proj = verts.map(v => {
+          const cos = Math.cos(angle), sin = Math.sin(angle);
+          // Rotate around Y
+          let x = v.x * cos - v.z * sin;
+          let z = v.x * sin + v.z * cos;
+          let y = v.y;
+          // Rotate around X (fixed angle for tilt)
+          const cx = Math.cos(0.5), sx = Math.sin(0.5);
+          const y2 = y * cx - z * sx;
+          const z2 = y * sx + z * cx;
+          // Move away from camera
+          const wz = z2 - dist;
+          // Perspective divide
+          const projX = (f * x / aspect) / -wz;
+          const projY = (f * y2) / -wz;
+          return {
+            x: canvas.width / 2 + projX * canvas.width / 2,
+            y: canvas.height / 2 - projY * canvas.height / 2,
+            w: -wz  // depth for depth-tint
+          };
+        });
+        // Draw edges
+        edges.forEach(([a, b]) => {
+          const depth = (proj[a].w + proj[b].w) / 2;
+          const alpha = Math.min(1, 6 / depth);
+          ctx.strokeStyle = `rgba(28, 122, 140, ${alpha.toFixed(2)})`;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(proj[a].x, proj[a].y);
+          ctx.lineTo(proj[b].x, proj[b].y);
+          ctx.stroke();
+        });
+        // Vertices
+        proj.forEach((p, i) => {
+          ctx.fillStyle = '#c25a1b';
+          ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI * 2); ctx.fill();
+        });
+        // Label
+        ctx.fillStyle = '#182024';
+        ctx.font = '700 13px "Aptos", sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText('Model → View → Projection → 齐次除法', 12, 22);
+        ctx.font = '500 11px "Cascadia Code", monospace';
+        ctx.fillText(`f = 1/tan(FOV/2) = ${f.toFixed(2)}`, 12, 40);
+      }
+      let last = performance.now();
+      function loop(now) { const dt = now - last; last = now; redraw(dt); requestAnimationFrame(loop); }
+      requestAnimationFrame(loop);
+      [fov, camDist].forEach(el => el.addEventListener('input', () => { last = performance.now(); }));
+    })();
+
+    // ============ 09 · easing ============
+    (function () {
+      const canvas = document.getElementById('easeCanvas');
+      const ctx = canvas.getContext('2d');
+      const radios = document.querySelectorAll('input[name="easing"]');
+      const funcs = {
+        linear: t => t,
+        smoothstep: t => t * t * (3 - 2 * t),
+        smootherstep: t => t * t * t * (t * (t * 6 - 15) + 10),
+        easeInOutCubic: t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2,
+        easeOutBack: t => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); },
+        easeOutBounce: t => {
+          const n1 = 7.5625, d1 = 2.75;
+          if (t < 1 / d1) return n1 * t * t;
+          if (t < 2 / d1) { t -= 1.5 / d1; return n1 * t * t + 0.75; }
+          if (t < 2.5 / d1) { t -= 2.25 / d1; return n1 * t * t + 0.9375; }
+          t -= 2.625 / d1; return n1 * t * t + 0.984375;
+        }
+      };
+      let animStart = performance.now();
+      canvas.addEventListener('click', () => { animStart = performance.now(); });
+      function redraw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const mode = document.querySelector('input[name="easing"]:checked').value;
+        const fn = funcs[mode];
+        // Top: curve
+        const curveX0 = 40, curveY0 = 20, curveW = canvas.width - 80, curveH = 180;
+        ctx.strokeStyle = 'rgba(23,33,38,0.15)'; ctx.lineWidth = 1;
+        ctx.strokeRect(curveX0, curveY0, curveW, curveH);
+        // grid
+        for (let i = 1; i < 10; ++i) {
+          const x = curveX0 + curveW * i / 10;
+          ctx.beginPath(); ctx.moveTo(x, curveY0); ctx.lineTo(x, curveY0 + curveH); ctx.stroke();
+          const y = curveY0 + curveH * i / 10;
+          ctx.beginPath(); ctx.moveTo(curveX0, y); ctx.lineTo(curveX0 + curveW, y); ctx.stroke();
+        }
+        // Diagonal reference (linear)
+        ctx.strokeStyle = 'rgba(194,90,27,0.35)'; ctx.setLineDash([5,3]);
+        ctx.beginPath(); ctx.moveTo(curveX0, curveY0 + curveH); ctx.lineTo(curveX0 + curveW, curveY0); ctx.stroke();
+        ctx.setLineDash([]);
+        // Selected curve
+        ctx.strokeStyle = '#1c7a8c'; ctx.lineWidth = 3;
+        ctx.beginPath();
+        for (let i = 0; i <= 100; ++i) {
+          const t = i / 100;
+          const y = fn(t);
+          const px = curveX0 + t * curveW;
+          const py = curveY0 + (1 - y) * curveH;
+          if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+        // Bottom: animated dot on a track
+        const trackY = 280;
+        const trackX0 = 60, trackX1 = canvas.width - 60;
+        ctx.strokeStyle = 'rgba(23,33,38,0.2)'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(trackX0, trackY); ctx.lineTo(trackX1, trackY); ctx.stroke();
+        // A / B endpoints
+        ctx.fillStyle = '#c25a1b';
+        ctx.beginPath(); ctx.arc(trackX0, trackY, 6, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(trackX1, trackY, 6, 0, Math.PI * 2); ctx.fill();
+        // moving ball
+        const now = performance.now();
+        let animT = ((now - animStart) % 2000) / 2000;
+        // Add a pause: 1.5 sec animate, 0.5 sec pause
+        animT = Math.min(1, animT / 0.75);
+        const eased = fn(animT);
+        const bx = trackX0 + (trackX1 - trackX0) * eased;
+        ctx.fillStyle = '#1c7a8c';
+        ctx.beginPath(); ctx.arc(bx, trackY, 10, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+        // Labels
+        ctx.fillStyle = '#182024';
+        ctx.font = '600 12px "Aptos", sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText('y = ' + mode + '(t)', curveX0, curveY0 - 4);
+        ctx.textAlign = 'center';
+        ctx.fillText('t →', curveX0 + curveW / 2, curveY0 + curveH + 16);
+        ctx.save(); ctx.translate(curveX0 - 20, curveY0 + curveH / 2); ctx.rotate(-Math.PI / 2);
+        ctx.fillText('y ↑', 0, 0); ctx.restore();
+        ctx.textAlign = 'left';
+        ctx.fillText('A', trackX0 - 10, trackY - 14);
+        ctx.fillText('B', trackX1 - 5, trackY - 14);
+        ctx.font = '500 11px "Cascadia Code", monospace';
+        ctx.fillStyle = '#5c6a70';
+        ctx.textAlign = 'center';
+        ctx.fillText(`t = ${animT.toFixed(2)}  eased = ${eased.toFixed(3)}`, canvas.width / 2, trackY + 24);
+      }
+      radios.forEach(r => r.addEventListener('change', () => { animStart = performance.now(); }));
+      function loop() { redraw(); requestAnimationFrame(loop); }
+      loop();
+    })();
+
+    // ============ 10 · trig ============
+    (function () {
+      const canvas = document.getElementById('trigCanvas');
+      const ctx = canvas.getContext('2d');
+      let time = 0;
+      function redraw(dt) {
+        time += dt * 0.001;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // Panel 1: unit circle
+        const p1cx = 110, p1cy = 150, r = 90;
+        ctx.strokeStyle = 'rgba(23,33,38,0.3)';
+        ctx.beginPath(); ctx.arc(p1cx, p1cy, r, 0, Math.PI * 2); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(p1cx - r - 10, p1cy); ctx.lineTo(p1cx + r + 10, p1cy); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(p1cx, p1cy - r - 10); ctx.lineTo(p1cx, p1cy + r + 10); ctx.stroke();
+        const th = time;
+        const px = p1cx + Math.cos(th) * r, py = p1cy - Math.sin(th) * r;
+        // Vertical drop showing sin
+        ctx.strokeStyle = '#c25a1b'; ctx.setLineDash([3,3]);
+        ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px, p1cy); ctx.stroke();
+        ctx.strokeStyle = '#2f7d32';
+        ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(p1cx, py); ctx.stroke();
+        ctx.setLineDash([]);
+        // Radius line
+        ctx.strokeStyle = '#1c7a8c'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(p1cx, p1cy); ctx.lineTo(px, py); ctx.stroke();
+        // Point
+        ctx.fillStyle = '#1c7a8c';
+        ctx.beginPath(); ctx.arc(px, py, 5, 0, Math.PI * 2); ctx.fill();
+        // Labels
+        ctx.fillStyle = '#182024';
+        ctx.font = '700 12px "Aptos", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('单位圆 (r=1)', p1cx, 30);
+        ctx.font = '500 11px "Cascadia Code", monospace';
+        ctx.fillText(`θ = ${(th % (Math.PI * 2)).toFixed(2)} rad`, p1cx, canvas.height - 24);
+        ctx.fillText(`cos = ${Math.cos(th).toFixed(2)}`, p1cx, canvas.height - 10);
+
+        // Panel 2: n-petal rose
+        const p2cx = 320, p2cy = 150;
+        const n = 5;
+        ctx.strokeStyle = '#c25a1b'; ctx.lineWidth = 2;
+        ctx.beginPath();
+        for (let a = 0; a <= Math.PI * 2 + 0.05; a += 0.02) {
+          const rr = 80 * Math.abs(Math.sin(n * a + time * 0.4));
+          const x = p2cx + rr * Math.cos(a);
+          const y = p2cy + rr * Math.sin(a);
+          if (a === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+        ctx.fillStyle = '#182024';
+        ctx.font = '700 12px "Aptos", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(`r = |sin(${n}θ)|`, p2cx, 30);
+        ctx.font = '500 11px "Cascadia Code", monospace';
+        ctx.fillText('极坐标 → 笛卡尔', p2cx, canvas.height - 10);
+
+        // Panel 3: particles evenly on ring
+        const p3cx = 530, p3cy = 150;
+        const N = 30;
+        for (let i = 0; i < N; ++i) {
+          const a = 2 * Math.PI * i / N + time * 0.5;
+          const x = p3cx + 70 * Math.cos(a);
+          const y = p3cy + 70 * Math.sin(a);
+          const h = (i * 12 + time * 40) % 360;
+          ctx.fillStyle = `hsl(${h}, 70%, 55%)`;
+          ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.fillStyle = '#182024';
+        ctx.font = '700 12px "Aptos", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('30 粒子均匀分布', p3cx, 30);
+        ctx.font = '500 11px "Cascadia Code", monospace';
+        ctx.fillText('θᵢ = 2π · i / N', p3cx, canvas.height - 10);
+      }
+      let last = performance.now();
+      function loop(now) { const dt = now - last; last = now; redraw(dt); requestAnimationFrame(loop); }
+      requestAnimationFrame(loop);
+    })();
+
+    // ============ 11 · convolution ============
+    (function () {
+      const canvas = document.getElementById('convCanvas');
+      const ctx = canvas.getContext('2d');
+      const radios = document.querySelectorAll('input[name="kernel"]');
+      const kernels = {
+        identity: { m: [[0,0,0],[0,1,0],[0,0,0]], bias: 0 },
+        box:      { m: [[1/9,1/9,1/9],[1/9,1/9,1/9],[1/9,1/9,1/9]], bias: 0 },
+        gauss:    { m: [[1/16,2/16,1/16],[2/16,4/16,2/16],[1/16,2/16,1/16]], bias: 0 },
+        sharpen:  { m: [[0,-1,0],[-1,5,-1],[0,-1,0]], bias: 0 },
+        edge:     { m: [[-1,-1,-1],[-1,8,-1],[-1,-1,-1]], bias: 0 },
+        emboss:   { m: [[-2,-1,0],[-1,1,1],[0,1,2]], bias: 128 }
+      };
+      function makeSourceImage() {
+        // Create a pattern in an offscreen canvas
+        const src = document.createElement('canvas');
+        src.width = 180; src.height = 180;
+        const sctx = src.getContext('2d');
+        sctx.fillStyle = '#f6eddc'; sctx.fillRect(0, 0, 180, 180);
+        // Concentric arcs + stripes
+        for (let i = 0; i < 12; ++i) {
+          sctx.fillStyle = `hsl(${(i * 30) % 360}, 60%, 55%)`;
+          sctx.beginPath(); sctx.arc(90, 90, 10 + i * 12, 0, Math.PI * 2); sctx.fill();
+          sctx.fillStyle = 'rgba(255,255,255,0.35)';
+          sctx.beginPath(); sctx.arc(90, 90, 10 + i * 12 - 3, 0, Math.PI * 2); sctx.fill();
+        }
+        sctx.fillStyle = '#182024';
+        sctx.font = '700 40px "Bahnschrift", sans-serif';
+        sctx.textAlign = 'center'; sctx.textBaseline = 'middle';
+        sctx.fillText('W', 90, 90);
+        return src;
+      }
+      const src = makeSourceImage();
+      function redraw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const mode = document.querySelector('input[name="kernel"]:checked').value;
+        const k = kernels[mode];
+        // Draw source
+        ctx.drawImage(src, 20, 20);
+        // Draw kernel in middle
+        const kx0 = 240, ky0 = 60;
+        for (let j = 0; j < 3; ++j) {
+          for (let i = 0; i < 3; ++i) {
+            const v = k.m[j][i];
+            const cx = kx0 + i * 40, cy = ky0 + j * 40;
+            ctx.fillStyle = '#fff';
+            ctx.strokeStyle = 'rgba(23,33,38,0.3)';
+            ctx.strokeRect(cx, cy, 36, 36);
+            ctx.fillStyle = v > 0 ? 'rgba(28, 122, 140, ' + Math.min(1, v * 1.5) + ')' : v < 0 ? 'rgba(194, 90, 27, ' + Math.min(1, -v * 0.5) + ')' : 'rgba(0,0,0,0.02)';
+            ctx.fillRect(cx + 1, cy + 1, 34, 34);
+            ctx.fillStyle = '#182024';
+            ctx.font = '500 12px "Cascadia Code", monospace';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            const label = v === 0 ? '0' : (Math.abs(v) < 0.1 ? v.toFixed(2) : v.toFixed(1));
+            ctx.fillText(label, cx + 18, cy + 18);
+          }
+        }
+        ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+        ctx.fillStyle = '#182024';
+        ctx.font = '600 12px "Aptos", sans-serif';
+        ctx.fillText('3×3 kernel', kx0 + 60, ky0 - 8);
+
+        // Compute output image
+        const out = document.createElement('canvas');
+        out.width = 180; out.height = 180;
+        const octx = out.getContext('2d');
+        octx.drawImage(src, 0, 0);
+        const srcImg = octx.getImageData(0, 0, 180, 180);
+        const dstImg = octx.createImageData(180, 180);
+        const sd = srcImg.data, dd = dstImg.data;
+        for (let y = 1; y < 179; ++y) {
+          for (let x = 1; x < 179; ++x) {
+            let r = 0, g = 0, b = 0;
+            for (let j = -1; j <= 1; ++j) {
+              for (let i = -1; i <= 1; ++i) {
+                const w = k.m[j + 1][i + 1];
+                const idx = ((y + j) * 180 + (x + i)) * 4;
+                r += sd[idx] * w;
+                g += sd[idx + 1] * w;
+                b += sd[idx + 2] * w;
+              }
+            }
+            r += k.bias; g += k.bias; b += k.bias;
+            const di = (y * 180 + x) * 4;
+            dd[di]     = Math.max(0, Math.min(255, r));
+            dd[di + 1] = Math.max(0, Math.min(255, g));
+            dd[di + 2] = Math.max(0, Math.min(255, b));
+            dd[di + 3] = 255;
+          }
+        }
+        octx.putImageData(dstImg, 0, 0);
+        ctx.drawImage(out, 440, 20);
+      }
+      radios.forEach(r => r.addEventListener('change', redraw));
+      redraw();
+    })();
+
+    // ============ 12 · sampling ============
+    (function () {
+      const canvas = document.getElementById('sampCanvas');
+      const ctx = canvas.getContext('2d');
+      const scaleSlider = document.getElementById('sampScale');
+      const scaleVal = document.getElementById('sampScaleVal');
+      const radios = document.querySelectorAll('input[name="samp"]');
+      // Pre-render a high-freq source: fine checker
+      const src = document.createElement('canvas');
+      src.width = 400; src.height = 200;
+      const sctx = src.getContext('2d');
+      for (let y = 0; y < src.height; ++y) {
+        for (let x = 0; x < src.width; ++x) {
+          const c = ((x >> 1) + (y >> 1)) & 1;
+          sctx.fillStyle = c ? '#182024' : '#ffffff';
+          sctx.fillRect(x, y, 1, 1);
+        }
+      }
+      function redraw() {
+        const scale = +scaleSlider.value / 100;
+        scaleVal.textContent = scale.toFixed(1) + '×';
+        const mode = document.querySelector('input[name="samp"]:checked').value;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.imageSmoothingEnabled = (mode === 'bilinear');
+        const w = src.width * scale;
+        const h = src.height * scale;
+        const x = (canvas.width - w) / 2;
+        const y = (canvas.height - h) / 2;
+        ctx.drawImage(src, x, y, w, h);
+        ctx.fillStyle = '#182024';
+        ctx.font = '700 13px "Aptos", sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(`模式：${mode === 'nearest' ? 'Nearest 最近邻' : 'Bilinear 双线性'}  ·  scale=${scale.toFixed(2)}×`, 12, 22);
+        ctx.font = '500 11px "Cascadia Code", monospace';
+        ctx.fillStyle = '#5c6a70';
+        ctx.fillText('缩到 <0.5× 时观察 moire 条纹变化', 12, canvas.height - 10);
+      }
+      scaleSlider.addEventListener('input', redraw);
+      radios.forEach(r => r.addEventListener('change', redraw));
+      redraw();
+    })();
+
+    // ============ 13 · lighting ============
+    (function () {
+      const canvas = document.getElementById('lightCanvas');
+      const ctx = canvas.getContext('2d');
+      const angInp = document.getElementById('lightAng');
+      const angVal = document.getElementById('lightAngVal');
+      const specInp = document.getElementById('specPow');
+      const specVal = document.getElementById('specPowVal');
+      function redraw() {
+        const ang = +angInp.value * Math.PI / 180;
+        angVal.textContent = (+angInp.value) + '°';
+        const shininess = +specInp.value;
+        specVal.textContent = shininess;
+        // Light direction (from surface toward light)
+        const Lx = Math.cos(ang), Ly = -Math.sin(ang), Lz = 0.6;
+        const Llen = Math.sqrt(Lx * Lx + Ly * Ly + Lz * Lz);
+        const lx = Lx / Llen, ly = Ly / Llen, lz = Lz / Llen;
+        // Viewer straight ahead
+        const vx = 0, vy = 0, vz = 1;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // 3 spheres side by side: diffuse-only, diffuse+specular, diffuse+specular+ambient
+        const centers = [
+          { cx: 130, cy: 150, label: 'Diffuse (Lambertian)' },
+          { cx: 320, cy: 150, label: 'Diffuse + Specular' },
+          { cx: 510, cy: 150, label: '+ Ambient (完整 Phong)' }
+        ];
+        const R = 90;
+        centers.forEach((s, idx) => {
+          const img = ctx.createImageData(2 * R + 4, 2 * R + 4);
+          const data = img.data;
+          for (let py = 0; py < 2 * R + 4; ++py) {
+            for (let px = 0; px < 2 * R + 4; ++px) {
+              const dx = px - R - 2, dy = py - R - 2;
+              const d2 = dx * dx + dy * dy;
+              if (d2 > R * R) continue;
+              const nz = Math.sqrt(R * R - d2);
+              const nlen = R;
+              const nx = dx / nlen, ny = dy / nlen, nz2 = nz / nlen;
+              // Diffuse
+              const nDotL = Math.max(0, nx * lx + ny * ly + nz2 * lz);
+              // Specular: reflect L, compute R.V
+              const dot = 2 * nDotL;
+              const rx = dot * nx - lx, ry = dot * ny - ly, rz = dot * nz2 - lz;
+              const rDotV = Math.max(0, rx * vx + ry * vy + rz * vz);
+              const spec = Math.pow(rDotV, shininess);
+              const kD = 0.75, kS = idx >= 1 ? 0.8 : 0, kA = idx >= 2 ? 0.15 : 0;
+              const baseR = 60, baseG = 130, baseB = 200;
+              let R2 = kA * baseR + kD * baseR * nDotL + kS * 255 * spec;
+              let G2 = kA * baseG + kD * baseG * nDotL + kS * 255 * spec;
+              let B2 = kA * baseB + kD * baseB * nDotL + kS * 255 * spec;
+              R2 = Math.min(255, R2); G2 = Math.min(255, G2); B2 = Math.min(255, B2);
+              const i = (py * (2 * R + 4) + px) * 4;
+              data[i] = R2; data[i + 1] = G2; data[i + 2] = B2; data[i + 3] = 255;
+            }
+          }
+          const tmp = document.createElement('canvas');
+          tmp.width = 2 * R + 4; tmp.height = 2 * R + 4;
+          tmp.getContext('2d').putImageData(img, 0, 0);
+          ctx.drawImage(tmp, s.cx - R - 2, s.cy - R - 2);
+          ctx.fillStyle = '#182024';
+          ctx.font = '600 12px "Aptos", sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(s.label, s.cx, s.cy + R + 24);
+        });
+        // Light direction indicator (small arrow at top)
+        ctx.strokeStyle = '#c25a1b'; ctx.fillStyle = '#c25a1b'; ctx.lineWidth = 2;
+        const cx = 320, cy = 30, len = 24;
+        const ex = cx + lx * len, ey = cy + ly * len;
+        ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(ex, ey); ctx.stroke();
+        const ah = Math.atan2(ey - cy, ex - cx);
+        ctx.beginPath(); ctx.moveTo(ex, ey);
+        ctx.lineTo(ex - 6 * Math.cos(ah - 0.35), ey - 6 * Math.sin(ah - 0.35));
+        ctx.lineTo(ex - 6 * Math.cos(ah + 0.35), ey - 6 * Math.sin(ah + 0.35));
+        ctx.closePath(); ctx.fill();
+        ctx.font = '500 11px "Cascadia Code", monospace';
+        ctx.fillStyle = '#182024';
+        ctx.fillText('L (光源方向)', cx + 40, cy + 4);
+      }
+      angInp.addEventListener('input', redraw);
+      specInp.addEventListener('input', redraw);
+      redraw();
+    })();
+
+    // ============ 14 · precision ============
+    (function () {
+      const canvas = document.getElementById('precCanvas');
+      const ctx = canvas.getContext('2d');
+      function redraw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // Panel 1: floating-point gaps (visualize spacing at different magnitudes)
+        const p1x = 30, p1y = 50, p1w = 180, p1h = 160;
+        ctx.strokeStyle = 'rgba(23,33,38,0.15)';
+        ctx.strokeRect(p1x, p1y, p1w, p1h);
+        ctx.fillStyle = '#182024';
+        ctx.font = '700 12px "Aptos", sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText('float32 相邻数间距', p1x, p1y - 10);
+        ctx.font = '500 11px "Cascadia Code", monospace';
+        ctx.fillStyle = '#5c6a70';
+        const rows = [
+          ['|value| = 1', '1.19 × 10⁻⁷'],
+          ['|value| = 10⁶', '≈ 0.12'],
+          ['|value| = 10⁹', '≈ 128'],
+          ['double 1', '2.22 × 10⁻¹⁶'],
+        ];
+        rows.forEach(([k, v], i) => {
+          const y = p1y + 20 + i * 26;
+          ctx.fillStyle = '#182024';
+          ctx.fillText(k, p1x + 10, y);
+          ctx.fillStyle = '#c25a1b';
+          ctx.fillText(v, p1x + 10, y + 14);
+        });
+
+        // Panel 2: 0.1 + 0.2 case
+        const p2x = 240, p2y = 50, p2w = 180, p2h = 160;
+        ctx.strokeStyle = 'rgba(23,33,38,0.15)';
+        ctx.strokeRect(p2x, p2y, p2w, p2h);
+        ctx.fillStyle = '#182024';
+        ctx.font = '700 12px "Aptos", sans-serif';
+        ctx.fillText('0.1 + 0.2 ≠ 0.3', p2x, p2y - 10);
+        ctx.font = '500 12px "Cascadia Code", monospace';
+        const line1 = 'js> 0.1 + 0.2';
+        const line2 = '= 0.30000000000000004';
+        const line3 = 'js> (0.1 + 0.2) == 0.3';
+        const line4 = '= false';
+        ctx.fillStyle = '#5c6a70';
+        ctx.fillText(line1, p2x + 10, p2y + 30);
+        ctx.fillStyle = '#c25a1b';
+        ctx.fillText(line2, p2x + 10, p2y + 46);
+        ctx.fillStyle = '#5c6a70';
+        ctx.fillText(line3, p2x + 10, p2y + 80);
+        ctx.fillStyle = '#c25a1b';
+        ctx.fillText(line4, p2x + 10, p2y + 96);
+        ctx.fillStyle = '#182024';
+        ctx.font = '500 10px "Aptos", sans-serif';
+        ctx.fillText('（0.1 二进制无法精确）', p2x + 10, p2y + 130);
+
+        // Panel 3: z-fighting simulation
+        const p3x = 440, p3y = 50, p3w = 180, p3h = 160;
+        ctx.strokeStyle = 'rgba(23,33,38,0.15)';
+        ctx.strokeRect(p3x, p3y, p3w, p3h);
+        ctx.fillStyle = '#182024';
+        ctx.font = '700 12px "Aptos", sans-serif';
+        ctx.fillText('远处 z 值分辨率崩溃', p3x, p3y - 10);
+        // Draw two overlapping rects "fighting"
+        const time = performance.now() * 0.001;
+        for (let i = 0; i < 40; ++i) {
+          const y = p3y + 30 + i * 3;
+          const jitter = Math.sin(time * 8 + i * 0.5) > 0 ? 0 : 1;
+          ctx.fillStyle = jitter ? '#c25a1b' : '#1c7a8c';
+          ctx.fillRect(p3x + 20, y, 140, 2);
+        }
+        ctx.font = '500 10px "Cascadia Code", monospace';
+        ctx.fillStyle = '#5c6a70';
+        ctx.textAlign = 'center';
+        ctx.fillText('两面深度值太近', p3x + 90, p3y + p3h - 6);
+      }
+      function loop() { redraw(); requestAnimationFrame(loop); }
+      loop();
     })();
   </script>
 </body>
