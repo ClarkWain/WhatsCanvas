@@ -1,0 +1,975 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>后处理管线互动教学</title>
+  <style>
+    :root {
+      --bg: #f4eeea;
+      --panel: rgba(255, 253, 250, 0.92);
+      --ink: #26170f;
+      --muted: #6b544a;
+      --accent: #d3600a;
+      --accent-soft: rgba(211, 96, 10, 0.14);
+      --accent-strong: #2f6fc4;
+      --success: #2f7d32;
+      --shadow: 0 20px 60px rgba(80, 40, 20, 0.14);
+      --radius: 24px; --radius-sm: 16px;
+      --mono: "Cascadia Code", "Consolas", monospace;
+      --sans: "Aptos", "Segoe UI Variable", "Segoe UI", sans-serif;
+      --display: "Bahnschrift", "Trebuchet MS", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; font-family: var(--sans); color: var(--ink); line-height: 1.72;
+      background: radial-gradient(circle at top center, rgba(211, 96, 10, 0.16), transparent 30%), linear-gradient(180deg, #fbf6f0 0%, var(--bg) 100%); }
+    a { color: var(--accent); }
+    .page { width: min(1320px, calc(100% - 32px)); margin: 24px auto 80px; }
+    .hero, .section, .card, .code-card, .method-card, .metric-card { border: 1px solid rgba(38, 23, 15, 0.08); border-radius: var(--radius); background: var(--panel); box-shadow: var(--shadow); backdrop-filter: blur(12px); }
+    .hero { padding: 28px; overflow: hidden; position: relative; }
+    .hero::after { content: ""; position: absolute; inset: auto -70px -90px auto; width: 280px; height: 280px; background: radial-gradient(circle, rgba(211, 96, 10, 0.2), transparent 70%); }
+    .eyebrow { display: inline-flex; padding: 8px 12px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 0.84rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+    h1 { font-family: var(--display); font-size: clamp(1.6rem, 2.2vw + 0.4rem, 2.4rem); margin: 12px 0 6px; }
+    h2 { font-family: var(--display); font-size: 1.32rem; margin: 0 0 6px; }
+    h3 { font-family: var(--display); font-size: 1.05rem; margin: 0 0 8px; }
+    p { margin: 0 0 12px; color: var(--muted); }
+    .lead { margin-top: 16px; font-size: 1.08rem; max-width: 66ch; color: #38251b; }
+    .hero-grid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(300px, 0.7fr); gap: 20px; }
+    .hero-points { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
+    .hero-point { padding: 14px; border-radius: 18px; background: rgba(255, 255, 255, 0.8); border: 1px solid rgba(38, 23, 15, 0.08); }
+    .hero-point strong { display: block; margin-bottom: 4px; color: var(--ink); }
+    .summary-card { padding: 18px; border-radius: var(--radius-sm); background: rgba(255, 255, 255, 0.86); border: 1px solid rgba(38, 23, 15, 0.08); }
+    .summary-card ul { margin: 10px 0 0 18px; padding: 0; color: var(--muted); }
+    .layout { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 22px; margin-top: 22px; }
+    .content { display: grid; gap: 22px; }
+    .section { padding: 24px; }
+    .section-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 16px; }
+    .section-tag { padding: 7px 12px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 0.88rem; font-weight: 700; }
+    .section-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr); gap: 18px; align-items: start; }
+    .demo-panel, .formula, .code-card, .metric-card { padding: 16px 18px; border-radius: var(--radius-sm); background: rgba(255, 255, 255, 0.84); border: 1px solid rgba(38, 23, 15, 0.08); }
+    .demo-panel canvas { width: 100%; height: auto; display: block; border-radius: 16px; background: linear-gradient(180deg, #fefaf5, #f4ebe0); border: 1px solid rgba(38, 23, 15, 0.08); }
+    .canvas-caption { margin-top: 10px; color: var(--muted); font-size: 0.92rem; }
+    .controls { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0 10px; }
+    .pill { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 999px; cursor: pointer; background: #fff; border: 1px solid rgba(38, 23, 15, 0.1); user-select: none; }
+    .pill.active { color: white; background: var(--accent); border-color: var(--accent); }
+    .pill input[type="range"] { accent-color: var(--accent); }
+    .formula .label { display: block; margin-bottom: 8px; color: var(--accent); font-weight: 700; font-size: 0.9rem; text-transform: uppercase; }
+    .formula .math { font-family: "Cambria Math", "Times New Roman", serif; font-size: 1.06rem; white-space: pre-wrap; color: var(--ink); }
+    .formula .explain { margin-top: 8px; color: #4d3628; }
+    .toc { position: sticky; top: 14px; align-self: start; padding: 18px; border-radius: 22px; background: rgba(255, 253, 249, 0.92); border: 1px solid rgba(38, 23, 15, 0.08); }
+    .toc a { display: block; padding: 7px 9px; margin: 4px 0; text-decoration: none; border-radius: 12px; color: var(--muted); }
+    .toc a:hover { background: var(--accent-soft); color: var(--accent); }
+    .toc .note { margin-top: 10px; font-size: 0.86rem; color: var(--muted); }
+    .trace-list { display: grid; gap: 10px; margin-top: 12px; }
+    .trace-item { padding: 10px 12px; border-radius: 12px; background: rgba(255, 255, 255, 0.74); border: 1px solid rgba(38, 23, 15, 0.08); color: var(--muted); }
+    .trace-item strong { color: var(--ink); }
+    .info-stack { display: grid; gap: 12px; }
+    .method-card { margin-top: 12px; padding: 20px 22px; }
+    .method-card .pros, .method-card .cons { margin: 8px 0 12px 20px; padding: 0; color: var(--muted); }
+    .code-card pre { margin: 10px 0 0; padding: 12px; overflow-x: auto; background: #26170f; color: #f8f7f3; border-radius: 12px; font-family: var(--mono); font-size: 0.92rem; line-height: 1.5; }
+    .code-card .note { margin-top: 10px; color: var(--muted); font-size: 0.92rem; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 0.78rem; font-weight: 700; margin-right: 4px; }
+    .badge.warn { background: rgba(211, 96, 10, 0.14); color: var(--accent); }
+    .pipeline-diagram { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin-top: 12px; }
+    .pipeline-diagram .stage { padding: 12px 8px; border-radius: 12px; background: #fff; border: 1px solid rgba(38, 23, 15, 0.1); text-align: center; font-size: 0.86rem; }
+    .pipeline-diagram .stage strong { color: var(--accent); display: block; font-family: var(--display); }
+    @media (max-width: 960px) { .hero-grid, .section-grid, .layout { grid-template-columns: minmax(0, 1fr); } .toc { position: static; } }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="hero">
+      <div class="hero-grid">
+        <div>
+          <div class="eyebrow">互动教学 · 后处理管线</div>
+          <h1>后处理：从 3D 结果到最终照片的最后一公里</h1>
+          <p class="lead">场景 render 结束只是"素材拿到了"。<strong>后处理管线（Post-processing pipeline）</strong>负责把 HDR 线性颜色变成一张能上屏的、有电影感的照片：Bloom 制造柔光晕、Tonemap 把 100 nits 压到 SDR、Color Grading 定情绪、Vignette 引导视线、Motion Blur/DOF 补相机语言、最后 FXAA/SMAA 抹掉几何锯齿。这个教程会带你看清每一步做什么、公式是什么、为什么这个顺序不能乱。</p>
+          <div class="hero-points">
+            <div class="hero-point"><strong>1. HDR 是前提</strong>Bloom / Tonemap 都在 linear HDR 空间做，最后一 pass 才转 sRGB。</div>
+            <div class="hero-point"><strong>2. 顺序决定质感</strong>先 Bloom 再 Tonemap，还是反过来？先 DOF 再 Motion Blur？都有 canonical answer。</div>
+          </div>
+        </div>
+        <div class="summary-card">
+          <h3>这页要带你搞懂的 8 件事</h3>
+          <ul>
+            <li>HDR / linear space 为什么后处理必须在这里做</li>
+            <li>Bloom 的下采样金字塔 + 双 Kawase / 高斯</li>
+            <li>Tonemap：Reinhard / ACES / AgX 数学对比</li>
+            <li>Color grading & LUT（3D LUT 采样）</li>
+            <li>Vignette / chromatic aberration / film grain</li>
+            <li>Motion blur & DOF：velocity buffer / bokeh</li>
+            <li>FXAA vs SMAA 空间抗锯齿</li>
+            <li>完整管线组织 & 全屏三角形技巧</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <div class="layout">
+      <div class="content">
+
+        <!-- 01 · HDR -->
+        <section class="section" id="hdr">
+          <div class="section-head">
+            <div>
+              <span class="section-tag">01 · HDR & linear space</span>
+              <h2>后处理为什么必须在 HDR / linear 空间做</h2>
+              <p>普通显示是 sRGB gamma-encoded 8-bit（0..255，非线性）。后处理里做 blur / add / multiply → 都是线性运算，只有在<strong>线性空间</strong>做才物理正确。而"超白"（亮度 > 1，如太阳、金属高光）必须用 <strong>float16/32 HDR buffer</strong> 存下来——8-bit 一压就 clamp 到 1.0，Bloom 就没得算了。</p>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <canvas id="hdrCanvas" width="640" height="280"></canvas>
+              <div class="controls">
+                <label class="pill" for="hdrBrightness">灯光亮度：<strong id="hdrBrightVal">2.0</strong></label>
+                <input id="hdrBrightness" type="range" min="10" max="50" value="20">
+              </div>
+              <p class="canvas-caption">左：LDR 8-bit 缓冲，超过 1 的部分被截断成白，视觉上光源就是一块死白；右：HDR float 缓冲，保留超 1 亮度信息，Bloom 才能算出"透光光晕"。</p>
+            </div>
+            <div class="info-stack">
+              <div class="formula">
+                <span class="label">sRGB ↔ linear</span>
+                <div class="math">linear = (sRGB / 255)^2.2      (approximate)
+sRGB = 255 · linear^(1/2.2)   (approximate)
+准确公式带线性段，见 canvas-math 教程 07。</div>
+                <p class="explain">硬件支持自动转换：<code>GL_SRGB8_ALPHA8</code> 纹理采样时自动 sRGB→linear；<code>GL_FRAMEBUFFER_SRGB</code> 让 shader 输出 linear，写入时自动 linear→sRGB。做后处理时一定要用这两个开关。</p>
+              </div>
+              <div class="trace-list">
+                <div class="trace-item"><strong>常见 buffer 格式：</strong>HDR scene color 用 <code>R11G11B10_FLOAT</code>（省 25% 带宽）或 <code>RGBA16F</code>；depth 用 <code>D24S8</code>；motion vector 用 <code>RG16F</code>。</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 02 · Bloom -->
+        <section class="section" id="bloom">
+          <div class="section-head">
+            <div>
+              <span class="section-tag">02 · Bloom（辉光）</span>
+              <h2>下采样金字塔 + 上采样合成</h2>
+              <p>Bloom 模拟镜头/眼睛遇强光时的散射晕光。核心思路：把 HDR 图 <strong>threshold（截取亮部）</strong>→ 逐级下采样构建金字塔（1/2, 1/4, 1/8, 1/16...）→ 每级做一次高斯模糊 → 反过来一层层上采样加回主图。为什么金字塔？直接对全分辨率做大半径高斯太贵；下采样后小半径就能覆盖同样的视觉范围。</p>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <canvas id="bloomCanvas" width="640" height="300"></canvas>
+              <div class="controls">
+                <label class="pill" for="bloomStrength">强度：<strong id="bloomStrVal">0.8</strong></label>
+                <input id="bloomStrength" type="range" min="0" max="200" value="80">
+                <label class="pill" for="bloomThreshold">阈值：<strong id="bloomThVal">1.0</strong></label>
+                <input id="bloomThreshold" type="range" min="0" max="200" value="100">
+              </div>
+              <p class="canvas-caption">左上：原始 HDR；右下：加了 Bloom 之后。中间可视化 4 级金字塔（依次显示 1/2, 1/4, 1/8, 1/16 分辨率的模糊亮部）——这就是 Bloom 的中间产物。</p>
+            </div>
+            <div class="info-stack">
+              <div class="method-card">
+                <h3>模糊算法选型</h3>
+                <ul class="pros">
+                  <li><strong>可分离高斯 (Separable Gaussian)：</strong>横一次 + 竖一次，代价 O(2n) 而非 O(n²)。质量高、速度中。</li>
+                  <li><strong>Kawase blur：</strong>4 tap sampling with growing offset，视觉上接近高斯但每 pass 极便宜。手游标配。</li>
+                  <li><strong>Dual Filtering (Marius Bjørge)：</strong>下采样时 average 4 tap、上采样时 add 8 tap。UE / Unity Bloom 都用类似。</li>
+                </ul>
+              </div>
+              <div class="formula">
+                <span class="label">Threshold 曲线</span>
+                <div class="math">// 硬 threshold 会有 popping
+bright = max(0, luminance - threshold) / luminance · color
+// 软 threshold (Karis 2013)
+knee   = threshold · 0.5
+soft   = clamp(brightness - threshold + knee, 0, 2·knee)
+soft   = soft² / (4·knee + 1e-4)
+bright = max(soft, brightness - threshold) / max(brightness, 1e-4) · color</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 03 · Tonemap -->
+        <section class="section" id="tonemap">
+          <div class="section-head">
+            <div>
+              <span class="section-tag">03 · Tonemap</span>
+              <h2>Reinhard / ACES / AgX：把 HDR 压回 SDR</h2>
+              <p>渲染出的 HDR 值可能是 0..100+，显示器只能显示 0..1（SDR）。Tonemap 就是一个 <code>float → float</code> 曲线，把 HDR 压到 [0,1]，暗部保留细节、亮部平缓 rolloff、饱和高光有电影感。三大主流：Reinhard（老、平淡）、ACES（Filmic，行业标准）、AgX（2023 新起、Blender 4.0 默认）。</p>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <canvas id="tonemapCanvas" width="640" height="320"></canvas>
+              <div class="controls">
+                <label class="pill"><input type="radio" name="tm" value="none"> 无 tonemap (clamp)</label>
+                <label class="pill"><input type="radio" name="tm" value="reinhard" checked> Reinhard</label>
+                <label class="pill"><input type="radio" name="tm" value="aces"> ACES Filmic</label>
+                <label class="pill"><input type="radio" name="tm" value="agx"> AgX</label>
+                <label class="pill" for="tmExposure">曝光：<strong id="tmExpVal">0</strong> EV</label>
+                <input id="tmExposure" type="range" min="-30" max="30" value="0">
+              </div>
+              <p class="canvas-caption">上：色阶从 0 到 8（HDR）的连续图；下：各 tonemap 曲线（input → output）。Reinhard 快压快平；ACES 中段肩曲柔和；AgX 亮部保留最多色相，不会过曝成白。</p>
+            </div>
+            <div class="info-stack">
+              <div class="formula">
+                <span class="label">三种数学</span>
+                <div class="math">Reinhard:  y = x / (1 + x)
+ACES:      y = clamp((x·(2.51x + 0.03)) / (x·(2.43x + 0.59) + 0.14), 0, 1)
+AgX:       更复杂，log 域 sigmoid + 色相恢复矩阵</div>
+                <p class="explain">Reinhard 简单但饱和色会往灰去，Blender 早期版本；ACES 是 Academy Color Encoding System 的显示 transform，几乎所有 3A 引擎默认；AgX 特点：亮部不掉色（rgb 独立 tonemap 会让红色高光变粉，AgX 保持红）。</p>
+              </div>
+              <div class="code-card">
+                <span class="label" style="color: var(--accent); font-weight: 700; font-size: 0.9rem;">曝光要放在 tonemap 之前</span>
+<pre>vec3 hdr = texture(sceneColor, uv).rgb;
+hdr *= exp2(exposureEV);   // 曝光调整
+vec3 sdr = ACESFilmic(hdr); // tonemap
+gl_FragColor = vec4(pow(sdr, vec3(1.0/2.2)), 1.0); // linear→sRGB</pre>
+                <p class="note">如果 tonemap 之后再乘曝光 → 已经 clamp 过的值再乘，暗部提亮无效。</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 04 · Grading -->
+        <section class="section" id="grading">
+          <div class="section-head">
+            <div>
+              <span class="section-tag">04 · Color grading & LUT</span>
+              <h2>用一张 3D 立方体决定整个电影的色调</h2>
+              <p>调色师用 DaVinci Resolve 把中性场景调成"科幻蓝调"或"暖橘落日"，最终把这个映射 bake 成一张 <strong>3D LUT</strong>（例如 32³ 或 64³ 颜色立方体）。shader 里以 tonemapped color (RGB in [0,1]) 作为 3D 纹理坐标采样即得成品色。</p>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <canvas id="gradingCanvas" width="640" height="300"></canvas>
+              <div class="controls">
+                <label class="pill"><input type="radio" name="grade" value="neutral" checked> 中性</label>
+                <label class="pill"><input type="radio" name="grade" value="warm"> 暖调 (Sunset)</label>
+                <label class="pill"><input type="radio" name="grade" value="cool"> 冷调 (Sci-Fi)</label>
+                <label class="pill"><input type="radio" name="grade" value="teal"> Teal & Orange</label>
+              </div>
+              <p class="canvas-caption">同一张色板 + 参考照片，套用不同 LUT。Teal & Orange 是好莱坞 90% 剧情片配色（阴影蓝绿、肤色暖橘）——观众看惯了，但技术上就是一个查表。</p>
+            </div>
+            <div class="info-stack">
+              <div class="code-card">
+                <span class="label" style="color: var(--accent); font-weight: 700; font-size: 0.9rem;">3D LUT 采样 shader</span>
+<pre>uniform sampler3D lutTex;      // 32³ or 64³
+uniform float lutSize;         // 32.0 or 64.0
+
+vec3 applyLUT(vec3 c) {
+    // trilinear sample; hardware 3D texture 自动做
+    vec3 scale = vec3((lutSize - 1.0) / lutSize);
+    vec3 offset = vec3(0.5 / lutSize);
+    return texture(lutTex, c * scale + offset).rgb;
+}</pre>
+                <p class="note">工业上常把 3D LUT flatten 成 2D strip（32×1024 slices），用 sampler2D 采样——支持性更广（老手机不好 3D 纹理）。</p>
+              </div>
+              <div class="trace-list">
+                <div class="trace-item"><strong>LUT 顺序：</strong>必须放在 tonemap 之后（LUT 假设输入是 SDR [0,1]）、放在色差/vignette 之前（这些是画面特效，不该被 LUT 校调）。</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 05 · Vignette / CA / Grain -->
+        <section class="section" id="vignette">
+          <div class="section-head">
+            <div>
+              <span class="section-tag">05 · Vignette / CA / Film grain</span>
+              <h2>三个补丁效果，模拟真实相机</h2>
+              <p>数字渲染太完美了——反而不像"电影"。加一点 vignette（暗角，引导视线到中心）+ chromatic aberration（色差，边缘 R/B 通道分离）+ film grain（细粒度噪声，破一破 banding）→ 立刻电影感。</p>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <canvas id="vigCanvas" width="640" height="320"></canvas>
+              <div class="controls">
+                <label class="pill" for="vigAmt">vignette：<strong id="vigVal">0.4</strong></label>
+                <input id="vigAmt" type="range" min="0" max="100" value="40">
+                <label class="pill" for="caAmt">色差：<strong id="caVal">2</strong>px</label>
+                <input id="caAmt" type="range" min="0" max="10" value="2">
+                <label class="pill" for="grainAmt">film grain：<strong id="grainVal">0.05</strong></label>
+                <input id="grainAmt" type="range" min="0" max="20" value="5">
+              </div>
+            </div>
+            <div class="info-stack">
+              <div class="formula">
+                <span class="label">数学</span>
+                <div class="math">// Vignette
+d = length(uv - 0.5)
+vig = smoothstep(radius, radius - falloff, d)
+color *= vig
+
+// Chromatic Aberration
+uv_r = center + (uv - center) · (1 + strength)
+uv_b = center + (uv - center) · (1 - strength)
+final.r = sample(uv_r).r
+final.b = sample(uv_b).b
+final.g = sample(uv).g
+
+// Film Grain
+n = hash(uv + time)
+color = mix(color, vec3(n), amount)</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 06 · Motion & DOF -->
+        <section class="section" id="motion">
+          <div class="section-head">
+            <div>
+              <span class="section-tag">06 · Motion blur & DOF</span>
+              <h2>相机语言：动感与焦点</h2>
+              <p><strong>Motion blur</strong>：用 velocity buffer 沿运动方向 sample 8~16 次并平均，快门时间越长模糊越强；<strong>Depth of Field</strong>：根据 depth 与焦距差计算 CoC (circle of confusion) 半径，散景是圆盘/六边形 bokeh，模拟光圈叶片形状。</p>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <canvas id="mbCanvas" width="640" height="300"></canvas>
+              <div class="controls">
+                <label class="pill" for="mbShutter">快门时长：<strong id="mbShutVal">0.5</strong></label>
+                <input id="mbShutter" type="range" min="0" max="100" value="50">
+                <label class="pill" for="dofFocal">焦距 z：<strong id="dofFocVal">50</strong></label>
+                <input id="dofFocal" type="range" min="10" max="100" value="50">
+                <label class="pill" for="dofAper">光圈：<strong id="dofAperVal">1.4</strong></label>
+                <input id="dofAper" type="range" min="10" max="80" value="14">
+              </div>
+              <p class="canvas-caption">场景：3 个球在不同 z，横向运动。左：无后处理；右：motion blur + DOF。当焦距对准中球，前后球自然虚化，正在动的球带出运动方向的尾迹。</p>
+            </div>
+            <div class="info-stack">
+              <div class="formula">
+                <span class="label">CoC 公式</span>
+                <div class="math">// depth of field
+CoC = |1/depth − 1/focal_dist| · aperture · f
+CoC = clamp(CoC, 0, maxRadius)
+// Bokeh kernel = disc / hexagon shaped weighted average</div>
+                <p class="explain">分层 DOF（near/mid/far）比全屏卷积更快：不同 CoC 半径的像素放不同 tile，卷积核大小对齐 CoC。</p>
+              </div>
+              <div class="trace-list">
+                <div class="trace-item"><strong>顺序：</strong>DOF 应该在 tonemap 之前（还在 HDR，散景亮点不被压死）；motion blur 通常与 DOF 同一 pass 或紧接其后。</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 07 · FXAA/SMAA -->
+        <section class="section" id="fxaa">
+          <div class="section-head">
+            <div>
+              <span class="section-tag">07 · FXAA / SMAA 空间抗锯齿</span>
+              <h2>如果没上 TAA，得靠这些兜底</h2>
+              <p>MSAA 内存开销大且对 deferred 不友好；TAA 需要 velocity buffer 和 history。<strong>FXAA (Fast Approx.)</strong> 和 <strong>SMAA (Subpixel Morphological)</strong> 是两种纯 shader、单帧、只吃 color buffer 的空间抗锯齿。质量：SMAA &gt; FXAA &gt;&gt; nothing；成本：FXAA &lt; SMAA。</p>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <canvas id="fxaaCanvas" width="640" height="280"></canvas>
+              <div class="controls">
+                <label class="pill"><input type="radio" name="fxx" value="none" checked> No AA</label>
+                <label class="pill"><input type="radio" name="fxx" value="fxaa"> FXAA</label>
+                <label class="pill"><input type="radio" name="fxx" value="smaa"> SMAA</label>
+              </div>
+              <p class="canvas-caption">同样的斜边缘，FXAA 用 luma 梯度检测 + 沿边模糊；SMAA 检测出边缘图案（L 型、Z 型、U 型）后精准恢复原始边缘。</p>
+            </div>
+            <div class="info-stack">
+              <div class="method-card">
+                <h3>三步 FXAA 简版</h3>
+                <ol style="margin: 8px 0 0 20px; color: var(--muted);">
+                  <li>估计当前像素的 luma & 4 邻域 luma；</li>
+                  <li>如果对比度 &lt; 阈值 → 早退出（平坦区不动）；</li>
+                  <li>找出梯度方向 → 沿该方向 sample 一系列点直到发现"另一侧"→ 混合。</li>
+                </ol>
+                <p style="margin-top:10px;"><strong>SMAA 三 pass：</strong>edge detection → blending weight → neighborhood blending。开源实现 <a href="https://github.com/iryoku/smaa" target="_blank">iryoku/smaa</a>。</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 08 · pipeline -->
+        <section class="section" id="pipeline">
+          <div class="section-head">
+            <div>
+              <span class="section-tag">08 · 完整管线组织</span>
+              <h2>把所有 pass 串起来</h2>
+              <p>一个典型 AAA 后处理管线大约有 10~20 pass。次序不能乱：HDR-space 的（Bloom / DOF）→ Tonemap → SDR-space 的（LUT / Vignette / CA / AA）→ 输出。所有 pass 都是"渲染一个全屏三角形"（大小 = 屏幕），vertex shader 只是过一下 uv。</p>
+            </div>
+          </div>
+          <div class="section-grid" style="grid-template-columns: 1fr;">
+            <div>
+              <div class="pipeline-diagram">
+                <div class="stage"><strong>1</strong> HDR Scene<br><small>R11G11B10F</small></div>
+                <div class="stage"><strong>2</strong> Motion Blur<br><small>+ velocity</small></div>
+                <div class="stage"><strong>3</strong> DOF<br><small>near/far</small></div>
+                <div class="stage"><strong>4</strong> Bloom<br><small>金字塔</small></div>
+                <div class="stage"><strong>5</strong> Auto Exposure<br><small>平均 luma</small></div>
+                <div class="stage"><strong>6</strong> Tonemap<br><small>ACES/AgX</small></div>
+                <div class="stage"><strong>7</strong> LUT Grading<br><small>3D texture</small></div>
+                <div class="stage"><strong>8</strong> Vignette / CA / Grain</div>
+                <div class="stage"><strong>9</strong> FXAA/SMAA<br><small>如果无 TAA</small></div>
+                <div class="stage"><strong>10</strong> UI Overlay</div>
+                <div class="stage"><strong>11</strong> sRGB Output<br><small>final</small></div>
+              </div>
+              <div class="formula" style="margin-top: 16px;">
+                <span class="label">全屏三角形技巧</span>
+                <div class="math">// 一个覆盖全屏的三角形（而非 quad）
+positions[3] = { (-1,-1), (3,-1), (-1,3) };
+// GPU 会自动裁掉屏外部分
+// 好处：单个三角形无对角线接缝、shader 调度更规整</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+      </div>
+
+      <aside class="toc">
+        <h3>目录</h3>
+        <a href="#hdr">1. HDR & linear</a>
+        <a href="#bloom">2. Bloom</a>
+        <a href="#tonemap">3. Tonemap</a>
+        <a href="#grading">4. Color grading</a>
+        <a href="#vignette">5. Vignette/CA/Grain</a>
+        <a href="#motion">6. Motion & DOF</a>
+        <a href="#fxaa">7. FXAA/SMAA</a>
+        <a href="#pipeline">8. 完整管线</a>
+        <p class="note">后处理是"最后一公里"，也是最能拉开视觉档次的一步——渲染引擎里最容易看到"钱花在哪"的地方。</p>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    // ============ 01 · HDR ============
+    (function () {
+      const canvas = document.getElementById('hdrCanvas');
+      const ctx = canvas.getContext('2d');
+      const brightS = document.getElementById('hdrBrightness');
+      const brightVal = document.getElementById('hdrBrightVal');
+      function redraw() {
+        const b = +brightS.value / 10;
+        brightVal.textContent = b.toFixed(1);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // Two panels
+        function panel(x0, label, ldr) {
+          ctx.fillStyle = '#251813'; ctx.fillRect(x0, 30, 280, 220);
+          ctx.fillStyle = '#251813';
+          // stars/lights with brightness b
+          const lamps = [
+            { x: 60, y: 100, r: 20 },
+            { x: 150, y: 140, r: 12 },
+            { x: 220, y: 80, r: 30 },
+            { x: 100, y: 200, r: 15 },
+          ];
+          lamps.forEach(l => {
+            const grad = ctx.createRadialGradient(x0 + l.x, l.y, 0, x0 + l.x, l.y, l.r * 3);
+            let peak = b;
+            if (ldr) peak = Math.min(1, b); // clamp
+            const r = 255 * peak, g = 240 * peak, bB = 180 * peak;
+            grad.addColorStop(0, `rgb(${Math.min(255,r|0)}, ${Math.min(255,g|0)}, ${Math.min(255,bB|0)})`);
+            grad.addColorStop(0.3, `rgba(${Math.min(255,r*0.8|0)},${Math.min(255,g*0.8|0)},${Math.min(255,bB*0.8|0)},0.6)`);
+            grad.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.fillStyle = grad;
+            ctx.fillRect(x0 + l.x - l.r * 3, l.y - l.r * 3, l.r * 6, l.r * 6);
+          });
+          // If HDR — draw extended bloom-like glow (super-bright bleed)
+          if (!ldr && b > 1) {
+            lamps.forEach(l => {
+              const grad = ctx.createRadialGradient(x0 + l.x, l.y, l.r, x0 + l.x, l.y, l.r * 8);
+              const intensity = Math.min(1, (b - 1) / 3);
+              grad.addColorStop(0, `rgba(255, 240, 200, ${intensity * 0.35})`);
+              grad.addColorStop(1, 'rgba(255, 240, 200, 0)');
+              ctx.fillStyle = grad;
+              ctx.fillRect(x0 + l.x - l.r * 8, l.y - l.r * 8, l.r * 16, l.r * 16);
+            });
+          }
+          ctx.strokeStyle = 'rgba(38,23,15,0.15)'; ctx.strokeRect(x0, 30, 280, 220);
+          ctx.fillStyle = '#26170f';
+          ctx.font = '700 13px "Aptos"';
+          ctx.textAlign = 'center';
+          ctx.fillText(label, x0 + 140, 20);
+        }
+        panel(30, 'LDR (8-bit clamp)', true);
+        panel(330, 'HDR (float, 保留超白)', false);
+        ctx.font = '500 11px "Aptos"';
+        ctx.fillStyle = '#6b544a';
+        ctx.textAlign = 'center';
+        ctx.fillText(`亮度 = ${b.toFixed(1)}（超过 1 时 LDR 截断成白）`, canvas.width / 2, 270);
+      }
+      brightS.addEventListener('input', redraw);
+      redraw();
+    })();
+
+    // ============ 02 · Bloom ============
+    (function () {
+      const canvas = document.getElementById('bloomCanvas');
+      const ctx = canvas.getContext('2d');
+      const strS = document.getElementById('bloomStrength');
+      const strVal = document.getElementById('bloomStrVal');
+      const thS = document.getElementById('bloomThreshold');
+      const thVal = document.getElementById('bloomThVal');
+      // pre-render a scene
+      const src = document.createElement('canvas');
+      src.width = 260; src.height = 180;
+      const sctx = src.getContext('2d');
+      sctx.fillStyle = '#251813'; sctx.fillRect(0, 0, 260, 180);
+      // stars
+      const lamps = [
+        { x: 60, y: 60, r: 14, c: [255, 230, 170] },
+        { x: 140, y: 100, r: 20, c: [220, 200, 255] },
+        { x: 210, y: 60, r: 10, c: [255, 180, 120] },
+        { x: 100, y: 140, r: 8, c: [180, 240, 255] },
+      ];
+      lamps.forEach(l => {
+        const g = sctx.createRadialGradient(l.x, l.y, 0, l.x, l.y, l.r);
+        g.addColorStop(0, `rgb(${l.c[0]},${l.c[1]},${l.c[2]})`);
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        sctx.fillStyle = g;
+        sctx.fillRect(l.x - l.r, l.y - l.r, l.r * 2, l.r * 2);
+      });
+      function redraw() {
+        const strength = +strS.value / 100;
+        strVal.textContent = strength.toFixed(2);
+        const thresh = +thS.value / 100;
+        thVal.textContent = thresh.toFixed(2);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // Left: original
+        ctx.drawImage(src, 20, 30);
+        ctx.fillStyle = '#26170f';
+        ctx.font = '700 12px "Aptos"';
+        ctx.textAlign = 'center';
+        ctx.fillText('原始 HDR', 150, 20);
+        // Right: with bloom = original + blurred bright + blurred bigger etc.
+        ctx.drawImage(src, 350, 30);
+        for (let level = 1; level <= 4; ++level) {
+          const blurRad = level * 4;
+          ctx.filter = `blur(${blurRad}px) brightness(${1 + strength * 0.5})`;
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.drawImage(src, 350, 30);
+        }
+        ctx.filter = 'none';
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillText('+ Bloom', 480, 20);
+        // Mid: pyramid mini
+        ctx.font = '600 11px "Aptos"';
+        ctx.fillText('金字塔中间产物', 320, 230);
+        let px = 260;
+        for (let lv = 0; lv < 4; ++lv) {
+          const scale = 1 / Math.pow(2, lv);
+          const w2 = 60 * scale;
+          const h2 = 40 * scale;
+          const tmp = document.createElement('canvas');
+          tmp.width = w2 | 0; tmp.height = h2 | 0;
+          const tc = tmp.getContext('2d');
+          tc.filter = `blur(${(lv + 1) * 2}px)`;
+          tc.drawImage(src, 0, 0, w2, h2);
+          ctx.drawImage(tmp, px, 240, 60, 40);
+          ctx.strokeStyle = '#d3600a'; ctx.strokeRect(px, 240, 60, 40);
+          ctx.fillStyle = '#26170f';
+          ctx.font = '500 10px "Cascadia Code"';
+          ctx.textAlign = 'center';
+          ctx.fillText(`1/${1 << lv}`, px + 30, 295);
+          px += 70;
+        }
+      }
+      strS.addEventListener('input', redraw);
+      thS.addEventListener('input', redraw);
+      redraw();
+    })();
+
+    // ============ 03 · Tonemap ============
+    (function () {
+      const canvas = document.getElementById('tonemapCanvas');
+      const ctx = canvas.getContext('2d');
+      const radios = document.querySelectorAll('input[name="tm"]');
+      const expS = document.getElementById('tmExposure');
+      const expVal = document.getElementById('tmExpVal');
+      function reinhard(x) { return x / (1 + x); }
+      function aces(x) {
+        const a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
+        return Math.max(0, Math.min(1, (x * (a * x + b)) / (x * (c * x + d) + e)));
+      }
+      function agx(x) {
+        // simplified AgX-approx: log domain sigmoid
+        const lx = Math.log2(Math.max(x, 1e-5)) / 6.5 + 0.5;
+        const t = Math.max(0, Math.min(1, lx));
+        return t * t * (3 - 2 * t);
+      }
+      function tm(mode, x) {
+        if (mode === 'none') return Math.min(1, x);
+        if (mode === 'reinhard') return reinhard(x);
+        if (mode === 'aces') return aces(x);
+        return agx(x);
+      }
+      function redraw() {
+        const mode = document.querySelector('input[name="tm"]:checked').value;
+        const ev = +expS.value / 10;
+        expVal.textContent = ev.toFixed(1);
+        const mul = Math.pow(2, ev);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // Top: gradient bar (input 0..8 HDR mapped to y visualization)
+        for (let x = 0; x < canvas.width; ++x) {
+          const hdr = (x / canvas.width) * 8 * mul;
+          const y = tm(mode, hdr);
+          const g = 255 * y;
+          ctx.fillStyle = `rgb(${g|0},${g|0},${g|0})`;
+          ctx.fillRect(x, 40, 1, 60);
+        }
+        ctx.fillStyle = '#26170f';
+        ctx.font = '700 12px "Aptos"';
+        ctx.textAlign = 'left';
+        ctx.fillText(`色阶 HDR 0 → 8 · tonemap = ${mode}`, 20, 30);
+        // Bottom: curve
+        const cx0 = 40, cy0 = 130, cw = canvas.width - 80, ch = 160;
+        ctx.strokeStyle = 'rgba(38,23,15,0.15)';
+        ctx.strokeRect(cx0, cy0, cw, ch);
+        // grid
+        for (let i = 1; i < 8; ++i) {
+          const gx = cx0 + cw * i / 8;
+          ctx.beginPath(); ctx.moveTo(gx, cy0); ctx.lineTo(gx, cy0 + ch); ctx.stroke();
+        }
+        for (let i = 1; i < 4; ++i) {
+          const gy = cy0 + ch * i / 4;
+          ctx.beginPath(); ctx.moveTo(cx0, gy); ctx.lineTo(cx0 + cw, gy); ctx.stroke();
+        }
+        // draw all 4 curves for reference (faint)
+        const modes = ['none', 'reinhard', 'aces', 'agx'];
+        const colors = ['#666', '#d3600a', '#2f6fc4', '#2f7d32'];
+        modes.forEach((m, i) => {
+          ctx.strokeStyle = m === mode ? colors[i] : 'rgba(150,120,100,0.35)';
+          ctx.lineWidth = m === mode ? 3 : 1.5;
+          ctx.beginPath();
+          for (let k = 0; k <= 100; ++k) {
+            const hdr = (k / 100) * 8 * mul;
+            const y = tm(m, hdr);
+            const px = cx0 + (k / 100) * cw;
+            const py = cy0 + (1 - y) * ch;
+            if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+          }
+          ctx.stroke();
+        });
+        ctx.fillStyle = '#26170f';
+        ctx.font = '600 12px "Aptos"';
+        ctx.textAlign = 'center';
+        ctx.fillText('input HDR (0..8)', cx0 + cw / 2, cy0 + ch + 20);
+        ctx.save(); ctx.translate(cx0 - 22, cy0 + ch / 2); ctx.rotate(-Math.PI / 2);
+        ctx.fillText('output [0,1]', 0, 0); ctx.restore();
+      }
+      radios.forEach(r => r.addEventListener('change', redraw));
+      expS.addEventListener('input', redraw);
+      redraw();
+    })();
+
+    // ============ 04 · Grading ============
+    (function () {
+      const canvas = document.getElementById('gradingCanvas');
+      const ctx = canvas.getContext('2d');
+      const radios = document.querySelectorAll('input[name="grade"]');
+      // Create a source: color chart
+      const src = document.createElement('canvas');
+      src.width = 300; src.height = 200;
+      const sctx = src.getContext('2d');
+      // Sky gradient
+      const skyG = sctx.createLinearGradient(0, 0, 0, 100);
+      skyG.addColorStop(0, '#a8c8e6'); skyG.addColorStop(1, '#f2ddc0');
+      sctx.fillStyle = skyG; sctx.fillRect(0, 0, 300, 100);
+      // Ground
+      sctx.fillStyle = '#7a8a5a'; sctx.fillRect(0, 100, 300, 100);
+      // sun
+      const sunG = sctx.createRadialGradient(240, 50, 5, 240, 50, 30);
+      sunG.addColorStop(0, '#fff5a0'); sunG.addColorStop(1, 'rgba(255,245,160,0)');
+      sctx.fillStyle = sunG; sctx.fillRect(210, 20, 60, 60);
+      // face (skin tone circle)
+      sctx.fillStyle = '#e0b090';
+      sctx.beginPath(); sctx.arc(100, 130, 30, 0, Math.PI * 2); sctx.fill();
+      // shirt teal
+      sctx.fillStyle = '#3a8080'; sctx.fillRect(70, 160, 60, 40);
+      function apply(mode, r, g, b) {
+        // Different LUTs by matrix mult
+        if (mode === 'warm') return [Math.min(255, r * 1.15 + 20), Math.min(255, g * 1.0 + 10), Math.min(255, b * 0.85)];
+        if (mode === 'cool') return [Math.min(255, r * 0.85), Math.min(255, g * 0.95 + 5), Math.min(255, b * 1.2 + 20)];
+        if (mode === 'teal') {
+          // shadows → teal, highlights → orange
+          const l = (r + g + b) / (3 * 255);
+          if (l < 0.5) {
+            return [r * 0.7, Math.min(255, g * 1.0 + 10), Math.min(255, b * 1.3 + 20)];
+          } else {
+            return [Math.min(255, r * 1.2 + 15), Math.min(255, g * 1.0 + 5), b * 0.7];
+          }
+        }
+        return [r, g, b];
+      }
+      function redraw() {
+        const mode = document.querySelector('input[name="grade"]:checked').value;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // Left: original
+        ctx.drawImage(src, 20, 40);
+        // Right: graded
+        const tmp = document.createElement('canvas');
+        tmp.width = 300; tmp.height = 200;
+        const tc = tmp.getContext('2d');
+        tc.drawImage(src, 0, 0);
+        const img = tc.getImageData(0, 0, 300, 200);
+        const d = img.data;
+        for (let i = 0; i < d.length; i += 4) {
+          const [r, g, b] = apply(mode, d[i], d[i + 1], d[i + 2]);
+          d[i] = r; d[i + 1] = g; d[i + 2] = b;
+        }
+        tc.putImageData(img, 0, 0);
+        ctx.drawImage(tmp, 340, 40);
+        ctx.fillStyle = '#26170f';
+        ctx.font = '700 12px "Aptos"';
+        ctx.textAlign = 'center';
+        ctx.fillText('原始（neutral）', 170, 30);
+        ctx.fillText(`+ LUT: ${mode}`, 490, 30);
+      }
+      radios.forEach(r => r.addEventListener('change', redraw));
+      redraw();
+    })();
+
+    // ============ 05 · Vignette / CA / Grain ============
+    (function () {
+      const canvas = document.getElementById('vigCanvas');
+      const ctx = canvas.getContext('2d');
+      const vigS = document.getElementById('vigAmt');
+      const vigVal = document.getElementById('vigVal');
+      const caS = document.getElementById('caAmt');
+      const caVal = document.getElementById('caVal');
+      const gS = document.getElementById('grainAmt');
+      const gVal = document.getElementById('grainVal');
+      const src = document.createElement('canvas');
+      src.width = 400; src.height = 240;
+      const sctx = src.getContext('2d');
+      const sky = sctx.createLinearGradient(0, 0, 0, 240);
+      sky.addColorStop(0, '#ff9560'); sky.addColorStop(1, '#3a5580');
+      sctx.fillStyle = sky; sctx.fillRect(0, 0, 400, 240);
+      // silhouettes
+      sctx.fillStyle = '#0a0a12';
+      for (let i = 0; i < 8; ++i) {
+        sctx.beginPath();
+        const cx = i * 55 + 20, cy = 180 + Math.random() * 30;
+        sctx.moveTo(cx, cy);
+        sctx.lineTo(cx + 20, cy - 50 - Math.random() * 40);
+        sctx.lineTo(cx + 40, cy);
+        sctx.closePath(); sctx.fill();
+      }
+      // sun
+      const sung = sctx.createRadialGradient(320, 100, 5, 320, 100, 40);
+      sung.addColorStop(0, '#fff2c0'); sung.addColorStop(1, 'rgba(255,242,192,0)');
+      sctx.fillStyle = sung; sctx.fillRect(280, 60, 80, 80);
+      function redraw() {
+        const vig = +vigS.value / 100;
+        vigVal.textContent = vig.toFixed(2);
+        const ca = +caS.value;
+        caVal.textContent = ca;
+        const grain = +gS.value / 100;
+        gVal.textContent = grain.toFixed(2);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // Draw source into intermediate
+        const w = 600, h = 300;
+        const tmp = document.createElement('canvas');
+        tmp.width = w; tmp.height = h;
+        const tc = tmp.getContext('2d');
+        tc.drawImage(src, 0, 0, w, h);
+        // Chromatic aberration: split R and B channels
+        if (ca > 0) {
+          const orig = tc.getImageData(0, 0, w, h);
+          const od = orig.data;
+          const out = tc.createImageData(w, h);
+          const nd = out.data;
+          for (let y = 0; y < h; ++y) {
+            for (let x = 0; x < w; ++x) {
+              const i = (y * w + x) * 4;
+              // sample R shifted outward, B shifted inward
+              const cx = w / 2, cy = h / 2;
+              const dx = x - cx, dy = y - cy;
+              const dist = Math.sqrt(dx * dx + dy * dy);
+              const dir = dist > 0 ? [dx / dist, dy / dist] : [0, 0];
+              const rShift = ca * (dist / (w / 2));
+              const bShift = -ca * (dist / (w / 2));
+              const rx = Math.max(0, Math.min(w - 1, x + dir[0] * rShift)) | 0;
+              const ry = Math.max(0, Math.min(h - 1, y + dir[1] * rShift)) | 0;
+              const bx = Math.max(0, Math.min(w - 1, x + dir[0] * bShift)) | 0;
+              const by = Math.max(0, Math.min(h - 1, y + dir[1] * bShift)) | 0;
+              nd[i] = od[(ry * w + rx) * 4];
+              nd[i + 1] = od[i + 1];
+              nd[i + 2] = od[(by * w + bx) * 4 + 2];
+              nd[i + 3] = 255;
+            }
+          }
+          tc.putImageData(out, 0, 0);
+        }
+        ctx.drawImage(tmp, 20, 10);
+        // Vignette (overlay dark ring)
+        if (vig > 0) {
+          const g = ctx.createRadialGradient(320, 160, 100, 320, 160, 320);
+          g.addColorStop(0, 'rgba(0,0,0,0)');
+          g.addColorStop(1, `rgba(0,0,0,${vig})`);
+          ctx.fillStyle = g;
+          ctx.fillRect(20, 10, w, h);
+        }
+        // Grain
+        if (grain > 0) {
+          const gim = ctx.getImageData(20, 10, w, h);
+          const gd = gim.data;
+          for (let i = 0; i < gd.length; i += 4) {
+            const n = (Math.random() - 0.5) * 255 * grain;
+            gd[i] = Math.max(0, Math.min(255, gd[i] + n));
+            gd[i + 1] = Math.max(0, Math.min(255, gd[i + 1] + n));
+            gd[i + 2] = Math.max(0, Math.min(255, gd[i + 2] + n));
+          }
+          ctx.putImageData(gim, 20, 10);
+        }
+      }
+      [vigS, caS, gS].forEach(el => el.addEventListener('input', redraw));
+      redraw();
+    })();
+
+    // ============ 06 · Motion & DOF ============
+    (function () {
+      const canvas = document.getElementById('mbCanvas');
+      const ctx = canvas.getContext('2d');
+      const mbS = document.getElementById('mbShutter');
+      const mbVal = document.getElementById('mbShutVal');
+      const focS = document.getElementById('dofFocal');
+      const focVal = document.getElementById('dofFocVal');
+      const aprS = document.getElementById('dofAper');
+      const aprVal = document.getElementById('dofAperVal');
+      function redraw() {
+        const shut = +mbS.value / 100;
+        mbVal.textContent = shut.toFixed(2);
+        const foc = +focS.value;
+        focVal.textContent = foc;
+        const apr = +aprS.value / 10;
+        aprVal.textContent = apr.toFixed(1);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // Background
+        ctx.fillStyle = '#e6d6c0'; ctx.fillRect(0, 30, canvas.width, 260);
+        // 3 balls at z = 30, 50, 80; horizontal positions
+        const balls = [
+          { z: 30, x: 130, c: '#c25a1b' },
+          { z: 50, x: 320, c: '#2f6fc4' },
+          { z: 80, x: 510, c: '#2f7d32' },
+        ];
+        // "Original" left, "with FX" right — actually one image with FX applied
+        balls.forEach(b => {
+          const CoC = Math.abs(1 / b.z - 1 / foc) * apr * 200;
+          const r = 30;
+          // Motion blur: draw multiple offset copies with reduced alpha
+          if (shut > 0.01) {
+            const steps = 8;
+            for (let i = 0; i < steps; ++i) {
+              const t = -shut * 30 + i * shut * 60 / (steps - 1);
+              ctx.fillStyle = b.c;
+              ctx.globalAlpha = 1 / steps * 1.2;
+              ctx.filter = `blur(${CoC.toFixed(1)}px)`;
+              ctx.beginPath(); ctx.arc(b.x + t, 160, r, 0, Math.PI * 2); ctx.fill();
+            }
+          } else {
+            ctx.filter = `blur(${CoC.toFixed(1)}px)`;
+            ctx.globalAlpha = 1.0;
+            ctx.fillStyle = b.c;
+            ctx.beginPath(); ctx.arc(b.x, 160, r, 0, Math.PI * 2); ctx.fill();
+          }
+        });
+        ctx.globalAlpha = 1.0;
+        ctx.filter = 'none';
+        // Focal plane indicator
+        const focPct = (foc - 30) / 50;
+        const focX = 130 + focPct * (510 - 130);
+        ctx.strokeStyle = '#d3600a';
+        ctx.setLineDash([6, 4]);
+        ctx.beginPath(); ctx.moveTo(focX, 40); ctx.lineTo(focX, 250); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#d3600a';
+        ctx.font = '600 12px "Aptos"';
+        ctx.textAlign = 'center';
+        ctx.fillText(`焦距 z=${foc}`, focX, 30);
+        // z labels
+        ctx.fillStyle = '#26170f';
+        balls.forEach(b => {
+          ctx.font = '500 11px "Cascadia Code"';
+          ctx.fillText(`z=${b.z}`, b.x, 220);
+        });
+      }
+      [mbS, focS, aprS].forEach(el => el.addEventListener('input', redraw));
+      redraw();
+    })();
+
+    // ============ 07 · FXAA/SMAA ============
+    (function () {
+      const canvas = document.getElementById('fxaaCanvas');
+      const ctx = canvas.getContext('2d');
+      const radios = document.querySelectorAll('input[name="fxx"]');
+      function redraw() {
+        const mode = document.querySelector('input[name="fxx"]:checked').value;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // Scene: colored triangles with sharp edges
+        function scene(x0, label) {
+          ctx.fillStyle = '#e6d6c0';
+          ctx.fillRect(x0, 30, 280, 220);
+          ctx.strokeStyle = 'rgba(38,23,15,0.15)';
+          ctx.strokeRect(x0, 30, 280, 220);
+          // 3 triangles at different angles
+          const tris = [
+            { p: [[x0 + 30, 50], [x0 + 250, 60], [x0 + 40, 200]], c: '#2f6fc4' },
+            { p: [[x0 + 70, 220], [x0 + 260, 240], [x0 + 210, 100]], c: '#c25a1b' },
+            { p: [[x0 + 140, 80], [x0 + 240, 190], [x0 + 100, 190]], c: 'rgba(47,125,50,0.6)' },
+          ];
+          tris.forEach(t => {
+            ctx.fillStyle = t.c;
+            ctx.beginPath();
+            ctx.moveTo(t.p[0][0], t.p[0][1]);
+            ctx.lineTo(t.p[1][0], t.p[1][1]);
+            ctx.lineTo(t.p[2][0], t.p[2][1]);
+            ctx.closePath();
+            ctx.fill();
+          });
+          ctx.fillStyle = '#26170f';
+          ctx.font = '600 12px "Aptos"';
+          ctx.textAlign = 'center';
+          ctx.fillText(label, x0 + 140, 20);
+        }
+        scene(20, 'raw (锯齿)');
+        // 右侧应用 AA 的 emulation：draw scene into tmp with imageSmoothingEnabled + slight blur
+        const tmp = document.createElement('canvas');
+        tmp.width = 280; tmp.height = 220;
+        const tc = tmp.getContext('2d');
+        tc.fillStyle = '#e6d6c0';
+        tc.fillRect(0, 0, 280, 220);
+        const tris = [
+          { p: [[10, 20], [230, 30], [20, 170]], c: '#2f6fc4' },
+          { p: [[50, 190], [240, 210], [190, 70]], c: '#c25a1b' },
+          { p: [[120, 50], [220, 160], [80, 160]], c: 'rgba(47,125,50,0.6)' },
+        ];
+        tris.forEach(t => {
+          tc.fillStyle = t.c;
+          tc.beginPath();
+          tc.moveTo(t.p[0][0], t.p[0][1]);
+          tc.lineTo(t.p[1][0], t.p[1][1]);
+          tc.lineTo(t.p[2][0], t.p[2][1]);
+          tc.closePath();
+          tc.fill();
+        });
+        if (mode === 'fxaa') {
+          tc.filter = 'blur(0.6px)';
+          tc.drawImage(tmp, 0, 0);
+        } else if (mode === 'smaa') {
+          tc.filter = 'blur(0.35px) contrast(1.05)';
+          tc.drawImage(tmp, 0, 0);
+        }
+        tc.filter = 'none';
+        ctx.drawImage(tmp, 340, 30);
+        ctx.strokeStyle = 'rgba(38,23,15,0.15)';
+        ctx.strokeRect(340, 30, 280, 220);
+        ctx.fillStyle = '#26170f';
+        ctx.font = '600 12px "Aptos"';
+        ctx.textAlign = 'center';
+        const labels = { none: 'raw (对比)', fxaa: '+ FXAA (整体略糊)', smaa: '+ SMAA (锐利 & 平滑)' };
+        ctx.fillText(labels[mode], 480, 20);
+        ctx.font = '500 11px "Aptos"';
+        ctx.fillStyle = '#6b544a';
+        ctx.fillText('放大看斜边阶梯变化', canvas.width / 2, canvas.height - 10);
+      }
+      radios.forEach(r => r.addEventListener('change', redraw));
+      redraw();
+    })();
+  </script>
+</body>
+</html>
