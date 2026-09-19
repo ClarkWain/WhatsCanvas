@@ -780,47 +780,73 @@ Separable 3-5 个基于颜色的组合覆盖了"美学"意图。
                           <span class="kind">${m.kind}</span>`;
         const cellCanvas = cell.querySelector('canvas');
         const cctx = cellCanvas.getContext('2d');
-        // Transparent checker background
-        cctx.fillStyle = '#ffffff';
-        cctx.fillRect(0, 0, 200, 100);
-        cctx.fillStyle = 'rgba(23, 33, 38, 0.06)';
-        for (let y = 0; y < 100; y += 10) for (let x = 0; x < 200; x += 10) {
-          if (((x + y) / 10) % 2 === 0) cctx.fillRect(x, y, 10, 10);
-        }
-        // "Destination": blue rounded rect (large, on the left).
-        // Enlarged relative to the previous 90x60 layout so that the overlap
-        // region with the source circle is visible in every cell.
-        const D = { x: 12, y: 10, w: 118, h: 80, r: 14 };
-        cctx.fillStyle = `rgba(${fmt(D_color.r)}, ${fmt(D_color.g)}, ${fmt(D_color.b)}, ${D_color.a})`;
-        cctx.beginPath();
-        if (cctx.roundRect) cctx.roundRect(D.x, D.y, D.w, D.h, D.r);
-        else cctx.rect(D.x, D.y, D.w, D.h);
-        cctx.fill();
-
-        // Manually paint per-pixel to visualise blend mode (we can't use ctx.globalCompositeOperation because Porter-Duff DST_IN etc. behave weirdly across the whole canvas)
-        // Simpler: for the overlap region only, sample source (red circle) and blend with target.
         const w = 200, h = 100;
-        const imageData = cctx.getImageData(0, 0, w, h);
+        // Geometry: destination is a rounded rect on the left half; source is
+        // a circle roughly centered over the rect's right half. Overlap ~35x75.
+        const D = { x: 12, y: 10, w: 118, h: 80, r: 14 };
+        const S = { cx: 135, cy: 50, r: 48 };
+
+        function inDest(px, py) {
+          // Rounded-rect containment.
+          if (px < D.x || px > D.x + D.w || py < D.y || py > D.y + D.h) return false;
+          const rx = px - (D.x + D.r), ry = py - (D.y + D.r);
+          if (rx < 0 && ry < 0) return rx * rx + ry * ry <= D.r * D.r;
+          const rx2 = px - (D.x + D.w - D.r);
+          if (rx2 > 0 && ry < 0) return rx2 * rx2 + ry * ry <= D.r * D.r;
+          const ry2 = py - (D.y + D.h - D.r);
+          if (rx < 0 && ry2 > 0) return rx * rx + ry2 * ry2 <= D.r * D.r;
+          if (rx2 > 0 && ry2 > 0) return rx2 * rx2 + ry2 * ry2 <= D.r * D.r;
+          return true;
+        }
+        function inSrc(px, py) {
+          const dx = px - S.cx, dy = py - S.cy;
+          return dx * dx + dy * dy <= S.r * S.r;
+        }
+
+        // Build the output image entirely from the blend formula.
+        // Every pixel gets: source color (0 if outside S) blended with
+        // destination color (0 if outside D) using the current mode.
+        const imageData = cctx.createImageData(w, h);
         const data = imageData.data;
-        // Source circle: shifted left + enlarged so it substantially overlaps
-        // the destination rectangle (D right edge is at x=130, circle center
-        // at x=135 with radius 48 → overlap band ~35 px wide, ~75 px tall).
-        const Scx = 135, Scy = 50, Sr = 48;
         for (let py = 0; py < h; ++py) {
           for (let px = 0; px < w; ++px) {
-            const dx = px - Scx, dy = py - Scy;
-            const distSq = dx * dx + dy * dy;
-            if (distSq >= Sr * Sr) continue;
+            const iD = inDest(px, py);
+            const iS = inSrc(px, py);
+            if (!iD && !iS) continue; // leave alpha 0 → we draw checker underneath
+
+            const sR = iS ? S_color.r : 0;
+            const sG = iS ? S_color.g : 0;
+            const sB = iS ? S_color.b : 0;
+            const sA = iS ? S_color.a : 0;
+            const dR = iD ? D_color.r : 0;
+            const dG = iD ? D_color.g : 0;
+            const dB = iD ? D_color.b : 0;
+            const dA = iD ? D_color.a : 0;
+            const o = blend(m.name, sR, sG, sB, sA, dR, dG, dB, dA);
             const i = (py * w + px) * 4;
-            const dr = data[i] / 255, dg = data[i + 1] / 255, db = data[i + 2] / 255, da = data[i + 3] / 255;
-            const o = blend(m.name, S_color.r, S_color.g, S_color.b, S_color.a, dr, dg, db, da);
             data[i]     = o.r * 255;
             data[i + 1] = o.g * 255;
             data[i + 2] = o.b * 255;
             data[i + 3] = o.a * 255;
           }
         }
-        cctx.putImageData(imageData, 0, 0);
+
+        // Draw the transparent-checker pattern FIRST so any alpha=0 result
+        // pixels (CLEAR, XOR outside D∩S, DST_IN outside D∩S, etc.) show a
+        // universally recognized "transparent" indicator instead of the
+        // demo panel's page background bleeding through.
+        cctx.fillStyle = '#ffffff';
+        cctx.fillRect(0, 0, w, h);
+        cctx.fillStyle = 'rgba(23, 33, 38, 0.08)';
+        for (let y = 0; y < h; y += 10) for (let x = 0; x < w; x += 10) {
+          if (((x + y) / 10) % 2 === 0) cctx.fillRect(x, y, 10, 10);
+        }
+        // Composite the blend result on top of the checker using SRC_OVER
+        // (browser default). This lets alpha=0 pixels reveal the checker.
+        const tmp = document.createElement('canvas');
+        tmp.width = w; tmp.height = h;
+        tmp.getContext('2d').putImageData(imageData, 0, 0);
+        cctx.drawImage(tmp, 0, 0);
 
         cell.addEventListener('click', () => {
           document.querySelectorAll('.blend-cell').forEach(c => c.classList.remove('active'));
