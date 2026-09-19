@@ -769,8 +769,8 @@ Separable 3-5 个基于颜色的组合覆盖了"美学"意图。
       const useEl = document.getElementById('pdUse');
 
       // Fixed sample colors so all cells look comparable
-      const S = { r: 0.94, g: 0.25, b: 0.38, a: 1 };
-      const D = { r: 0.16, g: 0.62, b: 0.94, a: 1 };
+      const S_color = { r: 0.94, g: 0.25, b: 0.38, a: 1 };
+      const D_color = { r: 0.16, g: 0.62, b: 0.94, a: 1 };
 
       modes.forEach(m => {
         const cell = document.createElement('div');
@@ -787,10 +787,14 @@ Separable 3-5 个基于颜色的组合覆盖了"美学"意图。
         for (let y = 0; y < 100; y += 10) for (let x = 0; x < 200; x += 10) {
           if (((x + y) / 10) % 2 === 0) cctx.fillRect(x, y, 10, 10);
         }
-        // "Destination": blue rounded rect on left
-        cctx.fillStyle = `rgba(${fmt(D.r)}, ${fmt(D.g)}, ${fmt(D.b)}, ${D.a})`;
+        // "Destination": blue rounded rect (large, on the left).
+        // Enlarged relative to the previous 90x60 layout so that the overlap
+        // region with the source circle is visible in every cell.
+        const D = { x: 12, y: 10, w: 118, h: 80, r: 14 };
+        cctx.fillStyle = `rgba(${fmt(D_color.r)}, ${fmt(D_color.g)}, ${fmt(D_color.b)}, ${D_color.a})`;
         cctx.beginPath();
-        if (cctx.roundRect) cctx.roundRect(20, 20, 90, 60, 12); else cctx.rect(20, 20, 90, 60);
+        if (cctx.roundRect) cctx.roundRect(D.x, D.y, D.w, D.h, D.r);
+        else cctx.rect(D.x, D.y, D.w, D.h);
         cctx.fill();
 
         // Manually paint per-pixel to visualise blend mode (we can't use ctx.globalCompositeOperation because Porter-Duff DST_IN etc. behave weirdly across the whole canvas)
@@ -798,16 +802,18 @@ Separable 3-5 个基于颜色的组合覆盖了"美学"意图。
         const w = 200, h = 100;
         const imageData = cctx.getImageData(0, 0, w, h);
         const data = imageData.data;
+        // Source circle: shifted left + enlarged so it substantially overlaps
+        // the destination rectangle (D right edge is at x=130, circle center
+        // at x=135 with radius 48 → overlap band ~35 px wide, ~75 px tall).
+        const Scx = 135, Scy = 50, Sr = 48;
         for (let py = 0; py < h; ++py) {
           for (let px = 0; px < w; ++px) {
-            // Source: red circle centered at (140, 50), radius 35
-            const dx = px - 140, dy = py - 50;
-            const dist = Math.sqrt(dx * dx + dy * dy);
-            const inSrc = dist < 35;
-            if (!inSrc) continue;
+            const dx = px - Scx, dy = py - Scy;
+            const distSq = dx * dx + dy * dy;
+            if (distSq >= Sr * Sr) continue;
             const i = (py * w + px) * 4;
             const dr = data[i] / 255, dg = data[i + 1] / 255, db = data[i + 2] / 255, da = data[i + 3] / 255;
-            const o = blend(m.name, S.r, S.g, S.b, S.a, dr, dg, db, da);
+            const o = blend(m.name, S_color.r, S_color.g, S_color.b, S_color.a, dr, dg, db, da);
             data[i]     = o.r * 255;
             data[i + 1] = o.g * 255;
             data[i + 2] = o.b * 255;
