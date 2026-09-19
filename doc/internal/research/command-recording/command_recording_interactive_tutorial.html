@@ -828,6 +828,10 @@ public:
       const picture = document.createElement('canvas');
       picture.width = canvas.width;
       picture.height = canvas.height;
+      // NOTE: renderBackground takes a 2D context, not a canvas element.
+      // Passing the element directly would silently no-op on fillStyle assignment
+      // but throw on fillRect() and stop the animation loop.
+      const picCtx = picture.getContext('2d');
       let pictureValid = false; // "已录制"
       let cacheTexValid = false; // "已烘成纹理"
       let cacheBytes = 0;
@@ -886,7 +890,7 @@ public:
           bytes = backendCmds * 48; // pretend 48 bytes per submitted command
         } else if (mode === 'pic') {
           if (!pictureValid) {
-            renderBackground(picture, n);
+            renderBackground(picCtx, n);
             pictureValid = true;
           }
           // drawPicture: replay commands from Picture buffer.
@@ -898,7 +902,7 @@ public:
         } else {
           // drawPictureRasterized: bake once, blit forever.
           if (!cacheTexValid) {
-            renderBackground(picture, n);
+            renderBackground(picCtx, n);
             cacheTexValid = true;
             cacheBytes = canvas.width * canvas.height * 4; // RGBA8
           }
