@@ -1,0 +1,1083 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>混合模式原理与实现互动教学</title>
+  <style>
+    :root {
+      --bg: #f4efe6;
+      --panel: rgba(255, 251, 245, 0.9);
+      --ink: #172126;
+      --muted: #5c6a70;
+      --accent: #d43f6a;
+      --accent-soft: rgba(212, 63, 106, 0.14);
+      --accent-strong: #c25a1b;
+      --success: #2f7d32;
+      --shadow: 0 20px 60px rgba(40, 27, 11, 0.12);
+      --radius: 24px;
+      --radius-sm: 16px;
+      --mono: "Cascadia Code", "Consolas", monospace;
+      --sans: "Aptos", "Segoe UI Variable", "Segoe UI", sans-serif;
+      --display: "Bahnschrift", "Trebuchet MS", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: var(--sans);
+      color: var(--ink);
+      line-height: 1.72;
+      background:
+        radial-gradient(circle at bottom right, rgba(212, 63, 106, 0.14), transparent 30%),
+        linear-gradient(180deg, #fbf6eb 0%, var(--bg) 100%);
+    }
+    a { color: var(--accent); }
+    .page { width: min(1320px, calc(100% - 32px)); margin: 24px auto 80px; position: relative; z-index: 1; }
+
+    .hero, .section, .card, .code-card, .method-card, .timeline-step, .metric-card {
+      border: 1px solid rgba(23, 33, 38, 0.08);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      -webkit-backdrop-filter: blur(12px);
+      backdrop-filter: blur(12px);
+    }
+    .hero { padding: 28px; overflow: hidden; position: relative; }
+    .hero::after {
+      content: ""; position: absolute; inset: auto -70px -90px auto;
+      width: 280px; height: 280px;
+      background: radial-gradient(circle, rgba(212, 63, 106, 0.18), transparent 70%);
+      pointer-events: none;
+    }
+    .eyebrow {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 8px 12px; border-radius: 999px;
+      background: var(--accent-soft); color: var(--accent);
+      font-size: 0.84rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+    }
+    h1 { font-family: var(--display); font-size: clamp(1.6rem, 2.2vw + 0.4rem, 2.4rem); margin: 12px 0 6px; color: var(--ink); }
+    h2 { font-family: var(--display); font-size: 1.32rem; margin: 0 0 6px; color: var(--ink); }
+    h3 { font-family: var(--display); font-size: 1.05rem; margin: 0 0 8px; color: var(--ink); }
+    p { margin: 0 0 12px; color: var(--muted); }
+    .lead { margin-top: 16px; font-size: 1.08rem; max-width: 66ch; color: #28333a; }
+
+    .hero-grid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(300px, 0.7fr); gap: 20px; align-items: start; }
+    .hero-points { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
+    .hero-point { padding: 14px; border-radius: 18px; background: rgba(255, 255, 255, 0.78); border: 1px solid rgba(23, 33, 38, 0.08); }
+    .hero-point strong { display: block; margin-bottom: 4px; color: var(--ink); }
+    .summary-card { padding: 18px; border-radius: var(--radius-sm); background: rgba(255, 255, 255, 0.84); border: 1px solid rgba(23, 33, 38, 0.08); }
+    .summary-card ul { margin: 10px 0 0 18px; padding: 0; color: var(--muted); }
+    .summary-card li { margin-bottom: 6px; }
+
+    .layout { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 22px; margin-top: 22px; }
+    .content { display: grid; gap: 22px; }
+    .section { padding: 24px; }
+    .section-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 16px; }
+    .section-tag { padding: 7px 12px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 0.88rem; font-weight: 700; }
+    .section-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr); gap: 18px; align-items: start; }
+
+    .demo-panel, .method-panel, .formula, .code-card, .timeline-step, .metric-card { padding: 16px 18px; border-radius: var(--radius-sm); background: rgba(255, 255, 255, 0.82); border: 1px solid rgba(23, 33, 38, 0.08); }
+    .demo-panel canvas { width: 100%; height: auto; display: block; border-radius: 16px; background: linear-gradient(180deg, #fefdf8, #f6eddc); border: 1px solid rgba(23, 33, 38, 0.08); }
+    .canvas-caption { margin-top: 10px; color: var(--muted); font-size: 0.92rem; }
+
+    .controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 12px 0 10px; }
+    .pill { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 999px; cursor: pointer; background: #fff; border: 1px solid rgba(23, 33, 38, 0.1); transition: 140ms ease; user-select: none; }
+    .pill.active { color: white; background: var(--accent); border-color: var(--accent); }
+    .pill input[type="range"] { accent-color: var(--accent); }
+    .pill input[type="color"] { border: none; background: transparent; width: 26px; height: 26px; padding: 0; cursor: pointer; }
+
+    .formula .label { display: block; margin-bottom: 8px; color: var(--accent); font-weight: 700; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.04em; }
+    .formula .math { font-family: "Cambria Math", "Times New Roman", serif; font-size: 1.06rem; white-space: pre-wrap; color: var(--ink); }
+    .formula .explain { margin-top: 8px; color: #465158; }
+
+    .toc { position: sticky; top: 14px; align-self: start; padding: 18px; border-radius: 22px; background: rgba(255, 252, 246, 0.9); border: 1px solid rgba(23, 33, 38, 0.08); box-shadow: 0 14px 40px rgba(43, 31, 18, 0.08); }
+    .toc h3 { margin-bottom: 10px; }
+    .toc a { display: block; padding: 7px 9px; margin: 4px 0; text-decoration: none; border-radius: 12px; color: var(--muted); }
+    .toc a:hover, .toc a:focus-visible { background: var(--accent-soft); color: var(--accent); outline: none; }
+    .toc .note { margin-top: 10px; font-size: 0.86rem; color: var(--muted); }
+
+    .trace-list { display: grid; gap: 10px; margin-top: 12px; }
+    .trace-item { padding: 10px 12px; border-radius: 12px; background: rgba(255, 255, 255, 0.74); border: 1px solid rgba(23, 33, 38, 0.08); color: var(--muted); }
+    .trace-item strong { color: var(--ink); }
+    .info-stack { display: grid; gap: 12px; }
+
+    .method-grid { display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 14px; }
+    .method-grid .metric-card { cursor: pointer; transition: transform 120ms ease, box-shadow 120ms ease; }
+    .method-grid .metric-card:hover { transform: translateY(-2px); }
+    .method-grid .metric-card.active { border-color: rgba(212, 63, 106, 0.4); box-shadow: 0 12px 30px rgba(212, 63, 106, 0.14); }
+    .method-grid .metric-card p { margin: 6px 0 0; }
+
+    .method-card { margin-top: 12px; padding: 20px 22px; }
+    .method-card h3 { margin-top: 0; }
+    .method-card p { margin: 0 0 10px; }
+    .method-card .pros, .method-card .cons { margin: 8px 0 12px 20px; padding: 0; color: var(--muted); }
+    .method-card .pros li, .method-card .cons li { margin-bottom: 4px; }
+    .method-card strong { color: var(--ink); }
+    .method-card strong + ul { margin-top: 6px; }
+
+    .mini-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-top: 12px; }
+    .mini-grid .metric-card p { margin: 6px 0 0; }
+
+    .code-card pre { margin: 10px 0 0; padding: 12px; overflow-x: auto; background: #182024; color: #f8f7f3; border-radius: 12px; font-family: var(--mono); font-size: 0.92rem; line-height: 1.5; }
+    .code-card .note { margin-top: 10px; color: var(--muted); font-size: 0.92rem; }
+
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 0.78rem; font-weight: 700; margin-right: 4px; }
+    .badge.warn { background: rgba(194, 90, 27, 0.14); color: var(--accent-strong); }
+    .badge.ok { background: rgba(47, 125, 50, 0.12); color: var(--success); }
+
+    /* blend chart grid used in section 03 */
+    .blend-grid {
+      display: grid;
+      gap: 8px;
+      grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+      margin-top: 12px;
+    }
+    .blend-cell {
+      background: #fff;
+      border: 1px solid rgba(23, 33, 38, 0.08);
+      border-radius: 12px;
+      padding: 10px;
+      cursor: pointer;
+      transition: 120ms ease;
+    }
+    .blend-cell:hover { transform: translateY(-2px); }
+    .blend-cell.active { border-color: var(--accent); background: var(--accent-soft); }
+    .blend-cell canvas { width: 100%; height: 84px; border-radius: 8px; display: block; }
+    .blend-cell .name { display: block; margin-top: 8px; font-weight: 700; font-size: 0.86rem; color: var(--ink); }
+    .blend-cell .kind { display: block; margin-top: 2px; font-size: 0.72rem; color: var(--muted); }
+
+    .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.94rem; margin-top: 10px; }
+    .stats-grid .stat { padding: 8px 10px; border-radius: 10px; background: rgba(255, 255, 255, 0.72); border: 1px solid rgba(23, 33, 38, 0.08); }
+    .stats-grid .stat strong { color: var(--ink); display: block; font-size: 1rem; }
+
+    @media (max-width: 960px) {
+      .hero-grid, .section-grid, .layout { grid-template-columns: minmax(0, 1fr); }
+      .toc { position: static; }
+      .method-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="hero">
+      <div class="hero-grid">
+        <div>
+          <div class="eyebrow">互动教学 · 混合模式 (Blend Modes)</div>
+          <h1>两块颜色相遇的时候，你希望发生什么？</h1>
+          <p class="lead">"透明图层压在另一张图上"看起来只是一个视觉问题，其实是数学问题：新颜色 = f(源颜色, 目标颜色)。<strong>混合模式</strong>就是这个 <code>f</code> 的一整套约定俗成的选项——从最普通的"上面盖住下面"（SRC_OVER），到"只留下重叠部分"（SRC_IN），再到 Photoshop 里那些花哨的 MULTIPLY / SCREEN。这个教程会带你看清：每一种模式的公式、它在 GPU 上如何映射成 <code>glBlendFuncSeparate</code>、WhatsCanvas 里 14 种模式对应的实际参数，以及"什么时候用哪个"。</p>
+          <div class="hero-points">
+            <div class="hero-point">
+              <strong>1. Porter-Duff（合成）</strong>
+              12 种基于 α 的"图层重叠"操作：SRC / DST / OVER / IN / OUT / ATOP / XOR ...
+            </div>
+            <div class="hero-point">
+              <strong>2. Separable（可分离）</strong>
+              基于每通道乘除的"美学"混合：MULTIPLY / SCREEN / ADD 等。
+            </div>
+          </div>
+        </div>
+        <div class="summary-card">
+          <h3>这页要带你掌握的 5 件事</h3>
+          <ul>
+            <li>预乘 alpha（premultiplied）是所有混合公式的前提，为什么？</li>
+            <li>SRC_OVER 是怎么从"你选择每层颜色的权重"推出来的。</li>
+            <li>Porter-Duff 12 种模式 = 用 <code>(Fs, Fd)</code> 两个系数拼出来的组合。</li>
+            <li>GPU 上是怎么用一次 <code>glBlendFuncSeparate</code> 表达全部 14 种模式的。</li>
+            <li>什么场景该用 SRC_OVER / MULTIPLY / DST_IN，什么坑要避开。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <div class="layout">
+      <div class="content">
+
+        <!-- 01 · basics -->
+        <section class="section" id="basics">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">01 · 先看基础</div>
+              <h2>预乘 alpha 和"最普通的透明合成"到底怎么算</h2>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <div class="controls">
+                <label class="pill">源色 <input type="color" id="basicSrc" value="#f04060"></label>
+                <label class="pill">目标色 <input type="color" id="basicDst" value="#40c8f0"></label>
+                <label class="pill" for="basicAlpha">源 α：<strong id="basicAlphaVal">0.60</strong></label>
+                <input id="basicAlpha" type="range" min="0" max="100" value="60">
+              </div>
+              <canvas id="basicCanvas" width="640" height="260"></canvas>
+              <p class="canvas-caption">上图从左到右：目标色（背景）→ 半透明源色（Fs = 1, Fd = 1 − Sa 时的 SRC_OVER）→ 结果。α 从 0（完全透明，等于背景）滑到 1（完全不透明，等于源）。你会看到中间 alpha 值下，结果是"按 α 混合两种颜色"。</p>
+            </div>
+            <div class="info-stack">
+              <div class="formula">
+                <span class="label">最朴素的公式：SRC_OVER</span>
+                <span class="math">C_out = C_src × α_src  +  C_dst × (1 − α_src)
+α_out = α_src         +  α_dst × (1 − α_src)</span>
+                <p class="explain">这就是"半透明贴纸压在另一张色纸上"的直觉：结果 = α 部分用源色 + (1−α) 部分用背景色。α_out 说明"两层叠起来后，整个像素还是透过多少下面的东西"。</p>
+              </div>
+              <div class="formula">
+                <span class="label">预乘 alpha（premultiplied）</span>
+                <span class="math">存储时把 RGB × α 一次算好：
+  Cp_src = C_src × α_src
+  Cp_dst = C_dst × α_dst
+
+于是 SRC_OVER 就变成了：
+  Cp_out = Cp_src + Cp_dst × (1 − α_src)
+  α_out  = α_src  + α_dst  × (1 − α_src)</span>
+                <p class="explain">好处：混合公式里不再有"× α"这一步。多次合成也不会累积精度损失。<strong>WhatsCanvas 和绝大多数 GPU 后端全程使用预乘 alpha。</strong></p>
+              </div>
+              <div class="formula">
+                <span class="label">GPU 的一般形式</span>
+                <span class="math">C_out = Fs × C_src  +  Fd × C_dst
+α_out = Fs_α × α_src + Fd_α × α_dst
+
+Fs / Fd 是"源 / 目标的混合权重"，
+每种混合模式就是选一组 (Fs, Fd)。</span>
+                <p class="explain">这就是 <code>glBlendFuncSeparate(srcRGB, dstRGB, srcAlpha, dstAlpha)</code> 的 4 个参数。它把"混合模式"抽象成了 4 个可选值。</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 02 · Porter-Duff table -->
+        <section class="section" id="porterduff">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">02 · Porter-Duff 12 兄弟</div>
+              <h2>用 (Fs, Fd) 两个系数拼出全部合成模式</h2>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <div id="pdGrid" class="blend-grid"></div>
+              <p class="canvas-caption">点击任意一格：右侧展示该模式的完整公式 + WhatsCanvas 里对应的 <code>glBlendFuncSeparate</code> 参数。每个小格里的圆是"源" (SRC)、方是"目标" (DST)，你可以直观看到"这个模式保留了哪部分、丢弃了哪部分"。</p>
+            </div>
+            <div class="info-stack">
+              <div class="method-card" id="pdDetail">
+                <h3 id="pdTitle">SRC_OVER</h3>
+                <p id="pdBody">最常用的模式。"源"半透明地叠加到"目标"上。绝大多数 UI 绘制、字体绘制、图片绘制默认走这个模式。</p>
+                <strong>数学公式</strong>
+                <div class="formula" style="margin-top: 8px;">
+                  <span class="math" id="pdFormula"></span>
+                </div>
+                <strong>GPU 参数 (glBlendFuncSeparate)</strong>
+                <pre id="pdGl" style="background: #182024; color: #f8f7f3; border-radius: 12px; padding: 10px; font-family: var(--mono); font-size: 0.9rem;"></pre>
+                <strong>使用场景</strong>
+                <p id="pdUse" style="margin: 6px 0 0;"></p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 03 · separable blend -->
+        <section class="section" id="separable">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">03 · Separable 三兄弟</div>
+              <h2>MULTIPLY / SCREEN / ADD：不是"合成"而是"美学"</h2>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <div class="controls">
+                <label class="pill"><input type="radio" name="sep" value="multiply" checked> MULTIPLY</label>
+                <label class="pill"><input type="radio" name="sep" value="screen"> SCREEN</label>
+                <label class="pill"><input type="radio" name="sep" value="add"> ADD</label>
+                <label class="pill" for="sepAlpha">源 α：<strong id="sepAlphaVal">1.00</strong></label>
+                <input id="sepAlpha" type="range" min="0" max="100" value="100">
+              </div>
+              <canvas id="sepCanvas" width="640" height="260"></canvas>
+              <p class="canvas-caption">和 Porter-Duff 不同，可分离（separable）混合<strong>逐通道</strong>做非线性运算：MULTIPLY 是相乘（"两色都亮才亮"），SCREEN 是反乘（"两色都暗才暗"），ADD 是相加（发光效果）。它们不能用一句"图层重叠"来描述——更像"Photoshop 图层模式"。</p>
+            </div>
+            <div class="info-stack">
+              <div class="formula">
+                <span class="label">MULTIPLY</span>
+                <span class="math">C_out = C_src × C_dst
+GPU: glBlendFuncSeparate(GL_DST_COLOR, GL_ZERO, ...)</span>
+                <p class="explain">直观：白色 (1) × X = X，白色什么都不改；黑色 (0) × X = 0，黑色永远变黑。<em>常用于"给底图增加阴影"</em>——半透明黑色 MULTIPLY 就是压暗。</p>
+              </div>
+              <div class="formula">
+                <span class="label">SCREEN</span>
+                <span class="math">C_out = 1 − (1 − C_src) × (1 − C_dst)
+GPU: glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_COLOR, ...)</span>
+                <p class="explain">就是"MULTIPLY 的对偶"。黑色 (0) 什么都不加，白色 (1) 全饱和。<em>常用于"给底图加亮点、加高光、加发光"</em>——SCREEN 白色圆 = 光晕。</p>
+              </div>
+              <div class="formula">
+                <span class="label">ADD</span>
+                <span class="math">C_out = C_src × α_src + C_dst
+GPU: glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE, ...)</span>
+                <p class="explain">最粗暴：直接相加，允许"爆掉"（超过 1 被 clamp 到 1）。<em>常用于粒子系统、火光、能量光柱、HDR 光晕</em>。</p>
+              </div>
+              <div class="trace-item">
+                <strong>为什么它们是"可分离"？</strong> 每个通道（R/G/B）独立计算，彼此不相干。对比 <em>Hue / Saturation / Color</em> 这些"HSL 模式"就要一起考虑 RGB 转 HSL 再合成——那些叫<em>non-separable</em>，WhatsCanvas 没实现，Skia 里也是单独一类。
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 04 · interactive blend playground -->
+        <section class="section" id="playground">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">04 · 试炼场</div>
+              <h2>自己配色 + 切换 14 种模式看结果</h2>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <div class="controls">
+                <label class="pill">源色 <input type="color" id="pgSrc" value="#f04060"></label>
+                <label class="pill">目标色 <input type="color" id="pgDst" value="#40a0f0"></label>
+                <label class="pill" for="pgSrcA">源 α：<strong id="pgSrcAVal">0.80</strong></label>
+                <input id="pgSrcA" type="range" min="0" max="100" value="80">
+                <label class="pill" for="pgDstA">目标 α：<strong id="pgDstAVal">1.00</strong></label>
+                <input id="pgDstA" type="range" min="0" max="100" value="100">
+              </div>
+              <div class="controls">
+                <select id="pgMode" style="padding: 8px 12px; border-radius: 999px; border: 1px solid rgba(23, 33, 38, 0.1); background: #fff; font-weight: 600; color: var(--accent);"></select>
+              </div>
+              <canvas id="pgCanvas" width="640" height="240"></canvas>
+              <p class="canvas-caption">左侧"D"（Dst）+ 右侧"S"（Src）+ 中间重叠区域展示混合结果。切换模式看重叠区域的变化。数值面板显示"当前像素的精确 RGBA"。</p>
+              <div class="stats-grid">
+                <div class="stat">重叠区颜色 <strong id="pgOverlap">—</strong></div>
+                <div class="stat">纯源区颜色 <strong id="pgSrcOnly">—</strong></div>
+                <div class="stat">纯目标区 <strong id="pgDstOnly">—</strong></div>
+                <div class="stat">Alpha 输出 <strong id="pgAlphaOut">—</strong></div>
+              </div>
+            </div>
+            <div class="info-stack">
+              <div class="formula">
+                <span class="label">当前模式的公式</span>
+                <span class="math" id="pgFormula"></span>
+                <p class="explain" id="pgExplain"></p>
+              </div>
+              <div class="trace-item">
+                <strong>提示：</strong>把源 α 拉到 0，看结果 —— 这时候 SRC_OVER 等价于什么都没画（结果 = 目标）。再把源 α 拉到 1 且模式设成 SRC，看结果 —— 目标被完全覆盖。这两个极端对应 <code>Fs = 0, Fd = 1</code> 和 <code>Fs = 1, Fd = 0</code>。
+              </div>
+              <div class="trace-item">
+                <strong>陷阱：</strong>选 CLEAR 模式时，源色/α 都被忽略——它总是把像素清零。可以理解为"透明画笔的橡皮擦"。
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 05 · WhatsCanvas 实现 -->
+        <section class="section" id="repo">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">05 · WhatsCanvas 内部</div>
+              <h2>从 <code>Paint::setBlendMode</code> 到 <code>glBlendFuncSeparate</code></h2>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="code-card">
+              <p><strong>1. Paint 层的枚举</strong> —— <code>include/wsc/Paint.h</code></p>
+              <pre>enum class BlendMode {
+    SRC_OVER,   // 默认。透明贴纸压在下面。
+    SRC, DST, CLEAR,
+    SRC_IN, DST_IN, SRC_OUT, DST_OUT,
+    SRC_ATOP, DST_ATOP, XOR,
+    ADD, MULTIPLY, SCREEN
+};</pre>
+
+              <p style="margin-top: 14px;"><strong>2. Renderer 层：翻译成 GL 参数</strong> —— <code>src/render/RenderContext.cpp</code></p>
+              <pre>switch (mode) {
+case DrawBlendMode::SrcOver:
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA,
+                        GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    break;
+case DrawBlendMode::Multiply:
+    glBlendFuncSeparate(GL_DST_COLOR, GL_ZERO,
+                        GL_DST_ALPHA, GL_ZERO);
+    break;
+case DrawBlendMode::Screen:
+    glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_COLOR,
+                        GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    break;
+// ...其余 11 种模式类似...
+}</pre>
+
+              <p style="margin-top: 14px;"><strong>3. Software 后端：CPU 里手算同一套公式</strong> —— <code>src/render/software/SoftwareRenderer.cpp</code></p>
+              <pre>inline void blendPixel(uint8_t *dst,
+    float sr, float sg, float sb, float sa,
+    DrawBlendMode mode)
+{
+  if (mode == DrawBlendMode::SrcOver) {
+    // 预乘 alpha 下的公式：out = src + dst × (1 − sa)
+    const float inv = 1.0f - sa;
+    const float dr = dst[0] / 255.0f;
+    // ...
+    dst[0] = toByte(sr * sa + dr * inv);
+    dst[1] = toByte(sg * sa + dg * inv);
+    dst[2] = toByte(sb * sa + db * inv);
+    dst[3] = toByte(sa + da * inv);
+    return;
+  }
+  // ...其余 13 种模式...
+}</pre>
+              <p class="note">这就是"跨后端 pixel-parity"的关键：Software 和 OpenGL 用同一批数学公式，只是一个用 CPU 手算、一个用 GPU 硬件混合。任何微小差异（如整型舍入方向、gamma 空间选择）都会通过 <code>parity_probe</code> 抓出来。</p>
+            </div>
+            <div class="info-stack">
+              <div class="timeline-step">
+                <strong>1. 用户 API</strong>
+                <code>Paint p; p.setBlendMode(Paint::BlendMode::MULTIPLY); canvas.drawCircle(..., p);</code>
+              </div>
+              <div class="timeline-step">
+                <strong>2. 命令编码</strong>
+                <code>DrawPathData::blendMode = toDrawBlendMode(paint.getBlendMode());</code> 每条命令都带 blend 状态。
+              </div>
+              <div class="timeline-step">
+                <strong>3. Renderer 状态设置</strong>
+                <code>context.applyBlendMode(mode)</code>：一次 <code>glBlendFuncSeparate</code>。合批时会把同 blend mode 的连续 draw 合并，减少状态切换。
+              </div>
+              <div class="timeline-step">
+                <strong>4. 后端提交</strong>
+                GL：硬件混合器直接算；Software：CPU 每像素调 <code>blendPixel</code>；Vulkan/Metal 里 pipeline state 里预先烘好 blend attachment。
+              </div>
+              <div class="trace-item">
+                <strong>1.2.1 相关：</strong>本分支的 <code>parity_probe</code> 里包含全部 11 种 blend 模式验证，Software vs OpenGL 全部 max delta ≤ 1（见 <a href="../rasterization-and-caching/rasterization_caching_interactive_tutorial.html">栅格化与缓存</a> 教程的 section 06 和 <a href="../../../examples/parity_probe/main.cpp"><code>examples/parity_probe/main.cpp</code></a>）。
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 06 · use cases -->
+        <section class="section" id="usecases">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">06 · 典型场景</div>
+              <h2>哪个模式做什么用？看 4 个真实例子</h2>
+            </div>
+          </div>
+          <div class="method-grid">
+            <div class="metric-card active" data-use="ui">
+              <strong>UI 绘制 · SRC_OVER</strong>
+              <p>按钮、图标、文字。默认模式就是它，几乎所有 <code>drawXxx</code> 都走这条路径。</p>
+            </div>
+            <div class="metric-card" data-use="mask">
+              <strong>形状裁剪 · SRC_IN / DST_IN</strong>
+              <p>把一张纹理裁剪成任意形状：先画形状（作 mask），再用 DST_IN 画图片。</p>
+            </div>
+            <div class="metric-card" data-use="light">
+              <strong>光效 / 阴影 · MULTIPLY / SCREEN / ADD</strong>
+              <p>粒子系统、发光边、阴影层。选 MULTIPLY 压暗、SCREEN 提亮、ADD 曝光。</p>
+            </div>
+            <div class="metric-card" data-use="erase">
+              <strong>擦除 · CLEAR / DST_OUT</strong>
+              <p>橡皮擦、透明打洞。<code>saveLayer</code> 内画一个 CLEAR 模式的圆，就是"在层上挖洞"。</p>
+            </div>
+          </div>
+          <div class="method-card" id="useDetail">
+            <h3 id="useTitle">UI 绘制 · SRC_OVER</h3>
+            <p id="useBody">这是最常用的模式，所有 <code>Paint</code> 的默认值就是 SRC_OVER。你调 <code>canvas.drawRect / drawText / drawImage</code> 时如果不改 blend，走的就是它。它保证"新画的东西压在旧的上面，尊重 α 透明度"。</p>
+            <strong>典型代码</strong>
+            <ul class="pros" id="usePros"></ul>
+            <strong>注意</strong>
+            <ul class="cons" id="useCons"></ul>
+          </div>
+        </section>
+
+        <!-- 07 · 主流库对比 -->
+        <section class="section" id="libraries">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">07 · 主流做法</div>
+              <h2>Skia、Cairo、Qt、浏览器 Canvas 都有什么 blend</h2>
+            </div>
+          </div>
+          <div class="mini-grid">
+            <div class="metric-card">
+              <strong>Skia</strong>
+              <p><code>SkBlendMode</code> 30+ 种：Porter-Duff 12 + separable + non-separable（Hue/Saturation/Color/Luminosity）。GPU 端能用固定管线的走硬件混合，其他走 shader-based blending。</p>
+            </div>
+            <div class="metric-card">
+              <strong>Cairo</strong>
+              <p><code>cairo_operator_t</code> 30+ 种，覆盖 Porter-Duff 全集 + separable + 少量 HSL。CPU 光栅器直接实现，性能上和 shader-based 差别不大。</p>
+            </div>
+            <div class="metric-card">
+              <strong>Qt / QPainter</strong>
+              <p><code>QPainter::CompositionMode</code> 20+ 种。软件后端手算；OpenGL 后端能映射到硬件的走 <code>glBlendFuncSeparate</code>，剩下的用 shader 或 FBO trick。</p>
+            </div>
+            <div class="metric-card">
+              <strong>浏览器 Canvas 2D</strong>
+              <p><code>globalCompositeOperation</code> 25 种，命名是 CSS 风格："source-over" / "multiply" / "difference" 等。底下是 Skia / CoreGraphics 实现。</p>
+            </div>
+            <div class="metric-card">
+              <strong>CSS mix-blend-mode</strong>
+              <p>不是 Canvas 而是 CSS 层的合成。类似 Skia 的可分离 + non-separable 集合。这也是为什么 Chrome 用 Skia 后端能"零成本"支持 CSS blend mode。</p>
+            </div>
+            <div class="metric-card">
+              <strong>Metal / Vulkan</strong>
+              <p>硬件层面只提供固定管线的 <code>blendAttachment</code>（Porter-Duff + separable）。要 non-separable HSL 只能自己写 shader + sample 上一层 FBO。</p>
+            </div>
+          </div>
+          <div class="trace-list">
+            <div class="trace-item"><strong>共同点：</strong>所有库都把 Porter-Duff 12 兄弟 + separable 3-5 种当作"标配"。这是硬件混合器能直接支持的最大集合。</div>
+            <div class="trace-item"><strong>差异点：</strong>WhatsCanvas 只实现 14 种（Porter-Duff 11 + separable 3）——够 UI + 普通图形效果，不追求 Photoshop 全集。想要 HSL 混合需要自己上 saveLayer + shader-based 实现。</div>
+          </div>
+        </section>
+
+        <!-- 08 · 建议 -->
+        <section class="section" id="takeaway">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">08 · 你可以怎么判断</div>
+              <h2>选混合模式的 4 条经验</h2>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="info-stack">
+              <div class="timeline-step"><strong>没想清楚就用 SRC_OVER</strong><span class="badge ok">默认</span> 90% 的 UI / 图片 / 文本绘制都是它。选错了别的模式，多半是把简单问题复杂化。</div>
+              <div class="timeline-step"><strong>做 mask / 挖形状 → DST_IN / SRC_IN</strong><span class="badge">配合 saveLayer</span> "把图像裁成圆形头像"、"把渐变裁成文字形状"都是这条路。<em>关键：这些模式只在 saveLayer 里才有可预测的效果</em>，因为它们要求目标层已经画好了 mask。</div>
+              <div class="timeline-step"><strong>发光 / 火焰 / 粒子 → ADD</strong><span class="badge">要小心 HDR</span> ADD 会让颜色"爆掉"（超过 1）。想要软饱和用 SCREEN；想要柔和加亮用半透明 SRC_OVER 白色。</div>
+              <div class="timeline-step"><strong>压暗 / 阴影 → MULTIPLY</strong><span class="badge">别忘 α</span> MULTIPLY 全屏黑色 = 直接变全黑（0 × X = 0）。要"轻微压暗"，用<em>半透明</em>黑色 SRC_OVER，或者<em>浅灰</em>MULTIPLY。</div>
+              <div class="timeline-step"><strong>擦除 / 打洞 → CLEAR + saveLayer</strong><span class="badge warn">易踩坑</span> CLEAR 不 saveLayer 直接画会把整个像素变透明（包括下面所有内容）。做"层内打洞"必须先 saveLayer，画完 restore。</div>
+            </div>
+            <div class="formula">
+              <span class="label">一句话总结</span>
+              <span class="math">混合模式 = 选一组 (Fs, Fd) 权重。
+Porter-Duff 12 个基于 α 的组合覆盖了"合成"意图；
+Separable 3-5 个基于颜色的组合覆盖了"美学"意图。
+选错了不是崩溃，是"看起来不对"——所以直觉比公式更重要。</span>
+              <p class="explain">下次画不出想要的效果时，先问："我是想合成图层，还是想让颜色变亮 / 变暗？" 这个二分决定了你该找 Porter-Duff 还是 Separable。</p>
+            </div>
+          </div>
+        </section>
+
+      </div>
+
+      <aside class="toc">
+        <h3>目录</h3>
+        <a href="#basics">1. 基础：预乘 α + SRC_OVER</a>
+        <a href="#porterduff">2. Porter-Duff 12 兄弟</a>
+        <a href="#separable">3. Separable 三兄弟</a>
+        <a href="#playground">4. 交互试炼场</a>
+        <a href="#repo">5. WhatsCanvas 内部</a>
+        <a href="#usecases">6. 典型场景</a>
+        <a href="#libraries">7. 主流库对比</a>
+        <a href="#takeaway">8. 选型建议</a>
+        <p class="note">要看具体代码，对照 <code>include/wsc/Paint.h</code>（BlendMode 枚举）、<code>src/render/RenderContext.cpp: applyBlendMode</code>（GL 参数表）、<code>src/render/software/SoftwareRenderer.cpp: blendPixel</code>（CPU 手算实现）。</p>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    // Small helpers
+    function hexToRgb(hex) {
+      const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+      return m ? { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) } : { r: 0, g: 0, b: 0 };
+    }
+    function fmt(x) { return (x * 255 | 0); }
+    function rgbaStr(r, g, b, a) { return `rgba(${fmt(r)}, ${fmt(g)}, ${fmt(b)}, ${a.toFixed(3)})`; }
+    function clamp01(x) { return x < 0 ? 0 : (x > 1 ? 1 : x); }
+
+    // Porter-Duff / separable model:
+    // straight (0..1) RGBA in, straight RGBA out.
+    // Follows the standard Porter-Duff formulation with predefined (Fs, Fd) tuples.
+    function blend(mode, sr, sg, sb, sa, dr, dg, db, da) {
+      // Convert to premultiplied
+      const Sr = sr * sa, Sg = sg * sa, Sb = sb * sa;
+      const Dr = dr * da, Dg = dg * da, Db = db * da;
+
+      let Fs = 0, Fd = 0; // used for standard Porter-Duff (weights on premul components)
+      let outR, outG, outB, outA;
+
+      switch (mode) {
+        case 'SRC_OVER': Fs = 1;             Fd = 1 - sa;         break;
+        case 'SRC':      Fs = 1;             Fd = 0;              break;
+        case 'DST':      Fs = 0;             Fd = 1;              break;
+        case 'CLEAR':    Fs = 0;             Fd = 0;              break;
+        case 'SRC_IN':   Fs = da;            Fd = 0;              break;
+        case 'DST_IN':   Fs = 0;             Fd = sa;             break;
+        case 'SRC_OUT':  Fs = 1 - da;        Fd = 0;              break;
+        case 'DST_OUT':  Fs = 0;             Fd = 1 - sa;         break;
+        case 'SRC_ATOP': Fs = da;            Fd = 1 - sa;         break;
+        case 'DST_ATOP': Fs = 1 - da;        Fd = sa;             break;
+        case 'XOR':      Fs = 1 - da;        Fd = 1 - sa;         break;
+        case 'ADD': {
+          // OpenGL: FUNC_ADD, (SRC_ALPHA, ONE) — src * sa + dst
+          outR = clamp01(sr * sa + dr);
+          outG = clamp01(sg * sa + dg);
+          outB = clamp01(sb * sa + db);
+          outA = clamp01(sa + da);
+          return { r: outR, g: outG, b: outB, a: outA };
+        }
+        case 'MULTIPLY': {
+          // GPU: (DST_COLOR, ZERO), so out = src * dst (premultiplied colors)
+          outR = clamp01(Sr * Dr + Dr * (1 - sa));
+          outG = clamp01(Sg * Dg + Dg * (1 - sa));
+          outB = clamp01(Sb * Db + Db * (1 - sa));
+          outA = clamp01(sa * da + da * (1 - sa));
+          return { r: outR, g: outG, b: outB, a: outA };
+        }
+        case 'SCREEN': {
+          // GPU: (ONE, ONE_MINUS_SRC_COLOR); premul colors
+          outR = clamp01(Sr + Dr * (1 - Sr));
+          outG = clamp01(Sg + Dg * (1 - Sg));
+          outB = clamp01(Sb + Db * (1 - Sb));
+          outA = clamp01(sa + da - sa * da);
+          return { r: outR, g: outG, b: outB, a: outA };
+        }
+      }
+      const pR = Fs * Sr + Fd * Dr;
+      const pG = Fs * Sg + Fd * Dg;
+      const pB = Fs * Sb + Fd * Db;
+      const pA = Fs * sa + Fd * da;
+      // Convert premul back to straight for display.
+      if (pA <= 1e-6) return { r: 0, g: 0, b: 0, a: 0 };
+      return {
+        r: clamp01(pR / pA),
+        g: clamp01(pG / pA),
+        b: clamp01(pB / pA),
+        a: clamp01(pA)
+      };
+    }
+
+    // ------------ 01 · basic SRC_OVER visualisation ------------
+    (function () {
+      const canvas = document.getElementById('basicCanvas');
+      const ctx = canvas.getContext('2d');
+      const srcInp = document.getElementById('basicSrc');
+      const dstInp = document.getElementById('basicDst');
+      const alphaInp = document.getElementById('basicAlpha');
+      const alphaVal = document.getElementById('basicAlphaVal');
+
+      function draw() {
+        const src = hexToRgb(srcInp.value);
+        const dst = hexToRgb(dstInp.value);
+        const sa = parseInt(alphaInp.value, 10) / 100;
+        alphaVal.textContent = sa.toFixed(2);
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // Background: dst color band
+        ctx.fillStyle = `rgb(${dst.r}, ${dst.g}, ${dst.b})`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Source translucent bar in center
+        const barX = 60, barW = 180;
+        ctx.fillStyle = `rgba(${src.r}, ${src.g}, ${src.b}, ${sa})`;
+        ctx.fillRect(barX, 30, barW, canvas.height - 60);
+
+        // Result: use blend() function
+        const s = { r: src.r / 255, g: src.g / 255, b: src.b / 255, a: sa };
+        const d = { r: dst.r / 255, g: dst.g / 255, b: dst.b / 255, a: 1 };
+        const o = blend('SRC_OVER', s.r, s.g, s.b, s.a, d.r, d.g, d.b, d.a);
+        ctx.fillStyle = rgbaStr(o.r, o.g, o.b, o.a);
+        ctx.fillRect(canvas.width - 240, 30, 180, canvas.height - 60);
+
+        // Labels
+        ctx.font = '700 14px "Aptos", sans-serif';
+        ctx.fillStyle = '#182024';
+        ctx.textAlign = 'center';
+        ctx.fillText('目标色 (背景)', 30 + barX / 2, 20);
+        ctx.fillText(`源色 (α=${sa.toFixed(2)})`, barX + barW / 2, 20);
+        ctx.fillText('SRC_OVER 结果', canvas.width - 240 + 90, 20);
+        ctx.font = '500 12px "Cascadia Code", monospace';
+        ctx.fillStyle = '#465158';
+        ctx.fillText(`rgb(${fmt(o.r)}, ${fmt(o.g)}, ${fmt(o.b)})`, canvas.width - 240 + 90, canvas.height - 8);
+      }
+      srcInp.addEventListener('input', draw);
+      dstInp.addEventListener('input', draw);
+      alphaInp.addEventListener('input', draw);
+      draw();
+    })();
+
+    // ------------ 02 · Porter-Duff grid ------------
+    (function () {
+      const modes = [
+        { name: 'SRC_OVER',  kind: 'Porter-Duff', desc: '默认。半透明源盖住目标。绝大多数 UI / 图片 / 文本走这条。',
+          fs: 'ONE',           fd: 'ONE_MINUS_SRC_ALPHA',
+          formula: 'C_out = Cp_src + Cp_dst × (1 − α_src)',
+          gl: 'glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA,\n                    GL_ONE,       GL_ONE_MINUS_SRC_ALPHA);',
+          use: '默认。除非明确知道要别的效果，就用它。' },
+        { name: 'SRC',       kind: 'Porter-Duff', desc: '目标被完全丢弃。直接把源覆盖上去。',
+          fs: 'ONE', fd: 'ZERO',
+          formula: 'C_out = Cp_src   (目标被覆盖)',
+          gl: 'glBlendFuncSeparate(GL_ONE, GL_ZERO, GL_ONE, GL_ZERO);',
+          use: '通常在 saveLayer 里用。要"完全替换目标像素"时。' },
+        { name: 'DST',       kind: 'Porter-Duff', desc: '源被完全丢弃。相当于什么都没画。',
+          fs: 'ZERO', fd: 'ONE',
+          formula: 'C_out = Cp_dst   (源被丢弃)',
+          gl: 'glBlendFuncSeparate(GL_ZERO, GL_ONE, GL_ZERO, GL_ONE);',
+          use: '通常用来调试。或者暂时"禁用一层但保留代码结构"。' },
+        { name: 'CLEAR',     kind: 'Porter-Duff', desc: '源和目标都丢弃。像素被清成透明。',
+          fs: 'ZERO', fd: 'ZERO',
+          formula: 'C_out = 0, α_out = 0',
+          gl: 'glBlendFuncSeparate(GL_ZERO, GL_ZERO, GL_ZERO, GL_ZERO);',
+          use: 'saveLayer 里做橡皮擦。层外用会把整个像素透穿。' },
+        { name: 'SRC_IN',    kind: 'Porter-Duff', desc: '只留下"源和目标都不透明"的部分。类似"AND"。',
+          fs: 'DST_ALPHA', fd: 'ZERO',
+          formula: 'C_out = Cp_src × α_dst',
+          gl: 'glBlendFuncSeparate(GL_DST_ALPHA, GL_ZERO,\n                    GL_DST_ALPHA, GL_ZERO);',
+          use: '"用形状裁剪图片"：先画形状作 mask，再 SRC_IN 画图。' },
+        { name: 'DST_IN',    kind: 'Porter-Duff', desc: '只留下"两者都不透明"的目标部分。源用作 mask。',
+          fs: 'ZERO', fd: 'SRC_ALPHA',
+          formula: 'C_out = Cp_dst × α_src',
+          gl: 'glBlendFuncSeparate(GL_ZERO, GL_SRC_ALPHA,\n                    GL_ZERO, GL_SRC_ALPHA);',
+          use: '"用形状裁剪已经画好的图层"。头像圆形裁剪最经典。' },
+        { name: 'SRC_OUT',   kind: 'Porter-Duff', desc: '只留下"源在目标透明区"的部分。',
+          fs: 'ONE_MINUS_DST_ALPHA', fd: 'ZERO',
+          formula: 'C_out = Cp_src × (1 − α_dst)',
+          gl: 'glBlendFuncSeparate(GL_ONE_MINUS_DST_ALPHA, GL_ZERO,\n                    GL_ONE_MINUS_DST_ALPHA, GL_ZERO);',
+          use: '把源从目标"减掉"。比如"从背景中去除文字位置的部分"。' },
+        { name: 'DST_OUT',   kind: 'Porter-Duff', desc: '只留下"目标在源透明区"的部分。等价于用源做橡皮擦。',
+          fs: 'ZERO', fd: 'ONE_MINUS_SRC_ALPHA',
+          formula: 'C_out = Cp_dst × (1 − α_src)',
+          gl: 'glBlendFuncSeparate(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA,\n                    GL_ZERO, GL_ONE_MINUS_SRC_ALPHA);',
+          use: '橡皮擦效果。用源的形状把目标图层"抠掉"。' },
+        { name: 'SRC_ATOP',  kind: 'Porter-Duff', desc: '源画在目标不透明区上；目标透明区保持透明。',
+          fs: 'DST_ALPHA', fd: 'ONE_MINUS_SRC_ALPHA',
+          formula: 'C_out = Cp_src × α_dst + Cp_dst × (1 − α_src)',
+          gl: 'glBlendFuncSeparate(GL_DST_ALPHA, GL_ONE_MINUS_SRC_ALPHA,\n                    GL_DST_ALPHA, GL_ONE_MINUS_SRC_ALPHA);',
+          use: '"给已有图形上色/贴纹理"，形状边界不变。' },
+        { name: 'DST_ATOP',  kind: 'Porter-Duff', desc: '目标只留在源不透明区上；源透明区显示目标。',
+          fs: 'ONE_MINUS_DST_ALPHA', fd: 'SRC_ALPHA',
+          formula: 'C_out = Cp_src × (1 − α_dst) + Cp_dst × α_src',
+          gl: 'glBlendFuncSeparate(GL_ONE_MINUS_DST_ALPHA, GL_SRC_ALPHA,\n                    GL_ONE_MINUS_DST_ALPHA, GL_SRC_ALPHA);',
+          use: '类似 SRC_ATOP 的镜像。较少用，多见于合成动画。' },
+        { name: 'XOR',       kind: 'Porter-Duff', desc: '只留下两者中只有一方不透明的部分。',
+          fs: 'ONE_MINUS_DST_ALPHA', fd: 'ONE_MINUS_SRC_ALPHA',
+          formula: 'C_out = Cp_src × (1 − α_dst) + Cp_dst × (1 − α_src)',
+          gl: 'glBlendFuncSeparate(GL_ONE_MINUS_DST_ALPHA, GL_ONE_MINUS_SRC_ALPHA,\n                    GL_ONE_MINUS_DST_ALPHA, GL_ONE_MINUS_SRC_ALPHA);',
+          use: 'Selection UI / 反色高亮。较少在 UI 里用。' },
+        { name: 'ADD',       kind: 'Separable', desc: '源和目标相加。用于发光、粒子、高光。',
+          fs: 'SRC_ALPHA', fd: 'ONE',
+          formula: 'C_out = C_src × α_src + C_dst   (clamp to 1)',
+          gl: 'glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE,\n                    GL_ONE, GL_ONE);',
+          use: '火焰、粒子系统、能量光柱、HDR 光晕。' },
+        { name: 'MULTIPLY',  kind: 'Separable', desc: '源和目标相乘。用于压暗、上色蒙版。',
+          fs: 'DST_COLOR', fd: 'ZERO',
+          formula: 'C_out = C_src × C_dst   (每通道独立)',
+          gl: 'glBlendFuncSeparate(GL_DST_COLOR, GL_ZERO,\n                    GL_DST_ALPHA, GL_ZERO);',
+          use: '给底图整体压暗、加彩色蒙版、纸质纹理叠加。' },
+        { name: 'SCREEN',    kind: 'Separable', desc: 'MULTIPLY 的对偶。用于提亮、加发光。',
+          fs: 'ONE', fd: 'ONE_MINUS_SRC_COLOR',
+          formula: 'C_out = 1 − (1 − C_src) × (1 − C_dst)',
+          gl: 'glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_COLOR,\n                    GL_ONE, GL_ONE_MINUS_SRC_ALPHA);',
+          use: '光晕、高光、烟花、加亮效果。SCREEN 白色圆 = 光斑。' },
+      ];
+
+      const grid = document.getElementById('pdGrid');
+      const titleEl = document.getElementById('pdTitle');
+      const bodyEl = document.getElementById('pdBody');
+      const formulaEl = document.getElementById('pdFormula');
+      const glEl = document.getElementById('pdGl');
+      const useEl = document.getElementById('pdUse');
+
+      // Fixed sample colors so all cells look comparable
+      const S = { r: 0.94, g: 0.25, b: 0.38, a: 1 };
+      const D = { r: 0.16, g: 0.62, b: 0.94, a: 1 };
+
+      modes.forEach(m => {
+        const cell = document.createElement('div');
+        cell.className = 'blend-cell';
+        cell.innerHTML = `<canvas width="200" height="100"></canvas>
+                          <span class="name">${m.name}</span>
+                          <span class="kind">${m.kind}</span>`;
+        const cellCanvas = cell.querySelector('canvas');
+        const cctx = cellCanvas.getContext('2d');
+        // Transparent checker background
+        cctx.fillStyle = '#ffffff';
+        cctx.fillRect(0, 0, 200, 100);
+        cctx.fillStyle = 'rgba(23, 33, 38, 0.06)';
+        for (let y = 0; y < 100; y += 10) for (let x = 0; x < 200; x += 10) {
+          if (((x + y) / 10) % 2 === 0) cctx.fillRect(x, y, 10, 10);
+        }
+        // "Destination": blue rounded rect on left
+        cctx.fillStyle = `rgba(${fmt(D.r)}, ${fmt(D.g)}, ${fmt(D.b)}, ${D.a})`;
+        cctx.beginPath();
+        if (cctx.roundRect) cctx.roundRect(20, 20, 90, 60, 12); else cctx.rect(20, 20, 90, 60);
+        cctx.fill();
+
+        // Manually paint per-pixel to visualise blend mode (we can't use ctx.globalCompositeOperation because Porter-Duff DST_IN etc. behave weirdly across the whole canvas)
+        // Simpler: for the overlap region only, sample source (red circle) and blend with target.
+        const w = 200, h = 100;
+        const imageData = cctx.getImageData(0, 0, w, h);
+        const data = imageData.data;
+        for (let py = 0; py < h; ++py) {
+          for (let px = 0; px < w; ++px) {
+            // Source: red circle centered at (140, 50), radius 35
+            const dx = px - 140, dy = py - 50;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const inSrc = dist < 35;
+            if (!inSrc) continue;
+            const i = (py * w + px) * 4;
+            const dr = data[i] / 255, dg = data[i + 1] / 255, db = data[i + 2] / 255, da = data[i + 3] / 255;
+            const o = blend(m.name, S.r, S.g, S.b, S.a, dr, dg, db, da);
+            data[i]     = o.r * 255;
+            data[i + 1] = o.g * 255;
+            data[i + 2] = o.b * 255;
+            data[i + 3] = o.a * 255;
+          }
+        }
+        cctx.putImageData(imageData, 0, 0);
+
+        cell.addEventListener('click', () => {
+          document.querySelectorAll('.blend-cell').forEach(c => c.classList.remove('active'));
+          cell.classList.add('active');
+          titleEl.textContent = m.name + '  ·  ' + m.kind;
+          bodyEl.textContent = m.desc;
+          formulaEl.textContent = m.formula;
+          glEl.textContent = m.gl;
+          useEl.textContent = m.use;
+        });
+        grid.appendChild(cell);
+      });
+      // Trigger the default one
+      grid.querySelector('.blend-cell').click();
+    })();
+
+    // ------------ 03 · separable interactive ------------
+    (function () {
+      const canvas = document.getElementById('sepCanvas');
+      const ctx = canvas.getContext('2d');
+      const radios = document.querySelectorAll('input[name="sep"]');
+      const alphaInp = document.getElementById('sepAlpha');
+      const alphaVal = document.getElementById('sepAlphaVal');
+
+      function draw() {
+        const mode = document.querySelector('input[name="sep"]:checked').value;
+        const sa = parseInt(alphaInp.value, 10) / 100;
+        alphaVal.textContent = sa.toFixed(2);
+        // Background gradient (dst)
+        const g = ctx.createLinearGradient(0, 0, canvas.width, 0);
+        g.addColorStop(0, '#f0ac30');
+        g.addColorStop(0.5, '#f04070');
+        g.addColorStop(1, '#7040f0');
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Foreground: 3 circles of different colors with the current blend
+        const circles = [
+          { cx: 190, cy: canvas.height / 2, r: 90, color: { r: 0.95, g: 0.95, b: 0.20 } },
+          { cx: 320, cy: canvas.height / 2, r: 90, color: { r: 0.20, g: 0.95, b: 0.30 } },
+          { cx: 450, cy: canvas.height / 2, r: 90, color: { r: 0.20, g: 0.35, b: 0.95 } }
+        ];
+        const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = img.data;
+        const modeName = { multiply: 'MULTIPLY', screen: 'SCREEN', add: 'ADD' }[mode];
+        for (const c of circles) {
+          for (let py = 0; py < canvas.height; ++py) {
+            for (let px = 0; px < canvas.width; ++px) {
+              const dx = px - c.cx, dy = py - c.cy;
+              if (dx * dx + dy * dy > c.r * c.r) continue;
+              // Feather edge for prettier demo
+              const dist = Math.sqrt(dx * dx + dy * dy);
+              const edge = Math.max(0, Math.min(1, (c.r - dist) / 6));
+              const localA = sa * edge;
+              const i = (py * canvas.width + px) * 4;
+              const dr = data[i] / 255, dg = data[i + 1] / 255, db = data[i + 2] / 255, da = data[i + 3] / 255;
+              const o = blend(modeName, c.color.r, c.color.g, c.color.b, localA, dr, dg, db, da);
+              data[i]     = o.r * 255;
+              data[i + 1] = o.g * 255;
+              data[i + 2] = o.b * 255;
+              data[i + 3] = o.a * 255;
+            }
+          }
+        }
+        ctx.putImageData(img, 0, 0);
+
+        // Label
+        ctx.font = '700 14px "Aptos", sans-serif';
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+        ctx.fillRect(10, 10, 160, 24);
+        ctx.fillStyle = '#fff';
+        ctx.fillText(`mode: ${modeName}`, 20, 27);
+      }
+      radios.forEach(r => r.addEventListener('change', draw));
+      alphaInp.addEventListener('input', draw);
+      draw();
+    })();
+
+    // ------------ 04 · playground ------------
+    (function () {
+      const allModes = ['SRC_OVER','SRC','DST','CLEAR','SRC_IN','DST_IN','SRC_OUT','DST_OUT','SRC_ATOP','DST_ATOP','XOR','ADD','MULTIPLY','SCREEN'];
+      const modeExplain = {
+        SRC_OVER: '半透明源盖住目标，最常用。',
+        SRC: '目标被完全丢弃。',
+        DST: '源被完全丢弃。',
+        CLEAR: '把像素清成透明。',
+        SRC_IN: '只留下"源与目标都有的部分"。',
+        DST_IN: '只留下"目标与源都有的部分"，源作 mask。',
+        SRC_OUT: '只留下"源在目标透明区"。',
+        DST_OUT: '只留下"目标在源透明区"，源作橡皮擦。',
+        SRC_ATOP: '源画在目标上，目标形状不变。',
+        DST_ATOP: '目标画在源上，源形状不变。',
+        XOR: '只留下"只有一方不透明"的部分。',
+        ADD: '源和目标相加，用于发光。',
+        MULTIPLY: '源和目标相乘，用于压暗。',
+        SCREEN: '1 − (1 − S)(1 − D)，用于提亮。'
+      };
+      const modeFormula = {
+        SRC_OVER: 'C_out = Cp_src + Cp_dst × (1 − α_src)',
+        SRC: 'C_out = Cp_src',
+        DST: 'C_out = Cp_dst',
+        CLEAR: 'C_out = 0',
+        SRC_IN: 'C_out = Cp_src × α_dst',
+        DST_IN: 'C_out = Cp_dst × α_src',
+        SRC_OUT: 'C_out = Cp_src × (1 − α_dst)',
+        DST_OUT: 'C_out = Cp_dst × (1 − α_src)',
+        SRC_ATOP: 'C_out = Cp_src × α_dst + Cp_dst × (1 − α_src)',
+        DST_ATOP: 'C_out = Cp_src × (1 − α_dst) + Cp_dst × α_src',
+        XOR: 'C_out = Cp_src × (1 − α_dst) + Cp_dst × (1 − α_src)',
+        ADD: 'C_out = C_src × α_src + C_dst (clamped)',
+        MULTIPLY: 'C_out = C_src × C_dst (每通道)',
+        SCREEN: 'C_out = 1 − (1 − C_src)(1 − C_dst)'
+      };
+      const modeSel = document.getElementById('pgMode');
+      allModes.forEach(name => {
+        const opt = document.createElement('option'); opt.value = name; opt.textContent = name;
+        modeSel.appendChild(opt);
+      });
+
+      const canvas = document.getElementById('pgCanvas');
+      const ctx = canvas.getContext('2d');
+      const srcInp = document.getElementById('pgSrc');
+      const dstInp = document.getElementById('pgDst');
+      const srcA = document.getElementById('pgSrcA');
+      const dstA = document.getElementById('pgDstA');
+      const srcAVal = document.getElementById('pgSrcAVal');
+      const dstAVal = document.getElementById('pgDstAVal');
+      const overlapEl = document.getElementById('pgOverlap');
+      const srcOnlyEl = document.getElementById('pgSrcOnly');
+      const dstOnlyEl = document.getElementById('pgDstOnly');
+      const alphaOutEl = document.getElementById('pgAlphaOut');
+      const formulaEl = document.getElementById('pgFormula');
+      const explainEl = document.getElementById('pgExplain');
+
+      function draw() {
+        const mode = modeSel.value;
+        const sc = hexToRgb(srcInp.value);
+        const dc = hexToRgb(dstInp.value);
+        const sa = parseInt(srcA.value, 10) / 100;
+        const da = parseInt(dstA.value, 10) / 100;
+        srcAVal.textContent = sa.toFixed(2);
+        dstAVal.textContent = da.toFixed(2);
+
+        // Checker background
+        ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = 'rgba(23, 33, 38, 0.08)';
+        for (let y = 0; y < canvas.height; y += 12)
+          for (let x = 0; x < canvas.width; x += 12)
+            if (((x + y) / 12) % 2 === 0) ctx.fillRect(x, y, 12, 12);
+
+        // Draw D (destination) and S (source) using per-pixel blend
+        const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = img.data;
+        // Two ellipses
+        const D = { cx: 240, cy: canvas.height / 2, rx: 120, ry: 80 };
+        const S = { cx: 400, cy: canvas.height / 2, rx: 120, ry: 80 };
+        const sR = sc.r / 255, sG = sc.g / 255, sB = sc.b / 255;
+        const dR = dc.r / 255, dG = dc.g / 255, dB = dc.b / 255;
+
+        for (let py = 0; py < canvas.height; ++py) {
+          for (let px = 0; px < canvas.width; ++px) {
+            const inD = ((px - D.cx) ** 2) / (D.rx ** 2) + ((py - D.cy) ** 2) / (D.ry ** 2) < 1;
+            const inS = ((px - S.cx) ** 2) / (S.rx ** 2) + ((py - S.cy) ** 2) / (S.ry ** 2) < 1;
+            if (!inD && !inS) continue;
+            const i = (py * canvas.width + px) * 4;
+            // Read checker background
+            const bR = data[i] / 255, bG = data[i + 1] / 255, bB = data[i + 2] / 255;
+            // First blend D onto background using SRC_OVER (so we can see D)
+            let cR, cG, cB, cA;
+            if (inD) {
+              const o = blend('SRC_OVER', dR, dG, dB, da, bR, bG, bB, 1);
+              cR = o.r; cG = o.g; cB = o.b; cA = 1; // present state after D drawn
+            } else {
+              cR = bR; cG = bG; cB = bB; cA = 0; // no destination content here
+            }
+            // Now if in S: blend S onto (cR,cG,cB,cA) using selected mode
+            if (inS) {
+              const dstAeff = inD ? da : 0; // effective dst alpha
+              const bgR = inD ? dR : bR, bgG = inD ? dG : bG, bgB = inD ? dB : bB;
+              const o = blend(mode, sR, sG, sB, sa, bgR, bgG, bgB, dstAeff);
+              // Composite the blend result over checker with the resulting alpha
+              const finalA = o.a;
+              cR = o.r * finalA + bR * (1 - finalA);
+              cG = o.g * finalA + bG * (1 - finalA);
+              cB = o.b * finalA + bB * (1 - finalA);
+            }
+            data[i]     = cR * 255;
+            data[i + 1] = cG * 255;
+            data[i + 2] = cB * 255;
+            data[i + 3] = 255;
+          }
+        }
+        ctx.putImageData(img, 0, 0);
+
+        // Outlines
+        ctx.strokeStyle = '#182024';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.ellipse(D.cx, D.cy, D.rx, D.ry, 0, 0, Math.PI * 2); ctx.stroke();
+        ctx.beginPath(); ctx.ellipse(S.cx, S.cy, S.rx, S.ry, 0, 0, Math.PI * 2); ctx.stroke();
+        ctx.font = '700 18px "Aptos", sans-serif';
+        ctx.fillStyle = '#182024';
+        ctx.textAlign = 'center';
+        ctx.fillText('D', D.cx - 60, D.cy + 6);
+        ctx.fillText('S', S.cx + 60, S.cy + 6);
+
+        // Readout
+        const overlap = blend(mode, sR, sG, sB, sa, dR, dG, dB, da);
+        overlapEl.textContent = `rgba(${fmt(overlap.r)}, ${fmt(overlap.g)}, ${fmt(overlap.b)}, ${overlap.a.toFixed(2)})`;
+        alphaOutEl.textContent = overlap.a.toFixed(3);
+        srcOnlyEl.textContent = `rgba(${sc.r}, ${sc.g}, ${sc.b}, ${sa.toFixed(2)})`;
+        dstOnlyEl.textContent = `rgba(${dc.r}, ${dc.g}, ${dc.b}, ${da.toFixed(2)})`;
+        formulaEl.textContent = modeFormula[mode];
+        explainEl.textContent = modeExplain[mode];
+      }
+      [srcInp, dstInp, srcA, dstA, modeSel].forEach(el => el.addEventListener('input', draw));
+      modeSel.addEventListener('change', draw);
+      draw();
+    })();
+
+    // ------------ 06 · usecases ------------
+    (function () {
+      const cases = {
+        ui: {
+          title: 'UI 绘制 · SRC_OVER',
+          body: '这是最常用的模式，所有 Paint 的默认值就是 SRC_OVER。你调 canvas.drawRect / drawText / drawImage 时如果不改 blend，走的就是它。它保证"新画的东西压在旧的上面，尊重 α 透明度"。',
+          pros: ['Paint paint;   // 默认 SRC_OVER', 'canvas.drawRect(rect, paint);   // 无需 setBlendMode'],
+          cons: ['所有非透明像素都会覆盖底下的内容——文字反锯齿的边缘和背景总是合成得看起来"糊"，但这就是正常的。']
+        },
+        mask: {
+          title: '形状裁剪 · SRC_IN / DST_IN',
+          body: '"把一张头像图裁成圆形"这类需求。经典做法是 saveLayer → 画圆（作 mask）→ 把 blend 模式切到 DST_IN → 画头像图片 → restore。层内的圆决定"哪块显示"，DST_IN 让图片只留在圆内。',
+          pros: ['canvas.saveLayer(bounds, paint);', 'canvas.drawCircle(cx, cy, r, maskPaint);   // 作为 mask', 'imagePaint.setBlendMode(BlendMode::DST_IN);', 'canvas.drawImage(portrait, dst, imagePaint);', 'canvas.restore();'],
+          cons: ['必须在 saveLayer 里做，否则 DST_IN 会作用在"整张目标 canvas 已经画好的东西"上，画面会大面积清空。']
+        },
+        light: {
+          title: '光效 / 阴影 · MULTIPLY / SCREEN / ADD',
+          body: '粒子系统、光晕、火焰、能量场用 ADD（发光相加）；柔和阴影/暗调用 MULTIPLY（相乘变暗）；高光、烟花用 SCREEN（反乘变亮）。',
+          pros: ['glowPaint.setBlendMode(BlendMode::ADD);', 'canvas.drawCircle(x, y, r, glowPaint);   // 粒子发光', 'shadowPaint.setBlendMode(BlendMode::MULTIPLY);', 'shadowPaint.setColor(Color(80, 80, 80));  // 半灰乘 → 压暗一档', 'canvas.drawRect(shadowRect, shadowPaint);'],
+          cons: ['ADD 会 clamp 到 1，容易"过曝"；MULTIPLY 全屏黑色 = 全黑，别忘了半透明。']
+        },
+        erase: {
+          title: '擦除 · CLEAR / DST_OUT',
+          body: '"在一个 layer 上打洞"、"橡皮擦"效果。CLEAR 把像素直接清成透明；DST_OUT 用源的形状把目标"抠掉"。同样必须在 saveLayer 里做。',
+          pros: ['canvas.saveLayer(bounds, paint);', 'canvas.drawImage(background, dst, imagePaint);', 'erasePaint.setBlendMode(BlendMode::CLEAR);', 'canvas.drawCircle(hole, 40, erasePaint);   // 挖圆洞', 'canvas.restore();'],
+          cons: ['CLEAR 在层外用会让整个像素透穿（包括下面所有内容）—— 一定要 saveLayer 围住。']
+        }
+      };
+      const grid = document.querySelectorAll('.method-grid .metric-card[data-use]');
+      const titleEl = document.getElementById('useTitle');
+      const bodyEl = document.getElementById('useBody');
+      const prosEl = document.getElementById('usePros');
+      const consEl = document.getElementById('useCons');
+      function apply(name) {
+        const c = cases[name];
+        titleEl.textContent = c.title;
+        bodyEl.textContent = c.body;
+        prosEl.innerHTML = c.pros.map(t => `<li><code>${t}</code></li>`).join('');
+        consEl.innerHTML = c.cons.map(t => `<li>${t}</li>`).join('');
+        grid.forEach(g => g.classList.toggle('active', g.dataset.use === name));
+      }
+      grid.forEach(g => g.addEventListener('click', () => apply(g.dataset.use)));
+      apply('ui');
+    })();
+  </script>
+</body>
+</html>

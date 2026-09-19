@@ -4,6 +4,10 @@ These materials support engineering exploration but are not maintained as part
 of the public product documentation.
 
 - `anti-aliasing/` — standalone anti-aliasing tutorial prototype.
+- `blend-modes/` — standalone tutorial prototype covering premultiplied
+  alpha, all 12 Porter-Duff modes, the three separable modes
+  (MULTIPLY / SCREEN / ADD), how each maps to `glBlendFuncSeparate`,
+  and cross-library comparisons.
 - `command-recording/` — standalone command recording (Picture / DisplayList)
   tutorial prototype covering immediate vs retained rendering, `recordPicture`
   / `drawPicture` / `drawPictureRasterized`, and cross-library comparisons
