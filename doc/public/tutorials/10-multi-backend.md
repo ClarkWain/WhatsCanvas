@@ -26,7 +26,7 @@ Simplest option — link only the backend you need:
 
 ```cmake
 # Software only (no GPU dependency)
-find_package(WhatsCanvas 1.2.0 CONFIG REQUIRED)
+find_package(WhatsCanvas 1.2.1 CONFIG REQUIRED)
 target_link_libraries(MyApp PRIVATE WhatsCanvas::Software)
 ```
 

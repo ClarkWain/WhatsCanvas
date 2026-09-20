@@ -26,14 +26,14 @@ WhatsCanvas 是一个 C++17 编写的 2D 渲染库，定位介于 NanoVG（轻�
 
 **桌面端：**
 
-- Windows: `whatscanvas-win64-release-1.2.0.zip`
-- Linux: `whatscanvas-linux-x64-release-1.2.0.zip`
-- macOS: `whatscanvas-macos-universal-release-1.2.0.zip`
+- Windows: `whatscanvas-win64-release-1.2.1.zip`
+- Linux: `whatscanvas-linux-x64-release-1.2.1.zip`
+- macOS: `whatscanvas-macos-universal-release-1.2.1.zip`
 
 桌面包解压后目录结构：
 
 ```
-whatscanvas-win64-release-1.2.0/
+whatscanvas-win64-release-1.2.1/
 ├── include/wsc/          # 头文件
 ├── lib/                  # 静态/动态库
 ├── bin/                  # DLL（Windows shared 构建）
@@ -42,10 +42,10 @@ whatscanvas-win64-release-1.2.0/
 
 **移动端：**
 
-- Android: `whatscanvas-android-release-1.2.0.aar`
+- Android: `whatscanvas-android-release-1.2.1.aar`
   - Prefab AAR，内含公开头文件和 `armeabi-v7a`、`arm64-v8a`、`x86_64` 三套 OpenGL ES 库
   - 通过 Gradle 引入，详见 [Android 接入指南](../../platforms/ANDROID_INTEGRATION.md)
-- iOS: `whatscanvas-ios-release-1.2.0.zip`
+- iOS: `whatscanvas-ios-release-1.2.1.zip`
   - 静态 Metal/CoreText XCFramework，包含 `arm64` 真机切片和 `arm64`/`x86_64` 模拟器切片
   - 拖入 Xcode 项目 Frameworks 使用，详见 [iOS Build Notes](../../platforms/IOS_BUILD_NOTES.md)
 
@@ -86,7 +86,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # 查找 WhatsCanvas
-find_package(WhatsCanvas 1.2.0 CONFIG REQUIRED)
+find_package(WhatsCanvas 1.2.1 CONFIG REQUIRED)
 
 add_executable(MyFirstWSC main.cpp)
 target_link_libraries(MyFirstWSC PRIVATE WhatsCanvas::Software)
@@ -131,7 +131,7 @@ int main()
 ```bash
 # 配置（将 CMAKE_PREFIX_PATH 指向你的 WhatsCanvas 安装目录）
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_PREFIX_PATH=/path/to/whatscanvas-win64-release-1.2.0
+  -DCMAKE_PREFIX_PATH=/path/to/whatscanvas-win64-release-1.2.1
 
 # 编译
 cmake --build build --config Release

@@ -5,5 +5,5 @@
 /// libraries and headers should come from the same installed package.
 #define WSC_VERSION_MAJOR 1
 #define WSC_VERSION_MINOR 2
-#define WSC_VERSION_PATCH 0
-#define WSC_VERSION_STRING "1.2.0"
+#define WSC_VERSION_PATCH 1
+#define WSC_VERSION_STRING "1.2.1"

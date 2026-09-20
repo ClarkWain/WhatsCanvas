@@ -9,6 +9,8 @@ For releases and downloadable artifacts, see the
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-09-20
+
 ### Fixed
 - OpenGL backend rendered `clipPath` combined with a gradient rect (or any
   batched second path in the same run) as a fully-blank frame while the
@@ -19,6 +21,9 @@ For releases and downloadable artifacts, see the
   state. `DrawPathProgram` also pre-initialises `uClipMask` to a stable
   texture unit, and `ClipCoverageProgram::drawCoverage` mirrors the Software
   fallback that treats a missing per-vertex coverage array as fully opaque.
+- Desktop example smoke scripts (`examples/game/tetris`, `spider_solitaire`,
+  `racer`) wipe a stale `CMakeCache.txt` whose `CMAKE_HOME_DIRECTORY` points
+  at a different repo path, restoring reliable clean-tree reconfiguration.
 
 ### Added
 - `examples/parity_probe/` — a Software vs OpenGL diagnostic tool that
