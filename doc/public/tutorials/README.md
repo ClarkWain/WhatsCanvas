@@ -26,7 +26,7 @@ For the Chinese version, see [`zh/README.md`](./zh/README.md).
 
 - A C++17 compiler (MSVC 2019+, GCC 9+, Clang 10+)
 - CMake 3.16+
-- WhatsCanvas 1.2.0+ ([Get and Build](https://github.com/ClarkWain/WhatsCanvas/blob/main/README.md))
+- WhatsCanvas 1.2.1+ ([Get and Build](https://github.com/ClarkWain/WhatsCanvas/blob/main/README.md))
 
 ## Conventions
 

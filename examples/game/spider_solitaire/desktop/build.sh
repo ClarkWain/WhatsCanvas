@@ -15,6 +15,17 @@ for arg in "$@"; do
     esac
 done
 
+# Drop a CMakeCache.txt whose CMAKE_HOME_DIRECTORY points at a different
+# checkout. Prevents 'source ... does not match ... used to generate cache'
+# when the repo is moved between paths.
+if [ -f "$BUILD_DIR/CMakeCache.txt" ]; then
+    cached=$(sed -n 's/^CMAKE_HOME_DIRECTORY:INTERNAL=//p' "$BUILD_DIR/CMakeCache.txt" | head -n 1 || true)
+    if [ -n "$cached" ] && [ "$cached" != "$ROOT_DIR" ]; then
+        echo "Stale CMakeCache.txt (points at $cached); wiping."
+        rm -rf "$BUILD_DIR"
+    fi
+fi
+
 cmake -S "$ROOT_DIR" -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE="$CONFIG" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 cmake --build "$BUILD_DIR" --config "$CONFIG" --target SpiderSolitaire
 

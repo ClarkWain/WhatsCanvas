@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(WhatsCanvas VERSION 1.2.0 LANGUAGES C CXX)
+project(WhatsCanvas VERSION 1.2.1 LANGUAGES C CXX)
 
 include(CTest)
 include(GNUInstallDirs)
@@ -257,6 +257,7 @@ if (WHATSCANVAS_BUILD_DEMO AND TARGET WhatsCanvasOpenGL)
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/tests/visual/aa_showcase")
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/tests/visual/image_filter_showcase")
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/present")
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/examples/parity_probe")
     if (WHATSCANVAS_VULKAN_BACKEND_ENABLED)
         add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/tests/integration/vulkan_present")
     endif()

@@ -9,6 +9,32 @@ For releases and downloadable artifacts, see the
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-09-20
+
+### Fixed
+- OpenGL backend rendered `clipPath` combined with a gradient rect (or any
+  batched second path in the same run) as a fully-blank frame while the
+  Software backend produced the expected clipped output.
+  `RenderContext::applyClipState` now saves and restores `GL_CURRENT_PROGRAM`
+  and `GL_VERTEX_ARRAY_BINDING` around the clip-coverage offscreen pass so the
+  downstream `DrawPathProgram` batching cache stays consistent with real GL
+  state. `DrawPathProgram` also pre-initialises `uClipMask` to a stable
+  texture unit, and `ClipCoverageProgram::drawCoverage` mirrors the Software
+  fallback that treats a missing per-vertex coverage array as fully opaque.
+- Desktop example smoke scripts (`examples/game/tetris`, `spider_solitaire`,
+  `racer`) wipe a stale `CMakeCache.txt` whose `CMAKE_HOME_DIRECTORY` points
+  at a different repo path, restoring reliable clean-tree reconfiguration.
+
+### Added
+- `examples/parity_probe/` — a Software vs OpenGL diagnostic tool that
+  renders 54 mini-scenes (rect / circle / rounded rect / stroke variants,
+  gradients, shadows, `clipRect` / `clipPath` variants, `saveLayer` and
+  filter combinations, all Porter-Duff blend modes, images, paths, arcs)
+  through both backends, reports per-scene `max` / `mean` / `bad-pixel-ratio`
+  deltas and drops per-scene PPM triples for visual inspection. Registered
+  as a CTest diagnostic (`ctest -L parity-probe`); never gates default CI.
+
+
 ## [1.2.0] - 2026-09-17
 
 ### Platform validation

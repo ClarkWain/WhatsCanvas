@@ -29,6 +29,17 @@ if exist "%ROOT_DIR%\.git" (
     )
 )
 
+rem Drop a CMakeCache.txt whose CMAKE_HOME_DIRECTORY points at a different
+rem checkout (moving the repo between drives etc.). Prevents the smoke test
+rem from failing with 'source ... does not match ... used to generate cache'.
+if exist "%BUILD_DIR%\CMakeCache.txt" (
+    findstr /R /C:"^CMAKE_HOME_DIRECTORY:INTERNAL=" "%BUILD_DIR%\CMakeCache.txt" | findstr /I /C:"%ROOT_DIR:\=/%" >nul 2>&1
+    if errorlevel 1 (
+        echo [0.5/3] Stale CMakeCache.txt detected in "%BUILD_DIR%"; wiping.
+        rmdir /S /Q "%BUILD_DIR%"
+    )
+)
+
 echo [1/3] Configuring...
 cmake -S "%ROOT_DIR%" -B "%BUILD_DIR%" -G "%GENERATOR%" -T host=x64 -A x64 -DCMAKE_EXPORT_COMPILE_COMMANDS:BOOL=TRUE
 if errorlevel 1 (

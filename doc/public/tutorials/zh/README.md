@@ -24,7 +24,7 @@
 
 - C++17 编译器 (MSVC 2019+, GCC 9+, Clang 10+)
 - CMake 3.16+
-- WhatsCanvas 1.2.0+（[获取与构建](https://github.com/ClarkWain/WhatsCanvas/blob/main/README_zh.md)）
+- WhatsCanvas 1.2.1+（[获取与构建](https://github.com/ClarkWain/WhatsCanvas/blob/main/README_zh.md)）
 
 ## 约定
 

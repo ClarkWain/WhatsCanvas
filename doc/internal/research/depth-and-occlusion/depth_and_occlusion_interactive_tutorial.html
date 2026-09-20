@@ -1,0 +1,923 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>深度缓冲与遮挡互动教学</title>
+  <style>
+    :root {
+      --bg: #eff2f6;
+      --panel: rgba(255, 253, 250, 0.92);
+      --ink: #1a1f28;
+      --muted: #566470;
+      --accent: #2f6fc4;
+      --accent-soft: rgba(47, 111, 196, 0.14);
+      --accent-strong: #c25a1b;
+      --success: #2f7d32;
+      --shadow: 0 20px 60px rgba(20, 34, 60, 0.14);
+      --radius: 24px;
+      --radius-sm: 16px;
+      --mono: "Cascadia Code", "Consolas", monospace;
+      --sans: "Aptos", "Segoe UI Variable", "Segoe UI", sans-serif;
+      --display: "Bahnschrift", "Trebuchet MS", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; font-family: var(--sans); color: var(--ink); line-height: 1.72;
+      background: radial-gradient(circle at top center, rgba(47, 111, 196, 0.16), transparent 30%), linear-gradient(180deg, #f6f9fd 0%, var(--bg) 100%); }
+    a { color: var(--accent); }
+    .page { width: min(1320px, calc(100% - 32px)); margin: 24px auto 80px; position: relative; z-index: 1; }
+    .hero, .section, .card, .code-card, .method-card, .timeline-step, .metric-card { border: 1px solid rgba(23, 33, 38, 0.08); border-radius: var(--radius); background: var(--panel); box-shadow: var(--shadow); backdrop-filter: blur(12px); }
+    .hero { padding: 28px; overflow: hidden; position: relative; }
+    .hero::after { content: ""; position: absolute; inset: auto -70px -90px auto; width: 280px; height: 280px; background: radial-gradient(circle, rgba(47, 111, 196, 0.2), transparent 70%); pointer-events: none; }
+    .eyebrow { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 0.84rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+    h1 { font-family: var(--display); font-size: clamp(1.6rem, 2.2vw + 0.4rem, 2.4rem); margin: 12px 0 6px; color: var(--ink); }
+    h2 { font-family: var(--display); font-size: 1.32rem; margin: 0 0 6px; color: var(--ink); }
+    h3 { font-family: var(--display); font-size: 1.05rem; margin: 0 0 8px; color: var(--ink); }
+    p { margin: 0 0 12px; color: var(--muted); }
+    .lead { margin-top: 16px; font-size: 1.08rem; max-width: 66ch; color: #28333a; }
+    .hero-grid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(300px, 0.7fr); gap: 20px; align-items: start; }
+    .hero-points { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
+    .hero-point { padding: 14px; border-radius: 18px; background: rgba(255, 255, 255, 0.8); border: 1px solid rgba(23, 33, 38, 0.08); }
+    .hero-point strong { display: block; margin-bottom: 4px; color: var(--ink); }
+    .summary-card { padding: 18px; border-radius: var(--radius-sm); background: rgba(255, 255, 255, 0.86); border: 1px solid rgba(23, 33, 38, 0.08); }
+    .summary-card ul { margin: 10px 0 0 18px; padding: 0; color: var(--muted); }
+    .summary-card li { margin-bottom: 6px; }
+    .layout { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 22px; margin-top: 22px; }
+    .content { display: grid; gap: 22px; }
+    .section { padding: 24px; }
+    .section-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 16px; }
+    .section-tag { padding: 7px 12px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 0.88rem; font-weight: 700; }
+    .section-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr); gap: 18px; align-items: start; }
+    .demo-panel, .method-panel, .formula, .code-card, .timeline-step, .metric-card { padding: 16px 18px; border-radius: var(--radius-sm); background: rgba(255, 255, 255, 0.84); border: 1px solid rgba(23, 33, 38, 0.08); }
+    .demo-panel canvas { width: 100%; height: auto; display: block; border-radius: 16px; background: linear-gradient(180deg, #fefdfa, #eef3fa); border: 1px solid rgba(23, 33, 38, 0.08); }
+    .canvas-caption { margin-top: 10px; color: var(--muted); font-size: 0.92rem; }
+    .controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 12px 0 10px; }
+    .pill { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 999px; cursor: pointer; background: #fff; border: 1px solid rgba(23, 33, 38, 0.1); transition: 140ms ease; user-select: none; }
+    .pill.active { color: white; background: var(--accent); border-color: var(--accent); }
+    .pill input[type="range"] { accent-color: var(--accent); }
+    .formula .label { display: block; margin-bottom: 8px; color: var(--accent); font-weight: 700; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.04em; }
+    .formula .math { font-family: "Cambria Math", "Times New Roman", serif; font-size: 1.06rem; white-space: pre-wrap; color: var(--ink); }
+    .formula .explain { margin-top: 8px; color: #465158; }
+    .toc { position: sticky; top: 14px; align-self: start; padding: 18px; border-radius: 22px; background: rgba(255, 253, 249, 0.92); border: 1px solid rgba(23, 33, 38, 0.08); box-shadow: 0 14px 40px rgba(43, 31, 18, 0.08); }
+    .toc h3 { margin-bottom: 10px; }
+    .toc a { display: block; padding: 7px 9px; margin: 4px 0; text-decoration: none; border-radius: 12px; color: var(--muted); }
+    .toc a:hover, .toc a:focus-visible { background: var(--accent-soft); color: var(--accent); outline: none; }
+    .toc .note { margin-top: 10px; font-size: 0.86rem; color: var(--muted); }
+    .trace-list { display: grid; gap: 10px; margin-top: 12px; }
+    .trace-item { padding: 10px 12px; border-radius: 12px; background: rgba(255, 255, 255, 0.74); border: 1px solid rgba(23, 33, 38, 0.08); color: var(--muted); }
+    .trace-item strong { color: var(--ink); }
+    .info-stack { display: grid; gap: 12px; }
+    .method-card { margin-top: 12px; padding: 20px 22px; }
+    .method-card h3 { margin-top: 0; }
+    .method-card p { margin: 0 0 10px; }
+    .method-card .pros, .method-card .cons { margin: 8px 0 12px 20px; padding: 0; color: var(--muted); }
+    .method-card .pros li, .method-card .cons li { margin-bottom: 4px; }
+    .method-card strong { color: var(--ink); }
+    .mini-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-top: 12px; }
+    .code-card pre { margin: 10px 0 0; padding: 12px; overflow-x: auto; background: #182024; color: #f8f7f3; border-radius: 12px; font-family: var(--mono); font-size: 0.92rem; line-height: 1.5; }
+    .code-card .note { margin-top: 10px; color: var(--muted); font-size: 0.92rem; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 0.78rem; font-weight: 700; margin-right: 4px; }
+    .badge.warn { background: rgba(194, 90, 27, 0.14); color: var(--accent-strong); }
+    .badge.ok { background: rgba(47, 125, 50, 0.12); color: var(--success); }
+    @media (max-width: 960px) {
+      .hero-grid, .section-grid, .layout { grid-template-columns: minmax(0, 1fr); }
+      .toc { position: static; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="hero">
+      <div class="hero-grid">
+        <div>
+          <div class="eyebrow">互动教学 · 深度缓冲与遮挡</div>
+          <h1>Z-buffer / Early-Z / Hi-Z / Stencil：3D 场景里"看得见谁"</h1>
+          <p class="lead">同一屏幕像素上可能有 5 个三角形想画，最终显示哪一个？这个决定全部落在 <strong>深度缓冲（Depth Buffer / Z-buffer）</strong> 及其一堆兄弟机制上：Depth Test、Early-Z、Hi-Z、Stencil、透明排序……每一层都在替 GPU 省事。这个教程会带你看清 z 值到底存的是什么、为什么远景总在 z-fight、为什么"半透明玻璃"必须自己排序、以及 2D 场景（比如 WhatsCanvas）用什么替代方案。</p>
+          <div class="hero-points">
+            <div class="hero-point"><strong>1. z 不是线性的</strong>透视除法后深度精度前密后疏，远处 z-fighting 不是 bug 是数学。</div>
+            <div class="hero-point"><strong>2. GPU 越懒越快</strong>Early-Z 让还没跑 fragment shader 的像素直接扔掉；Hi-Z 让整块 tile 一次扔掉。</div>
+          </div>
+        </div>
+        <div class="summary-card">
+          <h3>这页要带你搞懂的 8 件事</h3>
+          <ul>
+            <li>深度值到底存的是什么？为什么是 <code>1/z</code> 而不是 z</li>
+            <li>Depth Test 的判定流程与 <code>glDepthFunc</code></li>
+            <li>Early-Z 什么时候能生效、为什么 <code>discard</code>/alpha-test 会禁用它</li>
+            <li>Hierarchical-Z（Hi-Z）如何一次剔一大块</li>
+            <li>Stencil Buffer 除了阴影还能干嘛（mask、outline、镜像）</li>
+            <li>为什么半透明必须自己排序 & OIT 的思路</li>
+            <li>Z-fighting 从哪来、polygonOffset 怎么解</li>
+            <li>WhatsCanvas 这种纯 2D 库怎么处理 z-order（painter's algorithm）</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <div class="layout">
+      <div class="content">
+
+        <!-- 01 · z 是什么 -->
+        <section class="section" id="value">
+          <div class="section-head">
+            <div>
+              <span class="section-tag">01 · 深度值到底是什么</span>
+              <h2>屏幕像素背后那个 [0,1] 的 z</h2>
+              <p>顶点在 clip space 做了透视除法后落到 NDC（-1..1），再线性映射到 [0,1] 存进深度缓冲。<strong>关键：这个数是 1/z 的线性函数，不是 z 的线性函数。</strong>结果就是"离相机越远，两个物体的深度差距越小"，远景总是打架。</p>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <canvas id="depthCanvas" width="640" height="260"></canvas>
+              <div class="controls">
+                <label class="pill" for="nearPlane">near：<strong id="nearVal">0.1</strong></label>
+                <input id="nearPlane" type="range" min="1" max="200" value="10">
+                <label class="pill" for="farPlane">far：<strong id="farVal">100</strong></label>
+                <input id="farPlane" type="range" min="200" max="10000" value="1000">
+              </div>
+              <p class="canvas-caption">横轴是相机距离 z（世界坐标），纵轴是最终写入 depth buffer 的值。橙色曲线是 near/far 生成的 1/z 映射——注意远端几乎是水平的：远处两个物体前后差 10 米也只对应几乎相同的 depth。</p>
+            </div>
+            <div class="info-stack">
+              <div class="formula">
+                <span class="label">Depth = f(z)</span>
+                <div class="math">z_ndc = (far + near) / (far - near) − 2·far·near / ((far - near)·z)
+depth = 0.5·z_ndc + 0.5</div>
+                <p class="explain">z 是 view-space 相机距离；ndc z 是 -1..1；depth 是 0..1（默认 OpenGL）。分子里有 <code>−2·f·n/z</code>——这就是那个"远处等间距 z 变化几乎无效"的元凶。</p>
+              </div>
+              <div class="formula">
+                <span class="label">精度分布</span>
+                <div class="math">near=0.1, far=1000 时：
+z ∈ [0.1, 1]     用了 depth [0, 0.9]
+z ∈ [1, 1000]    只剩 depth [0.9, 1]</div>
+                <p class="explain">近处 90% 的深度精度、远处 10%。这就是为什么 near 绝对不能设太小——把 near 从 0.1 改成 1，远端有效精度立刻翻十倍。</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 02 · Depth Test -->
+        <section class="section" id="test">
+          <div class="section-head">
+            <div>
+              <span class="section-tag">02 · Depth Test 基本流程</span>
+              <h2>每个 fragment 到底怎么被"接纳"或"扔掉"</h2>
+              <p>顶点着色器 → 光栅化 → fragment shader → depth test → color write。默认 <code>GL_LESS</code>：新 fragment 的 z 比已有的小才通过；通过后写入 color 与 depth。<code>glDepthFunc</code> 换成 <code>GL_LEQUAL/GL_GREATER/…</code> 就能玩天空盒、多 pass 累积等技巧。</p>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <canvas id="testCanvas" width="640" height="260"></canvas>
+              <div class="controls">
+                <label class="pill"><input type="radio" name="depthfn" value="less" checked> GL_LESS</label>
+                <label class="pill"><input type="radio" name="depthfn" value="lequal"> GL_LEQUAL</label>
+                <label class="pill"><input type="radio" name="depthfn" value="greater"> GL_GREATER</label>
+                <label class="pill"><input type="radio" name="depthfn" value="always"> GL_ALWAYS</label>
+              </div>
+              <p class="canvas-caption">左侧是提交 3 个 quad 的顺序（红→绿→蓝，深度 0.3/0.5/0.4），右侧是不同 depthFunc 下最终的可见结果。天空盒常用 <code>GL_LEQUAL</code> + z=1.0 覆盖背景。</p>
+            </div>
+            <div class="info-stack">
+              <div class="code-card">
+                <span class="label" style="color: var(--accent); font-weight: 700; font-size: 0.9rem;">GL 状态</span>
+<pre>glEnable(GL_DEPTH_TEST);
+glDepthFunc(GL_LESS);
+glDepthMask(GL_TRUE);  // 允许写 depth
+glClearDepth(1.0f);
+glClear(GL_DEPTH_BUFFER_BIT);</pre>
+                <p class="note">半透明物体渲染前，一般把 <code>glDepthMask(GL_FALSE)</code>，通过读 depth 剔除背景但自己不写 depth——防止半透明层互相遮挡。</p>
+              </div>
+              <div class="trace-list">
+                <div class="trace-item"><strong>为什么默认 clear 是 1.0？</strong>初始 depth 设成最远端，任何后来的 fragment 都能通过 GL_LESS。</div>
+                <div class="trace-item"><strong>Reverse-Z 技巧：</strong>把 clear 设成 0.0、depthFunc 用 <code>GL_GREATER</code>、投影矩阵 near/far 互换——远处精度显著提升。3A 引擎标配。</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 03 · Early-Z -->
+        <section class="section" id="earlyz">
+          <div class="section-head">
+            <div>
+              <span class="section-tag">03 · Early-Z 与 Late-Z</span>
+              <h2>GPU 最喜欢的优化：连 fragment shader 都别跑</h2>
+              <p>标准流水线是 fragment shader → depth test。但 GPU 会主动尝试把 depth test 提前到 fragment shader 之前——这样被遮挡的像素连着色都省了。一旦 shader 里有 <code>discard</code>、写 <code>gl_FragDepth</code>、或做 alpha-to-coverage，Early-Z 会自动禁用。</p>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <canvas id="earlyZCanvas" width="640" height="280"></canvas>
+              <div class="controls">
+                <label class="pill"><input type="radio" name="shader" value="clean" checked> 干净 shader（Early-Z 生效）</label>
+                <label class="pill"><input type="radio" name="shader" value="discard"> shader 里有 discard</label>
+                <label class="pill"><input type="radio" name="shader" value="writez"> shader 里写 gl_FragDepth</label>
+              </div>
+              <p class="canvas-caption">场景：先画一张巨大近处 quad（挡住 80% 屏幕），再画一个复杂的远处物体。柱状图是"跑 fragment shader 的像素数"——Early-Z 生效时只跑 20%，禁用时跑 100%。</p>
+            </div>
+            <div class="info-stack">
+              <div class="method-card">
+                <h3>什么会禁用 Early-Z？</h3>
+                <ul class="cons">
+                  <li><code>discard</code> / <code>clip()</code>：GPU 无法预知这个 fragment 到底会不会写 depth，得跑完 shader 才知道。</li>
+                  <li>写 <code>gl_FragDepth</code>：shader 决定 depth 值，硬件无法用插值 z 提前测。</li>
+                  <li>alpha-to-coverage：mask 由 shader 输出的 alpha 决定。</li>
+                  <li>手动 <code>layout(depth_greater/less)</code>：可部分保留 Early-Z——告诉硬件"我保证只让 z 更远/更近"。</li>
+                </ul>
+              </div>
+              <div class="trace-list">
+                <div class="trace-item"><strong>实战：</strong>做叶子/头发 alpha-test，先把 opaque pass 全画完（Early-Z 全开），再单独做 alpha-test pass；这样至少 opaque 部分省下大把 shader 开销。</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 04 · Hi-Z -->
+        <section class="section" id="hiz">
+          <div class="section-head">
+            <div>
+              <span class="section-tag">04 · Hierarchical-Z（Hi-Z）</span>
+              <h2>不看单个像素，看 tile 一次剔一大块</h2>
+              <p>现代 GPU 把 depth buffer 组织成 8×8 或 16×16 的 tile，每个 tile 存"这块最远/最近的 depth"。三角形来的时候先与整块的 min/max 比较——比整块最近的还远？整块跳过，一个 fragment 都不跑。</p>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <canvas id="hizCanvas" width="640" height="300"></canvas>
+              <div class="controls">
+                <label class="pill" for="hizTileSize">tile 大小：<strong id="hizTileVal">32</strong></label>
+                <input id="hizTileSize" type="range" min="8" max="64" step="8" value="32">
+                <label class="pill" for="hizNewZ">新三角形 z：<strong id="hizNewZVal">0.7</strong></label>
+                <input id="hizNewZ" type="range" min="0" max="100" value="70">
+              </div>
+              <p class="canvas-caption">背景是 depth buffer（越黑越近）。蓝色 tile = "min(depth) > 新 z"，可以整块剔除；橙色 tile = 需要逐像素测试。调 tile 大小可以看到粒度权衡：太大浪费剔除机会，太小 metadata 开销大。</p>
+            </div>
+            <div class="info-stack">
+              <div class="formula">
+                <span class="label">tile 判决</span>
+                <div class="math">if newTri.zMax < tile.zMin  → 整块通过（tile 内全部剔背景）
+if newTri.zMin > tile.zMax  → 整块拒绝（新三角形被遮完）
+otherwise                    → 逐像素 depth test</div>
+                <p class="explain">"newTri.zMax &lt; tile.zMin" 意思是新三角形整块都比 tile 里目前所有已画的东西还要近——直接盖上去。反之则被完全挡住。</p>
+              </div>
+              <div class="trace-list">
+                <div class="trace-item"><strong>front-to-back 排序为什么关键：</strong>近处物体先画，Hi-Z 迅速填满小 z 值，远处物体来了就被整块整块剔掉。反过来先画远处 → Hi-Z 一开始很松，剔除率极差。</div>
+                <div class="trace-item"><strong>写 depth 会破坏 Hi-Z：</strong>fragment shader 手动写 <code>gl_FragDepth</code> 后，GPU 无法维持精确的 tile min/max，Hi-Z 通常回退到宽松估计或禁用。</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 05 · Stencil -->
+        <section class="section" id="stencil">
+          <div class="section-head">
+            <div>
+              <span class="section-tag">05 · Stencil Buffer</span>
+              <h2>一个每像素 8 位的整数，能做的事比你想的多</h2>
+              <p>Stencil 就是每个像素挂一个 8-bit 整数 + 一个测试函数。听起来简单但用途极广：portal / 镜像、UI mask、outline、老式 shadow volume。它常常和 depth buffer 打包在同一张 texture（<code>GL_DEPTH24_STENCIL8</code>）。</p>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <canvas id="stencilCanvas" width="640" height="280"></canvas>
+              <div class="controls">
+                <label class="pill"><input type="radio" name="stencilUse" value="mask" checked> UI 圆形 mask</label>
+                <label class="pill"><input type="radio" name="stencilUse" value="outline"> 描边 outline</label>
+                <label class="pill"><input type="radio" name="stencilUse" value="portal"> 镜像 / portal</label>
+              </div>
+              <p class="canvas-caption">三种典型用法：mask 用 stencil 写标记 → 只在标记内画后续内容；outline 用两次绘制（放大版 & 正常版）+ stencil 排除内部；portal 在圆内画不同场景，圆外不动。</p>
+            </div>
+            <div class="info-stack">
+              <div class="code-card">
+                <span class="label" style="color: var(--accent); font-weight: 700; font-size: 0.9rem;">Outline 常用 pass</span>
+<pre>// Pass 1: 正常物体，stencil 写 1
+glStencilFunc(GL_ALWAYS, 1, 0xFF);
+glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+drawModel();
+// Pass 2: 放大 5% 的模型，只画 stencil ≠ 1 的地方
+glStencilFunc(GL_NOTEQUAL, 1, 0xFF);
+glStencilMask(0x00);
+glDisable(GL_DEPTH_TEST);
+drawModelScaled(1.05);
+glEnable(GL_DEPTH_TEST);
+glStencilMask(0xFF);</pre>
+              </div>
+              <div class="trace-list">
+                <div class="trace-item"><strong>WhatsCanvas 里的 stencil：</strong>clipPath 就是典型 stencil 用法——先把裁剪区域写到 stencil，后续所有 draw 都被这个 mask 限制。</div>
+                <div class="trace-item"><strong>不要滥用：</strong>stencil write 会禁用 Early-Z 的一些优化路径；简单矩形裁剪用 <code>glScissor</code> 更省事。</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 06 · 透明与排序 -->
+        <section class="section" id="transparent">
+          <div class="section-head">
+            <div>
+              <span class="section-tag">06 · 透明为什么必须排序</span>
+              <h2>Depth Test 只处理 opaque，玻璃层要靠 CPU 排</h2>
+              <p>透明物体的 blend 是 <em>顺序敏感</em> 的：<code>C = α₁·C₁ + (1−α₁)·C₂</code>——先 C₂ 打底再 C₁ 混合，vs 相反顺序，结果不一样。GPU 的 depth test 只会说"这个像素能不能画"，管不了"先画谁"。这就是为什么半透明物体必须 CPU 端 sort by z (far→near)。</p>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <canvas id="transCanvas" width="640" height="300"></canvas>
+              <div class="controls">
+                <label class="pill"><input type="radio" name="tOrder" value="wrong" checked> 错误顺序（近→远）</label>
+                <label class="pill"><input type="radio" name="tOrder" value="right"> 正确顺序（远→近）</label>
+              </div>
+              <p class="canvas-caption">三片彩色玻璃 α=0.5 叠在一起。错误顺序时近处玻璃先画，但因为它写了 depth，后来远处玻璃的 fragment 被 depth test 拒绝——远景消失。正确顺序：远→近，且 <code>glDepthMask(FALSE)</code>。</p>
+            </div>
+            <div class="info-stack">
+              <div class="method-card">
+                <h3>OIT (Order-Independent Transparency) 简介</h3>
+                <p>CPU 排序开销大 + 排序在物体互穿插时无解。学术界方案：</p>
+                <ul class="pros">
+                  <li><strong>Depth Peeling：</strong>多 pass，每 pass 提取"当前最近未处理"的一层，从近到远混合。N 层要 N 次绘制。</li>
+                  <li><strong>Weighted Blended OIT (McGuire 2013)：</strong>近似方案，一 pass 搞定，把 α 按深度加权，可视觉上不完美但足够 UI/粒子用。</li>
+                  <li><strong>Linked-list OIT：</strong>fragment 写入 per-pixel 链表，最后一 pass 排序合成。DX11+ 才好用。</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 07 · Z-fighting -->
+        <section class="section" id="zfight">
+          <div class="section-head">
+            <div>
+              <span class="section-tag">07 · Z-fighting 与 polygonOffset</span>
+              <h2>两个几乎共面的三角形在打架</h2>
+              <p>两个物体在同一深度或差距小于 depth buffer 精度时，depth test 会时而选前时而选后，屏幕出现闪烁条纹。远处 + far 太大 + near 太小 = z-fight 灾难现场。修复：拉近 near、用 reverse-Z、或用 <code>glPolygonOffset</code> 主动推开一层。</p>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <canvas id="zfightCanvas" width="640" height="280"></canvas>
+              <div class="controls">
+                <label class="pill" for="zfDist">物体距离：<strong id="zfDistVal">50</strong></label>
+                <input id="zfDist" type="range" min="1" max="500" value="50">
+                <label class="pill" for="zfOffset">polygonOffset：<strong id="zfOffsetVal">0</strong></label>
+                <input id="zfOffset" type="range" min="0" max="20" value="0">
+              </div>
+              <p class="canvas-caption">两个同 z 的 quad。距离拉远 → 深度精度掉光 → 出现随机闪烁条纹。加 polygonOffset → 其中一个被推离一点点 → 稳定。这就是 shadow map / decal 常用技巧。</p>
+            </div>
+            <div class="info-stack">
+              <div class="formula">
+                <span class="label">polygonOffset 公式</span>
+                <div class="math">offset = factor · dz/dxy + units · r</div>
+                <p class="explain">dz/dxy 是 depth 相对屏幕方向的斜率（近似"三角形有多倾斜"），r 是可最小分辨的 depth 增量。factor 通常 1.0~2.0，units 1.0。斜率大的三角形自动多推，倾角小的少推——非常聪明的设计。</p>
+              </div>
+              <div class="trace-list">
+                <div class="trace-item"><strong>Decal 常用：</strong>贴在墙上的血迹、弹孔——geometry 和墙面共面。<code>glPolygonOffset(-1, -1)</code>（负值往近推）确保 decal 稳定在墙面前。</div>
+                <div class="trace-item"><strong>Shadow map 也用：</strong>light-space 深度贴图比较时加 bias（等价 polygonOffset），防止 self-shadowing acne。</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 08 · 2D Canvas -->
+        <section class="section" id="canvas2d">
+          <div class="section-head">
+            <div>
+              <span class="section-tag">08 · 2D 场景的 z-order</span>
+              <h2>WhatsCanvas 这种纯 2D 库怎么处理"谁在上面"</h2>
+              <p>2D 画布通常<strong>没有 depth buffer</strong>——就用<strong>画家算法（painter's algorithm）</strong>：按提交顺序从后往前画，后画的覆盖先画的。API 里没有 z-index，就是 draw call 的顺序决定层级。这就是为什么 <code>context.save/restore</code> + <code>clipPath</code> 那么关键——它们控制"这一段 draw 产生的像素受什么约束"。</p>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <canvas id="painterCanvas" width="640" height="280"></canvas>
+              <div class="controls">
+                <label class="pill" for="painterOrder">按顺序绘制：<strong id="painterOrderVal">3/3</strong></label>
+                <input id="painterOrder" type="range" min="0" max="4" value="4">
+              </div>
+              <p class="canvas-caption">3 个矩形按不同顺序绘制。拖动 slider 看每一步：先画背景，再画中层，最后画前景——这就是所有 2D 绘图库、包括 WhatsCanvas 的默认策略。</p>
+            </div>
+            <div class="info-stack">
+              <div class="method-card">
+                <h3>2D 库为什么不用 depth buffer？</h3>
+                <ul class="pros">
+                  <li>2D 场景通常物体少（几十~几千），排序开销可忽略。</li>
+                  <li>Anti-aliasing 混合需要严格顺序——depth test 会破坏这个顺序。</li>
+                  <li>省一大块显存 & 带宽（1920×1080×4B ≈ 8MB depth）。</li>
+                </ul>
+                <p style="margin-top:8px;"><strong>例外：</strong>Skia / WhatsCanvas 在超复杂 clip 嵌套时会内部用 stencil 或 sub-surface，把 clipPath 转换成 mask，本质是"局部 z-buffer 替代品"。</p>
+              </div>
+              <div class="trace-list">
+                <div class="trace-item"><strong>WhatsCanvas 具体做法：</strong><code>src/render/RenderContext.cpp</code> 的 <code>applyClipState</code> 用 stencil 存 clip mask；<code>DrawPath</code> 按 command 顺序执行 = painter's algorithm。</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+      </div>
+
+      <aside class="toc">
+        <h3>目录</h3>
+        <a href="#value">1. 深度值到底是什么</a>
+        <a href="#test">2. Depth Test 基本流程</a>
+        <a href="#earlyz">3. Early-Z 与 Late-Z</a>
+        <a href="#hiz">4. Hierarchical-Z</a>
+        <a href="#stencil">5. Stencil Buffer</a>
+        <a href="#transparent">6. 透明与排序</a>
+        <a href="#zfight">7. Z-fighting</a>
+        <a href="#canvas2d">8. 2D 场景的 z-order</a>
+        <p class="note">相关代码：<code>src/render/RenderContext.cpp: applyClipState</code>、<code>src/opengl/ClipCoverageProgram.cpp</code>。</p>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    // ============ 01 · depth value ============
+    (function () {
+      const canvas = document.getElementById('depthCanvas');
+      const ctx = canvas.getContext('2d');
+      const near = document.getElementById('nearPlane');
+      const far = document.getElementById('farPlane');
+      const nearVal = document.getElementById('nearVal');
+      const farVal = document.getElementById('farVal');
+      function redraw() {
+        const n = +near.value / 100;
+        const f = +far.value / 10;
+        nearVal.textContent = n.toFixed(2);
+        farVal.textContent = f.toFixed(0);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const x0 = 40, y0 = 30, w = canvas.width - 80, h = canvas.height - 70;
+        ctx.strokeStyle = 'rgba(23,33,38,0.15)';
+        ctx.strokeRect(x0, y0, w, h);
+        // grid
+        for (let i = 1; i < 10; ++i) {
+          const gx = x0 + w * i / 10;
+          ctx.beginPath(); ctx.moveTo(gx, y0); ctx.lineTo(gx, y0 + h); ctx.stroke();
+          const gy = y0 + h * i / 10;
+          ctx.beginPath(); ctx.moveTo(x0, gy); ctx.lineTo(x0 + w, gy); ctx.stroke();
+        }
+        // curve: depth vs z
+        ctx.strokeStyle = '#c25a1b'; ctx.lineWidth = 3;
+        ctx.beginPath();
+        for (let i = 0; i <= 200; ++i) {
+          const z = n + (f - n) * i / 200;
+          // z_ndc = (f + n) / (f - n) - 2fn / ((f-n)*z)
+          const zndc = (f + n) / (f - n) - 2 * f * n / ((f - n) * z);
+          const depth = 0.5 * zndc + 0.5;
+          const px = x0 + (i / 200) * w;
+          const py = y0 + (1 - depth) * h;
+          if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+        // linear ref
+        ctx.strokeStyle = 'rgba(47,111,196,0.4)'; ctx.setLineDash([5, 4]);
+        ctx.beginPath(); ctx.moveTo(x0, y0 + h); ctx.lineTo(x0 + w, y0); ctx.stroke();
+        ctx.setLineDash([]);
+        // labels
+        ctx.fillStyle = '#182024';
+        ctx.font = '600 12px "Aptos"';
+        ctx.textAlign = 'center';
+        ctx.fillText('z (世界距离)', x0 + w / 2, y0 + h + 30);
+        ctx.save(); ctx.translate(x0 - 22, y0 + h / 2); ctx.rotate(-Math.PI / 2);
+        ctx.fillText('depth [0,1]', 0, 0); ctx.restore();
+        ctx.textAlign = 'left';
+        ctx.fillStyle = '#c25a1b';
+        ctx.fillText('实际（1/z 曲线）', x0 + w - 130, y0 + 20);
+        ctx.fillStyle = '#2f6fc4';
+        ctx.fillText('假想线性', x0 + w - 130, y0 + 38);
+      }
+      near.addEventListener('input', redraw);
+      far.addEventListener('input', redraw);
+      redraw();
+    })();
+
+    // ============ 02 · depth test ============
+    (function () {
+      const canvas = document.getElementById('testCanvas');
+      const ctx = canvas.getContext('2d');
+      const radios = document.querySelectorAll('input[name="depthfn"]');
+      function redraw() {
+        const fn = document.querySelector('input[name="depthfn"]:checked').value;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // Left: submission order
+        ctx.fillStyle = '#182024';
+        ctx.font = '700 13px "Aptos"';
+        ctx.textAlign = 'left';
+        ctx.fillText('提交顺序：R(z=0.3) → G(z=0.5) → B(z=0.4)', 20, 24);
+        const cards = [
+          { color: 'rgba(220,60,60,0.9)', label: 'R z=0.3', z: 0.3 },
+          { color: 'rgba(60,180,80,0.9)', label: 'G z=0.5', z: 0.5 },
+          { color: 'rgba(60,120,220,0.9)', label: 'B z=0.4', z: 0.4 },
+        ];
+        cards.forEach((c, i) => {
+          const y = 50 + i * 55;
+          ctx.fillStyle = c.color;
+          ctx.fillRect(30, y, 200, 40);
+          ctx.fillStyle = '#fff';
+          ctx.font = '600 14px "Aptos"';
+          ctx.fillText(c.label, 42, y + 26);
+        });
+        // Right: result
+        ctx.fillStyle = '#182024';
+        ctx.font = '700 13px "Aptos"';
+        ctx.fillText('最终屏幕 (depthFunc = ' + fn.toUpperCase() + ')', 300, 24);
+        const depth = new Array(3).fill(1.0);
+        const color = new Array(3).fill(null);
+        cards.forEach((c, i) => {
+          for (let slot = 0; slot < 3; ++slot) {
+            let pass = false;
+            const cur = depth[slot];
+            switch (fn) {
+              case 'less':    pass = c.z < cur; break;
+              case 'lequal':  pass = c.z <= cur; break;
+              case 'greater': pass = c.z > cur; break;
+              case 'always':  pass = true; break;
+            }
+            if (pass) { depth[slot] = c.z; color[slot] = c.color; }
+          }
+        });
+        color.forEach((col, i) => {
+          const x = 300 + i * 90;
+          ctx.fillStyle = col || '#eee';
+          ctx.fillRect(x, 50, 80, 100);
+          ctx.strokeStyle = '#182024'; ctx.strokeRect(x, 50, 80, 100);
+          ctx.fillStyle = '#182024';
+          ctx.font = '500 11px "Cascadia Code"';
+          ctx.textAlign = 'center';
+          ctx.fillText('depth=' + depth[i].toFixed(2), x + 40, 168);
+        });
+        ctx.font = '500 12px "Aptos"';
+        ctx.fillStyle = '#566470';
+        ctx.textAlign = 'left';
+        const notes = {
+          less: '严格更近才通过 → 最终看到最近的（R z=0.3）',
+          lequal: '等于也通过 → 天空盒 z=1.0 覆盖背景常用',
+          greater: 'reverse-z 场景，远才通过 → 最远的 G',
+          always: '全通过 → 最后提交的 B 覆盖全部',
+        };
+        ctx.fillText(notes[fn], 30, canvas.height - 24);
+      }
+      radios.forEach(r => r.addEventListener('change', redraw));
+      redraw();
+    })();
+
+    // ============ 03 · Early-Z ============
+    (function () {
+      const canvas = document.getElementById('earlyZCanvas');
+      const ctx = canvas.getContext('2d');
+      const radios = document.querySelectorAll('input[name="shader"]');
+      function redraw() {
+        const s = document.querySelector('input[name="shader"]:checked').value;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // draw a "screen" 300x180
+        const sx = 30, sy = 40, sw = 260, sh = 180;
+        ctx.fillStyle = '#eef3fa'; ctx.fillRect(sx, sy, sw, sh);
+        ctx.strokeStyle = 'rgba(23,33,38,0.15)'; ctx.strokeRect(sx, sy, sw, sh);
+        // near quad (large)
+        ctx.fillStyle = 'rgba(220,80,80,0.8)';
+        ctx.fillRect(sx + 10, sy + 20, 210, 140);
+        // far complex object (small)
+        ctx.fillStyle = 'rgba(60,120,220,0.7)';
+        ctx.beginPath();
+        for (let i = 0; i < 6; ++i) {
+          const a = 2 * Math.PI * i / 6;
+          const x = sx + 130 + 40 * Math.cos(a);
+          const y = sy + 120 + 40 * Math.sin(a);
+          if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.closePath(); ctx.fill();
+        ctx.fillStyle = '#182024';
+        ctx.font = '600 12px "Aptos"';
+        ctx.textAlign = 'center';
+        ctx.fillText('近处大 quad + 远处物体', sx + sw / 2, sy - 8);
+        // Bar chart
+        const bx0 = 340, by0 = 60, bw = 250, bh = 140;
+        ctx.strokeStyle = 'rgba(23,33,38,0.15)';
+        ctx.strokeRect(bx0, by0, bw, bh);
+        // Total pixels bar (100%)
+        ctx.fillStyle = 'rgba(200,200,200,0.5)';
+        ctx.fillRect(bx0 + 40, by0 + 20, 80, bh - 40);
+        // shader pixels
+        let pct;
+        if (s === 'clean') pct = 0.2;
+        else if (s === 'discard') pct = 1.0;
+        else pct = 1.0;
+        const fh = (bh - 40) * pct;
+        ctx.fillStyle = pct < 0.5 ? '#2f7d32' : '#c25a1b';
+        ctx.fillRect(bx0 + 140, by0 + 20 + (bh - 40 - fh), 80, fh);
+        ctx.fillStyle = '#182024';
+        ctx.font = '600 12px "Aptos"';
+        ctx.textAlign = 'center';
+        ctx.fillText('提交像素总数', bx0 + 80, by0 + bh - 8);
+        ctx.fillText('实际跑 FS', bx0 + 180, by0 + bh - 8);
+        ctx.font = '700 14px "Aptos"';
+        ctx.fillText((pct * 100).toFixed(0) + '%', bx0 + 180, by0 + 20 + (bh - 40 - fh) - 5);
+        ctx.fillText('100%', bx0 + 80, by0 + 16);
+        ctx.font = '500 12px "Aptos"';
+        ctx.fillStyle = '#566470';
+        ctx.textAlign = 'left';
+        const msgs = {
+          clean: '干净 shader → Early-Z 生效，被近处 quad 遮住的像素跳过 FS',
+          discard: 'shader 有 discard → Early-Z 禁用，被遮挡的像素也得跑 FS',
+          writez: '写 gl_FragDepth → Early-Z 禁用，硬件不能预知 z',
+        };
+        ctx.fillText(msgs[s], 30, canvas.height - 20);
+      }
+      radios.forEach(r => r.addEventListener('change', redraw));
+      redraw();
+    })();
+
+    // ============ 04 · Hi-Z ============
+    (function () {
+      const canvas = document.getElementById('hizCanvas');
+      const ctx = canvas.getContext('2d');
+      const tileSize = document.getElementById('hizTileSize');
+      const tileVal = document.getElementById('hizTileVal');
+      const newZ = document.getElementById('hizNewZ');
+      const newZVal = document.getElementById('hizNewZVal');
+      // Generate synthetic depth field (persistent across redraws)
+      const w = 640, h = 300;
+      const depth = new Float32Array(w * h);
+      for (let y = 0; y < h; ++y) {
+        for (let x = 0; x < w; ++x) {
+          // A few "objects" at different depths
+          let d = 0.95;
+          const dx1 = x - 180, dy1 = y - 130;
+          if (dx1 * dx1 + dy1 * dy1 < 90 * 90) d = 0.3;
+          const dx2 = x - 400, dy2 = y - 100;
+          if (dx2 * dx2 + dy2 * dy2 < 70 * 70) d = 0.5;
+          const dx3 = x - 300, dy3 = y - 220;
+          if (Math.abs(dx3) < 120 && Math.abs(dy3) < 40) d = 0.75;
+          depth[y * w + x] = d;
+        }
+      }
+      function redraw() {
+        const t = +tileSize.value;
+        tileVal.textContent = t;
+        const z = +newZ.value / 100;
+        newZVal.textContent = z.toFixed(2);
+        // Background: depth as grayscale
+        const img = ctx.createImageData(w, h);
+        const data = img.data;
+        for (let i = 0; i < w * h; ++i) {
+          const v = 255 * (1 - depth[i]);
+          data[i * 4] = v; data[i * 4 + 1] = v; data[i * 4 + 2] = v; data[i * 4 + 3] = 255;
+        }
+        ctx.putImageData(img, 0, 0);
+        // Overlay tiles
+        let culled = 0, total = 0;
+        for (let ty = 0; ty < h; ty += t) {
+          for (let tx = 0; tx < w; tx += t) {
+            let mn = 1, mx = 0;
+            for (let dy = 0; dy < t && ty + dy < h; ++dy) {
+              for (let dx = 0; dx < t && tx + dx < w; ++dx) {
+                const d = depth[(ty + dy) * w + tx + dx];
+                if (d < mn) mn = d;
+                if (d > mx) mx = d;
+              }
+            }
+            total++;
+            if (z > mx) {
+              // new tri farther than everything in tile → cull entire tile
+              ctx.fillStyle = 'rgba(47,111,196,0.35)';
+              ctx.fillRect(tx, ty, t, t);
+              culled++;
+            } else if (z < mn) {
+              // new tri nearer than everything → pass entire tile (fully overwrites)
+              ctx.fillStyle = 'rgba(47,125,50,0.25)';
+              ctx.fillRect(tx, ty, t, t);
+            } else {
+              // need per-pixel test
+              ctx.fillStyle = 'rgba(194,90,27,0.25)';
+              ctx.fillRect(tx, ty, t, t);
+            }
+            ctx.strokeStyle = 'rgba(23,33,38,0.15)';
+            ctx.strokeRect(tx, ty, t, t);
+          }
+        }
+        ctx.fillStyle = '#182024';
+        ctx.font = '700 13px "Aptos"';
+        ctx.textAlign = 'left';
+        ctx.fillText(`剔除 ${culled}/${total} = ${(culled/total*100).toFixed(0)}%`, 12, 20);
+        ctx.font = '500 11px "Aptos"';
+        ctx.fillStyle = '#566470';
+        ctx.fillText('蓝 = 整块剔除  绿 = 整块通过  橙 = 逐像素测试', 12, h - 10);
+      }
+      tileSize.addEventListener('input', redraw);
+      newZ.addEventListener('input', redraw);
+      redraw();
+    })();
+
+    // ============ 05 · Stencil ============
+    (function () {
+      const canvas = document.getElementById('stencilCanvas');
+      const ctx = canvas.getContext('2d');
+      const radios = document.querySelectorAll('input[name="stencilUse"]');
+      function redraw() {
+        const use = document.querySelector('input[name="stencilUse"]:checked').value;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (use === 'mask') {
+          // Draw background pattern
+          ctx.fillStyle = '#eef3fa'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+          // Draw circle mask "outline" for visualization
+          ctx.save();
+          ctx.beginPath(); ctx.arc(320, 140, 100, 0, Math.PI * 2); ctx.clip();
+          for (let i = 0; i < 30; ++i) {
+            ctx.fillStyle = `hsl(${i * 12}, 60%, 55%)`;
+            ctx.fillRect(220 + i * 8, 40, 6, 200);
+          }
+          ctx.restore();
+          ctx.strokeStyle = '#2f6fc4'; ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.arc(320, 140, 100, 0, Math.PI * 2); ctx.stroke();
+        } else if (use === 'outline') {
+          // Big star scaled
+          function star(cx, cy, r1, r2, c) {
+            ctx.fillStyle = c;
+            ctx.beginPath();
+            for (let i = 0; i < 10; ++i) {
+              const a = -Math.PI/2 + i * Math.PI / 5;
+              const r = i % 2 === 0 ? r1 : r2;
+              const x = cx + r * Math.cos(a); const y = cy + r * Math.sin(a);
+              if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            }
+            ctx.closePath(); ctx.fill();
+          }
+          star(320, 140, 100, 40, '#c25a1b'); // outer
+          star(320, 140, 88, 35, '#2f6fc4');  // inner (over)
+        } else {
+          // Portal: left = original scene; right = "other world"
+          ctx.fillStyle = '#eef3fa'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+          // Outside portal: draw grass
+          for (let i = 0; i < 60; ++i) {
+            ctx.fillStyle = `hsl(${100 + Math.random()*20}, 55%, ${40 + Math.random()*20}%)`;
+            ctx.fillRect(Math.random() * canvas.width, Math.random() * canvas.height, 3, 8);
+          }
+          // Inside portal (clipped): draw "other world" (sky + stars)
+          ctx.save();
+          ctx.beginPath(); ctx.arc(320, 140, 100, 0, Math.PI * 2); ctx.clip();
+          const grad = ctx.createRadialGradient(320, 140, 20, 320, 140, 100);
+          grad.addColorStop(0, '#1a1b3a'); grad.addColorStop(1, '#08051d');
+          ctx.fillStyle = grad; ctx.fillRect(220, 40, 200, 200);
+          for (let i = 0; i < 40; ++i) {
+            const a = Math.random() * Math.PI * 2;
+            const r = Math.random() * 90;
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(320 + r * Math.cos(a), 140 + r * Math.sin(a), 2, 2);
+          }
+          ctx.restore();
+          ctx.strokeStyle = '#c25a1b'; ctx.lineWidth = 3;
+          ctx.beginPath(); ctx.arc(320, 140, 100, 0, Math.PI * 2); ctx.stroke();
+        }
+        ctx.fillStyle = '#182024';
+        ctx.font = '600 12px "Aptos"';
+        ctx.textAlign = 'center';
+        const msgs = {
+          mask: 'clip 到圆内 → 只在标记像素上画',
+          outline: '外层放大红星 + 上层原星 = 描边',
+          portal: '圆内跑不同 shader = 另一个世界',
+        };
+        ctx.fillText(msgs[use], canvas.width / 2, canvas.height - 10);
+      }
+      radios.forEach(r => r.addEventListener('change', redraw));
+      redraw();
+    })();
+
+    // ============ 06 · transparent order ============
+    (function () {
+      const canvas = document.getElementById('transCanvas');
+      const ctx = canvas.getContext('2d');
+      const radios = document.querySelectorAll('input[name="tOrder"]');
+      function redraw() {
+        const order = document.querySelector('input[name="tOrder"]:checked').value;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // Background
+        ctx.fillStyle = '#eef3fa'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        // draw a "wall" texture
+        for (let y = 30; y < 260; y += 30) {
+          for (let x = 30; x < 620; x += 30) {
+            ctx.fillStyle = (x + y) % 60 === 0 ? '#d8e0eb' : '#e8eff8';
+            ctx.fillRect(x, y, 28, 28);
+          }
+        }
+        // 3 glasses at depth 0.3 (near), 0.5 (mid), 0.7 (far), R/G/B
+        const glasses = [
+          { z: 0.3, c: [220, 80, 80], x: 90 },
+          { z: 0.5, c: [80, 200, 100], x: 250 },
+          { z: 0.7, c: [80, 120, 220], x: 410 },
+        ];
+        let seq;
+        if (order === 'wrong') seq = [...glasses].sort((a, b) => a.z - b.z); // near→far
+        else seq = [...glasses].sort((a, b) => b.z - a.z);                    // far→near
+        seq.forEach(g => {
+          ctx.fillStyle = `rgba(${g.c[0]},${g.c[1]},${g.c[2]},0.5)`;
+          ctx.fillRect(g.x, 40, 140, 220);
+          ctx.strokeStyle = `rgba(${g.c[0]},${g.c[1]},${g.c[2]},0.9)`;
+          ctx.strokeRect(g.x, 40, 140, 220);
+          ctx.fillStyle = '#fff';
+          ctx.font = '700 16px "Aptos"';
+          ctx.textAlign = 'center';
+          ctx.fillText(`z=${g.z.toFixed(1)}`, g.x + 70, 155);
+        });
+        ctx.fillStyle = '#182024';
+        ctx.font = '600 12px "Aptos"';
+        ctx.textAlign = 'left';
+        const noteMsg = order === 'wrong'
+          ? '❌ 近→远：第一个玻璃先写 depth，后来的 fragment 被拒 → 混合错误'
+          : '✅ 远→近，且 glDepthMask(FALSE)：正确的 α 混合叠加';
+        ctx.fillText(noteMsg, 20, canvas.height - 10);
+      }
+      radios.forEach(r => r.addEventListener('change', redraw));
+      redraw();
+    })();
+
+    // ============ 07 · z-fighting ============
+    (function () {
+      const canvas = document.getElementById('zfightCanvas');
+      const ctx = canvas.getContext('2d');
+      const zfDist = document.getElementById('zfDist');
+      const zfDistVal = document.getElementById('zfDistVal');
+      const zfOff = document.getElementById('zfOffset');
+      const zfOffVal = document.getElementById('zfOffsetVal');
+      let t0 = performance.now();
+      function redraw() {
+        const dist = +zfDist.value;
+        zfDistVal.textContent = dist;
+        const off = +zfOff.value;
+        zfOffVal.textContent = off;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // simulate depth precision: at distance dist, resolution roughly dist²/1e5
+        const res = dist * dist / 100000 + 0.0001;
+        const noiseMag = off / 100 > res ? 0 : (res - off / 100) * 40;
+        // draw two coplanar quads with noise
+        const t = (performance.now() - t0) / 400;
+        for (let y = 60; y < 220; y += 2) {
+          for (let x = 60; x < 580; x += 2) {
+            const n = Math.sin(x * 0.12 + y * 0.07 + t) + Math.random() * 0.4;
+            const winA = n + noiseMag * (Math.random() - 0.5) > 0;
+            ctx.fillStyle = winA ? '#c25a1b' : '#2f6fc4';
+            ctx.fillRect(x, y, 2, 2);
+          }
+        }
+        ctx.fillStyle = '#182024';
+        ctx.font = '600 13px "Aptos"';
+        ctx.textAlign = 'left';
+        const stable = noiseMag < 1;
+        ctx.fillText(stable ? '✅ 稳定：offset 消灭了 z-fight' : '❌ z-fight：depth 精度不足以分辨', 20, 30);
+        ctx.font = '500 11px "Cascadia Code"';
+        ctx.fillStyle = '#566470';
+        ctx.fillText(`当前精度 ~ ${res.toFixed(5)}，需要 offset > ${(res*100).toFixed(1)}`, 20, canvas.height - 10);
+      }
+      zfDist.addEventListener('input', redraw);
+      zfOff.addEventListener('input', redraw);
+      function loop() { redraw(); requestAnimationFrame(loop); }
+      loop();
+    })();
+
+    // ============ 08 · painter's algorithm ============
+    (function () {
+      const canvas = document.getElementById('painterCanvas');
+      const ctx = canvas.getContext('2d');
+      const painterOrder = document.getElementById('painterOrder');
+      const painterOrderVal = document.getElementById('painterOrderVal');
+      function redraw() {
+        const step = +painterOrder.value;
+        painterOrderVal.textContent = Math.min(step, 3) + '/3';
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // background
+        const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+        grad.addColorStop(0, '#a8d3e6'); grad.addColorStop(1, '#eff3f8');
+        ctx.fillStyle = grad; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        if (step >= 1) {
+          // mountain (back)
+          ctx.fillStyle = '#5a7a94';
+          ctx.beginPath();
+          ctx.moveTo(0, 200); ctx.lineTo(140, 80); ctx.lineTo(280, 180);
+          ctx.lineTo(380, 100); ctx.lineTo(520, 190); ctx.lineTo(640, 130); ctx.lineTo(640, 280); ctx.lineTo(0, 280);
+          ctx.closePath(); ctx.fill();
+        }
+        if (step >= 2) {
+          // trees mid
+          ctx.fillStyle = '#3a6b4a';
+          for (let x = 50; x < 620; x += 70) {
+            ctx.beginPath();
+            ctx.moveTo(x, 180); ctx.lineTo(x + 22, 130); ctx.lineTo(x + 44, 180);
+            ctx.closePath(); ctx.fill();
+            ctx.fillStyle = '#8b6a3a';
+            ctx.fillRect(x + 18, 180, 8, 20);
+            ctx.fillStyle = '#3a6b4a';
+          }
+        }
+        if (step >= 3) {
+          // foreground character
+          ctx.fillStyle = '#c25a1b';
+          ctx.beginPath(); ctx.arc(320, 220, 30, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = '#182024';
+          ctx.fillRect(305, 240, 30, 40);
+        }
+        ctx.fillStyle = '#182024';
+        ctx.font = '600 13px "Aptos"';
+        ctx.textAlign = 'left';
+        const steps = ['原始画布', '背景山脉 (z=远)', '+ 中景树木 (z=中)', '+ 前景角色 (z=近) — 完成'];
+        ctx.fillText(`步骤 ${Math.min(step, 3)}: ${steps[Math.min(step, 3)]}`, 20, 24);
+      }
+      painterOrder.addEventListener('input', redraw);
+      redraw();
+    })();
+  </script>
+</body>
+</html>

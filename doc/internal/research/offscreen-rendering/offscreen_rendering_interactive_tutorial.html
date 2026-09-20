@@ -1,0 +1,942 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>离屏渲染原理与实现互动教学</title>
+  <style>
+    :root {
+      --bg: #f4efe6;
+      --bg-accent: #efe0ca;
+      --panel: rgba(255, 251, 245, 0.9);
+      --ink: #172126;
+      --muted: #5c6a70;
+      --line: rgba(23, 33, 38, 0.12);
+      --accent: #0e7c86;
+      --accent-soft: rgba(14, 124, 134, 0.12);
+      --accent-strong: #c25a1b;
+      --success: #2f7d32;
+      --shadow: 0 20px 60px rgba(40, 27, 11, 0.12);
+      --radius: 24px;
+      --radius-sm: 16px;
+      --mono: "Cascadia Code", "Consolas", monospace;
+      --sans: "Aptos", "Segoe UI Variable", "Segoe UI", sans-serif;
+      --display: "Bahnschrift", "Trebuchet MS", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: var(--sans);
+      color: var(--ink);
+      line-height: 1.72;
+      background:
+        radial-gradient(circle at top right, rgba(194, 90, 27, 0.14), transparent 32%),
+        linear-gradient(180deg, #fbf6eb 0%, var(--bg) 100%);
+    }
+
+    a { color: var(--accent); }
+    .page {
+      width: min(1320px, calc(100% - 32px));
+      margin: 24px auto 80px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .hero, .section, .card, .code-card, .method-card, .timeline-step, .metric-card {
+      border: 1px solid rgba(23, 33, 38, 0.08);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      -webkit-backdrop-filter: blur(12px);
+      backdrop-filter: blur(12px);
+    }
+
+    .hero {
+      padding: 28px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: auto -70px -90px auto;
+      width: 280px;
+      height: 280px;
+      background: radial-gradient(circle, rgba(14, 124, 134, 0.18), transparent 70%);
+      pointer-events: none;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 0.84rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      font-family: var(--display);
+      font-size: clamp(1.6rem, 2.2vw + 0.4rem, 2.4rem);
+      margin: 12px 0 6px;
+      color: var(--ink);
+      letter-spacing: -0.005em;
+    }
+
+    h2 { font-family: var(--display); font-size: 1.32rem; margin: 0 0 6px; color: var(--ink); }
+    h3 { font-family: var(--display); font-size: 1.05rem; margin: 0 0 8px; color: var(--ink); }
+    p { margin: 0 0 12px; color: var(--muted); }
+
+    .lead { margin-top: 16px; font-size: 1.08rem; max-width: 66ch; color: #28333a; }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.3fr) minmax(300px, 0.7fr);
+      gap: 20px;
+      align-items: start;
+    }
+
+    .hero-points {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .hero-point {
+      padding: 14px;
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.78);
+      border: 1px solid rgba(23, 33, 38, 0.08);
+    }
+
+    .hero-point strong { display: block; margin-bottom: 4px; color: var(--ink); }
+
+    .summary-card {
+      padding: 18px;
+      border-radius: var(--radius-sm);
+      background: rgba(255, 255, 255, 0.84);
+      border: 1px solid rgba(23, 33, 38, 0.08);
+    }
+
+    .summary-card ul { margin: 10px 0 0 18px; padding: 0; color: var(--muted); }
+    .summary-card li { margin-bottom: 6px; }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 290px;
+      gap: 22px;
+      margin-top: 22px;
+    }
+
+    .content { display: grid; gap: 22px; }
+
+    .section { padding: 24px; }
+
+    .section-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .section-tag {
+      padding: 7px 12px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 0.88rem;
+      font-weight: 700;
+    }
+
+    .section-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+      gap: 18px;
+      align-items: start;
+    }
+
+    .demo-panel, .method-panel, .formula, .code-card, .timeline-step, .metric-card {
+      padding: 16px 18px;
+      border-radius: var(--radius-sm);
+      background: rgba(255, 255, 255, 0.82);
+      border: 1px solid rgba(23, 33, 38, 0.08);
+    }
+
+    .demo-panel canvas {
+      width: 100%;
+      height: auto;
+      display: block;
+      border-radius: 16px;
+      background: linear-gradient(180deg, #fefdf8, #f6eddc);
+      border: 1px solid rgba(23, 33, 38, 0.08);
+    }
+
+    .canvas-caption { margin-top: 10px; color: var(--muted); font-size: 0.92rem; }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      margin: 12px 0 10px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      cursor: pointer;
+      background: #fff;
+      border: 1px solid rgba(23, 33, 38, 0.1);
+      transition: 140ms ease;
+      user-select: none;
+    }
+
+    .pill.active {
+      color: white;
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+
+    .pill input[type="range"] { accent-color: var(--accent); }
+
+    .formula .label {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--accent);
+      font-weight: 700;
+      font-size: 0.9rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .formula .math {
+      font-family: "Cambria Math", "Times New Roman", serif;
+      font-size: 1.06rem;
+      white-space: pre-wrap;
+      color: var(--ink);
+    }
+
+    .formula .explain { margin-top: 8px; color: #465158; }
+
+    .toc {
+      position: sticky;
+      top: 14px;
+      align-self: start;
+      padding: 18px;
+      border-radius: 22px;
+      background: rgba(255, 252, 246, 0.9);
+      border: 1px solid rgba(23, 33, 38, 0.08);
+      box-shadow: 0 14px 40px rgba(43, 31, 18, 0.08);
+    }
+
+    .toc h3 { margin-bottom: 10px; }
+    .toc a {
+      display: block;
+      padding: 7px 9px;
+      margin: 4px 0;
+      text-decoration: none;
+      border-radius: 12px;
+      color: var(--muted);
+    }
+    .toc a:hover, .toc a:focus-visible { background: var(--accent-soft); color: var(--accent); outline: none; }
+    .toc .note { margin-top: 10px; font-size: 0.86rem; color: var(--muted); }
+
+    .trace-list { display: grid; gap: 10px; margin-top: 12px; }
+    .trace-item {
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.74);
+      border: 1px solid rgba(23, 33, 38, 0.08);
+      color: var(--muted);
+    }
+    .trace-item strong { color: var(--ink); }
+
+    .info-stack { display: grid; gap: 12px; }
+
+    .method-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      margin-top: 14px;
+    }
+    .method-grid .metric-card { cursor: pointer; transition: transform 120ms ease, box-shadow 120ms ease; }
+    .method-grid .metric-card:hover { transform: translateY(-2px); }
+    .method-grid .metric-card.active { border-color: rgba(14, 124, 134, 0.4); box-shadow: 0 12px 30px rgba(14, 124, 134, 0.12); }
+    .method-grid .metric-card p { margin: 6px 0 0; }
+
+    .method-card { margin-top: 12px; padding: 20px 22px; }
+    .method-card h3 { margin-top: 0; }
+    .method-card p { margin: 0 0 10px; }
+    .method-card .pros, .method-card .cons { margin: 8px 0 12px 20px; padding: 0; color: var(--muted); }
+    .method-card .pros li, .method-card .cons li { margin-bottom: 4px; }
+    .method-card strong { color: var(--ink); }
+    .method-card strong + ul { margin-top: 6px; }
+
+    .mini-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      margin-top: 12px;
+    }
+    .mini-grid .metric-card p { margin: 6px 0 0; }
+
+    .code-card pre {
+      margin: 10px 0 0;
+      padding: 12px;
+      overflow-x: auto;
+      background: #182024;
+      color: #f8f7f3;
+      border-radius: 12px;
+      font-family: var(--mono);
+      font-size: 0.92rem;
+      line-height: 1.5;
+    }
+    .code-card .note { margin-top: 10px; color: var(--muted); font-size: 0.92rem; }
+
+    .pipeline-canvas {
+      width: 100%;
+      max-width: 100%;
+      display: block;
+      border-radius: 16px;
+      background: linear-gradient(180deg, #fefdf8, #f6eddc);
+      border: 1px solid rgba(23, 33, 38, 0.08);
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 0.78rem;
+      font-weight: 700;
+      margin-right: 4px;
+    }
+    .badge.warn { background: rgba(194, 90, 27, 0.14); color: var(--accent-strong); }
+    .badge.ok   { background: rgba(47, 125, 50, 0.12); color: var(--success); }
+
+    @media (max-width: 960px) {
+      .hero-grid, .section-grid, .layout { grid-template-columns: minmax(0, 1fr); }
+      .toc { position: static; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="hero">
+      <div class="hero-grid">
+        <div>
+          <div class="eyebrow">互动教学 · 离屏渲染</div>
+          <h1>什么是"离屏"？画布画在哪儿，我们又怎么把它取出来？</h1>
+          <p class="lead">离屏渲染（off-screen rendering）不是一个专门的技术，而是一整套"把绘制目标从窗口拿走"的思路：结果不进屏幕，而是进一个缓冲区，供你读回像素、当纹理、或延后合成到别的画面。这个教程会用交互演示带你看清：为什么要用离屏、Software 和 OpenGL 后端各自怎么做、WhatsCanvas 的 <code>OutputTarget</code> 分为哪几种，以及主流库的取舍。</p>
+          <div class="hero-points">
+            <div class="hero-point">
+              <strong>1. 先理解"目标"</strong>
+              绘制命令的终点不总是屏幕，可以是 CPU RGBA、GPU 纹理、共享 framebuffer。
+            </div>
+            <div class="hero-point">
+              <strong>2. 再看代价</strong>
+              CPU 离屏几乎零成本；GPU 离屏需要 FBO + 纹理 + 上下文，往返有代价。
+            </div>
+          </div>
+        </div>
+        <div class="summary-card">
+          <h3>这页要带你掌握的 4 件事</h3>
+          <ul>
+            <li>"离屏"到底渲染到哪里，为什么它比"直接画到窗口"多出一步。</li>
+            <li>4 种典型场景：单元测试快照、UI 缓存、图像滤镜、跨画布纹理复用。</li>
+            <li>WhatsCanvas 的 <code>OutputTarget</code> 五种模式与 <code>saveLayer</code> 的关系。</li>
+            <li>Skia / Cairo / Qt / 浏览器 Canvas 都是如何实现离屏的。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <div class="layout">
+      <div class="content">
+
+        <!-- 01 -->
+        <section class="section" id="what">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">01 · 先看问题</div>
+              <h2>"直接画到屏幕"与"先画到缓冲区"到底差在哪里？</h2>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <div class="controls">
+                <label class="pill" for="modeSlider">目标：<strong id="modeLabel">直接绘制到窗口</strong></label>
+                <input id="modeSlider" type="range" min="0" max="1" value="0">
+              </div>
+              <canvas id="pipeCanvas" width="640" height="360"></canvas>
+              <p class="canvas-caption">拉动滑块，把绘制目标从"直接到窗口"切换成"先到离屏缓冲区，再合成/读回"。你可以看到多出的一步：一块像素归你所有，可以随时读、拷贝、当纹理。</p>
+            </div>
+            <div class="info-stack">
+              <div class="formula">
+                <span class="label">核心直觉</span>
+                <span class="math">"渲染"本身不关心画在哪儿。
+无论是屏幕像素、CPU 数组，还是 GPU 纹理，
+Canvas 的绘制命令都是同一批。
+唯一的区别是：终点缓冲区的所有权和读回代价。</span>
+                <p class="explain">离屏渲染最朴素的价值是"我把画完的一整帧握在手里，可以再用"。</p>
+              </div>
+              <div class="formula">
+                <span class="label">一个最小对比</span>
+                <span class="math">屏幕渲染： beginFrame → draw → endFrame → present()
+离屏渲染： beginFrame → draw → endFrame → readPixelsRGBA()  或直接把它当纹理复用</span>
+                <p class="explain">最大差别只有最后一步：present() 把结果交给窗口系统，而离屏则保留在你自己的缓冲区里。</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 02 -->
+        <section class="section" id="scenarios">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">02 · 什么时候用离屏</div>
+              <h2>4 种典型场景，各自解决什么问题</h2>
+            </div>
+          </div>
+          <div class="method-grid">
+            <div class="metric-card active" data-scenario="snapshot">
+              <strong>① 快照 / 单元测试</strong>
+              <p>把一帧渲染成 PPM/PNG 与基线比对，跑在无窗口 CI 上。</p>
+            </div>
+            <div class="metric-card" data-scenario="cache">
+              <strong>② UI 缓存</strong>
+              <p>把不常变的部分（背景、图表）画到一张纹理里，每帧只重画会变的部分。</p>
+            </div>
+            <div class="metric-card" data-scenario="filter">
+              <strong>③ 图像滤镜 / Layer</strong>
+              <p>对一组绘制做整体 blur / shadow / color-matrix，必须先把它汇聚到一张离屏。</p>
+            </div>
+            <div class="metric-card" data-scenario="chain">
+              <strong>④ 跨画布纹理复用</strong>
+              <p>离屏结果本身能当 <code>ITextureSource</code>，被另一个 Canvas 采样。</p>
+            </div>
+          </div>
+          <div class="method-card" id="scenarioDetail">
+            <h3 id="scenarioTitle">① 快照 / 单元测试</h3>
+            <p id="scenarioBody">Software 后端不需要 GL context，从 <code>Backend::Software</code> 建 Canvas → 画 → <code>readPixelsRGBA</code> 就能得到 RGBA 字节，直接落地 PPM/PNG 与 baseline 比对。这也是 WhatsCanvas <code>SoftwareGoldenTests</code>、<code>parity_probe</code> 的运行方式。</p>
+            <strong>优点</strong>
+            <ul class="pros" id="scenarioPros"></ul>
+            <strong>缺点</strong>
+            <ul class="cons" id="scenarioCons"></ul>
+          </div>
+        </section>
+
+        <!-- 03 -->
+        <section class="section" id="pipeline">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">03 · Software vs OpenGL</div>
+              <h2>两种后端的离屏"内部长什么样"</h2>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <div class="controls">
+                <label class="pill" for="backendSw"><input type="radio" name="be" id="backendSw" checked> Software 后端</label>
+                <label class="pill" for="backendGl"><input type="radio" name="be" id="backendGl"> OpenGL 后端</label>
+              </div>
+              <canvas id="stackCanvas" width="640" height="380"></canvas>
+              <p class="canvas-caption">看两条流水线的差异：Software 把结果放进一段 <code>std::vector&lt;uint8_t&gt;</code>（RGBA8 帧缓冲）；OpenGL 会申请 FBO + 附着 RGBA8 纹理 + 可选深度/模板 renderbuffer。<strong>读回都用 <code>readPixelsRGBA</code></strong>，但 CPU 侧几乎零成本，GPU 侧要发起 <code>glReadPixels</code> 阻塞往返（异步 API 是 <code>readPixelsRGBAAsync</code>）。</p>
+            </div>
+            <div class="info-stack">
+              <div class="timeline-step">
+                <strong>1. Software：内存直取</strong>
+                <code>src/render/software/SoftwareRenderer.h</code> 里 <code>framebuffer_</code> 就是一段 RGBA8 数组；行 0 是画布上边缘（<code>row 0 = top</code>），<code>readPixelsRGBA</code> 直接 <code>memcpy</code>。
+              </div>
+              <div class="timeline-step">
+                <strong>2. OpenGL：FBO + 附着纹理</strong>
+                <code>OpenGLRenderDevice::createRenderTarget</code> 里申请一份 GL_RGBA8 纹理 + <code>GL_DEPTH24_STENCIL8</code> renderbuffer，把它挂到一个 FBO 上；<code>readPixelsRGBA</code> 走 <code>glReadPixels</code> 并在 CPU 侧把行序翻转（GL 默认左下角原点）。
+              </div>
+              <div class="timeline-step">
+                <strong>3. saveLayer 也是"临时离屏"</strong>
+                每次 <code>saveLayer</code> 会开一个和主帧缓冲同规模的临时纹理，restore 时用一次全屏 quad 把它合成回去；这也是 blur / backdropFilter / innerShadow 起效的地方。
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 04 -->
+        <section class="section" id="api">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">04 · WhatsCanvas 的接口</div>
+              <h2><code>OutputTarget</code> 的五种模式，以及一段最小完整代码</h2>
+            </div>
+          </div>
+
+          <div class="section-grid">
+            <div class="code-card">
+              <p><code>include/wsc/Surface.h</code> 里定义了绘制目标的枚举：</p>
+              <pre>enum class Kind {
+    Offscreen,          // Canvas 自己拥有目标，用 readPixelsRGBA 取回
+    OffscreenTexture,   // 同上，但可作纹理被另一个 Canvas 采样
+    Window,             // 呈现到 OS 窗口，Canvas 拥有 swapchain / blit
+    OpenGLFramebuffer,  // 渲染进宿主拥有的 GL FBO（例如引擎自带的）
+    VulkanImage,        // 渲染进宿主拥有的 VkImage
+};</pre>
+              <p>典型的离屏"六行"最小程序（<code>examples/hello_world/main.cpp</code>）：</p>
+              <pre>auto canvas = wsc::Canvas::create(
+    wsc::Canvas::Backend::Software, 256, 256);
+canvas->initializeContext();       // Software 不需要 GL context
+
+canvas->beginFrame();
+wsc::Paint p; p.setAntiAlias(true);
+p.setColor(wsc::Color(40, 120, 240));
+canvas->drawRoundRect(
+    wsc::RectF(40, 40, 176, 176), 24.0f, p);
+canvas->endFrame();
+
+canvas->savePixelsPPM("first.ppm"); // 或 readPixelsRGBA(pixels);</pre>
+              <p class="note">要把结果拿去当纹理喂给另一个 Canvas，就把 <code>setOutputTarget(OutputTarget::OffscreenTexture())</code> 放在 <code>beginFrame</code> 之前，Canvas 本身实现了 <code>ITextureSource</code>。</p>
+            </div>
+
+            <div class="info-stack">
+              <div class="method-card">
+                <strong><span class="badge">Offscreen</span> 单元测试首选</strong>
+                <p>纯 CPU 缓冲区，<code>readPixelsRGBA</code> 一次<code>memcpy</code>；OpenGL/Vulkan 后端也支持，同样走 <code>readPixelsRGBA</code> 从 FBO 读回。</p>
+              </div>
+              <div class="method-card">
+                <strong><span class="badge">OffscreenTexture</span> 跨 Canvas 纹理复用</strong>
+                <p>渲染完的 Canvas 直接 <code>drawImage(canvas, ...)</code> 被另一个 Canvas 采样。<br>
+                <strong>注意：</strong>Software 后端此模式仍是内存缓冲区；只有 GPU 后端能真正做零拷贝。</p>
+              </div>
+              <div class="method-card">
+                <strong><span class="badge">Window</span> 上屏</strong>
+                <p><code>ToWindow(NativeSurface)</code>：Canvas 掌管 swapchain 和 present。见 <code>examples/present/gl_main.cpp</code>。</p>
+              </div>
+              <div class="method-card">
+                <strong><span class="badge">OpenGLFramebuffer / VulkanImage</span> 嵌入宿主渲染管线</strong>
+                <p>宿主自己拿着 FBO 或 VkImage，WhatsCanvas 只借来"往里画"。适合塞进游戏引擎、Qt/QML 现有的 GL 上下文里。</p>
+              </div>
+              <div class="method-card">
+                <strong><span class="badge warn">陷阱</span> DPR 与逻辑坐标</strong>
+                <p>离屏 Canvas 默认 <code>DPR=1</code>；如果你的场景基于 <code>DPR=3</code> 的移动端设计，请显式 <code>setDevicePixelRatio(3.0f)</code>，然后按物理像素 <code>width×3</code> 建 Canvas。否则 golden 会跟真机对不齐。</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 05 -->
+        <section class="section" id="cache">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">05 · UI 缓存演示</div>
+              <h2>把一张"背景"离屏一次，随后每帧只画会动的部分</h2>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <div class="controls">
+                <label class="pill" for="cacheToggle"><input type="checkbox" id="cacheToggle" checked>启用离屏缓存</label>
+                <label class="pill">每帧命令数：<strong id="cacheCmdCount">—</strong></label>
+                <label class="pill">FPS 近似：<strong id="cacheFps">—</strong></label>
+              </div>
+              <canvas id="cacheCanvas" width="640" height="300"></canvas>
+              <p class="canvas-caption">左侧是"背景"（网格 + 大量矩形），右侧是"动画物体"。关闭缓存时，背景要跟着物体一起每帧重画；开启缓存后，背景只画 1 次画进一张纹理，之后每帧只 blit 这张纹理 + 画动画层。</p>
+            </div>
+            <div class="info-stack">
+              <div class="formula">
+                <span class="label">经验法则</span>
+                <span class="math">"命令数量 × 每帧调用次数"
+是最直接的削减对象。
+把不变的一段命令离屏一次，
+就换成了每帧 1 次纹理 blit。</span>
+                <p class="explain">在 WhatsCanvas 里，这就是"用一个 <code>OffscreenTexture</code> Canvas 画背景，主 Canvas 每帧 <code>drawImage</code> 复用它"。</p>
+              </div>
+              <div class="trace-item">
+                <strong>坑：</strong>缓存本身要开一张和目标同规模的纹理。<strong>切勿</strong>把频繁尺寸变化的东西离屏——每次 resize 都在申请纹理，反而更慢。<code>RenderTargetPool</code> 就是为了缓解这类频繁申请。
+              </div>
+              <div class="trace-item">
+                <strong>另一种"隐性离屏"：</strong><code>saveLayer</code>。每次调用它就等于额外开一张同尺寸纹理，restore 时合成回主帧缓冲。滤镜 / 全组透明度 / blend group 都是它的用户，用得不加节制会让 GPU 内存翻倍。
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 06 -->
+        <section class="section" id="libraries">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">06 · 主流 2D 图形库怎么做</div>
+              <h2>Skia、Cairo、Qt、浏览器 Canvas 各自怎么描述"离屏"</h2>
+            </div>
+          </div>
+          <div class="mini-grid">
+            <div class="metric-card">
+              <strong>Skia</strong>
+              <p>核心概念是 <code>SkSurface</code>，同时抽象窗口、raster、GPU 纹理与外部 FBO；离屏就是 <code>SkSurface::MakeRaster</code> 或 <code>MakeRenderTarget</code>。<code>toImage()</code> 把它锁成 <code>SkImage</code> 供纹理使用。</p>
+            </div>
+            <div class="metric-card">
+              <strong>Cairo</strong>
+              <p>核心是 <code>cairo_surface_t</code>，最常见的离屏是 <code>cairo_image_surface_create</code>；也有 <code>cairo_recording_surface</code> 用来"录制"命令，晚些再回放到具体目标。</p>
+            </div>
+            <div class="metric-card">
+              <strong>Qt / QPainter</strong>
+              <p><code>QPixmap</code> / <code>QImage</code> / <code>QOpenGLFramebufferObject</code> 都能被 <code>QPainter</code> 当目标；QML 场景图里"层"的实现本质也是离屏 FBO 合成。</p>
+            </div>
+            <div class="metric-card">
+              <strong>浏览器 Canvas 2D</strong>
+              <p><code>HTMLCanvasElement</code> 天然就是"离屏"（除非它被 attach 到 DOM）。<code>OffscreenCanvas</code> 更进一步：可在 Worker 线程渲染，主线程只 <code>transferToImageBitmap()</code> 取结果。</p>
+            </div>
+          </div>
+          <div class="trace-list">
+            <div class="trace-item"><strong>共同点：</strong>大家都区分"记录命令的表面"和"最终像素落地的表面"，都提供"离屏 → 纹理"或"离屏 → 图像"的桥接。</div>
+            <div class="trace-item"><strong>不同点：</strong>抽象层级不同——Skia 抽象到 <code>SkSurface</code>，Cairo 抽象到 <code>cairo_surface_t</code>，Qt 用具体设备类，浏览器用 DOM/Worker 二元结构；WhatsCanvas 的 <code>OutputTarget</code> 更像 Skia 那种"目标枚举"。</div>
+          </div>
+        </section>
+
+        <!-- 07 -->
+        <section class="section" id="takeaway">
+          <div class="section-head">
+            <div>
+              <div class="section-tag">07 · 你可以怎么判断</div>
+              <h2>什么时候上离屏、什么时候不要</h2>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="info-stack">
+              <div class="timeline-step"><strong>确定要用</strong> 单元测试 / CI / server-side thumbnail / 抗锯齿滤镜 / UI 有大量不变的静态层。Software <code>Offscreen</code> 是最省事的方案，一段 <code>readPixelsRGBA</code> 就搞定。</div>
+              <div class="timeline-step"><strong>值得权衡</strong> 高频尺寸变化的组件（滚动列表 item、随时缩放的图表）。<span class="badge warn">warn</span> 如果每帧都重建目标纹理，反而更慢；配合 <code>RenderTargetPool</code> 或"只缓存稳定尺寸的图层"再启用。</div>
+              <div class="timeline-step"><strong>建议避免</strong> 只画几十条命令的小 UI 组件包一层 <code>saveLayer</code>——离屏本身有开销，得不偿失。<span class="badge">rule of thumb</span> 至少有几百条命令、且"每帧只有一小部分会变"时才考虑。</div>
+            </div>
+            <div class="formula">
+              <span class="label">一句话总结</span>
+              <span class="math">离屏 = 把渲染结果放在"你能控制的一块缓冲区里"。
+它本身几乎不改变绘制命令，但让你多了三件事可做：
+读回像素、当纹理复用、把一组命令当整体做滤镜。</span>
+              <p class="explain">Software 后端做离屏几乎零成本；GPU 后端做离屏是"开一张 FBO + 附着纹理"，一定要衡量往返代价。</p>
+            </div>
+          </div>
+        </section>
+
+      </div>
+
+      <aside class="toc">
+        <h3>目录</h3>
+        <a href="#what">1. 先看问题</a>
+        <a href="#scenarios">2. 使用场景</a>
+        <a href="#pipeline">3. Software vs OpenGL</a>
+        <a href="#api">4. WhatsCanvas 接口</a>
+        <a href="#cache">5. UI 缓存演示</a>
+        <a href="#libraries">6. 主流库做法</a>
+        <a href="#takeaway">7. 选型建议</a>
+        <p class="note">要看具体代码，可以对照 <code>include/wsc/Surface.h</code>、<code>src/render/software/SoftwareRenderer.cpp</code>、<code>src/render/OpenGLRenderDevice.cpp</code>、<code>examples/hello_world/main.cpp</code>、<code>examples/present/gl_main.cpp</code>。</p>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    // ---------- 01 · pipeline demo ----------
+    (function () {
+      const canvas = document.getElementById('pipeCanvas');
+      const ctx = canvas.getContext('2d');
+      const slider = document.getElementById('modeSlider');
+      const label = document.getElementById('modeLabel');
+
+      function box(x, y, w, h, fill, stroke, text) {
+        ctx.fillStyle = fill;
+        ctx.strokeStyle = stroke;
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.roundRect ? ctx.roundRect(x, y, w, h, 12) : ctx.rect(x, y, w, h);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = '#182024';
+        ctx.font = '600 15px "Aptos", "Segoe UI", sans-serif';
+        ctx.textBaseline = 'middle';
+        ctx.textAlign = 'center';
+        ctx.fillText(text, x + w / 2, y + h / 2);
+      }
+      function arrow(x1, y1, x2, y2, color) {
+        ctx.strokeStyle = color;
+        ctx.fillStyle = color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
+        ctx.stroke();
+        const ang = Math.atan2(y2 - y1, x2 - x1);
+        ctx.beginPath();
+        ctx.moveTo(x2, y2);
+        ctx.lineTo(x2 - 10 * Math.cos(ang - 0.35), y2 - 10 * Math.sin(ang - 0.35));
+        ctx.lineTo(x2 - 10 * Math.cos(ang + 0.35), y2 - 10 * Math.sin(ang + 0.35));
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      function draw() {
+        const mode = slider.value === '1' ? 'offscreen' : 'window';
+        label.textContent = mode === 'offscreen'
+          ? '先画到离屏缓冲区，再读回 / 合成'
+          : '直接绘制到窗口';
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // Left: user code
+        box(24, 24, 180, 60, '#e6f3f4', '#0e7c86', 'Canvas 绘制命令');
+        // Middle: renderer
+        box(230, 24, 180, 60, '#fdefe0', '#c25a1b', '渲染后端');
+
+        if (mode === 'window') {
+          // direct to swapchain
+          box(430, 24, 180, 60, '#fff2c6', '#8b6a1b', '窗口 swapchain');
+          arrow(204, 54, 232, 54, '#5c6a70');
+          arrow(410, 54, 428, 54, '#5c6a70');
+
+          box(430, 130, 180, 60, '#f0e5d0', '#8b6a1b', '屏幕像素');
+          arrow(520, 84, 520, 128, '#5c6a70');
+        } else {
+          // to offscreen buffer
+          box(430, 24, 180, 60, '#e6f3f4', '#0e7c86', '离屏缓冲区 (RGBA)');
+          arrow(204, 54, 232, 54, '#5c6a70');
+          arrow(410, 54, 428, 54, '#5c6a70');
+
+          box(230, 150, 180, 60, '#f6f1e6', '#2f7d32', 'readPixelsRGBA / 当纹理');
+          arrow(520, 84, 320, 148, '#5c6a70');
+
+          box(430, 260, 180, 60, '#fff2c6', '#8b6a1b', '文件 / 单测 / 另一 Canvas');
+          arrow(320, 210, 428, 260, '#5c6a70');
+        }
+      }
+      slider.addEventListener('input', draw);
+      draw();
+    })();
+
+    // ---------- 02 · scenarios ----------
+    (function () {
+      const scenarios = {
+        snapshot: {
+          title: '① 快照 / 单元测试',
+          body: 'Software 后端不需要 GL context，从 Backend::Software 建 Canvas → 画 → readPixelsRGBA 就能得到 RGBA 字节，直接落地 PPM/PNG 与 baseline 比对。这也是 WhatsCanvas SoftwareGoldenTests、parity_probe 的运行方式。',
+          pros: ['无窗口、无 GPU 依赖，随处可跑', '确定性高，行序 / alpha / gamma 都可控', '一次 memcpy 就是"最新一帧"'],
+          cons: ['大分辨率单测跑起来纯 CPU 也不便宜', '涉及文字/复杂 shader 的场景仍需另外做 fuzzy 比对']
+        },
+        cache: {
+          title: '② UI 缓存',
+          body: '把不常变的部分（背景、静态图表、大量装饰元素）先在一个 OffscreenTexture Canvas 上画一遍，主 Canvas 每帧只 drawImage 复用它加上会动的层。适合帧率敏感的桌面 UI。',
+          pros: ['命令数从"上千条 × 每帧"降到"1 次 blit + 动画层"', '和 RenderTargetPool 配合可实现"高频尺寸变化不重申"'],
+          cons: ['要维护"何时失效并重画"的策略', '尺寸不稳时反而更慢——每次 resize 都在申请纹理']
+        },
+        filter: {
+          title: '③ 图像滤镜 / Layer',
+          body: 'saveLayer + ImageFilter 就是"隐性离屏"：Canvas 先把内部的绘制汇聚到一张临时纹理，然后按 filter（blur / drop shadow / color matrix）合成回主帧缓冲。这是 backdrop blur、inner shadow 等效果起效的地方。',
+          pros: ['滤镜可以整组作用，而不是逐命令处理', '和 backdropFilter 组合能对下方已经画好的像素做效果'],
+          cons: ['每个 saveLayer 都是一张同规模纹理，用多了内存翻倍', '嵌套层数多时读回带宽也是瓶颈']
+        },
+        chain: {
+          title: '④ 跨画布纹理复用',
+          body: '把 A Canvas 设为 OffscreenTexture，画好之后直接 canvas_B->drawImage(A, ...) —— Canvas 自己实现了 ITextureSource。适合"生成一次，多处贴图"的素材、mini-map、贴纸等。',
+          pros: ['GPU 后端下可零拷贝（同 GL 上下文中共享纹理）', '省掉"读回像素再上传"的一整个环节'],
+          cons: ['Software 后端此模式仍是内存缓冲区（无零拷贝）', '跨 Canvas 生命周期要小心，A 释放会连带 B 的采样失效']
+        }
+      };
+
+      const grid = document.querySelectorAll('.method-grid .metric-card[data-scenario]');
+      const title = document.getElementById('scenarioTitle');
+      const body = document.getElementById('scenarioBody');
+      const pros = document.getElementById('scenarioPros');
+      const cons = document.getElementById('scenarioCons');
+
+      function apply(name) {
+        const s = scenarios[name];
+        title.textContent = s.title;
+        body.textContent = s.body;
+        pros.innerHTML = s.pros.map((t) => `<li>${t}</li>`).join('');
+        cons.innerHTML = s.cons.map((t) => `<li>${t}</li>`).join('');
+        grid.forEach((c) => c.classList.toggle('active', c.dataset.scenario === name));
+      }
+
+      grid.forEach((c) => c.addEventListener('click', () => apply(c.dataset.scenario)));
+      apply('snapshot');
+    })();
+
+    // ---------- 03 · stack demo ----------
+    (function () {
+      const canvas = document.getElementById('stackCanvas');
+      const ctx = canvas.getContext('2d');
+      const sw = document.getElementById('backendSw');
+      const gl = document.getElementById('backendGl');
+
+      function box(x, y, w, h, fill, stroke, text, small) {
+        ctx.fillStyle = fill;
+        ctx.strokeStyle = stroke;
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.roundRect ? ctx.roundRect(x, y, w, h, 12) : ctx.rect(x, y, w, h);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = '#182024';
+        ctx.font = (small ? '500 12px ' : '600 14px ') + '"Aptos", "Segoe UI", sans-serif';
+        ctx.textBaseline = 'middle';
+        ctx.textAlign = 'center';
+        ctx.fillText(text, x + w / 2, y + h / 2);
+      }
+
+      function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const useGl = gl.checked;
+        // Column left: user
+        box(20, 30, 130, 40, '#e6f3f4', '#0e7c86', 'Canvas API');
+        box(20, 90, 130, 40, '#e6f3f4', '#0e7c86', 'beginFrame');
+        box(20, 150, 130, 40, '#e6f3f4', '#0e7c86', 'drawXxx');
+        box(20, 210, 130, 40, '#e6f3f4', '#0e7c86', 'endFrame');
+        box(20, 270, 130, 40, '#f6f1e6', '#2f7d32', 'readPixelsRGBA');
+
+        // Middle: renderer stack
+        if (!useGl) {
+          box(190, 30, 200, 40, '#fdefe0', '#c25a1b', 'SoftwareRenderer');
+          box(190, 90, 200, 40, '#fdefe0', '#c25a1b', '光栅化 → CPU 三角形');
+          box(190, 150, 200, 40, '#fdefe0', '#c25a1b', '像素级 blend / clip');
+          box(190, 210, 200, 40, '#fdefe0', '#c25a1b', '写入 framebuffer_[]');
+          box(190, 270, 200, 40, '#f0e5d0', '#8b6a1b', 'std::vector<uint8_t>  RGBA8');
+
+          box(430, 30, 190, 40, '#eef4ee', '#2f7d32', '结果所有权：CPU');
+          box(430, 90, 190, 40, '#eef4ee', '#2f7d32', 'readPixelsRGBA ≈ memcpy');
+          box(430, 150, 190, 200, '#eef4ee', '#2f7d32', '无 GL context / driver 依赖', true);
+        } else {
+          box(190, 30, 200, 40, '#fdefe0', '#c25a1b', 'OpenGLRenderDevice');
+          box(190, 90, 200, 40, '#fdefe0', '#c25a1b', 'createRenderTarget');
+          box(190, 150, 200, 40, '#fdefe0', '#c25a1b', 'FBO + RGBA8 纹理 + DS');
+          box(190, 210, 200, 40, '#fdefe0', '#c25a1b', 'GLSL / draw calls');
+          box(190, 270, 200, 40, '#f0e5d0', '#8b6a1b', 'glReadPixels + flip rows');
+
+          box(430, 30, 190, 40, '#eef4ee', '#2f7d32', '结果所有权：GPU');
+          box(430, 90, 190, 40, '#eef4ee', '#2f7d32', '读回是同步阻塞');
+          box(430, 150, 190, 40, '#eef4ee', '#2f7d32', 'Async: readPixelsRGBAAsync');
+          box(430, 210, 190, 40, '#eef4ee', '#2f7d32', 'saveLayer = 临时 FBO+纹理');
+          box(430, 270, 190, 40, '#eef4ee', '#2f7d32', '需要有效 GL context');
+        }
+      }
+      sw.addEventListener('change', draw);
+      gl.addEventListener('change', draw);
+      draw();
+    })();
+
+    // ---------- 05 · cache benchmark ----------
+    (function () {
+      const canvas = document.getElementById('cacheCanvas');
+      const ctx = canvas.getContext('2d');
+      const toggle = document.getElementById('cacheToggle');
+      const cmdEl = document.getElementById('cacheCmdCount');
+      const fpsEl = document.getElementById('cacheFps');
+
+      // Offscreen buffer for the background.
+      const offBg = document.createElement('canvas');
+      offBg.width = canvas.width;
+      offBg.height = canvas.height;
+      const bgCtx = offBg.getContext('2d');
+
+      function paintBackground(target) {
+        target.fillStyle = '#f6eddc';
+        target.fillRect(0, 0, canvas.width, canvas.height);
+        // Grid
+        target.strokeStyle = 'rgba(23, 33, 38, 0.08)';
+        target.lineWidth = 1;
+        for (let x = 0; x <= canvas.width; x += 20) {
+          target.beginPath();
+          target.moveTo(x, 0);
+          target.lineTo(x, canvas.height);
+          target.stroke();
+        }
+        for (let y = 0; y <= canvas.height; y += 20) {
+          target.beginPath();
+          target.moveTo(0, y);
+          target.lineTo(canvas.width, y);
+          target.stroke();
+        }
+        // "expensive" static decoration: 200 rects
+        for (let i = 0; i < 200; ++i) {
+          const x = (i * 37) % canvas.width;
+          const y = (i * 53) % canvas.height;
+          target.fillStyle = `hsl(${(i * 17) % 360}, 55%, 78%)`;
+          target.fillRect(x, y, 24, 16);
+        }
+        // legend
+        target.fillStyle = '#182024';
+        target.font = '600 13px "Aptos", "Segoe UI", sans-serif';
+        target.fillText('BG: 网格 + 200 装饰矩形 (静态)', 12, 20);
+      }
+
+      // Paint background offscreen once. This mirrors "OffscreenTexture一次画完".
+      paintBackground(bgCtx);
+
+      let frames = 0;
+      let last = performance.now();
+      let frameStamp = performance.now();
+      let fps = 0;
+      let phase = 0;
+
+      function drawFrame() {
+        const now = performance.now();
+        const dt = now - frameStamp;
+        frameStamp = now;
+        phase += dt * 0.002;
+
+        const useCache = toggle.checked;
+        let commands = 0;
+
+        // Background
+        if (useCache) {
+          ctx.drawImage(offBg, 0, 0);
+          commands = 1;
+        } else {
+          paintBackground(ctx);
+          commands = 1 + (canvas.width / 20 + 1) + (canvas.height / 20 + 1) + 200 + 1;
+        }
+
+        // Animated overlay (same in both modes)
+        for (let i = 0; i < 6; ++i) {
+          const cx = canvas.width * 0.5 + Math.cos(phase + i * 1.05) * 180;
+          const cy = canvas.height * 0.5 + Math.sin(phase * 1.4 + i * 0.9) * 90;
+          ctx.beginPath();
+          ctx.fillStyle = `hsl(${(i * 60 + phase * 40) % 360}, 65%, 55%)`;
+          ctx.arc(cx, cy, 24, 0, Math.PI * 2);
+          ctx.fill();
+          commands += 2;
+        }
+
+        // Overlay panel with metrics
+        ctx.fillStyle = 'rgba(255, 251, 245, 0.85)';
+        ctx.fillRect(8, canvas.height - 34, 230, 26);
+        ctx.strokeStyle = 'rgba(23,33,38,0.15)';
+        ctx.strokeRect(8, canvas.height - 34, 230, 26);
+        ctx.fillStyle = '#182024';
+        ctx.font = '600 12px "Aptos", "Segoe UI", sans-serif';
+        ctx.fillText(
+          `mode=${useCache ? 'cached' : 'redraw-all'}  commands=${commands}`,
+          16, canvas.height - 17);
+
+        cmdEl.textContent = String(commands);
+
+        frames++;
+        if (now - last >= 500) {
+          fps = frames * 1000 / (now - last);
+          fpsEl.textContent = fps.toFixed(0);
+          frames = 0;
+          last = now;
+        }
+        requestAnimationFrame(drawFrame);
+      }
+      requestAnimationFrame(drawFrame);
+    })();
+  </script>
+</body>
+</html>

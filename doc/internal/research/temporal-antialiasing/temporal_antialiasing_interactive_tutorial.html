@@ -1,0 +1,899 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TAA 时序抗锯齿互动教学</title>
+  <style>
+    :root {
+      --bg: #f2eff5;
+      --panel: rgba(255, 253, 250, 0.92);
+      --ink: #211a2c;
+      --muted: #6b5c74;
+      --accent: #8a3fbe;
+      --accent-soft: rgba(138, 63, 190, 0.14);
+      --accent-strong: #c25a1b;
+      --success: #2f7d32;
+      --shadow: 0 20px 60px rgba(60, 20, 80, 0.14);
+      --radius: 24px; --radius-sm: 16px;
+      --mono: "Cascadia Code", "Consolas", monospace;
+      --sans: "Aptos", "Segoe UI Variable", "Segoe UI", sans-serif;
+      --display: "Bahnschrift", "Trebuchet MS", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; font-family: var(--sans); color: var(--ink); line-height: 1.72;
+      background: radial-gradient(circle at top center, rgba(138, 63, 190, 0.15), transparent 30%), linear-gradient(180deg, #f8f5fa 0%, var(--bg) 100%); }
+    a { color: var(--accent); }
+    .page { width: min(1320px, calc(100% - 32px)); margin: 24px auto 80px; }
+    .hero, .section, .card, .code-card, .method-card, .metric-card { border: 1px solid rgba(23, 33, 38, 0.08); border-radius: var(--radius); background: var(--panel); box-shadow: var(--shadow); backdrop-filter: blur(12px); }
+    .hero { padding: 28px; overflow: hidden; position: relative; }
+    .hero::after { content: ""; position: absolute; inset: auto -70px -90px auto; width: 280px; height: 280px; background: radial-gradient(circle, rgba(138, 63, 190, 0.2), transparent 70%); pointer-events: none; }
+    .eyebrow { display: inline-flex; padding: 8px 12px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 0.84rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+    h1 { font-family: var(--display); font-size: clamp(1.6rem, 2.2vw + 0.4rem, 2.4rem); margin: 12px 0 6px; }
+    h2 { font-family: var(--display); font-size: 1.32rem; margin: 0 0 6px; }
+    h3 { font-family: var(--display); font-size: 1.05rem; margin: 0 0 8px; }
+    p { margin: 0 0 12px; color: var(--muted); }
+    .lead { margin-top: 16px; font-size: 1.08rem; max-width: 66ch; color: #302639; }
+    .hero-grid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(300px, 0.7fr); gap: 20px; }
+    .hero-points { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
+    .hero-point { padding: 14px; border-radius: 18px; background: rgba(255, 255, 255, 0.8); border: 1px solid rgba(23, 33, 38, 0.08); }
+    .hero-point strong { display: block; margin-bottom: 4px; color: var(--ink); }
+    .summary-card { padding: 18px; border-radius: var(--radius-sm); background: rgba(255, 255, 255, 0.86); border: 1px solid rgba(23, 33, 38, 0.08); }
+    .summary-card ul { margin: 10px 0 0 18px; padding: 0; color: var(--muted); }
+    .layout { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 22px; margin-top: 22px; }
+    .content { display: grid; gap: 22px; }
+    .section { padding: 24px; }
+    .section-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 16px; }
+    .section-tag { padding: 7px 12px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 0.88rem; font-weight: 700; }
+    .section-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr); gap: 18px; align-items: start; }
+    .demo-panel, .formula, .code-card, .metric-card { padding: 16px 18px; border-radius: var(--radius-sm); background: rgba(255, 255, 255, 0.84); border: 1px solid rgba(23, 33, 38, 0.08); }
+    .demo-panel canvas { width: 100%; height: auto; display: block; border-radius: 16px; background: linear-gradient(180deg, #fefdfa, #f2ecf8); border: 1px solid rgba(23, 33, 38, 0.08); }
+    .canvas-caption { margin-top: 10px; color: var(--muted); font-size: 0.92rem; }
+    .controls { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0 10px; }
+    .pill { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 999px; cursor: pointer; background: #fff; border: 1px solid rgba(23, 33, 38, 0.1); user-select: none; }
+    .pill.active { color: white; background: var(--accent); border-color: var(--accent); }
+    .pill input[type="range"] { accent-color: var(--accent); }
+    .formula .label { display: block; margin-bottom: 8px; color: var(--accent); font-weight: 700; font-size: 0.9rem; text-transform: uppercase; }
+    .formula .math { font-family: "Cambria Math", "Times New Roman", serif; font-size: 1.06rem; white-space: pre-wrap; color: var(--ink); }
+    .formula .explain { margin-top: 8px; color: #4a3e54; }
+    .toc { position: sticky; top: 14px; align-self: start; padding: 18px; border-radius: 22px; background: rgba(255, 253, 249, 0.92); border: 1px solid rgba(23, 33, 38, 0.08); }
+    .toc a { display: block; padding: 7px 9px; margin: 4px 0; text-decoration: none; border-radius: 12px; color: var(--muted); }
+    .toc a:hover { background: var(--accent-soft); color: var(--accent); }
+    .toc .note { margin-top: 10px; font-size: 0.86rem; color: var(--muted); }
+    .trace-list { display: grid; gap: 10px; margin-top: 12px; }
+    .trace-item { padding: 10px 12px; border-radius: 12px; background: rgba(255, 255, 255, 0.74); border: 1px solid rgba(23, 33, 38, 0.08); color: var(--muted); }
+    .trace-item strong { color: var(--ink); }
+    .info-stack { display: grid; gap: 12px; }
+    .method-card { margin-top: 12px; padding: 20px 22px; }
+    .method-card .pros, .method-card .cons { margin: 8px 0 12px 20px; padding: 0; color: var(--muted); }
+    .code-card pre { margin: 10px 0 0; padding: 12px; overflow-x: auto; background: #182024; color: #f8f7f3; border-radius: 12px; font-family: var(--mono); font-size: 0.92rem; line-height: 1.5; }
+    .code-card .note { margin-top: 10px; color: var(--muted); font-size: 0.92rem; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 0.78rem; font-weight: 700; margin-right: 4px; }
+    .badge.warn { background: rgba(194, 90, 27, 0.14); color: var(--accent-strong); }
+    @media (max-width: 960px) { .hero-grid, .section-grid, .layout { grid-template-columns: minmax(0, 1fr); } .toc { position: static; } }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="hero">
+      <div class="hero-grid">
+        <div>
+          <div class="eyebrow">互动教学 · TAA 时序抗锯齿</div>
+          <h1>TAA：把过去几帧的信息偷来，给这一帧抗锯齿</h1>
+          <p class="lead">MSAA 4× 对静态几何有效，但对着色噪声（specular highlight、alpha test 叶子、体积雾）束手无策。<strong>TAA (Temporal Anti-Aliasing)</strong> 换个思路：每一帧用不同的 sub-pixel 偏移采样一次，再把上一帧的结果通过 motion vector 重投影过来混合。均值 = 4~8× 超采样效果，成本却只有 1× 渲染 + 一次拷贝。代价是：ghosting、闪烁、需要合理的 clip/clamp 策略。</p>
+          <div class="hero-points">
+            <div class="hero-point"><strong>1. 亚像素 jitter</strong>每帧用不同 sub-pixel 采样点，逐帧累积等价于超采样。</div>
+            <div class="hero-point"><strong>2. Reprojection</strong>用 motion vector 找出这一帧像素在上一帧的位置，从 history buffer 取。</div>
+          </div>
+        </div>
+        <div class="summary-card">
+          <h3>这页要带你搞懂的 8 件事</h3>
+          <ul>
+            <li>为什么 MSAA 抗不了 shading noise？</li>
+            <li>Halton 2/3 亚像素 jitter 序列是怎么算的</li>
+            <li>Reprojection & motion vector 的作用</li>
+            <li>Ghosting 是怎么来的、怎么看</li>
+            <li>Neighborhood clip / clamp（AABB / YCoCg）</li>
+            <li>Disocclusion（新露出的像素）怎么处理</li>
+            <li>为什么 TAA 之后总要加一个 sharpen pass</li>
+            <li>DLSS/FSR/TSR 与 TAA 什么关系</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <div class="layout">
+      <div class="content">
+
+        <!-- 01 · 走样 -->
+        <section class="section" id="alias">
+          <div class="section-head">
+            <div>
+              <span class="section-tag">01 · 走样 & MSAA 的局限</span>
+              <h2>不是所有 aliasing 都是"边缘锯齿"</h2>
+              <p>走样有两类：<strong>几何走样</strong>（边缘锯齿，MSAA 能处理）和 <strong>着色走样</strong>（specular sparkle、shader normals、alpha-test dithering，MSAA <em>不能</em> 处理，因为 MSAA 只在几何边缘 supersample，内部只 shading 一次）。TAA 通过每帧 sub-pixel jitter，跨帧平均，等价于 shading 也 supersample。</p>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <canvas id="aliasCanvas" width="640" height="280"></canvas>
+              <div class="controls">
+                <label class="pill"><input type="radio" name="aatype" value="none" checked> 无 AA</label>
+                <label class="pill"><input type="radio" name="aatype" value="msaa"> MSAA 4×</label>
+                <label class="pill"><input type="radio" name="aatype" value="taa"> TAA（跨帧累积）</label>
+              </div>
+              <p class="canvas-caption">左：细线 rasterize；中：specular 亮斑；右：alpha-tested 叶子。MSAA 修好左边，中/右几乎无效；TAA 三样全修。</p>
+            </div>
+            <div class="info-stack">
+              <div class="formula">
+                <span class="label">TAA 核心公式</span>
+                <div class="math">C_out = α · C_current + (1−α) · C_history_reproj
+α 通常 0.05~0.15（1/16 ~ 1/8）
+等价加权移动平均 → 累积样本数 N ≈ 1/α</div>
+                <p class="explain">α=0.1 → 稳态相当于把最近 10 帧的 sub-pixel 采样加权平均一次。10 帧 × 每帧不同 sub-pixel = 10 sample 超采样。</p>
+              </div>
+              <div class="trace-list">
+                <div class="trace-item"><strong>MSAA 为什么救不了 specular：</strong>MSAA 存 4 个 coverage + 只 1 次 shading。specular = (N·H)^power，power=32~256 时高光点小于像素，coverage 全 1 但颜色只算一次 → 该像素闪一下，下一帧不闪。</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 02 · Jitter -->
+        <section class="section" id="jitter">
+          <div class="section-head">
+            <div>
+              <span class="section-tag">02 · Halton 2/3 jitter 序列</span>
+              <h2>用什么规则每帧偏移一点点？</h2>
+              <p>不能用 rand()——低差异（low-discrepancy）序列才能保证 N 帧后 sub-pixel 均匀覆盖。工业标准是 Halton(2,3) 或 Halton(2,3) reordered。序列在 [0,1)² 里，减 0.5 后作为像素级偏移传入投影矩阵。</p>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <canvas id="jitterCanvas" width="640" height="280"></canvas>
+              <div class="controls">
+                <label class="pill" for="jitCount">序列长度 N：<strong id="jitCountVal">16</strong></label>
+                <input id="jitCount" type="range" min="4" max="64" value="16">
+                <label class="pill"><input type="radio" name="jseq" value="halton" checked> Halton(2,3)</label>
+                <label class="pill"><input type="radio" name="jseq" value="random"> 伪随机</label>
+                <label class="pill"><input type="radio" name="jseq" value="grid"> 均匀网格</label>
+              </div>
+              <p class="canvas-caption">在一个像素 (1×1) 里画 N 个采样点。Halton 均匀分布无聚簇；伪随机常出现聚集空洞；均匀网格看似完美但和场景网格对齐时又暴露 aliasing。</p>
+            </div>
+            <div class="info-stack">
+              <div class="formula">
+                <span class="label">Halton radical-inverse</span>
+                <div class="math">halton(i, base):
+  f = 1, r = 0
+  while i > 0:
+    f /= base
+    r += f · (i mod base)
+    i //= base
+  return r
+jitterX = halton(i, 2) − 0.5
+jitterY = halton(i, 3) − 0.5</div>
+              </div>
+              <div class="code-card">
+                <span class="label" style="color: var(--accent); font-weight: 700; font-size: 0.9rem;">投影矩阵注入 jitter</span>
+<pre>// After building projection matrix each frame:
+proj[2][0] += 2.0 * jitterX / screenWidth;   // subpixel offset
+proj[2][1] += 2.0 * jitterY / screenHeight;
+// Important: motion vector 计算必须用 unjittered proj，
+// 否则 jitter 会混入 motion 里污染 reprojection。</pre>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 03 · Reprojection -->
+        <section class="section" id="reproject">
+          <div class="section-head">
+            <div>
+              <span class="section-tag">03 · Reprojection & motion vector</span>
+              <h2>找出这一帧像素在上一帧的哪里</h2>
+              <p>物体动了、相机动了，像素不能只从"同一 uv 位置"读 history——那样静止的车、跑动的角色 history 会错位。方案：G-buffer 里额外写一张 <strong>motion vector</strong>：每像素记录"从上一帧到这一帧的屏幕位移"。reproject uv = current_uv − motion_vec。</p>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <canvas id="reprojCanvas" width="640" height="280"></canvas>
+              <div class="controls">
+                <label class="pill" for="reprojSpeed">物体速度：<strong id="reprojSpeedVal">1.0</strong></label>
+                <input id="reprojSpeed" type="range" min="0" max="30" value="10">
+              </div>
+              <p class="canvas-caption">红点是当前帧位置，蓝点是 history 里同一物体的位置。橙色箭头是 motion vector。取 history 时用蓝点位置采样。</p>
+            </div>
+            <div class="info-stack">
+              <div class="formula">
+                <span class="label">motion vector 计算</span>
+                <div class="math">pos_world = reconstruct from depth + inv(VP_current)
+pos_prev  = VP_prev · pos_world
+uv_prev   = pos_prev.xy / pos_prev.w · 0.5 + 0.5
+motion    = uv_curr − uv_prev</div>
+                <p class="explain">静态几何用逆投影 + 上一帧 VP 矩阵反算；动态物体（骨骼动画/粒子）在 vertex shader 里主动写 <code>prev_position</code> 到 G-buffer。</p>
+              </div>
+              <div class="trace-list">
+                <div class="trace-item"><strong>取样用 bilinear 而非 nearest：</strong>reproject uv 不整数对齐，双线性能减少 stepped edges。但双线性也会引入模糊——TAA sharpen 就是补这个。</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 04 · Ghosting -->
+        <section class="section" id="ghosting">
+          <div class="section-head">
+            <div>
+              <span class="section-tag">04 · Ghosting 现象</span>
+              <h2>动物体后面拖出淡淡的残影</h2>
+              <p>Ghosting = history 里的信息被错误"续存"到当前帧。原因：motion vector 不准、或 history 里的物体已经不在那了却仍被高权重混入。典型场景：透明物体没写 motion（motion=0，但视觉上它在动）、快速转向、shading 剧变。</p>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <canvas id="ghostCanvas" width="640" height="280"></canvas>
+              <div class="controls">
+                <label class="pill" for="ghostAlpha">history 权重 (1−α)：<strong id="ghostAlphaVal">0.90</strong></label>
+                <input id="ghostAlpha" type="range" min="50" max="98" value="90">
+                <label class="pill"><input type="checkbox" id="ghostClip"> 启用 neighborhood clip</label>
+              </div>
+              <p class="canvas-caption">白球在蓝背景上左右移动。history 权重越高，稳定性越好但拖尾越明显。启用 neighborhood clip 后立刻消除拖尾——因为背景像素的 history 值（白色）落在了当前 3×3 邻域的色彩包围盒外。</p>
+            </div>
+            <div class="info-stack">
+              <div class="method-card">
+                <h3>Ghosting 常见根源</h3>
+                <ul class="cons">
+                  <li>透明物体没有正确的 motion vector（velocity buffer 里是背景的 velocity）。</li>
+                  <li>粒子系统：alpha-blended 粒子没写 motion，跟着背景 velocity 走 → 拖尾。</li>
+                  <li>阴影／反射变化：几何位置没动，但 shading 颜色跳变——history 里的旧颜色仍在。</li>
+                  <li>相机快速旋转：motion vector 里像素跑到屏幕外 (disocclusion) 却没被检测。</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 05 · Clip -->
+        <section class="section" id="clip">
+          <div class="section-head">
+            <div>
+              <span class="section-tag">05 · Neighborhood clip / clamp</span>
+              <h2>用当前帧邻域颜色范围"净化"history</h2>
+              <p>Salvi & Vaidyanathan 提出的经典技巧：取当前帧 3×3 邻域的颜色 min/max（或均值 ± 方差），构成 AABB。history 颜色不在这个 AABB 内 → 说明是过期信息，clip 或 clamp 回 box 边界，防止污染。业界最常用 <strong>YCoCg 空间</strong>做 clip，比 RGB 空间 luma 敏感度更好。</p>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <canvas id="clipCanvas" width="640" height="280"></canvas>
+              <div class="controls">
+                <label class="pill"><input type="radio" name="clipMode" value="none" checked> 不 clip（naive TAA）</label>
+                <label class="pill"><input type="radio" name="clipMode" value="clamp"> Clamp to AABB</label>
+                <label class="pill"><input type="radio" name="clipMode" value="clip"> Clip line to AABB</label>
+              </div>
+              <p class="canvas-caption">2D 色彩空间可视化。current pixel（红点）在中心 3×3 邻域构成的 AABB 里。history（蓝点）在外——naive 直接混合污染；clamp 拉到最近角；clip 沿 current→history 线剪到 AABB 边界（更 aggressive，保留更多锐利）。</p>
+            </div>
+            <div class="info-stack">
+              <div class="formula">
+                <span class="label">YCoCg → RGB</span>
+                <div class="math">Y  = R/4 + G/2 + B/4
+Co = R/2 − B/2
+Cg = −R/4 + G/2 − B/4
+逆变换：
+R = Y + Co − Cg
+G = Y + Cg
+B = Y − Co − Cg</div>
+                <p class="explain">RGB 三通道相关性高（灰色像素三个都变），YCoCg 把亮度和色度分离，AABB 更贴合。工业实践几乎全用 YCoCg clip。</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 06 · Disocclusion -->
+        <section class="section" id="disocclusion">
+          <div class="section-head">
+            <div>
+              <span class="section-tag">06 · Disocclusion 处理</span>
+              <h2>"上一帧被挡住、这一帧露出"的像素</h2>
+              <p>相机绕角走一步，之前被墙挡住的那片草坪突然出现在屏幕上——history 里那个位置存的是墙的颜色，直接用会立刻 ghost 出一大块墙纹理。检测方法：reproject uv 越界，或 reproject 后的 depth 与当前 depth 差异大。</p>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <canvas id="disoccCanvas" width="640" height="280"></canvas>
+              <div class="controls">
+                <label class="pill" for="camMove">相机移动：<strong id="camMoveVal">0</strong></label>
+                <input id="camMove" type="range" min="0" max="100" value="0">
+              </div>
+              <p class="canvas-caption">前面的红柱挡住了后面的草。相机右移后，柱子左边露出草地。高亮区域就是 disocclusion mask——这里必须完全用 current 帧、不能用 history。</p>
+            </div>
+            <div class="info-stack">
+              <div class="method-card">
+                <h3>3 种检测</h3>
+                <ul class="pros">
+                  <li><strong>UV 越界：</strong>reproject uv &lt; 0 或 &gt; 1 → history 里没这像素，权重设 0。</li>
+                  <li><strong>Depth 不一致：</strong>|depth_curr − depth_history_at_reproj_uv| &gt; ε → 前后是不同物体。</li>
+                  <li><strong>Normal 不一致：</strong>|normal_curr − normal_history| 大 → shading 会不同，降权重。</li>
+                </ul>
+                <p style="margin-top:10px;">detected 后：不用 history / 增大 α（用更多 current）/ 或从邻域插值补一个 history。</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 07 · Sharpen -->
+        <section class="section" id="sharpen">
+          <div class="section-head">
+            <div>
+              <span class="section-tag">07 · Sharpen 后处理</span>
+              <h2>TAA 天然模糊，最后来一刀锐化</h2>
+              <p>TAA 的 bilinear reproject + 多帧混合 + clip → 天然有软化。工业实践在 TAA 输出后接一个轻量 sharpen（unsharp mask 或 CAS-lite）：subtract 一点低通版本 + 加回高频。UE 里叫 "TAA sharpen"，DLSS 里内置。</p>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <canvas id="sharpenCanvas" width="640" height="280"></canvas>
+              <div class="controls">
+                <label class="pill" for="sharpAmt">锐化强度：<strong id="sharpAmtVal">0.5</strong></label>
+                <input id="sharpAmt" type="range" min="0" max="100" value="50">
+              </div>
+              <p class="canvas-caption">左：raw TAA 输出（模糊）；右：sharpen 之后。使用 5-tap 减 4 邻域拉伸公式：C' = C·(1+4s) − s·(N+S+E+W)。</p>
+            </div>
+            <div class="info-stack">
+              <div class="formula">
+                <span class="label">unsharp mask</span>
+                <div class="math">low  = blur(image, 1px)
+high = image − low
+out  = image + amount · high
+    = (1 + amount) · image − amount · low</div>
+              </div>
+              <div class="trace-list">
+                <div class="trace-item"><strong>CAS (Contrast Adaptive Sharpening)：</strong>AMD 的锐化算法，根据局部对比度调整锐化幅度——平坦区不锐化避免 amplify noise，边缘区多锐化。DLSS/FSR2 都用类似思路。</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 08 · DLSS -->
+        <section class="section" id="dlss">
+          <div class="section-head">
+            <div>
+              <span class="section-tag">08 · DLSS / FSR / TSR</span>
+              <h2>和 TAA 什么关系？</h2>
+              <p>DLSS / FSR2 / TSR / XeSS 本质都是 <strong>temporal upscaler</strong>：从低分辨率 render + jitter + motion vector + history，还原到高分辨率。核心还是 TAA 那套（jitter + reproject + clip），但加了：（1）低分辨率 render；（2）神经网络 or heuristic 更聪明的 accumulation；（3）超分辨率注意力。理解了 TAA 就理解了这些技术 80%。</p>
+            </div>
+          </div>
+          <div class="section-grid">
+            <div class="demo-panel">
+              <canvas id="dlssCanvas" width="640" height="280"></canvas>
+              <p class="canvas-caption">概念对比：TAA 保原分辨率；DLSS/FSR 输入 1/2 或 1/3 分辨率，通过多帧累积拼回原分辨率。同样 4~8 帧融合 = 有效样本数追平原分辨率，但 rasterize + shading 成本减半。</p>
+            </div>
+            <div class="info-stack">
+              <div class="method-card">
+                <h3>三家对比</h3>
+                <ul class="pros">
+                  <li><strong>DLSS (NVIDIA)：</strong>Tensor Core 上跑 CNN 决定权重和 history clip 策略。质量最高，仅 RTX 卡。</li>
+                  <li><strong>FSR2/3 (AMD)：</strong>纯 heuristic，开源，跨平台。质量略逊 DLSS 但通吃所有 GPU。</li>
+                  <li><strong>TSR (UE5)：</strong>Epic 自研，heuristic 为主 + 可选 ML 加速，深度融入 Nanite / Lumen 管线。</li>
+                  <li><strong>XeSS (Intel)：</strong>Arc GPU 有 XMX 加速 CNN，其他 GPU 走 fallback。</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </section>
+
+      </div>
+
+      <aside class="toc">
+        <h3>目录</h3>
+        <a href="#alias">1. 走样 & MSAA 局限</a>
+        <a href="#jitter">2. Halton jitter</a>
+        <a href="#reproject">3. Reprojection</a>
+        <a href="#ghosting">4. Ghosting</a>
+        <a href="#clip">5. Neighborhood clip</a>
+        <a href="#disocclusion">6. Disocclusion</a>
+        <a href="#sharpen">7. Sharpen</a>
+        <a href="#dlss">8. DLSS/FSR/TSR</a>
+        <p class="note">TAA 是"用时间换空间"的典范——理解它是进入实时渲染进阶话题的敲门砖。</p>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    // ============ 01 · aliasing ============
+    (function () {
+      const canvas = document.getElementById('aliasCanvas');
+      const ctx = canvas.getContext('2d');
+      const radios = document.querySelectorAll('input[name="aatype"]');
+      function drawScene(type) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // 3 panels
+        const pw = canvas.width / 3;
+        // panel 1: thin diagonal line
+        function panel(x0, label) {
+          ctx.fillStyle = '#f2ecf8';
+          ctx.fillRect(x0, 20, pw - 20, 200);
+          ctx.strokeStyle = 'rgba(23,33,38,0.15)';
+          ctx.strokeRect(x0, 20, pw - 20, 200);
+          ctx.fillStyle = '#211a2c';
+          ctx.font = '600 12px "Aptos"';
+          ctx.textAlign = 'center';
+          ctx.fillText(label, x0 + (pw - 20) / 2, 240);
+        }
+        panel(10, '细斜线（几何）');
+        panel(pw + 10, 'specular 亮斑（着色）');
+        panel(2 * pw + 10, 'alpha-tested 叶子');
+        // Draw with different fidelity
+        const smooth = (type === 'msaa' || type === 'taa');
+        const shadingOK = (type === 'taa');
+        // Thin line
+        ctx.strokeStyle = '#8a3fbe';
+        ctx.lineWidth = 1.5;
+        if (!smooth) {
+          // draw stepped
+          for (let t = 0; t < 1; t += 0.02) {
+            const x = 30 + t * (pw - 60), y = 40 + t * 160;
+            ctx.fillStyle = '#8a3fbe';
+            ctx.fillRect(Math.floor(x), Math.floor(y), 2, 2);
+          }
+        } else {
+          ctx.beginPath(); ctx.moveTo(30, 40); ctx.lineTo(pw - 30, 200); ctx.stroke();
+        }
+        // Specular spots
+        const cx = pw + 10 + (pw - 20) / 2, cy = 120;
+        for (let i = 0; i < 12; ++i) {
+          const a = i * 0.7, r = 40 + i * 3;
+          const px = cx + r * Math.cos(a), py = cy + r * Math.sin(a);
+          const size = shadingOK ? 3 : (Math.random() > 0.5 ? 1 : 4); // sparkling
+          ctx.fillStyle = shadingOK ? '#8a3fbe' : (Math.random() > 0.5 ? '#8a3fbe' : '#f0e5fa');
+          ctx.beginPath(); ctx.arc(px, py, size, 0, Math.PI * 2); ctx.fill();
+        }
+        // Alpha-tested leaves
+        const lx0 = 2 * pw + 10;
+        for (let i = 0; i < 30; ++i) {
+          const x = lx0 + 15 + Math.random() * (pw - 50);
+          const y = 30 + Math.random() * 180;
+          const size = shadingOK ? 6 : (Math.random() > 0.5 ? 5 : 7);
+          ctx.fillStyle = shadingOK ? '#4a9d5a' : (Math.random() > 0.5 ? '#4a9d5a' : 'transparent');
+          if (ctx.fillStyle !== 'transparent') {
+            ctx.beginPath(); ctx.arc(x, y, size, 0, Math.PI * 2); ctx.fill();
+          }
+        }
+      }
+      let t = 0;
+      function loop() {
+        const type = document.querySelector('input[name="aatype"]:checked').value;
+        drawScene(type);
+        t++;
+        setTimeout(() => requestAnimationFrame(loop), 100);
+      }
+      loop();
+    })();
+
+    // ============ 02 · jitter ============
+    (function () {
+      const canvas = document.getElementById('jitterCanvas');
+      const ctx = canvas.getContext('2d');
+      const cnt = document.getElementById('jitCount');
+      const cntVal = document.getElementById('jitCountVal');
+      const radios = document.querySelectorAll('input[name="jseq"]');
+      function halton(i, base) {
+        let f = 1, r = 0, j = i;
+        while (j > 0) { f /= base; r += f * (j % base); j = Math.floor(j / base); }
+        return r;
+      }
+      function redraw() {
+        const N = +cnt.value;
+        cntVal.textContent = N;
+        const mode = document.querySelector('input[name="jseq"]:checked').value;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // Draw pixel grid at large scale
+        const sz = 240, x0 = 60, y0 = 20;
+        ctx.fillStyle = '#f2ecf8'; ctx.fillRect(x0, y0, sz, sz);
+        ctx.strokeStyle = '#211a2c'; ctx.lineWidth = 2;
+        ctx.strokeRect(x0, y0, sz, sz);
+        // Sub-grid 8x8 for reference
+        ctx.strokeStyle = 'rgba(33,26,44,0.1)'; ctx.lineWidth = 1;
+        for (let i = 1; i < 8; ++i) {
+          ctx.beginPath(); ctx.moveTo(x0 + sz * i / 8, y0); ctx.lineTo(x0 + sz * i / 8, y0 + sz); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(x0, y0 + sz * i / 8); ctx.lineTo(x0 + sz, y0 + sz * i / 8); ctx.stroke();
+        }
+        // Sample points
+        for (let i = 1; i <= N; ++i) {
+          let jx, jy;
+          if (mode === 'halton') { jx = halton(i, 2); jy = halton(i, 3); }
+          else if (mode === 'random') { jx = Math.random(); jy = Math.random(); }
+          else {
+            const side = Math.ceil(Math.sqrt(N));
+            const r = Math.floor((i - 1) / side), c = (i - 1) % side;
+            jx = (c + 0.5) / side; jy = (r + 0.5) / side;
+          }
+          ctx.fillStyle = `hsl(${(i * 250 / N) % 360}, 65%, 50%)`;
+          ctx.beginPath(); ctx.arc(x0 + jx * sz, y0 + jy * sz, 5, 0, Math.PI * 2); ctx.fill();
+          ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.stroke();
+        }
+        ctx.fillStyle = '#211a2c';
+        ctx.font = '600 12px "Aptos"';
+        ctx.textAlign = 'left';
+        ctx.fillText('一个像素内 N 个 sub-pixel 采样点', x0, y0 + sz + 20);
+        // First 4 halton values
+        const vx = x0 + sz + 30;
+        ctx.font = '700 12px "Aptos"';
+        ctx.fillText('Halton(2,3) 前 8 项：', vx, y0 + 20);
+        ctx.font = '500 11px "Cascadia Code"';
+        for (let i = 1; i <= 8; ++i) {
+          const h2 = halton(i, 2), h3 = halton(i, 3);
+          ctx.fillText(`i=${i}: (${h2.toFixed(3)}, ${h3.toFixed(3)})`, vx, y0 + 40 + i * 18);
+        }
+      }
+      cnt.addEventListener('input', redraw);
+      radios.forEach(r => r.addEventListener('change', redraw));
+      redraw();
+    })();
+
+    // ============ 03 · reproject ============
+    (function () {
+      const canvas = document.getElementById('reprojCanvas');
+      const ctx = canvas.getContext('2d');
+      const speedS = document.getElementById('reprojSpeed');
+      const speedVal = document.getElementById('reprojSpeedVal');
+      let t = 0;
+      function redraw() {
+        const spd = +speedS.value / 10;
+        speedVal.textContent = spd.toFixed(1);
+        t += 0.04;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // background grid
+        ctx.strokeStyle = 'rgba(33,26,44,0.08)';
+        for (let x = 0; x < canvas.width; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke(); }
+        for (let y = 0; y < canvas.height; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke(); }
+        // Object curr pos
+        const cx = canvas.width / 2 + Math.sin(t) * 150;
+        const cy = canvas.height / 2 + Math.cos(t * 0.7) * 60;
+        // history pos = current - motion vector (which is velocity * 1 frame)
+        const vx = Math.cos(t) * 150 * 0.04 * (spd * 8);
+        const vy = -Math.sin(t * 0.7) * 60 * 0.028 * (spd * 8);
+        const hx = cx - vx, hy = cy - vy;
+        // draw history (semi-transparent)
+        ctx.fillStyle = 'rgba(60,120,220,0.5)';
+        ctx.beginPath(); ctx.arc(hx, hy, 22, 0, Math.PI * 2); ctx.fill();
+        // motion vector arrow
+        ctx.strokeStyle = '#c25a1b'; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(cx, cy); ctx.stroke();
+        const ah = Math.atan2(cy - hy, cx - hx);
+        ctx.fillStyle = '#c25a1b';
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx - 10 * Math.cos(ah - 0.35), cy - 10 * Math.sin(ah - 0.35));
+        ctx.lineTo(cx - 10 * Math.cos(ah + 0.35), cy - 10 * Math.sin(ah + 0.35));
+        ctx.closePath(); ctx.fill();
+        // current
+        ctx.fillStyle = 'rgba(220,60,60,0.9)';
+        ctx.beginPath(); ctx.arc(cx, cy, 22, 0, Math.PI * 2); ctx.fill();
+        // labels
+        ctx.fillStyle = '#211a2c';
+        ctx.font = '600 12px "Aptos"';
+        ctx.textAlign = 'center';
+        ctx.fillText('history (prev frame)', hx, hy - 32);
+        ctx.fillText('current', cx, cy - 32);
+        ctx.font = '500 11px "Cascadia Code"';
+        ctx.fillStyle = '#c25a1b';
+        ctx.fillText(`motion = (${vx.toFixed(1)}, ${vy.toFixed(1)})`, (cx + hx) / 2, (cy + hy) / 2 - 20);
+        requestAnimationFrame(redraw);
+      }
+      redraw();
+    })();
+
+    // ============ 04 · ghosting ============
+    (function () {
+      const canvas = document.getElementById('ghostCanvas');
+      const ctx = canvas.getContext('2d');
+      const alphaSl = document.getElementById('ghostAlpha');
+      const alphaVal = document.getElementById('ghostAlphaVal');
+      const clipCb = document.getElementById('ghostClip');
+      let history = null;
+      let phase = 0;
+      function redraw() {
+        const w = canvas.width, h = canvas.height;
+        const histA = +alphaSl.value / 100;
+        alphaVal.textContent = histA.toFixed(2);
+        // current frame
+        const cur = ctx.createImageData(w, h);
+        const d = cur.data;
+        for (let i = 0; i < w * h; ++i) {
+          d[i * 4] = 60; d[i * 4 + 1] = 90; d[i * 4 + 2] = 180; d[i * 4 + 3] = 255;
+        }
+        // Ball at position
+        phase += 0.03;
+        const bx = w / 2 + Math.sin(phase) * 200;
+        const by = h / 2;
+        const R = 30;
+        for (let y = 0; y < h; ++y) {
+          for (let x = 0; x < w; ++x) {
+            const dx = x - bx, dy = y - by;
+            if (dx * dx + dy * dy < R * R) {
+              const i = (y * w + x) * 4;
+              d[i] = 240; d[i + 1] = 240; d[i + 2] = 240;
+            }
+          }
+        }
+        // Init history
+        if (!history || history.width !== w) {
+          history = ctx.createImageData(w, h);
+          for (let i = 0; i < d.length; ++i) history.data[i] = d[i];
+        }
+        // Blend history + current
+        const out = ctx.createImageData(w, h);
+        const od = out.data, hd = history.data;
+        const doClip = clipCb.checked;
+        for (let y = 1; y < h - 1; ++y) {
+          for (let x = 1; x < w - 1; ++x) {
+            const i = (y * w + x) * 4;
+            let hR = hd[i], hG = hd[i + 1], hB = hd[i + 2];
+            if (doClip) {
+              // 3x3 neighborhood AABB
+              let minR = 255, minG = 255, minB = 255, maxR = 0, maxG = 0, maxB = 0;
+              for (let dy = -1; dy <= 1; ++dy) for (let dx = -1; dx <= 1; ++dx) {
+                const j = ((y + dy) * w + x + dx) * 4;
+                if (d[j] < minR) minR = d[j]; if (d[j] > maxR) maxR = d[j];
+                if (d[j + 1] < minG) minG = d[j + 1]; if (d[j + 1] > maxG) maxG = d[j + 1];
+                if (d[j + 2] < minB) minB = d[j + 2]; if (d[j + 2] > maxB) maxB = d[j + 2];
+              }
+              hR = Math.min(maxR, Math.max(minR, hR));
+              hG = Math.min(maxG, Math.max(minG, hG));
+              hB = Math.min(maxB, Math.max(minB, hB));
+            }
+            od[i]     = (1 - histA) * d[i]     + histA * hR;
+            od[i + 1] = (1 - histA) * d[i + 1] + histA * hG;
+            od[i + 2] = (1 - histA) * d[i + 2] + histA * hB;
+            od[i + 3] = 255;
+          }
+        }
+        ctx.putImageData(out, 0, 0);
+        for (let i = 0; i < od.length; ++i) hd[i] = od[i];
+        requestAnimationFrame(redraw);
+      }
+      redraw();
+    })();
+
+    // ============ 05 · clip vs clamp ============
+    (function () {
+      const canvas = document.getElementById('clipCanvas');
+      const ctx = canvas.getContext('2d');
+      const radios = document.querySelectorAll('input[name="clipMode"]');
+      function redraw() {
+        const mode = document.querySelector('input[name="clipMode"]:checked').value;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // color-space plot (2D projection)
+        const x0 = 60, y0 = 30, size = 220;
+        ctx.strokeStyle = 'rgba(33,26,44,0.15)';
+        ctx.strokeRect(x0, y0, size, size);
+        // AABB (current neighborhood)
+        const bx = x0 + 60, by = y0 + 50, bw = 90, bh = 90;
+        ctx.fillStyle = 'rgba(138,63,190,0.15)';
+        ctx.fillRect(bx, by, bw, bh);
+        ctx.strokeStyle = '#8a3fbe'; ctx.lineWidth = 2;
+        ctx.strokeRect(bx, by, bw, bh);
+        // Current pixel (center of box)
+        const cx = bx + bw / 2, cy = by + bh / 2;
+        ctx.fillStyle = '#8a3fbe';
+        ctx.beginPath(); ctx.arc(cx, cy, 6, 0, Math.PI * 2); ctx.fill();
+        // History pixel outside
+        const hx = x0 + 30, hy = y0 + 200;
+        ctx.fillStyle = '#3070c8';
+        ctx.beginPath(); ctx.arc(hx, hy, 6, 0, Math.PI * 2); ctx.fill();
+        // Line from current to history
+        ctx.strokeStyle = 'rgba(33,26,44,0.3)'; ctx.setLineDash([4, 3]);
+        ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(hx, hy); ctx.stroke();
+        ctx.setLineDash([]);
+        // Modified history
+        let mx = hx, my = hy;
+        if (mode === 'clamp') {
+          mx = Math.max(bx, Math.min(bx + bw, hx));
+          my = Math.max(by, Math.min(by + bh, hy));
+        } else if (mode === 'clip') {
+          // Intersect ray from cx,cy toward hx,hy with box
+          const dx = hx - cx, dy = hy - cy;
+          let tMin = 1;
+          if (dx !== 0) {
+            const t1 = (bx - cx) / dx, t2 = (bx + bw - cx) / dx;
+            if (t1 > 0 && t1 < tMin) tMin = t1;
+            if (t2 > 0 && t2 < tMin) tMin = t2;
+          }
+          if (dy !== 0) {
+            const t1 = (by - cy) / dy, t2 = (by + bh - cy) / dy;
+            if (t1 > 0 && t1 < tMin) tMin = t1;
+            if (t2 > 0 && t2 < tMin) tMin = t2;
+          }
+          mx = cx + dx * tMin; my = cy + dy * tMin;
+        }
+        if (mode !== 'none') {
+          ctx.strokeStyle = '#c25a1b'; ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(mx, my); ctx.stroke();
+          ctx.fillStyle = '#c25a1b';
+          ctx.beginPath(); ctx.arc(mx, my, 6, 0, Math.PI * 2); ctx.fill();
+        }
+        // labels
+        ctx.fillStyle = '#211a2c';
+        ctx.font = '700 12px "Aptos"';
+        ctx.textAlign = 'left';
+        ctx.fillText('颜色空间 (2D 投影)', x0, y0 - 8);
+        ctx.font = '500 12px "Aptos"';
+        ctx.fillStyle = '#8a3fbe';
+        ctx.fillText('current pixel', cx + 10, cy);
+        ctx.fillStyle = '#3070c8';
+        ctx.fillText('history (raw)', hx + 10, hy - 4);
+        ctx.fillStyle = '#c25a1b';
+        if (mode !== 'none') ctx.fillText('修正后', mx + 10, my);
+        // 说明
+        const vx = x0 + size + 40, vy = y0;
+        ctx.fillStyle = '#211a2c';
+        ctx.font = '600 12px "Aptos"';
+        const notes = {
+          none: 'naive TAA：history 被直接混入 → 拖尾 / 鬼影',
+          clamp: 'clamp：拉到 AABB 的最近点（可能"斜穿"box）',
+          clip: 'clip：沿 current→history 线剪到 AABB 边界（推荐）',
+        };
+        ctx.fillText(notes[mode], vx, vy + 20);
+      }
+      radios.forEach(r => r.addEventListener('change', redraw));
+      redraw();
+    })();
+
+    // ============ 06 · disocclusion ============
+    (function () {
+      const canvas = document.getElementById('disoccCanvas');
+      const ctx = canvas.getContext('2d');
+      const camS = document.getElementById('camMove');
+      const camVal = document.getElementById('camMoveVal');
+      function redraw() {
+        const cam = +camS.value;
+        camVal.textContent = cam;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // grass background
+        ctx.fillStyle = '#4a9d5a'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        for (let i = 0; i < 200; ++i) {
+          ctx.fillStyle = `hsl(${100 + Math.random() * 30}, 55%, ${35 + Math.random() * 20}%)`;
+          ctx.fillRect(Math.random() * canvas.width, Math.random() * canvas.height, 3, 5);
+        }
+        // red pillar shifted by camera
+        const pillarX = 280 - cam * 2;
+        ctx.fillStyle = '#c25a1b';
+        ctx.fillRect(pillarX, 40, 120, 200);
+        ctx.fillStyle = '#8a3f1b';
+        ctx.fillRect(pillarX, 40, 12, 200);
+        // Highlight disocclusion zone (left edge of where pillar was)
+        if (cam > 5) {
+          const dx = 280;
+          const dw = cam * 2;
+          ctx.fillStyle = 'rgba(255,255,0,0.35)';
+          ctx.fillRect(dx - dw, 40, dw, 200);
+          ctx.strokeStyle = '#c25a1b'; ctx.setLineDash([5, 3]); ctx.lineWidth = 2;
+          ctx.strokeRect(dx - dw, 40, dw, 200);
+          ctx.setLineDash([]);
+          ctx.fillStyle = '#211a2c';
+          ctx.font = '700 13px "Aptos"';
+          ctx.textAlign = 'center';
+          ctx.fillText('disocclusion mask', dx - dw / 2, 30);
+        }
+        ctx.fillStyle = '#211a2c';
+        ctx.font = '600 12px "Aptos"';
+        ctx.textAlign = 'left';
+        ctx.fillText('黄色高亮 = history 里存的是柱子颜色、不能用', 20, 265);
+      }
+      camS.addEventListener('input', redraw);
+      redraw();
+    })();
+
+    // ============ 07 · sharpen ============
+    (function () {
+      const canvas = document.getElementById('sharpenCanvas');
+      const ctx = canvas.getContext('2d');
+      const amtS = document.getElementById('sharpAmt');
+      const amtVal = document.getElementById('sharpAmtVal');
+      // create a source image with high-freq details
+      const w = 300, h = 200;
+      const srcImg = document.createElement('canvas');
+      srcImg.width = w; srcImg.height = h;
+      const sctx = srcImg.getContext('2d');
+      sctx.fillStyle = '#f2ecf8'; sctx.fillRect(0, 0, w, h);
+      sctx.fillStyle = '#211a2c';
+      sctx.font = '700 60px "Bahnschrift"';
+      sctx.textAlign = 'center'; sctx.textBaseline = 'middle';
+      sctx.fillText('SHARP', w / 2, h / 2);
+      for (let i = 0; i < 10; ++i) {
+        sctx.strokeStyle = `hsl(${i * 36}, 60%, 50%)`;
+        sctx.lineWidth = 1;
+        sctx.beginPath(); sctx.moveTo(20 + i * 26, 20); sctx.lineTo(20 + i * 26, 180); sctx.stroke();
+      }
+      function redraw() {
+        const amt = +amtS.value / 100;
+        amtVal.textContent = amt.toFixed(2);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // Left: blurred (raw TAA)
+        ctx.filter = 'blur(1.2px)';
+        ctx.drawImage(srcImg, 15, 40);
+        ctx.filter = 'none';
+        // Right: sharpened
+        // Get blurred data, then apply unsharp mask manually
+        const tmp = document.createElement('canvas');
+        tmp.width = w; tmp.height = h;
+        const tctx = tmp.getContext('2d');
+        tctx.filter = 'blur(1.2px)';
+        tctx.drawImage(srcImg, 0, 0);
+        tctx.filter = 'none';
+        const blurredData = tctx.getImageData(0, 0, w, h);
+        // Very blurred (low)
+        tctx.filter = 'blur(3px)';
+        tctx.drawImage(srcImg, 0, 0);
+        tctx.filter = 'none';
+        const lowData = tctx.getImageData(0, 0, w, h);
+        const outImg = tctx.createImageData(w, h);
+        const bd = blurredData.data, ld = lowData.data, od = outImg.data;
+        for (let i = 0; i < bd.length; i += 4) {
+          for (let k = 0; k < 3; ++k) {
+            od[i + k] = Math.max(0, Math.min(255, (1 + amt) * bd[i + k] - amt * ld[i + k]));
+          }
+          od[i + 3] = 255;
+        }
+        tctx.putImageData(outImg, 0, 0);
+        ctx.drawImage(tmp, 330, 40);
+        ctx.fillStyle = '#211a2c';
+        ctx.font = '700 12px "Aptos"';
+        ctx.textAlign = 'center';
+        ctx.fillText('raw TAA (模糊)', 165, 30);
+        ctx.fillText(`+ unsharp mask (amt=${amt.toFixed(2)})`, 480, 30);
+      }
+      amtS.addEventListener('input', redraw);
+      redraw();
+    })();
+
+    // ============ 08 · DLSS/FSR concept ============
+    (function () {
+      const canvas = document.getElementById('dlssCanvas');
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#f2ecf8'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      // 3 boxes
+      const boxes = [
+        { x: 40,  label: 'TAA @ native', input: '1920×1080', frames: '1 frame @ full res', out: '1920×1080', color: '#8a3fbe' },
+        { x: 240, label: 'FSR2 quality',  input: '1280×720',  frames: '+ jitter + history', out: '1920×1080', color: '#c25a1b' },
+        { x: 440, label: 'DLSS ultra',    input: '1280×720',  frames: '+ CNN + history',    out: '1920×1080', color: '#3a8fbe' },
+      ];
+      boxes.forEach(b => {
+        ctx.fillStyle = 'rgba(255,255,255,0.7)';
+        ctx.fillRect(b.x, 40, 160, 220);
+        ctx.strokeStyle = b.color; ctx.lineWidth = 2;
+        ctx.strokeRect(b.x, 40, 160, 220);
+        ctx.fillStyle = b.color;
+        ctx.font = '700 13px "Aptos"';
+        ctx.textAlign = 'center';
+        ctx.fillText(b.label, b.x + 80, 62);
+        ctx.fillStyle = '#211a2c';
+        ctx.font = '500 11px "Cascadia Code"';
+        ctx.fillText('输入:', b.x + 80, 90);
+        ctx.fillText(b.input, b.x + 80, 106);
+        ctx.fillText('过程:', b.x + 80, 140);
+        ctx.font = '500 10px "Aptos"';
+        // wrap
+        const words = b.frames.split(' ');
+        let line = '', lines = [];
+        words.forEach(w => {
+          if ((line + ' ' + w).length > 22) { lines.push(line); line = w; }
+          else line = line ? line + ' ' + w : w;
+        });
+        if (line) lines.push(line);
+        lines.forEach((l, i) => ctx.fillText(l, b.x + 80, 156 + i * 14));
+        ctx.font = '500 11px "Cascadia Code"';
+        ctx.fillText('输出:', b.x + 80, 210);
+        ctx.fillStyle = b.color;
+        ctx.font = '700 12px "Cascadia Code"';
+        ctx.fillText(b.out, b.x + 80, 228);
+        ctx.fillStyle = '#211a2c';
+        ctx.font = '500 10px "Aptos"';
+        const cost = b.label.includes('native') ? 'GPU 成本 100%' : b.label.includes('FSR') ? '~ 44%' : '~ 44% + CNN';
+        ctx.fillText(cost, b.x + 80, 248);
+      });
+    })();
+  </script>
+</body>
+</html>

@@ -24,7 +24,7 @@ WhatsCanvas 支持 5 种渲染后端：
 
 ```cmake
 # 只需要 Software（无 GPU 依赖）
-find_package(WhatsCanvas 1.2.0 CONFIG REQUIRED)
+find_package(WhatsCanvas 1.2.1 CONFIG REQUIRED)
 target_link_libraries(MyApp PRIVATE WhatsCanvas::Software)
 ```
 

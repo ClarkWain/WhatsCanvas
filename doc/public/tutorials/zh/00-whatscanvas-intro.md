@@ -64,7 +64,7 @@ cmake_minimum_required(VERSION 3.16)
 project(MyApp LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
-find_package(WhatsCanvas 1.2.0 CONFIG REQUIRED)
+find_package(WhatsCanvas 1.2.1 CONFIG REQUIRED)
 
 add_executable(MyApp main.cpp)
 target_link_libraries(MyApp PRIVATE WhatsCanvas::Software)
@@ -342,7 +342,7 @@ WhatsCanvas 提供多种接入方式，适应不同工程实践：
 ### 方式 1：GitHub Release 预编译包
 
 ```bash
-# 下载 whatscanvas-win64-release-1.2.0.zip
+# 下载 whatscanvas-win64-release-1.2.1.zip
 # 解压后通过 CMAKE_PREFIX_PATH 指向安装目录
 cmake -S . -B build -DCMAKE_PREFIX_PATH=/path/to/whatscanvas
 ```

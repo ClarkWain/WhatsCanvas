@@ -56,7 +56,7 @@ a dependency:
 
 ```groovy
 dependencies {
-    implementation files('libs/whatscanvas-android-release-1.2.0.aar')
+    implementation files('libs/whatscanvas-android-release-1.2.1.aar')
 }
 
 android {
