@@ -22,5 +22,14 @@ struct DiscoveredFontFace
 // Returns an empty vector when the platform API is unavailable.
 std::vector<DiscoveredFontFace> discoverInstalledFontFaces();
 
+#if defined(_WIN32)
+// Resolve the small set of default fallback families without opening every
+// installed font face. A cold default lookup may use DirectWrite's cached
+// collection; an explicit alias refresh asks for a fresh one when it queries
+// DirectWrite. Full enumeration remains available above.
+std::vector<DiscoveredFontFace> discoverSelectedFontFaces(
+    const std::vector<std::string> &families, bool refreshCollection);
+#endif
+
 } // namespace detail
 } // namespace wsc

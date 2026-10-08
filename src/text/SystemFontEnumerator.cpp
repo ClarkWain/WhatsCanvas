@@ -309,7 +309,26 @@ std::string localFontFilePath(IDWriteFontFile *file)
     return wideToUtf8(path);
 }
 
-std::vector<DiscoveredFontFace> discoverWindows()
+bool selectedWindowsFamily(
+    const std::string &family, const std::vector<std::string> *selected)
+{
+    if (selected == nullptr) return true;
+    return std::any_of(selected->begin(), selected->end(),
+                       [&](const std::string &candidate) {
+        if (candidate.size() != family.size()) return false;
+        for (std::size_t i = 0; i < family.size(); ++i) {
+            if (std::tolower(static_cast<unsigned char>(family[i]))
+                != std::tolower(static_cast<unsigned char>(candidate[i]))) {
+                return false;
+            }
+        }
+        return true;
+    });
+}
+
+std::vector<DiscoveredFontFace> discoverWindows(
+    const std::vector<std::string> *selected = nullptr,
+    bool refreshCollection = true)
 {
     using Microsoft::WRL::ComPtr;
     std::vector<DiscoveredFontFace> out;
@@ -321,9 +340,9 @@ std::vector<DiscoveredFontFace> discoverWindows()
     }
 
     ComPtr<IDWriteFontCollection> systemCollection;
-    // This API is intentionally dynamic: ask DirectWrite to refresh its cached
-    // collection so fonts installed since the previous call are visible.
-    if (FAILED(factory->GetSystemFontCollection(systemCollection.GetAddressOf(), TRUE))) {
+    // A first default-alias lookup can use DirectWrite's existing collection.
+    // Explicit font discovery and refresh must observe newly installed fonts.
+    if (FAILED(factory->GetSystemFontCollection(systemCollection.GetAddressOf(), refreshCollection))) {
         return out;
     }
 
@@ -336,7 +355,7 @@ std::vector<DiscoveredFontFace> discoverWindows()
         if (FAILED(family->GetFamilyNames(names.GetAddressOf()))) continue;
 
         const std::string familyName = wideToUtf8(localizedString(names.Get()));
-        if (familyName.empty()) continue;
+        if (familyName.empty() || !selectedWindowsFamily(familyName, selected)) continue;
         const UINT32 fontCount = family->GetFontCount();
         for (UINT32 f = 0; f < fontCount; ++f) {
             ComPtr<IDWriteFont> font;
@@ -456,6 +475,14 @@ std::vector<DiscoveredFontFace> discoverInstalledFontFaces()
 #endif
 }
 
+#if defined(_WIN32)
+std::vector<DiscoveredFontFace> discoverSelectedFontFaces(
+    const std::vector<std::string> &families, bool refreshCollection)
+{
+    return discoverWindows(&families, refreshCollection);
+}
+#endif
+
 } // namespace detail
 } // namespace wsc
 
@@ -521,6 +548,7 @@ struct DefaultsCache
 {
     std::mutex mutex;
     std::optional<std::vector<FontFace>> value;
+    bool refreshOnNextBuild = false;
 };
 
 DiscoveryCache &discoveryCache()
@@ -571,16 +599,16 @@ std::vector<FontFace> FontSystem::discoverInstalledFontFaces()
 
 std::vector<FontFace> FontSystem::defaultSystemFontFaces()
 {
+    bool refreshCollection = false;
     {
         DefaultsCache &cache = defaultsCache();
         std::lock_guard<std::mutex> lock(cache.mutex);
         if (cache.value.has_value()) return *cache.value;
+        refreshCollection = cache.refreshOnNextBuild;
     }
 
-    std::vector<FontFace> built = [] {
-        const std::vector<FontFace> installed = discoverInstalledFontFaces();
+    std::vector<FontFace> built = [refreshCollection] {
         std::vector<FontFace> faces;
-        if (installed.empty()) return faces;
 
 #if defined(_WIN32)
         const auto primaryFamilies = {"Segoe UI", "Arial"};
@@ -615,6 +643,44 @@ std::vector<FontFace> FontSystem::defaultSystemFontFaces()
         const auto monoFamilies = {"DejaVu Sans Mono", "Noto Sans Mono", "Liberation Mono",
                        "Ubuntu Mono", "Roboto Mono", "FreeMono"};
 #endif
+
+        std::vector<FontFace> installed;
+#if defined(_WIN32)
+        bool haveFullCache = false;
+        {
+            DiscoveryCache &cache = discoveryCache();
+            std::lock_guard<std::mutex> lock(cache.mutex);
+            haveFullCache = cache.value.has_value();
+            if (haveFullCache) installed = *cache.value;
+        }
+        if (!haveFullCache) {
+            std::vector<std::string> selected;
+            const auto include = [&](const auto &families) {
+                for (const char *family : families) selected.emplace_back(family);
+            };
+            include(primaryFamilies);
+            include(cjkFamilies);
+            include(arabicFamilies);
+            include(hebrewFamilies);
+            include(symbolFamilies);
+            include(serifFamilies);
+            include(monoFamilies);
+            for (const detail::DiscoveredFontFace &face :
+                 detail::discoverSelectedFontFaces(selected, refreshCollection)) {
+                installed.push_back(FontFace::fromFile(
+                    FontDescriptor(face.family, face.weight,
+                        face.italic ? FontSlant::ITALIC : FontSlant::NORMAL),
+                    face.path, face.faceIndex));
+            }
+            DiscoveryCache &cache = discoveryCache();
+            std::lock_guard<std::mutex> lock(cache.mutex);
+            ++cache.generation;
+            if (cache.generation == 0) cache.generation = 1;
+        }
+#else
+        installed = discoverInstalledFontFaces();
+#endif
+        if (installed.empty()) return faces;
 
         const auto addAlias = [&](const char *alias, const auto &families, int weight,
                                   std::initializer_list<FontCodepointRange> ranges = {}) {
@@ -667,6 +733,7 @@ void FontSystem::refreshDefaultSystemFontFacesOnly()
 {
     std::lock_guard<std::mutex> lock(defaultsCache().mutex);
     defaultsCache().value.reset();
+    defaultsCache().refreshOnNextBuild = true;
 }
 
 std::uint64_t FontSystem::refreshInstalledFonts()
