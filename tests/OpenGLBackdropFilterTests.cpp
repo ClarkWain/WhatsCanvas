@@ -388,6 +388,25 @@ int main()
                     "OpenGL offset should expose the background at the old position") && ok;
     }
 
+    wsc::Paint shadowBackground = white;
+    shadowBackground.setColor(wsc::Color(240, 240, 245, 255));
+    canvas->beginFrame();
+    canvas->drawRect(
+        wsc::RectF(0.0f, 0.0f, static_cast<float>(kWidth),
+                   static_cast<float>(kHeight)), shadowBackground);
+    canvas->drawBoxShadow(wsc::RectF(40.0f, 28.0f, 80.0f, 64.0f),
+                          12.0f, 0.0f, 12.0f, 0.0f, 8.0f,
+                          wsc::Color(0, 0, 0, 140));
+    canvas->endFrame();
+    pixels.clear();
+    ok = expect(canvas->readPixelsRGBA(pixels),
+                "box-shadow readback should succeed") && ok;
+    if (ok) {
+        const unsigned char *shadow = pixelAt(80, 98);
+        ok = expect(shadow[0] < 240 && shadow[3] == 255,
+                    "shadow over opaque background must keep opaque alpha") && ok;
+    }
+
     canvas.reset();
     glfwDestroyWindow(window);
     glfwTerminate();

@@ -330,6 +330,11 @@ inline std::uint64_t fingerprintCommand(const Command *cmd)
         const std::uint64_t texHandle = d.imageResource
             ? d.imageResource->nativeHandle().value
             : 0;
+        // Software images have no native handle. Treat them as uncacheable
+        // rather than equating mutable images with the same draw geometry.
+        if (texHandle == 0) {
+            return 0;
+        }
         h.mix(texHandle);
         h.mixBytes(&d.x, sizeof(float) * 8u); // x,y,w,h,u0,v0,u1,v1
         h.mix(d.roundedRadius);
@@ -372,6 +377,9 @@ inline std::uint64_t fingerprintCommand(const Command *cmd)
         const std::uint64_t texHandle = d.imageResource
             ? d.imageResource->nativeHandle().value
             : 0;
+        if (texHandle == 0) {
+            return 0;
+        }
         h.mix(texHandle);
         h.mixBytes(d.tintColor, sizeof(d.tintColor));
         h.mix(d.alpha);
@@ -7726,7 +7734,7 @@ void Canvas::Impl::restoreLayer(const LayerState &layer)
                 backdropCache.layerWidth = layerWidth;
                 backdropCache.layerHeight = layerHeight;
                 backdropCache.filteredBackdrop = filteredBackdrop;
-            } else {
+            } else if (cacheable || backend != Canvas::Backend::Software) {
                 backdropCache.commandsFingerprint = 0;
                 backdropCache.filteredBackdrop.reset();
             }

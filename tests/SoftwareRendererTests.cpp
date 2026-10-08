@@ -253,6 +253,48 @@ bool testDrawImage()
     return ok;
 }
 
+bool testHalfPixelTopAndBottomEdges()
+{
+    constexpr int w = 48;
+    constexpr int h = 24;
+    std::unique_ptr<Canvas> canvas = makeSoftwareCanvas(w, h);
+    if (!canvas) {
+        return expect(false, "createSoftware should return a canvas");
+    }
+    const std::vector<unsigned char> src(4u * 4u * 4u, 255u);
+    Image image;
+    if (!expect(image.loadFromRGBA(*canvas, src, 4, 4, false),
+                "load half-pixel image")) {
+        return false;
+    }
+    Paint fill;
+    fill.setAntiAlias(false);
+    fill.setColor(Color(40, 120, 240, 255));
+    Paint imagePaint;
+    imagePaint.setColor(Color::WHITE);
+    imagePaint.setImageSampling(Paint::ImageSampling::NEAREST);
+    canvas->beginFrame();
+    canvas->drawRect(RectF(4.5f, 4.5f, 16.0f, 12.0f), fill);
+    canvas->drawImage(image, 32.5f, 4.5f, imagePaint);
+    canvas->endFrame();
+    std::vector<unsigned char> pixels;
+    if (!expect(canvas->readPixelsRGBA(pixels), "half-pixel readback")) {
+        return false;
+    }
+    auto alphaAt = [&](int x, int y) {
+        return pixels[(static_cast<std::size_t>(y) * w + x) * 4u + 3u];
+    };
+    bool ok = expect(alphaAt(10, 4) == 0 && alphaAt(10, 5) == 255,
+                     "path should exclude its half-pixel top edge")
+        && expect(alphaAt(10, 16) == 255 && alphaAt(10, 17) == 0,
+                  "path should include its half-pixel bottom edge");
+    ok = expect(alphaAt(34, 4) == 0 && alphaAt(34, 5) == 255,
+                "image should exclude its half-pixel top edge") && ok;
+    ok = expect(alphaAt(34, 8) == 255 && alphaAt(34, 9) == 0,
+                "image should include its half-pixel bottom edge") && ok;
+    return ok;
+}
+
 bool testDrawImageTiledRepeat()
 {
     constexpr int w = 16;
@@ -543,6 +585,153 @@ bool testBackdropBlur()
                 "an opaque backdrop should remain opaque after blur") && ok;
     return ok;
 }
+
+bool testLargeOpaqueBackdropDownsample()
+{
+    constexpr int size = 160;
+    std::unique_ptr<Canvas> canvas = makeSoftwareCanvas(size, size);
+    if (!canvas) {
+        return expect(false, "createSoftware should return a canvas");
+    }
+    Paint black;
+    black.setAntiAlias(false);
+    black.setColor(Color(0, 0, 0, 255));
+    Paint white = black;
+    white.setColor(Color(255, 255, 255, 255));
+    Paint layerPaint = white;
+    LayerOptions options;
+    options.setBackdropFilter(ImageFilter::blur(24.0f));
+    auto drawFrame = [&](float split) {
+        canvas->beginFrame();
+        canvas->drawRect(RectF(0.0f, 0.0f, split, 160.0f), black);
+        canvas->drawRect(RectF(split, 0.0f, 160.0f - split, 160.0f), white);
+        canvas->saveLayer(RectF(0.0f, 0.0f, 160.0f, 160.0f),
+                          layerPaint, options);
+        canvas->restore();
+        canvas->endFrame();
+    };
+    drawFrame(80.0f);
+    std::vector<unsigned char> pixels;
+    if (!expect(canvas->readPixelsRGBA(pixels),
+                "large backdrop readback")) {
+        return false;
+    }
+    auto pixelAt = [&](int x, int y) {
+        return &pixels[(static_cast<std::size_t>(y) * size + x) * 4u];
+    };
+    const auto stats = canvas->getRenderStats();
+    bool ok = expect(stats.downsampledFilterCount == 1,
+                     "opaque large blur should use half-resolution passes");
+    ok = expect(stats.filterPixelPassCount == 38400,
+                "large blur stats should count two half-size and one full-size pass") && ok;
+    ok = expect(pixelAt(64, 80)[0] < pixelAt(80, 80)[0]
+                    && pixelAt(80, 80)[0] < pixelAt(96, 80)[0],
+                "large blur should preserve a smooth black-to-white transition") && ok;
+    ok = expect(pixelAt(80, 80)[3] == 255,
+                "opaque backdrop should remain opaque") && ok;
+    const auto firstPixels = pixels;
+    drawFrame(80.0f);
+    ok = expect(canvas->getRenderStats().backdropCacheHits > stats.backdropCacheHits,
+                "stable software backdrop should reuse its filtered image") && ok;
+    ok = expect(canvas->readPixelsRGBA(pixels) && pixels == firstPixels,
+                "cached backdrop should keep exact pixels") && ok;
+    drawFrame(64.0f);
+    ok = expect(canvas->getRenderStats().backdropCacheMisses > stats.backdropCacheMisses,
+                "changed backdrop geometry should invalidate the cache") && ok;
+    return ok;
+}
+
+bool testTransparentBlurKeepsFullResolution()
+{
+    constexpr int size = 160;
+    std::unique_ptr<Canvas> canvas = makeSoftwareCanvas(size, size);
+    if (!canvas) {
+        return expect(false, "createSoftware should return a canvas");
+    }
+    Paint white;
+    white.setColor(Color::WHITE);
+    white.setAntiAlias(false);
+    LayerOptions options;
+    options.setImageFilter(ImageFilter::blur(24.0f));
+    canvas->beginFrame();
+    canvas->saveLayer(RectF(0.0f, 0.0f, 160.0f, 160.0f),
+                      white, options);
+    canvas->drawRect(RectF(48.0f, 48.0f, 64.0f, 64.0f), white);
+    canvas->restore();
+    canvas->endFrame();
+    std::vector<unsigned char> pixels;
+    if (!expect(canvas->readPixelsRGBA(pixels),
+                "transparent blur readback should succeed")) {
+        return false;
+    }
+    const auto alphaAt = [&](int x, int y) {
+        return pixels[(static_cast<std::size_t>(y) * size + x) * 4u + 3u];
+    };
+    return expect(canvas->getRenderStats().downsampledFilterCount == 0,
+                  "transparent blur must keep full-resolution alpha filtering")
+        && expect(alphaAt(80, 80) > alphaAt(40, 80)
+                      && alphaAt(40, 80) > alphaAt(0, 80),
+                  "transparent blur should preserve its alpha falloff");
+}
+
+bool testMutableImageBackdropDoesNotCache()
+{
+    constexpr int size = 32;
+    std::unique_ptr<Canvas> canvas = makeSoftwareCanvas(size, size);
+    if (!canvas) {
+        return expect(false, "createSoftware should return a canvas");
+    }
+    std::vector<unsigned char> rgba(
+        static_cast<std::size_t>(size) * size * 4u, 255u);
+    for (std::size_t i = 0; i < rgba.size(); i += 4u) {
+        rgba[i + 1u] = 0u;
+        rgba[i + 2u] = 0u;
+    }
+    Image image;
+    if (!expect(image.loadFromRGBA(*canvas, rgba, size, size, false),
+                "load mutable image")) {
+        return false;
+    }
+    Paint white;
+    white.setColor(Color::WHITE);
+    LayerOptions options;
+    options.setBackdropFilter(ImageFilter::blur(2.0f));
+    auto render = [&]() {
+        canvas->beginFrame();
+        canvas->drawImage(image, 0.0f, 0.0f, white);
+        canvas->saveLayer(RectF(0.0f, 0.0f, 32.0f, 32.0f), white, options);
+        canvas->restore();
+        canvas->endFrame();
+        std::vector<unsigned char> pixels;
+        if (!canvas->readPixelsRGBA(pixels)) {
+            return std::vector<unsigned char>{};
+        }
+        const std::size_t offset = (16u * size + 16u) * 4u;
+        return std::vector<unsigned char>(
+            pixels.begin() + offset, pixels.begin() + offset + 4u);
+    };
+    const auto first = render();
+    if (!expect(first.size() == 4u && first[0] > 240u && first[2] < 15u,
+                "first image backdrop should be red")) {
+        return false;
+    }
+    for (std::size_t i = 0; i < rgba.size(); i += 4u) {
+        rgba[i] = 0u;
+        rgba[i + 2u] = 255u;
+    }
+    if (!expect(image.updatePixelsRGBA(
+                    *canvas, rgba, 0, 0, size, size, false),
+                "update mutable image")) {
+        return false;
+    }
+    const auto second = render();
+    return expect(second.size() == 4u
+                      && second[0] < 15u && second[2] > 240u,
+                  "updated image should produce a fresh backdrop")
+        && expect(canvas->getRenderStats().backdropFingerprintUncacheable > 0,
+                  "mutable image content should disable backdrop reuse");
+}
+
 
 bool testBackdropColorAdjustment()
 {
@@ -912,6 +1101,56 @@ bool testEvenOddFillPreservesHole()
                   "even-odd inner contour should remain a hole");
 }
 
+bool testChangingClipAcrossFrames()
+{
+    auto reused = makeSoftwareCanvas(64, 64);
+    if (!reused) return expect(false, "software canvas should be creatable");
+
+    const auto render = [](Canvas &canvas, float radius, const Color &color) {
+        canvas.beginFrame();
+        canvas.drawColor(Color(18, 26, 42, 255));
+        canvas.save();
+        Path clip;
+        clip.addRoundRect(RectF(8.0f, 8.0f, 48.0f, 48.0f), radius);
+        canvas.clipPath(clip);
+        Paint fill;
+        fill.setColor(color);
+        canvas.drawRect(RectF(0.0f, 0.0f,
+                              static_cast<float>(canvas.getWidth()),
+                              static_cast<float>(canvas.getHeight())), fill);
+        canvas.restore();
+        canvas.endFrame();
+        std::vector<unsigned char> pixels;
+        canvas.readPixelsRGBA(pixels);
+        return pixels;
+    };
+
+    bool ok = true;
+    const float radii[] = {4.0f, 18.0f, 4.0f};
+    const Color colors[] = {
+        Color(220, 40, 30, 255),
+        Color(40, 200, 60, 255),
+        Color(35, 80, 235, 255),
+    };
+    for (int i = 0; i < 3; ++i) {
+        const std::vector<unsigned char> actual = render(*reused, radii[i], colors[i]);
+        auto fresh = makeSoftwareCanvas(64, 64);
+        if (!fresh) return expect(false, "fresh software canvas should be creatable");
+        const std::vector<unsigned char> expected = render(*fresh, radii[i], colors[i]);
+        ok = expect(!actual.empty() && actual == expected,
+                    "changing a clip across frames should match a fresh canvas") && ok;
+    }
+
+    reused->setSize(72, 64);
+    auto resizedFresh = makeSoftwareCanvas(72, 64);
+    if (!resizedFresh) return expect(false, "resized comparison canvas should be creatable");
+    const std::vector<unsigned char> resizedActual = render(*reused, 18.0f, colors[0]);
+    const std::vector<unsigned char> resizedExpected = render(*resizedFresh, 18.0f, colors[0]);
+    ok = expect(!resizedActual.empty() && resizedActual == resizedExpected,
+                "resizing should preserve clip pixels") && ok;
+    return ok;
+}
+
 } // namespace
 
 int main()
@@ -922,6 +1161,7 @@ int main()
     ok = testLinearGradient() && ok;
     ok = testDrawLine() && ok;
     ok = testDrawImage() && ok;
+    ok = testHalfPixelTopAndBottomEdges() && ok;
     ok = testDrawImageTiledRepeat() && ok;
     ok = testClipRect() && ok;
     ok = testClipPath() && ok;
@@ -929,6 +1169,9 @@ int main()
     ok = testSaveLayerAlpha() && ok;
     ok = testSaveLayerPartial() && ok;
     ok = testBackdropBlur() && ok;
+    ok = testLargeOpaqueBackdropDownsample() && ok;
+    ok = testTransparentBlurKeepsFullResolution() && ok;
+    ok = testMutableImageBackdropDoesNotCache() && ok;
     ok = testBackdropColorAdjustment() && ok;
     ok = testBackdropSamplingOutsetIsClipped() && ok;
     ok = testLayerImageBlur() && ok;
@@ -936,6 +1179,7 @@ int main()
     ok = testFullBleedInnerShadow() && ok;
     ok = testComposableImageFilterChain() && ok;
     ok = testEvenOddFillPreservesHole() && ok;
+    ok = testChangingClipAcrossFrames() && ok;
     ok = testGammaLinearBlend() && ok;
     return ok ? 0 : 1;
 }

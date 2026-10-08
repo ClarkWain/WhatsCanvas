@@ -405,6 +405,15 @@ void GaussianBlurProgram::blurPass(GLuint srcTexture, GLuint dstFramebuffer, int
                  0, false, 1.0f, 1.0f, 1.0f, 0.0f, false, true, false);
 }
 
+void GaussianBlurProgram::blurShadowPass(
+    GLuint srcTexture, GLuint dstFramebuffer, int width, int height,
+    const glm::vec2 &direction, const wsc::render::GaussianKernel &kernel,
+    const glm::ivec4 &scissor)
+{
+    blurPassImpl(srcTexture, dstFramebuffer, width, height, direction, kernel,
+                 0, false, 1.0f, 1.0f, 1.0f, 0.0f, false, true, false, &scissor);
+}
+
 void GaussianBlurProgram::blurImagePass(GLuint srcTexture, GLuint dstFramebuffer, int width, int height,
                                         const glm::vec2 &direction,
                                         const wsc::render::GaussianKernel &kernel, bool decal,
@@ -423,7 +432,8 @@ void GaussianBlurProgram::blurPassImpl(GLuint srcTexture, GLuint dstFramebuffer,
                                        const wsc::render::GaussianKernel &kernel, int mode, bool decal,
                                        float saturation, float brightness, float contrast, float grain,
                                        bool sourcePremultiplied, bool outputStraight,
-                                       bool resampleStraightAlpha)
+                                       bool resampleStraightAlpha,
+                                       const glm::ivec4 *scissor)
 {
     if (!initialized_) {
         return;
@@ -463,7 +473,12 @@ void GaussianBlurProgram::blurPassImpl(GLuint srcTexture, GLuint dstFramebuffer,
     glBindFramebuffer(GL_FRAMEBUFFER, dstFramebuffer);
     glViewport(0, 0, width, height);
     glDisable(GL_BLEND);
-    glDisable(GL_SCISSOR_TEST);
+    if (scissor != nullptr) {
+        glEnable(GL_SCISSOR_TEST);
+        glScissor(scissor->x, scissor->y, scissor->z, scissor->w);
+    } else {
+        glDisable(GL_SCISSOR_TEST);
+    }
 
     activeProgram->use();
     activeProgram->setInt("uMode", mode);
@@ -492,6 +507,7 @@ void GaussianBlurProgram::blurPassImpl(GLuint srcTexture, GLuint dstFramebuffer,
     glBindTexture(GL_TEXTURE_2D, srcTexture);
     drawQuad();
     glBindTexture(GL_TEXTURE_2D, 0);
+    if (scissor != nullptr) glDisable(GL_SCISSOR_TEST);
 }
 
 void GaussianBlurProgram::composite(GLuint srcTexture, const glm::vec4 &tint)

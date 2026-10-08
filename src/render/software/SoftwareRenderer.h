@@ -8,6 +8,8 @@
 
 namespace wsc::software {
 
+struct ClipCoverageCache;
+
 /// A pure-CPU rasterizer backend (no GPU / no graphics context required).
 ///
 /// It implements IRenderer directly and rasterizes the already-tessellated
@@ -26,7 +28,7 @@ class SoftwareRenderer final : public IRenderer
 {
 public:
     SoftwareRenderer(int width, int height);
-    ~SoftwareRenderer() override = default;
+    ~SoftwareRenderer() override;
 
     void initializeBackend() override;
     void finalizeBackend() override;
@@ -39,6 +41,7 @@ public:
         const DrawImageBatchData &batch,
         std::size_t additionalQuadCount) override;
     size_t commandCount() const override;
+    const Command *commandAt(size_t index) const override;
     std::vector<std::unique_ptr<Command>> takeCommandsFrom(size_t index) override;
     void appendCommands(std::vector<std::unique_ptr<Command>> &&commands) override;
     bool readPixelsRGBA(std::vector<unsigned char> &pixels) const override;
@@ -86,6 +89,7 @@ private:
     std::vector<std::unique_ptr<Command>> commands_;
     mutable std::size_t imageBatchAppendFloor_ = 0;
     mutable FrameStats stats_;
+    mutable std::unique_ptr<ClipCoverageCache> clipCoverageCache_;
 };
 
 } // namespace wsc::software

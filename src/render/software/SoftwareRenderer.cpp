@@ -1,9 +1,11 @@
 #include "SoftwareRenderer.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <iterator>
 #include <thread>
 
@@ -14,18 +16,72 @@
 #include "command/DrawPathCommandPool.h"
 #include "render/GammaCorrect.h"
 #include "render/GaussianKernel.h"
+#include "render/LruCache.h"
 #include "render/software/SoftwarePresent.h"
 
 namespace wsc::software {
+
+struct ClipCoverageKey
+{
+    std::uint64_t fingerprint = 0;
+    int x = 0;
+    int y = 0;
+    int width = 0;
+    int height = 0;
+    std::array<std::uint32_t, 16> extraBits{};
+
+    bool operator==(const ClipCoverageKey &other) const
+    {
+        return fingerprint == other.fingerprint && x == other.x && y == other.y
+            && width == other.width && height == other.height
+            && extraBits == other.extraBits;
+    }
+};
+
+struct ClipCoverageKeyHash
+{
+    std::size_t operator()(const ClipCoverageKey &key) const
+    {
+        std::size_t hash = std::hash<std::uint64_t>{}(key.fingerprint);
+        const auto add = [&](std::uint32_t value) {
+            hash ^= std::hash<std::uint32_t>{}(value)
+                + 0x9e3779b9u + (hash << 6) + (hash >> 2);
+        };
+        add(static_cast<std::uint32_t>(key.x));
+        add(static_cast<std::uint32_t>(key.y));
+        add(static_cast<std::uint32_t>(key.width));
+        add(static_cast<std::uint32_t>(key.height));
+        for (std::uint32_t bit : key.extraBits) add(bit);
+        return hash;
+    }
+};
+
+struct CachedClipCoverage
+{
+    std::shared_ptr<const std::vector<float>> pixels;
+    std::size_t residentBytes() const
+    {
+        return pixels ? pixels->capacity() * sizeof(float) : 0u;
+    }
+};
+
+struct ClipCoverageCache
+{
+    // Bound cross-frame mask retention when clips or canvas sizes change.
+    static constexpr std::size_t kMaxBytes = 12u * 1024u * 1024u;
+    wsc::render::LruCache<CachedClipCoverage, ClipCoverageKey,
+                          ClipCoverageKeyHash> entries{64u, kMaxBytes};
+};
+
 namespace {
 
 template <typename Function>
-void parallelForRows(int rowCount, std::size_t estimatedWork, Function &&function)
+void parallelForRows(int rowCount, std::size_t estimatedWork, Function &&function,
+                     std::size_t minParallelWork = 256u * 1024u)
 {
-    constexpr std::size_t kMinParallelWork = 256u * 1024u;
     constexpr unsigned int kMaxWorkers = 8;
     const unsigned int hardwareWorkers = std::thread::hardware_concurrency();
-    if (rowCount <= 1 || estimatedWork < kMinParallelWork || hardwareWorkers < 2) {
+    if (rowCount <= 1 || estimatedWork < minParallelWork || hardwareWorkers < 2) {
         function(0, rowCount);
         return;
     }
@@ -439,23 +495,27 @@ inline float edge(float ax, float ay, float bx, float by, float cx, float cy)
     return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
 }
 
-/// Top-left fill rule for an edge A->B (triangle wound so area > 0, y-down).
-/// A pixel exactly on an edge is covered only if the edge is top-left, so a
+/// Match OpenGL's top-left fill rule after its y-up framebuffer is mapped to
+/// canvas y-down coordinates. A pixel exactly on an edge is covered only if
+/// the edge is left or bottom in canvas coordinates, so a
 /// boundary shared by two triangles is rasterized by exactly one of them and
 /// never double-composited.
 inline bool edgeIsTopLeft(float ax, float ay, float bx, float by)
 {
     const float dx = bx - ax;
     const float dy = by - ay;
-    return dy < 0.0f || (dy == 0.0f && dx > 0.0f);
+    return dy < 0.0f || (dy == 0.0f && dx < 0.0f);
 }
 
-/// Per-pixel clip: an optional canvas-sized coverage buffer (from clip paths)
+/// Per-pixel clip: an optional scissor-sized coverage buffer (from clip paths)
 /// and an optional scissor rectangle (already converted to top-down pixels).
 struct RasterClip
 {
-    const float *coverage = nullptr; // width*height, or null
+    const float *coverage = nullptr; // coverageWidth*coverageHeight, or null
     int width = 0;
+    int coverageX = 0;
+    int coverageY = 0;
+    int coverageHeight = 0;
     bool hasScissor = false;
     int sx0 = 0;
     int sy0 = 0;
@@ -468,7 +528,8 @@ struct RasterClip
             return 0.0f;
         }
         if (coverage != nullptr) {
-            return coverage[static_cast<std::size_t>(py) * width + px];
+            return coverage[static_cast<std::size_t>(py - coverageY) * width
+                            + (px - coverageX)];
         }
         return 1.0f;
     }
@@ -976,32 +1037,39 @@ void rasterizeImage(std::uint8_t *framebuffer, int width, int height, const Draw
         const int endX = std::min(
             width, static_cast<int>(std::ceil(c1.x - 0.5f)));
         const int beginY = std::max(
-            0, static_cast<int>(std::ceil(c0.y - 0.5f)));
+            0, static_cast<int>(std::floor(c0.y + 0.5f)));
         const int endY = std::min(
-            height, static_cast<int>(std::ceil(c3.y - 0.5f)));
+            height, static_cast<int>(std::floor(c3.y + 0.5f)));
         const float inverseWidth = 1.0f / rectWidth;
         const float inverseHeight = 1.0f / rectHeight;
-        for (int py = beginY; py < endY; ++py) {
-            const float ty =
-                (static_cast<float>(py) + 0.5f - c0.y)
-                * inverseHeight;
-            const float v = data.v0 + (data.v1 - data.v0) * ty;
-            const float localY =
-                data.y + data.height * ty;
-            for (int px = beginX; px < endX; ++px) {
-                const float tx =
-                    (static_cast<float>(px) + 0.5f - c0.x)
-                    * inverseWidth;
-                const float u =
-                    data.u0 + (data.u1 - data.u0) * tx;
-                float tex[4];
-                image->sample(u, v, samplingMode, tileMode, tex);
-                const float localX = data.x + data.width * tx;
-                compositeImagePixel(
-                    framebuffer, width, px, py, tex, data, clip,
-                    roundedImageCoverage(data, localX, localY),
-                    gradientPtr, localX, localY);
-            }
+        if (beginX < endX && beginY < endY) {
+            const auto rasterRows = [&](int firstRow, int lastRow) {
+                for (int py = beginY + firstRow; py < beginY + lastRow; ++py) {
+                    const float ty =
+                        (static_cast<float>(py) + 0.5f - c0.y)
+                        * inverseHeight;
+                    const float v = data.v0 + (data.v1 - data.v0) * ty;
+                    const float localY =
+                        data.y + data.height * ty;
+                    for (int px = beginX; px < endX; ++px) {
+                        const float tx =
+                            (static_cast<float>(px) + 0.5f - c0.x)
+                            * inverseWidth;
+                        const float u =
+                            data.u0 + (data.u1 - data.u0) * tx;
+                        float tex[4];
+                        image->sample(u, v, samplingMode, tileMode, tex);
+                        const float localX = data.x + data.width * tx;
+                        compositeImagePixel(
+                            framebuffer, width, px, py, tex, data, clip,
+                            roundedImageCoverage(data, localX, localY),
+                            gradientPtr, localX, localY);
+                    }
+                }
+            };
+            parallelForRows(endY - beginY,
+                static_cast<std::size_t>(endX - beginX) * (endY - beginY),
+                rasterRows, 64u * 1024u);
         }
         return;
     }
@@ -1266,6 +1334,49 @@ void blurRGBA(std::vector<std::uint8_t> &pixels, int width, int height,
             }
         }
     });
+}
+
+// Opaque backdrop captures can use the same half-resolution blur budget as
+// the GPU backends. Sampling at pixel centers keeps odd-sized targets aligned.
+std::vector<std::uint8_t> resizeOpaqueBilinear(
+    const std::vector<std::uint8_t> &source, int sourceWidth, int sourceHeight,
+    int targetWidth, int targetHeight)
+{
+    std::vector<std::uint8_t> result(
+        static_cast<std::size_t>(targetWidth) * targetHeight * 4u);
+    const float scaleX = static_cast<float>(sourceWidth) / targetWidth;
+    const float scaleY = static_cast<float>(sourceHeight) / targetHeight;
+    for (int y = 0; y < targetHeight; ++y) {
+        const float sourceY = (static_cast<float>(y) + 0.5f) * scaleY - 0.5f;
+        const int baseY = static_cast<int>(std::floor(sourceY));
+        const float weightY = sourceY - baseY;
+        const int y0 = std::clamp(baseY, 0, sourceHeight - 1);
+        const int y1 = std::clamp(baseY + 1, 0, sourceHeight - 1);
+        for (int x = 0; x < targetWidth; ++x) {
+            const float sourceX = (static_cast<float>(x) + 0.5f) * scaleX - 0.5f;
+            const int baseX = static_cast<int>(std::floor(sourceX));
+            const float weightX = sourceX - baseX;
+            const int x0 = std::clamp(baseX, 0, sourceWidth - 1);
+            const int x1 = std::clamp(baseX + 1, 0, sourceWidth - 1);
+            const std::size_t p00 = (static_cast<std::size_t>(y0) * sourceWidth + x0) * 4u;
+            const std::size_t p10 = (static_cast<std::size_t>(y0) * sourceWidth + x1) * 4u;
+            const std::size_t p01 = (static_cast<std::size_t>(y1) * sourceWidth + x0) * 4u;
+            const std::size_t p11 = (static_cast<std::size_t>(y1) * sourceWidth + x1) * 4u;
+            const std::size_t target =
+                (static_cast<std::size_t>(y) * targetWidth + x) * 4u;
+            for (int channel = 0; channel < 3; ++channel) {
+                const float top = source[p00 + channel] * (1.0f - weightX)
+                    + source[p10 + channel] * weightX;
+                const float bottom = source[p01 + channel] * (1.0f - weightX)
+                    + source[p11 + channel] * weightX;
+                result[target + channel] = static_cast<std::uint8_t>(
+                    std::clamp(top * (1.0f - weightY)
+                        + bottom * weightY + 0.5f, 0.0f, 255.0f));
+            }
+            result[target + 3u] = 255u;
+        }
+    }
+    return result;
 }
 
 void adjustRGBA(std::vector<std::uint8_t> &pixels, const wsc::ImageFilter &filter)
@@ -1605,35 +1716,74 @@ void rasterizeShadow(std::uint8_t *framebuffer, int width, int height, int canva
 /// Combine all active clip paths into a single coverage buffer (1 inside the
 /// intersection, 0 outside, with an anti-aliased ramp along every edge).
 /// `extra` is an additional device-space transform (used for offscreen layers).
-std::vector<float> buildClipCoverage(const ClipMaskState &clip, int width, int height, const glm::mat4 &extra)
+std::vector<float> buildClipCoverage(const ClipMaskState &clip, int width, int height,
+                                     int originX, int originY, const glm::mat4 &extra)
 {
-    std::vector<float> combined(static_cast<std::size_t>(width) * static_cast<std::size_t>(height), 1.0f);
-    std::vector<float> temp(combined.size());
+    std::vector<float> combined(static_cast<std::size_t>(width) * static_cast<std::size_t>(height));
+    std::vector<float> temp;
+    bool haveMask = false;
+    const glm::mat4 toRegion = glm::translate(
+        glm::mat4(1.0f),
+        glm::vec3(-static_cast<float>(originX), -static_cast<float>(originY), 0.0f));
     for (const auto &res : clip.resources) {
         const auto *mask = dynamic_cast<const SoftwareClipMaskResource *>(res.get());
         if (mask == nullptr || !mask->isValid()) {
             continue;
         }
-        std::fill(temp.begin(), temp.end(), 0.0f);
-        rasterizeCoverageTriangles(temp.data(), width, height, mask->points(), mask->coverage(),
-                                   extra * mask->transform());
-        for (std::size_t i = 0; i < combined.size(); ++i) {
-            combined[i] *= temp[i];
+        if (!haveMask) {
+            rasterizeCoverageTriangles(combined.data(), width, height,
+                mask->points(), mask->coverage(), toRegion * extra * mask->transform());
+            haveMask = true;
+        } else {
+            if (temp.empty()) temp.resize(combined.size());
+            std::fill(temp.begin(), temp.end(), 0.0f);
+            rasterizeCoverageTriangles(temp.data(), width, height,
+                mask->points(), mask->coverage(), toRegion * extra * mask->transform());
+            for (std::size_t i = 0; i < combined.size(); ++i) {
+                combined[i] *= temp[i];
+            }
         }
     }
+    if (!haveMask) std::fill(combined.begin(), combined.end(), 1.0f);
     return combined;
 }
 
-/// Mutable clip-coverage cache keyed by clip fingerprint (+ target size).
+/// Mutable clip-coverage cache keyed by clip fingerprint and coverage region.
 struct ClipCache
 {
-    std::vector<float> coverage;
+    std::shared_ptr<const std::vector<float>> coverage;
     std::uint64_t fingerprint = 0;
+    int x = 0;
+    int y = 0;
+    int width = 0;
+    int height = 0;
     bool valid = false;
 };
 
+ClipCoverageKey makeClipCoverageKey(std::uint64_t fingerprint,
+                                   int x, int y, int width, int height,
+                                   const glm::mat4 &extra)
+{
+    static_assert(sizeof(float) == sizeof(std::uint32_t),
+                  "clip transform keys require 32-bit floats");
+    ClipCoverageKey key;
+    key.fingerprint = fingerprint;
+    key.x = x;
+    key.y = y;
+    key.width = width;
+    key.height = height;
+    for (int column = 0; column < 4; ++column) {
+        for (int row = 0; row < 4; ++row) {
+            std::memcpy(&key.extraBits[column * 4 + row],
+                        &extra[column][row], sizeof(std::uint32_t));
+        }
+    }
+    return key;
+}
+
 RasterClip makeRasterClip(const ScissorState &scissor, const ClipMaskState &clipMask, int width, int height,
-                          int flipHeight, const glm::mat4 &extra, ClipCache *cache)
+                          int flipHeight, const glm::mat4 &extra, ClipCache *cache,
+                          ClipCoverageCache *persistentCache)
 {
     RasterClip rc;
     rc.width = width;
@@ -1651,16 +1801,47 @@ RasterClip makeRasterClip(const ScissorState &scissor, const ClipMaskState &clip
         rc.sy1 = flipHeight - scissor.y + oy;
     }
     if (clipMask.hasPaths()) {
+        const int x0 = rc.hasScissor ? std::clamp(rc.sx0, 0, width) : 0;
+        const int y0 = rc.hasScissor ? std::clamp(rc.sy0, 0, height) : 0;
+        const int x1 = rc.hasScissor ? std::clamp(rc.sx1, x0, width) : width;
+        const int y1 = rc.hasScissor ? std::clamp(rc.sy1, y0, height) : height;
+        const int coverageWidth = x1 - x0;
+        const int coverageHeight = y1 - y0;
+        rc.coverageX = x0;
+        rc.coverageY = y0;
+        rc.width = coverageWidth;
+        rc.coverageHeight = coverageHeight;
         if (cache != nullptr) {
             if (!cache->valid || cache->fingerprint != clipMask.fingerprint
-                || cache->coverage.size() != static_cast<std::size_t>(width) * static_cast<std::size_t>(height)) {
-                cache->coverage = buildClipCoverage(clipMask, width, height, extra);
+                || cache->x != x0 || cache->y != y0
+                || cache->width != coverageWidth || cache->height != coverageHeight) {
+                const ClipCoverageKey key = makeClipCoverageKey(
+                    clipMask.fingerprint, x0, y0,
+                    coverageWidth, coverageHeight, extra);
+                const CachedClipCoverage *cached = persistentCache != nullptr
+                    ? persistentCache->entries.find(key) : nullptr;
+                if (cached != nullptr) {
+                    cache->coverage = cached->pixels;
+                } else {
+                    cache->coverage = std::make_shared<const std::vector<float>>(
+                        buildClipCoverage(clipMask, coverageWidth, coverageHeight,
+                                          x0, y0, extra));
+                    const std::size_t bytes = cache->coverage->capacity() * sizeof(float);
+                    if (persistentCache != nullptr
+                        && bytes <= ClipCoverageCache::kMaxBytes) {
+                        persistentCache->entries.insert(key, {cache->coverage});
+                    }
+                }
                 cache->fingerprint = clipMask.fingerprint;
+                cache->x = x0;
+                cache->y = y0;
+                cache->width = coverageWidth;
+                cache->height = coverageHeight;
                 cache->valid = true;
             }
-            rc.coverage = cache->coverage.data();
+            rc.coverage = cache->coverage ? cache->coverage->data() : nullptr;
         } else {
-            // No caching (offscreen path): the caller owns the returned storage.
+            // The caller owns the returned storage when no cache is provided.
             rc.coverage = nullptr;
         }
     }
@@ -1671,13 +1852,16 @@ RasterClip makeRasterClip(const ScissorState &scissor, const ClipMaskState &clip
 /// (for offscreen layers); `cache` (optional) reuses clip coverage across
 /// consecutive commands that share a clip.
 void executeCommandList(std::uint8_t *framebuffer, int width, int height, int canvasHeight, const glm::mat4 &extra,
-                        const std::vector<std::unique_ptr<Command>> &commands, ClipCache *cache)
+                        const std::vector<std::unique_ptr<Command>> &commands,
+                        ClipCache *cache, ClipCoverageCache *persistentCache)
 {
     std::vector<float> localClip; // owns clip coverage when no cache is provided
     auto clipFor = [&](const ScissorState &scissor, const ClipMaskState &clipMask) -> RasterClip {
-        RasterClip rc = makeRasterClip(scissor, clipMask, width, height, canvasHeight, extra, cache);
+        RasterClip rc = makeRasterClip(scissor, clipMask, width, height,
+                                       canvasHeight, extra, cache, persistentCache);
         if (cache == nullptr && clipMask.hasPaths()) {
-            localClip = buildClipCoverage(clipMask, width, height, extra);
+            localClip = buildClipCoverage(clipMask, rc.width, rc.coverageHeight,
+                                          rc.coverageX, rc.coverageY, extra);
             rc.coverage = localClip.data();
         }
         return rc;
@@ -1771,18 +1955,29 @@ void accumulatePathPipelineStats(
 } // namespace
 
 SoftwareRenderer::SoftwareRenderer(int width, int height)
-    : width_(std::max(0, width)), height_(std::max(0, height))
+    : width_(std::max(0, width)), height_(std::max(0, height)),
+      clipCoverageCache_(std::make_unique<ClipCoverageCache>())
 {
     ensureFramebuffer();
 }
 
+SoftwareRenderer::~SoftwareRenderer() = default;
+
 void SoftwareRenderer::initializeBackend() {}
-void SoftwareRenderer::finalizeBackend() {}
+void SoftwareRenderer::finalizeBackend()
+{
+    clipCoverageCache_->entries.clear();
+}
 
 void SoftwareRenderer::setViewport(int width, int height)
 {
-    width_ = std::max(0, width);
-    height_ = std::max(0, height);
+    const int newWidth = std::max(0, width);
+    const int newHeight = std::max(0, height);
+    if (newWidth != width_ || newHeight != height_) {
+        clipCoverageCache_->entries.clear();
+    }
+    width_ = newWidth;
+    height_ = newHeight;
     ensureFramebuffer();
 }
 
@@ -1877,6 +2072,11 @@ size_t SoftwareRenderer::commandCount() const
 {
     imageBatchAppendFloor_ = commands_.size();
     return commands_.size();
+}
+
+const Command *SoftwareRenderer::commandAt(size_t index) const
+{
+    return index < commands_.size() ? commands_[index].get() : nullptr;
 }
 
 std::vector<std::unique_ptr<Command>> SoftwareRenderer::takeCommandsFrom(size_t index)
@@ -1993,6 +2193,7 @@ SharedImageResource SoftwareRenderer::renderCommandsToImageResource(const std::v
     }
     const int tw = request.targetWidth;
     const int th = request.targetHeight;
+    const auto start = std::chrono::steady_clock::now();
     std::vector<std::uint8_t> target(static_cast<std::size_t>(tw) * static_cast<std::size_t>(th) * 4u, 0);
 
     // Position the canvas-space content within the (possibly bounds-sized)
@@ -2001,7 +2202,13 @@ SharedImageResource SoftwareRenderer::renderCommandsToImageResource(const std::v
     glm::mat4 extra(1.0f);
     extra[3][0] = static_cast<float>(request.viewportX);
     extra[3][1] = static_cast<float>(th - request.viewportY - request.canvasHeight);
-    executeCommandList(target.data(), tw, th, request.canvasHeight, extra, commands, nullptr);
+    ClipCache clipCache;
+    executeCommandList(target.data(), tw, th, request.canvasHeight,
+                       extra, commands, &clipCache, clipCoverageCache_.get());
+
+    stats_.layerCompositeRenderCpuTimeNs += static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now() - start).count());
 
     return std::make_shared<SoftwareImageResource>(
         tw, th, std::move(target), ImageAlphaType::Premultiplied);
@@ -2017,7 +2224,20 @@ SharedImageResource SoftwareRenderer::renderQueuedCommandsToImageResource(
     if (boundedEnd != commands_.size()) {
         return {};
     }
-    return renderCommandsToImageResource(commands_, request);
+    const auto start = std::chrono::steady_clock::now();
+    const std::uint64_t priorComposite =
+        stats_.layerCompositeRenderCpuTimeNs;
+    SharedImageResource result = renderCommandsToImageResource(commands_, request);
+    const std::uint64_t compositeDelta =
+        stats_.layerCompositeRenderCpuTimeNs - priorComposite;
+    stats_.layerCompositeRenderCpuTimeNs = priorComposite;
+    const std::uint64_t elapsed = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now() - start).count());
+    stats_.layerBackdropRenderCpuTimeNs += static_cast<std::uint64_t>(
+        compositeDelta > 0 && compositeDelta <= elapsed
+            ? compositeDelta : elapsed);
+    return result;
 }
 
 SharedImageResource SoftwareRenderer::filterImageResource(const SharedImageResource &source,
@@ -2035,16 +2255,49 @@ SharedImageResource SoftwareRenderer::filterImageResource(const SharedImageResou
         return {};
     }
 
+    const auto start = std::chrono::steady_clock::now();
     std::vector<std::uint8_t> filtered = softwareImage->pixels();
     std::size_t passCount = 0;
+    std::size_t pixelPassCount = 0;
+    bool downsampled = false;
     if (filter.type() == wsc::ImageFilter::Type::Blur) {
-        blurRGBA(filtered, width, height,
-                 wsc::render::computeGaussianKernel(filter.radiusX()),
-                 wsc::render::computeGaussianKernel(filter.radiusY()),
-                 filter.tileMode(), source->alphaType());
+        const auto factors = wsc::render::chooseGaussianBlurDownsampleFactors(
+            width, height, filter.radiusX(), filter.radiusY());
+        bool opaqueClamp = factors.active()
+            && filter.tileMode() == wsc::ImageFilter::TileMode::Clamp;
+        if (opaqueClamp) {
+            for (std::size_t i = 3u; i < filtered.size(); i += 4u) {
+                if (filtered[i] != 255u) {
+                    opaqueClamp = false;
+                    break;
+                }
+            }
+        }
+        if (opaqueClamp) {
+            const int blurWidth = (width + factors.x - 1) / factors.x;
+            const int blurHeight = (height + factors.y - 1) / factors.y;
+            auto reduced = resizeOpaqueBilinear(
+                filtered, width, height, blurWidth, blurHeight);
+            blurRGBA(reduced, blurWidth, blurHeight,
+                     wsc::render::computeGaussianKernel(
+                         filter.radiusX() / factors.x),
+                     wsc::render::computeGaussianKernel(
+                         filter.radiusY() / factors.y),
+                     filter.tileMode(), ImageAlphaType::Straight);
+            filtered = resizeOpaqueBilinear(
+                reduced, blurWidth, blurHeight, width, height);
+            downsampled = true;
+            pixelPassCount = static_cast<std::size_t>(blurWidth)
+                * blurHeight * 2u + static_cast<std::size_t>(width) * height;
+        } else {
+            blurRGBA(filtered, width, height,
+                     wsc::render::computeGaussianKernel(filter.radiusX()),
+                     wsc::render::computeGaussianKernel(filter.radiusY()),
+                     filter.tileMode(), source->alphaType());
+        }
         adjustRGBA(filtered, filter);
         const bool adjustmentPass = filter.hasColorAdjustment() || filter.hasGrain();
-        passCount = adjustmentPass ? 3u : 2u;
+        passCount = downsampled || adjustmentPass ? 3u : 2u;
     } else if (filter.type() == wsc::ImageFilter::Type::InnerShadow) {
         applyInnerShadow(filtered, width, height, filter, source->alphaType());
         passCount = 3u;
@@ -2053,16 +2306,21 @@ SharedImageResource SoftwareRenderer::filterImageResource(const SharedImageResou
     }
     if (executionStats != nullptr) {
         executionStats->passCount = passCount;
-        executionStats->pixelPassCount =
-            static_cast<std::size_t>(width) * static_cast<std::size_t>(height)
-            * passCount;
+        executionStats->pixelPassCount = pixelPassCount != 0u
+            ? pixelPassCount
+            : static_cast<std::size_t>(width) * height * passCount;
+        executionStats->downsampled = downsampled;
     }
     ++stats_.filterCount;
     stats_.filterPassCount += passCount;
+    stats_.downsampledFilterCount += downsampled ? 1u : 0u;
     stats_.filterInputPixelCount +=
         static_cast<std::size_t>(width) * static_cast<std::size_t>(height);
-    stats_.filterPixelPassCount +=
-        static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * passCount;
+    stats_.filterPixelPassCount += pixelPassCount != 0u
+        ? pixelPassCount : static_cast<std::size_t>(width) * height * passCount;
+    stats_.layerFilterCpuTimeNs += static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now() - start).count());
     return std::make_shared<SoftwareImageResource>(
         width, height, std::move(filtered), ImageAlphaType::Straight);
 }
@@ -2099,7 +2357,9 @@ void SoftwareRenderer::flush()
     stats_.drawCallCount += commands_.size();
     accumulatePathPipelineStats(commands_, stats_);
     ClipCache cache;
-    executeCommandList(framebuffer_.data(), width_, height_, height_, glm::mat4(1.0f), commands_, &cache);
+    executeCommandList(framebuffer_.data(), width_, height_, height_,
+                       glm::mat4(1.0f), commands_, &cache,
+                       clipCoverageCache_.get());
     const auto end = std::chrono::steady_clock::now();
     const std::uint64_t elapsedNs = static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::nanoseconds>(

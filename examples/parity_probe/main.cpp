@@ -19,6 +19,7 @@
 //   parity_probe --only rect_fill_aa   # runs a single scene id
 //   parity_probe --size 320            # renders at 320x320 (default 256)
 //   parity_probe --require-gl          # fail if OpenGL context cannot be created
+//   parity_probe --max-delta 1         # fail if any RGBA channel differs by >1
 //
 // This tool intentionally does NOT touch text rendering — freetype/DirectWrite
 // glyph rasterizers are known-different by design and are covered by
@@ -52,6 +53,7 @@ struct Args
     std::string outDir = "parity_probe_out";
     std::string only;
     int size = 256;
+    int maxDelta = -1;
     bool requireGL = false;
 };
 
@@ -71,9 +73,18 @@ bool parseArgs(int argc, char **argv, Args &args)
             }
         } else if (a == "--require-gl") {
             args.requireGL = true;
+        } else if (a == "--max-delta" && i + 1 < argc) {
+            const char *value = argv[++i];
+            char *end = nullptr;
+            const long parsed = std::strtol(value, &end, 10);
+            if (end == value || *end != '\0' || parsed < 0 || parsed > 255) {
+                std::cerr << "PARITY_PROBE bad --max-delta value\n";
+                return false;
+            }
+            args.maxDelta = static_cast<int>(parsed);
         } else if (a == "-h" || a == "--help") {
             std::cout <<
-                "parity_probe [--out DIR] [--only SCENE_ID] [--size N] [--require-gl]\n";
+                "parity_probe [--out DIR] [--only SCENE_ID] [--size N] [--require-gl] [--max-delta N]\n";
             return false;
         } else {
             std::cerr << "PARITY_PROBE unknown arg: " << a << "\n";
@@ -270,6 +281,37 @@ void sceneBoxShadow(wsc::Canvas &c)
     c.drawBoxShadow(wsc::RectF(48.0f, 48.0f, 160.0f, 160.0f), 24.0f, 0.0f, 16.0f,
                     0.0f, 8.0f, wsc::Color(0, 0, 0, 140));
     c.drawRoundRect(wsc::RectF(48.0f, 48.0f, 160.0f, 160.0f), 24.0f, p);
+}
+
+void sceneShadowSequence(wsc::Canvas &c)
+{
+    c.drawColor(wsc::Color(232, 235, 241, 255));
+    for (int i = 0; i < 4; ++i) {
+        const float x = 28.0f + (i % 2) * 112.0f;
+        const float y = 25.0f + (i / 2) * 112.0f;
+        wsc::Paint paint;
+        paint.setAntiAlias(true);
+        paint.setColor(wsc::Color(55 + i * 35, 90 + i * 20, 140, 245));
+        paint.setShadowLayer(7.0f + i, 2.0f, 4.0f,
+                             wsc::Color(8, 15, 30, 105));
+        c.drawRoundRect(wsc::RectF(x, y, 80.0f, 80.0f), 8.0f, paint);
+    }
+}
+
+void sceneTransformedShadow(wsc::Canvas &c)
+{
+    c.drawColor(wsc::Color(235, 238, 242, 255));
+    c.save();
+    c.translate(128.0f, 128.0f);
+    c.rotate(0.35f);
+    wsc::Paint paint;
+    paint.setAntiAlias(true);
+    paint.setColor(wsc::Color(90, 145, 205, 255));
+    paint.setShadowLayer(11.0f, 4.0f, 7.0f,
+                         wsc::Color(0, 0, 0, 140));
+    c.drawRoundRect(wsc::RectF(-56.0f, -42.0f, 112.0f, 84.0f),
+                    16.0f, paint);
+    c.restore();
 }
 
 void sceneClipRect(wsc::Canvas &c)
@@ -747,6 +789,8 @@ std::vector<Scene> buildScenes()
         {"radial_gradient", sceneRadialGradient, "radial gradient"},
         {"shadow_layer", sceneShadowLayer, "Paint.setShadowLayer"},
         {"box_shadow", sceneBoxShadow, "drawBoxShadow"},
+        {"shadow_sequence", sceneShadowSequence, "four sequential shadows"},
+        {"shadow_transformed", sceneTransformedShadow, "rotated shadow"},
         {"clip_rect", sceneClipRect, "clipRect + gradient"},
         {"clip_path_circle", sceneClipPathCircle, "clipPath circle + gradient"},
         {"clip_path_rect", sceneClipPathRect, "clipPath rect + gradient"},
@@ -944,6 +988,7 @@ int main(int argc, char **argv)
               << " scenes=" << scenes.size() << "\n";
 
     int failed = 0;
+    int deltaFailed = 0;
     int rendered = 0;
 
     // Top divergences summary at the end.
@@ -968,7 +1013,9 @@ int main(int argc, char **argv)
         }
 
         const DiffStats s = diffImages(softPixels, glPixels, args.size, args.size);
-
+        if (args.maxDelta >= 0 && s.maxDelta > args.maxDelta) {
+            ++deltaFailed;
+        }
         std::cout << "PARITY_PROBE_SCENE id=" << scene.id
                   << " w=" << args.size << " h=" << args.size
                   << " max=" << s.maxDelta
@@ -1016,12 +1063,11 @@ int main(int argc, char **argv)
 
     std::cout << "PARITY_PROBE_SUMMARY rendered=" << rendered
               << " render_failed=" << failed
+              << " delta_failed=" << deltaFailed
               << "\n";
 
     glfwDestroyWindow(window);
     glfwTerminate();
 
-    // Exit 0 even when there are large deltas — this is a probe, not a gate.
-    // A non-zero code only signals infrastructure problems.
-    return failed == 0 ? 0 : 2;
+    return failed == 0 && deltaFailed == 0 ? 0 : 2;
 }
