@@ -193,7 +193,7 @@ void drawScene(wsc::Canvas &canvas, const wsc::Image *checkerImage,
                     textCard.getY() + 69.0f, cjkText);
     auto wrapText = textPaint(grid.compactCards ? 9.0f : 10.5f,
                               Color(155, 178, 218));
-    const float wrapTop = grid.compactCards ? 91.0f : 98.0f;
+    const float wrapTop = grid.compactCards ? 112.0f : 118.0f;
     canvas.drawTextBox(
         "Native layout, fallback and cached bitmap raster.",
         RectF(textCard.getX() + 11.0f, textCard.getY() + wrapTop,

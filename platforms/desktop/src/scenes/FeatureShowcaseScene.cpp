@@ -174,7 +174,7 @@ void drawScene(wsc::Canvas& canvas, const wsc::Image* checkerImage,
                     textCard.getX() + 11.0f, textCard.getY() + 69.0f, cjkText);
     auto wrapText = makeTextPaint(compactCards ? 9.0f : 10.5f,
                                   Color(155, 178, 218));
-    const float wrapTop = compactCards ? 91.0f : 98.0f;
+    const float wrapTop = compactCards ? 112.0f : 118.0f;
     canvas.drawTextBox("Wrap, measure and ellipsis are rendered by the portable glyph atlas.",
                        RectF(textCard.getX() + 11.0f,
                              textCard.getY() + wrapTop,
