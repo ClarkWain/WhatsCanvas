@@ -3,7 +3,7 @@ name: Guard - allowed commit identities
 on:
   pull_request:
   push:
-    branches: [master]
+    branches: [master, 1.3.0]
 
 permissions:
   contents: read
