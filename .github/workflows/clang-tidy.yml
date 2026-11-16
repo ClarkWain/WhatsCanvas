@@ -86,6 +86,7 @@ jobs:
                   print(f"Skipping {name}: no host compile command")
           Path("changed.txt").write_text(
               "\n".join(eligible) + ("\n" if eligible else "")
+          )
           PY
           cat changed.txt
           if [ ! -s changed.txt ]; then
