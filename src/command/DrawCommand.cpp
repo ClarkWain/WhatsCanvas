@@ -179,8 +179,8 @@ bool shadowScissors(const DrawShadowData &data, int width, int height,
         include(image.transform, image.x + image.width,
                 image.y + image.height);
     }
-    const float safeCoordinate =
-        static_cast<float>(std::numeric_limits<int>::max() / 4);
+    constexpr int kSafeCoordinate = std::numeric_limits<int>::max() / 4;
+    const float safeCoordinate = static_cast<float>(kSafeCoordinate);
     if (!valid || !hasPoint || minX < -safeCoordinate || minY < -safeCoordinate
         || maxX > safeCoordinate || maxY > safeCoordinate) return false;
     const auto rect = [&](int xPad, int yPad) {

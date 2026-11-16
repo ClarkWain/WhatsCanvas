@@ -22,15 +22,17 @@ For releases and downloadable artifacts, see the
 
 ### Performance
 - Bound OpenGL/OpenGL ES shadow blur and composite work to the transformed
-  silhouette plus Gaussian support. The 36-shadow Windows desktop scene fell
-  from 19.54 to 3.45 ms median at 1920 × 1080 with an unchanged capture.
+  silhouette plus Gaussian support. A same-host 1.2.1/1.3.0 A/B measured the
+  36-shadow Windows desktop scene at 18.08 versus 2.98 ms median at 1920 ×
+  1080; RGB captures were byte-identical.
 - Reuse and bound Software clip coverage, avoid redundant mask work, process
   independent image rows in parallel, and downsample safe opaque Clamp blurs.
-  The local 16-panel clipped-layer scene fell from 649.80 to 82–85 ms median
-  at 1920 × 1080; it remains above a 60 FPS frame budget.
+  The 16-panel clipped-layer scene fell from 612.18 to 79.79 ms median at
+  1920 × 1080 in the same-host A/B; it remains above a 60 FPS frame budget.
 - Use the cached Windows font collection for initial default fallback aliases
-  while retaining fresh discovery for explicit refresh. Three fresh-process
-  first-text frames fell from 427–439 to 40–42 ms on the measured machine.
+  while retaining fresh discovery for explicit refresh. The three-process
+  first-text median fell from 411.91 to 49.53 ms on the measured machine;
+  one interleaved cold run was slower and is recorded in the validation log.
 
 ### Validation
 - Extend the Software/OpenGL parity probe to 56 scenes and add scaled-layer

@@ -58,15 +58,36 @@ jobs:
 
       - name: Enumerate first-party changed sources
         id: files
-        # Restrict to compilation units (.cpp / .mm) under src/ and platforms/.
-        # `--diff-filter=AM` skips deleted files. `|| true` guards against an
-        # empty diff exiting grep with status 1.
+        # Restrict to compilation units with entries in the host compile
+        # database. Android JNI and Apple hosts are built by their platform
+        # jobs; host clang-tidy cannot resolve their SDK headers.
         run: |
           BASE_SHA="${{ github.event.pull_request.base.sha }}"
           echo "Diffing against $BASE_SHA"
           git diff --name-only --diff-filter=AM "$BASE_SHA"...HEAD \
             | { grep -E '^(src|platforms)/.*\.(cpp|mm)$' || true; } \
-            | tee changed.txt
+            > changed-candidates.txt
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path.cwd()
+          compiled = {
+              Path(entry["file"]).resolve()
+              for entry in json.loads(
+                  Path("build-tidy/compile_commands.json").read_text()
+              )
+          }
+          eligible = []
+          for name in Path("changed-candidates.txt").read_text().splitlines():
+              if (root / name).resolve() in compiled:
+                  eligible.append(name)
+              else:
+                  print(f"Skipping {name}: no host compile command")
+          Path("changed.txt").write_text(
+              "\n".join(eligible) + ("\n" if eligible else "")
+          PY
+          cat changed.txt
           if [ ! -s changed.txt ]; then
             echo "no_files=true" >> "$GITHUB_OUTPUT"
           fi

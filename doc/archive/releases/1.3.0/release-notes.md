@@ -19,16 +19,17 @@ layout are unchanged from 1.2.1.
 ## Performance
 
 - Limit OpenGL-family shadow blur and composite work to the transformed
-  silhouette and Gaussian support. The 36-shadow scene measured 19.54 ms before
-  and 3.45 ms after on the recorded Windows desktop configuration at 1920 ×
-  1080, with an unchanged capture.
+  silhouette and Gaussian support. A fresh 1.2.1/1.3.0 A/B measured 18.08 ms
+  before and 2.98 ms after at 1920 × 1080 on the same Windows host; RGB
+  captures were byte-identical while the shadow alpha fix corrected output.
 - Reduce Software clip and backdrop work with bounded coverage reuse, safe
   opaque-blur downsampling, and parallel processing of independent image rows.
-  The recorded 16-panel clipped-layer scene fell from 649.80 to 82–85 ms median
-  at 1920 × 1080 on the same machine.
+  The 16-panel clipped-layer scene fell from 612.18 to 79.79 ms median at
+  1920 × 1080 on the same machine, with an unchanged frame hash.
 - Avoid a fresh DirectWrite system-font collection on the first default font
-  lookup. Three fresh-process first-text frames measured 40–42 ms after the
-  change, down from 427–439 ms on the recorded Windows configuration.
+  lookup. The three-process first-text median fell from 411.91 to 49.53 ms in
+  the fresh A/B. One interleaved 1.3.0 run reached 82.88 ms; five later isolated
+  fresh processes measured 37.80–38.19 ms with the same frame hash.
 
 These numbers describe specific desktop workloads. Large continuously redrawn
 Software surfaces, including the clipped-layer scene above, remain outside a

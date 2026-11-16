@@ -279,7 +279,8 @@ private:
 inline std::uint8_t toByte(float value)
 {
     const float scaled = std::clamp(value, 0.0f, 1.0f) * 255.0f;
-    return static_cast<std::uint8_t>(scaled + 0.5f);
+    // The input is clamped and nonnegative; keep this per-pixel fast path.
+    return static_cast<std::uint8_t>(scaled + 0.5f); // NOLINT(bugprone-incorrect-roundings)
 }
 
 /// Blend a straight-alpha source over the destination pixel, matching the GL
