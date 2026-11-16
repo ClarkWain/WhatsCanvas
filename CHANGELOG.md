@@ -9,6 +9,36 @@ For releases and downloadable artifacts, see the
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-16
+
+### Fixed
+- Map `saveLayer` bounds through the current transform before allocating and
+  compositing an offscreen layer. On high-DPR and translated canvases, the old
+  bounds could clip away Porter-Duff content, backdrop glass, and inner shadows.
+- Align Software's half-pixel rectangle edges with OpenGL's fill rule and use
+  separate SrcOver alpha blending for OpenGL shadows.
+- Keep the Android, desktop, and iOS feature-scene explanation clear of mixed
+  CJK/emoji glyphs on device fonts.
+
+### Performance
+- Bound OpenGL/OpenGL ES shadow blur and composite work to the transformed
+  silhouette plus Gaussian support. The 36-shadow Windows desktop scene fell
+  from 19.54 to 3.45 ms median at 1920 × 1080 with an unchanged capture.
+- Reuse and bound Software clip coverage, avoid redundant mask work, process
+  independent image rows in parallel, and downsample safe opaque Clamp blurs.
+  The local 16-panel clipped-layer scene fell from 649.80 to 82–85 ms median
+  at 1920 × 1080; it remains above a 60 FPS frame budget.
+- Use the cached Windows font collection for initial default fallback aliases
+  while retaining fresh discovery for explicit refresh. Three fresh-process
+  first-text frames fell from 427–439 to 40–42 ms on the measured machine.
+
+### Validation
+- Extend the Software/OpenGL parity probe to 56 scenes and add scaled-layer
+  pixel checks to Software, OpenGL, and Mesa OpenGL ES tests.
+- Enable branch CI on `1.3.0` and record Android device captures for the
+  affected rendering paths. Performance figures above are local workload
+  measurements, not cross-device frame-rate guarantees.
+
 ## [1.2.1] - 2026-09-20
 
 ### Fixed
@@ -841,7 +871,8 @@ For releases and downloadable artifacts, see the
 For changes prior to 0.1.11, see the
 [GitHub Releases](https://github.com/ClarkWain/WhatsCanvas/releases) history.
 
-[Unreleased]: https://github.com/ClarkWain/WhatsCanvas/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/ClarkWain/WhatsCanvas/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/ClarkWain/WhatsCanvas/compare/v1.2.1...v1.3.0
 [1.0.0]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.9.0...v1.0.0
 [0.9.0]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/ClarkWain/WhatsCanvas/compare/v0.8.0...v0.8.1
