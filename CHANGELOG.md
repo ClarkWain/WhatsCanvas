@@ -17,6 +17,8 @@ For releases and downloadable artifacts, see the
   bounds could clip away Porter-Duff content, backdrop glass, and inner shadows.
 - Align Software's half-pixel rectangle edges with OpenGL's fill rule and use
   separate SrcOver alpha blending for OpenGL shadows.
+- Invalidate Software backdrop reuse when antialiased path vertex positions
+  change, including a rectangle resized between frames.
 - Keep the Android, desktop, and iOS feature-scene explanation clear of mixed
   CJK/emoji glyphs on device fonts.
 
@@ -36,7 +38,8 @@ For releases and downloadable artifacts, see the
 
 ### Validation
 - Extend the Software/OpenGL parity probe to 56 scenes and add scaled-layer
-  pixel checks to Software, OpenGL, and Mesa OpenGL ES tests.
+  pixel checks to Software, OpenGL, and Mesa OpenGL ES tests. A Software
+  regression test compares a resized antialiased backdrop against a fresh render.
 - Enable branch CI on `1.3.0` and record Android device captures for the
   affected rendering paths. Performance figures above are local workload
   measurements, not cross-device frame-rate guarantees.

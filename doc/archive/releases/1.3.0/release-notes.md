@@ -13,6 +13,8 @@ layout are unchanged from 1.2.1.
   coverage for this path.
 - Align Software half-pixel rectangle edges with OpenGL and fix the alpha
   blend factors used for OpenGL shadows.
+- Correct Software backdrop cache invalidation when an antialiased shape changes
+  size between frames. A reused canvas now matches a fresh render pixel for pixel.
 - Increase spacing around mixed CJK/emoji text in the cross-platform feature
   scene so its explanation does not overlap on device fonts.
 

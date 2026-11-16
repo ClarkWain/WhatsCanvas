@@ -301,6 +301,10 @@ inline std::uint64_t fingerprintCommand(const Command *cmd)
                 sizeof(DrawPathGradientStops));
         }
         if (d.sharedGeometry) {
+            if (d.sharedGeometry->backdropContentFingerprint == 0) {
+                return 0;
+            }
+            h.mix(d.sharedGeometry->backdropContentFingerprint);
             h.mix(d.sharedGeometry->topologyFingerprint);
             h.mix(d.sharedGeometry->tessellatedVertexCount);
         } else if (!d.points.empty()) {
@@ -1886,6 +1890,13 @@ SharedAAExpandedMesh shareAAExpandedMesh(
     }
     geometry->topologyFingerprint =
         topologyFingerprint != 0 ? topologyFingerprint : 1u;
+    Fnv1a64 contentFingerprint;
+    contentFingerprint.mix(geometry->topologyFingerprint);
+    contentFingerprint.mix(geometry->points.size());
+    contentFingerprint.mixBytes(
+        geometry->points.data(), geometry->points.size() * sizeof(float));
+    geometry->backdropContentFingerprint =
+        contentFingerprint.state != 0 ? contentFingerprint.state : 1u;
     return {std::move(geometry)};
 }
 

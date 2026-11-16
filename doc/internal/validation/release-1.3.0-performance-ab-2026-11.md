@@ -30,6 +30,15 @@ with `std::lround` and raised the 1080p `clip_layers` median to 221.60 ms.
 Restoring the original expression measured 79.78 ms with the same frame hash.
 The release keeps the fast expression with a scoped clang-tidy rationale.
 
+The final review found a Software backdrop cache invalidation bug: resizing an
+antialiased rectangle could retain the same topology fingerprint and reuse stale
+filtered pixels. A regression test reproduced the stale frame before the fix and
+passed after shared geometry gained a precomputed fingerprint of its vertex
+positions. Stable geometry still hits the cache. A 5-warmup/30-frame Release
+check before/after this fix measured `clip_layers` 79.72→79.15 ms,
+`frosted_glass` 139.00→138.16 ms, and `rounded_ui` 27.96→27.44 ms; all three
+retained exact frame hashes. These small differences are within run variation.
+
 ## Release decision boundary
 
 No quality-comparable control scene regressed by 10% or more in the process

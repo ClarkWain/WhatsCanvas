@@ -679,6 +679,56 @@ bool testLargeOpaqueBackdropDownsample()
     return ok;
 }
 
+bool testResizedAARectInvalidatesBackdropCache()
+{
+    constexpr int width = 64;
+    constexpr int height = 32;
+    auto reused = makeSoftwareCanvas(width, height);
+    auto fresh = makeSoftwareCanvas(width, height);
+    if (!reused || !fresh) {
+        return expect(false, "backdrop comparison canvases should be creatable");
+    }
+
+    Paint background;
+    background.setColor(Color(0, 0, 0, 255));
+    background.setAntiAlias(true);
+    Paint foreground = background;
+    foreground.setColor(Color(255, 255, 255, 255));
+    Paint layerPaint = foreground;
+    LayerOptions options;
+    options.setBackdropFilter(ImageFilter::blur(6.0f));
+    auto drawFrame = [&](Canvas &canvas, float rectWidth) {
+        canvas.beginFrame();
+        canvas.drawRect(RectF(0.0f, 0.0f, static_cast<float>(width),
+                              static_cast<float>(height)), background);
+        canvas.drawRect(RectF(8.0f, 4.0f, rectWidth, 24.0f), foreground);
+        canvas.saveLayer(RectF(0.0f, 0.0f, static_cast<float>(width),
+                               static_cast<float>(height)), layerPaint, options);
+        canvas.restore();
+        canvas.endFrame();
+    };
+
+    drawFrame(*reused, 16.0f);
+    const auto firstStats = reused->getRenderStats();
+    drawFrame(*reused, 16.0f);
+    const auto stableStats = reused->getRenderStats();
+    bool ok = expect(stableStats.backdropCacheHits > firstStats.backdropCacheHits,
+                     "unchanged AA rectangle should reuse backdrop");
+
+    drawFrame(*reused, 32.0f);
+    drawFrame(*fresh, 32.0f);
+    std::vector<unsigned char> actual;
+    std::vector<unsigned char> expected;
+    ok = expect(reused->readPixelsRGBA(actual) && fresh->readPixelsRGBA(expected),
+                "resized AA backdrop readback should succeed") && ok;
+    ok = expect(!actual.empty() && actual == expected,
+                "resized AA rectangle must match a fresh backdrop render") && ok;
+    ok = expect(reused->getRenderStats().backdropCacheMisses
+                    > stableStats.backdropCacheMisses,
+                "resized AA rectangle should invalidate backdrop cache") && ok;
+    return ok;
+}
+
 bool testTransparentBlurKeepsFullResolution()
 {
     constexpr int size = 160;
@@ -1209,6 +1259,7 @@ int main()
     ok = testSaveLayerWithDeviceScaleAndTranslation() && ok;
     ok = testBackdropBlur() && ok;
     ok = testLargeOpaqueBackdropDownsample() && ok;
+    ok = testResizedAARectInvalidatesBackdropCache() && ok;
     ok = testTransparentBlurKeepsFullResolution() && ok;
     ok = testMutableImageBackdropDoesNotCache() && ok;
     ok = testBackdropColorAdjustment() && ok;
