@@ -55,6 +55,12 @@ public:
     void blurPass(GLuint srcTexture, GLuint dstFramebuffer, int width, int height,
                   const glm::vec2 &direction, const wsc::render::GaussianKernel &kernel);
 
+    /// Shadow-only pass restricted to the affected framebuffer rectangle.
+    /// The caller clears the destination before a partial first pass.
+    void blurShadowPass(GLuint srcTexture, GLuint dstFramebuffer, int width, int height,
+                        const glm::vec2 &direction, const wsc::render::GaussianKernel &kernel,
+                        const glm::ivec4 &scissor);
+
     /// Blur straight-alpha RGBA while accumulating RGB in premultiplied form.
     void blurImagePass(GLuint srcTexture, GLuint dstFramebuffer, int width, int height,
                        const glm::vec2 &direction, const wsc::render::GaussianKernel &kernel,
@@ -89,7 +95,8 @@ private:
                       int mode, bool decal, float saturation, float brightness,
                       float contrast, float grain, bool sourcePremultiplied = false,
                       bool outputStraight = true,
-                      bool resampleStraightAlpha = false);
+                      bool resampleStraightAlpha = false,
+                      const glm::ivec4 *scissor = nullptr);
     void destroyTargets(bool abandon = false);
 
     static GaussianBlurProgram *instance_;

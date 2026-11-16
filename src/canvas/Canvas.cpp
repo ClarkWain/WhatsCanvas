@@ -301,6 +301,10 @@ inline std::uint64_t fingerprintCommand(const Command *cmd)
                 sizeof(DrawPathGradientStops));
         }
         if (d.sharedGeometry) {
+            if (d.sharedGeometry->backdropContentFingerprint == 0) {
+                return 0;
+            }
+            h.mix(d.sharedGeometry->backdropContentFingerprint);
             h.mix(d.sharedGeometry->topologyFingerprint);
             h.mix(d.sharedGeometry->tessellatedVertexCount);
         } else if (!d.points.empty()) {
@@ -330,6 +334,11 @@ inline std::uint64_t fingerprintCommand(const Command *cmd)
         const std::uint64_t texHandle = d.imageResource
             ? d.imageResource->nativeHandle().value
             : 0;
+        // Software images have no native handle. Treat them as uncacheable
+        // rather than equating mutable images with the same draw geometry.
+        if (texHandle == 0) {
+            return 0;
+        }
         h.mix(texHandle);
         h.mixBytes(&d.x, sizeof(float) * 8u); // x,y,w,h,u0,v0,u1,v1
         h.mix(d.roundedRadius);
@@ -372,6 +381,9 @@ inline std::uint64_t fingerprintCommand(const Command *cmd)
         const std::uint64_t texHandle = d.imageResource
             ? d.imageResource->nativeHandle().value
             : 0;
+        if (texHandle == 0) {
+            return 0;
+        }
         h.mix(texHandle);
         h.mixBytes(d.tintColor, sizeof(d.tintColor));
         h.mix(d.alpha);
@@ -1878,6 +1890,13 @@ SharedAAExpandedMesh shareAAExpandedMesh(
     }
     geometry->topologyFingerprint =
         topologyFingerprint != 0 ? topologyFingerprint : 1u;
+    Fnv1a64 contentFingerprint;
+    contentFingerprint.mix(geometry->topologyFingerprint);
+    contentFingerprint.mix(geometry->points.size());
+    contentFingerprint.mixBytes(
+        geometry->points.data(), geometry->points.size() * sizeof(float));
+    geometry->backdropContentFingerprint =
+        contentFingerprint.state != 0 ? contentFingerprint.state : 1u;
     return {std::move(geometry)};
 }
 
@@ -3367,7 +3386,7 @@ struct Canvas::Impl
     {
         int saveCount = 1;
         std::size_t commandStart = 0;
-        RectF bounds;
+        RectF bounds; // Device pixels after applying the matrix at saveLayer().
         Paint paint;
         LayerOptions options;
     };
@@ -7285,11 +7304,15 @@ int Canvas::saveLayer(const RectF &bounds, const Paint &paint, const LayerOption
         return getSaveCount();
     }
     const RectF normalized = normalizeRect(bounds);
+    RectF deviceBounds;
+    if (!transformRectBounds(normalized, impl_->currentState().matrix, deviceBounds)) {
+        deviceBounds = RectF();
+    }
     const int savedCount = save();
     Impl::LayerState layer;
     layer.saveCount = getSaveCount();
     layer.commandStart = impl_->renderer->commandCount();
-    layer.bounds = normalized;
+    layer.bounds = deviceBounds;
     layer.paint = paint;
     layer.options = options;
     impl_->layerStack.push_back(layer);
@@ -7726,7 +7749,7 @@ void Canvas::Impl::restoreLayer(const LayerState &layer)
                 backdropCache.layerWidth = layerWidth;
                 backdropCache.layerHeight = layerHeight;
                 backdropCache.filteredBackdrop = filteredBackdrop;
-            } else {
+            } else if (cacheable || backend != Canvas::Backend::Software) {
                 backdropCache.commandsFingerprint = 0;
                 backdropCache.filteredBackdrop.reset();
             }

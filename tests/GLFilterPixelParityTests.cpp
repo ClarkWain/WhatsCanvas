@@ -279,6 +279,46 @@ bool checkClipMaskOffsets(wsc::Canvas &canvas)
     return passed;
 }
 
+bool checkScaledLayerBounds(wsc::Canvas &canvas)
+{
+    canvas.setDevicePixelRatio(2.0f);
+    wsc::Paint layerPaint;
+    layerPaint.setColor(wsc::Color::WHITE);
+    wsc::Paint red;
+    red.setColor(wsc::Color(255, 0, 0, 255));
+    red.setAntiAlias(false);
+
+    canvas.beginFrame();
+    canvas.drawColor(wsc::Color(0, 0, 0, 255));
+    canvas.save();
+    canvas.translate(5.0f, 3.0f);
+    canvas.saveLayer(wsc::RectF(10.0f, 8.0f, 16.0f, 16.0f), layerPaint);
+    canvas.drawRect(wsc::RectF(10.0f, 8.0f, 16.0f, 16.0f), red);
+    canvas.restore();
+    canvas.restore();
+    canvas.endFrame();
+
+    std::vector<unsigned char> pixels;
+    const bool read = canvas.readPixelsRGBA(pixels)
+        && pixels.size() == kCompositeParityWidth * kCompositeParityHeight * 4u;
+    bool passed = read;
+    if (read) {
+        const auto pixelAt = [&](int x, int y) {
+            return &pixels[(y * kCompositeParityWidth + x) * 4u];
+        };
+        const auto *inside = pixelAt(40, 38);
+        const auto *outside = pixelAt(28, 38);
+        passed = inside[0] == 255 && inside[1] == 0
+            && inside[2] == 0 && inside[3] == 255
+            && outside[0] == 0 && outside[1] == 0
+            && outside[2] == 0 && outside[3] == 255;
+    }
+    std::cout << "SCALED_LAYER_REGRESSION backend=" << kBackendName
+              << " status=" << (passed ? "PASS" : "FAIL") << '\n';
+    canvas.setDevicePixelRatio(1.0f);
+    return passed;
+}
+
 } // namespace
 
 int main()
@@ -422,6 +462,7 @@ int main()
 
     if (rendered) {
         passed = checkClipMaskOffsets(*canvas) && passed;
+        passed = checkScaledLayerBounds(*canvas) && passed;
     }
     canvas.reset();
     target.destroy();

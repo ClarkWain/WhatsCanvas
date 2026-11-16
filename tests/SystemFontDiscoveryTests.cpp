@@ -6,6 +6,7 @@
 // with a diagnostic on platforms where no discovery backend is linked in
 // (e.g. Linux without fontconfig at build time).
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
@@ -41,6 +42,24 @@ bool shouldRequireSystemFontDiscovery()
 
 int main()
 {
+#ifdef _WIN32
+    // Exercise the cold default-alias path before full discovery populates
+    // the process cache, then compare both paths below.
+    const std::vector<FontFace> coldDefaultFaces = FontSystem::defaultSystemFontFaces();
+    FontSystem::refreshDefaultSystemFontFacesOnly();
+    const std::vector<FontFace> refreshedDefaultFaces = FontSystem::defaultSystemFontFaces();
+    if (!expect(coldDefaultFaces.size() == refreshedDefaultFaces.size(),
+                "explicit alias refresh should preserve the cold alias set")) {
+        return 1;
+    }
+    for (std::size_t i = 0; i < coldDefaultFaces.size(); ++i) {
+        if (!expect(coldDefaultFaces[i].path() == refreshedDefaultFaces[i].path()
+                        && coldDefaultFaces[i].faceIndex() == refreshedDefaultFaces[i].faceIndex(),
+                    "explicit alias refresh should resolve the same installed fonts")) {
+            return 1;
+        }
+    }
+#endif
     std::vector<FontFace> faces = FontSystem::discoverInstalledFontFaces();
 
     if (faces.empty()) {
@@ -99,7 +118,20 @@ int main()
     std::cout << "[SystemFontDiscoveryTests] discovered " << faces.size()
               << " faces across " << families.size() << " families." << std::endl;
 
+#ifdef _WIN32
+    FontSystem::refreshDefaultSystemFontFacesOnly();
+#endif
     const std::vector<FontFace> defaultFaces = FontSystem::defaultSystemFontFaces();
+#ifdef _WIN32
+    ok = expect(coldDefaultFaces.size() == defaultFaces.size(),
+                "cold default aliases should match aliases after full discovery") && ok;
+    for (std::size_t i = 0; i < std::min(coldDefaultFaces.size(), defaultFaces.size()); ++i) {
+        ok = expect(coldDefaultFaces[i].family() == defaultFaces[i].family()
+                        && coldDefaultFaces[i].path() == defaultFaces[i].path()
+                        && coldDefaultFaces[i].faceIndex() == defaultFaces[i].faceIndex(),
+                    "cold default aliases should resolve to the full-discovery faces") && ok;
+    }
+#endif
     bool sawDefaultPrimary = false;
     for (const FontFace &face : defaultFaces) {
         sawDefaultPrimary = sawDefaultPrimary || face.family() == FontSystem::kDefaultPrimaryFamily;

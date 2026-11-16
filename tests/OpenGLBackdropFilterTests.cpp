@@ -388,6 +388,49 @@ int main()
                     "OpenGL offset should expose the background at the old position") && ok;
     }
 
+    wsc::Paint shadowBackground = white;
+    shadowBackground.setColor(wsc::Color(240, 240, 245, 255));
+    canvas->beginFrame();
+    canvas->drawRect(
+        wsc::RectF(0.0f, 0.0f, static_cast<float>(kWidth),
+                   static_cast<float>(kHeight)), shadowBackground);
+    canvas->drawBoxShadow(wsc::RectF(40.0f, 28.0f, 80.0f, 64.0f),
+                          12.0f, 0.0f, 12.0f, 0.0f, 8.0f,
+                          wsc::Color(0, 0, 0, 140));
+    canvas->endFrame();
+    pixels.clear();
+    ok = expect(canvas->readPixelsRGBA(pixels),
+                "box-shadow readback should succeed") && ok;
+    if (ok) {
+        const unsigned char *shadow = pixelAt(80, 98);
+        ok = expect(shadow[0] < 240 && shadow[3] == 255,
+                    "shadow over opaque background must keep opaque alpha") && ok;
+    }
+
+    canvas->setDevicePixelRatio(2.0f);
+    wsc::Paint scaledRed;
+    scaledRed.setColor(wsc::Color(255, 0, 0, 255));
+    scaledRed.setAntiAlias(false);
+    canvas->beginFrame();
+    canvas->drawColor(wsc::Color(0, 0, 0, 255));
+    canvas->save();
+    canvas->translate(5.0f, 3.0f);
+    canvas->saveLayer(wsc::RectF(10.0f, 8.0f, 16.0f, 16.0f), layerPaint);
+    canvas->drawRect(wsc::RectF(10.0f, 8.0f, 16.0f, 16.0f), scaledRed);
+    canvas->restore();
+    canvas->restore();
+    canvas->endFrame();
+    pixels.clear();
+    const bool scaledRead = canvas->readPixelsRGBA(pixels);
+    ok = expect(scaledRead && pixels.size() == static_cast<std::size_t>(kWidth * kHeight * 4),
+                "scaled layer readback should succeed") && ok;
+    if (scaledRead && pixels.size() == static_cast<std::size_t>(kWidth * kHeight * 4)) {
+        ok = expect(pixelAt(40, 38)[0] == 255 && pixelAt(40, 38)[3] == 255,
+                    "scaled and translated layer should cover its device-space center") && ok;
+        ok = expect(pixelAt(28, 38)[0] == 0,
+                    "scaled layer should not leak outside its bounds") && ok;
+    }
+
     canvas.reset();
     glfwDestroyWindow(window);
     glfwTerminate();

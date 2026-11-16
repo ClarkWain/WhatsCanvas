@@ -2273,7 +2273,10 @@ bool runScene(
              && options.workload.customized
              ? options.workload.textLength : 0)
          << ",\"operations_per_frame\":" << operationCount
-         << ",\"cold_total_ms\":" << cold.totalMs;
+         << ",\"cold_total_ms\":" << cold.totalMs
+         << ",\"cold_record_ms\":" << cold.recordMs
+         << ",\"cold_end_frame_cpu_ms\":" << cold.endFrameCpuMs
+         << ",\"cold_gpu_wait_ms\":" << cold.gpuWaitMs;
     appendDistribution(json, "record", record);
     appendDistribution(json, "end_frame_cpu", endFrameCpu);
     appendDistribution(json, "gpu_wait", gpuWait);
@@ -2342,8 +2345,20 @@ bool runScene(
          << ",\"render_target_switches\":" << stats.renderTargetSwitches
          << ",\"filter_count\":" << stats.filterCount
          << ",\"filter_pass_count\":" << stats.filterPassCount
+         << ",\"downsampled_filter_count\":"
+         << stats.downsampledFilterCount
          << ",\"filter_pixel_pass_count\":"
          << stats.filterPixelPassCount
+         << ",\"layer_backdrop_render_cpu_ns\":"
+         << stats.layerBackdropRenderCpuTimeNs
+         << ",\"layer_filter_cpu_ns\":"
+         << stats.layerFilterCpuTimeNs
+         << ",\"layer_composite_render_cpu_ns\":"
+         << stats.layerCompositeRenderCpuTimeNs
+         << ",\"backdrop_cache_hits\":" << stats.backdropCacheHits
+         << ",\"backdrop_cache_misses\":" << stats.backdropCacheMisses
+         << ",\"backdrop_fingerprint_uncacheable\":"
+         << stats.backdropFingerprintUncacheable
          << ",\"path_vertex_count\":" << stats.pathVertexCount
          << ",\"path_input_vertex_count\":"
          << stats.pathInputVertexCount

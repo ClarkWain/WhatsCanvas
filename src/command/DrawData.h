@@ -66,6 +66,9 @@ struct DrawPathGeometry {
     // Content identity for topology-only reuse. Positions are intentionally
     // excluded so dynamic transforms/data can retain indices and AA coverage.
     std::uint64_t topologyFingerprint = 0;
+    // Full geometry identity for backdrop reuse. Unlike topologyFingerprint,
+    // this includes vertex positions and changes when a shape is resized.
+    std::uint64_t backdropContentFingerprint = 0;
     // Triangle-soup size before indexed analytic-AA expansion.
     std::size_t tessellatedVertexCount = 0;
 
