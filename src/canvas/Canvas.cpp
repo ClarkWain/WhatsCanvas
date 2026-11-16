@@ -3375,7 +3375,7 @@ struct Canvas::Impl
     {
         int saveCount = 1;
         std::size_t commandStart = 0;
-        RectF bounds;
+        RectF bounds; // Device pixels after applying the matrix at saveLayer().
         Paint paint;
         LayerOptions options;
     };
@@ -7293,11 +7293,15 @@ int Canvas::saveLayer(const RectF &bounds, const Paint &paint, const LayerOption
         return getSaveCount();
     }
     const RectF normalized = normalizeRect(bounds);
+    RectF deviceBounds;
+    if (!transformRectBounds(normalized, impl_->currentState().matrix, deviceBounds)) {
+        deviceBounds = RectF();
+    }
     const int savedCount = save();
     Impl::LayerState layer;
     layer.saveCount = getSaveCount();
     layer.commandStart = impl_->renderer->commandCount();
-    layer.bounds = normalized;
+    layer.bounds = deviceBounds;
     layer.paint = paint;
     layer.options = options;
     impl_->layerStack.push_back(layer);

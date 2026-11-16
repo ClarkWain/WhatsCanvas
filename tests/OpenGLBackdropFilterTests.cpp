@@ -407,6 +407,30 @@ int main()
                     "shadow over opaque background must keep opaque alpha") && ok;
     }
 
+    canvas->setDevicePixelRatio(2.0f);
+    wsc::Paint scaledRed;
+    scaledRed.setColor(wsc::Color(255, 0, 0, 255));
+    scaledRed.setAntiAlias(false);
+    canvas->beginFrame();
+    canvas->drawColor(wsc::Color(0, 0, 0, 255));
+    canvas->save();
+    canvas->translate(5.0f, 3.0f);
+    canvas->saveLayer(wsc::RectF(10.0f, 8.0f, 16.0f, 16.0f), layerPaint);
+    canvas->drawRect(wsc::RectF(10.0f, 8.0f, 16.0f, 16.0f), scaledRed);
+    canvas->restore();
+    canvas->restore();
+    canvas->endFrame();
+    pixels.clear();
+    const bool scaledRead = canvas->readPixelsRGBA(pixels);
+    ok = expect(scaledRead && pixels.size() == static_cast<std::size_t>(kWidth * kHeight * 4),
+                "scaled layer readback should succeed") && ok;
+    if (scaledRead && pixels.size() == static_cast<std::size_t>(kWidth * kHeight * 4)) {
+        ok = expect(pixelAt(40, 38)[0] == 255 && pixelAt(40, 38)[3] == 255,
+                    "scaled and translated layer should cover its device-space center") && ok;
+        ok = expect(pixelAt(28, 38)[0] == 0,
+                    "scaled layer should not leak outside its bounds") && ok;
+    }
+
     canvas.reset();
     glfwDestroyWindow(window);
     glfwTerminate();

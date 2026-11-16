@@ -533,6 +533,44 @@ bool testSaveLayerPartial()
     return ok;
 }
 
+bool testSaveLayerWithDeviceScaleAndTranslation()
+{
+    constexpr int w = 80;
+    constexpr int h = 80;
+    std::unique_ptr<Canvas> canvas = makeSoftwareCanvas(w, h);
+    if (!canvas) return expect(false, "scaled layer canvas should be creatable");
+    canvas->setDevicePixelRatio(2.0f);
+
+    Paint layerPaint;
+    layerPaint.setColor(Color::WHITE);
+    Paint red;
+    red.setColor(Color(255, 0, 0, 255));
+    red.setAntiAlias(false);
+
+    canvas->beginFrame();
+    canvas->drawColor(Color(0, 0, 0, 255));
+    canvas->save();
+    canvas->translate(5.0f, 3.0f);
+    canvas->saveLayer(RectF(10.0f, 8.0f, 16.0f, 16.0f), layerPaint);
+    canvas->drawRect(RectF(10.0f, 8.0f, 16.0f, 16.0f), red);
+    canvas->restore();
+    canvas->restore();
+    canvas->endFrame();
+
+    std::vector<unsigned char> pixels;
+    if (!canvas->readPixelsRGBA(pixels) || pixels.size() != w * h * 4u) {
+        return expect(false, "scaled layer readback should succeed");
+    }
+    auto pixelAt = [&](int x, int y) {
+        return &pixels[(static_cast<std::size_t>(y) * w + x) * 4u];
+    };
+    bool ok = expect(pixelAt(40, 38)[0] == 255 && pixelAt(40, 38)[3] == 255,
+                     "scaled and translated layer should cover its device-space center");
+    ok = expect(pixelAt(28, 38)[0] == 0,
+                "scaled layer should not leak outside its bounds") && ok;
+    return ok;
+}
+
 bool testBackdropBlur()
 {
     const int w = 40;
@@ -1168,6 +1206,7 @@ int main()
     ok = testGaussianShadow() && ok;
     ok = testSaveLayerAlpha() && ok;
     ok = testSaveLayerPartial() && ok;
+    ok = testSaveLayerWithDeviceScaleAndTranslation() && ok;
     ok = testBackdropBlur() && ok;
     ok = testLargeOpaqueBackdropDownsample() && ok;
     ok = testTransparentBlurKeepsFullResolution() && ok;
